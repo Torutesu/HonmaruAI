@@ -1,0 +1,10 @@
+.DS_Store
+build/
+DerivedData/
+server/node_modules/
+server/.env
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcscmblueprint
