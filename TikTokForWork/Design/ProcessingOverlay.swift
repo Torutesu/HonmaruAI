@@ -5,20 +5,20 @@ struct ProcessingOverlay: View {
 
     var body: some View {
         ZStack {
-            Theme.Colors.background.opacity(0.72)
+            Color.black.opacity(0.55)
                 .ignoresSafeArea()
 
-            VStack(spacing: Theme.Spacing.md) {
+            HStack(spacing: 12) {
                 ProgressView()
                     .tint(Theme.Colors.textPrimary)
-
                 Text(message)
-                    .font(.system(size: 13))
+                    .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
             }
-            .padding(Theme.Spacing.lg)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
             .background(Theme.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
         }
         .transition(.opacity)
     }

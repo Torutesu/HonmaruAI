@@ -2,15 +2,23 @@ import SwiftUI
 
 enum Theme {
     enum Colors {
-        static let background = Color(hex: 0x09090B)
-        static let surface = Color(hex: 0x111113)
-        static let surfaceRaised = Color(hex: 0x18181B)
-        static let textPrimary = Color(hex: 0xEDEDEF)
-        static let textSecondary = Color(hex: 0x8B8B93)
-        static let textTertiary = Color(hex: 0x5C5C63)
+        static let background = Color(hex: 0x000000)
+        static let surface = Color(hex: 0x0C0C0E)
+        static let surfaceRaised = Color(hex: 0x161618)
+        static let textPrimary = Color(hex: 0xF4F4F5)
+        static let textSecondary = Color(hex: 0xA1A1AA)
+        static let textTertiary = Color(hex: 0x71717A)
         static let accent = Color(hex: 0x5E6AD2)
         static let approve = Color(hex: 0x4ADE80)
         static let reject = Color(hex: 0xF87171)
+    }
+
+    enum TypeScale {
+        static let title = Font.system(size: 26, weight: .medium, design: .default)
+        static let body = Font.system(size: 17, weight: .regular)
+        static let caption = Font.system(size: 13, weight: .regular)
+        static let label = Font.system(size: 12, weight: .regular)
+        static let micro = Font.system(size: 11, weight: .regular)
     }
 
     enum Spacing {
@@ -19,12 +27,14 @@ enum Theme {
         static let md: CGFloat = 16
         static let lg: CGFloat = 24
         static let xl: CGFloat = 32
-        static let screen: CGFloat = 20
+        static let xxl: CGFloat = 48
+        static let screen: CGFloat = 24
     }
 
     enum Radius {
-        static let sm: CGFloat = 4
-        static let sheet: CGFloat = 12
+        static let sm: CGFloat = 6
+        static let md: CGFloat = 10
+        static let sheet: CGFloat = 14
     }
 }
 
