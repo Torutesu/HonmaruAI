@@ -14,6 +14,7 @@ struct AuthView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                AppLogo(size: 56)
                 Text("TikTok for Work")
                     .font(.system(size: 32, weight: .medium))
                     .foregroundStyle(Theme.Colors.textPrimary)

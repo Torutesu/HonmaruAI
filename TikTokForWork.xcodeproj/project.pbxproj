@@ -12,6 +12,7 @@
 		09C9FB765322951B0B772C3E /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = F125BEDE2BF4518F791F5480 /* User.swift */; };
 		0D7EFF7343B23CFB85322EDD /* InstructionRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90182B2CA8A42FA12E68F3ED /* InstructionRouter.swift */; };
 		1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9515750E6133D1846CBE8BD /* OrgGraphView.swift */; };
+		18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6977E782E374C75800103F /* AppLogo.swift */; };
 		18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */; };
 		1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */; };
 		2D280564ADDED0AA2BF213A5 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050D0B7873E1D94841BB5228 /* WebSocketService.swift */; };
@@ -50,6 +51,7 @@
 		615243E6A7993EE5EC3D4569 /* ProcessingOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingOverlay.swift; sourceTree = "<group>"; };
 		6296398BD566705F28FD07B2 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		66EACD6C16BA6FB48F6117E6 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		6A6977E782E374C75800103F /* AppLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogo.swift; sourceTree = "<group>"; };
 		6F84E8680AEE5FAB69B6DCF4 /* Organization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Organization.swift; sourceTree = "<group>"; };
 		70FAE0760357D0881EDB6897 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
 		838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokForWorkApp.swift; sourceTree = "<group>"; };
@@ -99,6 +101,7 @@
 		2C96FF6A7E8677BF186766B2 /* Design */ = {
 			isa = PBXGroup;
 			children = (
+				6A6977E782E374C75800103F /* AppLogo.swift */,
 				2E87DCC57193FEC4D70357DC /* Components.swift */,
 				EACB0C14D460B93B91EF7A4E /* DateFormatting.swift */,
 				B2589D42E0E778318D5E0400 /* Haptics.swift */,
@@ -276,6 +279,7 @@
 			files = (
 				7B25EE3F560D8811A9AF8F4D /* AIInputSheet.swift in Sources */,
 				6A021F0DC477FDC75CDB2B40 /* AIService.swift in Sources */,
+				18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */,
 				5B2137ED8A01082E09A11954 /* AppState.swift in Sources */,
 				9E9C73AE9AC5A2DA7409201A /* AuthView.swift in Sources */,
 				A246F9D7027598688FF9D323 /* CardDetailSheet.swift in Sources */,
