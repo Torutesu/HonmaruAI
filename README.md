@@ -8,7 +8,7 @@ AI-native decision feed for teams. Humans talk to their AI; agents route Decisio
 |-------|------|
 | iOS | SwiftUI, ASWebAuthenticationSession, URLSession WebSocket |
 | Backend | Node.js localhost relay (`server/`) |
-| AI | OpenAI `gpt-4o-mini` (optional) |
+| AI | OpenRouter `inclusionai/ling-3.0-flash:free` via relay server |
 | GitHub | OAuth via localhost + Issues API |
 
 ## Quick start
@@ -26,6 +26,7 @@ AI-native decision feed for teams. Humans talk to their AI; agents route Decisio
 cd server
 cp .env.example .env
 # paste GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET into .env
+# paste OPENROUTER_API_KEY into .env (see server/.env.example)
 npm install
 npm start
 ```
@@ -44,8 +45,7 @@ On sign-in:
 
 1. **Sign in with GitHub** (opens secure browser sheet)
 2. Pick **repository** from your GitHub account
-3. **Relay server** — `ws://127.0.0.1:8080`
-4. **OpenAI key** — optional
+3. **Relay server** — `ws://127.0.0.1:8080` (AI routes through relay when `OPENROUTER_API_KEY` is set)
 
 ### 4. Two-simulator demo
 
@@ -66,7 +66,7 @@ On sign-in:
        │         card events    └────────────────────┘
        └────────────────────────►
        │
-       ├── AIService → OpenAI
+       ├── AIService → relay `/ai/route` → OpenRouter
        └── GitHubService → Issues API
 ```
 

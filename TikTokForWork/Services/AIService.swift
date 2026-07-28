@@ -3,26 +3,79 @@ import Foundation
 enum AIServiceError: LocalizedError {
     case notConfigured
     case invalidResponse
+    case serverError(String)
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: "OpenAI API key not configured."
-        case .invalidResponse: "AI returned an invalid routing response."
+        case .notConfigured:
+            "AI routing is not configured on the relay server."
+        case .invalidResponse:
+            "AI returned an invalid routing response."
+        case .serverError(let message):
+            message
         }
     }
 }
 
+private struct RouteInstructionRequest: Encodable {
+    let text: String
+    let sender: User
+    let organization: OrganizationGraph
+}
+
+private struct RouteInstructionResponse: Decodable {
+    let recipientUserID: String
+    let cardType: String
+    let title: String
+    let summary: String
+    let context: String
+    let priority: String
+    let agentRoute: String?
+    let routingReason: String?
+}
+
+private struct HealthResponse: Decodable {
+    let aiRouting: Bool?
+    let aiModel: String?
+}
+
 @MainActor
 final class AIService: ObservableObject {
-    private var apiKey: String?
+    private var backendBaseURL: URL?
+    @Published private(set) var modelName: String?
 
     var isConfigured: Bool {
-        guard let apiKey else { return false }
-        return !apiKey.isEmpty
+        modelName != nil
     }
 
-    func configure(apiKey: String) {
-        self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    func configure(backendBaseURL: URL) async {
+        self.backendBaseURL = backendBaseURL
+        await refreshAvailability()
+    }
+
+    func refreshAvailability() async {
+        guard let backendBaseURL else {
+            modelName = nil
+            return
+        }
+
+        guard let url = URL(string: "/health", relativeTo: backendBaseURL) else {
+            modelName = nil
+            return
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                modelName = nil
+                return
+            }
+
+            let health = try JSONDecoder().decode(HealthResponse.self, from: data)
+            modelName = health.aiRouting == true ? health.aiModel : nil
+        } catch {
+            modelName = nil
+        }
     }
 
     func routeInstruction(
@@ -30,108 +83,70 @@ final class AIService: ObservableObject {
         sender: User,
         organization: OrganizationGraph
     ) async throws -> InstructionRouting {
-        guard let apiKey, !apiKey.isEmpty else {
+        guard let backendBaseURL else {
             throw AIServiceError.notConfigured
         }
 
-        let orgContext = organizationContext(organization)
-        let systemPrompt = """
-        You route workplace instructions between AI agents in an organization.
-        Return JSON only with keys:
-        recipientUserID, cardType, title, summary, context, priority, agentRoute
-
-        recipientUserID must be one of: user-alice, user-bob
-        cardType must be one of: approval, delegation, notification, task, revision
-        priority must be one of: low, medium, high, urgent
-        agentRoute format: "{Sender}'s AI → {Recipient}'s AI"
-
-        Use organization context to pick the right decision owner.
-        summary should be concise decision-ready text, not the raw user message.
-        context should include role-relevant details only.
-        """
-
-        let userPrompt = """
-        Sender: \(sender.name) (\(sender.id), \(sender.role))
-        Instruction: \(text)
-
-        Organization:
-        \(orgContext)
-        """
-
-        let body: [String: Any] = [
-            "model": "gpt-4o-mini",
-            "temperature": 0.2,
-            "response_format": ["type": "json_object"],
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": userPrompt]
-            ]
-        ]
-
-        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
+        guard let url = URL(string: "/ai/route", relativeTo: backendBaseURL) else {
             throw AIServiceError.invalidResponse
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.httpBody = try JSONEncoder().encode(
+            RouteInstructionRequest(text: text, sender: sender, organization: organization)
+        )
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let message = parseOpenAIError(data) ?? "OpenAI request failed."
+        guard let http = response as? HTTPURLResponse else {
             throw AIServiceError.invalidResponse
         }
 
+        if http.statusCode == 503 {
+            throw AIServiceError.notConfigured
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let message = parseServerError(data) ?? "AI routing request failed."
+            throw AIServiceError.serverError(message)
+        }
+
+        let routingResponse = try JSONDecoder().decode(RouteInstructionResponse.self, from: data)
         guard
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let choices = json["choices"] as? [[String: Any]],
-            let first = choices.first,
-            let message = first["message"] as? [String: Any],
-            let content = message["content"] as? String,
-            let contentData = content.data(using: .utf8),
-            let routingJSON = try JSONSerialization.jsonObject(with: contentData) as? [String: Any],
-            let recipientUserID = routingJSON["recipientUserID"] as? String,
-            let cardTypeRaw = routingJSON["cardType"] as? String,
-            let cardType = CardType(rawValue: cardTypeRaw),
-            let title = routingJSON["title"] as? String,
-            let summary = routingJSON["summary"] as? String,
-            let context = routingJSON["context"] as? String,
-            let priorityRaw = routingJSON["priority"] as? String,
-            let priority = CardPriority(rawValue: priorityRaw)
+            let cardType = CardType(rawValue: routingResponse.cardType),
+            let priority = CardPriority(rawValue: routingResponse.priority)
         else {
             throw AIServiceError.invalidResponse
         }
 
-        let agentRoute = routingJSON["agentRoute"] as? String
-            ?? "\(sender.name)'s AI → \(DemoData.userName(for: recipientUserID))'s AI"
+        let recipientName = DemoData.userName(for: routingResponse.recipientUserID)
+        let agentRoute = routingResponse.agentRoute
+            ?? "\(sender.name)'s AI → \(recipientName)'s AI"
+        let routingReason = routingResponse.routingReason
+            ?? organization.routingReason(
+                recipientID: routingResponse.recipientUserID,
+                senderID: sender.id,
+                namedInInstruction: false
+            )
 
         return InstructionRouting(
-            recipientID: recipientUserID,
+            recipientID: routingResponse.recipientUserID,
             cardType: cardType,
-            title: title,
-            summary: summary,
-            context: context,
+            title: routingResponse.title,
+            summary: routingResponse.summary,
+            context: routingResponse.context,
             priority: priority,
-            agentRoute: agentRoute
+            agentRoute: agentRoute,
+            routingReason: routingReason
         )
     }
 
-    private func organizationContext(_ organization: OrganizationGraph) -> String {
-        let nodes = organization.nodes.map { "- \($0.id): \($0.label) (\($0.kind.rawValue))" }.joined(separator: "\n")
-        let edges = organization.edges.map { edge in
-            let from = organization.nodes.first { $0.id == edge.fromID }?.label ?? edge.fromID
-            let to = organization.nodes.first { $0.id == edge.toID }?.label ?? edge.toID
-            return "- \(from) \(edge.kind.rawValue) \(to)"
-        }.joined(separator: "\n")
-        return "Nodes:\n\(nodes)\nEdges:\n\(edges)"
-    }
-
-    private func parseOpenAIError(_ data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let error = json["error"] as? [String: Any],
-              let message = error["message"] as? String else {
+    private func parseServerError(_ data: Data) -> String? {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let message = json["message"] as? String
+        else {
             return nil
         }
         return message

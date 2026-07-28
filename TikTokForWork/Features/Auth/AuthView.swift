@@ -5,7 +5,6 @@ struct AuthView: View {
     @State private var selectedUser: DemoUser = .alice
     @State private var selectedRepository: GitHubRepository?
     @State private var relayURL = "ws://127.0.0.1:8080"
-    @State private var openAIKey = ""
     @State private var isConnecting = false
     @State private var isSigningInWithGitHub = false
     @State private var errorMessage: String?
@@ -45,19 +44,23 @@ struct AuthView: View {
                 }
 
                 fieldSection(title: "Relay") {
-                    TextField("ws://127.0.0.1:8080", text: $relayURL)
-                        .font(.system(size: 14, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .fieldStyle()
-                }
+                    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                        TextField("ws://127.0.0.1:8080", text: $relayURL)
+                            .font(.system(size: 14, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .fieldStyle()
 
-                fieldSection(title: "OpenAI") {
-                    SecureField("Optional", text: $openAIKey)
-                        .font(.system(size: 14, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .fieldStyle()
+                        if let model = appState.aiService.modelName {
+                            Text("AI routing: \(model)")
+                                .font(Theme.TypeScale.micro)
+                                .foregroundStyle(Theme.Colors.approve)
+                        } else {
+                            Text("AI routing uses keyword fallback until OPENROUTER_API_KEY is set on relay")
+                                .font(Theme.TypeScale.micro)
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                        }
+                    }
                 }
 
                 if let errorMessage {
@@ -82,6 +85,10 @@ struct AuthView: View {
             .padding(.bottom, Theme.Spacing.xl)
         }
         .appBackground()
+        .task(id: relayURL) {
+            guard let backend = BackendURL.httpBase(from: relayURL) else { return }
+            await appState.aiService.configure(backendBaseURL: backend)
+        }
     }
 
     private var githubSignInButton: some View {
@@ -198,11 +205,11 @@ struct AuthView: View {
                     _ = try await appState.githubService.connect(repository: repository)
                 }
 
-                if !openAIKey.isEmpty {
-                    appState.aiService.configure(apiKey: openAIKey)
-                }
-
                 appState.relayURL = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if let backend = BackendURL.httpBase(from: appState.relayURL) {
+                    await appState.aiService.configure(backendBaseURL: backend)
+                }
 
                 do {
                     try await appState.webSocketService.connect(

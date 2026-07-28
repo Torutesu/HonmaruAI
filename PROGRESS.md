@@ -8,7 +8,7 @@ Last updated: 2026-07-27
 - Core flow working: yes
 - GitHub sync working: yes (OAuth + Issues API)
 - Realtime sync working: yes (localhost WebSocket relay)
-- AI routing: OpenAI with keyword fallback
+- AI routing: OpenRouter via relay server with keyword fallback
 
 ## GitHub OAuth
 
@@ -32,7 +32,7 @@ Last updated: 2026-07-27
 - [x] Clean flat design
 - [x] Org graph UI
 - [x] Agent route on cards
-- [x] AIService (OpenAI)
+- [x] AIService (OpenRouter via relay)
 - [ ] TestFlight or installable build
 
 ## Demo script
@@ -48,7 +48,7 @@ Last updated: 2026-07-27
 
 | Area | Status | Notes |
 |------|--------|-------|
-| AI routing | Real + fallback | OpenAI if key set |
+| AI routing | Real + fallback | OpenRouter if `OPENROUTER_API_KEY` set |
 | Multi-user | Real | localhost WebSocket |
 | Org graph | Real UI | Demo org data |
 | GitHub auth | Real OAuth | Token exchange on localhost |
