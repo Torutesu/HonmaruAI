@@ -21,6 +21,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tangle.tiktokforwork
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: TikTokForWork/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: TikTok for Work
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES

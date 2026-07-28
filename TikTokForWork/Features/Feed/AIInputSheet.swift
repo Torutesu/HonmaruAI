@@ -8,52 +8,49 @@ struct AIInputSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+                Text("Your AI routes this to the right person as a decision card.")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+
                 ZStack(alignment: .topLeading) {
                     if prompt.isEmpty {
-                        Text("Ask Bob to review the API spec")
-                            .font(.system(size: 15))
+                        Text("Ask Bob to approve the onboarding PR")
+                            .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textTertiary)
-                            .padding(.horizontal, Theme.Spacing.md + 4)
-                            .padding(.vertical, Theme.Spacing.md + 8)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 8)
                     }
 
                     TextEditor(text: $prompt)
-                        .font(.system(size: 15))
+                        .font(Theme.TypeScale.body)
                         .scrollContentBackground(.hidden)
-                        .padding(Theme.Spacing.md)
-                        .frame(minHeight: 120)
-                        .background(Theme.Colors.surfaceRaised)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                        .frame(minHeight: 100)
                         .foregroundStyle(Theme.Colors.textPrimary)
                         .focused($isFocused)
                 }
+                .padding(Theme.Spacing.md)
+                .background(Theme.Colors.surfaceRaised)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
 
-                Button {
+                PrimaryButton(
+                    title: "Send",
+                    enabled: !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ) {
                     let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
                     onSend(text)
-                } label: {
-                    Text("Send")
-                        .font(.system(size: 15, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Theme.Colors.accent)
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
                 }
-                .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Spacer()
             }
             .padding(Theme.Spacing.screen)
-            .background(Theme.Colors.surface)
+            .background(Theme.Colors.background)
             .navigationTitle("Your AI")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .font(.system(size: 15))
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }
             }

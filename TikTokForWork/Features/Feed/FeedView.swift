@@ -7,6 +7,7 @@ struct FeedView: View {
     @State private var showAIInput = false
     @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
+    @State private var showMenu = false
 
     var body: some View {
         ZStack {
@@ -30,13 +31,12 @@ struct FeedView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .ignoresSafeArea()
-                .animation(.easeOut(duration: 0.2), value: viewModel.cards.count)
             }
 
-            VStack {
+            VStack(spacing: 0) {
                 topBar
                 Spacer()
-                bottomBar
+                bottomChrome
             }
 
             if viewModel.isProcessing {
@@ -75,10 +75,13 @@ struct FeedView: View {
             .presentationBackground(Theme.Colors.surface)
             .presentationDragIndicator(.visible)
         }
+        .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
+            Button("Organization") { showOrgGraph = true }
+            Button("Sign out", role: .destructive) { disconnect() }
+            Button("Cancel", role: .cancel) {}
+        }
         .alert("Error", isPresented: errorBinding) {
-            Button("OK", role: .cancel) {
-                viewModel.errorMessage = nil
-            }
+            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
@@ -92,95 +95,71 @@ struct FeedView: View {
     }
 
     private var topBar: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                if let user = appState.currentUser {
-                    Button {
-                        showUserSwitcher = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(appState.webSocketService.isConnected ? Theme.Colors.approve : Theme.Colors.textTertiary)
-                                .frame(width: 6, height: 6)
-                            Text(user.name)
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(Theme.Colors.textPrimary)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(Theme.Colors.textTertiary)
-                        }
-                    }
-
-                    if let repo = appState.githubService.connection?.repository {
-                        Text(repo)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(Theme.Colors.textTertiary)
-                            .lineLimit(1)
-                    }
+        HStack(alignment: .center) {
+            Button { showUserSwitcher = true } label: {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(appState.webSocketService.isConnected ? Theme.Colors.approve : Theme.Colors.textTertiary)
+                        .frame(width: 5, height: 5)
+                    Text(appState.currentUser?.name ?? "")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.Colors.textTertiary)
                 }
             }
 
             Spacer()
 
-            Button {
-                showOrgGraph = true
-            } label: {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.Colors.textTertiary)
+            if viewModel.cards.count > 1 {
+                PageDots(count: viewModel.cards.count, index: viewModel.currentIndex)
             }
-            .padding(.trailing, Theme.Spacing.sm)
 
-            VStack(alignment: .trailing, spacing: 2) {
-                if let position = viewModel.positionLabel {
-                    Text(position)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                }
+            Spacer()
 
-                if viewModel.pendingCount > 0 {
-                    Text("\(viewModel.pendingCount) pending")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
+            Button { showMenu = true } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 32, height: 32)
             }
         }
         .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.top, 12)
+        .padding(.top, 8)
     }
 
-    private var bottomBar: some View {
-        HStack(spacing: Theme.Spacing.md) {
-            Button {
-                showAIInput = true
-            } label: {
-                Text("Message your AI")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Theme.Spacing.md)
-                    .padding(.vertical, 14)
-                    .background(Theme.Colors.surfaceRaised)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+    private var bottomChrome: some View {
+        VStack(spacing: Theme.Spacing.sm) {
+            if let repo = appState.githubService.connection?.repository {
+                Text(repo)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .lineLimit(1)
             }
 
-            Button {
-                disconnect()
-            } label: {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .frame(width: 44, height: 44)
+            ComposeBar(placeholder: "Ask your AI") {
+                showAIInput = true
             }
         }
         .padding(.horizontal, Theme.Spacing.screen)
         .padding(.bottom, Theme.Spacing.lg)
+        .background(
+            Theme.Colors.background
+                .opacity(0.94)
+                .ignoresSafeArea(edges: .bottom)
+        )
     }
 
     private var emptyState: some View {
-        Text("Nothing pending")
-            .font(.system(size: 15))
-            .foregroundStyle(Theme.Colors.textSecondary)
+        VStack(spacing: Theme.Spacing.sm) {
+            Text("All clear")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Theme.Colors.textPrimary)
+            Text("Nothing needs your decision")
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.textTertiary)
+        }
     }
 
     private func disconnect() {

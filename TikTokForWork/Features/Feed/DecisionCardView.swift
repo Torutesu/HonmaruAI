@@ -6,67 +6,110 @@ struct DecisionCardView: View {
 
     var body: some View {
         ZStack {
-            Theme.Colors.surface.ignoresSafeArea()
+            Theme.Colors.background.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                metadata
-                    .padding(.bottom, Theme.Spacing.sm)
-
-                if let route = card.agentRoute {
-                    Text(route)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Theme.Colors.accent.opacity(0.9))
-                        .padding(.bottom, Theme.Spacing.xl)
-                } else {
-                    Spacer().frame(height: Theme.Spacing.xl)
-                }
+                header
+                    .padding(.bottom, Theme.Spacing.xl)
 
                 Text(card.title)
-                    .font(.system(size: 22, weight: .medium))
+                    .font(Theme.TypeScale.title)
                     .foregroundStyle(Theme.Colors.textPrimary)
+                    .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, Theme.Spacing.md)
 
                 Text(card.summary)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Theme.Colors.textPrimary.opacity(0.9))
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, Theme.Spacing.lg)
-
-                Text(card.context)
-                    .font(.system(size: 13))
+                    .font(Theme.TypeScale.body)
                     .foregroundStyle(Theme.Colors.textSecondary)
-                    .lineSpacing(4)
+                    .lineSpacing(5)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if !card.context.isEmpty {
+                    Text(card.context)
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                        .lineSpacing(4)
+                        .padding(.top, Theme.Spacing.lg)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if let issueURL = card.githubIssueURL, let url = URL(string: issueURL) {
                     Link(destination: url) {
-                        HStack(spacing: Theme.Spacing.xs) {
+                        HStack(spacing: 4) {
                             Text(issueLabel)
-                                .font(.system(size: 12, design: .monospaced))
                             Image(systemName: "arrow.up.right")
                                 .font(.system(size: 10))
                         }
+                        .font(Theme.TypeScale.label)
                         .foregroundStyle(Theme.Colors.accent)
                     }
-                    .padding(.top, Theme.Spacing.lg)
+                    .padding(.top, Theme.Spacing.md)
                 }
 
-                Spacer(minLength: Theme.Spacing.xl)
+                Spacer(minLength: Theme.Spacing.lg)
 
                 if !card.isPending {
                     Text(card.status.label)
-                        .font(.system(size: 12))
+                        .font(Theme.TypeScale.label)
                         .foregroundStyle(Theme.Colors.textTertiary)
-                        .padding(.bottom, Theme.Spacing.md)
+                        .padding(.bottom, Theme.Spacing.sm)
                 }
 
-                actions
+                actionBlock
             }
             .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.top, 72)
-            .padding(.bottom, 96)
+            .padding(.top, 64)
+            .padding(.bottom, 88)
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text(card.type.label)
+                    .font(Theme.TypeScale.label)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+
+                if card.priority == .urgent || card.priority == .high {
+                    Text(priorityLabel)
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(priorityColor)
+                }
+
+                Spacer()
+
+                Text(DateFormatting.relative(card.createdAt))
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+
+            Text("From \(card.senderName)")
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
+
+            if let route = card.agentRoute {
+                Text(route)
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary.opacity(0.8))
+            }
+        }
+    }
+
+    private var priorityLabel: String {
+        switch card.priority {
+        case .urgent: "Urgent"
+        case .high: "High"
+        case .medium: "Medium"
+        case .low: "Low"
+        }
+    }
+
+    private var priorityColor: Color {
+        switch card.priority {
+        case .urgent: Theme.Colors.reject
+        case .high: Color(hex: 0xFBBF24)
+        default: Theme.Colors.textTertiary
         }
     }
 
@@ -74,61 +117,38 @@ struct DecisionCardView: View {
         if let number = card.githubIssueNumber {
             return "Issue #\(number)"
         }
-        return "GitHub"
+        return "View on GitHub"
     }
 
-    private var metadata: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            Text(card.type.label.uppercased())
-            Text("·")
-            Text(card.priority.rawValue)
-            Text("·")
-            Text(card.senderName)
-            Text("·")
-            Text(DateFormatting.relative(card.createdAt))
-        }
-        .font(.system(size: 11))
-        .foregroundStyle(Theme.Colors.textTertiary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.85)
-    }
-
-    private var actions: some View {
+    private var actionBlock: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            Button {
+            PrimaryButton(title: "Approve", enabled: card.isPending) {
                 Haptics.light()
                 onAction(.approve)
-            } label: {
-                Text("Approve")
-                    .font(.system(size: 15, weight: .medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Theme.Colors.accent)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
             }
-            .disabled(!card.isPending)
-            .opacity(card.isPending ? 1 : 0.35)
 
-            HStack(spacing: Theme.Spacing.lg) {
-                textAction("Reject", color: Theme.Colors.reject) { onAction(.reject) }
-                textAction("Revise") { onAction(.requestRevision) }
-                textAction("Delegate") { onAction(.delegate) }
+            HStack(spacing: 0) {
+                SecondaryAction(title: "Reject", tint: Theme.Colors.reject) {
+                    Haptics.light()
+                    onAction(.reject)
+                }
+                .disabled(!card.isPending)
+                .opacity(card.isPending ? 1 : 0.35)
+
+                SecondaryAction(title: "Revise") {
+                    Haptics.light()
+                    onAction(.requestRevision)
+                }
+                .disabled(!card.isPending)
+                .opacity(card.isPending ? 1 : 0.35)
+
+                SecondaryAction(title: "Delegate") {
+                    Haptics.light()
+                    onAction(.delegate)
+                }
+                .disabled(!card.isPending)
+                .opacity(card.isPending ? 1 : 0.35)
             }
-            .frame(maxWidth: .infinity)
-            .opacity(card.isPending ? 1 : 0.35)
-            .disabled(!card.isPending)
-        }
-    }
-
-    private func textAction(_ title: String, color: Color = Theme.Colors.textSecondary, action: @escaping () -> Void) -> some View {
-        Button {
-            Haptics.light()
-            action()
-        } label: {
-            Text(title)
-                .font(.system(size: 14))
-                .foregroundStyle(color)
         }
     }
 }
@@ -137,18 +157,18 @@ struct DecisionCardView: View {
     DecisionCardView(
         card: DecisionCard(
             id: "preview",
-            recipientUserID: "user-bob",
-            senderUserID: "user-alice",
-            type: .approval,
-            title: "Approve onboarding PR",
-            summary: "Review onboarding redesign before merge window closes.",
-            context: "PR #42 · QA passed on staging",
+            recipientUserID: "user-alice",
+            senderUserID: "user-bob",
+            type: .task,
+            title: "Auth latency regression",
+            summary: "p95 on auth endpoint up 18% after last deploy.",
+            context: "Hotfix branch recommended before Friday demo",
             status: .pending,
-            priority: .high,
-            createdAt: .now,
+            priority: .urgent,
+            createdAt: .now.addingTimeInterval(-3600),
             githubIssueNumber: nil,
             githubIssueURL: nil,
-            agentRoute: "Alice's AI → Bob's AI"
+            agentRoute: "Bob's AI → Alice's AI"
         ),
         onAction: { _ in }
     )

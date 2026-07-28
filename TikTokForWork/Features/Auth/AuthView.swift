@@ -14,15 +14,28 @@ struct AuthView: View {
         VStack(spacing: 0) {
             Spacer()
 
-            Text("TikTok for Work")
-                .font(.system(size: 28, weight: .medium))
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Theme.Spacing.screen)
-                .padding(.bottom, Theme.Spacing.xl)
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                Text("TikTok for Work")
+                    .font(.system(size: 32, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                Text("Decisions, not messages")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Theme.Spacing.screen)
+            .padding(.bottom, Theme.Spacing.xxl)
 
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-                fieldSection(title: "User") {
+                if appState.githubService.isConnected, let connection = appState.githubService.connection {
+                    connectedBanner(connection)
+                } else if appState.githubService.hasToken {
+                    repositoryPicker
+                } else {
+                    githubSignInButton
+                }
+
+                fieldSection(title: "Workspace") {
                     Picker("User", selection: $selectedUser) {
                         ForEach(DemoUser.allCases) { user in
                             Text("\(user.displayName) · \(user.subtitle)").tag(user)
@@ -31,25 +44,17 @@ struct AuthView: View {
                     .pickerStyle(.segmented)
                 }
 
-                if appState.githubService.isConnected, let connection = appState.githubService.connection {
-                    statusRow("\(connection.username) · \(connection.repository)")
-                } else if appState.githubService.hasToken {
-                    repositoryPicker
-                } else {
-                    githubSignInButton
-                }
-
-                fieldSection(title: "Relay server") {
+                fieldSection(title: "Relay") {
                     TextField("ws://127.0.0.1:8080", text: $relayURL)
-                        .font(.system(size: 15, design: .monospaced))
+                        .font(.system(size: 14, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .fieldStyle()
                 }
 
-                fieldSection(title: "OpenAI key") {
-                    SecureField("sk-... (optional)", text: $openAIKey)
-                        .font(.system(size: 15, design: .monospaced))
+                fieldSection(title: "OpenAI") {
+                    SecureField("Optional", text: $openAIKey)
+                        .font(.system(size: 14, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .fieldStyle()
@@ -57,7 +62,7 @@ struct AuthView: View {
 
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.system(size: 12))
+                        .font(Theme.TypeScale.label)
                         .foregroundStyle(Theme.Colors.reject)
                 }
             }
@@ -65,23 +70,14 @@ struct AuthView: View {
 
             Spacer()
 
-            Button(action: connectAndEnter) {
-                Group {
-                    if isConnecting {
-                        ProgressView()
-                            .tint(Theme.Colors.textPrimary)
-                    } else {
-                        Text("Continue")
-                            .font(.system(size: 15, weight: .medium))
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(canContinue ? Theme.Colors.accent : Theme.Colors.surfaceRaised)
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            PrimaryButton(title: "Continue", enabled: canContinue && !isConnecting && !isSigningInWithGitHub) {
+                connectAndEnter()
             }
-            .disabled(!canContinue || isConnecting || isSigningInWithGitHub)
+            .overlay {
+                if isConnecting {
+                    ProgressView().tint(Theme.Colors.background)
+                }
+            }
             .padding(.horizontal, Theme.Spacing.screen)
             .padding(.bottom, Theme.Spacing.xl)
         }
@@ -90,36 +86,56 @@ struct AuthView: View {
 
     private var githubSignInButton: some View {
         Button(action: signInWithGitHub) {
-            HStack {
+            HStack(spacing: 10) {
                 if isSigningInWithGitHub {
-                    ProgressView()
-                        .tint(Theme.Colors.textPrimary)
+                    ProgressView().tint(Theme.Colors.textPrimary)
                 } else {
                     Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 14))
                     Text("Sign in with GitHub")
                         .font(.system(size: 15, weight: .medium))
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
+            .frame(height: 48)
             .background(Theme.Colors.surfaceRaised)
             .foregroundStyle(Theme.Colors.textPrimary)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
         }
         .disabled(isSigningInWithGitHub)
+    }
+
+    private func connectedBanner(_ connection: GitHubConnection) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.Colors.approve)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(connection.username)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                Text(connection.repository)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            Spacer()
+        }
+        .padding(Theme.Spacing.md)
+        .background(Theme.Colors.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
     }
 
     private var repositoryPicker: some View {
         fieldSection(title: "Repository") {
             if appState.githubService.repositories.isEmpty {
                 Text("No repositories found")
-                    .font(.system(size: 14))
+                    .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fieldStyle()
             } else {
                 Picker("Repository", selection: $selectedRepository) {
-                    Text("Select repository").tag(Optional<GitHubRepository>.none)
+                    Text("Select").tag(Optional<GitHubRepository>.none)
                     ForEach(appState.githubService.repositories) { repo in
                         Text(repo.fullName).tag(Optional(repo))
                     }
@@ -129,7 +145,7 @@ struct AuthView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Theme.Spacing.md)
                 .background(Theme.Colors.surfaceRaised)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
             }
         }
     }
@@ -140,23 +156,13 @@ struct AuthView: View {
         return hasGitHub && hasRelay
     }
 
-    private func statusRow(_ text: String) -> some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Theme.Colors.approve)
-                .font(.system(size: 13))
-            Text(text)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .lineLimit(1)
-        }
-    }
-
     private func fieldSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             Text(title)
-                .font(.system(size: 12))
+                .font(Theme.TypeScale.micro)
                 .foregroundStyle(Theme.Colors.textTertiary)
+                .textCase(.uppercase)
+                .tracking(0.8)
             content()
         }
     }
@@ -221,7 +227,7 @@ private extension View {
     func fieldStyle() -> some View {
         padding(Theme.Spacing.md)
             .background(Theme.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
             .foregroundStyle(Theme.Colors.textPrimary)
     }
 }

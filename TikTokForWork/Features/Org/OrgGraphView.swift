@@ -28,7 +28,7 @@ struct OrgGraphView: View {
                 }
                 .padding(Theme.Spacing.screen)
             }
-            .background(Theme.Colors.surface)
+            .background(Theme.Colors.background)
             .navigationTitle("Organization")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -38,7 +38,7 @@ struct OrgGraphView: View {
                 }
             }
         }
-        .presentationBackground(Theme.Colors.surface)
+        .presentationBackground(Theme.Colors.background)
     }
 
     private func section(_ title: String, items: [OrgNode]) -> some View {

@@ -31,13 +31,13 @@ struct UserSwitcherSheet: View {
                         }
                         .padding(Theme.Spacing.md)
                         .background(Theme.Colors.surfaceRaised)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
                     }
                 }
                 Spacer()
             }
             .padding(Theme.Spacing.screen)
-            .background(Theme.Colors.surface)
+            .background(Theme.Colors.background)
             .navigationTitle("Switch user")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -48,6 +48,6 @@ struct UserSwitcherSheet: View {
             }
         }
         .presentationDetents([.medium])
-        .presentationBackground(Theme.Colors.surface)
+        .presentationBackground(Theme.Colors.background)
     }
 }
