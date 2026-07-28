@@ -16,20 +16,29 @@ struct FeedView: View {
             if viewModel.cards.isEmpty {
                 emptyState
             } else {
-                TabView(selection: $viewModel.currentIndex) {
-                    ForEach(Array(viewModel.cards.enumerated()), id: \.element.id) { index, card in
-                        DecisionCardView(
-                            card: card,
-                            onAction: { action in
-                                Task {
-                                    await viewModel.handle(action: action, for: card, appState: appState)
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(viewModel.cards) { card in
+                            DecisionCardView(
+                                card: card,
+                                onAction: { action in
+                                    Task {
+                                        await viewModel.handle(action: action, for: card, appState: appState)
+                                    }
+                                },
+                                onShowDetails: {
+                                    viewModel.detailCard = card
                                 }
-                            }
-                        )
-                        .tag(index)
+                            )
+                            .containerRelativeFrame(.vertical)
+                            .id(card.id)
+                        }
                     }
+                    .scrollTargetLayout()
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: $viewModel.scrollPosition)
+                .scrollIndicators(.hidden)
                 .ignoresSafeArea()
             }
 
@@ -74,6 +83,20 @@ struct FeedView: View {
             .presentationDetents([.medium])
             .presentationBackground(Theme.Colors.surface)
             .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $viewModel.detailCard) { card in
+            CardDetailSheet(card: card)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $viewModel.delegateCard) { card in
+            DelegatePickerSheet(
+                card: card,
+                currentUserID: appState.currentUser?.id ?? ""
+            ) { user in
+                Task {
+                    await viewModel.completeDelegate(for: card, to: user, appState: appState)
+                }
+            }
         }
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
             Button("Organization") { showOrgGraph = true }
@@ -138,7 +161,7 @@ struct FeedView: View {
                     .lineLimit(1)
             }
 
-            ComposeBar(placeholder: "Ask your AI") {
+            ComposeBar(placeholder: "Tell your AI") {
                 showAIInput = true
             }
         }
@@ -153,10 +176,10 @@ struct FeedView: View {
 
     private var emptyState: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            Text("All clear")
+            Text("Tell your AI what you need")
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(Theme.Colors.textPrimary)
-            Text("Nothing needs your decision")
+            Text("Decisions will show up here")
                 .font(Theme.TypeScale.caption)
                 .foregroundStyle(Theme.Colors.textTertiary)
         }

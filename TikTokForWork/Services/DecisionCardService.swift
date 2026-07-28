@@ -61,8 +61,10 @@ final class DecisionCardService: ObservableObject {
         case .approve: card.status = .approved
         case .reject: card.status = .rejected
         case .requestRevision: card.status = .revised
-        case .delegate: card.status = .delegated
-        case .viewDetails: return card
+        case .delegate:
+            return card
+        case .viewDetails:
+            return card
         }
 
         let synced = try await githubService.syncDecision(card)
@@ -86,7 +88,81 @@ final class DecisionCardService: ObservableObject {
             createdAt: .now,
             githubIssueNumber: synced.number,
             githubIssueURL: synced.url,
-            agentRoute: card.agentRoute
+            agentRoute: card.agentRoute,
+            routingReason: card.routingReason
+        )
+
+        append(responseCard, for: card.senderUserID)
+        await webSocketService?.publishCreated(responseCard)
+        onCardsUpdated?()
+        return card
+    }
+
+    @discardableResult
+    func delegate(
+        cardID: String,
+        to recipientUserID: String,
+        actorUserID: String,
+        organization: OrganizationGraph,
+        githubService: GitHubService
+    ) async throws -> DecisionCard {
+        guard var userCards = cardsByUser[actorUserID],
+              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
+            throw CardServiceError.cardNotFound
+        }
+
+        var card = userCards[index]
+        guard card.isPending else { return card }
+        guard recipientUserID != actorUserID else {
+            throw CardServiceError.githubSyncFailed("Pick someone else to delegate to.")
+        }
+
+        card.status = .delegated
+        let synced = try await githubService.syncDecision(card)
+        card.githubIssueNumber = synced.number
+        card.githubIssueURL = synced.url
+
+        userCards[index] = card
+        cardsByUser[actorUserID] = userCards
+        await webSocketService?.publishUpdated(card)
+
+        let actorName = DemoData.userName(for: actorUserID)
+        let recipientName = DemoData.userName(for: recipientUserID)
+        let delegatedCard = DecisionCard(
+            id: UUID().uuidString,
+            recipientUserID: recipientUserID,
+            senderUserID: actorUserID,
+            type: .delegation,
+            title: card.title,
+            summary: card.summary,
+            context: "Delegated by \(actorName) · \(card.context)",
+            status: .pending,
+            priority: card.priority,
+            createdAt: .now,
+            githubIssueNumber: synced.number,
+            githubIssueURL: synced.url,
+            agentRoute: "\(actorName)'s AI → \(recipientName)'s AI",
+            routingReason: "Delegated by \(actorName)"
+        )
+
+        append(delegatedCard, for: recipientUserID)
+        await webSocketService?.publishCreated(delegatedCard)
+
+        let responseCard = DecisionCard(
+            id: UUID().uuidString,
+            recipientUserID: card.senderUserID,
+            senderUserID: actorUserID,
+            type: .notification,
+            title: card.title,
+            summary: "\(actorName) delegated to \(recipientName)",
+            context: card.summary,
+            status: .pending,
+            priority: .medium,
+            createdAt: .now,
+            githubIssueNumber: synced.number,
+            githubIssueURL: synced.url,
+            agentRoute: delegatedCard.agentRoute,
+            routingReason: "Delegation update"
         )
 
         append(responseCard, for: card.senderUserID)
@@ -129,7 +205,8 @@ final class DecisionCardService: ObservableObject {
             createdAt: .now,
             githubIssueNumber: nil,
             githubIssueURL: nil,
-            agentRoute: routing.agentRoute
+            agentRoute: routing.agentRoute,
+            routingReason: routing.routingReason
         )
 
         append(card, for: routing.recipientID)

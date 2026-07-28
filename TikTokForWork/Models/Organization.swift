@@ -37,4 +37,26 @@ struct OrganizationGraph: Codable {
         }
         return nodes.first { $0.id == edge.fromID }
     }
+
+    func approvalProjects(for userID: String) -> [OrgNode] {
+        edges
+            .filter { $0.fromID == userID && $0.kind == .canApprove }
+            .compactMap { edge in nodes.first { $0.id == edge.toID } }
+    }
+
+    func routingReason(recipientID: String, senderID: String, namedInInstruction: Bool) -> String {
+        if namedInInstruction {
+            return "Named in your instruction"
+        }
+        if let manager = manager(of: senderID), manager.id == recipientID {
+            return "You are \(DemoData.userName(for: senderID))'s manager"
+        }
+        if let project = approvalProjects(for: recipientID).first {
+            return "Approval authority on \(project.label)"
+        }
+        if recipientID != senderID {
+            return "Best match for this decision in org graph"
+        }
+        return "Routed to you"
+    }
 }

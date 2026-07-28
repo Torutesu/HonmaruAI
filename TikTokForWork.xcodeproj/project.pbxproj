@@ -12,6 +12,7 @@
 		09C9FB765322951B0B772C3E /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = F125BEDE2BF4518F791F5480 /* User.swift */; };
 		0D7EFF7343B23CFB85322EDD /* InstructionRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90182B2CA8A42FA12E68F3ED /* InstructionRouter.swift */; };
 		1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9515750E6133D1846CBE8BD /* OrgGraphView.swift */; };
+		18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */; };
 		1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */; };
 		2D280564ADDED0AA2BF213A5 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050D0B7873E1D94841BB5228 /* WebSocketService.swift */; };
 		5B2137ED8A01082E09A11954 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ABD898A426994D5C516944E /* AppState.swift */; };
@@ -22,6 +23,7 @@
 		890DC7776BFB95161547A003 /* DecisionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F1C39E5BEABD558A524E5BC /* DecisionCard.swift */; };
 		95290EBF4EDE097F8C064870 /* GitHubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E494243CEA2F9FA065D51B /* GitHubService.swift */; };
 		9E9C73AE9AC5A2DA7409201A /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EACD6C16BA6FB48F6117E6 /* AuthView.swift */; };
+		A246F9D7027598688FF9D323 /* CardDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8750E0FA2DD54342124E00 /* CardDetailSheet.swift */; };
 		AF00A6C5624E178AF6832453 /* DecisionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */; };
 		B3C05C2EB5D07CE610D9EF38 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FAE0760357D0881EDB6897 /* DemoData.swift */; };
 		D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF594002A7A3A2A7FA072712 /* FeedView.swift */; };
@@ -60,6 +62,8 @@
 		BA38108D0FC0E79C981A23CB /* TikTokForWork.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TikTokForWork.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIService.swift; sourceTree = "<group>"; };
 		D9515750E6133D1846CBE8BD /* OrgGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrgGraphView.swift; sourceTree = "<group>"; };
+		DF8750E0FA2DD54342124E00 /* CardDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDetailSheet.swift; sourceTree = "<group>"; };
+		E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelegatePickerSheet.swift; sourceTree = "<group>"; };
 		E8E494243CEA2F9FA065D51B /* GitHubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubService.swift; sourceTree = "<group>"; };
 		EACB0C14D460B93B91EF7A4E /* DateFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatting.swift; sourceTree = "<group>"; };
 		EF594002A7A3A2A7FA072712 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
@@ -174,7 +178,9 @@
 			isa = PBXGroup;
 			children = (
 				90C4072B436581D5A87F9542 /* AIInputSheet.swift */,
+				DF8750E0FA2DD54342124E00 /* CardDetailSheet.swift */,
 				870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */,
+				E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */,
 				EF594002A7A3A2A7FA072712 /* FeedView.swift */,
 				4F4AA4A684B4CEAA8EF8D4C5 /* UserSwitcherSheet.swift */,
 			);
@@ -272,11 +278,13 @@
 				6A021F0DC477FDC75CDB2B40 /* AIService.swift in Sources */,
 				5B2137ED8A01082E09A11954 /* AppState.swift in Sources */,
 				9E9C73AE9AC5A2DA7409201A /* AuthView.swift in Sources */,
+				A246F9D7027598688FF9D323 /* CardDetailSheet.swift in Sources */,
 				61546F7DD25035887C83D192 /* Components.swift in Sources */,
 				064B9C99CBB1BC04CD9B7307 /* DateFormatting.swift in Sources */,
 				890DC7776BFB95161547A003 /* DecisionCard.swift in Sources */,
 				E6C4713C78AA0FF264BA9753 /* DecisionCardService.swift in Sources */,
 				AF00A6C5624E178AF6832453 /* DecisionCardView.swift in Sources */,
+				18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */,
 				B3C05C2EB5D07CE610D9EF38 /* DemoData.swift in Sources */,
 				D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */,
 				07C5FC33B29D4DA8AF1C3AC8 /* FeedViewModel.swift in Sources */,

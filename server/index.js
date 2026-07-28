@@ -32,6 +32,12 @@ const GITHUB_REDIRECT_URI =
   process.env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback";
 const GITHUB_OAUTH_SCOPE = process.env.GITHUB_OAUTH_SCOPE || "repo";
 
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+const OPENROUTER_MODEL =
+  process.env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free";
+const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "TikTok for Work";
+const OPENROUTER_APP_URL = process.env.OPENROUTER_APP_URL || "http://localhost:8080";
+
 const initialCards = {
   "user-bob": [
     {
@@ -48,6 +54,7 @@ const initialCards = {
       githubIssueNumber: null,
       githubIssueURL: null,
       agentRoute: "Alice's AI → Bob's AI",
+      routingReason: "Approval authority on Onboarding v2",
     },
   ],
   "user-alice": [
@@ -65,6 +72,7 @@ const initialCards = {
       githubIssueNumber: null,
       githubIssueURL: null,
       agentRoute: "Bob's AI → Alice's AI",
+      routingReason: "You are Bob's manager",
     },
   ],
 };
@@ -153,6 +161,142 @@ async function exchangeGitHubCode(code) {
   return data.access_token;
 }
 
+function organizationContext(organization) {
+  const nodes = (organization?.nodes || [])
+    .map((node) => `- ${node.id}: ${node.label} (${node.kind})`)
+    .join("\n");
+  const edges = (organization?.edges || [])
+    .map((edge) => {
+      const from =
+        organization.nodes?.find((node) => node.id === edge.fromID)?.label ||
+        edge.fromID;
+      const to =
+        organization.nodes?.find((node) => node.id === edge.toID)?.label ||
+        edge.toID;
+      return `- ${from} ${edge.kind} ${to}`;
+    })
+    .join("\n");
+  return `Nodes:\n${nodes}\nEdges:\n${edges}`;
+}
+
+function userNameFor(userID) {
+  if (userID === "user-alice") return "Alice";
+  if (userID === "user-bob") return "Bob";
+  return userID;
+}
+
+function parseRoutingJSON(content) {
+  const trimmed = String(content || "").trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : trimmed;
+  return JSON.parse(candidate);
+}
+
+function validateRouting(routingJSON, sender) {
+  const allowedRecipients = new Set(["user-alice", "user-bob"]);
+  const allowedTypes = new Set([
+    "approval",
+    "delegation",
+    "notification",
+    "task",
+    "revision",
+  ]);
+  const allowedPriorities = new Set(["low", "medium", "high", "urgent"]);
+
+  const recipientUserID = routingJSON.recipientUserID;
+  const cardType = routingJSON.cardType;
+  const title = routingJSON.title;
+  const summary = routingJSON.summary;
+  const context = routingJSON.context;
+  const priority = routingJSON.priority;
+
+  if (!allowedRecipients.has(recipientUserID)) {
+    throw new Error("AI picked an invalid recipient.");
+  }
+  if (!allowedTypes.has(cardType)) {
+    throw new Error("AI returned an invalid card type.");
+  }
+  if (!allowedPriorities.has(priority)) {
+    throw new Error("AI returned an invalid priority.");
+  }
+  if (!title || !summary || !context) {
+    throw new Error("AI returned incomplete routing fields.");
+  }
+
+  const recipientName = userNameFor(recipientUserID);
+  const agentRoute =
+    routingJSON.agentRoute || `${sender.name}'s AI → ${recipientName}'s AI`;
+  const routingReason =
+    routingJSON.routingReason || "Best match for this decision in org graph";
+
+  return {
+    recipientUserID,
+    cardType,
+    title,
+    summary,
+    context,
+    priority,
+    agentRoute,
+    routingReason,
+  };
+}
+
+async function routeInstructionWithOpenRouter({ text, sender, organization }) {
+  const orgContext = organizationContext(organization);
+  const systemPrompt = `You route workplace instructions between AI agents in an organization.
+Return JSON only with keys:
+recipientUserID, cardType, title, summary, context, priority, agentRoute, routingReason
+
+recipientUserID must be one of: user-alice, user-bob
+cardType must be one of: approval, delegation, notification, task, revision
+priority must be one of: low, medium, high, urgent
+agentRoute format: "{Sender}'s AI → {Recipient}'s AI"
+
+Use organization context to pick the right decision owner.
+summary should be concise decision-ready text, not the raw user message.
+context should include role-relevant details only.
+routingReason should explain why this recipient owns the decision (one short sentence).`;
+
+  const userPrompt = `Sender: ${sender.name} (${sender.id}, ${sender.role})
+Instruction: ${text}
+
+Organization:
+${orgContext}`;
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": OPENROUTER_APP_URL,
+      "X-Title": OPENROUTER_APP_NAME,
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    const message = data?.error?.message || "OpenRouter request failed.";
+    throw new Error(message);
+  }
+
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("OpenRouter returned an empty routing response.");
+  }
+
+  const routingJSON = parseRoutingJSON(content);
+  return validateRouting(routingJSON, sender);
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
@@ -171,6 +315,8 @@ const server = createServer(async (req, res) => {
       ok: true,
       orgId: ORG_ID,
       githubOAuth: Boolean(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET),
+      aiRouting: Boolean(OPENROUTER_API_KEY),
+      aiModel: OPENROUTER_MODEL,
     });
     return;
   }
@@ -214,6 +360,38 @@ const server = createServer(async (req, res) => {
       });
     } catch (error) {
       json(res, 400, { message: error.message || "OAuth exchange failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/ai/route" && req.method === "POST") {
+    if (!OPENROUTER_API_KEY) {
+      json(res, 503, {
+        message: "Set OPENROUTER_API_KEY in server/.env",
+      });
+      return;
+    }
+
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const text = body.text;
+      const sender = body.sender;
+      const organization = body.organization;
+
+      if (!text || !sender?.id || !sender?.name) {
+        json(res, 400, { message: "Missing text or sender." });
+        return;
+      }
+
+      const routing = await routeInstructionWithOpenRouter({
+        text,
+        sender,
+        organization,
+      });
+      json(res, 200, routing);
+    } catch (error) {
+      json(res, 400, { message: error.message || "AI routing failed." });
     }
     return;
   }
@@ -297,5 +475,10 @@ server.listen(PORT, () => {
     GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET
       ? "GitHub OAuth: configured"
       : "GitHub OAuth: missing GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET"
+  );
+  console.log(
+    OPENROUTER_API_KEY
+      ? `AI routing: OpenRouter (${OPENROUTER_MODEL})`
+      : "AI routing: missing OPENROUTER_API_KEY"
   );
 });

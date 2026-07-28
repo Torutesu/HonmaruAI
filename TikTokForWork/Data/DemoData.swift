@@ -65,7 +65,8 @@ enum DemoData {
                 createdAt: .now.addingTimeInterval(-3600),
                 githubIssueNumber: nil,
                 githubIssueURL: nil,
-                agentRoute: "Alice's AI → Bob's AI"
+                agentRoute: "Alice's AI → Bob's AI",
+                routingReason: "Approval authority on Onboarding v2"
             )
         ],
         "user-alice": [
@@ -82,7 +83,8 @@ enum DemoData {
                 createdAt: .now.addingTimeInterval(-1800),
                 githubIssueNumber: nil,
                 githubIssueURL: nil,
-                agentRoute: "Bob's AI → Alice's AI"
+                agentRoute: "Bob's AI → Alice's AI",
+                routingReason: "You are Bob's manager"
             )
         ]
     ]

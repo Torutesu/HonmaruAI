@@ -65,6 +65,7 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var githubIssueNumber: Int?
     var githubIssueURL: String?
     var agentRoute: String?
+    var routingReason: String?
 
     var isPending: Bool { status == .pending }
 

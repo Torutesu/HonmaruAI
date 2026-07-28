@@ -8,6 +8,7 @@ struct InstructionRouting {
     let context: String
     let priority: CardPriority
     let agentRoute: String
+    let routingReason: String
 }
 
 enum InstructionRouter {
@@ -16,14 +17,19 @@ enum InstructionRouter {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let recipientID: String
+        let namedInInstruction: Bool
         if lowercased.contains("bob") {
             recipientID = "user-bob"
+            namedInInstruction = true
         } else if lowercased.contains("alice") {
             recipientID = "user-alice"
+            namedInInstruction = true
         } else if lowercased.contains("manager"), let manager = organization.manager(of: sender.id) {
             recipientID = manager.id
+            namedInInstruction = false
         } else {
             recipientID = sender.id == "user-alice" ? "user-bob" : "user-alice"
+            namedInInstruction = false
         }
 
         let cardType: CardType
@@ -56,7 +62,12 @@ enum InstructionRouter {
             summary: trimmed,
             context: "To \(recipientName) · via \(sender.name)",
             priority: lowercased.contains("urgent") ? .urgent : .high,
-            agentRoute: "\(sender.name)'s AI → \(recipientName)'s AI"
+            agentRoute: "\(sender.name)'s AI → \(recipientName)'s AI",
+            routingReason: organization.routingReason(
+                recipientID: recipientID,
+                senderID: sender.id,
+                namedInInstruction: namedInInstruction
+            )
         )
     }
 }

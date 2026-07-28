@@ -3,36 +3,52 @@ import SwiftUI
 struct DecisionCardView: View {
     let card: DecisionCard
     let onAction: (CardActionKind) -> Void
+    let onShowDetails: () -> Void
+
+    @State private var dragOffset: CGFloat = 0
+
+    private let swipeThreshold: CGFloat = 96
 
     var body: some View {
         ZStack {
             Theme.Colors.background.ignoresSafeArea()
 
+            swipeHintLayer
+
             VStack(alignment: .leading, spacing: 0) {
                 header
                     .padding(.bottom, Theme.Spacing.xl)
 
-                Text(card.title)
-                    .font(Theme.TypeScale.title)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, Theme.Spacing.md)
+                Button(action: onShowDetails) {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                        Text(card.title)
+                            .font(Theme.TypeScale.title)
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                            .lineSpacing(2)
+                            .multilineTextAlignment(.leading)
 
-                Text(card.summary)
-                    .font(Theme.TypeScale.body)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .lineSpacing(5)
-                    .fixedSize(horizontal: false, vertical: true)
+                        Text(card.summary)
+                            .font(Theme.TypeScale.body)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .lineSpacing(5)
+                            .multilineTextAlignment(.leading)
 
-                if !card.context.isEmpty {
-                    Text(card.context)
-                        .font(Theme.TypeScale.caption)
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                        .lineSpacing(4)
-                        .padding(.top, Theme.Spacing.lg)
-                        .fixedSize(horizontal: false, vertical: true)
+                        if !card.context.isEmpty {
+                            Text(card.context)
+                                .font(Theme.TypeScale.caption)
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                                .lineSpacing(4)
+                                .multilineTextAlignment(.leading)
+                        }
+
+                        Text("View details")
+                            .font(Theme.TypeScale.label)
+                            .foregroundStyle(Theme.Colors.accent)
+                            .padding(.top, Theme.Spacing.xs)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .buttonStyle(.plain)
 
                 if let issueURL = card.githubIssueURL, let url = URL(string: issueURL) {
                     Link(destination: url) {
@@ -61,6 +77,8 @@ struct DecisionCardView: View {
             .padding(.horizontal, Theme.Spacing.screen)
             .padding(.top, 64)
             .padding(.bottom, 88)
+            .offset(x: dragOffset)
+            .gesture(swipeGesture)
         }
     }
 
@@ -93,6 +111,79 @@ struct DecisionCardView: View {
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary.opacity(0.8))
             }
+
+            if let reason = card.routingReason {
+                Text(reason)
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.accent.opacity(0.9))
+                    .padding(.horizontal, Theme.Spacing.sm)
+                    .padding(.vertical, Theme.Spacing.xs)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                    .padding(.top, Theme.Spacing.xs)
+            }
+        }
+    }
+
+    private var swipeHintLayer: some View {
+        ZStack {
+            if dragOffset > 24 {
+                HStack {
+                    swipeLabel("Approve", color: Theme.Colors.approve)
+                    Spacer()
+                }
+                .padding(.leading, Theme.Spacing.screen)
+            }
+
+            if dragOffset < -24 {
+                HStack {
+                    Spacer()
+                    swipeLabel("Reject", color: Theme.Colors.reject)
+                }
+                .padding(.trailing, Theme.Spacing.screen)
+            }
+        }
+        .opacity(min(abs(dragOffset) / swipeThreshold, 1))
+        .allowsHitTesting(false)
+    }
+
+    private func swipeLabel(_ title: String, color: Color) -> some View {
+        Text(title)
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, Theme.Spacing.sm)
+            .background(color.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 16, coordinateSpace: .local)
+            .onChanged { value in
+                guard card.isPending else { return }
+                dragOffset = value.translation.width
+            }
+            .onEnded { value in
+                guard card.isPending else {
+                    resetDrag()
+                    return
+                }
+
+                if value.translation.width > swipeThreshold {
+                    Haptics.success()
+                    onAction(.approve)
+                } else if value.translation.width < -swipeThreshold {
+                    Haptics.light()
+                    onAction(.reject)
+                }
+
+                resetDrag()
+            }
+    }
+
+    private func resetDrag() {
+        withAnimation(.easeOut(duration: 0.18)) {
+            dragOffset = 0
         }
     }
 
@@ -149,6 +240,14 @@ struct DecisionCardView: View {
                 .disabled(!card.isPending)
                 .opacity(card.isPending ? 1 : 0.35)
             }
+
+            if card.isPending {
+                Text("Swipe right to approve · left to reject")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.Spacing.xs)
+            }
         }
     }
 }
@@ -168,8 +267,10 @@ struct DecisionCardView: View {
             createdAt: .now.addingTimeInterval(-3600),
             githubIssueNumber: nil,
             githubIssueURL: nil,
-            agentRoute: "Bob's AI → Alice's AI"
+            agentRoute: "Bob's AI → Alice's AI",
+            routingReason: "You are Bob's manager"
         ),
-        onAction: { _ in }
+        onAction: { _ in },
+        onShowDetails: {}
     )
 }
