@@ -21,6 +21,7 @@ private struct RouteInstructionRequest: Encodable {
     let text: String
     let sender: User
     let organization: OrganizationGraph
+    let priorityOverride: String?
 }
 
 private struct RouteInstructionResponse: Decodable {
@@ -32,6 +33,8 @@ private struct RouteInstructionResponse: Decodable {
     let priority: String
     let agentRoute: String?
     let routingReason: String?
+    let labels: [String]?
+    let toolCalls: [AgentToolCall]?
 }
 
 private struct HealthResponse: Decodable {
@@ -78,10 +81,40 @@ final class AIService: ObservableObject {
         }
     }
 
+    func draftInstruction(
+        text: String,
+        sender: User,
+        organization: OrganizationGraph,
+        priorityOverride: CardPriority? = nil
+    ) async throws -> InstructionDraft {
+        let routing = try await routeInstruction(
+            text: text,
+            sender: sender,
+            organization: organization,
+            priorityOverride: priorityOverride
+        )
+
+        return InstructionDraft(
+            id: UUID().uuidString,
+            sourceText: text,
+            recipientUserID: routing.recipientID,
+            cardType: routing.cardType,
+            title: routing.title,
+            summary: routing.summary,
+            context: routing.context,
+            priority: routing.priority,
+            agentRoute: routing.agentRoute,
+            routingReason: routing.routingReason,
+            labels: routing.labels,
+            toolCalls: routing.toolCalls
+        )
+    }
+
     func routeInstruction(
         text: String,
         sender: User,
-        organization: OrganizationGraph
+        organization: OrganizationGraph,
+        priorityOverride: CardPriority? = nil
     ) async throws -> InstructionRouting {
         guard let backendBaseURL else {
             throw AIServiceError.notConfigured
@@ -95,7 +128,12 @@ final class AIService: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
-            RouteInstructionRequest(text: text, sender: sender, organization: organization)
+            RouteInstructionRequest(
+                text: text,
+                sender: sender,
+                organization: organization,
+                priorityOverride: priorityOverride?.rawValue
+            )
         )
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -138,7 +176,9 @@ final class AIService: ObservableObject {
             context: routingResponse.context,
             priority: priority,
             agentRoute: agentRoute,
-            routingReason: routingReason
+            routingReason: routingReason,
+            labels: routingResponse.labels ?? [],
+            toolCalls: routingResponse.toolCalls ?? []
         )
     }
 

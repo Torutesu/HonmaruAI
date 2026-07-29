@@ -78,6 +78,46 @@ final class GitHubService: NSObject, ObservableObject {
         lastError = nil
         authSession?.cancel()
         authSession = nil
+        SessionStore.clear()
+    }
+
+    func restorePartialCredentials() {
+        guard let savedToken = SessionStore.githubToken, !savedToken.isEmpty else { return }
+        token = savedToken
+    }
+
+    func restoreSavedSession() -> Bool {
+        guard let savedToken = SessionStore.githubToken, !savedToken.isEmpty,
+              let savedRepository = SessionStore.githubRepository, !savedRepository.isEmpty else {
+            return false
+        }
+
+        token = savedToken
+        repository = savedRepository
+
+        if let username = SessionStore.githubUsername,
+           let repositoryURL = SessionStore.githubRepositoryURL {
+            connection = GitHubConnection(
+                username: username,
+                repository: savedRepository,
+                repositoryURL: repositoryURL
+            )
+        }
+
+        return true
+    }
+
+    func validateSavedSession() async throws {
+        guard token != nil else {
+            throw GitHubServiceError.missingCredentials
+        }
+
+        if connection == nil, !repository.isEmpty {
+            _ = try await connect(repository: repository)
+            return
+        }
+
+        _ = try await requestDictionary(path: "/user")
     }
 
     func signInWithOAuth(backendBaseURL: URL) async throws {
@@ -87,6 +127,18 @@ final class GitHubService: NSObject, ObservableObject {
         token = accessToken
         repositories = try await fetchRepositories()
         lastError = nil
+        SessionStore.saveGitHubToken(accessToken)
+    }
+
+    @discardableResult
+    func refreshRepositories() async throws -> [GitHubRepository] {
+        guard token != nil else {
+            throw GitHubServiceError.missingCredentials
+        }
+        let updated = try await fetchRepositories()
+        repositories = updated
+        lastError = nil
+        return updated
     }
 
     func connect(repository rawRepository: String) async throws -> GitHubConnection {
@@ -119,6 +171,7 @@ final class GitHubService: NSObject, ObservableObject {
             repositoryURL: htmlURL
         )
         self.connection = connection
+        SessionStore.saveGitHubConnection(connection, token: token, repository: trimmedRepo)
         return connection
     }
 
@@ -220,7 +273,7 @@ final class GitHubService: NSObject, ObservableObject {
             }
 
             session.presentationContextProvider = webAuthContext
-            session.prefersEphemeralWebBrowserSession = true
+            session.prefersEphemeralWebBrowserSession = false
             self.authSession = session
             session.start()
         }
@@ -279,7 +332,13 @@ final class GitHubService: NSObject, ObservableObject {
 
         ## Context
         \(card.context)
+        \(labelsSection(for: card))
         """
+    }
+
+    private func labelsSection(for card: DecisionCard) -> String {
+        guard let labels = card.labels, !labels.isEmpty else { return "" }
+        return "\n\n## Labels\n" + labels.map { "- `\($0)`" }.joined(separator: "\n")
     }
 
     @discardableResult

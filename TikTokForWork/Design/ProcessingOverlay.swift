@@ -23,3 +23,26 @@ struct ProcessingOverlay: View {
         .transition(.opacity)
     }
 }
+
+struct DraftingBanner: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(Theme.Colors.accent)
+            Text("Drafting decision card…")
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.textSecondary)
+            Spacer()
+        }
+        .padding(.horizontal, Theme.Spacing.screen)
+        .padding(.vertical, Theme.Spacing.sm)
+        .background(Theme.Colors.surfaceRaised.opacity(0.95))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Theme.Colors.textTertiary.opacity(0.2))
+                .frame(height: 0.5)
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+}

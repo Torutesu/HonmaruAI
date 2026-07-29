@@ -28,8 +28,8 @@ enum CardStatus: String, Codable {
     var label: String {
         switch self {
         case .pending: "Pending"
-        case .approved: "Approved"
-        case .rejected: "Rejected"
+        case .approved: "Issue created"
+        case .rejected: "Declined"
         case .revised: "Revision requested"
         case .delegated: "Delegated"
         }
@@ -44,7 +44,7 @@ enum CardPriority: String, Codable, CaseIterable {
 }
 
 enum CardActionKind {
-    case approve
+    case createIssue
     case reject
     case requestRevision
     case delegate
@@ -66,8 +66,20 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var githubIssueURL: String?
     var agentRoute: String?
     var routingReason: String?
+    var sourceInstruction: String?
+    var labels: [String]?
+    var revisionNote: String?
 
     var isPending: Bool { status == .pending }
+
+    var priorityLabel: String {
+        switch priority {
+        case .low: "Low"
+        case .medium: "Medium"
+        case .high: "High"
+        case .urgent: "Urgent"
+        }
+    }
 
     var senderName: String {
         DemoData.userName(for: senderUserID)

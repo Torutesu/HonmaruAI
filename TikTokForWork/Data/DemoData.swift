@@ -89,6 +89,10 @@ enum DemoData {
         ]
     ]
 
+    static func user(for id: String) -> User? {
+        DemoUser.allCases.map(\.user).first { $0.id == id }
+    }
+
     static func userName(for userID: String) -> String {
         switch userID {
         case "user-alice": "Alice"

@@ -2,11 +2,10 @@ import SwiftUI
 
 struct AuthView: View {
     @EnvironmentObject private var appState: AppState
-    @State private var selectedUser: DemoUser = .alice
     @State private var selectedRepository: GitHubRepository?
-    @State private var relayURL = "ws://127.0.0.1:8080"
     @State private var isConnecting = false
     @State private var isSigningInWithGitHub = false
+    @State private var isRefreshingRepos = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -35,35 +34,6 @@ struct AuthView: View {
                     githubSignInButton
                 }
 
-                fieldSection(title: "Workspace") {
-                    Picker("User", selection: $selectedUser) {
-                        ForEach(DemoUser.allCases) { user in
-                            Text("\(user.displayName) · \(user.subtitle)").tag(user)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                fieldSection(title: "Relay") {
-                    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                        TextField("ws://127.0.0.1:8080", text: $relayURL)
-                            .font(.system(size: 14, design: .monospaced))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .fieldStyle()
-
-                        if let model = appState.aiService.modelName {
-                            Text("AI routing: \(model)")
-                                .font(Theme.TypeScale.micro)
-                                .foregroundStyle(Theme.Colors.approve)
-                        } else {
-                            Text("AI routing uses keyword fallback until OPENROUTER_API_KEY is set on relay")
-                                .font(Theme.TypeScale.micro)
-                                .foregroundStyle(Theme.Colors.textTertiary)
-                        }
-                    }
-                }
-
                 if let errorMessage {
                     Text(errorMessage)
                         .font(Theme.TypeScale.label)
@@ -86,10 +56,6 @@ struct AuthView: View {
             .padding(.bottom, Theme.Spacing.xl)
         }
         .appBackground()
-        .task(id: relayURL) {
-            guard let backend = BackendURL.httpBase(from: relayURL) else { return }
-            await appState.aiService.configure(backendBaseURL: backend)
-        }
     }
 
     private var githubSignInButton: some View {
@@ -98,8 +64,10 @@ struct AuthView: View {
                 if isSigningInWithGitHub {
                     ProgressView().tint(Theme.Colors.textPrimary)
                 } else {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .font(.system(size: 14))
+                    Image("GitHubMark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
                     Text("Sign in with GitHub")
                         .font(.system(size: 15, weight: .medium))
                 }
@@ -134,9 +102,34 @@ struct AuthView: View {
     }
 
     private var repositoryPicker: some View {
-        fieldSection(title: "Repository") {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack {
+                Text("Repository")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+                Spacer()
+                Button(action: refreshRepositories) {
+                    Group {
+                        if isRefreshingRepos {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(Theme.Colors.textSecondary)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                        }
+                    }
+                    .frame(width: 28, height: 28)
+                }
+                .disabled(isRefreshingRepos)
+                .accessibilityLabel("Refresh repositories")
+            }
+
             if appState.githubService.repositories.isEmpty {
-                Text("No repositories found")
+                Text(isRefreshingRepos ? "Loading repositories…" : "No repositories found")
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -159,9 +152,7 @@ struct AuthView: View {
     }
 
     private var canContinue: Bool {
-        let hasGitHub = appState.githubService.isConnected || selectedRepository != nil
-        let hasRelay = !relayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return hasGitHub && hasRelay
+        appState.githubService.isConnected || selectedRepository != nil
     }
 
     private func fieldSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -175,13 +166,33 @@ struct AuthView: View {
         }
     }
 
+    private func refreshRepositories() {
+        errorMessage = nil
+        isRefreshingRepos = true
+
+        Task {
+            do {
+                let repos = try await appState.githubService.refreshRepositories()
+                if selectedRepository == nil {
+                    selectedRepository = repos.first
+                } else if let current = selectedRepository,
+                          !repos.contains(where: { $0.id == current.id }) {
+                    selectedRepository = repos.first
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isRefreshingRepos = false
+        }
+    }
+
     private func signInWithGitHub() {
         errorMessage = nil
         isSigningInWithGitHub = true
 
         Task {
             do {
-                guard let backendBaseURL = BackendURL.httpBase(from: relayURL) else {
+                guard let backendBaseURL = appState.backendBaseURL else {
                     throw URLError(.badURL)
                 }
                 try await appState.githubService.signInWithOAuth(backendBaseURL: backendBaseURL)
@@ -206,23 +217,7 @@ struct AuthView: View {
                     _ = try await appState.githubService.connect(repository: repository)
                 }
 
-                appState.relayURL = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                if let backend = BackendURL.httpBase(from: appState.relayURL) {
-                    await appState.aiService.configure(backendBaseURL: backend)
-                }
-
-                do {
-                    try await appState.webSocketService.connect(
-                        urlString: appState.relayURL,
-                        userId: selectedUser.user.id
-                    )
-                } catch {
-                    appState.cardService.bootstrap(for: selectedUser.user)
-                }
-
-                appState.currentUser = selectedUser.user
-                appState.isAuthenticated = true
+                await appState.activateSession()
             } catch {
                 errorMessage = error.localizedDescription
             }

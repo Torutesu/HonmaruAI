@@ -4,6 +4,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
+import {
+  AGENT_TOOLS,
+  SYSTEM_PROMPT,
+  buildUserPrompt,
+  materializeFromToolCalls,
+  userNameFor,
+} from "./agentTools.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
@@ -179,10 +186,84 @@ function organizationContext(organization) {
   return `Nodes:\n${nodes}\nEdges:\n${edges}`;
 }
 
-function userNameFor(userID) {
-  if (userID === "user-alice") return "Alice";
-  if (userID === "user-bob") return "Bob";
-  return userID;
+function userNameForLocal(userID) {
+  return userNameFor(userID);
+}
+
+async function routeInstructionWithOpenRouter({
+  text,
+  sender,
+  organization,
+  priorityOverride,
+}) {
+  const userPrompt = buildUserPrompt({ text, sender, organization });
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": OPENROUTER_APP_URL,
+      "X-Title": OPENROUTER_APP_NAME,
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      temperature: 0.2,
+      max_tokens: 512,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      tools: AGENT_TOOLS,
+      tool_choice: {
+        type: "function",
+        function: { name: "create_decision_card" },
+      },
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    const message = data?.error?.message || "OpenRouter request failed.";
+    throw new Error(message);
+  }
+
+  const message = data?.choices?.[0]?.message;
+  const toolCalls = message?.tool_calls;
+
+  if (toolCalls?.length) {
+    const { card, toolCalls: steps } = materializeFromToolCalls(
+      toolCalls,
+      sender.name
+    );
+    if (priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)) {
+      card.priority = priorityOverride;
+      steps.push({
+        name: "set_priority",
+        label: "Priority override",
+        detail: priorityOverride,
+      });
+    }
+    return validateRouting(card, sender, text, steps);
+  }
+
+  const content = message?.content;
+  if (!content) {
+    throw new Error("OpenRouter returned an empty routing response.");
+  }
+
+  const routingJSON = parseRoutingJSON(content);
+  const validated = validateRouting(routingJSON, sender, text, [
+    {
+      name: "create_decision_card",
+      label: "Route decision",
+      detail: `${userNameFor(routingJSON.recipientUserID)} · ${routingJSON.cardType}`,
+    },
+  ]);
+  if (priorityOverride) {
+    validated.priority = priorityOverride;
+  }
+  return validated;
 }
 
 function parseRoutingJSON(content) {
@@ -192,7 +273,54 @@ function parseRoutingJSON(content) {
   return JSON.parse(candidate);
 }
 
-function validateRouting(routingJSON, sender) {
+function isEchoOfInput(summary, input) {
+  const normalize = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  const a = normalize(summary);
+  const b = normalize(input);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length >= b.length * 0.75 && b.includes(a)) return true;
+  if (b.length >= a.length * 0.75 && a.includes(b)) return true;
+  return false;
+}
+
+function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
+  let cleaned = String(text || "").trim();
+  cleaned = cleaned.replace(
+    /^(please\s+)?(tell|ask|notify|send|ping|remind)\s+(alice|bob|manager)\s+(to\s+)?/i,
+    ""
+  );
+  cleaned = cleaned.replace(/^(can you|could you|hey|hi|yo)\s+/i, "");
+  cleaned = cleaned.replace(/^(i need|we need)\s+(alice|bob|manager)\s+to\s+/i, "");
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+
+  const recipientName = userNameFor(recipientUserID);
+  const titles = {
+    approval: "Approval needed",
+    delegation: `Task for ${recipientName}`,
+    revision: "Revision requested",
+    task: cleaned.split(" ").slice(0, 6).join(" ").slice(0, 48) || "New task",
+    notification: `Update for ${recipientName}`,
+  };
+
+  const summary =
+    cleaned.length > 180 ? `${cleaned.slice(0, 177).trim()}…` : cleaned;
+
+  return {
+    title: titles[cardType] || "Decision needed",
+    summary: summary || "Decision requested.",
+    context: `From ${sender.name} · decision routed to ${recipientName}`,
+  };
+}
+
+function validateRouting(routingJSON, sender, originalText, toolCalls = []) {
   const allowedRecipients = new Set(["user-alice", "user-bob"]);
   const allowedTypes = new Set([
     "approval",
@@ -205,9 +333,9 @@ function validateRouting(routingJSON, sender) {
 
   const recipientUserID = routingJSON.recipientUserID;
   const cardType = routingJSON.cardType;
-  const title = routingJSON.title;
-  const summary = routingJSON.summary;
-  const context = routingJSON.context;
+  let title = routingJSON.title;
+  let summary = routingJSON.summary;
+  let context = routingJSON.context;
   const priority = routingJSON.priority;
 
   if (!allowedRecipients.has(recipientUserID)) {
@@ -221,6 +349,17 @@ function validateRouting(routingJSON, sender) {
   }
   if (!title || !summary || !context) {
     throw new Error("AI returned incomplete routing fields.");
+  }
+
+  if (isEchoOfInput(summary, originalText) || isEchoOfInput(title, originalText)) {
+    const rewritten = summarizeInstruction(originalText, {
+      sender,
+      cardType,
+      recipientUserID,
+    });
+    title = rewritten.title;
+    summary = rewritten.summary;
+    context = rewritten.context;
   }
 
   const recipientName = userNameFor(recipientUserID);
@@ -238,63 +377,9 @@ function validateRouting(routingJSON, sender) {
     priority,
     agentRoute,
     routingReason,
+    labels: routingJSON.labels || [],
+    toolCalls,
   };
-}
-
-async function routeInstructionWithOpenRouter({ text, sender, organization }) {
-  const orgContext = organizationContext(organization);
-  const systemPrompt = `You route workplace instructions between AI agents in an organization.
-Return JSON only with keys:
-recipientUserID, cardType, title, summary, context, priority, agentRoute, routingReason
-
-recipientUserID must be one of: user-alice, user-bob
-cardType must be one of: approval, delegation, notification, task, revision
-priority must be one of: low, medium, high, urgent
-agentRoute format: "{Sender}'s AI → {Recipient}'s AI"
-
-Use organization context to pick the right decision owner.
-summary should be concise decision-ready text, not the raw user message.
-context should include role-relevant details only.
-routingReason should explain why this recipient owns the decision (one short sentence).`;
-
-  const userPrompt = `Sender: ${sender.name} (${sender.id}, ${sender.role})
-Instruction: ${text}
-
-Organization:
-${orgContext}`;
-
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": OPENROUTER_APP_URL,
-      "X-Title": OPENROUTER_APP_NAME,
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    const message = data?.error?.message || "OpenRouter request failed.";
-    throw new Error(message);
-  }
-
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("OpenRouter returned an empty routing response.");
-  }
-
-  const routingJSON = parseRoutingJSON(content);
-  return validateRouting(routingJSON, sender);
 }
 
 const server = createServer(async (req, res) => {
@@ -388,6 +473,7 @@ const server = createServer(async (req, res) => {
         text,
         sender,
         organization,
+        priorityOverride: body.priorityOverride,
       });
       json(res, 200, routing);
     } catch (error) {

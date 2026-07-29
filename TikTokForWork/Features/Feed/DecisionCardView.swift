@@ -17,7 +17,7 @@ struct DecisionCardView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 header
-                    .padding(.bottom, Theme.Spacing.xl)
+                    .padding(.bottom, Theme.Spacing.lg)
 
                 Button(action: onShowDetails) {
                     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
@@ -34,11 +34,7 @@ struct DecisionCardView: View {
                             .multilineTextAlignment(.leading)
 
                         if !card.context.isEmpty {
-                            Text(card.context)
-                                .font(Theme.TypeScale.caption)
-                                .foregroundStyle(Theme.Colors.textTertiary)
-                                .lineSpacing(4)
-                                .multilineTextAlignment(.leading)
+                            ContextInsightView(context: card.context, compact: true)
                         }
 
                         Text("View details")
@@ -75,52 +71,71 @@ struct DecisionCardView: View {
                 actionBlock
             }
             .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.top, 64)
-            .padding(.bottom, 88)
+            .padding(.top, Theme.Spacing.md)
+            .padding(.bottom, Theme.Spacing.md)
             .offset(x: dragOffset)
             .gesture(swipeGesture)
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            HStack(spacing: Theme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
                 Text(card.type.label)
                     .font(Theme.TypeScale.label)
                     .foregroundStyle(Theme.Colors.textSecondary)
 
                 if card.priority == .urgent || card.priority == .high {
-                    Text(priorityLabel)
+                    Text("·")
                         .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                    Text(priorityLabel)
+                        .font(Theme.TypeScale.label)
                         .foregroundStyle(priorityColor)
+                } else {
+                    Text("·")
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                    Text(card.priorityLabel)
+                        .font(Theme.TypeScale.label)
+                        .foregroundStyle(Theme.Colors.textTertiary)
                 }
 
-                Spacer()
+                Spacer(minLength: Theme.Spacing.sm)
 
                 Text(DateFormatting.relative(card.createdAt))
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
             }
 
-            Text("From \(card.senderName)")
-                .font(Theme.TypeScale.micro)
-                .foregroundStyle(Theme.Colors.textTertiary)
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                Text("From \(card.senderName)")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textSecondary)
 
-            if let route = card.agentRoute {
-                Text(route)
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary.opacity(0.8))
+                if let route = card.agentRoute {
+                    Text(route)
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
             }
 
             if let reason = card.routingReason {
-                Text(reason)
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.accent.opacity(0.9))
-                    .padding(.horizontal, Theme.Spacing.sm)
-                    .padding(.vertical, Theme.Spacing.xs)
-                    .background(Theme.Colors.surfaceRaised)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
-                    .padding(.top, Theme.Spacing.xs)
+                HStack(spacing: Theme.Spacing.sm) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Theme.Colors.accent)
+                        .frame(width: 2)
+
+                    Text(reason)
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.Colors.surfaceRaised)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
             }
         }
     }
@@ -129,7 +144,7 @@ struct DecisionCardView: View {
         ZStack {
             if dragOffset > 24 {
                 HStack {
-                    swipeLabel("Approve", color: Theme.Colors.approve)
+                    swipeLabel("Create issue", color: Theme.Colors.issueGreen)
                     Spacer()
                 }
                 .padding(.leading, Theme.Spacing.screen)
@@ -171,7 +186,7 @@ struct DecisionCardView: View {
 
                 if value.translation.width > swipeThreshold {
                     Haptics.success()
-                    onAction(.approve)
+                    onAction(.createIssue)
                 } else if value.translation.width < -swipeThreshold {
                     Haptics.light()
                     onAction(.reject)
@@ -213,13 +228,13 @@ struct DecisionCardView: View {
 
     private var actionBlock: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            PrimaryButton(title: "Approve", enabled: card.isPending) {
+            GitHubPrimaryButton(title: "Create issue", enabled: card.isPending) {
                 Haptics.light()
-                onAction(.approve)
+                onAction(.createIssue)
             }
 
             HStack(spacing: 0) {
-                SecondaryAction(title: "Reject", tint: Theme.Colors.reject) {
+                SecondaryAction(title: "Decline", tint: Theme.Colors.reject) {
                     Haptics.light()
                     onAction(.reject)
                 }
@@ -242,7 +257,7 @@ struct DecisionCardView: View {
             }
 
             if card.isPending {
-                Text("Swipe right to approve · left to reject")
+                Text("Swipe right to create issue · left to decline")
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .frame(maxWidth: .infinity)
@@ -261,7 +276,7 @@ struct DecisionCardView: View {
             type: .task,
             title: "Auth latency regression",
             summary: "p95 on auth endpoint up 18% after last deploy.",
-            context: "Hotfix branch recommended before Friday demo",
+                context: "deadline: Friday demo · action: hotfix branch · metric: p95 +18%",
             status: .pending,
             priority: .urgent,
             createdAt: .now.addingTimeInterval(-3600),

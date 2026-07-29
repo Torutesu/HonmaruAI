@@ -25,10 +25,34 @@ struct CardDetailSheet: View {
 
                     if !card.context.isEmpty {
                         detailSection(title: "Context") {
-                            Text(card.context)
+                            ContextInsightView(context: card.context)
+                        }
+                    }
+
+                    if let source = card.sourceInstruction, source != card.summary {
+                        detailSection(title: "Original message") {
+                            Text(source)
+                                .font(Theme.TypeScale.caption)
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                                .lineSpacing(4)
+                        }
+                    }
+
+                    if let note = card.revisionNote, !note.isEmpty {
+                        detailSection(title: "Revision note") {
+                            Text(note)
                                 .font(Theme.TypeScale.caption)
                                 .foregroundStyle(Theme.Colors.textSecondary)
-                                .lineSpacing(4)
+                        }
+                    }
+
+                    if let labels = card.labels, !labels.isEmpty {
+                        detailSection(title: "Labels") {
+                            HStack {
+                                ForEach(labels, id: \.self) { label in
+                                    LabelChip(text: label)
+                                }
+                            }
                         }
                     }
 

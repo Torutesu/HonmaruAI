@@ -47,6 +47,7 @@ final class DecisionCardService: ObservableObject {
         cardID: String,
         action: CardActionKind,
         actorUserID: String,
+        revisionNote: String? = nil,
         githubService: GitHubService
     ) async throws -> DecisionCard {
         guard var userCards = cardsByUser[actorUserID],
@@ -58,13 +59,18 @@ final class DecisionCardService: ObservableObject {
         guard card.isPending else { return card }
 
         switch action {
-        case .approve: card.status = .approved
+        case .createIssue: card.status = .approved
         case .reject: card.status = .rejected
         case .requestRevision: card.status = .revised
         case .delegate:
             return card
         case .viewDetails:
             return card
+        }
+
+        if let revisionNote, !revisionNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            card.revisionNote = revisionNote.trimmingCharacters(in: .whitespacesAndNewlines)
+            card.context = [card.context, "Revision: \(card.revisionNote!)"].filter { !$0.isEmpty }.joined(separator: "\n")
         }
 
         let synced = try await githubService.syncDecision(card)
@@ -75,14 +81,23 @@ final class DecisionCardService: ObservableObject {
         cardsByUser[actorUserID] = userCards
         await webSocketService?.publishUpdated(card)
 
+        let statusLabel: String = {
+            switch card.status {
+            case .approved: "created GitHub issue"
+            case .rejected: "declined"
+            case .revised: "requested revision"
+            default: card.status.label.lowercased()
+            }
+        }()
+
         let responseCard = DecisionCard(
             id: UUID().uuidString,
             recipientUserID: card.senderUserID,
             senderUserID: actorUserID,
             type: .notification,
             title: card.title,
-            summary: "\(DemoData.userName(for: actorUserID)) · \(card.status.label)",
-            context: card.summary,
+            summary: "\(DemoData.userName(for: actorUserID)) · \(statusLabel)",
+            context: card.revisionNote ?? card.summary,
             status: .pending,
             priority: .medium,
             createdAt: .now,
@@ -175,7 +190,8 @@ final class DecisionCardService: ObservableObject {
         _ text: String,
         from sender: User,
         organization: OrganizationGraph,
-        aiService: AIService
+        aiService: AIService,
+        priorityOverride: CardPriority? = nil
     ) async throws -> DecisionCard {
         let routing: InstructionRouting
         if aiService.isConfigured {
@@ -183,7 +199,8 @@ final class DecisionCardService: ObservableObject {
                 routing = try await aiService.routeInstruction(
                     text: text,
                     sender: sender,
-                    organization: organization
+                    organization: organization,
+                    priorityOverride: priorityOverride
                 )
             } catch {
                 routing = InstructionRouter.route(text: text, sender: sender, organization: organization)
@@ -206,7 +223,40 @@ final class DecisionCardService: ObservableObject {
             githubIssueNumber: nil,
             githubIssueURL: nil,
             agentRoute: routing.agentRoute,
-            routingReason: routing.routingReason
+            routingReason: routing.routingReason,
+            sourceInstruction: text,
+            labels: routing.labels.isEmpty ? nil : routing.labels
+        )
+
+        append(card, for: routing.recipientID)
+        await webSocketService?.publishCreated(card)
+        onCardsUpdated?()
+        return card
+    }
+
+    @discardableResult
+    func processRouting(
+        _ routing: InstructionRouting,
+        sourceText: String,
+        from sender: User
+    ) async throws -> DecisionCard {
+        let card = DecisionCard(
+            id: UUID().uuidString,
+            recipientUserID: routing.recipientID,
+            senderUserID: sender.id,
+            type: routing.cardType,
+            title: routing.title,
+            summary: routing.summary,
+            context: routing.context,
+            status: .pending,
+            priority: routing.priority,
+            createdAt: .now,
+            githubIssueNumber: nil,
+            githubIssueURL: nil,
+            agentRoute: routing.agentRoute,
+            routingReason: routing.routingReason,
+            sourceInstruction: sourceText,
+            labels: routing.labels.isEmpty ? nil : routing.labels
         )
 
         append(card, for: routing.recipientID)

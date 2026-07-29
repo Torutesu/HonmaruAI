@@ -39,19 +39,26 @@ struct FeedView: View {
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $viewModel.scrollPosition)
                 .scrollIndicators(.hidden)
-                .ignoresSafeArea()
-            }
-
-            VStack(spacing: 0) {
-                topBar
-                Spacer()
-                bottomChrome
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    topBar
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    bottomChrome
+                }
             }
 
             if viewModel.isProcessing {
                 ProcessingOverlay(message: viewModel.processingMessage)
             }
+
+            if viewModel.isDrafting {
+                VStack {
+                    DraftingBanner()
+                    Spacer()
+                }
+            }
         }
+        .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {
             guard let user = appState.currentUser else { return }
             viewModel.bind(to: appState.cardService, user: user)
@@ -59,11 +66,7 @@ struct FeedView: View {
         .sheet(isPresented: $showUserSwitcher) {
             UserSwitcherSheet { user in
                 Task {
-                    appState.currentUser = user.user
-                    try? await appState.webSocketService.connect(
-                        urlString: appState.relayURL,
-                        userId: user.user.id
-                    )
+                    await appState.switchUser(to: user.user)
                     viewModel.bind(to: appState.cardService, user: user.user)
                 }
             }
@@ -73,20 +76,38 @@ struct FeedView: View {
             OrgGraphView()
         }
         .sheet(isPresented: $showAIInput) {
-            AIInputSheet(prompt: $aiPrompt) { text in
+            AIInputSheet(
+                prompt: $aiPrompt,
+                isAIConfigured: appState.aiService.isConfigured,
+                onSubmit: { text, priority in
+                    viewModel.beginDraft(text, priority: priority, appState: appState)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationBackground(Theme.Colors.surface)
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $viewModel.reviewDraft) { draft in
+            DraftReviewSheet(draft: draft) { finalDraft in
                 Task {
-                    await viewModel.sendInstruction(text, appState: appState)
+                    await viewModel.sendDraft(finalDraft, appState: appState)
                     aiPrompt = ""
-                    showAIInput = false
                 }
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.medium, .large])
             .presentationBackground(Theme.Colors.surface)
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $viewModel.detailCard) { card in
             CardDetailSheet(card: card)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $viewModel.reviseCard) { card in
+            ReviseSheet(card: card) { note in
+                Task {
+                    await viewModel.completeRevision(for: card, note: note, appState: appState)
+                }
+            }
         }
         .sheet(item: $viewModel.delegateCard) { card in
             DelegatePickerSheet(
@@ -149,7 +170,12 @@ struct FeedView: View {
             }
         }
         .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.top, 8)
+        .padding(.top, Theme.Spacing.sm)
+        .padding(.bottom, Theme.Spacing.md)
+        .background(
+            Theme.Colors.background
+                .ignoresSafeArea(edges: .top)
+        )
     }
 
     private var bottomChrome: some View {
@@ -166,10 +192,10 @@ struct FeedView: View {
             }
         }
         .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.bottom, Theme.Spacing.lg)
+        .padding(.top, Theme.Spacing.sm)
+        .padding(.bottom, Theme.Spacing.md)
         .background(
             Theme.Colors.background
-                .opacity(0.94)
                 .ignoresSafeArea(edges: .bottom)
         )
     }
@@ -186,10 +212,7 @@ struct FeedView: View {
     }
 
     private func disconnect() {
-        appState.webSocketService.disconnect()
-        appState.githubService.disconnect()
-        appState.isAuthenticated = false
-        appState.currentUser = nil
+        appState.signOut()
     }
 }
 

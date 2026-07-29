@@ -9,12 +9,13 @@ struct InstructionRouting {
     let priority: CardPriority
     let agentRoute: String
     let routingReason: String
+    let labels: [String]
+    let toolCalls: [AgentToolCall]
 }
 
 enum InstructionRouter {
     static func route(text: String, sender: User, organization: OrganizationGraph) -> InstructionRouting {
         let lowercased = text.lowercased()
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let recipientID: String
         let namedInInstruction: Bool
@@ -46,28 +47,34 @@ enum InstructionRouter {
         }
 
         let recipientName = DemoData.userName(for: recipientID)
-        let title: String
-        switch cardType {
-        case .approval: title = "Approval requested"
-        case .delegation: title = "Task delegated"
-        case .revision: title = "Revision requested"
-        case .task: title = "New task"
-        case .notification: title = "Routed update"
-        }
+        let summarized = InstructionSummarizer.summarize(
+            text,
+            sender: sender,
+            recipientID: recipientID,
+            cardType: cardType
+        )
 
         return InstructionRouting(
             recipientID: recipientID,
             cardType: cardType,
-            title: title,
-            summary: trimmed,
-            context: "To \(recipientName) · via \(sender.name)",
+            title: summarized.title,
+            summary: summarized.summary,
+            context: summarized.context,
             priority: lowercased.contains("urgent") ? .urgent : .high,
             agentRoute: "\(sender.name)'s AI → \(recipientName)'s AI",
             routingReason: organization.routingReason(
                 recipientID: recipientID,
                 senderID: sender.id,
                 namedInInstruction: namedInInstruction
-            )
+            ),
+            labels: [],
+            toolCalls: [
+                AgentToolCall(
+                    name: "create_decision_card",
+                    label: "Route decision",
+                    detail: "\(recipientName) · \(cardType.label)"
+                )
+            ]
         )
     }
 }

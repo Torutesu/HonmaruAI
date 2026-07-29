@@ -10,6 +10,7 @@ enum Theme {
         static let textTertiary = Color(hex: 0x71717A)
         static let accent = Color(hex: 0x5E6AD2)
         static let approve = Color(hex: 0x4ADE80)
+        static let issueGreen = Color(hex: 0x238636)
         static let reject = Color(hex: 0xF87171)
     }
 

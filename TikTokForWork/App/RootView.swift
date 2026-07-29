@@ -5,7 +5,15 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if appState.isAuthenticated, appState.currentUser != nil {
+            if appState.isBootstrapping {
+                VStack(spacing: Theme.Spacing.md) {
+                    ProgressView()
+                        .tint(Theme.Colors.accent)
+                    Text("Restoring session…")
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+            } else if appState.isAuthenticated, appState.currentUser != nil {
                 FeedView()
             } else {
                 AuthView()
@@ -14,6 +22,7 @@ struct RootView: View {
         .appBackground()
         .preferredColorScheme(.dark)
         .animation(.easeOut(duration: 0.2), value: appState.isAuthenticated)
+        .animation(.easeOut(duration: 0.2), value: appState.isBootstrapping)
     }
 }
 
