@@ -30,6 +30,14 @@ struct AgentToolCall: Identifiable, Codable, Hashable {
     }
 }
 
+struct CardRefinementResult {
+    let title: String
+    let summary: String
+    let context: String
+    let priority: CardPriority
+    let toolCalls: [AgentToolCall]
+}
+
 struct InstructionDraft: Identifiable, Codable, Hashable {
     let id: String
     let sourceText: String

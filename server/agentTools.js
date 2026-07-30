@@ -708,4 +708,177 @@ export async function routeInstruction({
   return routeInstructionLocally({ text, sender, organization, priorityOverride });
 }
 
+const REFINE_TOOL = [
+  {
+    type: "function",
+    function: {
+      name: "refine_decision_card",
+      description:
+        "Apply the card owner's follow-up instruction to an existing decision card. Only include fields the instruction actually changes; everything else stays as-is.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: "Updated title, only if the instruction changes what the decision is about",
+          },
+          summary: {
+            type: "string",
+            description: "Updated summary, only if the instruction changes it",
+          },
+          addContext: {
+            type: "string",
+            description:
+              "New facts to append to context as 'label: detail' segments joined by · e.g. 'deadline: Friday · blocker: waiting on QA'",
+          },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "urgent"],
+            description: "Only when the instruction signals urgency or de-prioritization",
+          },
+          note: {
+            type: "string",
+            description: "One short sentence describing what changed",
+          },
+        },
+        required: ["note"],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+const REFINE_SYSTEM_PROMPT = `You maintain an existing workplace Decision Card. The card's owner gives you a follow-up instruction about it.
+
+Call refine_decision_card once:
+- Only include fields the instruction actually changes
+- addContext: new facts as 'label: detail' segments joined by ·
+- priority: only when the instruction signals urgency or de-prioritization
+- note: one short sentence describing the change
+Never replace the card's content with the owner's raw words.`;
+
+function mergeRefinement(card, args, toolCalls) {
+  const allowedPriorities = new Set(["low", "medium", "high", "urgent"]);
+  const title = typeof args.title === "string" && args.title.trim() ? args.title.trim() : card.title;
+  const summary =
+    typeof args.summary === "string" && args.summary.trim() ? args.summary.trim() : card.summary;
+  const priority = allowedPriorities.has(args.priority) ? args.priority : card.priority;
+
+  let context = String(card.context || "");
+  const addition = typeof args.addContext === "string" ? args.addContext.trim() : "";
+  if (addition) {
+    context = [context, addition].filter(Boolean).join(" · ");
+  }
+
+  return { title, summary, context, priority, toolCalls };
+}
+
+export function refineCardLocally({ card, instruction }) {
+  const lower = String(instruction || "").toLowerCase();
+  let priority = null;
+  if (/(low priority|not urgent|no rush|later|whenever|backlog|deprioritize)/.test(lower)) {
+    priority = "low";
+  } else if (/(urgent|asap|immediately|right away|today|critical)/.test(lower)) {
+    priority = "urgent";
+  } else if (/(high priority|important|prioritize|bump)/.test(lower)) {
+    priority = "high";
+  }
+
+  const cleaned = String(instruction || "").replace(/\s+/g, " ").trim();
+  const toolCalls = [];
+  if (cleaned) {
+    toolCalls.push({ name: "add_context", label: "Add note", detail: cleaned.slice(0, 60) });
+  }
+  if (priority) {
+    toolCalls.push({ name: "set_priority", label: "Set priority", detail: priority });
+  }
+
+  return mergeRefinement(
+    card,
+    { addContext: cleaned ? `note: ${cleaned}` : "", priority },
+    toolCalls
+  );
+}
+
+async function refineCardWithOpenRouter({ card, instruction, openRouter }) {
+  const userPrompt = `Card:
+- title: ${card.title}
+- summary: ${card.summary}
+- context: ${card.context || "(none)"}
+- priority: ${card.priority}
+- type: ${card.cardType || card.type || "task"}
+
+Owner's follow-up instruction: ${instruction}`;
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openRouter.apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": openRouter.appUrl,
+      "X-Title": openRouter.appName,
+    },
+    body: JSON.stringify({
+      model: openRouter.model,
+      temperature: 0.2,
+      max_tokens: 512,
+      messages: [
+        { role: "system", content: REFINE_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      tools: REFINE_TOOL,
+      tool_choice: {
+        type: "function",
+        function: { name: "refine_decision_card" },
+      },
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    const message = data?.error?.message || "OpenRouter request failed.";
+    throw new Error(message);
+  }
+
+  const toolCalls = data?.choices?.[0]?.message?.tool_calls;
+  const call = (toolCalls || []).find(
+    (item) => item.function?.name === "refine_decision_card"
+  );
+  if (!call) {
+    return refineCardLocally({ card, instruction });
+  }
+
+  const args = parseToolArguments(call.function?.arguments);
+  const steps = [];
+  if (args.title && args.title !== card.title) {
+    steps.push({ name: "create_decision_card", label: "Rewrite title", detail: args.title });
+  }
+  if (args.summary && args.summary !== card.summary) {
+    steps.push({ name: "create_decision_card", label: "Rewrite summary", detail: args.summary.slice(0, 60) });
+  }
+  if (args.addContext) {
+    steps.push({ name: "add_context", label: "Add context", detail: args.addContext.slice(0, 60) });
+  }
+  if (args.priority && args.priority !== card.priority) {
+    steps.push({ name: "set_priority", label: "Set priority", detail: args.priority });
+  }
+  if (steps.length === 0 && args.note) {
+    steps.push({ name: "add_context", label: "Reviewed", detail: String(args.note).slice(0, 60) });
+  }
+
+  return mergeRefinement(card, args, steps);
+}
+
+export async function refineCard({ card, instruction, openRouter }) {
+  if (openRouter?.apiKey) {
+    try {
+      return await refineCardWithOpenRouter({ card, instruction, openRouter });
+    } catch (error) {
+      console.warn("AI refine failed, using local fallback:", error.message);
+    }
+  }
+
+  return refineCardLocally({ card, instruction });
+}
+
 export { SYSTEM_PROMPT, userNameFor };

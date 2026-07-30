@@ -25,6 +25,7 @@ enum CardStatus: String, Codable {
     case revised
     case delegated
     case completed
+    case resent
 
     var label: String {
         switch self {
@@ -34,6 +35,7 @@ enum CardStatus: String, Codable {
         case .revised: "Revision requested"
         case .delegated: "Delegated"
         case .completed: "Closed on GitHub"
+        case .resent: "Revised and resent"
         }
     }
 }
@@ -52,6 +54,8 @@ enum CardActionKind {
     case delegate
     case viewDetails
     case delete
+    case askAI
+    case reviseResend
 }
 
 struct DecisionCard: Identifiable, Codable, Hashable {
@@ -77,6 +81,10 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var isPending: Bool { status == .pending }
 
     var canDelete: Bool { status == .rejected }
+
+    // A revision request bounced back to the original sender — actionable, unlike
+    // AI-routed .revision cards which carry no revisionNote.
+    var isRevisionRequest: Bool { type == .revision && revisionNote != nil }
 
     var priorityLabel: String {
         switch priority {

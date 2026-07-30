@@ -110,8 +110,41 @@ struct FeedView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $viewModel.detailCard) { card in
-            CardDetailSheet(card: card)
-                .presentationDetents([.medium, .large])
+            CardDetailSheet(
+                card: card,
+                onSetPriority: card.isPending
+                    ? { newPriority in
+                        Task {
+                            await viewModel.setPriority(newPriority, for: card, appState: appState)
+                        }
+                    }
+                    : nil
+            )
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $viewModel.askAICard) { card in
+            CardFollowUpSheet(
+                card: card,
+                isAIConfigured: appState.aiService.isConfigured
+            ) { instruction in
+                Task {
+                    await viewModel.completeAskAI(for: card, instruction: instruction, appState: appState)
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationBackground(Theme.Colors.surface)
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $viewModel.resendCard) { card in
+            ResendComposerSheet(
+                card: card,
+                isAIConfigured: appState.aiService.isConfigured
+            ) { text, priority in
+                viewModel.beginResendDraft(text, priority: priority, for: card, appState: appState)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationBackground(Theme.Colors.surface)
+            .presentationDragIndicator(.visible)
         }
         .sheet(item: $viewModel.reviseCard) { card in
             ReviseSheet(card: card) { note in

@@ -1,10 +1,10 @@
 # Progress Checklist
 
-Last updated: 2026-07-27
+Last updated: 2026-07-30
 
 ## Overall
 
-- Current phase: Phase 5 complete, GitHub OAuth done
+- Current phase: Phase 7 complete (decision loop depth)
 - Core flow working: yes
 - GitHub sync working: yes (OAuth + Issues API)
 - Realtime sync working: yes (localhost WebSocket relay)
@@ -34,6 +34,13 @@ Last updated: 2026-07-27
 - [x] Agent route on cards
 - [x] AIService (OpenRouter via relay)
 - [ ] TestFlight or installable build
+
+## Phase 7 — Decision loop depth
+
+- [x] Priority change on received pending cards (detail sheet, synced to all clients)
+- [x] Ask AI on a card — follow-up instruction refines title/summary/context/priority via relay `/ai/refine`
+- [x] Revision requests return as actionable cards — revise and resend routes the updated card back to the requester
+- [x] Resent state tracked on the original revision-request card
 
 ## Demo script
 

@@ -56,6 +56,13 @@ On sign-in:
 5. Bob sees card via WebSocket
 6. Bob approves → GitHub Issue created → Alice gets result
 
+## Decision loop
+
+- **Decide**: approve → GitHub Issue, decline, revise (with a note), or delegate — swipe or tap
+- **Re-prioritize**: recipients can change a pending card's priority from the detail sheet; the change syncs to every client
+- **Ask AI**: a follow-up instruction on any pending card ("make this urgent, deadline moved") updates the card in place via the relay's `/ai/refine`
+- **Revise & resend**: a revision request comes back to the sender as an actionable card — edit the instruction, review the AI's redraft, and it routes straight back to whoever asked for changes
+
 ## Architecture
 
 ```
@@ -66,7 +73,7 @@ On sign-in:
        │         card events    └────────────────────┘
        └────────────────────────►
        │
-       ├── AIService → relay `/ai/route` → OpenRouter
+       ├── AIService → relay `/ai/route` + `/ai/refine` → OpenRouter
        └── GitHubService → Issues API
 ```
 

@@ -37,6 +37,27 @@ private struct RouteInstructionResponse: Decodable {
     let toolCalls: [AgentToolCall]?
 }
 
+private struct RefineCardRequest: Encodable {
+    struct CardPayload: Encodable {
+        let title: String
+        let summary: String
+        let context: String
+        let priority: String
+        let cardType: String
+    }
+
+    let card: CardPayload
+    let instruction: String
+}
+
+private struct RefineCardResponse: Decodable {
+    let title: String
+    let summary: String
+    let context: String
+    let priority: String
+    let toolCalls: [AgentToolCall]?
+}
+
 private struct HealthResponse: Decodable {
     let aiRouting: Bool?
     let aiModel: String?
@@ -178,6 +199,54 @@ final class AIService: ObservableObject {
             routingReason: routingReason,
             labels: routingResponse.labels ?? [],
             toolCalls: routingResponse.toolCalls ?? []
+        )
+    }
+
+    func refineCard(_ card: DecisionCard, instruction: String) async throws -> CardRefinementResult {
+        guard let backendBaseURL else {
+            throw AIServiceError.notConfigured
+        }
+        guard let url = URL(string: "/ai/refine", relativeTo: backendBaseURL) else {
+            throw AIServiceError.invalidResponse
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            RefineCardRequest(
+                card: .init(
+                    title: card.title,
+                    summary: card.summary,
+                    context: card.context,
+                    priority: card.priority.rawValue,
+                    cardType: card.type.rawValue
+                ),
+                instruction: instruction
+            )
+        )
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIServiceError.invalidResponse
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let message = parseServerError(data) ?? "AI card update failed."
+            throw AIServiceError.serverError(message)
+        }
+
+        let refinement = try JSONDecoder().decode(RefineCardResponse.self, from: data)
+        guard let priority = CardPriority(rawValue: refinement.priority) else {
+            throw AIServiceError.invalidResponse
+        }
+
+        return CardRefinementResult(
+            title: refinement.title,
+            summary: refinement.summary,
+            context: refinement.context,
+            priority: priority,
+            toolCalls: refinement.toolCalls ?? []
         )
     }
 

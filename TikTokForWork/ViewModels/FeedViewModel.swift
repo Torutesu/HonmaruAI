@@ -12,7 +12,13 @@ final class FeedViewModel: ObservableObject {
     @Published var detailCard: DecisionCard?
     @Published var delegateCard: DecisionCard?
     @Published var reviseCard: DecisionCard?
+    @Published var askAICard: DecisionCard?
+    @Published var resendCard: DecisionCard?
     @Published var reviewDraft: InstructionDraft?
+
+    // Set while a revise-and-resend draft is in flight so sendDraft can close
+    // out the originating revision-request card.
+    private var resendSourceID: String?
 
     private var cardService: DecisionCardService?
     private var githubService: GitHubService?
@@ -64,7 +70,10 @@ final class FeedViewModel: ObservableObject {
         detailCard = nil
         delegateCard = nil
         reviseCard = nil
+        askAICard = nil
+        resendCard = nil
         reviewDraft = nil
+        resendSourceID = nil
         draftTask?.cancel()
         isDrafting = false
     }
@@ -82,6 +91,12 @@ final class FeedViewModel: ObservableObject {
             return
         case .viewDetails:
             detailCard = card
+            return
+        case .askAI:
+            askAICard = card
+            return
+        case .reviseResend:
+            resendCard = card
             return
         default:
             break
@@ -152,6 +167,7 @@ final class FeedViewModel: ObservableObject {
 
         draftTask?.cancel()
         errorMessage = nil
+        resendSourceID = nil
         isDrafting = true
 
         draftTask = Task {
@@ -162,6 +178,89 @@ final class FeedViewModel: ObservableObject {
                 reviewDraft = draft
             }
         }
+    }
+
+    func beginResendDraft(
+        _ text: String,
+        priority: CardPriority,
+        for card: DecisionCard,
+        appState: AppState
+    ) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let sender = appState.currentUser else { return }
+
+        resendCard = nil
+        draftTask?.cancel()
+        errorMessage = nil
+        resendSourceID = card.id
+        isDrafting = true
+
+        // The revised card must go back to whoever asked for changes,
+        // regardless of where the AI would route the text.
+        let recipientID = card.senderUserID
+        let recipientName = DemoData.userName(for: recipientID)
+
+        draftTask = Task {
+            let draft = await draftInstruction(trimmed, priority: priority, appState: appState)
+            guard !Task.isCancelled else { return }
+            isDrafting = false
+            guard let draft else { return }
+
+            reviewDraft = InstructionDraft(
+                id: draft.id,
+                sourceText: draft.sourceText,
+                recipientUserID: recipientID,
+                cardType: draft.cardType,
+                title: draft.title,
+                summary: draft.summary,
+                context: draft.context,
+                priority: draft.priority,
+                agentRoute: "\(sender.name)'s AI → \(recipientName)'s AI",
+                routingReason: "Revised after \(recipientName)'s feedback",
+                labels: draft.labels,
+                toolCalls: draft.toolCalls
+            )
+        }
+    }
+
+    func setPriority(_ priority: CardPriority, for card: DecisionCard, appState: AppState) async {
+        guard let cardService, let userID else { return }
+
+        do {
+            _ = try await cardService.setPriority(cardID: card.id, to: priority, actorUserID: userID)
+            Haptics.light()
+            refreshCards(from: cardService)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func completeAskAI(for card: DecisionCard, instruction: String, appState: AppState) async {
+        guard let cardService, let userID else { return }
+        askAICard = nil
+
+        let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard appState.aiService.hasRelay else {
+            errorMessage = AIServiceError.notConfigured.localizedDescription
+            return
+        }
+
+        isProcessing = true
+        processingMessage = "Updating card"
+        errorMessage = nil
+
+        do {
+            let refinement = try await appState.aiService.refineCard(card, instruction: trimmed)
+            _ = try await cardService.applyRefinement(refinement, cardID: card.id, actorUserID: userID)
+            Haptics.success()
+            refreshCards(from: cardService)
+        } catch {
+            errorMessage = error.localizedDescription
+            Haptics.light()
+        }
+
+        isProcessing = false
     }
 
     func draftInstruction(_ text: String, priority: CardPriority, appState: AppState) async -> InstructionDraft? {
@@ -198,6 +297,10 @@ final class FeedViewModel: ObservableObject {
                 sourceText: draft.sourceText,
                 from: user
             )
+            if let resendSourceID {
+                await cardService.markResent(cardID: resendSourceID, actorUserID: user.id)
+                self.resendSourceID = nil
+            }
             refreshCards(from: cardService)
             Haptics.light()
         } catch {

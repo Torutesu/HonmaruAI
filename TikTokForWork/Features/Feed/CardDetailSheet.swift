@@ -2,7 +2,15 @@ import SwiftUI
 
 struct CardDetailSheet: View {
     let card: DecisionCard
+    var onSetPriority: ((CardPriority) -> Void)?
+    @State private var priority: CardPriority
     @Environment(\.dismiss) private var dismiss
+
+    init(card: DecisionCard, onSetPriority: ((CardPriority) -> Void)? = nil) {
+        self.card = card
+        self.onSetPriority = onSetPriority
+        _priority = State(initialValue: card.priority)
+    }
 
     var body: some View {
         NavigationStack {
@@ -56,11 +64,19 @@ struct CardDetailSheet: View {
                         }
                     }
 
+                    if card.isPending, onSetPriority != nil {
+                        PrioritySlider(priority: $priority)
+                            .onChange(of: priority) { _, newValue in
+                                guard newValue != card.priority else { return }
+                                onSetPriority?(newValue)
+                            }
+                    }
+
                     detailSection(title: "Routing") {
                         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                             metaRow("From", card.senderName)
                             metaRow("Type", card.type.label)
-                            metaRow("Priority", card.priority.rawValue.capitalized)
+                            metaRow("Priority", priority.rawValue.capitalized)
                             metaRow("Status", card.status.label)
                             metaRow("Created", DateFormatting.relative(card.createdAt))
                             if let route = card.agentRoute {

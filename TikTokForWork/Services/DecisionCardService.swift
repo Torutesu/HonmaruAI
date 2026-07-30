@@ -110,11 +110,7 @@ final class DecisionCardService: ObservableObject {
         case .createIssue: card.status = .approved
         case .reject: card.status = .rejected
         case .requestRevision: card.status = .revised
-        case .delegate:
-            return card
-        case .delete:
-            return card
-        case .viewDetails:
+        case .delegate, .delete, .viewDetails, .askAI, .reviseResend:
             return card
         }
 
@@ -143,21 +139,28 @@ final class DecisionCardService: ObservableObject {
             }
         }()
 
+        // A revision request goes back as an actionable card the sender can
+        // revise and resend; other outcomes are plain notifications.
+        let isRevisionRequest = card.status == .revised
         let responseCard = DecisionCard(
             id: UUID().uuidString,
             recipientUserID: card.senderUserID,
             senderUserID: actorUserID,
-            type: .notification,
+            type: isRevisionRequest ? .revision : .notification,
             title: card.title,
             summary: "\(DemoData.userName(for: actorUserID)) · \(statusLabel)",
             context: card.revisionNote ?? card.summary,
             status: .pending,
-            priority: .medium,
+            priority: isRevisionRequest ? card.priority : .medium,
             createdAt: .now,
             githubIssueNumber: card.githubIssueNumber,
             githubIssueURL: card.githubIssueURL,
             agentRoute: card.agentRoute,
-            routingReason: card.routingReason
+            routingReason: isRevisionRequest
+                ? "\(DemoData.userName(for: actorUserID)) asked for changes — revise and resend"
+                : card.routingReason,
+            sourceInstruction: card.sourceInstruction ?? card.summary,
+            revisionNote: isRevisionRequest ? card.revisionNote : nil
         )
 
         append(responseCard, for: card.senderUserID)
@@ -240,6 +243,59 @@ final class DecisionCardService: ObservableObject {
         await webSocketService?.publishCreated(responseCard)
         onCardsUpdated?()
         return card
+    }
+
+    @discardableResult
+    func setPriority(cardID: String, to priority: CardPriority, actorUserID: String) async throws -> DecisionCard {
+        guard var userCards = cardsByUser[actorUserID],
+              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
+            throw CardServiceError.cardNotFound
+        }
+
+        var card = userCards[index]
+        guard card.priority != priority else { return card }
+
+        card.priority = priority
+        userCards[index] = card
+        cardsByUser[actorUserID] = userCards
+        await webSocketService?.publishUpdated(card)
+        onCardsUpdated?()
+        return card
+    }
+
+    @discardableResult
+    func applyRefinement(
+        _ refinement: CardRefinementResult,
+        cardID: String,
+        actorUserID: String
+    ) async throws -> DecisionCard {
+        guard var userCards = cardsByUser[actorUserID],
+              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
+            throw CardServiceError.cardNotFound
+        }
+
+        var card = userCards[index]
+        card.title = refinement.title
+        card.summary = refinement.summary
+        card.context = refinement.context
+        card.priority = refinement.priority
+        userCards[index] = card
+        cardsByUser[actorUserID] = userCards
+        await webSocketService?.publishUpdated(card)
+        onCardsUpdated?()
+        return card
+    }
+
+    func markResent(cardID: String, actorUserID: String) async {
+        guard var userCards = cardsByUser[actorUserID],
+              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
+            return
+        }
+
+        userCards[index].status = .resent
+        cardsByUser[actorUserID] = userCards
+        await webSocketService?.publishUpdated(userCards[index])
+        onCardsUpdated?()
     }
 
     func delete(cardID: String, actorUserID: String) async throws {

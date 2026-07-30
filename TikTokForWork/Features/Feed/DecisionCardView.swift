@@ -148,7 +148,10 @@ struct DecisionCardView: View {
         ZStack {
             if dragOffset > 24 {
                 HStack {
-                    swipeLabel("Create issue", color: Theme.Colors.issueGreen)
+                    swipeLabel(
+                        card.isRevisionRequest ? "Revise and resend" : "Create issue",
+                        color: Theme.Colors.issueGreen
+                    )
                     Spacer()
                 }
                 .padding(.leading, Theme.Spacing.screen)
@@ -200,7 +203,7 @@ struct DecisionCardView: View {
 
                 if horizontal > swipeThreshold {
                     Haptics.success()
-                    onAction(.createIssue)
+                    onAction(card.isRevisionRequest ? .reviseResend : .createIssue)
                 } else if horizontal < -swipeThreshold {
                     Haptics.light()
                     onAction(.reject)
@@ -242,7 +245,30 @@ struct DecisionCardView: View {
 
     private var actionBlock: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            if card.isPending {
+            if card.isPending, card.isRevisionRequest {
+                PrimaryButton(title: "Revise and resend") {
+                    Haptics.light()
+                    onAction(.reviseResend)
+                }
+
+                HStack(spacing: 0) {
+                    SecondaryAction(title: "Decline", tint: Theme.Colors.reject) {
+                        Haptics.light()
+                        onAction(.reject)
+                    }
+
+                    SecondaryAction(title: "Ask AI") {
+                        Haptics.light()
+                        onAction(.askAI)
+                    }
+                }
+
+                Text("Swipe right to resend · left to decline")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.Spacing.xs)
+            } else if card.isPending {
                 GitHubPrimaryButton(title: "Create issue", enabled: true) {
                     Haptics.light()
                     onAction(.createIssue)
@@ -262,6 +288,11 @@ struct DecisionCardView: View {
                     SecondaryAction(title: "Delegate") {
                         Haptics.light()
                         onAction(.delegate)
+                    }
+
+                    SecondaryAction(title: "Ask AI") {
+                        Haptics.light()
+                        onAction(.askAI)
                     }
                 }
 

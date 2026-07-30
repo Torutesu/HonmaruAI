@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
-import { routeInstruction } from "./agentTools.js";
+import { routeInstruction, refineCard } from "./agentTools.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
@@ -227,6 +227,37 @@ const server = createServer(async (req, res) => {
       json(res, 200, routing);
     } catch (error) {
       json(res, 400, { message: error.message || "AI routing failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/ai/refine" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const card = body.card;
+      const instruction = body.instruction;
+
+      if (!card?.title || !card?.summary || !instruction) {
+        json(res, 400, { message: "Missing card or instruction." });
+        return;
+      }
+
+      const refinement = await refineCard({
+        card,
+        instruction,
+        openRouter: OPENROUTER_API_KEY
+          ? {
+              apiKey: OPENROUTER_API_KEY,
+              model: OPENROUTER_MODEL,
+              appName: OPENROUTER_APP_NAME,
+              appUrl: OPENROUTER_APP_URL,
+            }
+          : null,
+      });
+      json(res, 200, refinement);
+    } catch (error) {
+      json(res, 400, { message: error.message || "AI refine failed." });
     }
     return;
   }
