@@ -40,6 +40,10 @@ Set `RELAY_TOKEN` to require a shared secret:
 
 Leave it empty for localhost development. **Always set it before deploying** — without it anyone can read and wipe the card store.
 
+## Push notifications
+
+Set `APNS_KEY_ID`, `APNS_TEAM_ID`, and the p8 key (`APNS_KEY_P8` inline or `APNS_KEY_PATH`) to enable APNs (token-based auth over HTTP/2, zero dependencies; `APNS_ENV=sandbox|production`). The policy is deliberate: **only pending high/urgent decision cards ring**, and never for a user who is currently connected — their feed already shows the card. Question/note/medium cards stay silent. Device tokens are registered via `/push/register` (a token follows the active user when the demo switches users) and pruned automatically on APNs `410 Unregistered`. Without keys the relay runs with push off.
+
 ## Deploy
 
 ```bash
@@ -82,6 +86,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | GET | `/health` | Health check (`aiRouting`, `aiModel`, `authRequired`) |
 | GET | `/org` | Organization snapshot: users, nodes, edges |
 | POST | `/org/members` | Add a member (name, role, team, githubUsername) — broadcasts `org_updated` |
+| POST | `/push/register` | Register an APNs device token for a user |
 | GET | `/oauth/github/config` | OAuth client config for iOS |
 | POST | `/oauth/github/token` | Exchange code → access token |
 | POST | `/ai/route` | Route instruction via OpenRouter |

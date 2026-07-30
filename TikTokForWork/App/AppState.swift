@@ -9,6 +9,7 @@ final class AppState: ObservableObject {
     let cardService = DecisionCardService()
     let channelService = ChannelService()
     let orgService = OrganizationService()
+    let pushService = PushNotificationService()
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
@@ -40,6 +41,7 @@ final class AppState: ObservableObject {
         guard let backendBaseURL else { return }
         await aiService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
         await orgService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
+        pushService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
         await restoreSessionIfNeeded()
     }
 
@@ -55,6 +57,7 @@ final class AppState: ObservableObject {
         if let backendBaseURL {
             await aiService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
             await orgService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
+            pushService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
         }
 
         if isAuthenticated, let user = currentUser {
@@ -100,6 +103,7 @@ final class AppState: ObservableObject {
         }
         currentUser = resolved
         isAuthenticated = true
+        pushService.activate(for: resolved.id)
     }
 
     func switchUser(to user: User) async {
@@ -111,6 +115,7 @@ final class AppState: ObservableObject {
             cardService.bootstrap(for: user)
         }
         currentUser = user
+        pushService.activate(for: user.id)
     }
 
     func signOut() {

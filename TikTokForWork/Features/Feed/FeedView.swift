@@ -86,6 +86,15 @@ struct FeedView: View {
             )
             Task { await viewModel.syncGitHub() }
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: PushNotificationService.openCardNotification)
+        ) { note in
+            guard let cardID = note.object as? String,
+                  viewModel.cards.contains(where: { $0.id == cardID }) else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                viewModel.scrollPosition = cardID
+            }
+        }
         .sheet(isPresented: $showUserSwitcher) {
             UserSwitcherSheet(orgService: appState.orgService) { user in
                 Task {

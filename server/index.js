@@ -12,6 +12,7 @@ import {
   setActiveOrg,
 } from "./agentTools.js";
 import { createOrgStore } from "./org.js";
+import { createAPNS, createPushRegistry, shouldNotify } from "./push.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -52,6 +53,8 @@ const CHANNELS_STORE_PATH =
   process.env.CHANNELS_STORE_PATH || join(__dirname, "data", "channels.json");
 const ORG_STORE_PATH =
   process.env.ORG_STORE_PATH || join(__dirname, "data", "org.json");
+const PUSH_STORE_PATH =
+  process.env.PUSH_STORE_PATH || join(__dirname, "data", "push.json");
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
@@ -88,6 +91,47 @@ function persistOrg() {
       ["edges", serialized.edges],
     ])
   );
+}
+
+const apns = createAPNS(process.env);
+const persistedPush = loadPersistedStores(PUSH_STORE_PATH);
+const pushRegistry = createPushRegistry(
+  persistedPush ? Object.fromEntries(persistedPush.entries()) : null
+);
+const pushPersister = createPersister(PUSH_STORE_PATH);
+
+function persistPush() {
+  pushPersister.schedule(new Map([["tokens", pushRegistry.serialize().tokens]]));
+}
+
+function onlineUserIDsFor(orgId) {
+  return [...sessions.values()]
+    .filter((session) => session.orgId === orgId)
+    .map((session) => session.userId);
+}
+
+// Only pending high/urgent decisions ring, and never for a user who is
+// already connected — their feed shows the card in real time.
+function maybeNotify(orgId, card) {
+  if (!apns.configured) return;
+  if (!shouldNotify({ card, onlineUserIDs: onlineUserIDsFor(orgId) })) return;
+
+  for (const token of pushRegistry.tokensFor(card.recipientUserID)) {
+    apns
+      .send({
+        deviceToken: token,
+        title: card.title,
+        body: card.summary || "New decision for you",
+        payload: { cardID: card.id },
+      })
+      .then((result) => {
+        if (result.prune) {
+          pushRegistry.prune(token);
+          persistPush();
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 const persistedChannels = loadPersistedStores(CHANNELS_STORE_PATH);
@@ -276,6 +320,7 @@ const server = createServer(async (req, res) => {
       aiRouting: Boolean(OPENROUTER_API_KEY),
       aiModel: OPENROUTER_MODEL,
       authRequired: Boolean(RELAY_TOKEN),
+      push: apns.configured,
     });
     return;
   }
@@ -351,6 +396,25 @@ const server = createServer(async (req, res) => {
       json(res, 200, routing);
     } catch (error) {
       json(res, 400, { message: error.message || "AI routing failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/push/register" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const registered = pushRegistry.register(body.userId, body.deviceToken);
+
+      if (!registered) {
+        json(res, 400, { message: "Valid userId and deviceToken are required." });
+        return;
+      }
+
+      persistPush();
+      json(res, 200, { registered: true, pushEnabled: apns.configured });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Push registration failed." });
     }
     return;
   }
@@ -557,6 +621,7 @@ wss.on("connection", (ws) => {
         persister.schedule(orgStores);
         broadcast(session.orgId, "card_created", { card });
         logCardToChannel(session.orgId, card);
+        maybeNotify(session.orgId, card);
         break;
       }
 
@@ -717,6 +782,7 @@ async function respondAsAgent({ orgId, channel, message, mention }) {
     upsertCard(store, card);
     persister.schedule(orgStores);
     broadcast(orgId, "card_created", { card });
+    maybeNotify(orgId, card);
 
     cardID = card.id;
     toolCalls = [
@@ -761,6 +827,7 @@ function shutdown() {
       ["edges", serializedOrg.edges],
     ])
   );
+  pushPersister.flushNow(new Map([["tokens", pushRegistry.serialize().tokens]]));
   process.exit(0);
 }
 
@@ -781,5 +848,6 @@ server.listen(PORT, () => {
       : "AI routing: missing OPENROUTER_API_KEY"
   );
   console.log(RELAY_TOKEN ? "Relay auth: token required" : "Relay auth: open (set RELAY_TOKEN before deploying)");
+  console.log(apns.configured ? "Push: APNs configured" : "Push: off (set APNS_KEY_P8/APNS_KEY_ID/APNS_TEAM_ID)");
   console.log(`Card store: ${STORE_PATH}`);
 });

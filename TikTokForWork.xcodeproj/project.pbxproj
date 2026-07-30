@@ -15,6 +15,7 @@
 		A1B2C3D4E5F60718293A4B5C /* ChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6D /* ChatModels.swift */; };
 		1A2B3C4D5E6F708192A2B3C4 /* SpeechDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3C4D5E6F708192A2B3C4D5 /* SpeechDictation.swift */; };
 		3C4D5E6F708192A2B3C4D5E6 /* OrganizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D5E6F708192A2B3C4D5E6F7 /* OrganizationService.swift */; };
+		5E6F708192A2B3C4D5E6F708 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F708192A2B3C4D5E6F70819 /* PushNotificationService.swift */; };
 		C3D4E5F60718293A4B5C6D7E /* ChannelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F60718293A4B5C6D7E8F /* ChannelService.swift */; };
 		E5F60718293A4B5C6D7E8F90 /* ChannelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60718293A4B5C6D7E8F90A1 /* ChannelsView.swift */; };
 		18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6977E782E374C75800103F /* AppLogo.swift */; };
@@ -51,6 +52,7 @@
 		B2C3D4E5F60718293A4B5C6D /* ChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModels.swift; sourceTree = "<group>"; };
 		2B3C4D5E6F708192A2B3C4D5 /* SpeechDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechDictation.swift; sourceTree = "<group>"; };
 		4D5E6F708192A2B3C4D5E6F7 /* OrganizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationService.swift; sourceTree = "<group>"; };
+		6F708192A2B3C4D5E6F70819 /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
 		D4E5F60718293A4B5C6D7E8F /* ChannelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelService.swift; sourceTree = "<group>"; };
 		F60718293A4B5C6D7E8F90A1 /* ChannelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsView.swift; sourceTree = "<group>"; };
 		0ABD898A426994D5C516944E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -199,6 +201,7 @@
 				D4E5F60718293A4B5C6D7E8F /* ChannelService.swift */,
 				2E5DA40629B98A94601F06DC /* DecisionCardService.swift */,
 				4D5E6F708192A2B3C4D5E6F7 /* OrganizationService.swift */,
+				6F708192A2B3C4D5E6F70819 /* PushNotificationService.swift */,
 				E8E494243CEA2F9FA065D51B /* GitHubService.swift */,
 				CED63FE3692D666375D4EF19 /* SessionStore.swift */,
 				2B3C4D5E6F708192A2B3C4D5 /* SpeechDictation.swift */,
@@ -323,6 +326,7 @@
 				A1B2C3D4E5F60718293A4B5C /* ChatModels.swift in Sources */,
 				1A2B3C4D5E6F708192A2B3C4 /* SpeechDictation.swift in Sources */,
 				3C4D5E6F708192A2B3C4D5E6 /* OrganizationService.swift in Sources */,
+				5E6F708192A2B3C4D5E6F708 /* PushNotificationService.swift in Sources */,
 				C3D4E5F60718293A4B5C6D7E /* ChannelService.swift in Sources */,
 				E5F60718293A4B5C6D7E8F90 /* ChannelsView.swift in Sources */,
 				E6C4713C78AA0FF264BA9753 /* DecisionCardService.swift in Sources */,
@@ -414,6 +418,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TikTokForWork/TikTokForWork.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -439,6 +444,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TikTokForWork/TikTokForWork.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;

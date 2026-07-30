@@ -56,7 +56,9 @@ Last updated: 2026-07-30
 - [x] Question/note cards back to the sender; notification cards get reply + mark-as-read instead of issue actions
 - [x] Voice input: on-device dictation (Speech framework) on the composer, card replies, Ask AI, resend, and channel chat — transcript is editable before sending
 - [x] Real org graph: relay owns users/nodes/edges (persisted, `GET /org`, `POST /org/members`, `org_updated` broadcast); routing, mentions, and prompts derive from the live org; add-member UI in the user switcher; GitHub login auto-matches an org member
-- [ ] Push notifications — next
+- [x] Push notifications: APNs (p8 token auth, no deps) with an opinionated policy — only pending high/urgent cards, never to connected users; token registry persisted + pruned; iOS registration, foreground banners, tap-to-open-card deep link, aps-environment entitlement
+- [ ] Live APNs verification — needs an Apple Developer p8 key (server runs with push off until then)
+- [ ] Digest cards (AI summaries of followed channels) — next
 
 ## Phase 8 — Deployable relay
 

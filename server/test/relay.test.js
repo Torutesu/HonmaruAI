@@ -338,6 +338,37 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     ws.close();
   });
 
+  await t.test("push: register endpoint requires auth and stores tokens", async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+    };
+
+    const denied = await fetch(`${base}/push/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: "user-alice", deviceToken: "a".repeat(64) }),
+    });
+    assert.equal(denied.status, 401);
+
+    const ok = await fetch(`${base}/push/register`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ userId: "user-alice", deviceToken: "a".repeat(64) }),
+    });
+    assert.equal(ok.status, 200);
+    const registered = await ok.json();
+    assert.equal(registered.registered, true);
+    assert.equal(registered.pushEnabled, false);
+
+    const bad = await fetch(`${base}/push/register`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ userId: "user-alice", deviceToken: "nope" }),
+    });
+    assert.equal(bad.status, 400);
+  });
+
   await t.test("org: fetch, add member, routing follows", async () => {
     const headers = {
       "Content-Type": "application/json",
