@@ -4,11 +4,13 @@ Last updated: 2026-07-30
 
 ## Overall
 
-- Current phase: Phase 7 complete (decision loop depth)
-- Core flow working: yes
-- GitHub sync working: yes (OAuth + Issues API)
-- Realtime sync working: yes (localhost WebSocket relay)
-- AI routing: OpenRouter via relay server with keyword fallback
+- Current phase: Phase 10 complete (language, GitHub inflow, escalation, memory)
+- Core flow working: yes (instruction → routing → decision → result → GitHub)
+- GitHub: OAuth + Issues two-way sync + inbound webhooks
+- Realtime: authenticated WebSocket relay, deployable (Docker + persistence)
+- AI: routing / triage / reply interpretation / translation / digests /
+  recommendations via OpenRouter tool calling, deterministic fallbacks throughout
+- Server tests: 78 (unit + WebSocket integration)
 
 ## GitHub OAuth
 
@@ -90,9 +92,11 @@ Last updated: 2026-07-30
 
 | Area | Status | Notes |
 |------|--------|-------|
-| AI routing | Real + fallback | OpenRouter if `OPENROUTER_API_KEY` set |
-| Multi-user | Real | localhost WebSocket |
-| Org graph | Real UI | Demo org data |
-| GitHub auth | Real OAuth | Token exchange on localhost |
-| GitHub sync | Real | Issues create/update |
-| Backend host | Configurable | localhost default; deployable via Docker + `RELAY_TOKEN`, URL set in-app |
+| AI (routing/triage/reply/translation/digest/memory) | Real + fallback | OpenRouter tool calling; keyword fallbacks keep everything working offline |
+| Multi-user realtime | Real | Authenticated WebSocket relay, snapshots + deltas |
+| Org graph | Real data | Relay-owned, persisted, member add + language, dynamic routing |
+| GitHub auth | Real OAuth | Secret stays on relay |
+| GitHub sync | Real | Issues create/update/close-sync + inbound webhooks (HMAC) |
+| Push | Implemented, unverified live | APNs p8/HTTP2 unit-tested; needs Apple Developer key |
+| Backend host | Configurable | localhost default; Docker + `RELAY_TOKEN`, URL set in-app |
+| Persistence | Real (JSON) | Cards/channels/org/memory/tokens survive restarts |

@@ -1,120 +1,151 @@
 # TikTok for Work
 
-AI-native decision feed for teams. Humans talk to their AI; agents route Decision Cards across the org in real time.
+**An AI-native work OS in the shape of a decision feed.** Humans only talk to their own AI. The AI triages everything — decisions become swipeable cards routed to the right person, updates flow into AI-managed channels — and every outcome lands in GitHub. No channels to manage, no scrollback to owe, no notification firehose.
 
-## Stack
+> 📱 Interactive demo (HTML mock of the app): available as a Claude artifact — feed, routing, translation, webhooks, escalation, and AI recommendations, all clickable in the browser.
+
+## Product overview
+
+Slack assumes humans read channels. This product assumes they shouldn't have to:
+
+1. **You talk to your AI** (text or voice, in your language). It decides: is this a decision for someone, or an update to file?
+2. **Decisions become cards** in the right person's vertical feed — routed by the org graph, translated into *their* language, annotated with how they usually decide similar requests.
+3. **They swipe** (approve → GitHub Issue / decline), or reply in freeform words — "OK, but release after Friday" is a conditional approval; "Has auth signed off?" bounces back as a question while the decision stays pending.
+4. **Everything else stays quiet**: updates live in AI-managed channels where agents are members, unread activity arrives as one digest card, stuck decisions escalate to managers automatically, and only urgent/high pending decisions ever push.
+
+## Technologies used
 
 | Layer | Tech |
 |-------|------|
-| iOS | SwiftUI, ASWebAuthenticationSession, URLSession WebSocket |
-| Backend | Node.js localhost relay (`server/`) |
-| AI | OpenRouter `inclusionai/ling-3.0-flash:free` via relay server |
-| GitHub | OAuth via localhost + Issues API |
+| iOS | Swift / SwiftUI (iOS 17), URLSession WebSocket, ASWebAuthenticationSession, Speech framework, UserNotifications, Keychain |
+| Backend | Node.js 22 relay (`server/`) — zero runtime dependencies except `ws`; Dockerfile included |
+| AI | OpenRouter free tier (`inclusionai/ling-3.0-flash:free`) via tool calling — routing, triage, reply interpretation, translation, digests, recommendations. Deterministic keyword fallbacks for every AI path |
+| GitHub | OAuth (secret stays server-side), Issues API (create/update/two-way state sync), inbound webhooks (HMAC-verified) |
+| Push | APNs over HTTP/2 with p8 token auth — implemented with `node:crypto` + `node:http2`, no SDK |
+| Project | XcodeGen, `node --test` (78 server tests incl. WebSocket integration) |
 
-## Quick start
+## Setup instructions
 
-### 1. Configure GitHub OAuth app
+### 1. GitHub OAuth app
 
-1. [GitHub → Settings → Developer settings → OAuth Apps](https://github.com/settings/developers) → **New OAuth App**
-2. Homepage URL: `http://localhost:8080`
-3. Callback URL: `tiktokforwork://oauth/callback`
-4. Copy Client ID and Client secret
+[GitHub → Developer settings → OAuth Apps](https://github.com/settings/developers) → New OAuth App
+Homepage `http://localhost:8080` · Callback `tiktokforwork://oauth/callback` → copy Client ID/Secret.
 
-### 2. Start localhost backend
+### 2. Relay server
 
 ```bash
 cd server
-cp .env.example .env
-# paste GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET into .env
-# paste OPENROUTER_API_KEY into .env (see server/.env.example)
+cp .env.example .env    # paste GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / OPENROUTER_API_KEY
 npm install
-npm start
+npm start               # http+ws on 127.0.0.1:8080
+npm test                # 78 tests
 ```
 
-- HTTP: `http://127.0.0.1:8080`
-- WebSocket: `ws://127.0.0.1:8080`
+Everything degrades gracefully: no OpenRouter key → keyword routing; no APNs key → push off; no webhook secret → dev-open endpoint.
 
-### 3. Run iOS app
+### 3. iOS app
 
 ```bash
 xcodegen generate
 open TikTokForWork.xcodeproj
 ```
 
-On sign-in:
-
-1. **Sign in with GitHub** (opens secure browser sheet)
-2. Pick **repository** from your GitHub account
-3. **Relay server** — defaults to `ws://127.0.0.1:8080` for simulators; tap the relay address at the bottom of the sign-in screen to point at a deployed relay (`wss://…`) and set its token. Settings persist in the Keychain.
+Sign in with GitHub → pick a repository → Continue. The relay defaults to `ws://127.0.0.1:8080` (simulator); tap the relay address on the sign-in screen to point at a deployed relay (`wss://…` + token, stored in Keychain, with a connection test).
 
 ### 4. Two-simulator demo
 
-1. Start relay server
-2. Simulator A → Alice
-3. Simulator B → Bob
-4. Alice → Message your AI → natural language instruction
-5. Bob sees card via WebSocket
-6. Bob approves → GitHub Issue created → Alice gets result
+Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask Bob to fix the login bug before Friday"* → Bob's feed gets the card in real time → Bob swipes right → GitHub Issue → Alice gets the result card. Say something that isn't an ask — *"relay migration went well today"* — and it files into a channel instead.
 
-## Channels — the AI-native chat behind the feed
+## Key features
 
-The vertical feed is the primary way to work; behind it sits a Slack-like channel space (menu → **Channels**) that is AI-native from the start:
+**The feed — one card, one decision**
+- Vertical full-screen cards: type, priority, sender, agent route, and *why you* (routing reason) on every card
+- Swipe right = approve (→ GitHub Issue, updated on later state changes, closed issues sync back), left = decline; buttons for revise (with note), delegate, priority change, Ask AI (`/ai/refine` updates the card in place)
+- **Freeform replies** (`/ai/reply`): conditional approvals with the condition recorded on the card and the Issue, rejections with reasons, questions that go back as cards while the decision stays pending, notes. Works in Japanese too — 「承認。ただし金曜以降で」
+- **Revise & resend loop**: a revision request returns as an actionable card; the redraft routes straight back to whoever asked
+- **AI recommendations**: your agent learns from every decision you make and attaches a one-tap suggestion when your history shows a clear pattern. Advisory only
 
-- **"Tell your AI" is the only inbox.** The AI triages everything you say (`/ai/ingest`): a decision becomes a card to review, a status update is filed to the right channel — and a genuinely new topic gets its own channel created behind the scenes
-- Humans and **AI agents share the same channels**. Mention `@ai` (or `@ai-alice` for a personal agent) and the agent replies with conversation context
-- When the conversation surfaces a real ask, the agent **files a decision card straight from chat** — it goes through the same routing pipeline and lands in the right person's feed, linked back to the conversation
-- Every routed decision leaves a trail: the sender's AI posts a log message in the card's home channel
-- Channels are meant to be AI-managed: reading them is optional, deciding on cards is the work
-- **Digests close the loop**: activity you haven't seen arrives as one quiet AI-summarized card in your feed (`/digest/run` or `DIGEST_INTERVAL_MINUTES`) — skim it, reply, or mark as read. You never owe the scrollback anything
+**Channels — the AI-native chat behind the feed**
+- "Tell your AI" is the only inbox: `/ai/ingest` triages input — decisions become cards, updates are filed to the best channel, genuinely new topics get channels auto-created
+- Humans and **agents share the channels**: mention `@ai` (or `@ai-alice`) and the agent replies with conversation context — and **files decision cards straight from chat** when a real ask surfaces
+- Every routed decision leaves a log message in its home channel; unread activity arrives as **one quiet digest card** (`/digest/run`)
 
-## Decision loop
+**The org is data, not vibes**
+- The relay owns the org graph (people, teams, personal agents, manages/canApprove edges) — members added at runtime are instantly routable by name, role, and team; GitHub sign-in auto-matches a member
+- **SLA escalation**: pending cards past their SLA (urgent 2h · high 8h · medium 24h) climb the manages edge — the manager gets an actionable copy
+- **Per-user language**: every card is translated at delivery into the recipient's language; digests, agent replies, and recommendations are generated in it. A Japanese CEO decides in Japanese on the card an English engineer sent in English
 
-- **Decide**: approve → GitHub Issue, decline, revise (with a note), or delegate — swipe or tap
-- **Reply in your own words**: a reply box on every pending card (`/ai/reply`) — "OK, but release after Friday" approves with the condition recorded on the card and the Issue; "Has auth signed off?" sends a question card back to the sender while the decision stays pending; plain remarks become notes. Questions and notes arrive as lightweight cards with reply + mark-as-read, closing the loop without a chat thread
-- **Voice everywhere**: a mic on the composer, card replies, Ask AI, resend, and channel chat — on-device transcription (Speech framework), and the transcript lands in the field for editing before anything is sent. Works on physical devices; simulator dictation support varies
-- **Notifications that respect you**: APNs pushes only pending high/urgent decisions, and never while you're connected — chat, notes, and medium/low cards stay silent. Tapping a push opens the exact card (see [server/README.md](server/README.md) for APNs setup)
-- **Everyone works in their own language**: set your language in the user switcher — every card is translated at delivery, digests are written in your language, and agents answer in it. A Japanese CEO decides in Japanese on the same card an English engineer sent in English
-- **GitHub feeds the queue**: review requests, issue assignments, and CI failures arrive as decision cards automatically via `/github/webhook` — the org's `githubUsername` mapping routes them to the right feed
-- **Nothing rots in a queue**: pending cards past their SLA (urgent 2h · high 8h · medium 24h) automatically escalate up the org graph — the recipient's manager gets an actionable copy, translated into their language, pushed if they're offline
-- **Your AI learns how you decide**: every decision trains your agent's memory. New cards arrive with a one-tap recommendation when your history shows a clear pattern — "Your AI suggests: Approve · you approved the last 3 review requests from Alice". Advisory only; the human always decides
-- **Re-prioritize**: recipients can change a pending card's priority from the detail sheet; the change syncs to every client
-- **Ask AI**: a follow-up instruction on any pending card ("make this urgent, deadline moved") updates the card in place via the relay's `/ai/refine`
-- **Revise & resend**: a revision request comes back to the sender as an actionable card — edit the instruction, review the AI's redraft, and it routes straight back to whoever asked for changes
+**Inputs and outputs**
+- **Voice everywhere**: on-device transcription (Speech framework) on the composer, replies, Ask AI, resend, and chat — transcript is editable before sending
+- **GitHub webhooks** (`/github/webhook`, HMAC): review requests, issue assignments, and CI failures arrive as cards automatically
+- **Quiet push**: APNs only for pending high/urgent decisions, never while you're connected; tapping opens the exact card
 
-## Architecture
+## System architecture
 
 ```
-┌─────────────┐   OAuth code    ┌────────────────────┐
-│  iOS Client │───────────────►│ localhost:8080     │
-│  (SwiftUI)  │◄──access token─│ GitHub token swap  │
-└──────┬──────┘                │ WebSocket relay    │
-       │         card events    └────────────────────┘
-       └────────────────────────►
-       │
-       ├── AIService → relay `/ai/route` + `/ai/refine` → OpenRouter
-       └── GitHubService → Issues API
+            speech ──┐                                ┌── GitHub OAuth (token swap)
+ ┌────────────────┐  ▼   WebSocket (cards/channels/org/presence)  ┌──────────────────────┐
+ │  iOS (SwiftUI) │◄────────────────────────────────────────────►│  Relay (Node.js)     │
+ │  feed·channels │      HTTPS /ai/* /org/* /push /digest        │  deliverCard():      │
+ │  org·settings  │─────────────────────────────────────────────►│   translate → store  │
+ └───────┬────────┘                                              │   → broadcast → log  │
+         │ Issues API (user's OAuth token)                       │   → recommend → push │
+         ▼                                                       │  JSON persistence    │
+ ┌────────────────┐        webhooks (HMAC)                       │  org graph · memory  │
+ │     GitHub     │────────────────────────────────────────────► │  SLA sweep · digest  │
+ └────────────────┘                                              └──────────┬───────────┘
+                                                                            │ tool calling
+                                                                            ▼
+                                                                   OpenRouter (free tier)
 ```
 
-Client secret stays on the relay server only.
+- All state (cards, channels, org, memory, push tokens) lives on the relay, persisted to JSON with debounced writes; clients get snapshots on join and deltas over WebSocket.
+- Every card creation path converges on one `deliverCard()` pipeline: **translate → persist → broadcast → channel log → recommend → push-if-warranted**.
+- All AI calls are relay-side tool calls with strict schemas and validated outputs; the OpenRouter key and GitHub client secret never ship in the app.
 
-## Deploy & ship
+## Implemented scope (real, working)
 
-**Relay** — see [server/README.md](server/README.md). The relay persists cards to disk, honors `PORT`, requires a `RELAY_TOKEN` when set, and ships with a Dockerfile — it runs as-is on Fly.io / Render / Railway. Terminate TLS at the platform so the app connects over `wss://`.
+- Full core flow: instruction → AI routing → cross-client card delivery → decision → result back to sender → GitHub Issue (create/update/two-way close sync)
+- GitHub OAuth + repository picker; session persistence in Keychain
+- Real-time multi-user over an authenticated WebSocket relay (token auth, reconnection, presence, snapshots)
+- Channels with participating agents, universal triage, auto-created channels, digests
+- Freeform reply interpretation, revise/resend loop, delegation, priority editing, Ask-AI refinement
+- Live org graph with member add, dynamic routing, GitHub identity mapping
+- Delivery-time translation, per-user languages (JA offline fallbacks included)
+- SLA escalation, decision memory + recommendations, GitHub webhook inflow
+- APNs push (implementation + tests), voice input, deployable relay (Docker, persistence, auth)
+- 78 server tests including end-to-end WebSocket integration suites
 
-**App on a real device / TestFlight**
+## Simplified / mocked scope
 
-1. Deploy the relay and note its `wss://` URL and `RELAY_TOKEN`
-2. Update the GitHub OAuth app's Homepage URL to the relay's `https://` URL (callback stays `tiktokforwork://oauth/callback`)
-3. `xcodegen generate` → open the project → set your team in Signing & Capabilities
-4. Archive → distribute via TestFlight (or run directly on device)
-5. In the app's sign-in screen, tap the relay address → enter the `wss://` URL + token → Test connection → Save
+- **AI quality** rides a free-tier model; every AI feature has a deterministic keyword fallback (English + basic Japanese) that keeps the product functional offline — but fallback routing/triage is heuristic, not smart
+- **GitHub sync targets Issues only** (assignment allows any one of Issues/PRs/Discussions/Projects); webhooks are one repo → one org
+- **Single organization** per relay (`core-team`); org edit UI covers add-member + language (no delete/re-org UI)
+- **JSON-file persistence** (fine for a team; SQLite is the obvious next step at scale)
+- **Push delivery untested against live APNs** (needs an Apple Developer p8 key — the JWT/HTTP2 implementation is unit-tested, including signature verification)
+- **Demo identities**: users are org members, not authenticated accounts — anyone on the relay can act as anyone (auth = relay token). Fine for the demo org model, not for production
+- The HTML demo simulates the relay in-browser; simulator dictation depends on the host
 
-## Testing
+## Ingenious points / efforts made
 
-```bash
-cd server && npm test   # routing, refine, persistence, auth integration
-```
+1. **The notification policy is the product thesis, executable.** Only pending high/urgent decisions push, never to connected users, chat never rings, FYI arrives as one digest card. "Slack's notification problem" isn't solved by settings — it's solved by architecture.
+2. **One delivery pipeline.** Translation, channel trails, recommendations, and push all hang off a single `deliverCard()`; every new inflow (webhooks, escalations, digests) inherited the full feature set for free.
+3. **Human-in-the-loop AI, everywhere.** The AI drafts, routes, interprets, recommends — but every consequential step (send, decide, accept recommendation) is a human tap. Freeform replies are interpreted into structured decisions instead of being forwarded raw, preserving "humans only talk to their AI" even mid-conversation.
+4. **Graceful degradation as a discipline.** No AI key, no APNs key, no webhook secret, no network — every feature has a defined fallback, which also made the whole system testable (78 tests run with zero external services).
+5. **Language as a first-class org property**, not a UI locale: translation happens at delivery per recipient, so one card exists in each reader's language — including recommendations and escalations.
+6. **AI-assisted development**: built in ~3 days of sessions with Claude (planning → implementation → tests → docs per feature), with WebSocket integration tests hardened against real race conditions found along the way.
 
-## Progress
+## Areas for future improvement
 
-See [PROGRESS.md](PROGRESS.md)
+- Live APNs + TestFlight distribution (needs Apple Developer credentials; relay deploy is `docker build` away)
+- Real accounts: GitHub identity → org member binding with per-user auth on the relay
+- Autopilot: recommendations already predict decisions — graduate high-confidence, low-risk cards to AI pre-approval with human review in the digest
+- Decision ledger: search/timeline over the decision history (data already persisted), lead-time metrics, bottleneck visibility
+- PRs/Discussions/Projects as sync targets; multi-repo and multi-org
+- SQLite persistence, agent proactivity (unprompted context from past decisions), calendar/email inflow
+
+## More
+
+- Relay internals, endpoints, and every env var: [server/README.md](server/README.md)
+- Feature-by-feature progress log: [PROGRESS.md](PROGRESS.md)
+- Design system: [design.md](design.md)
