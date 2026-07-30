@@ -88,7 +88,7 @@ function transcriptFor(sections) {
     .join("\n\n");
 }
 
-export async function generateDigest({ sections, userName, openRouter }) {
+export async function generateDigest({ sections, userName, language, openRouter }) {
   if (!openRouter?.apiKey) {
     return fallbackDigest(sections);
   }
@@ -110,7 +110,8 @@ export async function generateDigest({ sections, userName, openRouter }) {
           {
             role: "system",
             content:
-              "You write channel digests for a teammate who hasn't been reading chat. Call write_digest once. Lead with what matters to them; skip pleasantries.",
+              "You write channel digests for a teammate who hasn't been reading chat. Call write_digest once. Lead with what matters to them; skip pleasantries." +
+              (language ? ` Write the digest in this language: ${language}.` : ""),
           },
           {
             role: "user",

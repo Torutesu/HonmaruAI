@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -10,6 +11,7 @@ import WebSocket from "ws";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVER_PATH = join(__dirname, "..", "index.js");
 const TOKEN = "test-relay-token";
+const HOOK_SECRET = "test-hook-secret";
 
 function startServer(port, storePath) {
   const child = spawn(process.execPath, [SERVER_PATH], {
@@ -20,6 +22,7 @@ function startServer(port, storePath) {
       CARDS_STORE_PATH: storePath,
       GITHUB_CLIENT_ID: "",
       GITHUB_CLIENT_SECRET: "",
+      GITHUB_WEBHOOK_SECRET: HOOK_SECRET,
       OPENROUTER_API_KEY: "",
     },
     stdio: "ignore",
@@ -382,6 +385,85 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     const secondResult = await second.json();
     assert.equal(secondResult.digests, 0);
     ws.close();
+  });
+
+  await t.test("github webhook: signed review request lands as a card", async () => {
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-bob", token: TOKEN } })
+    );
+    await collectMessages(ws, 2);
+
+    const cardPromise = collectUntil(ws, (messages) =>
+      messages.some(
+        (message) =>
+          message.type === "card_created" &&
+          message.payload.card.recipientUserID === "user-bob" &&
+          String(message.payload.card.title).includes("PR #12")
+      )
+    );
+    cardPromise.catch(() => {});
+
+    const body = JSON.stringify({
+      action: "review_requested",
+      repository: { full_name: "torutesu/honmaruai" },
+      sender: { login: "alice" },
+      requested_reviewer: { login: "bob" },
+      pull_request: {
+        number: 12,
+        title: "Relay deploy config",
+        html_url: "https://github.com/torutesu/honmaruai/pull/12",
+        head: { ref: "deploy" },
+      },
+    });
+    const signature =
+      "sha256=" + createHmac("sha256", HOOK_SECRET).update(body).digest("hex");
+
+    // Note: no relay bearer token — webhooks authenticate via HMAC only.
+    const response = await fetch(`${base}/github/webhook`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GitHub-Event": "pull_request",
+        "X-Hub-Signature-256": signature,
+      },
+      body,
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.cards, 1);
+
+    const events = await cardPromise;
+    const card = events.find((message) => message.type === "card_created").payload.card;
+    assert.equal(card.priority, "high");
+    assert.equal(card.senderUserID, "user-alice");
+
+    const badSignature = await fetch(`${base}/github/webhook`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GitHub-Event": "pull_request",
+        "X-Hub-Signature-256": "sha256=" + "0".repeat(64),
+      },
+      body,
+    });
+    assert.equal(badSignature.status, 401);
+    ws.close();
+  });
+
+  await t.test("org language endpoint updates and broadcasts", async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+    };
+    const response = await fetch(`${base}/org/language`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ userId: "user-alice", language: "日本語" }),
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.user.language, "日本語");
   });
 
   await t.test("push: register endpoint requires auth and stores tokens", async () => {

@@ -40,6 +40,20 @@ Set `RELAY_TOKEN` to require a shared secret:
 
 Leave it empty for localhost development. **Always set it before deploying** — without it anyone can read and wipe the card store.
 
+## Language — everyone decides in their own language
+
+Each member has a `language` (set at add-member time or via `POST /org/language`). Cards are authored in the sender's language and **translated at delivery time** into the recipient's language (`translate.js`, OpenRouter tool call — names, numbers, and IDs preserved; same-language pairs skip the hop). Digests are generated directly in the recipient's language, in-channel agents reply in the mention author's language, and the offline reply interpreter understands Japanese decision phrases (承認/却下/〜？/修正). A Japanese CEO reads and decides in Japanese; an English engineer receives that decision in English.
+
+## GitHub webhooks — work flows in by itself
+
+Point a repository webhook (JSON, secret = `GITHUB_WEBHOOK_SECRET`) at `/github/webhook`. Handled events:
+
+- `pull_request` / `review_requested` → **approval card** for the requested reviewer (high)
+- `issues` / `assigned` → **task card** for the assignee (medium)
+- `workflow_run` failure → **CI card** for the actor (high)
+
+Recipients resolve via each member's `githubUsername`; events for unknown logins are dropped. Cards flow through the normal delivery path — translation, channel trail, and the push policy all apply.
+
 ## Push notifications
 
 Set `APNS_KEY_ID`, `APNS_TEAM_ID`, and the p8 key (`APNS_KEY_P8` inline or `APNS_KEY_PATH`) to enable APNs (token-based auth over HTTP/2, zero dependencies; `APNS_ENV=sandbox|production`). The policy is deliberate: **only pending high/urgent decision cards ring**, and never for a user who is currently connected — their feed already shows the card. Question/note/medium cards stay silent. Device tokens are registered via `/push/register` (a token follows the active user when the demo switches users) and pruned automatically on APNs `410 Unregistered`. Without keys the relay runs with push off.
@@ -92,6 +106,8 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | POST | `/org/members` | Add a member (name, role, team, githubUsername) — broadcasts `org_updated` |
 | POST | `/push/register` | Register an APNs device token for a user |
 | POST | `/digest/run` | Generate digest cards now (also runs on `DIGEST_INTERVAL_MINUTES`) |
+| POST | `/org/language` | Set a member's language — future cards arrive translated |
+| POST | `/github/webhook` | GitHub events → decision cards (HMAC-verified, no bearer token) |
 | GET | `/oauth/github/config` | OAuth client config for iOS |
 | POST | `/oauth/github/token` | Exchange code → access token |
 | POST | `/ai/route` | Route instruction via OpenRouter |

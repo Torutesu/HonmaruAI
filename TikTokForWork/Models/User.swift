@@ -6,5 +6,6 @@ struct User: Identifiable, Codable, Hashable {
     var role: String
     var teamID: String?
     var githubUsername: String?
+    var language: String?
     var agentID: String { "agent-\(id)" }
 }

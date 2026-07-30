@@ -60,6 +60,11 @@ Last updated: 2026-07-30
 - [ ] Live APNs verification — needs an Apple Developer p8 key (server runs with push off until then)
 - [x] Digest cards: unseen channel activity → one low-priority AI-summarized card per user (`/digest/run` + `DIGEST_INTERVAL_MINUTES`), reply/mark-as-read, never pushes
 
+## Phase 10 — Language & GitHub inflow
+
+- [x] Per-user language: delivery-time card translation (translate.js), digests generated in the recipient's language, agents reply in the author's language, JA offline reply patterns; language editable in the user switcher
+- [x] GitHub webhooks (`/github/webhook`, HMAC-verified): review requests → approval cards, issue assignments → task cards, CI failures → high-priority cards; routed via githubUsername mapping through the normal delivery path
+
 ## Phase 8 — Deployable relay
 
 - [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)

@@ -934,15 +934,20 @@ const REPLY_SYSTEM_PROMPT = `You interpret what a decision-card recipient means 
 
 const APPROVE_PATTERN =
   /^(approve[d]?|lgtm|ok(ay)?|yes|yep|ship it|looks good|sounds good|go ahead|sgtm|do it)\b/i;
+const APPROVE_PATTERN_JA = /^(承認|はい|了解|オッケー|いいよ|進めて|お願いします)/;
 const REJECT_PATTERN = /^(reject(ed)?|decline[d]?|no\b|nope|pass|not now|won't|wont)/i;
+const REJECT_PATTERN_JA = /^(却下|だめ|ダメ|無理|見送り|やめ)/;
 const REVISE_KEYWORDS = /\b(revise|rework|redo|resend|split|smaller|scope down|change (this|it|the))\b/i;
+const REVISE_KEYWORDS_JA = /(修正|分割|やり直し|作り直し|再送)/;
 
 function stripDecisionPrefix(text) {
   return String(text || "")
     .replace(APPROVE_PATTERN, "")
+    .replace(APPROVE_PATTERN_JA, "")
     .replace(REJECT_PATTERN, "")
-    .replace(/^[\s,.:;—-]+/, "")
-    .replace(/^(but|though|however)\s+/i, "")
+    .replace(REJECT_PATTERN_JA, "")
+    .replace(/^[\s,.:;、。—-]+/, "")
+    .replace(/^(but|though|however|ただし|でも)\s*/i, "")
     .trim();
 }
 
@@ -950,16 +955,16 @@ export function interpretReplyLocally({ reply }) {
   const cleaned = String(reply || "").trim();
   const lower = cleaned.toLowerCase();
 
-  if (APPROVE_PATTERN.test(lower)) {
+  if (APPROVE_PATTERN.test(lower) || APPROVE_PATTERN_JA.test(cleaned)) {
     return { action: "approve", note: stripDecisionPrefix(cleaned) };
   }
-  if (REJECT_PATTERN.test(lower)) {
+  if (REJECT_PATTERN.test(lower) || REJECT_PATTERN_JA.test(cleaned)) {
     return { action: "reject", note: stripDecisionPrefix(cleaned) };
   }
-  if (/\?\s*$/.test(cleaned)) {
+  if (/[?？]\s*$/.test(cleaned)) {
     return { action: "question", note: cleaned };
   }
-  if (REVISE_KEYWORDS.test(lower)) {
+  if (REVISE_KEYWORDS.test(lower) || REVISE_KEYWORDS_JA.test(cleaned)) {
     return { action: "revise", note: cleaned };
   }
   return { action: "comment", note: cleaned };

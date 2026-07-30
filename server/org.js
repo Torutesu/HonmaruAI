@@ -4,10 +4,10 @@ import { randomUUID } from "node:crypto";
 // works with zero setup. Replaced by persisted data once members are added.
 export const DEFAULT_ORG = {
   users: [
-    { id: "user-alice", name: "Alice", role: "Product Manager", teamID: "team-core", githubUsername: "alice" },
-    { id: "user-bob", name: "Bob", role: "Engineer", teamID: "team-core", githubUsername: "bob" },
-    { id: "user-carol", name: "Carol", role: "Designer", teamID: "team-core", githubUsername: "carol" },
-    { id: "user-dana", name: "Dana", role: "Engineering Lead", teamID: "team-core", githubUsername: "dana" },
+    { id: "user-alice", name: "Alice", role: "Product Manager", teamID: "team-core", githubUsername: "alice", language: "en" },
+    { id: "user-bob", name: "Bob", role: "Engineer", teamID: "team-core", githubUsername: "bob", language: "en" },
+    { id: "user-carol", name: "Carol", role: "Designer", teamID: "team-core", githubUsername: "carol", language: "en" },
+    { id: "user-dana", name: "Dana", role: "Engineering Lead", teamID: "team-core", githubUsername: "dana", language: "en" },
   ],
   nodes: [
     { id: "user-alice", kind: "person", label: "Alice · Product" },
@@ -131,7 +131,16 @@ export function createOrgStore(initial) {
       return edge ? this.findUser(edge.fromID) : null;
     },
 
-    addMember({ name, role, team, githubUsername }) {
+    setLanguage(userID, language) {
+      const user = this.findUser(userID);
+      if (!user) return false;
+      const cleaned = String(language || "").trim().slice(0, 30);
+      if (!cleaned) return false;
+      user.language = cleaned;
+      return true;
+    },
+
+    addMember({ name, role, team, githubUsername, language }) {
       const cleanedName = String(name || "").trim().slice(0, 60);
       const cleanedRole = String(role || "").trim().slice(0, 60);
       if (!cleanedName || !cleanedRole) return null;
@@ -162,6 +171,7 @@ export function createOrgStore(initial) {
         role: cleanedRole,
         teamID: teamNode?.id || "team-core",
         githubUsername: String(githubUsername || "").trim() || undefined,
+        language: String(language || "").trim().slice(0, 30) || "en",
       };
       state.users.push(user);
 

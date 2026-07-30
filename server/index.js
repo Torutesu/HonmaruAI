@@ -14,6 +14,8 @@ import {
 import { createOrgStore } from "./org.js";
 import { createAPNS, createPushRegistry, shouldNotify } from "./push.js";
 import { collectDigestSections, generateDigest, buildDigestCard } from "./digest.js";
+import { translateCard } from "./translate.js";
+import { verifyWebhookSignature, cardsFromWebhook } from "./githubWebhook.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -47,6 +49,11 @@ const ORG_ID = "core-team";
 // requires `Authorization: Bearer <token>` and WebSocket joins must carry
 // the token in the join payload. Required for any non-localhost deploy.
 const RELAY_TOKEN = process.env.RELAY_TOKEN || "";
+
+// HMAC secret for GitHub webhooks (X-Hub-Signature-256). Unset = accept all
+// (dev only) — the endpoint itself is exempt from the bearer-token gate
+// because GitHub cannot send it.
+const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || "";
 
 const STORE_PATH =
   process.env.CARDS_STORE_PATH || join(__dirname, "data", "cards.json");
@@ -170,6 +177,7 @@ async function runDigest() {
     const digest = await generateDigest({
       sections,
       userName: user.name,
+      language: user.language,
       openRouter: openRouterConfig(),
     });
     const card = buildDigestCard({ user, digest, sectionCount: sections.length });
@@ -250,6 +258,36 @@ function logCardToChannel(orgId, card) {
     persistChannels();
     broadcast(orgId, "channel_message", { message });
   }
+}
+
+// Translate only when the recipient has a language and it plausibly differs
+// from the sender's — same-language pairs skip the extra AI hop entirely.
+function targetLanguageFor(card) {
+  const recipient = orgStore.findUser(card.recipientUserID);
+  if (!recipient?.language) return null;
+  const sender = orgStore.findUser(card.senderUserID);
+  if (sender?.language && sender.language === recipient.language) return null;
+  return recipient.language;
+}
+
+// Single delivery path for every card that reaches the store: translate for
+// the recipient, persist, broadcast, leave the channel trail, maybe push.
+async function deliverCard(orgId, card, { log = true } = {}) {
+  const translated = await translateCard({
+    card,
+    targetLanguage: targetLanguageFor(card),
+    openRouter: openRouterConfig(),
+  });
+
+  const store = getStore(orgId);
+  upsertCard(store, translated);
+  persister.schedule(orgStores);
+  broadcast(orgId, "card_created", { card: translated });
+  if (log) {
+    logCardToChannel(orgId, translated);
+  }
+  maybeNotify(orgId, translated);
+  return translated;
 }
 
 function openRouterConfig() {
@@ -386,6 +424,30 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/github/webhook" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const signature = req.headers["x-hub-signature-256"];
+      if (!verifyWebhookSignature({ payload: raw, signature, secret: GITHUB_WEBHOOK_SECRET })) {
+        json(res, 401, { message: "Invalid webhook signature." });
+        return;
+      }
+
+      const payload = raw ? JSON.parse(raw) : {};
+      const event = String(req.headers["x-github-event"] || "");
+      const cards = cardsFromWebhook({ event, payload, orgStore });
+      for (const card of cards) {
+        deliverCard(ORG_ID, card).catch((error) =>
+          console.warn("Webhook card delivery failed:", error.message)
+        );
+      }
+      json(res, 200, { cards: cards.length });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Webhook processing failed." });
+    }
+    return;
+  }
+
   if (!isAuthorizedRequest(req)) {
     json(res, 401, { message: "Relay token required. Set it in the app's relay settings." });
     return;
@@ -495,6 +557,26 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/org/language" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      if (!orgStore.setLanguage(body.userId, body.language)) {
+        json(res, 400, { message: "Valid userId and language are required." });
+        return;
+      }
+      persistOrg();
+      broadcast(ORG_ID, "org_updated", orgStore.snapshot());
+      json(res, 200, {
+        user: orgStore.findUser(body.userId),
+        organization: orgStore.snapshot(),
+      });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Could not set language." });
+    }
+    return;
+  }
+
   if (url.pathname === "/org/members" && req.method === "POST") {
     try {
       const raw = await readBody(req);
@@ -504,6 +586,7 @@ const server = createServer(async (req, res) => {
         role: body.role,
         team: body.team,
         githubUsername: body.githubUsername,
+        language: body.language,
       });
 
       if (!user) {
@@ -687,12 +770,9 @@ wss.on("connection", (ws) => {
           send(ws, "error", { message: "Invalid card_created payload" });
           return;
         }
-        const store = getStore(session.orgId);
-        upsertCard(store, card);
-        persister.schedule(orgStores);
-        broadcast(session.orgId, "card_created", { card });
-        logCardToChannel(session.orgId, card);
-        maybeNotify(session.orgId, card);
+        deliverCard(session.orgId, card).catch((error) =>
+          console.warn("Card delivery failed:", error.message)
+        );
         break;
       }
 
@@ -813,6 +893,7 @@ async function respondAsAgent({ orgId, channel, message, mention }) {
     channelName: channel.name,
     recentMessages: channelStore.recentMessages(channel.id),
     message,
+    language: orgStore.findUser(message.authorID)?.language,
     openRouter: openRouterConfig(),
   });
 
@@ -849,11 +930,9 @@ async function respondAsAgent({ orgId, channel, message, mention }) {
       channelID: channel.id,
     };
 
-    const store = getStore(orgId);
-    upsertCard(store, card);
-    persister.schedule(orgStores);
-    broadcast(orgId, "card_created", { card });
-    maybeNotify(orgId, card);
+    // The agent already narrates the routing in its chat reply — skip the
+    // extra channel log line.
+    await deliverCard(orgId, card, { log: false });
 
     cardID = card.id;
     toolCalls = [

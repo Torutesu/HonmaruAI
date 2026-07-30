@@ -10,7 +10,10 @@ struct UserSwitcherSheet: View {
     @State private var newName = ""
     @State private var newRole = ""
     @State private var newTeam = ""
+    @State private var newLanguage = ""
     @State private var isAdding = false
+    @State private var myLanguage = ""
+    @State private var isSavingLanguage = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -27,7 +30,7 @@ struct UserSwitcherSheet: View {
                                     Text(user.name)
                                         .font(.system(size: 15, weight: .medium))
                                         .foregroundStyle(Theme.Colors.textPrimary)
-                                    Text(user.role)
+                                    Text(subtitle(for: user))
                                         .font(.system(size: 12))
                                         .foregroundStyle(Theme.Colors.textTertiary)
                                 }
@@ -43,6 +46,8 @@ struct UserSwitcherSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
                         }
                     }
+
+                    languageBox
 
                     if showAddMember {
                         addMemberForm
@@ -82,6 +87,72 @@ struct UserSwitcherSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationBackground(Theme.Colors.background)
+        .onAppear {
+            myLanguage = appState.currentUser
+                .flatMap { user in orgService.users.first { $0.id == user.id }?.language } ?? ""
+        }
+    }
+
+    private func subtitle(for user: User) -> String {
+        if let language = user.language, !language.isEmpty {
+            return "\(user.role) · \(language)"
+        }
+        return user.role
+    }
+
+    // Everything this user receives — cards, digests, agent replies — is
+    // translated into this language by the relay.
+    private var languageBox: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            Text("My language")
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .textCase(.uppercase)
+                .tracking(0.8)
+
+            HStack(spacing: Theme.Spacing.sm) {
+                TextField("en / 日本語 / Français …", text: $myLanguage)
+                    .font(Theme.TypeScale.body)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .autocorrectionDisabled()
+
+                Button(isSavingLanguage ? "Saving…" : "Save") {
+                    saveLanguage()
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.Colors.accent)
+                .disabled(
+                    isSavingLanguage
+                        || myLanguage.trimmingCharacters(in: .whitespaces).isEmpty
+                )
+            }
+
+            Text("Cards, digests, and agent replies arrive translated into your language")
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
+        }
+        .padding(Theme.Spacing.md)
+        .background(Theme.Colors.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+    }
+
+    private func saveLanguage() {
+        guard let userID = appState.currentUser?.id else { return }
+        errorMessage = nil
+        isSavingLanguage = true
+
+        Task {
+            do {
+                _ = try await orgService.setLanguage(
+                    userID: userID,
+                    language: myLanguage.trimmingCharacters(in: .whitespaces)
+                )
+                Haptics.success()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isSavingLanguage = false
+        }
     }
 
     private var addMemberForm: some View {
@@ -89,6 +160,7 @@ struct UserSwitcherSheet: View {
             memberField("Name", text: $newName, placeholder: "Erin")
             memberField("Role", text: $newRole, placeholder: "Backend Engineer")
             memberField("Team", text: $newTeam, placeholder: "Engineering (optional)")
+            memberField("Lang", text: $newLanguage, placeholder: "en / 日本語 (optional)")
 
             PrimaryButton(
                 title: isAdding ? "Adding…" : "Add to organization",
@@ -132,11 +204,13 @@ struct UserSwitcherSheet: View {
                     name: newName.trimmingCharacters(in: .whitespaces),
                     role: newRole.trimmingCharacters(in: .whitespaces),
                     team: newTeam.trimmingCharacters(in: .whitespaces),
-                    githubUsername: ""
+                    githubUsername: "",
+                    language: newLanguage.trimmingCharacters(in: .whitespaces)
                 )
                 newName = ""
                 newRole = ""
                 newTeam = ""
+                newLanguage = ""
                 showAddMember = false
                 Haptics.success()
             } catch {

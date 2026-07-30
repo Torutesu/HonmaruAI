@@ -56,7 +56,8 @@ final class OrganizationService: ObservableObject {
         name: String,
         role: String,
         team: String,
-        githubUsername: String
+        githubUsername: String,
+        language: String = ""
     ) async throws -> User {
         guard var request = makeRequest(path: "/org/members", method: "POST") else {
             throw AIServiceError.notConfigured
@@ -66,6 +67,7 @@ final class OrganizationService: ObservableObject {
             "role": role,
             "team": team,
             "githubUsername": githubUsername,
+            "language": language,
         ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -76,6 +78,40 @@ final class OrganizationService: ObservableObject {
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             let message = json?["message"] as? String
             throw AIServiceError.serverError(message ?? "Could not add member.")
+        }
+
+        let decoded = try JSONDecoder().decode(AddMemberResponse.self, from: data)
+        apply(
+            users: decoded.organization.users,
+            organization: OrganizationGraph(
+                nodes: decoded.organization.nodes,
+                edges: decoded.organization.edges
+            )
+        )
+        return decoded.user
+    }
+
+    // The recipient-side translation language: cards, digests, and agent
+    // replies arrive in this language regardless of what the sender wrote.
+    @discardableResult
+    func setLanguage(userID: String, language: String) async throws -> User {
+        guard var request = makeRequest(path: "/org/language", method: "POST") else {
+            throw AIServiceError.notConfigured
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "userId": userID,
+            "language": language,
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIServiceError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            throw AIServiceError.serverError(
+                (json?["message"] as? String) ?? "Could not set language."
+            )
         }
 
         let decoded = try JSONDecoder().decode(AddMemberResponse.self, from: data)

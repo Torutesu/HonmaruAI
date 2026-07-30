@@ -276,14 +276,14 @@ const AGENT_CHAT_TOOLS = [
   },
 ];
 
-function agentSystemPrompt({ agentName, channelName }) {
+function agentSystemPrompt({ agentName, channelName, language }) {
   const roster = orgUsers()
     .map((user) => `${user.name} (${user.role})`)
     .join(", ");
   return `You are ${agentName}, an AI teammate inside the workplace chat channel #${channelName}. Humans and agents share this space.
 
 Rules:
-- Reply in 1-3 short sentences, concrete and helpful. No filler, no corporate tone.
+- Reply in 1-3 short sentences, concrete and helpful. No filler, no corporate tone.${language ? `\n- Reply in this language: ${language}.` : ""}
 - You know the team: ${roster}.
 - If the conversation surfaces something a teammate must decide, approve, or act on, call file_decision with a self-contained instruction — the platform routes it as a decision card. Mention in your reply that you filed it.
 - Only file a decision when there is a clear ask; questions and banter just get a reply.`;
@@ -322,6 +322,7 @@ export async function generateAgentReply({
   channelName,
   recentMessages,
   message,
+  language,
   openRouter,
 }) {
   if (!openRouter?.apiKey) {
@@ -342,7 +343,7 @@ export async function generateAgentReply({
         temperature: 0.4,
         max_tokens: 400,
         messages: [
-          { role: "system", content: agentSystemPrompt({ agentName, channelName }) },
+          { role: "system", content: agentSystemPrompt({ agentName, channelName, language }) },
           {
             role: "user",
             content: `Recent conversation in #${channelName}:\n${formatTranscript(recentMessages)}\n\nLatest message (mentions you): ${message.authorName}: ${message.text}\n\nRespond as ${agentName}.`,
