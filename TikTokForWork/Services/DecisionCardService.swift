@@ -337,7 +337,8 @@ final class DecisionCardService: ObservableObject {
             agentRoute: routing.agentRoute,
             routingReason: routing.routingReason,
             sourceInstruction: sourceText,
-            labels: routing.labels.isEmpty ? nil : routing.labels
+            labels: routing.labels.isEmpty ? nil : routing.labels,
+            channelID: routing.channelID
         )
 
         append(card, for: routing.recipientID)

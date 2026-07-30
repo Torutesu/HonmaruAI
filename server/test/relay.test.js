@@ -40,17 +40,28 @@ async function waitForHealth(base, attempts = 50) {
   throw new Error("Relay did not come up in time");
 }
 
-function wsOpen(url) {
+function wsOpen(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("ws open timed out")), timeoutMs);
     const ws = new WebSocket(url);
-    ws.on("open", () => resolve(ws));
-    ws.on("error", reject);
+    ws.on("open", () => {
+      clearTimeout(timer);
+      resolve(ws);
+    });
+    ws.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
   });
 }
 
-function nextMessage(ws) {
+function nextMessage(ws, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
-    ws.once("message", (raw) => resolve(JSON.parse(String(raw))));
+    const timer = setTimeout(() => reject(new Error("no message in time")), timeoutMs);
+    ws.once("message", (raw) => {
+      clearTimeout(timer);
+      resolve(JSON.parse(String(raw)));
+    });
     ws.once("close", () => reject(new Error("closed before message")));
     ws.once("error", reject);
   });
@@ -195,6 +206,89 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     );
     assert.ok(agentEvent, "agent should reply in channel");
     assert.equal(agentEvent.payload.message.cardID, cardEvent.payload.card.id);
+    ws.close();
+  });
+
+  await t.test("ingest: updates flow to a channel, decisions return routing", async () => {
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-carol", token: TOKEN } })
+    );
+    await collectMessages(ws, 2);
+
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+    };
+    const sender = { id: "user-alice", name: "Alice", role: "Product Manager" };
+
+    // Attach the listener BEFORE the POST: the relay broadcasts the WS
+    // message before the HTTP response completes.
+    const filedPromise = nextMessage(ws);
+    filedPromise.catch(() => {});
+
+    const updateResponse = await fetch(`${base}/ai/ingest`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        text: "Made progress on the relay migration today",
+        sender,
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const update = await updateResponse.json();
+    assert.equal(update.kind, "update");
+    assert.equal(update.channel.name, "general");
+
+    const filed = await filedPromise;
+    assert.equal(filed.type, "channel_message");
+    assert.equal(filed.payload.message.authorName, "Alice");
+    assert.equal(filed.payload.message.channelID, update.channel.id);
+
+    const decisionResponse = await fetch(`${base}/ai/ingest`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        text: "Ask Bob to review the relay PR before Friday",
+        sender,
+      }),
+    });
+    assert.equal(decisionResponse.status, 200);
+    const decision = await decisionResponse.json();
+    assert.equal(decision.kind, "decision");
+    assert.equal(decision.routing.recipientUserID, "user-bob");
+    assert.ok(decision.channel.id);
+    ws.close();
+  });
+
+  await t.test("card_created with channelID leaves an agent log in the channel", async () => {
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-alice", token: TOKEN } })
+    );
+    await collectMessages(ws, 2);
+
+    ws.send(
+      JSON.stringify({
+        type: "card_created",
+        payload: {
+          card: {
+            id: "card-log1",
+            recipientUserID: "user-bob",
+            senderUserID: "user-alice",
+            title: "Review relay PR",
+            channelID: "channel-general",
+          },
+        },
+      })
+    );
+
+    const events = await collectMessages(ws, 2);
+    assert.equal(events[0].type, "card_created");
+    assert.equal(events[1].type, "channel_message");
+    assert.equal(events[1].payload.message.authorKind, "agent");
+    assert.equal(events[1].payload.message.authorName, "Alice's AI");
+    assert.equal(events[1].payload.message.cardID, "card-log1");
     ws.close();
   });
 

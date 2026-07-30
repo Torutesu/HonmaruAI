@@ -77,6 +77,7 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var sourceInstruction: String?
     var labels: [String]?
     var revisionNote: String?
+    var channelID: String?
 
     var isPending: Bool { status == .pending }
 

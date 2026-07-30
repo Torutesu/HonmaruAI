@@ -79,6 +79,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | GET | `/oauth/github/config` | OAuth client config for iOS |
 | POST | `/oauth/github/token` | Exchange code → access token |
 | POST | `/ai/route` | Route instruction via OpenRouter |
+| POST | `/ai/ingest` | Triage input: decision → routing, update → filed to a channel (auto-creates channels for new topics) |
 | POST | `/ai/refine` | Apply a follow-up instruction to an existing card |
 
 ## WebSocket protocol

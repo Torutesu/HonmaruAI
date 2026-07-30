@@ -11,6 +11,7 @@ struct InstructionRouting {
     let routingReason: String
     let labels: [String]
     let toolCalls: [AgentToolCall]
+    var channelID: String?
 }
 
 struct AgentToolCall: Identifiable, Codable, Hashable {
@@ -51,6 +52,7 @@ struct InstructionDraft: Identifiable, Codable, Hashable {
     let routingReason: String
     let labels: [String]
     let toolCalls: [AgentToolCall]
+    var channelID: String?
 
     var recipientName: String {
         DemoData.userName(for: recipientUserID)
@@ -67,7 +69,8 @@ struct InstructionDraft: Identifiable, Codable, Hashable {
             agentRoute: agentRoute,
             routingReason: routingReason,
             labels: labels,
-            toolCalls: toolCalls
+            toolCalls: toolCalls,
+            channelID: channelID
         )
     }
 }

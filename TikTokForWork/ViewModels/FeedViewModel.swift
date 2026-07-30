@@ -15,10 +15,12 @@ final class FeedViewModel: ObservableObject {
     @Published var askAICard: DecisionCard?
     @Published var resendCard: DecisionCard?
     @Published var reviewDraft: InstructionDraft?
+    @Published var ingestNotice: String?
 
     // Set while a revise-and-resend draft is in flight so sendDraft can close
     // out the originating revision-request card.
     private var resendSourceID: String?
+    private var noticeTask: Task<Void, Never>?
 
     private var cardService: DecisionCardService?
     private var githubService: GitHubService?
@@ -163,20 +165,55 @@ final class FeedViewModel: ObservableObject {
 
     func beginDraft(_ text: String, priority: CardPriority, appState: AppState) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, let user = appState.currentUser else { return }
 
         draftTask?.cancel()
         errorMessage = nil
         resendSourceID = nil
-        isDrafting = true
 
+        guard appState.aiService.hasRelay else {
+            errorMessage = AIServiceError.notConfigured.localizedDescription
+            return
+        }
+
+        isDrafting = true
         draftTask = Task {
-            let draft = await draftInstruction(trimmed, priority: priority, appState: appState)
-            guard !Task.isCancelled else { return }
-            isDrafting = false
-            if let draft {
-                reviewDraft = draft
+            do {
+                let outcome = try await appState.aiService.ingest(
+                    text: trimmed,
+                    sender: user,
+                    organization: DemoData.organization,
+                    priorityOverride: priority
+                )
+                guard !Task.isCancelled else { return }
+                isDrafting = false
+
+                switch outcome {
+                case .decision(let draft):
+                    reviewDraft = draft
+                case .update(let channelName, let isNewChannel):
+                    Haptics.light()
+                    showNotice(
+                        isNewChannel
+                            ? "Filed to new channel #\(channelName)"
+                            : "Filed to #\(channelName)"
+                    )
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                isDrafting = false
+                errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func showNotice(_ text: String) {
+        noticeTask?.cancel()
+        ingestNotice = text
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            self?.ingestNotice = nil
         }
     }
 

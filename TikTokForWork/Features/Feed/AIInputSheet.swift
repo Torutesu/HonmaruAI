@@ -13,8 +13,8 @@ struct AIInputSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                 Text(isAIConfigured
-                     ? "Your AI drafts a decision card in the background — keep scrolling while it works."
-                     : "Offline mode — local routing with your priority setting.")
+                     ? "Say anything — decisions become cards to review, updates are filed to a channel for you."
+                     : "Offline mode — keyword triage: asks become cards, updates go to channels.")
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textTertiary)
 
@@ -138,7 +138,8 @@ struct DraftReviewSheet: View {
                             agentRoute: draft.agentRoute,
                             routingReason: draft.routingReason,
                             labels: draft.labels,
-                            toolCalls: draft.toolCalls
+                            toolCalls: draft.toolCalls,
+                            channelID: draft.channelID
                         )
                         onSend(finalDraft)
                         dismiss()

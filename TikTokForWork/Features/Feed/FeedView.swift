@@ -53,6 +53,21 @@ struct FeedView: View {
                     Spacer()
                 }
             }
+
+            if let notice = viewModel.ingestNotice {
+                VStack {
+                    Text(notice)
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.vertical, Theme.Spacing.sm)
+                        .background(Theme.Colors.surfaceRaised)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                    Spacer()
+                }
+                .padding(.top, Theme.Spacing.sm)
+                .transition(.opacity)
+            }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             topBar
@@ -61,6 +76,7 @@ struct FeedView: View {
             bottomChrome
         }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
+        .animation(.easeOut(duration: 0.2), value: viewModel.ingestNotice)
         .onAppear {
             guard let user = appState.currentUser else { return }
             viewModel.bind(

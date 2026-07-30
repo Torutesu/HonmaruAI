@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { userNameFor } from "./agentTools.js";
+import { userNameFor, DEMO_USER_IDS } from "./agentTools.js";
 
 const MAX_MESSAGES_PER_CHANNEL = 500;
 
@@ -115,6 +115,140 @@ export function parseAgentMention(text) {
 
 export function stripMention(text) {
   return String(text || "").replace(/@ai\b(?:[-.][a-z]+)?/gi, "").replace(/\s+/g, " ").trim();
+}
+
+const CLASSIFY_TOOL = [
+  {
+    type: "function",
+    function: {
+      name: "classify_input",
+      description:
+        "Triage a workplace utterance: is it a decision/ask that someone must act on, or a status update to log? Pick the channel it belongs to.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["decision", "update"],
+            description:
+              "decision = asks a person to decide, approve, review, or do something. update = status, progress, FYI, or thinking out loud.",
+          },
+          channel: {
+            type: "string",
+            description:
+              "Best-fitting existing channel name, or a short new kebab-case name if this starts a genuinely new stream of work",
+          },
+          isNewChannel: { type: "boolean" },
+        },
+        required: ["kind", "channel", "isNewChannel"],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+const CLASSIFY_SYSTEM_PROMPT = `You triage everything a user says to their work AI.
+
+- kind "decision": the text asks a person to decide, approve, review, fix, or do something.
+- kind "update": status, progress, FYI, notes, thinking out loud — nothing for anyone to decide.
+- channel: pick the existing channel whose topic fits best. Create a new kebab-case channel only for a genuinely new stream of work, not for one-off remarks (those go to general).`;
+
+const DECISION_VERBS =
+  /\b(ask|tell|approve|approval|delegate|assign|review|fix|please|urgent|remind|request|decide|need to|needs to|should|ship|deploy)\b/i;
+
+export function classifyInputLocally({ text, senderID, channels }) {
+  const lower = String(text || "").toLowerCase();
+
+  let kind = DECISION_VERBS.test(lower) ? "decision" : "update";
+  if (kind === "update") {
+    const namesTeammate = DEMO_USER_IDS.some(
+      (userID) =>
+        userID !== senderID && lower.includes(userNameFor(userID).toLowerCase())
+    );
+    if (namesTeammate && /\?$/.test(lower.trim())) {
+      kind = "decision";
+    }
+  }
+
+  const match = (channels || []).find((channel) => {
+    const spaced = channel.name.replace(/-/g, " ");
+    return lower.includes(channel.name) || (spaced !== channel.name && lower.includes(spaced));
+  });
+
+  return { kind, channel: match?.name || "general", isNewChannel: false };
+}
+
+function validateClassification(args, channels) {
+  const kind = args.kind === "decision" ? "decision" : "update";
+  let channel = String(args.channel || "general")
+    .toLowerCase()
+    .trim()
+    .replace(/^#+\s*/, "")
+    .replace(/\s+/g, "-");
+  if (!channel) channel = "general";
+
+  const exists = (channels || []).some((item) => item.name === channel);
+  return { kind, channel, isNewChannel: !exists };
+}
+
+export async function classifyInput({ text, sender, channels, openRouter }) {
+  if (!openRouter?.apiKey) {
+    return classifyInputLocally({ text, senderID: sender.id, channels });
+  }
+
+  try {
+    const channelIndex = (channels || [])
+      .map((channel) => {
+        const recent = (channel.recent || []).join(" · ");
+        return `- ${channel.name}: ${channel.purpose || "(no purpose)"}${recent ? ` · recent: ${recent}` : ""}`;
+      })
+      .join("\n");
+
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${openRouter.apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": openRouter.appUrl,
+        "X-Title": openRouter.appName,
+      },
+      body: JSON.stringify({
+        model: openRouter.model,
+        temperature: 0.1,
+        max_tokens: 200,
+        messages: [
+          { role: "system", content: CLASSIFY_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `Channels:\n${channelIndex}\n\n${sender.name} says: ${text}`,
+          },
+        ],
+        tools: CLASSIFY_TOOL,
+        tool_choice: { type: "function", function: { name: "classify_input" } },
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error?.message || "OpenRouter request failed.");
+    }
+
+    const call = (data?.choices?.[0]?.message?.tool_calls || []).find(
+      (item) => item.function?.name === "classify_input"
+    );
+    if (!call) {
+      return classifyInputLocally({ text, senderID: sender.id, channels });
+    }
+
+    const args =
+      typeof call.function.arguments === "object"
+        ? call.function.arguments
+        : JSON.parse(call.function.arguments || "{}");
+    return validateClassification(args, channels);
+  } catch (error) {
+    console.warn("Classification failed, using local fallback:", error.message);
+    return classifyInputLocally({ text, senderID: sender.id, channels });
+  }
 }
 
 const AGENT_CHAT_TOOLS = [

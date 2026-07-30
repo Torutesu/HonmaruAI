@@ -5,6 +5,8 @@ import {
   parseAgentMention,
   stripMention,
   generateAgentReply,
+  classifyInput,
+  classifyInputLocally,
 } from "../channels.js";
 
 test("store seeds #general on first boot", () => {
@@ -76,6 +78,50 @@ test("offline agent files a decision from `file:` syntax", async () => {
   });
   assert.equal(reply.instruction, "Bob to fix the login bug by Friday");
   assert.ok(reply.text.length > 0);
+});
+
+const CHANNEL_INDEX = [
+  { id: "channel-general", name: "general", purpose: "", recent: [] },
+  { id: "channel-onboarding", name: "onboarding-v2", purpose: "Onboarding revamp", recent: [] },
+];
+
+test("classify: an ask is a decision", () => {
+  const result = classifyInputLocally({
+    text: "Ask Bob to review the relay PR",
+    senderID: "user-alice",
+    channels: CHANNEL_INDEX,
+  });
+  assert.equal(result.kind, "decision");
+});
+
+test("classify: a status report is an update", () => {
+  const result = classifyInputLocally({
+    text: "Made progress on the relay migration today",
+    senderID: "user-alice",
+    channels: CHANNEL_INDEX,
+  });
+  assert.equal(result.kind, "update");
+  assert.equal(result.channel, "general");
+});
+
+test("classify: updates land in the matching channel", () => {
+  const result = classifyInputLocally({
+    text: "Wrapped up the empty states for onboarding v2 this morning",
+    senderID: "user-carol",
+    channels: CHANNEL_INDEX,
+  });
+  assert.equal(result.kind, "update");
+  assert.equal(result.channel, "onboarding-v2");
+});
+
+test("classify without an AI key falls back locally", async () => {
+  const result = await classifyInput({
+    text: "Please approve the launch plan",
+    sender: { id: "user-alice", name: "Alice" },
+    channels: CHANNEL_INDEX,
+    openRouter: null,
+  });
+  assert.equal(result.kind, "decision");
 });
 
 test("offline agent explains itself for plain questions", async () => {

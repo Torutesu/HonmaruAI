@@ -50,7 +50,8 @@ Last updated: 2026-07-30
 - [x] Agent files decision cards from chat (file_decision tool → normal routing pipeline → recipient's feed)
 - [x] Offline fallback: `@ai file: <instruction>` routes a card without an AI key
 - [x] iOS Channels UI: channel list, timeline, composer, agent messages with tool-call chips
-- [ ] AI auto-filing of "Tell your AI" input into channels (`/ai/ingest`) — next
+- [x] AI auto-filing: "Tell your AI" triages via `/ai/ingest` — decisions become reviewable cards, updates are filed to channels, new topics auto-create channels
+- [x] Decision cards carry a home channel; routing leaves an agent log message in that channel
 - [ ] Card reply layer (text/voice reply on cards, question cards) — next
 
 ## Phase 8 — Deployable relay

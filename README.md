@@ -60,8 +60,10 @@ On sign-in:
 
 The vertical feed is the primary way to work; behind it sits a Slack-like channel space (menu → **Channels**) that is AI-native from the start:
 
+- **"Tell your AI" is the only inbox.** The AI triages everything you say (`/ai/ingest`): a decision becomes a card to review, a status update is filed to the right channel — and a genuinely new topic gets its own channel created behind the scenes
 - Humans and **AI agents share the same channels**. Mention `@ai` (or `@ai-alice` for a personal agent) and the agent replies with conversation context
 - When the conversation surfaces a real ask, the agent **files a decision card straight from chat** — it goes through the same routing pipeline and lands in the right person's feed, linked back to the conversation
+- Every routed decision leaves a trail: the sender's AI posts a log message in the card's home channel
 - Channels are meant to be AI-managed: reading them is optional, deciding on cards is the work
 
 ## Decision loop

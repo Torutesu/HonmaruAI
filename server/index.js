@@ -10,6 +10,7 @@ import {
   createChannelStore,
   parseAgentMention,
   generateAgentReply,
+  classifyInput,
 } from "./channels.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,47 @@ function persistChannels() {
       ["messages", serialized.messages],
     ])
   );
+}
+
+function channelIndex() {
+  const snapshot = channelStore.snapshot();
+  return Object.values(snapshot.channels).map((channel) => ({
+    id: channel.id,
+    name: channel.name,
+    purpose: channel.purpose,
+    recent: channelStore
+      .recentMessages(channel.id, 3)
+      .map((message) => `${message.authorName}: ${message.text.slice(0, 60)}`),
+  }));
+}
+
+function findChannelByName(name) {
+  const snapshot = channelStore.snapshot();
+  return Object.values(snapshot.channels).find((channel) => channel.name === name) || null;
+}
+
+// Every decision card that knows its home channel leaves a trail in chat:
+// the sender's AI posts a log message so the conversation shows the routing.
+function logCardToChannel(orgId, card) {
+  if (!card.channelID) return;
+  const channel = channelStore.getChannel(card.channelID);
+  if (!channel) return;
+
+  const senderName = userNameFor(card.senderUserID);
+  const recipientName = userNameFor(card.recipientUserID);
+  const message = channelStore.addMessage({
+    channelID: channel.id,
+    authorID: `agent-${String(card.senderUserID).replace("user-", "")}`,
+    authorKind: "agent",
+    authorName: `${senderName}'s AI`,
+    text: `Routed a decision to ${recipientName}: ${card.title}`,
+    cardID: card.id,
+  });
+
+  if (message) {
+    persistChannels();
+    broadcast(orgId, "channel_message", { message });
+  }
 }
 
 function openRouterConfig() {
@@ -286,6 +328,80 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/ai/ingest" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const text = body.text;
+      const sender = body.sender;
+
+      if (!text || !sender?.id || !sender?.name) {
+        json(res, 400, { message: "Missing text or sender." });
+        return;
+      }
+
+      const classification = await classifyInput({
+        text,
+        sender,
+        channels: channelIndex(),
+        openRouter: openRouterConfig(),
+      });
+
+      let channel = findChannelByName(classification.channel);
+      let isNew = false;
+      if (!channel && classification.isNewChannel) {
+        channel = channelStore.createChannel({
+          name: classification.channel,
+          purpose: `Started from ${sender.name}'s update`,
+        });
+        if (channel) {
+          isNew = true;
+          persistChannels();
+          broadcast(ORG_ID, "channel_created", { channel });
+        }
+      }
+      if (!channel) {
+        channel = findChannelByName("general") || channelStore.createChannel({ name: "general" });
+      }
+
+      if (classification.kind === "update") {
+        const message = channelStore.addMessage({
+          channelID: channel.id,
+          authorID: sender.id,
+          authorKind: "user",
+          authorName: sender.name,
+          text,
+        });
+        if (message) {
+          persistChannels();
+          broadcast(ORG_ID, "channel_message", { message });
+        }
+        json(res, 200, {
+          kind: "update",
+          channel: { id: channel.id, name: channel.name, isNew },
+        });
+        return;
+      }
+
+      const routing = await routeInstruction({
+        text,
+        sender,
+        organization: body.organization || null,
+        priorityOverride: body.priorityOverride,
+        openRouter: openRouterConfig(),
+      });
+
+      json(res, 200, {
+        kind: "decision",
+        channel: { id: channel.id, name: channel.name, isNew },
+        routing,
+      });
+    } catch (error) {
+      json(res, 400, { message: error.message || "AI ingest failed." });
+    }
+    return;
+  }
+
   if (url.pathname === "/ai/refine" && req.method === "POST") {
     try {
       const raw = await readBody(req);
@@ -359,6 +475,7 @@ wss.on("connection", (ws) => {
         upsertCard(store, card);
         persister.schedule(orgStores);
         broadcast(session.orgId, "card_created", { card });
+        logCardToChannel(session.orgId, card);
         break;
       }
 
@@ -512,6 +629,7 @@ async function respondAsAgent({ orgId, channel, message, mention }) {
       agentRoute: `${mention.agentName} → ${userNameFor(routing.recipientUserID)}'s AI`,
       routingReason: `Filed from #${channel.name} by ${mention.agentName}`,
       sourceInstruction: reply.instruction,
+      channelID: channel.id,
     };
 
     const store = getStore(orgId);

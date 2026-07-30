@@ -58,6 +58,23 @@ private struct RefineCardResponse: Decodable {
     let toolCalls: [AgentToolCall]?
 }
 
+private struct IngestResponse: Decodable {
+    struct Channel: Decodable {
+        let id: String
+        let name: String
+        let isNew: Bool?
+    }
+
+    let kind: String
+    let channel: Channel
+    let routing: RouteInstructionResponse?
+}
+
+enum IngestOutcome {
+    case decision(InstructionDraft)
+    case update(channelName: String, isNewChannel: Bool)
+}
+
 private struct HealthResponse: Decodable {
     let aiRouting: Bool?
     let aiModel: String?
@@ -130,21 +147,59 @@ final class AIService: ObservableObject {
             organization: organization,
             priorityOverride: priorityOverride
         )
+        return makeDraft(from: routing, sourceText: text)
+    }
 
-        return InstructionDraft(
-            id: UUID().uuidString,
-            sourceText: text,
-            recipientUserID: routing.recipientID,
-            cardType: routing.cardType,
-            title: routing.title,
-            summary: routing.summary,
-            context: routing.context,
-            priority: routing.priority,
-            agentRoute: routing.agentRoute,
-            routingReason: routing.routingReason,
-            labels: routing.labels,
-            toolCalls: routing.toolCalls
+    // Universal entry point: the AI decides whether the text is a decision
+    // (returns a reviewable draft) or an update (already filed to a channel).
+    func ingest(
+        text: String,
+        sender: User,
+        organization: OrganizationGraph,
+        priorityOverride: CardPriority? = nil
+    ) async throws -> IngestOutcome {
+        guard let backendBaseURL else {
+            throw AIServiceError.notConfigured
+        }
+        guard let url = URL(string: "/ai/ingest", relativeTo: backendBaseURL) else {
+            throw AIServiceError.invalidResponse
+        }
+
+        var request = authorizedRequest(url: url)
+        request.httpBody = try JSONEncoder().encode(
+            RouteInstructionRequest(
+                text: text,
+                sender: sender,
+                organization: organization,
+                priorityOverride: priorityOverride?.rawValue
+            )
         )
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIServiceError.invalidResponse
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let message = parseServerError(data) ?? "AI triage request failed."
+            throw AIServiceError.serverError(message)
+        }
+
+        let ingestResponse = try JSONDecoder().decode(IngestResponse.self, from: data)
+
+        if ingestResponse.kind == "update" {
+            return .update(
+                channelName: ingestResponse.channel.name,
+                isNewChannel: ingestResponse.channel.isNew ?? false
+            )
+        }
+
+        guard let routingResponse = ingestResponse.routing else {
+            throw AIServiceError.invalidResponse
+        }
+        var routing = try makeRouting(from: routingResponse, sender: sender, organization: organization)
+        routing.channelID = ingestResponse.channel.id
+        return .decision(makeDraft(from: routing, sourceText: text))
     }
 
     func routeInstruction(
@@ -181,34 +236,60 @@ final class AIService: ObservableObject {
         }
 
         let routingResponse = try JSONDecoder().decode(RouteInstructionResponse.self, from: data)
+        return try makeRouting(from: routingResponse, sender: sender, organization: organization)
+    }
+
+    private func makeRouting(
+        from response: RouteInstructionResponse,
+        sender: User,
+        organization: OrganizationGraph
+    ) throws -> InstructionRouting {
         guard
-            let cardType = CardType(rawValue: routingResponse.cardType),
-            let priority = CardPriority(rawValue: routingResponse.priority)
+            let cardType = CardType(rawValue: response.cardType),
+            let priority = CardPriority(rawValue: response.priority)
         else {
             throw AIServiceError.invalidResponse
         }
 
-        let recipientName = DemoData.userName(for: routingResponse.recipientUserID)
-        let agentRoute = routingResponse.agentRoute
+        let recipientName = DemoData.userName(for: response.recipientUserID)
+        let agentRoute = response.agentRoute
             ?? "\(sender.name)'s AI → \(recipientName)'s AI"
-        let routingReason = routingResponse.routingReason
+        let routingReason = response.routingReason
             ?? organization.routingReason(
-                recipientID: routingResponse.recipientUserID,
+                recipientID: response.recipientUserID,
                 senderID: sender.id,
                 namedInInstruction: false
             )
 
         return InstructionRouting(
-            recipientID: routingResponse.recipientUserID,
+            recipientID: response.recipientUserID,
             cardType: cardType,
-            title: routingResponse.title,
-            summary: routingResponse.summary,
-            context: routingResponse.context,
+            title: response.title,
+            summary: response.summary,
+            context: response.context,
             priority: priority,
             agentRoute: agentRoute,
             routingReason: routingReason,
-            labels: routingResponse.labels ?? [],
-            toolCalls: routingResponse.toolCalls ?? []
+            labels: response.labels ?? [],
+            toolCalls: response.toolCalls ?? []
+        )
+    }
+
+    private func makeDraft(from routing: InstructionRouting, sourceText: String) -> InstructionDraft {
+        InstructionDraft(
+            id: UUID().uuidString,
+            sourceText: sourceText,
+            recipientUserID: routing.recipientID,
+            cardType: routing.cardType,
+            title: routing.title,
+            summary: routing.summary,
+            context: routing.context,
+            priority: routing.priority,
+            agentRoute: routing.agentRoute,
+            routingReason: routing.routingReason,
+            labels: routing.labels,
+            toolCalls: routing.toolCalls,
+            channelID: routing.channelID
         )
     }
 
