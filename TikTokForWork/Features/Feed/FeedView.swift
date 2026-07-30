@@ -87,12 +87,12 @@ struct FeedView: View {
             Task { await viewModel.syncGitHub() }
         }
         .sheet(isPresented: $showUserSwitcher) {
-            UserSwitcherSheet { user in
+            UserSwitcherSheet(orgService: appState.orgService) { user in
                 Task {
-                    await appState.switchUser(to: user.user)
+                    await appState.switchUser(to: user)
                     viewModel.bind(
                         to: appState.cardService,
-                        user: user.user,
+                        user: user,
                         githubService: appState.githubService
                     )
                     viewModel.clearSheets()

@@ -40,10 +40,19 @@ enum DemoUser: String, CaseIterable, Identifiable {
     }
 }
 
-enum DemoData {
-    static let teamUserIDs = DemoUser.allCases.map(\.user.id)
+// Runtime directory for the organization. Seeded with the demo roster and
+// replaced by the relay's org once fetched (OrganizationService.apply).
+enum OrgDirectory {
+    private(set) static var users: [User] = DemoUser.allCases.map(\.user)
 
-    static let organization = OrganizationGraph(
+    static var teamUserIDs: [String] { users.map(\.id) }
+
+    static func apply(users: [User], organization: OrganizationGraph) {
+        self.users = users
+        self.organization = organization
+    }
+
+    private(set) static var organization = OrganizationGraph(
         nodes: [
             OrgNode(id: "user-alice", kind: .person, label: "Alice · Product"),
             OrgNode(id: "user-bob", kind: .person, label: "Bob · Engineering"),
@@ -82,7 +91,7 @@ enum DemoData {
     static let initialCards: [String: [DecisionCard]] = [:]
 
     static func user(for id: String) -> User? {
-        DemoUser.allCases.map(\.user).first { $0.id == id }
+        users.first { $0.id == id }
     }
 
     static func userName(for userID: String) -> String {
@@ -93,3 +102,6 @@ enum DemoData {
         "\(userName(for: userID))'s AI"
     }
 }
+
+// Historical name — most call sites still say DemoData; the data is live.
+typealias DemoData = OrgDirectory

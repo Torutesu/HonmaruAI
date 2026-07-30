@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { userNameFor, DEMO_USER_IDS } from "./agentTools.js";
+import { userNameFor, orgUsers } from "./agentTools.js";
 
 const MAX_MESSAGES_PER_CHANNEL = 500;
 
@@ -95,19 +95,22 @@ export function createChannelStore(initial) {
 
 /**
  * Parse an agent mention. `@ai` addresses the team AI; `@ai-alice` (or
- * `@ai.alice`) addresses Alice's personal agent.
+ * `@ai.alice`) addresses that member's personal agent.
  * @returns {{ ownerID: string | null, agentName: string } | null}
  */
 export function parseAgentMention(text) {
-  const match = String(text || "").match(/@ai\b(?:[-.]([a-z]+))?/i);
+  const match = String(text || "").match(/@ai\b(?:[-.]([a-z0-9-]+))?/i);
   if (!match) return null;
 
   const suffix = (match[1] || "").toLowerCase();
   if (suffix) {
-    const ownerID = `user-${suffix}`;
-    const ownerName = userNameFor(ownerID);
-    if (ownerName !== ownerID) {
-      return { ownerID, agentName: `${ownerName}'s AI` };
+    const owner = orgUsers().find(
+      (user) =>
+        user.name.split(" ")[0].toLowerCase() === suffix ||
+        user.id === `user-${suffix}`
+    );
+    if (owner) {
+      return { ownerID: owner.id, agentName: `${owner.name}'s AI` };
     }
   }
   return { ownerID: null, agentName: "Team AI" };
@@ -161,9 +164,8 @@ export function classifyInputLocally({ text, senderID, channels }) {
 
   let kind = DECISION_VERBS.test(lower) ? "decision" : "update";
   if (kind === "update") {
-    const namesTeammate = DEMO_USER_IDS.some(
-      (userID) =>
-        userID !== senderID && lower.includes(userNameFor(userID).toLowerCase())
+    const namesTeammate = orgUsers().some(
+      (user) => user.id !== senderID && lower.includes(user.name.toLowerCase())
     );
     if (namesTeammate && /\?$/.test(lower.trim())) {
       kind = "decision";
@@ -275,11 +277,14 @@ const AGENT_CHAT_TOOLS = [
 ];
 
 function agentSystemPrompt({ agentName, channelName }) {
+  const roster = orgUsers()
+    .map((user) => `${user.name} (${user.role})`)
+    .join(", ");
   return `You are ${agentName}, an AI teammate inside the workplace chat channel #${channelName}. Humans and agents share this space.
 
 Rules:
 - Reply in 1-3 short sentences, concrete and helpful. No filler, no corporate tone.
-- You know the team: Alice (Product Manager), Bob (Engineer), Carol (Designer), Dana (Engineering Lead).
+- You know the team: ${roster}.
 - If the conversation surfaces something a teammate must decide, approve, or act on, call file_decision with a self-contained instruction — the platform routes it as a decision card. Mention in your reply that you filed it.
 - Only file a decision when there is a clear ask; questions and banter just get a reply.`;
 }

@@ -8,6 +8,7 @@ final class AppState: ObservableObject {
 
     let cardService = DecisionCardService()
     let channelService = ChannelService()
+    let orgService = OrganizationService()
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
@@ -24,6 +25,7 @@ final class AppState: ObservableObject {
         relayToken = SessionStore.relayToken
         cardService.attach(webSocketService: webSocketService)
         channelService.attach(webSocketService: webSocketService)
+        orgService.attach(webSocketService: webSocketService)
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
                 await self?.handleRepositoryChanged()
@@ -37,6 +39,7 @@ final class AppState: ObservableObject {
 
         guard let backendBaseURL else { return }
         await aiService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
+        await orgService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
         await restoreSessionIfNeeded()
     }
 
@@ -51,6 +54,7 @@ final class AppState: ObservableObject {
 
         if let backendBaseURL {
             await aiService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
+            await orgService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
         }
 
         if isAuthenticated, let user = currentUser {
@@ -80,15 +84,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    func activateSession(as user: User = AppConfig.defaultUser) async {
-        SessionStore.currentUserID = user.id
+    func activateSession(as user: User? = nil) async {
+        // No explicit user: prefer the org member whose GitHub account just
+        // signed in, then the first member of the roster.
+        let resolved = user
+            ?? orgService.userMatching(githubUsername: githubService.connection?.username)
+            ?? orgService.users.first
+            ?? AppConfig.defaultUser
+        SessionStore.currentUserID = resolved.id
 
         do {
-            try await webSocketService.connect(urlString: relayURL, userId: user.id, token: relayToken)
+            try await webSocketService.connect(urlString: relayURL, userId: resolved.id, token: relayToken)
         } catch {
-            cardService.bootstrap(for: user)
+            cardService.bootstrap(for: resolved)
         }
-        currentUser = user
+        currentUser = resolved
         isAuthenticated = true
     }
 

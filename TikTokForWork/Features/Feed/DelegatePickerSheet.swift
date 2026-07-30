@@ -8,9 +8,7 @@ struct DelegatePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var candidates: [User] {
-        DemoUser.allCases
-            .map(\.user)
-            .filter { $0.id != currentUserID }
+        OrgDirectory.users.filter { $0.id != currentUserID }
     }
 
     var body: some View {

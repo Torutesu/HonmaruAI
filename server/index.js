@@ -4,7 +4,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
-import { routeInstruction, refineCard, interpretReply, userNameFor } from "./agentTools.js";
+import {
+  routeInstruction,
+  refineCard,
+  interpretReply,
+  userNameFor,
+  setActiveOrg,
+} from "./agentTools.js";
+import { createOrgStore } from "./org.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -43,6 +50,8 @@ const STORE_PATH =
   process.env.CARDS_STORE_PATH || join(__dirname, "data", "cards.json");
 const CHANNELS_STORE_PATH =
   process.env.CHANNELS_STORE_PATH || join(__dirname, "data", "channels.json");
+const ORG_STORE_PATH =
+  process.env.ORG_STORE_PATH || join(__dirname, "data", "org.json");
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
@@ -62,6 +71,24 @@ const initialCards = {};
 const orgStores =
   loadPersistedStores(STORE_PATH) || new Map([[ORG_ID, structuredClone(initialCards)]]);
 const persister = createPersister(STORE_PATH);
+
+const persistedOrg = loadPersistedStores(ORG_STORE_PATH);
+const orgStore = createOrgStore(
+  persistedOrg ? Object.fromEntries(persistedOrg.entries()) : null
+);
+setActiveOrg(orgStore);
+const orgPersister = createPersister(ORG_STORE_PATH);
+
+function persistOrg() {
+  const serialized = orgStore.serialize();
+  orgPersister.schedule(
+    new Map([
+      ["users", serialized.users],
+      ["nodes", serialized.nodes],
+      ["edges", serialized.edges],
+    ])
+  );
+}
 
 const persistedChannels = loadPersistedStores(CHANNELS_STORE_PATH);
 const channelStore = createChannelStore(
@@ -324,6 +351,36 @@ const server = createServer(async (req, res) => {
       json(res, 200, routing);
     } catch (error) {
       json(res, 400, { message: error.message || "AI routing failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/org" && req.method === "GET") {
+    json(res, 200, orgStore.snapshot());
+    return;
+  }
+
+  if (url.pathname === "/org/members" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const user = orgStore.addMember({
+        name: body.name,
+        role: body.role,
+        team: body.team,
+        githubUsername: body.githubUsername,
+      });
+
+      if (!user) {
+        json(res, 400, { message: "Member name and role are required." });
+        return;
+      }
+
+      persistOrg();
+      broadcast(ORG_ID, "org_updated", orgStore.snapshot());
+      json(res, 200, { user, organization: orgStore.snapshot() });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Could not add member." });
     }
     return;
   }
@@ -630,7 +687,7 @@ async function respondAsAgent({ orgId, channel, message, mention }) {
     const sender = {
       id: message.authorID,
       name: message.authorName,
-      role: "Member",
+      role: orgStore.findUser(message.authorID)?.role || "Member",
     };
     const routing = await routeInstruction({
       text: reply.instruction,
@@ -689,11 +746,19 @@ async function respondAsAgent({ orgId, channel, message, mention }) {
 
 function shutdown() {
   persister.flushNow(orgStores);
-  const serialized = channelStore.serialize();
+  const serializedChannels = channelStore.serialize();
   channelPersister.flushNow(
     new Map([
-      ["channels", serialized.channels],
-      ["messages", serialized.messages],
+      ["channels", serializedChannels.channels],
+      ["messages", serializedChannels.messages],
+    ])
+  );
+  const serializedOrg = orgStore.serialize();
+  orgPersister.flushNow(
+    new Map([
+      ["users", serializedOrg.users],
+      ["nodes", serializedOrg.nodes],
+      ["edges", serializedOrg.edges],
     ])
   );
   process.exit(0);

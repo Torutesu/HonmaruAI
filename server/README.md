@@ -25,7 +25,11 @@ Runs unit tests (routing, refine, persistence) plus an integration test that boo
 
 ## Persistence
 
-Cards and channels are persisted to JSON files (debounced writes, flushed on SIGINT/SIGTERM) and reloaded on boot. Defaults are `./data/cards.json` and `./data/channels.json`; override with `CARDS_STORE_PATH` / `CHANNELS_STORE_PATH`. When deploying, mount a volume at `./data` so state survives restarts.
+Cards, channels, and the organization are persisted to JSON files (debounced writes, flushed on SIGINT/SIGTERM) and reloaded on boot. Defaults are `./data/cards.json`, `./data/channels.json`, and `./data/org.json`; override with `CARDS_STORE_PATH` / `CHANNELS_STORE_PATH` / `ORG_STORE_PATH`. When deploying, mount a volume at `./data` so state survives restarts.
+
+## Organization
+
+The relay owns the org graph (users, teams, agents, manages/memberOf/canApprove edges). It seeds the four-person demo roster so the two-simulator demo needs zero setup, and grows from there: `POST /org/members` adds a member, creates their personal agent and team edges, persists, and broadcasts `org_updated` to all clients. Routing, @-mention parsing, and every AI prompt derive from the live org — a member added at runtime is immediately routable by name, role keywords, and team.
 
 ## Auth
 
@@ -76,6 +80,8 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Health check (`aiRouting`, `aiModel`, `authRequired`) |
+| GET | `/org` | Organization snapshot: users, nodes, edges |
+| POST | `/org/members` | Add a member (name, role, team, githubUsername) — broadcasts `org_updated` |
 | GET | `/oauth/github/config` | OAuth client config for iOS |
 | POST | `/oauth/github/token` | Exchange code → access token |
 | POST | `/ai/route` | Route instruction via OpenRouter |

@@ -426,7 +426,7 @@ final class DecisionCardService: ObservableObject {
             upsert(card)
         case .cardDeleted(let cardID, let recipientUserID):
             remove(cardID: cardID, for: recipientUserID)
-        case .presence, .error, .channelSnapshot, .channelCreated, .channelMessage:
+        case .presence, .error, .channelSnapshot, .channelCreated, .channelMessage, .orgUpdated:
             break
         }
     }

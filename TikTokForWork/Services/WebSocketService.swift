@@ -9,6 +9,7 @@ enum RealtimeEvent: Codable {
     case channelSnapshot(channels: [String: ChatChannel], messagesByChannel: [String: [ChatMessage]])
     case channelCreated(channel: ChatChannel)
     case channelMessage(message: ChatMessage)
+    case orgUpdated(users: [User], organization: OrganizationGraph)
     case error(message: String)
 
     private enum CodingKeys: String, CodingKey {
@@ -46,6 +47,12 @@ enum RealtimeEvent: Codable {
         case "channel_message":
             let payload = try container.decode(ChannelMessagePayload.self, forKey: .payload)
             self = .channelMessage(message: payload.message)
+        case "org_updated":
+            let payload = try container.decode(OrgPayload.self, forKey: .payload)
+            self = .orgUpdated(
+                users: payload.users,
+                organization: OrganizationGraph(nodes: payload.nodes, edges: payload.edges)
+            )
         case "error":
             let payload = try container.decode(ErrorPayload.self, forKey: .payload)
             self = .error(message: payload.message)
@@ -84,6 +91,12 @@ enum RealtimeEvent: Codable {
         case .channelMessage(let message):
             try container.encode("channel_message", forKey: .type)
             try container.encode(ChannelMessagePayload(message: message), forKey: .payload)
+        case .orgUpdated(let users, let organization):
+            try container.encode("org_updated", forKey: .type)
+            try container.encode(
+                OrgPayload(users: users, nodes: organization.nodes, edges: organization.edges),
+                forKey: .payload
+            )
         case .error(let message):
             try container.encode("error", forKey: .type)
             try container.encode(ErrorPayload(message: message), forKey: .payload)
@@ -124,6 +137,12 @@ enum RealtimeEvent: Codable {
 
     private struct ChannelMessagePayload: Codable {
         let message: ChatMessage
+    }
+
+    private struct OrgPayload: Codable {
+        let users: [User]
+        let nodes: [OrgNode]
+        let edges: [OrgEdge]
     }
 
     private struct ErrorPayload: Codable {

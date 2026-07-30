@@ -338,6 +338,63 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     ws.close();
   });
 
+  await t.test("org: fetch, add member, routing follows", async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+    };
+
+    const orgResponse = await fetch(`${base}/org`, { headers });
+    assert.equal(orgResponse.status, 200);
+    const org = await orgResponse.json();
+    assert.equal(org.users.length, 4);
+    assert.ok(org.nodes.length > 0 && org.edges.length > 0);
+
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-alice", token: TOKEN } })
+    );
+    await collectMessages(ws, 2);
+
+    const orgUpdatedPromise = collectUntil(ws, (messages) =>
+      messages.some((message) => message.type === "org_updated")
+    );
+    orgUpdatedPromise.catch(() => {});
+
+    const addResponse = await fetch(`${base}/org/members`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Erin",
+        role: "Designer",
+        team: "Design Team",
+        githubUsername: "erin-gh",
+      }),
+    });
+    assert.equal(addResponse.status, 200);
+    const added = await addResponse.json();
+    assert.equal(added.user.id, "user-erin");
+    assert.equal(added.organization.users.length, 5);
+
+    const orgUpdated = (await orgUpdatedPromise).find(
+      (message) => message.type === "org_updated"
+    );
+    assert.equal(orgUpdated.payload.users.length, 5);
+
+    const routeResponse = await fetch(`${base}/ai/route`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        text: "Ask Erin to polish the onboarding mockups",
+        sender: { id: "user-alice", name: "Alice", role: "Product Manager" },
+      }),
+    });
+    assert.equal(routeResponse.status, 200);
+    const routing = await routeResponse.json();
+    assert.equal(routing.recipientUserID, "user-erin");
+    ws.close();
+  });
+
   await t.test("channel_create broadcasts a normalized channel", async () => {
     const ws = await wsOpen(`ws://127.0.0.1:${port}`);
     ws.send(

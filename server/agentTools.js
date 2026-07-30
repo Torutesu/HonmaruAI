@@ -1,59 +1,64 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
 
-export const DEMO_USER_IDS = [
-  "user-alice",
-  "user-bob",
-  "user-carol",
-  "user-dana",
-];
+import { createOrgStore, roleBucket } from "./org.js";
 
-const TEAM_ROUTES = [
-  {
-    phrases: ["design team", "designers", "designer", " ux", "ui team", "design dept"],
-    userID: "user-carol",
-    label: "Design",
-  },
-  {
-    phrases: ["engineering team", "eng team", "engineers", "dev team", "developers", "engineering"],
-    userID: "user-dana",
-    label: "Engineering",
-  },
-  {
-    phrases: ["product team", "product managers", "pm team", "product manager"],
-    userID: "user-alice",
-    label: "Product",
-  },
-];
+// The active organization. Seeded with the demo roster; index.js swaps in
+// the persisted org at boot and keeps it as members are added.
+let activeOrg = createOrgStore(null);
 
-const ROLE_ROUTES = [
-  {
-    phrases: ["mockup", "figma", "pixel", "spacing", "empty state", "visual", "ui ", "ux ", "design system", "copy pass"],
-    userID: "user-carol",
-    reason: "Design work detected in instruction",
-  },
-  {
-    phrases: ["bug", "fix", "api", "deploy", "latency", "hotfix", "backend", "auth", "endpoint", "pr #", "merge", "regression"],
-    userID: "user-bob",
-    reason: "Engineering work detected in instruction",
-  },
-  {
-    phrases: ["roadmap", "priorit", "stakeholder", "spec", "requirements", "launch plan", "approval"],
-    userID: "user-alice",
-    reason: "Product decision detected in instruction",
-  },
-  {
-    phrases: ["architecture", "infra", "on-call", "incident", "eng lead", "system design"],
-    userID: "user-dana",
-    reason: "Engineering leadership scope detected",
-  },
-];
+export function setActiveOrg(orgStore) {
+  activeOrg = orgStore;
+}
+
+export function orgUsers() {
+  return activeOrg.users();
+}
+
+export function orgUserIDs() {
+  return activeOrg.userIDs();
+}
+
+export function userNameFor(userID) {
+  return activeOrg.userName(userID);
+}
+
+// Keyword heuristics per role bucket — the offline routing fallback.
+const BUCKET_PHRASES = {
+  design: [
+    "mockup", "figma", "pixel", "spacing", "empty state", "visual",
+    "ui ", "ux ", "design system", "copy pass", "designer",
+  ],
+  engineering: [
+    "bug", "fix", "api", "deploy", "latency", "hotfix", "backend",
+    "auth", "endpoint", "pr #", "merge", "regression", "engineer", "developer",
+  ],
+  product: [
+    "roadmap", "priorit", "stakeholder", "spec", "requirements",
+    "launch plan", "approval", "product manager",
+  ],
+  "engineering-lead": [
+    "architecture", "infra", "on-call", "incident", "eng lead", "system design",
+  ],
+};
+
+const BUCKET_REASONS = {
+  design: "Design work detected in instruction",
+  engineering: "Engineering work detected in instruction",
+  product: "Product decision detected in instruction",
+  "engineering-lead": "Engineering leadership scope detected",
+};
 
 function matchTeamRoute(text, senderID) {
   const lower = String(text || "").toLowerCase();
-  for (const route of TEAM_ROUTES) {
-    if (route.userID === senderID) continue;
-    if (route.phrases.some((phrase) => lower.includes(phrase))) {
-      return route;
+  for (const team of activeOrg.teams()) {
+    const label = team.label.toLowerCase();
+    const short = label.replace(/\s*team\s*$/, "").trim();
+    const phrases = [label, `${short} team`, `${short} dept`];
+    if (!phrases.some((phrase) => phrase && lower.includes(phrase))) continue;
+
+    const member = activeOrg.teamMembers(team.id).find((user) => user.id !== senderID);
+    if (member) {
+      return { userID: member.id, label: team.label };
     }
   }
   return null;
@@ -61,10 +66,13 @@ function matchTeamRoute(text, senderID) {
 
 function matchRoleRoute(text, senderID) {
   const lower = String(text || "").toLowerCase();
-  for (const route of ROLE_ROUTES) {
-    if (route.userID === senderID) continue;
-    if (route.phrases.some((phrase) => lower.includes(phrase))) {
-      return route;
+  for (const [bucket, phrases] of Object.entries(BUCKET_PHRASES)) {
+    if (!phrases.some((phrase) => lower.includes(phrase))) continue;
+    const member = orgUsers().find(
+      (user) => user.id !== senderID && roleBucket(user.role) === bucket
+    );
+    if (member) {
+      return { userID: member.id, reason: BUCKET_REASONS[bucket] };
     }
   }
   return null;
@@ -72,13 +80,14 @@ function matchRoleRoute(text, senderID) {
 
 export function resolveRecipientTarget(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
+  // Client-sent org edges override; otherwise use the server's active org.
+  const edges = organization?.edges?.length ? organization.edges : activeOrg.snapshot().edges;
 
-  for (const userID of DEMO_USER_IDS) {
-    if (userID === senderID) continue;
-    const name = userNameFor(userID).toLowerCase();
-    if (lower.includes(name)) {
+  for (const user of orgUsers()) {
+    if (user.id === senderID) continue;
+    if (lower.includes(user.name.toLowerCase())) {
       return {
-        recipientUserID: userID,
+        recipientUserID: user.id,
         routingReason: "Named in your instruction",
         forceOverride: true,
       };
@@ -89,7 +98,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
   if (team) {
     return {
       recipientUserID: team.userID,
-      routingReason: `Routed to ${team.label} team · ${userNameFor(team.userID)}`,
+      routingReason: `Routed to ${team.label} · ${userNameFor(team.userID)}`,
       forceOverride: true,
     };
   }
@@ -104,7 +113,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
   }
 
   if (lower.includes("manager")) {
-    const edge = organization?.edges?.find(
+    const edge = edges.find(
       (item) => item.toID === senderID && item.kind === "manages"
     );
     if (edge) {
@@ -116,7 +125,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
     }
   }
 
-  const managerEdge = organization?.edges?.find(
+  const managerEdge = edges.find(
     (item) => item.toID === senderID && item.kind === "manages"
   );
   if (managerEdge?.fromID && managerEdge.fromID !== senderID) {
@@ -127,7 +136,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
     };
   }
 
-  const fallback = DEMO_USER_IDS.find((userID) => userID !== senderID) || senderID;
+  const fallback = orgUserIDs().find((userID) => userID !== senderID) || senderID;
   return {
     recipientUserID: fallback,
     routingReason: "Best match for this decision in org graph",
@@ -135,7 +144,8 @@ export function resolveRecipientTarget(text, senderID, organization) {
   };
 }
 
-export const AGENT_TOOLS = [
+export function buildAgentTools() {
+  return [
   {
     type: "function",
     function: {
@@ -147,9 +157,9 @@ export const AGENT_TOOLS = [
         properties: {
           recipientUserID: {
             type: "string",
-            enum: DEMO_USER_IDS,
+            enum: orgUserIDs(),
             description:
-              "Who should receive and act on this decision. Route by team/role: design→user-carol, engineering/dev/bugs→user-bob or user-dana, product/PM→user-alice",
+              "Who should receive and act on this decision. Route by the team roster in the system prompt.",
           },
           cardType: {
             type: "string",
@@ -228,9 +238,14 @@ export const AGENT_TOOLS = [
       },
     },
   },
-];
+  ];
+}
 
-const SYSTEM_PROMPT = `You route workplace instructions to the right teammate as structured Decision Cards.
+function buildRoutingSystemPrompt() {
+  const roster = orgUsers()
+    .map((user) => `- ${user.id}: ${user.name}, ${user.role}`)
+    .join("\n");
+  return `You route workplace instructions to the right teammate as structured Decision Cards.
 
 Call create_decision_card once with all fields filled:
 - Never echo the sender's exact wording in title or summary
@@ -238,14 +253,13 @@ Call create_decision_card once with all fields filled:
 - summary: third person, what the recipient must decide or do
 - context: deadlines, metrics, PR numbers, blockers — always 2-4 segments as 'label: detail' joined by ·
 - priority: infer from urgency cues in the instruction
-- Pick recipient from org graph using team, role, and manager edges
+- Pick recipient from the roster using role, team, and manager edges
 
-Team routing (critical):
-- design team / design / UX / UI → user-carol (Carol, Designer)
-- engineering / dev / bugs / APIs → user-bob (Bob, Engineer) or user-dana (Dana, Eng Lead) for leadership
-- product / PM / roadmap / approvals → user-alice (Alice, Product Manager)
+Team roster (critical — pick the best owner by role):
+${roster}
 - named person in instruction → that person
 - "manager" → sender's manager from org edges`;
+}
 
 export function buildUserPrompt({ text, sender, organization }) {
   const orgContext = organizationContext(organization);
@@ -257,29 +271,20 @@ ${orgContext}`;
 }
 
 function organizationContext(organization) {
-  const nodes = (organization?.nodes || [])
+  const source = organization?.nodes?.length ? organization : activeOrg.snapshot();
+  const nodes = (source.nodes || [])
     .map((node) => `- ${node.id}: ${node.label} (${node.kind})`)
     .join("\n");
-  const edges = (organization?.edges || [])
+  const edges = (source.edges || [])
     .map((edge) => {
       const from =
-        organization.nodes?.find((node) => node.id === edge.fromID)?.label ||
-        edge.fromID;
+        source.nodes?.find((node) => node.id === edge.fromID)?.label || edge.fromID;
       const to =
-        organization.nodes?.find((node) => node.id === edge.toID)?.label ||
-        edge.toID;
+        source.nodes?.find((node) => node.id === edge.toID)?.label || edge.toID;
       return `- ${from} ${edge.kind} ${to}`;
     })
     .join("\n");
   return `Nodes:\n${nodes}\nEdges:\n${edges}`;
-}
-
-function userNameFor(userID) {
-  if (userID === "user-alice") return "Alice";
-  if (userID === "user-bob") return "Bob";
-  if (userID === "user-carol") return "Carol";
-  if (userID === "user-dana") return "Dana";
-  return userID;
 }
 
 function parseToolArguments(raw) {
@@ -395,15 +400,30 @@ function isEchoOfInput(summary, input) {
   return false;
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function firstNamesAlternation() {
+  const names = orgUsers().map((user) =>
+    escapeRegExp(user.name.split(" ")[0].toLowerCase())
+  );
+  return [...names, "manager"].join("|");
+}
+
 function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
+  const names = firstNamesAlternation();
   let cleaned = String(text || "").trim();
   cleaned = cleaned.replace(
-    /^(please\s+)?(tell|ask|notify|send|ping|remind)\s+(alice|bob|carol|dana|manager)\s+(to\s+)?/i,
+    new RegExp(
+      `^(please\\s+)?(tell|ask|notify|send|ping|remind)\\s+(${names})\\s+(to\\s+)?`,
+      "i"
+    ),
     ""
   );
   cleaned = cleaned.replace(/^(can you|could you|hey|hi|yo)\s+/i, "");
   cleaned = cleaned.replace(
-    /^(i need|we need)\s+(alice|bob|carol|dana|manager)\s+to\s+/i,
+    new RegExp(`^(i need|we need)\\s+(${names})\\s+to\\s+`, "i"),
     ""
   );
   cleaned = cleaned.replace(/\s+/g, " ").trim();
@@ -454,7 +474,7 @@ function applyRoutingGuard(routing, sender, originalText, organization = null) {
 }
 
 function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null) {
-  const allowedRecipients = new Set(DEMO_USER_IDS);
+  const allowedRecipients = new Set(orgUserIDs());
   const allowedTypes = new Set([
     "approval",
     "delegation",
@@ -615,10 +635,10 @@ async function routeInstructionWithOpenRouter({
       temperature: 0.2,
       max_tokens: 512,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: buildRoutingSystemPrompt() },
         { role: "user", content: userPrompt },
       ],
-      tools: AGENT_TOOLS,
+      tools: buildAgentTools(),
       tool_choice: {
         type: "function",
         function: { name: "create_decision_card" },
@@ -1004,4 +1024,3 @@ Recipient's reply: ${reply}`,
   }
 }
 
-export { SYSTEM_PROMPT, userNameFor };

@@ -55,7 +55,7 @@ Last updated: 2026-07-30
 - [x] Card reply layer: freeform text reply on pending cards, AI-interpreted via `/ai/reply` (conditional approve, reject with reason, revise, question, note)
 - [x] Question/note cards back to the sender; notification cards get reply + mark-as-read instead of issue actions
 - [x] Voice input: on-device dictation (Speech framework) on the composer, card replies, Ask AI, resend, and channel chat — transcript is editable before sending
-- [ ] Real org graph — next
+- [x] Real org graph: relay owns users/nodes/edges (persisted, `GET /org`, `POST /org/members`, `org_updated` broadcast); routing, mentions, and prompts derive from the live org; add-member UI in the user switcher; GitHub login auto-matches an org member
 - [ ] Push notifications — next
 
 ## Phase 8 — Deployable relay
