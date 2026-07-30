@@ -42,6 +42,17 @@ Last updated: 2026-07-30
 - [x] Revision requests return as actionable cards — revise and resend routes the updated card back to the requester
 - [x] Resent state tracked on the original revision-request card
 
+## Phase 9 — Channels (AI-native chat layer)
+
+- [x] Channel + message store on the relay (persisted, capped, seeded #general)
+- [x] WS protocol: channel_snapshot / channel_message / channel_create / channel_created
+- [x] Agents as channel members: @ai / @ai-<name> mentions reply with conversation context
+- [x] Agent files decision cards from chat (file_decision tool → normal routing pipeline → recipient's feed)
+- [x] Offline fallback: `@ai file: <instruction>` routes a card without an AI key
+- [x] iOS Channels UI: channel list, timeline, composer, agent messages with tool-call chips
+- [ ] AI auto-filing of "Tell your AI" input into channels (`/ai/ingest`) — next
+- [ ] Card reply layer (text/voice reply on cards, question cards) — next
+
 ## Phase 8 — Deployable relay
 
 - [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)

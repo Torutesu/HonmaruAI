@@ -7,6 +7,7 @@ final class AppState: ObservableObject {
     @Published private(set) var isBootstrapping = true
 
     let cardService = DecisionCardService()
+    let channelService = ChannelService()
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
@@ -22,6 +23,7 @@ final class AppState: ObservableObject {
         relayURL = SessionStore.relayURL ?? AppConfig.defaultRelayURL
         relayToken = SessionStore.relayToken
         cardService.attach(webSocketService: webSocketService)
+        channelService.attach(webSocketService: webSocketService)
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
                 await self?.handleRepositoryChanged()
@@ -108,6 +110,7 @@ final class AppState: ObservableObject {
         webSocketService.disconnect()
         githubService.disconnect()
         cardService.reset()
+        channelService.reset()
         SessionStore.clear()
         isAuthenticated = false
         currentUser = nil

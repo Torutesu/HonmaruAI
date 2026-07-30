@@ -56,6 +56,25 @@ function nextMessage(ws) {
   });
 }
 
+function collectMessages(ws, count, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const collected = [];
+    const timer = setTimeout(
+      () => reject(new Error(`Only got ${collected.length}/${count} messages`)),
+      timeoutMs
+    );
+    const onMessage = (raw) => {
+      collected.push(JSON.parse(String(raw)));
+      if (collected.length === count) {
+        clearTimeout(timer);
+        ws.off("message", onMessage);
+        resolve(collected);
+      }
+    };
+    ws.on("message", onMessage);
+  });
+}
+
 test("relay auth, refine endpoint, and persistence", async (t) => {
   const port = 18000 + Math.floor(Math.random() * 1000);
   const base = `http://127.0.0.1:${port}`;
@@ -120,8 +139,9 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     ws.send(
       JSON.stringify({ type: "join", payload: { userId: "user-alice", token: TOKEN } })
     );
-    const snapshot = await nextMessage(ws);
+    const [snapshot, channelSnapshot] = await collectMessages(ws, 2);
     assert.equal(snapshot.type, "snapshot");
+    assert.equal(channelSnapshot.type, "channel_snapshot");
 
     ws.send(
       JSON.stringify({
@@ -137,5 +157,60 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     await new Promise((resolve) => setTimeout(resolve, 900));
     const written = JSON.parse(readFileSync(storePath, "utf8"));
     assert.equal(written["core-team"]["user-bob"][0].id, "card-p1");
+  });
+
+  await t.test("channels: snapshot on join, chat, @ai files a decision card", async () => {
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-alice", token: TOKEN } })
+    );
+    const [, channelSnapshot] = await collectMessages(ws, 2);
+    assert.equal(channelSnapshot.type, "channel_snapshot");
+    const channelIDs = Object.keys(channelSnapshot.payload.channels);
+    assert.ok(channelIDs.includes("channel-general"));
+
+    ws.send(
+      JSON.stringify({
+        type: "channel_message",
+        payload: {
+          channelID: "channel-general",
+          text: "@ai file: Bob to fix the login bug by Friday",
+        },
+      })
+    );
+
+    // human echo → card_created (agent filed it) → agent reply
+    const events = await collectMessages(ws, 3);
+    assert.equal(events[0].type, "channel_message");
+    assert.equal(events[0].payload.message.authorName, "Alice");
+
+    const cardEvent = events.find((event) => event.type === "card_created");
+    assert.ok(cardEvent, "agent should file a decision card");
+    assert.equal(cardEvent.payload.card.recipientUserID, "user-bob");
+    assert.equal(cardEvent.payload.card.senderUserID, "user-alice");
+
+    const agentEvent = events.find(
+      (event) =>
+        event.type === "channel_message" && event.payload.message.authorKind === "agent"
+    );
+    assert.ok(agentEvent, "agent should reply in channel");
+    assert.equal(agentEvent.payload.message.cardID, cardEvent.payload.card.id);
+    ws.close();
+  });
+
+  await t.test("channel_create broadcasts a normalized channel", async () => {
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-bob", token: TOKEN } })
+    );
+    await collectMessages(ws, 2);
+
+    ws.send(
+      JSON.stringify({ type: "channel_create", payload: { name: "Launch Plan" } })
+    );
+    const created = await nextMessage(ws);
+    assert.equal(created.type, "channel_created");
+    assert.equal(created.payload.channel.name, "launch-plan");
+    ws.close();
   });
 });

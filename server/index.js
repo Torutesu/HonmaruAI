@@ -4,8 +4,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
-import { routeInstruction, refineCard } from "./agentTools.js";
+import { routeInstruction, refineCard, userNameFor } from "./agentTools.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
+import {
+  createChannelStore,
+  parseAgentMention,
+  generateAgentReply,
+} from "./channels.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
@@ -35,6 +40,8 @@ const RELAY_TOKEN = process.env.RELAY_TOKEN || "";
 
 const STORE_PATH =
   process.env.CARDS_STORE_PATH || join(__dirname, "data", "cards.json");
+const CHANNELS_STORE_PATH =
+  process.env.CHANNELS_STORE_PATH || join(__dirname, "data", "channels.json");
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
@@ -54,6 +61,33 @@ const initialCards = {};
 const orgStores =
   loadPersistedStores(STORE_PATH) || new Map([[ORG_ID, structuredClone(initialCards)]]);
 const persister = createPersister(STORE_PATH);
+
+const persistedChannels = loadPersistedStores(CHANNELS_STORE_PATH);
+const channelStore = createChannelStore(
+  persistedChannels ? Object.fromEntries(persistedChannels.entries()) : null
+);
+const channelPersister = createPersister(CHANNELS_STORE_PATH);
+
+function persistChannels() {
+  const serialized = channelStore.serialize();
+  channelPersister.schedule(
+    new Map([
+      ["channels", serialized.channels],
+      ["messages", serialized.messages],
+    ])
+  );
+}
+
+function openRouterConfig() {
+  return OPENROUTER_API_KEY
+    ? {
+        apiKey: OPENROUTER_API_KEY,
+        model: OPENROUTER_MODEL,
+        appName: OPENROUTER_APP_NAME,
+        appUrl: OPENROUTER_APP_URL,
+      }
+    : null;
+}
 
 /** @type {Map<import('ws').WebSocket, { userId: string, orgId: string }>} */
 const sessions = new Map();
@@ -243,14 +277,7 @@ const server = createServer(async (req, res) => {
         sender,
         organization,
         priorityOverride: body.priorityOverride,
-        openRouter: OPENROUTER_API_KEY
-          ? {
-              apiKey: OPENROUTER_API_KEY,
-              model: OPENROUTER_MODEL,
-              appName: OPENROUTER_APP_NAME,
-              appUrl: OPENROUTER_APP_URL,
-            }
-          : null,
+        openRouter: openRouterConfig(),
       });
       json(res, 200, routing);
     } catch (error) {
@@ -274,14 +301,7 @@ const server = createServer(async (req, res) => {
       const refinement = await refineCard({
         card,
         instruction,
-        openRouter: OPENROUTER_API_KEY
-          ? {
-              apiKey: OPENROUTER_API_KEY,
-              model: OPENROUTER_MODEL,
-              appName: OPENROUTER_APP_NAME,
-              appUrl: OPENROUTER_APP_URL,
-            }
-          : null,
+        openRouter: openRouterConfig(),
       });
       json(res, 200, refinement);
     } catch (error) {
@@ -323,6 +343,7 @@ wss.on("connection", (ws) => {
         }
         sessions.set(ws, { userId, orgId });
         send(ws, "snapshot", { cardsByUser: getStore(orgId) });
+        send(ws, "channel_snapshot", channelStore.snapshot());
         broadcast(orgId, "presence", { userId, status: "online" }, ws);
         break;
       }
@@ -370,6 +391,59 @@ wss.on("connection", (ws) => {
         break;
       }
 
+      case "channel_create": {
+        const session = sessions.get(ws);
+        if (!session) {
+          send(ws, "error", { message: "Not joined" });
+          return;
+        }
+        const channel = channelStore.createChannel({
+          name: payload?.name,
+          purpose: payload?.purpose,
+        });
+        if (!channel) {
+          send(ws, "error", { message: "Invalid channel name" });
+          return;
+        }
+        persistChannels();
+        broadcast(session.orgId, "channel_created", { channel });
+        break;
+      }
+
+      case "channel_message": {
+        const session = sessions.get(ws);
+        const channelID = payload?.channelID;
+        const text = payload?.text;
+        if (!session || !channelID || !text) {
+          send(ws, "error", { message: "Invalid channel_message payload" });
+          return;
+        }
+        const channel = channelStore.getChannel(channelID);
+        if (!channel) {
+          send(ws, "error", { message: "Unknown channel" });
+          return;
+        }
+
+        const message = channelStore.addMessage({
+          channelID,
+          authorID: session.userId,
+          authorKind: "user",
+          authorName: userNameFor(session.userId),
+          text,
+        });
+        if (!message) return;
+        persistChannels();
+        broadcast(session.orgId, "channel_message", { message });
+
+        const mention = parseAgentMention(message.text);
+        if (mention) {
+          respondAsAgent({ orgId: session.orgId, channel, message, mention }).catch(
+            (error) => console.warn("Agent response failed:", error.message)
+          );
+        }
+        break;
+      }
+
       case "clear_store": {
         const session = sessions.get(ws);
         if (!session) {
@@ -396,8 +470,90 @@ wss.on("connection", (ws) => {
   });
 });
 
+// An @-mentioned agent replies in the channel with conversation context.
+// When it files a decision, the instruction goes through the same routing
+// pipeline as "Tell your AI" and the card lands in the recipient's feed.
+async function respondAsAgent({ orgId, channel, message, mention }) {
+  const reply = await generateAgentReply({
+    agentName: mention.agentName,
+    channelName: channel.name,
+    recentMessages: channelStore.recentMessages(channel.id),
+    message,
+    openRouter: openRouterConfig(),
+  });
+
+  let toolCalls;
+  let cardID;
+
+  if (reply.instruction) {
+    const sender = {
+      id: message.authorID,
+      name: message.authorName,
+      role: "Member",
+    };
+    const routing = await routeInstruction({
+      text: reply.instruction,
+      sender,
+      organization: null,
+      openRouter: openRouterConfig(),
+    });
+
+    const card = {
+      id: `card-${randomUUID()}`,
+      recipientUserID: routing.recipientUserID,
+      senderUserID: message.authorID,
+      type: routing.cardType,
+      title: routing.title,
+      summary: routing.summary,
+      context: routing.context,
+      status: "pending",
+      priority: routing.priority,
+      createdAt: new Date().toISOString(),
+      agentRoute: `${mention.agentName} → ${userNameFor(routing.recipientUserID)}'s AI`,
+      routingReason: `Filed from #${channel.name} by ${mention.agentName}`,
+      sourceInstruction: reply.instruction,
+    };
+
+    const store = getStore(orgId);
+    upsertCard(store, card);
+    persister.schedule(orgStores);
+    broadcast(orgId, "card_created", { card });
+
+    cardID = card.id;
+    toolCalls = [
+      {
+        name: "create_decision_card",
+        label: "Filed decision",
+        detail: `${userNameFor(routing.recipientUserID)} · ${routing.cardType}`,
+      },
+    ];
+  }
+
+  const agentMessage = channelStore.addMessage({
+    channelID: channel.id,
+    authorID: mention.ownerID ? `agent-${mention.ownerID.replace("user-", "")}` : "agent-team",
+    authorKind: "agent",
+    authorName: mention.agentName,
+    text: reply.text,
+    toolCalls,
+    cardID,
+  });
+
+  if (agentMessage) {
+    persistChannels();
+    broadcast(orgId, "channel_message", { message: agentMessage });
+  }
+}
+
 function shutdown() {
   persister.flushNow(orgStores);
+  const serialized = channelStore.serialize();
+  channelPersister.flushNow(
+    new Map([
+      ["channels", serialized.channels],
+      ["messages", serialized.messages],
+    ])
+  );
   process.exit(0);
 }
 

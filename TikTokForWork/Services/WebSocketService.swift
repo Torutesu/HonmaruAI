@@ -6,6 +6,9 @@ enum RealtimeEvent: Codable {
     case cardUpdated(card: DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
     case presence(userId: String, status: String)
+    case channelSnapshot(channels: [String: ChatChannel], messagesByChannel: [String: [ChatMessage]])
+    case channelCreated(channel: ChatChannel)
+    case channelMessage(message: ChatMessage)
     case error(message: String)
 
     private enum CodingKeys: String, CodingKey {
@@ -31,6 +34,18 @@ enum RealtimeEvent: Codable {
         case "presence":
             let payload = try container.decode(PresencePayload.self, forKey: .payload)
             self = .presence(userId: payload.userId, status: payload.status)
+        case "channel_snapshot":
+            let payload = try container.decode(ChannelSnapshotPayload.self, forKey: .payload)
+            self = .channelSnapshot(
+                channels: payload.channels,
+                messagesByChannel: payload.messagesByChannel
+            )
+        case "channel_created":
+            let payload = try container.decode(ChannelPayload.self, forKey: .payload)
+            self = .channelCreated(channel: payload.channel)
+        case "channel_message":
+            let payload = try container.decode(ChannelMessagePayload.self, forKey: .payload)
+            self = .channelMessage(message: payload.message)
         case "error":
             let payload = try container.decode(ErrorPayload.self, forKey: .payload)
             self = .error(message: payload.message)
@@ -57,6 +72,18 @@ enum RealtimeEvent: Codable {
         case .presence(let userId, let status):
             try container.encode("presence", forKey: .type)
             try container.encode(PresencePayload(userId: userId, status: status), forKey: .payload)
+        case .channelSnapshot(let channels, let messagesByChannel):
+            try container.encode("channel_snapshot", forKey: .type)
+            try container.encode(
+                ChannelSnapshotPayload(channels: channels, messagesByChannel: messagesByChannel),
+                forKey: .payload
+            )
+        case .channelCreated(let channel):
+            try container.encode("channel_created", forKey: .type)
+            try container.encode(ChannelPayload(channel: channel), forKey: .payload)
+        case .channelMessage(let message):
+            try container.encode("channel_message", forKey: .type)
+            try container.encode(ChannelMessagePayload(message: message), forKey: .payload)
         case .error(let message):
             try container.encode("error", forKey: .type)
             try container.encode(ErrorPayload(message: message), forKey: .payload)
@@ -86,6 +113,19 @@ enum RealtimeEvent: Codable {
         let status: String
     }
 
+    private struct ChannelSnapshotPayload: Codable {
+        let channels: [String: ChatChannel]
+        let messagesByChannel: [String: [ChatMessage]]
+    }
+
+    private struct ChannelPayload: Codable {
+        let channel: ChatChannel
+    }
+
+    private struct ChannelMessagePayload: Codable {
+        let message: ChatMessage
+    }
+
     private struct ErrorPayload: Codable {
         let message: String
     }
@@ -96,6 +136,8 @@ enum OutboundEvent {
     case cardCreated(DecisionCard)
     case cardUpdated(DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
+    case channelMessage(channelID: String, text: String)
+    case channelCreate(name: String)
     case clearStore
 
     var envelope: [String: Any] {
@@ -115,6 +157,10 @@ enum OutboundEvent {
                 "type": "card_deleted",
                 "payload": ["cardId": cardID, "recipientUserID": recipientUserID]
             ]
+        case .channelMessage(let channelID, let text):
+            return ["type": "channel_message", "payload": ["channelID": channelID, "text": text]]
+        case .channelCreate(let name):
+            return ["type": "channel_create", "payload": ["name": name]]
         case .clearStore:
             return ["type": "clear_store", "payload": [:]]
         }
@@ -126,7 +172,11 @@ final class WebSocketService: ObservableObject {
     @Published private(set) var isConnected = false
     @Published private(set) var onlineUserIDs: Set<String> = []
 
-    var onEvent: ((RealtimeEvent) -> Void)?
+    private var eventHandlers: [(RealtimeEvent) -> Void] = []
+
+    func addEventHandler(_ handler: @escaping (RealtimeEvent) -> Void) {
+        eventHandlers.append(handler)
+    }
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?
@@ -219,6 +269,14 @@ final class WebSocketService: ObservableObject {
         try? await send(.clearStore)
     }
 
+    func sendChannelMessage(channelID: String, text: String) async {
+        try? await send(.channelMessage(channelID: channelID, text: text))
+    }
+
+    func createChannel(named name: String) async {
+        try? await send(.channelCreate(name: name))
+    }
+
     private func send(_ event: OutboundEvent) async throws {
         guard let task else { throw URLError(.notConnectedToInternet) }
         let data = try JSONSerialization.data(withJSONObject: event.envelope)
@@ -280,7 +338,9 @@ final class WebSocketService: ObservableObject {
             }
         }
 
-        onEvent?(event)
+        for handler in eventHandlers {
+            handler(event)
+        }
     }
 }
 

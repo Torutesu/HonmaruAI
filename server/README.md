@@ -25,7 +25,7 @@ Runs unit tests (routing, refine, persistence) plus an integration test that boo
 
 ## Persistence
 
-Cards are persisted to a JSON file (debounced writes, flushed on SIGINT/SIGTERM) and reloaded on boot. Default path is `./data/cards.json`; override with `CARDS_STORE_PATH`. When deploying, mount a volume there so cards survive restarts.
+Cards and channels are persisted to JSON files (debounced writes, flushed on SIGINT/SIGTERM) and reloaded on boot. Defaults are `./data/cards.json` and `./data/channels.json`; override with `CARDS_STORE_PATH` / `CHANNELS_STORE_PATH`. When deploying, mount a volume at `./data` so state survives restarts.
 
 ## Auth
 
@@ -87,6 +87,14 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 |---------|-----------|---------|
 | `join` | client → server | `{ userId, orgId?, token? }` |
 | `snapshot` | server → client | `{ cardsByUser }` |
+| `channel_snapshot` | server → client | `{ channels, messagesByChannel }` |
 | `card_created` | both | `{ card }` |
 | `card_updated` | both | `{ card }` |
+| `channel_message` | both | client: `{ channelID, text }` · server: `{ message }` |
+| `channel_create` | client → server | `{ name, purpose? }` |
+| `channel_created` | server → clients | `{ channel }` |
 | `presence` | server → clients | `{ userId, status }` |
+
+## Agents in channels
+
+Mention `@ai` in any channel message and the team AI replies with conversation context; `@ai-alice` addresses Alice's personal agent. When the conversation contains a clear ask, the agent calls its `file_decision` tool and the instruction goes through the normal routing pipeline — the decision card lands in the recipient's feed, and the agent's chat message links to it. Without `OPENROUTER_API_KEY`, the agent runs in offline mode: `@ai file: <instruction>` still routes a card via the local keyword router.

@@ -12,6 +12,9 @@
 		09C9FB765322951B0B772C3E /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = F125BEDE2BF4518F791F5480 /* User.swift */; };
 		0AED7D88396FA52DF1F59258 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED63FE3692D666375D4EF19 /* SessionStore.swift */; };
 		1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9515750E6133D1846CBE8BD /* OrgGraphView.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* ChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6D /* ChatModels.swift */; };
+		C3D4E5F60718293A4B5C6D7E /* ChannelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F60718293A4B5C6D7E8F /* ChannelService.swift */; };
+		E5F60718293A4B5C6D7E8F90 /* ChannelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60718293A4B5C6D7E8F90A1 /* ChannelsView.swift */; };
 		18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6977E782E374C75800103F /* AppLogo.swift */; };
 		18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */; };
 		1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */; };
@@ -43,6 +46,9 @@
 
 /* Begin PBXFileReference section */
 		050D0B7873E1D94841BB5228 /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
+		B2C3D4E5F60718293A4B5C6D /* ChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModels.swift; sourceTree = "<group>"; };
+		D4E5F60718293A4B5C6D7E8F /* ChannelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelService.swift; sourceTree = "<group>"; };
+		F60718293A4B5C6D7E8F90A1 /* ChannelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsView.swift; sourceTree = "<group>"; };
 		0ABD898A426994D5C516944E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		2E5DA40629B98A94601F06DC /* DecisionCardService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardService.swift; sourceTree = "<group>"; };
 		2E87DCC57193FEC4D70357DC /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
@@ -129,10 +135,19 @@
 			isa = PBXGroup;
 			children = (
 				916070A0B2DF616E08283B9B /* Auth */,
+				0718293A4B5C6D7E8F90A1B2 /* Channels */,
 				98A63014DF6DA008B1A66E81 /* Feed */,
 				D14125CA6343D8755F5393CA /* Org */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		0718293A4B5C6D7E8F90A1B2 /* Channels */ = {
+			isa = PBXGroup;
+			children = (
+				F60718293A4B5C6D7E8F90A1 /* ChannelsView.swift */,
+			);
+			path = Channels;
 			sourceTree = "<group>";
 		};
 		843E97B36FD0784BDCA77BA7 /* App */ = {
@@ -149,6 +164,7 @@
 			isa = PBXGroup;
 			children = (
 				4A79579E123395F8C8DBED15 /* AgentModels.swift */,
+				B2C3D4E5F60718293A4B5C6D /* ChatModels.swift */,
 				2F1C39E5BEABD558A524E5BC /* DecisionCard.swift */,
 				6F84E8680AEE5FAB69B6DCF4 /* Organization.swift */,
 				F125BEDE2BF4518F791F5480 /* User.swift */,
@@ -176,6 +192,7 @@
 			isa = PBXGroup;
 			children = (
 				CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */,
+				D4E5F60718293A4B5C6D7E8F /* ChannelService.swift */,
 				2E5DA40629B98A94601F06DC /* DecisionCardService.swift */,
 				E8E494243CEA2F9FA065D51B /* GitHubService.swift */,
 				CED63FE3692D666375D4EF19 /* SessionStore.swift */,
@@ -297,6 +314,9 @@
 				61546F7DD25035887C83D192 /* Components.swift in Sources */,
 				064B9C99CBB1BC04CD9B7307 /* DateFormatting.swift in Sources */,
 				890DC7776BFB95161547A003 /* DecisionCard.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* ChatModels.swift in Sources */,
+				C3D4E5F60718293A4B5C6D7E /* ChannelService.swift in Sources */,
+				E5F60718293A4B5C6D7E8F90 /* ChannelsView.swift in Sources */,
 				E6C4713C78AA0FF264BA9753 /* DecisionCardService.swift in Sources */,
 				AF00A6C5624E178AF6832453 /* DecisionCardView.swift in Sources */,
 				18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */,

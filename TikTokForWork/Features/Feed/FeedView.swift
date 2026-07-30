@@ -7,6 +7,7 @@ struct FeedView: View {
     @State private var showAIInput = false
     @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
+    @State private var showChannels = false
     @State private var showMenu = false
 
     var body: some View {
@@ -86,6 +87,10 @@ struct FeedView: View {
         .sheet(isPresented: $showOrgGraph) {
             OrgGraphView()
         }
+        .sheet(isPresented: $showChannels) {
+            ChannelsView(channelService: appState.channelService)
+                .environmentObject(appState)
+        }
         .sheet(isPresented: $showAIInput) {
             AIInputSheet(
                 prompt: $aiPrompt,
@@ -164,6 +169,7 @@ struct FeedView: View {
             }
         }
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
+            Button("Channels") { showChannels = true }
             Button("Organization") { showOrgGraph = true }
             Button("Sign out", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}

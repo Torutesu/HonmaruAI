@@ -21,7 +21,7 @@ final class DecisionCardService: ObservableObject {
 
     func attach(webSocketService: WebSocketService) {
         self.webSocketService = webSocketService
-        webSocketService.onEvent = { [weak self] event in
+        webSocketService.addEventHandler { [weak self] event in
             self?.handle(event)
         }
     }
@@ -356,7 +356,7 @@ final class DecisionCardService: ObservableObject {
             upsert(card)
         case .cardDeleted(let cardID, let recipientUserID):
             remove(cardID: cardID, for: recipientUserID)
-        case .presence, .error:
+        case .presence, .error, .channelSnapshot, .channelCreated, .channelMessage:
             break
         }
     }

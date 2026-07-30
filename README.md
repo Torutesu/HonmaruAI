@@ -56,6 +56,14 @@ On sign-in:
 5. Bob sees card via WebSocket
 6. Bob approves → GitHub Issue created → Alice gets result
 
+## Channels — the AI-native chat behind the feed
+
+The vertical feed is the primary way to work; behind it sits a Slack-like channel space (menu → **Channels**) that is AI-native from the start:
+
+- Humans and **AI agents share the same channels**. Mention `@ai` (or `@ai-alice` for a personal agent) and the agent replies with conversation context
+- When the conversation surfaces a real ask, the agent **files a decision card straight from chat** — it goes through the same routing pipeline and lands in the right person's feed, linked back to the conversation
+- Channels are meant to be AI-managed: reading them is optional, deciding on cards is the work
+
 ## Decision loop
 
 - **Decide**: approve → GitHub Issue, decline, revise (with a note), or delegate — swipe or tap
