@@ -123,10 +123,10 @@ final class GitHubService: NSObject, ObservableObject {
         _ = try await requestDictionary(path: "/user")
     }
 
-    func signInWithOAuth(backendBaseURL: URL) async throws {
-        let config = try await fetchOAuthConfig(backendBaseURL: backendBaseURL)
+    func signInWithOAuth(backendBaseURL: URL, relayToken: String? = nil) async throws {
+        let config = try await fetchOAuthConfig(backendBaseURL: backendBaseURL, relayToken: relayToken)
         let code = try await requestAuthorizationCode(config: config)
-        let accessToken = try await exchangeCode(code, backendBaseURL: backendBaseURL)
+        let accessToken = try await exchangeCode(code, backendBaseURL: backendBaseURL, relayToken: relayToken)
         token = accessToken
         repositories = try await fetchRepositories()
         lastError = nil
@@ -237,9 +237,13 @@ final class GitHubService: NSObject, ObservableObject {
         }
     }
 
-    private func fetchOAuthConfig(backendBaseURL: URL) async throws -> GitHubOAuthConfig {
+    private func fetchOAuthConfig(backendBaseURL: URL, relayToken: String?) async throws -> GitHubOAuthConfig {
         let url = backendBaseURL.appending(path: "oauth/github/config")
-        let (data, response) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url)
+        if let relayToken, !relayToken.isEmpty {
+            request.setValue("Bearer \(relayToken)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw GitHubServiceError.api(statusCode: 0, message: "No response from relay server.")
         }
@@ -305,11 +309,14 @@ final class GitHubService: NSObject, ObservableObject {
         }
     }
 
-    private func exchangeCode(_ code: String, backendBaseURL: URL) async throws -> String {
+    private func exchangeCode(_ code: String, backendBaseURL: URL, relayToken: String?) async throws -> String {
         let url = backendBaseURL.appending(path: "oauth/github/token")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let relayToken, !relayToken.isEmpty {
+            request.setValue("Bearer \(relayToken)", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
 
         let (data, response) = try await URLSession.shared.data(for: request)

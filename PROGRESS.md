@@ -42,6 +42,16 @@ Last updated: 2026-07-30
 - [x] Revision requests return as actionable cards — revise and resend routes the updated card back to the requester
 - [x] Resent state tracked on the original revision-request card
 
+## Phase 8 — Deployable relay
+
+- [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)
+- [x] Relay token auth (`RELAY_TOKEN`): Bearer on HTTP, token in WS join
+- [x] Card persistence to disk (debounced JSON writes, reload on boot, flush on shutdown)
+- [x] Server test suite (`npm test`): routing, refine, persistence, auth integration
+- [x] Dockerfile for Fly.io / Render / Railway
+- [ ] Relay deployed to a public URL (needs an account + credentials)
+- [ ] TestFlight or installable build (needs Xcode + signing)
+
 ## Demo script
 
 1. `cd server && cp .env.example .env` → add GitHub OAuth credentials → `npm start`
@@ -60,4 +70,4 @@ Last updated: 2026-07-30
 | Org graph | Real UI | Demo org data |
 | GitHub auth | Real OAuth | Token exchange on localhost |
 | GitHub sync | Real | Issues create/update |
-| Backend host | localhost only | `127.0.0.1:8080` |
+| Backend host | Configurable | localhost default; deployable via Docker + `RELAY_TOKEN`, URL set in-app |

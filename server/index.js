@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { routeInstruction, refineCard } from "./agentTools.js";
+import { loadPersistedStores, createPersister } from "./persistence.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
@@ -27,6 +28,14 @@ function loadEnv(path) {
 const PORT = Number(process.env.PORT || 8080);
 const ORG_ID = "core-team";
 
+// Optional shared secret. When set, every HTTP endpoint except /health
+// requires `Authorization: Bearer <token>` and WebSocket joins must carry
+// the token in the join payload. Required for any non-localhost deploy.
+const RELAY_TOKEN = process.env.RELAY_TOKEN || "";
+
+const STORE_PATH =
+  process.env.CARDS_STORE_PATH || join(__dirname, "data", "cards.json");
+
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
 const GITHUB_REDIRECT_URI =
@@ -42,7 +51,9 @@ const OPENROUTER_APP_URL = process.env.OPENROUTER_APP_URL || "http://localhost:8
 const initialCards = {};
 
 /** @type {Map<string, Record<string, object[]>>} */
-const orgStores = new Map([[ORG_ID, structuredClone(initialCards)]]);
+const orgStores =
+  loadPersistedStores(STORE_PATH) || new Map([[ORG_ID, structuredClone(initialCards)]]);
+const persister = createPersister(STORE_PATH);
 
 /** @type {Map<import('ws').WebSocket, { userId: string, orgId: string }>} */
 const sessions = new Map();
@@ -92,6 +103,17 @@ function readBody(req) {
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
+}
+
+function isAuthorizedRequest(req) {
+  if (!RELAY_TOKEN) return true;
+  const header = req.headers.authorization || "";
+  return header === `Bearer ${RELAY_TOKEN}`;
+}
+
+function isAuthorizedJoin(payload) {
+  if (!RELAY_TOKEN) return true;
+  return payload?.token === RELAY_TOKEN;
 }
 
 function json(res, status, payload) {
@@ -150,7 +172,13 @@ const server = createServer(async (req, res) => {
       githubOAuth: Boolean(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET),
       aiRouting: Boolean(OPENROUTER_API_KEY),
       aiModel: OPENROUTER_MODEL,
+      authRequired: Boolean(RELAY_TOKEN),
     });
+    return;
+  }
+
+  if (!isAuthorizedRequest(req)) {
+    json(res, 401, { message: "Relay token required. Set it in the app's relay settings." });
     return;
   }
 
@@ -282,6 +310,11 @@ wss.on("connection", (ws) => {
 
     switch (type) {
       case "join": {
+        if (!isAuthorizedJoin(payload)) {
+          send(ws, "error", { message: "Relay token required or invalid." });
+          ws.close(4401, "unauthorized");
+          return;
+        }
         const userId = payload?.userId;
         const orgId = payload?.orgId || ORG_ID;
         if (!userId) {
@@ -303,6 +336,7 @@ wss.on("connection", (ws) => {
         }
         const store = getStore(session.orgId);
         upsertCard(store, card);
+        persister.schedule(orgStores);
         broadcast(session.orgId, "card_created", { card });
         break;
       }
@@ -316,6 +350,7 @@ wss.on("connection", (ws) => {
         }
         const store = getStore(session.orgId);
         upsertCard(store, card);
+        persister.schedule(orgStores);
         broadcast(session.orgId, "card_updated", { card });
         break;
       }
@@ -330,6 +365,7 @@ wss.on("connection", (ws) => {
         }
         const store = getStore(session.orgId);
         removeCard(store, cardId, recipientUserID);
+        persister.schedule(orgStores);
         broadcast(session.orgId, "card_deleted", { cardId, recipientUserID });
         break;
       }
@@ -341,6 +377,7 @@ wss.on("connection", (ws) => {
           return;
         }
         orgStores.set(session.orgId, {});
+        persister.schedule(orgStores);
         broadcast(session.orgId, "snapshot", { cardsByUser: {} });
         break;
       }
@@ -359,6 +396,14 @@ wss.on("connection", (ws) => {
   });
 });
 
+function shutdown() {
+  persister.flushNow(orgStores);
+  process.exit(0);
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
 server.listen(PORT, () => {
   console.log(`Relay listening on http://127.0.0.1:${PORT}`);
   console.log(`WebSocket: ws://127.0.0.1:${PORT}`);
@@ -372,4 +417,6 @@ server.listen(PORT, () => {
       ? `AI routing: OpenRouter (${OPENROUTER_MODEL})`
       : "AI routing: missing OPENROUTER_API_KEY"
   );
+  console.log(RELAY_TOKEN ? "Relay auth: token required" : "Relay auth: open (set RELAY_TOKEN before deploying)");
+  console.log(`Card store: ${STORE_PATH}`);
 });

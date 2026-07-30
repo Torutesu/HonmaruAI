@@ -11,13 +11,16 @@ final class AppState: ObservableObject {
     let webSocketService = WebSocketService()
     let aiService = AIService()
 
-    let relayURL = AppConfig.relayURL
+    @Published private(set) var relayURL: String
+    @Published private(set) var relayToken: String?
 
     var backendBaseURL: URL? {
         BackendURL.httpBase(from: relayURL)
     }
 
     init() {
+        relayURL = SessionStore.relayURL ?? AppConfig.defaultRelayURL
+        relayToken = SessionStore.relayToken
         cardService.attach(webSocketService: webSocketService)
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
@@ -31,8 +34,27 @@ final class AppState: ObservableObject {
         defer { isBootstrapping = false }
 
         guard let backendBaseURL else { return }
-        await aiService.configure(backendBaseURL: backendBaseURL)
+        await aiService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
         await restoreSessionIfNeeded()
+    }
+
+    func updateRelaySettings(url: String, token: String) async {
+        let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        relayURL = trimmedURL.isEmpty ? AppConfig.defaultRelayURL : trimmedURL
+        relayToken = trimmedToken.isEmpty ? nil : trimmedToken
+        SessionStore.relayURL = relayURL == AppConfig.defaultRelayURL ? nil : relayURL
+        SessionStore.relayToken = relayToken
+
+        if let backendBaseURL {
+            await aiService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
+        }
+
+        if isAuthenticated, let user = currentUser {
+            webSocketService.disconnect(intentional: true)
+            try? await webSocketService.connect(urlString: relayURL, userId: user.id, token: relayToken)
+        }
     }
 
     func restoreSessionIfNeeded() async {
@@ -60,7 +82,7 @@ final class AppState: ObservableObject {
         SessionStore.currentUserID = user.id
 
         do {
-            try await webSocketService.connect(urlString: relayURL, userId: user.id)
+            try await webSocketService.connect(urlString: relayURL, userId: user.id, token: relayToken)
         } catch {
             cardService.bootstrap(for: user)
         }
@@ -72,7 +94,7 @@ final class AppState: ObservableObject {
         SessionStore.currentUserID = user.id
         webSocketService.disconnect()
         do {
-            try await webSocketService.connect(urlString: relayURL, userId: user.id)
+            try await webSocketService.connect(urlString: relayURL, userId: user.id, token: relayToken)
         } catch {
             cardService.bootstrap(for: user)
         }

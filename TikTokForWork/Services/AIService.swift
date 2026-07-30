@@ -66,6 +66,7 @@ private struct HealthResponse: Decodable {
 @MainActor
 final class AIService: ObservableObject {
     private var backendBaseURL: URL?
+    private var relayToken: String?
     @Published private(set) var modelName: String?
 
     var isConfigured: Bool {
@@ -76,9 +77,20 @@ final class AIService: ObservableObject {
         backendBaseURL != nil
     }
 
-    func configure(backendBaseURL: URL) async {
+    func configure(backendBaseURL: URL, relayToken: String? = nil) async {
         self.backendBaseURL = backendBaseURL
+        self.relayToken = relayToken
         await refreshAvailability()
+    }
+
+    private func authorizedRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let relayToken, !relayToken.isEmpty {
+            request.setValue("Bearer \(relayToken)", forHTTPHeaderField: "Authorization")
+        }
+        return request
     }
 
     func refreshAvailability() async {
@@ -148,9 +160,7 @@ final class AIService: ObservableObject {
             throw AIServiceError.invalidResponse
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var request = authorizedRequest(url: url)
         request.httpBody = try JSONEncoder().encode(
             RouteInstructionRequest(
                 text: text,
@@ -210,9 +220,7 @@ final class AIService: ObservableObject {
             throw AIServiceError.invalidResponse
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var request = authorizedRequest(url: url)
         request.httpBody = try JSONEncoder().encode(
             RefineCardRequest(
                 card: .init(

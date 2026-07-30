@@ -6,6 +6,7 @@ struct AuthView: View {
     @State private var isConnecting = false
     @State private var isSigningInWithGitHub = false
     @State private var isRefreshingRepos = false
+    @State private var showRelaySettings = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -55,9 +56,28 @@ struct AuthView: View {
                 }
             }
             .padding(.horizontal, Theme.Spacing.screen)
+            .padding(.bottom, Theme.Spacing.md)
+
+            Button { showRelaySettings = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 11))
+                    Text(appState.relayURL)
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(Theme.Colors.textTertiary)
+            }
             .padding(.bottom, Theme.Spacing.xl)
         }
         .appBackground()
+        .sheet(isPresented: $showRelaySettings) {
+            RelaySettingsSheet()
+                .environmentObject(appState)
+                .presentationDetents([.medium, .large])
+                .presentationBackground(Theme.Colors.surface)
+                .presentationDragIndicator(.visible)
+        }
         .onAppear {
             if selectedRepository == nil,
                let repository = appState.githubService.connection?.repository {
@@ -203,7 +223,10 @@ struct AuthView: View {
                 guard let backendBaseURL = appState.backendBaseURL else {
                     throw URLError(.badURL)
                 }
-                try await appState.githubService.signInWithOAuth(backendBaseURL: backendBaseURL)
+                try await appState.githubService.signInWithOAuth(
+                    backendBaseURL: backendBaseURL,
+                    relayToken: appState.relayToken
+                )
                 selectedRepository = appState.githubService.repositories.first
             } catch {
                 errorMessage = error.localizedDescription
@@ -229,6 +252,152 @@ struct AuthView: View {
                 errorMessage = error.localizedDescription
             }
             isConnecting = false
+        }
+    }
+}
+
+struct RelaySettingsSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var url = ""
+    @State private var token = ""
+    @State private var isTesting = false
+    @State private var statusMessage: String?
+    @State private var statusOK = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                        Text("Relay URL")
+                            .font(Theme.TypeScale.micro)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                            .textCase(.uppercase)
+                            .tracking(0.8)
+
+                        TextField(AppConfig.defaultRelayURL, text: $url)
+                            .font(.system(size: 14, design: .monospaced))
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .padding(Theme.Spacing.md)
+                            .background(Theme.Colors.surfaceRaised)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+
+                        Text("ws:// for local development, wss:// for a deployed relay")
+                            .font(Theme.TypeScale.caption)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                    }
+
+                    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                        Text("Relay token")
+                            .font(Theme.TypeScale.micro)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                            .textCase(.uppercase)
+                            .tracking(0.8)
+
+                        SecureField("Optional", text: $token)
+                            .font(.system(size: 14, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .padding(Theme.Spacing.md)
+                            .background(Theme.Colors.surfaceRaised)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+
+                        Text("Required when the relay is started with RELAY_TOKEN")
+                            .font(Theme.TypeScale.caption)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                    }
+
+                    if let statusMessage {
+                        Text(statusMessage)
+                            .font(Theme.TypeScale.caption)
+                            .foregroundStyle(statusOK ? Theme.Colors.approve : Theme.Colors.reject)
+                    }
+
+                    PrimaryButton(title: "Save") {
+                        Task {
+                            await appState.updateRelaySettings(url: url, token: token)
+                            dismiss()
+                        }
+                    }
+
+                    Button(action: testConnection) {
+                        HStack(spacing: 8) {
+                            if isTesting {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(Theme.Colors.textSecondary)
+                            }
+                            Text("Test connection")
+                                .font(.system(size: 14))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                    .disabled(isTesting)
+                }
+                .padding(Theme.Spacing.screen)
+            }
+            .background(Theme.Colors.background)
+            .navigationTitle("Relay server")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
+        }
+        .onAppear {
+            url = appState.relayURL
+            token = appState.relayToken ?? ""
+        }
+    }
+
+    private func testConnection() {
+        isTesting = true
+        statusMessage = nil
+
+        Task {
+            defer { isTesting = false }
+
+            let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let base = BackendURL.httpBase(from: trimmedURL.isEmpty ? AppConfig.defaultRelayURL : trimmedURL),
+                  let healthURL = URL(string: "/health", relativeTo: base) else {
+                statusOK = false
+                statusMessage = "Invalid relay URL."
+                return
+            }
+
+            do {
+                let (data, response) = try await URLSession.shared.data(from: healthURL)
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                    statusOK = false
+                    statusMessage = "Relay responded with an error."
+                    return
+                }
+
+                let health = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let aiRouting = health?["aiRouting"] as? Bool ?? false
+                let authRequired = health?["authRequired"] as? Bool ?? false
+                let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if authRequired, trimmedToken.isEmpty {
+                    statusOK = false
+                    statusMessage = "Relay reachable — it requires a token, add it above."
+                } else {
+                    statusOK = true
+                    statusMessage = aiRouting
+                        ? "Relay reachable · AI routing on"
+                        : "Relay reachable · AI in local fallback mode"
+                }
+            } catch {
+                statusOK = false
+                statusMessage = error.localizedDescription
+            }
         }
     }
 }

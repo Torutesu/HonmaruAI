@@ -45,7 +45,7 @@ On sign-in:
 
 1. **Sign in with GitHub** (opens secure browser sheet)
 2. Pick **repository** from your GitHub account
-3. **Relay server** — `ws://127.0.0.1:8080` (AI routes through relay when `OPENROUTER_API_KEY` is set)
+3. **Relay server** — defaults to `ws://127.0.0.1:8080` for simulators; tap the relay address at the bottom of the sign-in screen to point at a deployed relay (`wss://…`) and set its token. Settings persist in the Keychain.
 
 ### 4. Two-simulator demo
 
@@ -77,7 +77,25 @@ On sign-in:
        └── GitHubService → Issues API
 ```
 
-Client secret stays on localhost server only.
+Client secret stays on the relay server only.
+
+## Deploy & ship
+
+**Relay** — see [server/README.md](server/README.md). The relay persists cards to disk, honors `PORT`, requires a `RELAY_TOKEN` when set, and ships with a Dockerfile — it runs as-is on Fly.io / Render / Railway. Terminate TLS at the platform so the app connects over `wss://`.
+
+**App on a real device / TestFlight**
+
+1. Deploy the relay and note its `wss://` URL and `RELAY_TOKEN`
+2. Update the GitHub OAuth app's Homepage URL to the relay's `https://` URL (callback stays `tiktokforwork://oauth/callback`)
+3. `xcodegen generate` → open the project → set your team in Signing & Capabilities
+4. Archive → distribute via TestFlight (or run directly on device)
+5. In the app's sign-in screen, tap the relay address → enter the `wss://` URL + token → Test connection → Save
+
+## Testing
+
+```bash
+cd server && npm test   # routing, refine, persistence, auth integration
+```
 
 ## Progress
 

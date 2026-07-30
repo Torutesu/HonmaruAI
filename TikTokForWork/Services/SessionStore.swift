@@ -10,6 +10,8 @@ enum SessionStore {
         static let githubUsername = "githubUsername"
         static let githubRepositoryURL = "githubRepositoryURL"
         static let currentUserID = "currentUserID"
+        static let relayURL = "relayURL"
+        static let relayToken = "relayToken"
     }
 
     static var githubToken: String? {
@@ -35,6 +37,18 @@ enum SessionStore {
     static var currentUserID: String? {
         get { read(Key.currentUserID) }
         set { write(newValue, key: Key.currentUserID) }
+    }
+
+    // Device-level relay config — survives sign-out on purpose,
+    // so clear() must not touch these keys.
+    static var relayURL: String? {
+        get { read(Key.relayURL) }
+        set { write(newValue, key: Key.relayURL) }
+    }
+
+    static var relayToken: String? {
+        get { read(Key.relayToken) }
+        set { write(newValue, key: Key.relayToken) }
     }
 
     static var hasSavedGitHubSession: Bool {

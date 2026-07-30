@@ -92,7 +92,7 @@ enum RealtimeEvent: Codable {
 }
 
 enum OutboundEvent {
-    case join(userId: String, orgId: String)
+    case join(userId: String, orgId: String, token: String?)
     case cardCreated(DecisionCard)
     case cardUpdated(DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
@@ -100,8 +100,12 @@ enum OutboundEvent {
 
     var envelope: [String: Any] {
         switch self {
-        case .join(let userId, let orgId):
-            return ["type": "join", "payload": ["userId": userId, "orgId": orgId]]
+        case .join(let userId, let orgId, let token):
+            var payload: [String: Any] = ["userId": userId, "orgId": orgId]
+            if let token, !token.isEmpty {
+                payload["token"] = token
+            }
+            return ["type": "join", "payload": payload]
         case .cardCreated(let card):
             return ["type": "card_created", "payload": ["card": card.dictionary]]
         case .cardUpdated(let card):
@@ -131,6 +135,7 @@ final class WebSocketService: ObservableObject {
     private var lastURLString: String?
     private var lastUserID: String?
     private var lastOrgID = "core-team"
+    private var lastToken: String?
     private let session = URLSession(configuration: .default)
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -154,11 +159,17 @@ final class WebSocketService: ObservableObject {
         return decoder
     }()
 
-    func connect(urlString: String, userId: String, orgId: String = "core-team") async throws {
+    func connect(
+        urlString: String,
+        userId: String,
+        orgId: String = "core-team",
+        token: String? = nil
+    ) async throws {
         intentionalDisconnect = false
         lastURLString = urlString
         lastUserID = userId
         lastOrgID = orgId
+        lastToken = token
         disconnect(intentional: true)
 
         guard let url = URL(string: urlString) else {
@@ -176,7 +187,7 @@ final class WebSocketService: ObservableObject {
             await self?.receiveLoop()
         }
 
-        try await send(.join(userId: userId, orgId: orgId))
+        try await send(.join(userId: userId, orgId: orgId, token: token))
         isConnected = true
     }
 
@@ -246,7 +257,12 @@ final class WebSocketService: ObservableObject {
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self, !Task.isCancelled, !self.intentionalDisconnect else { return }
-            try? await self.connect(urlString: lastURLString, userId: lastUserID, orgId: self.lastOrgID)
+            try? await self.connect(
+                urlString: lastURLString,
+                userId: lastUserID,
+                orgId: self.lastOrgID,
+                token: self.lastToken
+            )
         }
     }
 
