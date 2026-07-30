@@ -65,6 +65,7 @@ The vertical feed is the primary way to work; behind it sits a Slack-like channe
 - When the conversation surfaces a real ask, the agent **files a decision card straight from chat** — it goes through the same routing pipeline and lands in the right person's feed, linked back to the conversation
 - Every routed decision leaves a trail: the sender's AI posts a log message in the card's home channel
 - Channels are meant to be AI-managed: reading them is optional, deciding on cards is the work
+- **Digests close the loop**: activity you haven't seen arrives as one quiet AI-summarized card in your feed (`/digest/run` or `DIGEST_INTERVAL_MINUTES`) — skim it, reply, or mark as read. You never owe the scrollback anything
 
 ## Decision loop
 

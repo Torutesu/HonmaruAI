@@ -58,7 +58,7 @@ Last updated: 2026-07-30
 - [x] Real org graph: relay owns users/nodes/edges (persisted, `GET /org`, `POST /org/members`, `org_updated` broadcast); routing, mentions, and prompts derive from the live org; add-member UI in the user switcher; GitHub login auto-matches an org member
 - [x] Push notifications: APNs (p8 token auth, no deps) with an opinionated policy — only pending high/urgent cards, never to connected users; token registry persisted + pruned; iOS registration, foreground banners, tap-to-open-card deep link, aps-environment entitlement
 - [ ] Live APNs verification — needs an Apple Developer p8 key (server runs with push off until then)
-- [ ] Digest cards (AI summaries of followed channels) — next
+- [x] Digest cards: unseen channel activity → one low-priority AI-summarized card per user (`/digest/run` + `DIGEST_INTERVAL_MINUTES`), reply/mark-as-read, never pushes
 
 ## Phase 8 — Deployable relay
 

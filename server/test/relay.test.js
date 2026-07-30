@@ -338,6 +338,52 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     ws.close();
   });
 
+  await t.test("digest: run produces one quiet card per user with unseen activity", async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+    };
+
+    // Bob is connected and should receive Alice's digest-worthy activity
+    // as a card_created broadcast when the digest runs.
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-bob", token: TOKEN } })
+    );
+    await collectMessages(ws, 2);
+
+    const digestCardPromise = collectUntil(ws, (messages) =>
+      messages.some(
+        (message) =>
+          message.type === "card_created" &&
+          message.payload.card.title === "Team digest" &&
+          message.payload.card.recipientUserID === "user-bob"
+      )
+    );
+    digestCardPromise.catch(() => {});
+
+    const run = await fetch(`${base}/digest/run`, { method: "POST", headers });
+    assert.equal(run.status, 200);
+    const result = await run.json();
+    assert.ok(result.digests >= 1, "at least one digest for earlier channel chatter");
+
+    const events = await digestCardPromise;
+    const digestCard = events.find(
+      (message) =>
+        message.type === "card_created" &&
+        message.payload.card.title === "Team digest" &&
+        message.payload.card.recipientUserID === "user-bob"
+    ).payload.card;
+    assert.equal(digestCard.priority, "low");
+    assert.equal(digestCard.type, "notification");
+
+    // Immediately re-running finds nothing new.
+    const second = await fetch(`${base}/digest/run`, { method: "POST", headers });
+    const secondResult = await second.json();
+    assert.equal(secondResult.digests, 0);
+    ws.close();
+  });
+
   await t.test("push: register endpoint requires auth and stores tokens", async () => {
     const headers = {
       "Content-Type": "application/json",

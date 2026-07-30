@@ -13,6 +13,7 @@ import {
 } from "./agentTools.js";
 import { createOrgStore } from "./org.js";
 import { createAPNS, createPushRegistry, shouldNotify } from "./push.js";
+import { collectDigestSections, generateDigest, buildDigestCard } from "./digest.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -55,6 +56,10 @@ const ORG_STORE_PATH =
   process.env.ORG_STORE_PATH || join(__dirname, "data", "org.json");
 const PUSH_STORE_PATH =
   process.env.PUSH_STORE_PATH || join(__dirname, "data", "push.json");
+const DIGEST_STORE_PATH =
+  process.env.DIGEST_STORE_PATH || join(__dirname, "data", "digest.json");
+// 0 disables the periodic digest; POST /digest/run always works.
+const DIGEST_INTERVAL_MINUTES = Number(process.env.DIGEST_INTERVAL_MINUTES || 0);
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
@@ -132,6 +137,62 @@ function maybeNotify(orgId, card) {
       })
       .catch(() => {});
   }
+}
+
+const persistedDigest = loadPersistedStores(DIGEST_STORE_PATH);
+const digestState =
+  persistedDigest?.get("lastRunByUser") &&
+  typeof persistedDigest.get("lastRunByUser") === "object"
+    ? persistedDigest.get("lastRunByUser")
+    : {};
+const digestPersister = createPersister(DIGEST_STORE_PATH);
+
+function persistDigestState() {
+  digestPersister.schedule(new Map([["lastRunByUser", digestState]]));
+}
+
+// One digest card per user covering channel activity they haven't seen
+// (and didn't write). Low priority: shows in the feed, never pushes.
+async function runDigest() {
+  const now = Date.now();
+  const dayAgo = now - 24 * 60 * 60 * 1000;
+  let created = 0;
+
+  for (const user of orgStore.users()) {
+    const since = digestState[user.id] || dayAgo;
+    const sections = collectDigestSections({
+      channelStore,
+      userID: user.id,
+      since,
+    });
+    if (sections.length === 0) continue;
+
+    const digest = await generateDigest({
+      sections,
+      userName: user.name,
+      openRouter: openRouterConfig(),
+    });
+    const card = buildDigestCard({ user, digest, sectionCount: sections.length });
+
+    const store = getStore(ORG_ID);
+    upsertCard(store, card);
+    persister.schedule(orgStores);
+    broadcast(ORG_ID, "card_created", { card });
+
+    digestState[user.id] = now;
+    created += 1;
+  }
+
+  if (created > 0) {
+    persistDigestState();
+  }
+  return created;
+}
+
+if (DIGEST_INTERVAL_MINUTES > 0) {
+  setInterval(() => {
+    runDigest().catch((error) => console.warn("Digest run failed:", error.message));
+  }, DIGEST_INTERVAL_MINUTES * 60 * 1000).unref();
 }
 
 const persistedChannels = loadPersistedStores(CHANNELS_STORE_PATH);
@@ -396,6 +457,16 @@ const server = createServer(async (req, res) => {
       json(res, 200, routing);
     } catch (error) {
       json(res, 400, { message: error.message || "AI routing failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/digest/run" && req.method === "POST") {
+    try {
+      const created = await runDigest();
+      json(res, 200, { digests: created });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Digest run failed." });
     }
     return;
   }
@@ -828,6 +899,7 @@ function shutdown() {
     ])
   );
   pushPersister.flushNow(new Map([["tokens", pushRegistry.serialize().tokens]]));
+  digestPersister.flushNow(new Map([["lastRunByUser", digestState]]));
   process.exit(0);
 }
 

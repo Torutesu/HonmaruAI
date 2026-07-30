@@ -44,6 +44,10 @@ Leave it empty for localhost development. **Always set it before deploying** —
 
 Set `APNS_KEY_ID`, `APNS_TEAM_ID`, and the p8 key (`APNS_KEY_P8` inline or `APNS_KEY_PATH`) to enable APNs (token-based auth over HTTP/2, zero dependencies; `APNS_ENV=sandbox|production`). The policy is deliberate: **only pending high/urgent decision cards ring**, and never for a user who is currently connected — their feed already shows the card. Question/note/medium cards stay silent. Device tokens are registered via `/push/register` (a token follows the active user when the demo switches users) and pruned automatically on APNs `410 Unregistered`. Without keys the relay runs with push off.
 
+## Digest cards
+
+FYI traffic reaches the feed without notifications: per user, the relay collects channel messages they haven't seen (and didn't write), summarizes them (OpenRouter `write_digest` tool, count-based fallback offline), and delivers a single low-priority "Team digest" card — reply or mark as read. Set `DIGEST_INTERVAL_MINUTES` for periodic runs (0 = off, default) or trigger with `POST /digest/run`; last-run timestamps persist in `data/digest.json` so re-runs only cover new activity.
+
 ## Deploy
 
 ```bash
@@ -87,6 +91,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | GET | `/org` | Organization snapshot: users, nodes, edges |
 | POST | `/org/members` | Add a member (name, role, team, githubUsername) — broadcasts `org_updated` |
 | POST | `/push/register` | Register an APNs device token for a user |
+| POST | `/digest/run` | Generate digest cards now (also runs on `DIGEST_INTERVAL_MINUTES`) |
 | GET | `/oauth/github/config` | OAuth client config for iOS |
 | POST | `/oauth/github/token` | Exchange code → access token |
 | POST | `/ai/route` | Route instruction via OpenRouter |
