@@ -54,8 +54,9 @@ Last updated: 2026-07-30
 - [x] Decision cards carry a home channel; routing leaves an agent log message in that channel
 - [x] Card reply layer: freeform text reply on pending cards, AI-interpreted via `/ai/reply` (conditional approve, reject with reason, revise, question, note)
 - [x] Question/note cards back to the sender; notification cards get reply + mark-as-read instead of issue actions
-- [ ] Voice input (Speech framework) — next
-- [ ] Real org graph + push notifications — next
+- [x] Voice input: on-device dictation (Speech framework) on the composer, card replies, Ask AI, resend, and channel chat — transcript is editable before sending
+- [ ] Real org graph — next
+- [ ] Push notifications — next
 
 ## Phase 8 — Deployable relay
 

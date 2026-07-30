@@ -176,6 +176,8 @@ struct ChannelTimelineView: View {
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
                     .onSubmit(send)
 
+                DictationButton(text: $draft)
+
                 Button(action: send) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 14, weight: .semibold))

@@ -13,6 +13,7 @@
 		0AED7D88396FA52DF1F59258 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED63FE3692D666375D4EF19 /* SessionStore.swift */; };
 		1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9515750E6133D1846CBE8BD /* OrgGraphView.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* ChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6D /* ChatModels.swift */; };
+		1A2B3C4D5E6F708192A2B3C4 /* SpeechDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3C4D5E6F708192A2B3C4D5 /* SpeechDictation.swift */; };
 		C3D4E5F60718293A4B5C6D7E /* ChannelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F60718293A4B5C6D7E8F /* ChannelService.swift */; };
 		E5F60718293A4B5C6D7E8F90 /* ChannelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60718293A4B5C6D7E8F90A1 /* ChannelsView.swift */; };
 		18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6977E782E374C75800103F /* AppLogo.swift */; };
@@ -47,6 +48,7 @@
 /* Begin PBXFileReference section */
 		050D0B7873E1D94841BB5228 /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
 		B2C3D4E5F60718293A4B5C6D /* ChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModels.swift; sourceTree = "<group>"; };
+		2B3C4D5E6F708192A2B3C4D5 /* SpeechDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechDictation.swift; sourceTree = "<group>"; };
 		D4E5F60718293A4B5C6D7E8F /* ChannelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelService.swift; sourceTree = "<group>"; };
 		F60718293A4B5C6D7E8F90A1 /* ChannelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsView.swift; sourceTree = "<group>"; };
 		0ABD898A426994D5C516944E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -196,6 +198,7 @@
 				2E5DA40629B98A94601F06DC /* DecisionCardService.swift */,
 				E8E494243CEA2F9FA065D51B /* GitHubService.swift */,
 				CED63FE3692D666375D4EF19 /* SessionStore.swift */,
+				2B3C4D5E6F708192A2B3C4D5 /* SpeechDictation.swift */,
 				893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */,
 				050D0B7873E1D94841BB5228 /* WebSocketService.swift */,
 			);
@@ -315,6 +318,7 @@
 				064B9C99CBB1BC04CD9B7307 /* DateFormatting.swift in Sources */,
 				890DC7776BFB95161547A003 /* DecisionCard.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* ChatModels.swift in Sources */,
+				1A2B3C4D5E6F708192A2B3C4 /* SpeechDictation.swift in Sources */,
 				C3D4E5F60718293A4B5C6D7E /* ChannelService.swift in Sources */,
 				E5F60718293A4B5C6D7E8F90 /* ChannelsView.swift in Sources */,
 				E6C4713C78AA0FF264BA9753 /* DecisionCardService.swift in Sources */,

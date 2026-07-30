@@ -38,6 +38,8 @@ struct AIInputSheet: View {
                 .background(Theme.Colors.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
 
+                DictationRow(text: $prompt)
+
                 PrioritySlider(priority: $priority)
 
                 PrimaryButton(
@@ -212,6 +214,8 @@ struct CardFollowUpSheet: View {
                 .background(Theme.Colors.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
 
+                DictationRow(text: $instruction)
+
                 PrimaryButton(
                     title: "Update card",
                     enabled: !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -281,6 +285,8 @@ struct CardReplySheet: View {
                 .padding(Theme.Spacing.md)
                 .background(Theme.Colors.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+
+                DictationRow(text: $text)
 
                 PrimaryButton(
                     title: "Send reply",
@@ -361,6 +367,8 @@ struct ResendComposerSheet: View {
                             .padding(Theme.Spacing.md)
                             .background(Theme.Colors.surfaceRaised)
                             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+
+                        DictationRow(text: $text)
                     }
 
                     PrioritySlider(priority: $priority)

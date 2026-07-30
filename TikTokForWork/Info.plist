@@ -7,6 +7,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dictate instructions and replies to your AI instead of typing.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcribe your voice on-device so you can review before sending.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
