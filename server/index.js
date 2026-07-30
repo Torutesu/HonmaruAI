@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
-import { routeInstruction, refineCard, userNameFor } from "./agentTools.js";
+import { routeInstruction, refineCard, interpretReply, userNameFor } from "./agentTools.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -398,6 +398,30 @@ const server = createServer(async (req, res) => {
       });
     } catch (error) {
       json(res, 400, { message: error.message || "AI ingest failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/ai/reply" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const card = body.card;
+      const reply = body.reply;
+
+      if (!card?.title || !reply) {
+        json(res, 400, { message: "Missing card or reply." });
+        return;
+      }
+
+      const interpretation = await interpretReply({
+        card,
+        reply,
+        openRouter: openRouterConfig(),
+      });
+      json(res, 200, interpretation);
+    } catch (error) {
+      json(res, 400, { message: error.message || "Reply interpretation failed." });
     }
     return;
   }

@@ -69,6 +69,7 @@ The vertical feed is the primary way to work; behind it sits a Slack-like channe
 ## Decision loop
 
 - **Decide**: approve → GitHub Issue, decline, revise (with a note), or delegate — swipe or tap
+- **Reply in your own words**: a reply box on every pending card (`/ai/reply`) — "OK, but release after Friday" approves with the condition recorded on the card and the Issue; "Has auth signed off?" sends a question card back to the sender while the decision stays pending; plain remarks become notes. Questions and notes arrive as lightweight cards with reply + mark-as-read, closing the loop without a chat thread
 - **Re-prioritize**: recipients can change a pending card's priority from the detail sheet; the change syncs to every client
 - **Ask AI**: a follow-up instruction on any pending card ("make this urgent, deadline moved") updates the card in place via the relay's `/ai/refine`
 - **Revise & resend**: a revision request comes back to the sender as an actionable card — edit the instruction, review the AI's redraft, and it routes straight back to whoever asked for changes

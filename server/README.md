@@ -81,6 +81,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | POST | `/ai/route` | Route instruction via OpenRouter |
 | POST | `/ai/ingest` | Triage input: decision → routing, update → filed to a channel (auto-creates channels for new topics) |
 | POST | `/ai/refine` | Apply a follow-up instruction to an existing card |
+| POST | `/ai/reply` | Interpret a recipient's freeform reply: approve / reject / revise / question / comment + extracted note |
 
 ## WebSocket protocol
 

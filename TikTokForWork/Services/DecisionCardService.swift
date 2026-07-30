@@ -95,7 +95,7 @@ final class DecisionCardService: ObservableObject {
         cardID: String,
         action: CardActionKind,
         actorUserID: String,
-        revisionNote: String? = nil,
+        note: String? = nil,
         githubService: GitHubService
     ) async throws -> DecisionCard {
         guard var userCards = cardsByUser[actorUserID],
@@ -110,13 +110,27 @@ final class DecisionCardService: ObservableObject {
         case .createIssue: card.status = .approved
         case .reject: card.status = .rejected
         case .requestRevision: card.status = .revised
-        case .delegate, .delete, .viewDetails, .askAI, .reviseResend:
+        case .delegate, .delete, .viewDetails, .askAI, .reviseResend, .reply, .acknowledge:
             return card
         }
 
-        if let revisionNote, !revisionNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            card.revisionNote = revisionNote.trimmingCharacters(in: .whitespacesAndNewlines)
-            card.context = [card.context, "Revision: \(card.revisionNote!)"].filter { !$0.isEmpty }.joined(separator: "\n")
+        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let decisionNote = (trimmedNote?.isEmpty == false) ? trimmedNote : nil
+        if let decisionNote {
+            switch action {
+            case .requestRevision:
+                card.revisionNote = decisionNote
+                card.context = [card.context, "Revision: \(decisionNote)"]
+                    .filter { !$0.isEmpty }.joined(separator: "\n")
+            case .createIssue:
+                card.context = [card.context, "Condition: \(decisionNote)"]
+                    .filter { !$0.isEmpty }.joined(separator: "\n")
+            case .reject:
+                card.context = [card.context, "Reason: \(decisionNote)"]
+                    .filter { !$0.isEmpty }.joined(separator: "\n")
+            default:
+                break
+            }
         }
 
         if action == .createIssue || card.githubIssueNumber != nil {
@@ -149,7 +163,7 @@ final class DecisionCardService: ObservableObject {
             type: isRevisionRequest ? .revision : .notification,
             title: card.title,
             summary: "\(DemoData.userName(for: actorUserID)) · \(statusLabel)",
-            context: card.revisionNote ?? card.summary,
+            context: decisionNote ?? card.summary,
             status: .pending,
             priority: isRevisionRequest ? card.priority : .medium,
             createdAt: .now,
@@ -160,7 +174,8 @@ final class DecisionCardService: ObservableObject {
                 ? "\(DemoData.userName(for: actorUserID)) asked for changes — revise and resend"
                 : card.routingReason,
             sourceInstruction: card.sourceInstruction ?? card.summary,
-            revisionNote: isRevisionRequest ? card.revisionNote : nil
+            revisionNote: isRevisionRequest ? card.revisionNote : nil,
+            channelID: card.channelID
         )
 
         append(responseCard, for: card.senderUserID)
@@ -284,6 +299,60 @@ final class DecisionCardService: ObservableObject {
         await webSocketService?.publishUpdated(card)
         onCardsUpdated?()
         return card
+    }
+
+    // Quietly close a notification card: no response card, no GitHub sync.
+    @discardableResult
+    func acknowledge(cardID: String, actorUserID: String) async throws -> DecisionCard {
+        guard var userCards = cardsByUser[actorUserID],
+              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
+            throw CardServiceError.cardNotFound
+        }
+
+        var card = userCards[index]
+        guard card.isPending else { return card }
+
+        card.status = .acknowledged
+        userCards[index] = card
+        cardsByUser[actorUserID] = userCards
+        await webSocketService?.publishUpdated(card)
+        onCardsUpdated?()
+        return card
+    }
+
+    // A question or note about a card, sent back to its sender as a
+    // lightweight notification card. The original card stays pending.
+    func sendReplyCard(
+        about card: DecisionCard,
+        isQuestion: Bool,
+        note: String,
+        actorUserID: String
+    ) async {
+        let actorName = DemoData.userName(for: actorUserID)
+        let recipientName = DemoData.userName(for: card.senderUserID)
+
+        let replyCard = DecisionCard(
+            id: UUID().uuidString,
+            recipientUserID: card.senderUserID,
+            senderUserID: actorUserID,
+            type: .notification,
+            title: "\(isQuestion ? "Question" : "Note"): \(card.title)",
+            summary: note,
+            context: "About: \(card.summary)",
+            status: .pending,
+            priority: isQuestion ? card.priority : .medium,
+            createdAt: .now,
+            agentRoute: "\(actorName)'s AI → \(recipientName)'s AI",
+            routingReason: isQuestion
+                ? "\(actorName) needs an answer before deciding"
+                : "\(actorName) left a note on your request",
+            sourceInstruction: card.sourceInstruction,
+            channelID: card.channelID
+        )
+
+        append(replyCard, for: card.senderUserID)
+        await webSocketService?.publishCreated(replyCard)
+        onCardsUpdated?()
     }
 
     func markResent(cardID: String, actorUserID: String) async {

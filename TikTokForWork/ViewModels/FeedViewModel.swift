@@ -14,6 +14,7 @@ final class FeedViewModel: ObservableObject {
     @Published var reviseCard: DecisionCard?
     @Published var askAICard: DecisionCard?
     @Published var resendCard: DecisionCard?
+    @Published var replyCard: DecisionCard?
     @Published var reviewDraft: InstructionDraft?
     @Published var ingestNotice: String?
 
@@ -74,6 +75,7 @@ final class FeedViewModel: ObservableObject {
         reviseCard = nil
         askAICard = nil
         resendCard = nil
+        replyCard = nil
         reviewDraft = nil
         resendSourceID = nil
         draftTask?.cancel()
@@ -100,16 +102,87 @@ final class FeedViewModel: ObservableObject {
         case .reviseResend:
             resendCard = card
             return
+        case .reply:
+            replyCard = card
+            return
+        case .acknowledge:
+            await acknowledge(card: card, appState: appState)
+            return
         default:
             break
         }
 
-        await resolve(card: card, action: action, revisionNote: nil, appState: appState)
+        await resolve(card: card, action: action, note: nil, appState: appState)
     }
 
     func completeRevision(for card: DecisionCard, note: String, appState: AppState) async {
         reviseCard = nil
-        await resolve(card: card, action: .requestRevision, revisionNote: note, appState: appState)
+        await resolve(card: card, action: .requestRevision, note: note, appState: appState)
+    }
+
+    func acknowledge(card: DecisionCard, appState: AppState) async {
+        guard let cardService, let userID else { return }
+
+        do {
+            _ = try await cardService.acknowledge(cardID: card.id, actorUserID: userID)
+            Haptics.light()
+            refreshCards(from: cardService)
+            advanceIfNeeded()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func completeReply(for card: DecisionCard, text: String, appState: AppState) async {
+        replyCard = nil
+        guard let cardService, let userID, let user = appState.currentUser else { return }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard appState.aiService.hasRelay else {
+            errorMessage = AIServiceError.notConfigured.localizedDescription
+            return
+        }
+
+        isProcessing = true
+        processingMessage = "Reading your reply"
+        errorMessage = nil
+
+        do {
+            let interpretation = try await appState.aiService.interpretReply(
+                card,
+                reply: trimmed,
+                sender: user
+            )
+            isProcessing = false
+
+            let note = interpretation.note.isEmpty ? nil : interpretation.note
+            switch interpretation.action {
+            case .approve:
+                await resolve(card: card, action: .createIssue, note: note, appState: appState)
+            case .reject:
+                await resolve(card: card, action: .reject, note: note, appState: appState)
+            case .revise:
+                await resolve(card: card, action: .requestRevision, note: note ?? trimmed, appState: appState)
+            case .question, .comment:
+                await cardService.sendReplyCard(
+                    about: card,
+                    isQuestion: interpretation.action == .question,
+                    note: note ?? trimmed,
+                    actorUserID: userID
+                )
+                Haptics.success()
+                refreshCards(from: cardService)
+                showNotice(
+                    interpretation.action == .question
+                        ? "Question sent to \(card.senderName)"
+                        : "Note sent to \(card.senderName)"
+                )
+            }
+        } catch {
+            isProcessing = false
+            errorMessage = error.localizedDescription
+        }
     }
 
     func delete(card: DecisionCard, appState: AppState) async {
@@ -351,7 +424,7 @@ final class FeedViewModel: ObservableObject {
     private func resolve(
         card: DecisionCard,
         action: CardActionKind,
-        revisionNote: String?,
+        note: String?,
         appState: AppState
     ) async {
         guard let cardService, let userID else { return }
@@ -370,7 +443,7 @@ final class FeedViewModel: ObservableObject {
                 cardID: card.id,
                 action: action,
                 actorUserID: userID,
-                revisionNote: revisionNote,
+                note: note,
                 githubService: appState.githubService
             )
             Haptics.success()

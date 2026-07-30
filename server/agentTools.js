@@ -881,4 +881,127 @@ export async function refineCard({ card, instruction, openRouter }) {
   return refineCardLocally({ card, instruction });
 }
 
+const REPLY_TOOL = [
+  {
+    type: "function",
+    function: {
+      name: "interpret_reply",
+      description:
+        "Interpret the card recipient's freeform reply to a decision card and extract the decision intent.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["approve", "reject", "revise", "question", "comment"],
+            description:
+              "approve = they accept (conditions go in note). reject = they decline (reason in note). revise = they want the sender to change and resend (what to change in note). question = they ask the sender something and have NOT decided. comment = a remark with no decision.",
+          },
+          note: {
+            type: "string",
+            description:
+              "The condition, reason, question, or remark — cleaned up, third person where natural. Empty string if none.",
+          },
+        },
+        required: ["action", "note"],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+const REPLY_SYSTEM_PROMPT = `You interpret what a decision-card recipient means by their freeform reply. Call interpret_reply once. Do not invent conditions or questions that are not in the reply. A reply that agrees but adds a constraint is approve with the constraint as note. A reply that only asks something is question — no decision yet.`;
+
+const APPROVE_PATTERN =
+  /^(approve[d]?|lgtm|ok(ay)?|yes|yep|ship it|looks good|sounds good|go ahead|sgtm|do it)\b/i;
+const REJECT_PATTERN = /^(reject(ed)?|decline[d]?|no\b|nope|pass|not now|won't|wont)/i;
+const REVISE_KEYWORDS = /\b(revise|rework|redo|resend|split|smaller|scope down|change (this|it|the))\b/i;
+
+function stripDecisionPrefix(text) {
+  return String(text || "")
+    .replace(APPROVE_PATTERN, "")
+    .replace(REJECT_PATTERN, "")
+    .replace(/^[\s,.:;—-]+/, "")
+    .replace(/^(but|though|however)\s+/i, "")
+    .trim();
+}
+
+export function interpretReplyLocally({ reply }) {
+  const cleaned = String(reply || "").trim();
+  const lower = cleaned.toLowerCase();
+
+  if (APPROVE_PATTERN.test(lower)) {
+    return { action: "approve", note: stripDecisionPrefix(cleaned) };
+  }
+  if (REJECT_PATTERN.test(lower)) {
+    return { action: "reject", note: stripDecisionPrefix(cleaned) };
+  }
+  if (/\?\s*$/.test(cleaned)) {
+    return { action: "question", note: cleaned };
+  }
+  if (REVISE_KEYWORDS.test(lower)) {
+    return { action: "revise", note: cleaned };
+  }
+  return { action: "comment", note: cleaned };
+}
+
+export async function interpretReply({ card, reply, openRouter }) {
+  if (!openRouter?.apiKey) {
+    return interpretReplyLocally({ reply });
+  }
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${openRouter.apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": openRouter.appUrl,
+        "X-Title": openRouter.appName,
+      },
+      body: JSON.stringify({
+        model: openRouter.model,
+        temperature: 0.1,
+        max_tokens: 200,
+        messages: [
+          { role: "system", content: REPLY_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `Decision card:
+- title: ${card.title}
+- summary: ${card.summary}
+- from: ${card.senderName || "a teammate"}
+
+Recipient's reply: ${reply}`,
+          },
+        ],
+        tools: REPLY_TOOL,
+        tool_choice: { type: "function", function: { name: "interpret_reply" } },
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error?.message || "OpenRouter request failed.");
+    }
+
+    const call = (data?.choices?.[0]?.message?.tool_calls || []).find(
+      (item) => item.function?.name === "interpret_reply"
+    );
+    if (!call) {
+      return interpretReplyLocally({ reply });
+    }
+
+    const args = parseToolArguments(call.function?.arguments);
+    const allowed = new Set(["approve", "reject", "revise", "question", "comment"]);
+    if (!allowed.has(args.action)) {
+      return interpretReplyLocally({ reply });
+    }
+    return { action: args.action, note: String(args.note || "").trim() };
+  } catch (error) {
+    console.warn("Reply interpretation failed, using local fallback:", error.message);
+    return interpretReplyLocally({ reply });
+  }
+}
+
 export { SYSTEM_PROMPT, userNameFor };

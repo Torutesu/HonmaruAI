@@ -156,6 +156,19 @@ struct FeedView: View {
             .presentationBackground(Theme.Colors.surface)
             .presentationDragIndicator(.visible)
         }
+        .sheet(item: $viewModel.replyCard) { card in
+            CardReplySheet(
+                card: card,
+                isAIConfigured: appState.aiService.isConfigured
+            ) { text in
+                Task {
+                    await viewModel.completeReply(for: card, text: text, appState: appState)
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationBackground(Theme.Colors.surface)
+            .presentationDragIndicator(.visible)
+        }
         .sheet(item: $viewModel.resendCard) { card in
             ResendComposerSheet(
                 card: card,

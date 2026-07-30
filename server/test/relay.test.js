@@ -86,6 +86,34 @@ function collectMessages(ws, count, timeoutMs = 5000) {
   });
 }
 
+// Collect messages until the predicate is satisfied. Tolerates unrelated
+// events (e.g. presence broadcasts from other sockets closing).
+function collectUntil(ws, isDone, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const collected = [];
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `collectUntil timed out after ${collected.length} messages: ${collected
+              .map((message) => message.type)
+              .join(", ")}`
+          )
+        ),
+      timeoutMs
+    );
+    const onMessage = (raw) => {
+      collected.push(JSON.parse(String(raw)));
+      if (isDone(collected)) {
+        clearTimeout(timer);
+        ws.off("message", onMessage);
+        resolve(collected);
+      }
+    };
+    ws.on("message", onMessage);
+  });
+}
+
 test("relay auth, refine endpoint, and persistence", async (t) => {
   const port = 18000 + Math.floor(Math.random() * 1000);
   const base = `http://127.0.0.1:${port}`;
@@ -180,6 +208,14 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     const channelIDs = Object.keys(channelSnapshot.payload.channels);
     assert.ok(channelIDs.includes("channel-general"));
 
+    const eventsPromise = collectUntil(
+      ws,
+      (messages) =>
+        messages.some((message) => message.type === "card_created") &&
+        messages.filter((message) => message.type === "channel_message").length >= 2
+    );
+    eventsPromise.catch(() => {});
+
     ws.send(
       JSON.stringify({
         type: "channel_message",
@@ -191,9 +227,9 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     );
 
     // human echo → card_created (agent filed it) → agent reply
-    const events = await collectMessages(ws, 3);
-    assert.equal(events[0].type, "channel_message");
-    assert.equal(events[0].payload.message.authorName, "Alice");
+    const events = await eventsPromise;
+    const humanEvent = events.find((event) => event.type === "channel_message");
+    assert.equal(humanEvent.payload.message.authorName, "Alice");
 
     const cardEvent = events.find((event) => event.type === "card_created");
     assert.ok(cardEvent, "agent should file a decision card");
@@ -224,7 +260,9 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
 
     // Attach the listener BEFORE the POST: the relay broadcasts the WS
     // message before the HTTP response completes.
-    const filedPromise = nextMessage(ws);
+    const filedPromise = collectUntil(ws, (messages) =>
+      messages.some((message) => message.type === "channel_message")
+    );
     filedPromise.catch(() => {});
 
     const updateResponse = await fetch(`${base}/ai/ingest`, {
@@ -240,8 +278,9 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     assert.equal(update.kind, "update");
     assert.equal(update.channel.name, "general");
 
-    const filed = await filedPromise;
-    assert.equal(filed.type, "channel_message");
+    const filed = (await filedPromise).find(
+      (message) => message.type === "channel_message"
+    );
     assert.equal(filed.payload.message.authorName, "Alice");
     assert.equal(filed.payload.message.channelID, update.channel.id);
 
@@ -268,6 +307,14 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     );
     await collectMessages(ws, 2);
 
+    const eventsPromise = collectUntil(
+      ws,
+      (messages) =>
+        messages.some((message) => message.type === "card_created") &&
+        messages.some((message) => message.type === "channel_message")
+    );
+    eventsPromise.catch(() => {});
+
     ws.send(
       JSON.stringify({
         type: "card_created",
@@ -283,12 +330,11 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
       })
     );
 
-    const events = await collectMessages(ws, 2);
-    assert.equal(events[0].type, "card_created");
-    assert.equal(events[1].type, "channel_message");
-    assert.equal(events[1].payload.message.authorKind, "agent");
-    assert.equal(events[1].payload.message.authorName, "Alice's AI");
-    assert.equal(events[1].payload.message.cardID, "card-log1");
+    const events = await eventsPromise;
+    const logEvent = events.find((event) => event.type === "channel_message");
+    assert.equal(logEvent.payload.message.authorKind, "agent");
+    assert.equal(logEvent.payload.message.authorName, "Alice's AI");
+    assert.equal(logEvent.payload.message.cardID, "card-log1");
     ws.close();
   });
 
@@ -299,11 +345,17 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     );
     await collectMessages(ws, 2);
 
+    const createdPromise = collectUntil(ws, (messages) =>
+      messages.some((message) => message.type === "channel_created")
+    );
+    createdPromise.catch(() => {});
+
     ws.send(
       JSON.stringify({ type: "channel_create", payload: { name: "Launch Plan" } })
     );
-    const created = await nextMessage(ws);
-    assert.equal(created.type, "channel_created");
+    const created = (await createdPromise).find(
+      (message) => message.type === "channel_created"
+    );
     assert.equal(created.payload.channel.name, "launch-plan");
     ws.close();
   });

@@ -148,16 +148,13 @@ struct DecisionCardView: View {
         ZStack {
             if dragOffset > 24 {
                 HStack {
-                    swipeLabel(
-                        card.isRevisionRequest ? "Revise and resend" : "Create issue",
-                        color: Theme.Colors.issueGreen
-                    )
+                    swipeLabel(rightSwipeTitle, color: Theme.Colors.issueGreen)
                     Spacer()
                 }
                 .padding(.leading, Theme.Spacing.screen)
             }
 
-            if dragOffset < -24 {
+            if dragOffset < -24, !card.isNotification {
                 HStack {
                     Spacer()
                     swipeLabel("Reject", color: Theme.Colors.reject)
@@ -203,8 +200,8 @@ struct DecisionCardView: View {
 
                 if horizontal > swipeThreshold {
                     Haptics.success()
-                    onAction(card.isRevisionRequest ? .reviseResend : .createIssue)
-                } else if horizontal < -swipeThreshold {
+                    onAction(rightSwipeAction)
+                } else if horizontal < -swipeThreshold, !card.isNotification {
                     Haptics.light()
                     onAction(.reject)
                 }
@@ -243,8 +240,45 @@ struct DecisionCardView: View {
         return "View on GitHub"
     }
 
+    private var rightSwipeAction: CardActionKind {
+        if card.isRevisionRequest { return .reviseResend }
+        if card.isNotification { return .acknowledge }
+        return .createIssue
+    }
+
+    private var rightSwipeTitle: String {
+        if card.isRevisionRequest { return "Revise and resend" }
+        if card.isNotification { return "Mark as read" }
+        return "Create issue"
+    }
+
+    private var replyBar: some View {
+        Button {
+            Haptics.light()
+            onAction(.reply)
+        } label: {
+            HStack(spacing: Theme.Spacing.sm) {
+                Image(systemName: "text.bubble")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                Text("Reply — add a condition, ask a question…")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                Spacer()
+            }
+            .padding(Theme.Spacing.md)
+            .background(Theme.Colors.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+        }
+        .buttonStyle(.plain)
+    }
+
     private var actionBlock: some View {
         VStack(spacing: Theme.Spacing.sm) {
+            if card.isPending {
+                replyBar
+            }
+
             if card.isPending, card.isRevisionRequest {
                 PrimaryButton(title: "Revise and resend") {
                     Haptics.light()
@@ -264,6 +298,18 @@ struct DecisionCardView: View {
                 }
 
                 Text("Swipe right to resend · left to decline")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.Spacing.xs)
+            } else if card.isPending, card.isNotification {
+                SecondaryAction(title: "Mark as read") {
+                    Haptics.light()
+                    onAction(.acknowledge)
+                }
+                .frame(maxWidth: .infinity)
+
+                Text("Swipe right to mark as read · reply above to respond")
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .frame(maxWidth: .infinity)

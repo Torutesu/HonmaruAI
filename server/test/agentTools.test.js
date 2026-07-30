@@ -5,6 +5,8 @@ import {
   refineCardLocally,
   refineCard,
   resolveRecipientTarget,
+  interpretReply,
+  interpretReplyLocally,
 } from "../agentTools.js";
 
 const alice = { id: "user-alice", name: "Alice", role: "Product Manager" };
@@ -87,6 +89,47 @@ test("refine without OpenRouter key falls back locally", async () => {
   const refined = await refineCard({ card, instruction: "bump this, high priority", openRouter: null });
   assert.equal(refined.priority, "high");
   assert.ok(refined.toolCalls.some((call) => call.name === "set_priority"));
+});
+
+test("reply: plain approval", () => {
+  const result = interpretReplyLocally({ reply: "Approved, ship it" });
+  assert.equal(result.action, "approve");
+});
+
+test("reply: conditional approval keeps the condition as note", () => {
+  const result = interpretReplyLocally({ reply: "OK, but release after Friday" });
+  assert.equal(result.action, "approve");
+  assert.ok(result.note.toLowerCase().includes("release after friday"));
+});
+
+test("reply: rejection with reason", () => {
+  const result = interpretReplyLocally({ reply: "No, we don't have budget this quarter" });
+  assert.equal(result.action, "reject");
+  assert.ok(result.note.toLowerCase().includes("budget"));
+});
+
+test("reply: a question defers the decision", () => {
+  const result = interpretReplyLocally({ reply: "Has the auth team signed off on this?" });
+  assert.equal(result.action, "question");
+});
+
+test("reply: revise request", () => {
+  const result = interpretReplyLocally({ reply: "Split this into two smaller tasks and resend" });
+  assert.equal(result.action, "revise");
+});
+
+test("reply: a remark is a comment", () => {
+  const result = interpretReplyLocally({ reply: "Heads up, Carol is out next week" });
+  assert.equal(result.action, "comment");
+});
+
+test("reply without an AI key falls back locally", async () => {
+  const result = await interpretReply({
+    card: { title: "T", summary: "S" },
+    reply: "lgtm",
+    openRouter: null,
+  });
+  assert.equal(result.action, "approve");
 });
 
 test("empty instruction leaves the card untouched", () => {

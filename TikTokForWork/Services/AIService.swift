@@ -75,6 +75,34 @@ enum IngestOutcome {
     case update(channelName: String, isNewChannel: Bool)
 }
 
+struct ReplyInterpretation: Decodable {
+    enum Action: String, Decodable {
+        case approve
+        case reject
+        case revise
+        case question
+        case comment
+    }
+
+    let action: Action
+    let note: String
+}
+
+private struct InterpretReplyRequest: Encodable {
+    struct CardPayload: Encodable {
+        let title: String
+        let summary: String
+        let context: String
+        let priority: String
+        let cardType: String
+        let senderName: String
+    }
+
+    let card: CardPayload
+    let reply: String
+    let sender: User
+}
+
 private struct HealthResponse: Decodable {
     let aiRouting: Bool?
     let aiModel: String?
@@ -291,6 +319,43 @@ final class AIService: ObservableObject {
             toolCalls: routing.toolCalls,
             channelID: routing.channelID
         )
+    }
+
+    func interpretReply(_ card: DecisionCard, reply: String, sender: User) async throws -> ReplyInterpretation {
+        guard let backendBaseURL else {
+            throw AIServiceError.notConfigured
+        }
+        guard let url = URL(string: "/ai/reply", relativeTo: backendBaseURL) else {
+            throw AIServiceError.invalidResponse
+        }
+
+        var request = authorizedRequest(url: url)
+        request.httpBody = try JSONEncoder().encode(
+            InterpretReplyRequest(
+                card: .init(
+                    title: card.title,
+                    summary: card.summary,
+                    context: card.context,
+                    priority: card.priority.rawValue,
+                    cardType: card.type.rawValue,
+                    senderName: card.senderName
+                ),
+                reply: reply,
+                sender: sender
+            )
+        )
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIServiceError.invalidResponse
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let message = parseServerError(data) ?? "Reply interpretation failed."
+            throw AIServiceError.serverError(message)
+        }
+
+        return try JSONDecoder().decode(ReplyInterpretation.self, from: data)
     }
 
     func refineCard(_ card: DecisionCard, instruction: String) async throws -> CardRefinementResult {

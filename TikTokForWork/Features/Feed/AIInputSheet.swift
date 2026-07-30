@@ -239,6 +239,76 @@ struct CardFollowUpSheet: View {
     }
 }
 
+struct CardReplySheet: View {
+    let card: DecisionCard
+    let isAIConfigured: Bool
+    let onSubmit: (String) -> Void
+
+    @State private var text = ""
+    @FocusState private var isFocused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    Text(card.title)
+                        .font(Theme.TypeScale.body)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                    Text(isAIConfigured
+                         ? "Your AI reads the intent — approve with conditions, decline with a reason, ask \(card.senderName) a question, or leave a note."
+                         : "Offline mode — keyword triage: 'ok, but…' approves, '…?' asks, the rest is a note.")
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+
+                ZStack(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text("OK, but release after Friday's demo")
+                            .font(Theme.TypeScale.body)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 8)
+                    }
+
+                    TextEditor(text: $text)
+                        .font(Theme.TypeScale.body)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 90)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                        .focused($isFocused)
+                }
+                .padding(Theme.Spacing.md)
+                .background(Theme.Colors.surfaceRaised)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+
+                PrimaryButton(
+                    title: "Send reply",
+                    enabled: !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ) {
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    onSubmit(trimmed)
+                    dismiss()
+                }
+
+                Spacer()
+            }
+            .padding(Theme.Spacing.screen)
+            .background(Theme.Colors.background)
+            .navigationTitle("Reply to \(card.senderName)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
+        }
+        .onAppear { isFocused = true }
+    }
+}
+
 struct ResendComposerSheet: View {
     let card: DecisionCard
     let isAIConfigured: Bool
