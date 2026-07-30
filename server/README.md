@@ -54,6 +54,10 @@ Point a repository webhook (JSON, secret = `GITHUB_WEBHOOK_SECRET`) at `/github/
 
 Recipients resolve via each member's `githubUsername`; events for unknown logins are dropped. Cards flow through the normal delivery path — translation, channel trail, and the push policy all apply.
 
+## SLA escalation — stuck decisions climb the org graph
+
+Pending cards have an SLA by priority (urgent 2h · high 8h · medium 24h; low never — override with `SLA_MINUTES="urgent:60,high:240"`). A sweep (every `ESCALATION_INTERVAL_MINUTES`, default 15; `POST /escalations/run` on demand) finds breaches, follows the recipient's `manages` edge, and delivers the manager an actionable **"Escalated:"** copy of the stuck decision — urgent stays urgent, everything else arrives high, so offline managers get pushed. The original card is annotated (`escalated: Dana notified after 9h`) and marked so it never escalates twice. Escalations ride the normal delivery path: translated into the manager's language, logged to the card's channel.
+
 ## Push notifications
 
 Set `APNS_KEY_ID`, `APNS_TEAM_ID`, and the p8 key (`APNS_KEY_P8` inline or `APNS_KEY_PATH`) to enable APNs (token-based auth over HTTP/2, zero dependencies; `APNS_ENV=sandbox|production`). The policy is deliberate: **only pending high/urgent decision cards ring**, and never for a user who is currently connected — their feed already shows the card. Question/note/medium cards stay silent. Device tokens are registered via `/push/register` (a token follows the active user when the demo switches users) and pruned automatically on APNs `410 Unregistered`. Without keys the relay runs with push off.
@@ -108,6 +112,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | POST | `/digest/run` | Generate digest cards now (also runs on `DIGEST_INTERVAL_MINUTES`) |
 | POST | `/org/language` | Set a member's language — future cards arrive translated |
 | POST | `/github/webhook` | GitHub events → decision cards (HMAC-verified, no bearer token) |
+| POST | `/escalations/run` | Sweep for SLA breaches now (also runs on `ESCALATION_INTERVAL_MINUTES`) |
 | GET | `/oauth/github/config` | OAuth client config for iOS |
 | POST | `/oauth/github/token` | Exchange code → access token |
 | POST | `/ai/route` | Route instruction via OpenRouter |

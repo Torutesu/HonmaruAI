@@ -16,6 +16,7 @@ import { createAPNS, createPushRegistry, shouldNotify } from "./push.js";
 import { collectDigestSections, generateDigest, buildDigestCard } from "./digest.js";
 import { translateCard } from "./translate.js";
 import { verifyWebhookSignature, cardsFromWebhook } from "./githubWebhook.js";
+import { parseSLAConfig, findOverdueCards, buildEscalationCard } from "./escalation.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -67,6 +68,11 @@ const DIGEST_STORE_PATH =
   process.env.DIGEST_STORE_PATH || join(__dirname, "data", "digest.json");
 // 0 disables the periodic digest; POST /digest/run always works.
 const DIGEST_INTERVAL_MINUTES = Number(process.env.DIGEST_INTERVAL_MINUTES || 0);
+
+// SLA table (override e.g. SLA_MINUTES="urgent:60,high:240") and how often
+// to sweep for breaches. 0 disables the sweep; POST /escalations/run always works.
+const SLA_MINUTES = parseSLAConfig(process.env.SLA_MINUTES);
+const ESCALATION_INTERVAL_MINUTES = Number(process.env.ESCALATION_INTERVAL_MINUTES || 15);
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
@@ -201,6 +207,49 @@ if (DIGEST_INTERVAL_MINUTES > 0) {
   setInterval(() => {
     runDigest().catch((error) => console.warn("Digest run failed:", error.message));
   }, DIGEST_INTERVAL_MINUTES * 60 * 1000).unref();
+}
+
+// Stuck decisions climb the org graph: past their SLA, the recipient's
+// manager gets an actionable copy and the original card is annotated.
+async function runEscalations(now = Date.now()) {
+  const store = getStore(ORG_ID);
+  const overdue = findOverdueCards({ cardsByUser: store, slaMinutes: SLA_MINUTES, now });
+  let escalated = 0;
+
+  for (const { card, overdueMinutes } of overdue) {
+    card.escalatedAt = new Date(now).toISOString();
+
+    const recipient = orgStore.findUser(card.recipientUserID);
+    const manager = orgStore.managerOf(card.recipientUserID);
+    if (!recipient || !manager || manager.id === card.recipientUserID) {
+      continue; // marked, so we don't rescan it every sweep
+    }
+
+    const ageMinutes = (now - Date.parse(card.createdAt)) / 60000;
+    card.context = [card.context, `escalated: ${manager.name} notified after ${Math.round(ageMinutes / 60)}h`]
+      .filter(Boolean)
+      .join("\n");
+    broadcast(ORG_ID, "card_updated", { card });
+
+    await deliverCard(
+      ORG_ID,
+      buildEscalationCard({ card, recipient, manager, ageMinutes })
+    );
+    escalated += 1;
+  }
+
+  if (overdue.length > 0) {
+    persister.schedule(orgStores);
+  }
+  return escalated;
+}
+
+if (ESCALATION_INTERVAL_MINUTES > 0) {
+  setInterval(() => {
+    runEscalations().catch((error) =>
+      console.warn("Escalation sweep failed:", error.message)
+    );
+  }, ESCALATION_INTERVAL_MINUTES * 60 * 1000).unref();
 }
 
 const persistedChannels = loadPersistedStores(CHANNELS_STORE_PATH);
@@ -529,6 +578,16 @@ const server = createServer(async (req, res) => {
       json(res, 200, { digests: created });
     } catch (error) {
       json(res, 400, { message: error.message || "Digest run failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/escalations/run" && req.method === "POST") {
+    try {
+      const escalated = await runEscalations();
+      json(res, 200, { escalated });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Escalation sweep failed." });
     }
     return;
   }

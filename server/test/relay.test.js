@@ -387,6 +387,87 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     ws.close();
   });
 
+  await t.test("escalation: an overdue card climbs to the manager", async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+    };
+
+    // Alice manages Bob. Plant a 10h-old high card in Bob's feed, then sweep.
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-alice", token: TOKEN } })
+    );
+    await collectMessages(ws, 2);
+
+    const staleCreated = new Date(Date.now() - 10 * 3600000).toISOString();
+    ws.send(
+      JSON.stringify({
+        type: "card_created",
+        payload: {
+          card: {
+            id: "card-stale-1",
+            recipientUserID: "user-bob",
+            senderUserID: "user-carol",
+            type: "approval",
+            title: "Approve vendor contract",
+            summary: "Contract needs sign-off.",
+            status: "pending",
+            priority: "high",
+            createdAt: staleCreated,
+          },
+        },
+      })
+    );
+    await collectUntil(ws, (messages) =>
+      messages.some(
+        (message) =>
+          message.type === "card_created" && message.payload.card.id === "card-stale-1"
+      )
+    );
+
+    const escalationPromise = collectUntil(ws, (messages) =>
+      messages.some(
+        (message) =>
+          message.type === "card_created" &&
+          message.payload.card.recipientUserID === "user-alice" &&
+          String(message.payload.card.title).startsWith("Escalated:")
+      ) &&
+      messages.some(
+        (message) =>
+          message.type === "card_updated" && message.payload.card.id === "card-stale-1"
+      )
+    );
+    escalationPromise.catch(() => {});
+
+    const run = await fetch(`${base}/escalations/run`, { method: "POST", headers });
+    assert.equal(run.status, 200);
+    const result = await run.json();
+    assert.ok(result.escalated >= 1);
+
+    const events = await escalationPromise;
+    const escalation = events.find(
+      (message) =>
+        message.type === "card_created" &&
+        String(message.payload.card.title).startsWith("Escalated:")
+    ).payload.card;
+    assert.equal(escalation.recipientUserID, "user-alice");
+    assert.equal(escalation.priority, "high");
+    assert.ok(escalation.routingReason.includes("you manage Bob"));
+
+    const updated = events.find(
+      (message) =>
+        message.type === "card_updated" && message.payload.card.id === "card-stale-1"
+    ).payload.card;
+    assert.ok(updated.escalatedAt);
+    assert.ok(updated.context.includes("escalated:"));
+
+    // Second sweep: already marked, nothing new.
+    const second = await fetch(`${base}/escalations/run`, { method: "POST", headers });
+    assert.equal((await second.json()).escalated, 0);
+    ws.close();
+  });
+
   await t.test("github webhook: signed review request lands as a card", async () => {
     const ws = await wsOpen(`ws://127.0.0.1:${port}`);
     ws.send(

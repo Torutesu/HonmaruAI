@@ -75,6 +75,7 @@ The vertical feed is the primary way to work; behind it sits a Slack-like channe
 - **Notifications that respect you**: APNs pushes only pending high/urgent decisions, and never while you're connected — chat, notes, and medium/low cards stay silent. Tapping a push opens the exact card (see [server/README.md](server/README.md) for APNs setup)
 - **Everyone works in their own language**: set your language in the user switcher — every card is translated at delivery, digests are written in your language, and agents answer in it. A Japanese CEO decides in Japanese on the same card an English engineer sent in English
 - **GitHub feeds the queue**: review requests, issue assignments, and CI failures arrive as decision cards automatically via `/github/webhook` — the org's `githubUsername` mapping routes them to the right feed
+- **Nothing rots in a queue**: pending cards past their SLA (urgent 2h · high 8h · medium 24h) automatically escalate up the org graph — the recipient's manager gets an actionable copy, translated into their language, pushed if they're offline
 - **Re-prioritize**: recipients can change a pending card's priority from the detail sheet; the change syncs to every client
 - **Ask AI**: a follow-up instruction on any pending card ("make this urgent, deadline moved") updates the card in place via the relay's `/ai/refine`
 - **Revise & resend**: a revision request comes back to the sender as an actionable card — edit the instruction, review the AI's redraft, and it routes straight back to whoever asked for changes

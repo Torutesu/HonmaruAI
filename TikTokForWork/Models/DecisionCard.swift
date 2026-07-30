@@ -82,6 +82,8 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var labels: [String]?
     var revisionNote: String?
     var channelID: String?
+    // Server-side SLA marker — round-tripped so client updates don't clear it.
+    var escalatedAt: String?
 
     var isPending: Bool { status == .pending }
 
