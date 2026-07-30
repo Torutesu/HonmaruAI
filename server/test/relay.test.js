@@ -387,6 +387,72 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     ws.close();
   });
 
+  await t.test("memory: three approvals teach the AI to recommend the fourth", async () => {
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(
+      JSON.stringify({ type: "join", payload: { userId: "user-dana", token: TOKEN } })
+    );
+    await collectMessages(ws, 2);
+
+    // Dana approves three similar requests from Carol.
+    for (let i = 1; i <= 3; i += 1) {
+      const id = `card-mem-${i}`;
+      const cardBase = {
+        id,
+        recipientUserID: "user-dana",
+        senderUserID: "user-carol",
+        type: "approval",
+        title: `Approve design spend ${i}`,
+        summary: "Budget approval.",
+        priority: "medium",
+        createdAt: new Date().toISOString(),
+      };
+      ws.send(JSON.stringify({ type: "card_created", payload: { card: { ...cardBase, status: "pending" } } }));
+      await collectUntil(ws, (messages) =>
+        messages.some((m) => m.type === "card_created" && m.payload.card.id === id)
+      );
+      ws.send(JSON.stringify({ type: "card_updated", payload: { card: { ...cardBase, status: "approved" } } }));
+      await collectUntil(ws, (messages) =>
+        messages.some((m) => m.type === "card_updated" && m.payload.card.id === id)
+      );
+    }
+
+    // The fourth similar card arrives with a one-tap recommendation.
+    const recPromise = collectUntil(ws, (messages) =>
+      messages.some(
+        (m) => m.type === "card_created" && m.payload.card.id === "card-mem-4"
+      )
+    );
+    recPromise.catch(() => {});
+    ws.send(
+      JSON.stringify({
+        type: "card_created",
+        payload: {
+          card: {
+            id: "card-mem-4",
+            recipientUserID: "user-dana",
+            senderUserID: "user-carol",
+            type: "approval",
+            title: "Approve design spend 4",
+            summary: "Budget approval.",
+            status: "pending",
+            priority: "medium",
+            createdAt: new Date().toISOString(),
+          },
+        },
+      })
+    );
+
+    const events = await recPromise;
+    const card = events.find(
+      (m) => m.type === "card_created" && m.payload.card.id === "card-mem-4"
+    ).payload.card;
+    assert.ok(card.recommendation, "expected a recommendation on the fourth card");
+    assert.equal(card.recommendation.action, "approve");
+    assert.ok(card.recommendation.reason.length > 0);
+    ws.close();
+  });
+
   await t.test("escalation: an overdue card climbs to the manager", async () => {
     const headers = {
       "Content-Type": "application/json",

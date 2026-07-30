@@ -62,6 +62,31 @@ enum CardActionKind {
     case acknowledge
 }
 
+// Advisory hint from the recipient's AI, learned from their decision
+// history. One tap accepts it; the human always decides.
+struct RecommendationHint: Codable, Hashable {
+    let action: String
+    let reason: String
+
+    var cardAction: CardActionKind? {
+        switch action {
+        case "approve": .createIssue
+        case "reject": .reject
+        case "revise": .requestRevision
+        default: nil
+        }
+    }
+
+    var label: String {
+        switch action {
+        case "approve": "Approve"
+        case "reject": "Decline"
+        case "revise": "Request revision"
+        default: action
+        }
+    }
+}
+
 struct DecisionCard: Identifiable, Codable, Hashable {
     let id: String
     let recipientUserID: String
@@ -84,6 +109,7 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var channelID: String?
     // Server-side SLA marker — round-tripped so client updates don't clear it.
     var escalatedAt: String?
+    var recommendation: RecommendationHint?
 
     var isPending: Bool { status == .pending }
 

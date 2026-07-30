@@ -65,6 +65,7 @@ Last updated: 2026-07-30
 - [x] Per-user language: delivery-time card translation (translate.js), digests generated in the recipient's language, agents reply in the author's language, JA offline reply patterns; language editable in the user switcher
 - [x] GitHub webhooks (`/github/webhook`, HMAC-verified): review requests → approval cards, issue assignments → task cards, CI failures → high-priority cards; routed via githubUsername mapping through the normal delivery path
 - [x] SLA auto-escalation: pending cards past their per-priority SLA climb the manages edge — the manager gets an actionable "Escalated:" copy (translated, pushed if offline), the original is annotated and never escalates twice
+- [x] Agent memory: per-user decision history (persisted, capped) → one-tap recommendation on new cards when the pattern is clear (AI + offline consistency heuristic), written in the recipient's language; advisory only
 
 ## Phase 8 — Deployable relay
 

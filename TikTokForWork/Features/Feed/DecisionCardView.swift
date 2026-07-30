@@ -275,6 +275,36 @@ struct DecisionCardView: View {
 
     private var actionBlock: some View {
         VStack(spacing: Theme.Spacing.sm) {
+            if card.isPending, !card.isNotification, !card.isRevisionRequest,
+               let recommendation = card.recommendation,
+               let suggested = recommendation.cardAction {
+                Button {
+                    Haptics.success()
+                    onAction(suggested)
+                } label: {
+                    HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+                        Image(systemName: "sparkle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.Colors.accent)
+                            .padding(.top, 2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your AI suggests: \(recommendation.label)")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Theme.Colors.accent)
+                            Text("\(recommendation.reason) · tap to accept")
+                                .font(Theme.TypeScale.micro)
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                    }
+                    .padding(Theme.Spacing.md)
+                    .background(Theme.Colors.accent.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                }
+                .buttonStyle(.plain)
+            }
+
             if card.isPending {
                 replyBar
             }

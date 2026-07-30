@@ -17,6 +17,11 @@ import { collectDigestSections, generateDigest, buildDigestCard } from "./digest
 import { translateCard } from "./translate.js";
 import { verifyWebhookSignature, cardsFromWebhook } from "./githubWebhook.js";
 import { parseSLAConfig, findOverdueCards, buildEscalationCard } from "./escalation.js";
+import {
+  createMemoryStore,
+  recordableTransition,
+  recommendDecision,
+} from "./memory.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -66,6 +71,8 @@ const PUSH_STORE_PATH =
   process.env.PUSH_STORE_PATH || join(__dirname, "data", "push.json");
 const DIGEST_STORE_PATH =
   process.env.DIGEST_STORE_PATH || join(__dirname, "data", "digest.json");
+const MEMORY_STORE_PATH =
+  process.env.MEMORY_STORE_PATH || join(__dirname, "data", "memory.json");
 // 0 disables the periodic digest; POST /digest/run always works.
 const DIGEST_INTERVAL_MINUTES = Number(process.env.DIGEST_INTERVAL_MINUTES || 0);
 
@@ -150,6 +157,18 @@ function maybeNotify(orgId, card) {
       })
       .catch(() => {});
   }
+}
+
+const persistedMemory = loadPersistedStores(MEMORY_STORE_PATH);
+const memoryStore = createMemoryStore(
+  persistedMemory ? Object.fromEntries(persistedMemory.entries()) : null
+);
+const memoryPersister = createPersister(MEMORY_STORE_PATH);
+
+function persistMemory() {
+  memoryPersister.schedule(
+    new Map([["entries", memoryStore.serialize().entries]])
+  );
 }
 
 const persistedDigest = loadPersistedStores(DIGEST_STORE_PATH);
@@ -327,6 +346,28 @@ async function deliverCard(orgId, card, { log = true } = {}) {
     targetLanguage: targetLanguageFor(card),
     openRouter: openRouterConfig(),
   });
+
+  // Agent memory: annotate decidable cards with how this person usually
+  // decides similar requests — advisory, one tap to accept, human decides.
+  if (
+    translated.status === "pending" &&
+    translated.type !== "notification" &&
+    translated.recipientUserID !== translated.senderUserID
+  ) {
+    try {
+      const recommendation = await recommendDecision({
+        card: translated,
+        history: memoryStore.entriesFor(translated.recipientUserID),
+        language: orgStore.findUser(translated.recipientUserID)?.language,
+        openRouter: openRouterConfig(),
+      });
+      if (recommendation) {
+        translated.recommendation = recommendation;
+      }
+    } catch (error) {
+      console.warn("Recommendation skipped:", error.message);
+    }
+  }
 
   const store = getStore(orgId);
   upsertCard(store, translated);
@@ -843,6 +884,24 @@ wss.on("connection", (ws) => {
           return;
         }
         const store = getStore(session.orgId);
+
+        // pending → decided transitions feed the recipient's decision memory.
+        const previous = (store[card.recipientUserID] || []).find(
+          (item) => item.id === card.id
+        );
+        const action = recordableTransition(previous?.status, card.status);
+        if (action) {
+          memoryStore.record(card.recipientUserID, {
+            action,
+            type: card.type,
+            priority: card.priority,
+            senderUserID: card.senderUserID,
+            title: String(card.title || "").slice(0, 60),
+            at: new Date().toISOString(),
+          });
+          persistMemory();
+        }
+
         upsertCard(store, card);
         persister.schedule(orgStores);
         broadcast(session.orgId, "card_updated", { card });
@@ -1038,6 +1097,7 @@ function shutdown() {
   );
   pushPersister.flushNow(new Map([["tokens", pushRegistry.serialize().tokens]]));
   digestPersister.flushNow(new Map([["lastRunByUser", digestState]]));
+  memoryPersister.flushNow(new Map([["entries", memoryStore.serialize().entries]]));
   process.exit(0);
 }
 

@@ -54,6 +54,10 @@ Point a repository webhook (JSON, secret = `GITHUB_WEBHOOK_SECRET`) at `/github/
 
 Recipients resolve via each member's `githubUsername`; events for unknown logins are dropped. Cards flow through the normal delivery path — translation, channel trail, and the push policy all apply.
 
+## Agent memory — your AI learns how you decide
+
+Every pending→decided transition (approve / reject / revise) is recorded per user (`data/memory.json`, last 50). When a new decidable card is delivered to someone with ≥3 relevant data points, their AI predicts the call (`recommend_decision` tool; offline, a ≥75%-consistency pattern heuristic over same-sender/same-type history) and attaches a one-tap recommendation — "Your AI suggests: Approve · You approved the last 3 review requests from Alice", written in the recipient's language. Advisory only: no clear pattern, no recommendation, and the human always decides.
+
 ## SLA escalation — stuck decisions climb the org graph
 
 Pending cards have an SLA by priority (urgent 2h · high 8h · medium 24h; low never — override with `SLA_MINUTES="urgent:60,high:240"`). A sweep (every `ESCALATION_INTERVAL_MINUTES`, default 15; `POST /escalations/run` on demand) finds breaches, follows the recipient's `manages` edge, and delivers the manager an actionable **"Escalated:"** copy of the stuck decision — urgent stays urgent, everything else arrives high, so offline managers get pushed. The original card is annotated (`escalated: Dana notified after 9h`) and marked so it never escalates twice. Escalations ride the normal delivery path: translated into the manager's language, logged to the card's channel.
