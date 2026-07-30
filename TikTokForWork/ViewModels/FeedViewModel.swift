@@ -15,8 +15,10 @@ final class FeedViewModel: ObservableObject {
     @Published var reviewDraft: InstructionDraft?
 
     private var cardService: DecisionCardService?
+    private var githubService: GitHubService?
     private var userID: String?
     private var draftTask: Task<Void, Never>?
+    private var githubSyncTask: Task<Void, Never>?
 
     var currentIndex: Int {
         guard let scrollPosition,
@@ -30,8 +32,9 @@ final class FeedViewModel: ObservableObject {
         cards.filter(\.isPending).count
     }
 
-    func bind(to service: DecisionCardService, user: User) {
+    func bind(to service: DecisionCardService, user: User, githubService: GitHubService) {
         cardService = service
+        self.githubService = githubService
         userID = user.id
         refreshCards(from: service)
 
@@ -41,6 +44,29 @@ final class FeedViewModel: ObservableObject {
                 self.refreshCards(from: cardService)
             }
         }
+
+        githubSyncTask?.cancel()
+        githubSyncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.syncGitHub()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    func syncGitHub() async {
+        guard let cardService, let githubService else { return }
+        await cardService.syncGitHubStatus(githubService: githubService)
+        refreshCards(from: cardService)
+    }
+
+    func clearSheets() {
+        detailCard = nil
+        delegateCard = nil
+        reviseCard = nil
+        reviewDraft = nil
+        draftTask?.cancel()
+        isDrafting = false
     }
 
     func handle(action: CardActionKind, for card: DecisionCard, appState: AppState) async {
@@ -50,6 +76,9 @@ final class FeedViewModel: ObservableObject {
             return
         case .requestRevision:
             reviseCard = card
+            return
+        case .delete:
+            await delete(card: card, appState: appState)
             return
         case .viewDetails:
             detailCard = card
@@ -64,6 +93,30 @@ final class FeedViewModel: ObservableObject {
     func completeRevision(for card: DecisionCard, note: String, appState: AppState) async {
         reviseCard = nil
         await resolve(card: card, action: .requestRevision, revisionNote: note, appState: appState)
+    }
+
+    func delete(card: DecisionCard, appState: AppState) async {
+        guard let cardService, let userID else { return }
+
+        isProcessing = true
+        processingMessage = "Removing card"
+        errorMessage = nil
+
+        do {
+            try await cardService.delete(cardID: card.id, actorUserID: userID)
+            Haptics.light()
+            refreshCards(from: cardService)
+            if cards.isEmpty {
+                scrollPosition = nil
+            } else if scrollPosition == card.id {
+                scrollPosition = cards[min(currentIndex, cards.count - 1)].id
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            Haptics.light()
+        }
+
+        isProcessing = false
     }
 
     func completeDelegate(for card: DecisionCard, to user: User, appState: AppState) async {
@@ -113,38 +166,17 @@ final class FeedViewModel: ObservableObject {
 
     func draftInstruction(_ text: String, priority: CardPriority, appState: AppState) async -> InstructionDraft? {
         guard let user = appState.currentUser else { return nil }
+        guard appState.aiService.hasRelay else {
+            errorMessage = AIServiceError.notConfigured.localizedDescription
+            return nil
+        }
 
         do {
-            if appState.aiService.isConfigured {
-                return try await appState.aiService.draftInstruction(
-                    text: text,
-                    sender: user,
-                    organization: DemoData.organization,
-                    priorityOverride: priority
-                )
-            }
-
-            let routing = InstructionRouter.route(text: text, sender: user, organization: DemoData.organization)
-            var toolCalls = routing.toolCalls
-            let finalPriority = priority
-            if routing.priority != priority {
-                toolCalls.append(
-                    AgentToolCall(name: "set_priority", label: "Priority override", detail: priority.rawValue)
-                )
-            }
-            return InstructionDraft(
-                id: UUID().uuidString,
-                sourceText: text,
-                recipientUserID: routing.recipientID,
-                cardType: routing.cardType,
-                title: routing.title,
-                summary: routing.summary,
-                context: routing.context,
-                priority: finalPriority,
-                agentRoute: routing.agentRoute,
-                routingReason: routing.routingReason,
-                labels: routing.labels,
-                toolCalls: toolCalls
+            return try await appState.aiService.draftInstruction(
+                text: text,
+                sender: user,
+                organization: DemoData.organization,
+                priorityOverride: priority
             )
         } catch {
             errorMessage = error.localizedDescription
@@ -185,7 +217,12 @@ final class FeedViewModel: ObservableObject {
         guard let cardService, let userID else { return }
 
         isProcessing = true
-        processingMessage = action == .createIssue ? "Creating GitHub issue…" : "Syncing"
+        processingMessage = switch action {
+        case .createIssue: "Creating GitHub issue…"
+        case .reject: "Declining"
+        case .requestRevision: "Sending revision"
+        default: "Syncing"
+        }
         errorMessage = nil
 
         do {
@@ -198,6 +235,7 @@ final class FeedViewModel: ObservableObject {
             )
             Haptics.success()
             refreshCards(from: cardService)
+            await syncGitHub()
             advanceIfNeeded()
         } catch {
             errorMessage = error.localizedDescription
@@ -209,11 +247,14 @@ final class FeedViewModel: ObservableObject {
 
     private func refreshCards(from service: DecisionCardService) {
         guard let userID else { return }
+        let previousCount = cards.count
         let updated = service.cards(for: userID)
         cards = updated
 
         if updated.isEmpty {
             scrollPosition = nil
+        } else if updated.count > previousCount, let newest = updated.first?.id {
+            scrollPosition = newest
         } else if let scrollPosition, updated.contains(where: { $0.id == scrollPosition }) {
             return
         } else if currentIndex < updated.count {

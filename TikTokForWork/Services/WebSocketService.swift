@@ -4,6 +4,7 @@ enum RealtimeEvent: Codable {
     case snapshot(cardsByUser: [String: [DecisionCard]])
     case cardCreated(card: DecisionCard)
     case cardUpdated(card: DecisionCard)
+    case cardDeleted(cardID: String, recipientUserID: String)
     case presence(userId: String, status: String)
     case error(message: String)
 
@@ -24,6 +25,9 @@ enum RealtimeEvent: Codable {
         case "card_updated":
             let payload = try container.decode(CardPayload.self, forKey: .payload)
             self = .cardUpdated(card: payload.card)
+        case "card_deleted":
+            let payload = try container.decode(DeletePayload.self, forKey: .payload)
+            self = .cardDeleted(cardID: payload.cardID, recipientUserID: payload.recipientUserID)
         case "presence":
             let payload = try container.decode(PresencePayload.self, forKey: .payload)
             self = .presence(userId: payload.userId, status: payload.status)
@@ -47,6 +51,9 @@ enum RealtimeEvent: Codable {
         case .cardUpdated(let card):
             try container.encode("card_updated", forKey: .type)
             try container.encode(CardPayload(card: card), forKey: .payload)
+        case .cardDeleted(let cardID, let recipientUserID):
+            try container.encode("card_deleted", forKey: .type)
+            try container.encode(DeletePayload(cardID: cardID, recipientUserID: recipientUserID), forKey: .payload)
         case .presence(let userId, let status):
             try container.encode("presence", forKey: .type)
             try container.encode(PresencePayload(userId: userId, status: status), forKey: .payload)
@@ -64,6 +71,16 @@ enum RealtimeEvent: Codable {
         let card: DecisionCard
     }
 
+    private struct DeletePayload: Codable {
+        let cardID: String
+        let recipientUserID: String
+
+        enum CodingKeys: String, CodingKey {
+            case cardID = "cardId"
+            case recipientUserID
+        }
+    }
+
     private struct PresencePayload: Codable {
         let userId: String
         let status: String
@@ -78,6 +95,8 @@ enum OutboundEvent {
     case join(userId: String, orgId: String)
     case cardCreated(DecisionCard)
     case cardUpdated(DecisionCard)
+    case cardDeleted(cardID: String, recipientUserID: String)
+    case clearStore
 
     var envelope: [String: Any] {
         switch self {
@@ -87,6 +106,13 @@ enum OutboundEvent {
             return ["type": "card_created", "payload": ["card": card.dictionary]]
         case .cardUpdated(let card):
             return ["type": "card_updated", "payload": ["card": card.dictionary]]
+        case .cardDeleted(let cardID, let recipientUserID):
+            return [
+                "type": "card_deleted",
+                "payload": ["cardId": cardID, "recipientUserID": recipientUserID]
+            ]
+        case .clearStore:
+            return ["type": "clear_store", "payload": [:]]
         }
     }
 }
@@ -100,6 +126,11 @@ final class WebSocketService: ObservableObject {
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+    private var intentionalDisconnect = false
+    private var lastURLString: String?
+    private var lastUserID: String?
+    private var lastOrgID = "core-team"
     private let session = URLSession(configuration: .default)
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -124,7 +155,11 @@ final class WebSocketService: ObservableObject {
     }()
 
     func connect(urlString: String, userId: String, orgId: String = "core-team") async throws {
-        disconnect()
+        intentionalDisconnect = false
+        lastURLString = urlString
+        lastUserID = userId
+        lastOrgID = orgId
+        disconnect(intentional: true)
 
         guard let url = URL(string: urlString) else {
             throw URLError(.badURL)
@@ -136,16 +171,19 @@ final class WebSocketService: ObservableObject {
         let task = session.webSocketTask(with: request)
         self.task = task
         task.resume()
-        isConnected = true
 
         receiveLoopTask = Task { [weak self] in
             await self?.receiveLoop()
         }
 
         try await send(.join(userId: userId, orgId: orgId))
+        isConnected = true
     }
 
-    func disconnect() {
+    func disconnect(intentional: Bool = false) {
+        intentionalDisconnect = intentional
+        reconnectTask?.cancel()
+        reconnectTask = nil
         receiveLoopTask?.cancel()
         receiveLoopTask = nil
         task?.cancel(with: .goingAway, reason: nil)
@@ -160,6 +198,14 @@ final class WebSocketService: ObservableObject {
 
     func publishUpdated(_ card: DecisionCard) async {
         try? await send(.cardUpdated(card))
+    }
+
+    func publishDeleted(cardID: String, recipientUserID: String) async {
+        try? await send(.cardDeleted(cardID: cardID, recipientUserID: recipientUserID))
+    }
+
+    func publishClearStore() async {
+        try? await send(.clearStore)
     }
 
     private func send(_ event: OutboundEvent) async throws {
@@ -185,8 +231,22 @@ final class WebSocketService: ObservableObject {
                 }
             } catch {
                 isConnected = false
+                scheduleReconnect()
                 break
             }
+        }
+    }
+
+    private func scheduleReconnect() {
+        guard !intentionalDisconnect,
+              let lastURLString,
+              let lastUserID else { return }
+
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled, !self.intentionalDisconnect else { return }
+            try? await self.connect(urlString: lastURLString, userId: lastUserID, orgId: self.lastOrgID)
         }
     }
 

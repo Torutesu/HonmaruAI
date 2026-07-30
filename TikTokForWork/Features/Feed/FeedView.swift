@@ -21,6 +21,7 @@ struct FeedView: View {
                         ForEach(viewModel.cards) { card in
                             DecisionCardView(
                                 card: card,
+                                linkedRepository: appState.githubService.linkedRepository,
                                 onAction: { action in
                                     Task {
                                         await viewModel.handle(action: action, for: card, appState: appState)
@@ -39,12 +40,6 @@ struct FeedView: View {
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $viewModel.scrollPosition)
                 .scrollIndicators(.hidden)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    topBar
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    bottomChrome
-                }
             }
 
             if viewModel.isProcessing {
@@ -58,16 +53,32 @@ struct FeedView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            topBar
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomChrome
+        }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {
             guard let user = appState.currentUser else { return }
-            viewModel.bind(to: appState.cardService, user: user)
+            viewModel.bind(
+                to: appState.cardService,
+                user: user,
+                githubService: appState.githubService
+            )
+            Task { await viewModel.syncGitHub() }
         }
         .sheet(isPresented: $showUserSwitcher) {
             UserSwitcherSheet { user in
                 Task {
                     await appState.switchUser(to: user.user)
-                    viewModel.bind(to: appState.cardService, user: user.user)
+                    viewModel.bind(
+                        to: appState.cardService,
+                        user: user.user,
+                        githubService: appState.githubService
+                    )
+                    viewModel.clearSheets()
                 }
             }
             .environmentObject(appState)
@@ -208,6 +219,10 @@ struct FeedView: View {
             Text("Decisions will show up here")
                 .font(Theme.TypeScale.caption)
                 .foregroundStyle(Theme.Colors.textTertiary)
+            Text("Use Tell your AI below to route one")
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .padding(.top, Theme.Spacing.xs)
         }
     }
 

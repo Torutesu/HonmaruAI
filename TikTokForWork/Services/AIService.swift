@@ -51,6 +51,10 @@ final class AIService: ObservableObject {
         modelName != nil
     }
 
+    var hasRelay: Bool {
+        backendBaseURL != nil
+    }
+
     func configure(backendBaseURL: URL) async {
         self.backendBaseURL = backendBaseURL
         await refreshAvailability()
@@ -119,7 +123,6 @@ final class AIService: ObservableObject {
         guard let backendBaseURL else {
             throw AIServiceError.notConfigured
         }
-
         guard let url = URL(string: "/ai/route", relativeTo: backendBaseURL) else {
             throw AIServiceError.invalidResponse
         }
@@ -139,10 +142,6 @@ final class AIService: ObservableObject {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw AIServiceError.invalidResponse
-        }
-
-        if http.statusCode == 503 {
-            throw AIServiceError.notConfigured
         }
 
         guard (200...299).contains(http.statusCode) else {

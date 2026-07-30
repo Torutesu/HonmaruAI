@@ -26,12 +26,14 @@ struct AuthView: View {
             .padding(.bottom, Theme.Spacing.xxl)
 
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-                if appState.githubService.isConnected, let connection = appState.githubService.connection {
-                    connectedBanner(connection)
-                } else if appState.githubService.hasToken {
+                if appState.githubService.hasToken {
                     repositoryPicker
                 } else {
                     githubSignInButton
+                }
+
+                if appState.githubService.isConnected, let connection = appState.githubService.connection {
+                    connectedBanner(connection)
                 }
 
                 if let errorMessage {
@@ -56,6 +58,12 @@ struct AuthView: View {
             .padding(.bottom, Theme.Spacing.xl)
         }
         .appBackground()
+        .onAppear {
+            if selectedRepository == nil,
+               let repository = appState.githubService.connection?.repository {
+                selectedRepository = appState.githubService.repositories.first { $0.fullName == repository }
+            }
+        }
     }
 
     private var githubSignInButton: some View {
@@ -210,11 +218,10 @@ struct AuthView: View {
 
         Task {
             do {
-                if !appState.githubService.isConnected {
-                    guard let repository = selectedRepository?.fullName else {
-                        throw GitHubServiceError.missingCredentials
-                    }
+                if let repository = selectedRepository?.fullName ?? appState.githubService.connection?.repository {
                     _ = try await appState.githubService.connect(repository: repository)
+                } else {
+                    throw GitHubServiceError.missingCredentials
                 }
 
                 await appState.activateSession()

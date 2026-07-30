@@ -62,6 +62,8 @@ final class GitHubService: NSObject, ObservableObject {
     @Published private(set) var repositories: [GitHubRepository] = []
     @Published private(set) var lastError: String?
 
+    var onRepositoryChanged: (() -> Void)?
+
     private var token: String?
     private var repository = ""
     private var authSession: ASWebAuthenticationSession?
@@ -69,6 +71,7 @@ final class GitHubService: NSObject, ObservableObject {
 
     var isConnected: Bool { connection != nil }
     var hasToken: Bool { token != nil }
+    var linkedRepository: String { repository }
 
     func disconnect() {
         token = nil
@@ -151,6 +154,7 @@ final class GitHubService: NSObject, ObservableObject {
             throw GitHubServiceError.missingCredentials
         }
 
+        let previousRepo = repository
         self.repository = trimmedRepo
         lastError = nil
 
@@ -172,6 +176,11 @@ final class GitHubService: NSObject, ObservableObject {
         )
         self.connection = connection
         SessionStore.saveGitHubConnection(connection, token: token, repository: trimmedRepo)
+
+        if !previousRepo.isEmpty, previousRepo != trimmedRepo {
+            onRepositoryChanged?()
+        }
+
         return connection
     }
 
@@ -190,7 +199,7 @@ final class GitHubService: NSObject, ObservableObject {
                 body: [
                     "title": title,
                     "body": body,
-                    "state": card.status == .approved ? "closed" : "open"
+                    "state": githubIssueState(for: card.status)
                 ]
             )
             let url = "https://github.com/\(repository)/issues/\(number)"
@@ -209,6 +218,23 @@ final class GitHubService: NSObject, ObservableObject {
         }
 
         return (number, url)
+    }
+
+    func issueState(number: Int) async throws -> String {
+        let response = try await requestDictionary(path: "/repos/\(repository)/issues/\(number)")
+        guard let state = response["state"] as? String else {
+            throw GitHubServiceError.api(statusCode: 0, message: "Unexpected GitHub issue response.")
+        }
+        return state
+    }
+
+    private func githubIssueState(for status: CardStatus) -> String {
+        switch status {
+        case .completed, .rejected:
+            "closed"
+        default:
+            "open"
+        }
     }
 
     private func fetchOAuthConfig(backendBaseURL: URL) async throws -> GitHubOAuthConfig {

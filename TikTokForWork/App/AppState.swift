@@ -19,6 +19,11 @@ final class AppState: ObservableObject {
 
     init() {
         cardService.attach(webSocketService: webSocketService)
+        githubService.onRepositoryChanged = { [weak self] in
+            Task { @MainActor in
+                await self?.handleRepositoryChanged()
+            }
+        }
         Task { await bootstrapBackend() }
     }
 
@@ -75,10 +80,21 @@ final class AppState: ObservableObject {
     }
 
     func signOut() {
+        Task {
+            await webSocketService.publishClearStore()
+        }
         webSocketService.disconnect()
         githubService.disconnect()
+        cardService.reset()
         SessionStore.clear()
         isAuthenticated = false
         currentUser = nil
+    }
+
+    func handleRepositoryChanged() async {
+        cardService.reset()
+        if webSocketService.isConnected {
+            await webSocketService.publishClearStore()
+        }
     }
 }

@@ -38,6 +38,54 @@ final class DecisionCardService: ObservableObject {
         onCardsUpdated?()
     }
 
+    func reset() {
+        cardsByUser = [:]
+        onCardsUpdated?()
+    }
+
+    func syncGitHubStatus(githubService: GitHubService) async {
+        guard githubService.isConnected else { return }
+
+        var changed = false
+        for (userID, var userCards) in cardsByUser {
+            var userChanged = false
+
+            for index in userCards.indices {
+                guard let issueNumber = userCards[index].githubIssueNumber else { continue }
+                guard userCards[index].githubRepository == githubService.linkedRepository else { continue }
+
+                let status = userCards[index].status
+                guard status == .approved || status == .completed || status == .delegated else {
+                    continue
+                }
+
+                do {
+                    let issueState = try await githubService.issueState(number: issueNumber)
+                    if issueState == "closed", status != .completed {
+                        userCards[index].status = .completed
+                        userChanged = true
+                        await webSocketService?.publishUpdated(userCards[index])
+                    } else if issueState == "open", status == .completed {
+                        userCards[index].status = .approved
+                        userChanged = true
+                        await webSocketService?.publishUpdated(userCards[index])
+                    }
+                } catch {
+                    continue
+                }
+            }
+
+            if userChanged {
+                cardsByUser[userID] = userCards
+                changed = true
+            }
+        }
+
+        if changed {
+            onCardsUpdated?()
+        }
+    }
+
     func cards(for userID: String) -> [DecisionCard] {
         cardsByUser[userID, default: []].sorted { $0.createdAt > $1.createdAt }
     }
@@ -64,6 +112,8 @@ final class DecisionCardService: ObservableObject {
         case .requestRevision: card.status = .revised
         case .delegate:
             return card
+        case .delete:
+            return card
         case .viewDetails:
             return card
         }
@@ -73,9 +123,12 @@ final class DecisionCardService: ObservableObject {
             card.context = [card.context, "Revision: \(card.revisionNote!)"].filter { !$0.isEmpty }.joined(separator: "\n")
         }
 
-        let synced = try await githubService.syncDecision(card)
-        card.githubIssueNumber = synced.number
-        card.githubIssueURL = synced.url
+        if action == .createIssue || card.githubIssueNumber != nil {
+            let synced = try await githubService.syncDecision(card)
+            card.githubIssueNumber = synced.number
+            card.githubIssueURL = synced.url
+            card.githubRepository = githubService.linkedRepository
+        }
 
         userCards[index] = card
         cardsByUser[actorUserID] = userCards
@@ -101,8 +154,8 @@ final class DecisionCardService: ObservableObject {
             status: .pending,
             priority: .medium,
             createdAt: .now,
-            githubIssueNumber: synced.number,
-            githubIssueURL: synced.url,
+            githubIssueNumber: card.githubIssueNumber,
+            githubIssueURL: card.githubIssueURL,
             agentRoute: card.agentRoute,
             routingReason: card.routingReason
         )
@@ -136,6 +189,7 @@ final class DecisionCardService: ObservableObject {
         let synced = try await githubService.syncDecision(card)
         card.githubIssueNumber = synced.number
         card.githubIssueURL = synced.url
+        card.githubRepository = githubService.linkedRepository
 
         userCards[index] = card
         cardsByUser[actorUserID] = userCards
@@ -156,6 +210,7 @@ final class DecisionCardService: ObservableObject {
             createdAt: .now,
             githubIssueNumber: synced.number,
             githubIssueURL: synced.url,
+            githubRepository: githubService.linkedRepository,
             agentRoute: "\(actorName)'s AI → \(recipientName)'s AI",
             routingReason: "Delegated by \(actorName)"
         )
@@ -176,6 +231,7 @@ final class DecisionCardService: ObservableObject {
             createdAt: .now,
             githubIssueNumber: synced.number,
             githubIssueURL: synced.url,
+            githubRepository: githubService.linkedRepository,
             agentRoute: delegatedCard.agentRoute,
             routingReason: "Delegation update"
         )
@@ -186,52 +242,21 @@ final class DecisionCardService: ObservableObject {
         return card
     }
 
-    func processInstruction(
-        _ text: String,
-        from sender: User,
-        organization: OrganizationGraph,
-        aiService: AIService,
-        priorityOverride: CardPriority? = nil
-    ) async throws -> DecisionCard {
-        let routing: InstructionRouting
-        if aiService.isConfigured {
-            do {
-                routing = try await aiService.routeInstruction(
-                    text: text,
-                    sender: sender,
-                    organization: organization,
-                    priorityOverride: priorityOverride
-                )
-            } catch {
-                routing = InstructionRouter.route(text: text, sender: sender, organization: organization)
-            }
-        } else {
-            routing = InstructionRouter.route(text: text, sender: sender, organization: organization)
+    func delete(cardID: String, actorUserID: String) async throws {
+        guard var userCards = cardsByUser[actorUserID],
+              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
+            throw CardServiceError.cardNotFound
         }
 
-        let card = DecisionCard(
-            id: UUID().uuidString,
-            recipientUserID: routing.recipientID,
-            senderUserID: sender.id,
-            type: routing.cardType,
-            title: routing.title,
-            summary: routing.summary,
-            context: routing.context,
-            status: .pending,
-            priority: routing.priority,
-            createdAt: .now,
-            githubIssueNumber: nil,
-            githubIssueURL: nil,
-            agentRoute: routing.agentRoute,
-            routingReason: routing.routingReason,
-            sourceInstruction: text,
-            labels: routing.labels.isEmpty ? nil : routing.labels
-        )
+        let card = userCards[index]
+        guard card.canDelete else {
+            throw CardServiceError.githubSyncFailed("Only declined cards can be deleted.")
+        }
 
-        append(card, for: routing.recipientID)
-        await webSocketService?.publishCreated(card)
+        userCards.remove(at: index)
+        cardsByUser[actorUserID] = userCards
+        await webSocketService?.publishDeleted(cardID: cardID, recipientUserID: actorUserID)
         onCardsUpdated?()
-        return card
     }
 
     @discardableResult
@@ -273,6 +298,8 @@ final class DecisionCardService: ObservableObject {
             upsert(card)
         case .cardUpdated(let card):
             upsert(card)
+        case .cardDeleted(let cardID, let recipientUserID):
+            remove(cardID: cardID, for: recipientUserID)
         case .presence, .error:
             break
         }
@@ -293,5 +320,12 @@ final class DecisionCardService: ObservableObject {
         var cards = cardsByUser[userID, default: []]
         cards.insert(card, at: 0)
         cardsByUser[userID] = cards
+    }
+
+    private func remove(cardID: String, for userID: String) {
+        var cards = cardsByUser[userID, default: []]
+        cards.removeAll { $0.id == cardID }
+        cardsByUser[userID] = cards
+        onCardsUpdated?()
     }
 }

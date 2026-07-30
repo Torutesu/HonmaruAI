@@ -24,6 +24,7 @@ enum CardStatus: String, Codable {
     case rejected
     case revised
     case delegated
+    case completed
 
     var label: String {
         switch self {
@@ -32,6 +33,7 @@ enum CardStatus: String, Codable {
         case .rejected: "Declined"
         case .revised: "Revision requested"
         case .delegated: "Delegated"
+        case .completed: "Closed on GitHub"
         }
     }
 }
@@ -49,6 +51,7 @@ enum CardActionKind {
     case requestRevision
     case delegate
     case viewDetails
+    case delete
 }
 
 struct DecisionCard: Identifiable, Codable, Hashable {
@@ -64,6 +67,7 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var createdAt: Date
     var githubIssueNumber: Int?
     var githubIssueURL: String?
+    var githubRepository: String?
     var agentRoute: String?
     var routingReason: String?
     var sourceInstruction: String?
@@ -71,6 +75,8 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var revisionNote: String?
 
     var isPending: Bool { status == .pending }
+
+    var canDelete: Bool { status == .rejected }
 
     var priorityLabel: String {
         switch priority {
@@ -83,5 +89,13 @@ struct DecisionCard: Identifiable, Codable, Hashable {
 
     var senderName: String {
         DemoData.userName(for: senderUserID)
+    }
+
+    func showsGitHubLink(for repository: String) -> Bool {
+        guard let githubIssueURL, !repository.isEmpty else { return false }
+        if let githubRepository {
+            return githubRepository == repository
+        }
+        return githubIssueURL.contains("github.com/\(repository)/")
     }
 }

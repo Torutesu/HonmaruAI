@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DecisionCardView: View {
     let card: DecisionCard
+    let linkedRepository: String
     let onAction: (CardActionKind) -> Void
     let onShowDetails: () -> Void
 
@@ -46,7 +47,9 @@ struct DecisionCardView: View {
                 }
                 .buttonStyle(.plain)
 
-                if let issueURL = card.githubIssueURL, let url = URL(string: issueURL) {
+                if card.showsGitHubLink(for: linkedRepository),
+                   let issueURL = card.githubIssueURL,
+                   let url = URL(string: issueURL) {
                     Link(destination: url) {
                         HStack(spacing: 4) {
                             Text(issueLabel)
@@ -74,8 +77,9 @@ struct DecisionCardView: View {
             .padding(.top, Theme.Spacing.md)
             .padding(.bottom, Theme.Spacing.md)
             .offset(x: dragOffset)
-            .gesture(swipeGesture)
         }
+        .contentShape(Rectangle())
+        .simultaneousGesture(swipeGesture)
     }
 
     private var header: some View {
@@ -173,10 +177,13 @@ struct DecisionCardView: View {
     }
 
     private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 16, coordinateSpace: .local)
+        DragGesture(minimumDistance: 20, coordinateSpace: .local)
             .onChanged { value in
                 guard card.isPending else { return }
-                dragOffset = value.translation.width
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) else { return }
+                dragOffset = horizontal
             }
             .onEnded { value in
                 guard card.isPending else {
@@ -184,10 +191,17 @@ struct DecisionCardView: View {
                     return
                 }
 
-                if value.translation.width > swipeThreshold {
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) else {
+                    resetDrag()
+                    return
+                }
+
+                if horizontal > swipeThreshold {
                     Haptics.success()
                     onAction(.createIssue)
-                } else if value.translation.width < -swipeThreshold {
+                } else if horizontal < -swipeThreshold {
                     Haptics.light()
                     onAction(.reject)
                 }
@@ -228,40 +242,40 @@ struct DecisionCardView: View {
 
     private var actionBlock: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            GitHubPrimaryButton(title: "Create issue", enabled: card.isPending) {
-                Haptics.light()
-                onAction(.createIssue)
-            }
-
-            HStack(spacing: 0) {
-                SecondaryAction(title: "Decline", tint: Theme.Colors.reject) {
-                    Haptics.light()
-                    onAction(.reject)
-                }
-                .disabled(!card.isPending)
-                .opacity(card.isPending ? 1 : 0.35)
-
-                SecondaryAction(title: "Revise") {
-                    Haptics.light()
-                    onAction(.requestRevision)
-                }
-                .disabled(!card.isPending)
-                .opacity(card.isPending ? 1 : 0.35)
-
-                SecondaryAction(title: "Delegate") {
-                    Haptics.light()
-                    onAction(.delegate)
-                }
-                .disabled(!card.isPending)
-                .opacity(card.isPending ? 1 : 0.35)
-            }
-
             if card.isPending {
+                GitHubPrimaryButton(title: "Create issue", enabled: true) {
+                    Haptics.light()
+                    onAction(.createIssue)
+                }
+
+                HStack(spacing: 0) {
+                    SecondaryAction(title: "Decline", tint: Theme.Colors.reject) {
+                        Haptics.light()
+                        onAction(.reject)
+                    }
+
+                    SecondaryAction(title: "Revise") {
+                        Haptics.light()
+                        onAction(.requestRevision)
+                    }
+
+                    SecondaryAction(title: "Delegate") {
+                        Haptics.light()
+                        onAction(.delegate)
+                    }
+                }
+
                 Text("Swipe right to create issue · left to decline")
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .frame(maxWidth: .infinity)
                     .padding(.top, Theme.Spacing.xs)
+            } else if card.canDelete {
+                SecondaryAction(title: "Delete", tint: Theme.Colors.reject) {
+                    Haptics.light()
+                    onAction(.delete)
+                }
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -285,6 +299,7 @@ struct DecisionCardView: View {
             agentRoute: "Bob's AI → Alice's AI",
             routingReason: "You are Bob's manager"
         ),
+        linkedRepository: "owner/repo",
         onAction: { _ in },
         onShowDetails: {}
     )

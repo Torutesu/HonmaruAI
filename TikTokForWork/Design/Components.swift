@@ -363,75 +363,45 @@ struct ContextInsightView: View {
     var body: some View {
         if insights.isEmpty {
             EmptyView()
+        } else if compact {
+            Text(compactText)
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Theme.Colors.accent)
-                    Text(compact ? "Context" : "AI extracted context")
-                        .font(Theme.TypeScale.micro)
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                        .textCase(.uppercase)
-                        .tracking(0.6)
-                }
-
-                VStack(spacing: compact ? 6 : Theme.Spacing.sm) {
-                    ForEach(insights) { insight in
-                        insightRow(insight)
-                    }
+                ForEach(insights) { insight in
+                    detailRow(insight)
                 }
             }
-            .padding(compact ? Theme.Spacing.sm : Theme.Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .fill(Theme.Colors.surfaceRaised)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Theme.Colors.accent.opacity(0.35),
-                                Theme.Colors.accent.opacity(0.05),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
         }
     }
 
-    @ViewBuilder
-    private func insightRow(_ insight: ContextInsight) -> some View {
-        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
-            ZStack {
-                Circle()
-                    .fill(insight.kind.tint.opacity(0.15))
-                    .frame(width: compact ? 24 : 28, height: compact ? 24 : 28)
-                Image(systemName: insight.kind.icon)
-                    .font(.system(size: compact ? 10 : 11, weight: .semibold))
-                    .foregroundStyle(insight.kind.tint)
+    private var compactText: String {
+        insights.map { insight in
+            if let label = insight.label {
+                return "\(label): \(insight.value)"
+            }
+            return insight.value
+        }
+        .joined(separator: " · ")
+    }
+
+    private func detailRow(_ insight: ContextInsight) -> some View {
+        HStack(alignment: .top, spacing: Theme.Spacing.md) {
+            if let label = insight.label {
+                Text(label)
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .frame(width: 72, alignment: .leading)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                if let label = insight.label {
-                    Text(label)
-                        .font(Theme.TypeScale.micro)
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                        .textCase(.uppercase)
-                        .tracking(0.4)
-                }
-                Text(insight.value)
-                    .font(compact ? Theme.TypeScale.caption : Theme.TypeScale.body)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
+            Text(insight.value)
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

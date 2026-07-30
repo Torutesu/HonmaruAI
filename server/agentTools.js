@@ -1,5 +1,140 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
 
+export const DEMO_USER_IDS = [
+  "user-alice",
+  "user-bob",
+  "user-carol",
+  "user-dana",
+];
+
+const TEAM_ROUTES = [
+  {
+    phrases: ["design team", "designers", "designer", " ux", "ui team", "design dept"],
+    userID: "user-carol",
+    label: "Design",
+  },
+  {
+    phrases: ["engineering team", "eng team", "engineers", "dev team", "developers", "engineering"],
+    userID: "user-dana",
+    label: "Engineering",
+  },
+  {
+    phrases: ["product team", "product managers", "pm team", "product manager"],
+    userID: "user-alice",
+    label: "Product",
+  },
+];
+
+const ROLE_ROUTES = [
+  {
+    phrases: ["mockup", "figma", "pixel", "spacing", "empty state", "visual", "ui ", "ux ", "design system", "copy pass"],
+    userID: "user-carol",
+    reason: "Design work detected in instruction",
+  },
+  {
+    phrases: ["bug", "fix", "api", "deploy", "latency", "hotfix", "backend", "auth", "endpoint", "pr #", "merge", "regression"],
+    userID: "user-bob",
+    reason: "Engineering work detected in instruction",
+  },
+  {
+    phrases: ["roadmap", "priorit", "stakeholder", "spec", "requirements", "launch plan", "approval"],
+    userID: "user-alice",
+    reason: "Product decision detected in instruction",
+  },
+  {
+    phrases: ["architecture", "infra", "on-call", "incident", "eng lead", "system design"],
+    userID: "user-dana",
+    reason: "Engineering leadership scope detected",
+  },
+];
+
+function matchTeamRoute(text, senderID) {
+  const lower = String(text || "").toLowerCase();
+  for (const route of TEAM_ROUTES) {
+    if (route.userID === senderID) continue;
+    if (route.phrases.some((phrase) => lower.includes(phrase))) {
+      return route;
+    }
+  }
+  return null;
+}
+
+function matchRoleRoute(text, senderID) {
+  const lower = String(text || "").toLowerCase();
+  for (const route of ROLE_ROUTES) {
+    if (route.userID === senderID) continue;
+    if (route.phrases.some((phrase) => lower.includes(phrase))) {
+      return route;
+    }
+  }
+  return null;
+}
+
+export function resolveRecipientTarget(text, senderID, organization) {
+  const lower = String(text || "").toLowerCase();
+
+  for (const userID of DEMO_USER_IDS) {
+    if (userID === senderID) continue;
+    const name = userNameFor(userID).toLowerCase();
+    if (lower.includes(name)) {
+      return {
+        recipientUserID: userID,
+        routingReason: "Named in your instruction",
+        forceOverride: true,
+      };
+    }
+  }
+
+  const team = matchTeamRoute(text, senderID);
+  if (team) {
+    return {
+      recipientUserID: team.userID,
+      routingReason: `Routed to ${team.label} team · ${userNameFor(team.userID)}`,
+      forceOverride: true,
+    };
+  }
+
+  const role = matchRoleRoute(text, senderID);
+  if (role) {
+    return {
+      recipientUserID: role.userID,
+      routingReason: role.reason,
+      forceOverride: true,
+    };
+  }
+
+  if (lower.includes("manager")) {
+    const edge = organization?.edges?.find(
+      (item) => item.toID === senderID && item.kind === "manages"
+    );
+    if (edge) {
+      return {
+        recipientUserID: edge.fromID,
+        routingReason: `You are ${userNameFor(senderID)}'s manager`,
+        forceOverride: true,
+      };
+    }
+  }
+
+  const managerEdge = organization?.edges?.find(
+    (item) => item.toID === senderID && item.kind === "manages"
+  );
+  if (managerEdge?.fromID && managerEdge.fromID !== senderID) {
+    return {
+      recipientUserID: managerEdge.fromID,
+      routingReason: `Escalated to ${userNameFor(managerEdge.fromID)}`,
+      forceOverride: false,
+    };
+  }
+
+  const fallback = DEMO_USER_IDS.find((userID) => userID !== senderID) || senderID;
+  return {
+    recipientUserID: fallback,
+    routingReason: "Best match for this decision in org graph",
+    forceOverride: false,
+  };
+}
+
 export const AGENT_TOOLS = [
   {
     type: "function",
@@ -12,8 +147,9 @@ export const AGENT_TOOLS = [
         properties: {
           recipientUserID: {
             type: "string",
-            enum: ["user-alice", "user-bob"],
-            description: "Who should receive and act on this decision",
+            enum: DEMO_USER_IDS,
+            description:
+              "Who should receive and act on this decision. Route by team/role: design→user-carol, engineering/dev/bugs→user-bob or user-dana, product/PM→user-alice",
           },
           cardType: {
             type: "string",
@@ -100,9 +236,16 @@ Call create_decision_card once with all fields filled:
 - Never echo the sender's exact wording in title or summary
 - title: 3-8 words, action-oriented
 - summary: third person, what the recipient must decide or do
-- context: deadlines, metrics, PR numbers, blockers — always 2-4 segments as `label: detail` joined by ·
+- context: deadlines, metrics, PR numbers, blockers — always 2-4 segments as 'label: detail' joined by ·
 - priority: infer from urgency cues in the instruction
-- Pick recipient from org graph (manager edges, named people, role fit)`;
+- Pick recipient from org graph using team, role, and manager edges
+
+Team routing (critical):
+- design team / design / UX / UI → user-carol (Carol, Designer)
+- engineering / dev / bugs / APIs → user-bob (Bob, Engineer) or user-dana (Dana, Eng Lead) for leadership
+- product / PM / roadmap / approvals → user-alice (Alice, Product Manager)
+- named person in instruction → that person
+- "manager" → sender's manager from org edges`;
 
 export function buildUserPrompt({ text, sender, organization }) {
   const orgContext = organizationContext(organization);
@@ -134,6 +277,8 @@ function organizationContext(organization) {
 function userNameFor(userID) {
   if (userID === "user-alice") return "Alice";
   if (userID === "user-bob") return "Bob";
+  if (userID === "user-carol") return "Carol";
+  if (userID === "user-dana") return "Dana";
   return userID;
 }
 
@@ -203,6 +348,364 @@ export function materializeFromToolCalls(toolCalls, senderName) {
   card.agentRoute = `${senderName}'s AI → ${recipientName}'s AI`;
 
   return { card, toolCalls: steps };
+}
+
+function resolveRecipient(text, senderID, organization) {
+  const target = resolveRecipientTarget(text, senderID, organization);
+  return {
+    recipientUserID: target.recipientUserID,
+    namedInInstruction: target.forceOverride,
+    routingReason: target.routingReason,
+  };
+}
+
+function routingReasonFor({
+  recipientUserID,
+  senderID,
+  namedInInstruction,
+  organization,
+  routingReason,
+}) {
+  if (routingReason) return routingReason;
+  if (namedInInstruction) return "Named in your instruction";
+  const managerEdge = organization?.edges?.find(
+    (item) => item.toID === senderID && item.kind === "manages"
+  );
+  if (managerEdge?.fromID === recipientUserID) {
+    return `You are ${userNameFor(senderID)}'s manager`;
+  }
+  if (recipientUserID !== senderID) {
+    return "Best match for this decision in org graph";
+  }
+  return "Routed to you";
+}
+
+function isEchoOfInput(summary, input) {
+  const normalize = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  const a = normalize(summary);
+  const b = normalize(input);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length >= b.length * 0.75 && b.includes(a)) return true;
+  if (b.length >= a.length * 0.75 && a.includes(b)) return true;
+  return false;
+}
+
+function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
+  let cleaned = String(text || "").trim();
+  cleaned = cleaned.replace(
+    /^(please\s+)?(tell|ask|notify|send|ping|remind)\s+(alice|bob|carol|dana|manager)\s+(to\s+)?/i,
+    ""
+  );
+  cleaned = cleaned.replace(/^(can you|could you|hey|hi|yo)\s+/i, "");
+  cleaned = cleaned.replace(
+    /^(i need|we need)\s+(alice|bob|carol|dana|manager)\s+to\s+/i,
+    ""
+  );
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+
+  const recipientName = userNameFor(recipientUserID);
+  const titles = {
+    approval: "Approval needed",
+    delegation: `Task for ${recipientName}`,
+    revision: "Revision requested",
+    task: cleaned.split(" ").slice(0, 6).join(" ").slice(0, 48) || "New task",
+    notification: `Update for ${recipientName}`,
+  };
+
+  const summary =
+    cleaned.length > 180 ? `${cleaned.slice(0, 177).trim()}…` : cleaned;
+
+  return {
+    title: titles[cardType] || "Decision needed",
+    summary: summary || "Decision requested.",
+    context: `From ${sender.name} · decision routed to ${recipientName}`,
+  };
+}
+
+function applyRoutingGuard(routing, sender, originalText, organization = null) {
+  const target = resolveRecipientTarget(originalText, sender.id, organization);
+  if (!target.forceOverride || target.recipientUserID === routing.recipientUserID) {
+    return routing;
+  }
+
+  const recipientName = userNameFor(target.recipientUserID);
+  return {
+    ...routing,
+    recipientUserID: target.recipientUserID,
+    routingReason: target.routingReason,
+    agentRoute: `${sender.name}'s AI → ${recipientName}'s AI`,
+    toolCalls: [
+      ...(routing.toolCalls || []),
+      {
+        name: "route_correction",
+        label: "Auto-routed by team/role",
+        detail: recipientName,
+      },
+    ],
+  };
+}
+
+function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null) {
+  const allowedRecipients = new Set(DEMO_USER_IDS);
+  const allowedTypes = new Set([
+    "approval",
+    "delegation",
+    "notification",
+    "task",
+    "revision",
+  ]);
+  const allowedPriorities = new Set(["low", "medium", "high", "urgent"]);
+
+  const recipientUserID = routingJSON.recipientUserID;
+  const cardType = routingJSON.cardType;
+  let title = routingJSON.title;
+  let summary = routingJSON.summary;
+  let context = routingJSON.context;
+  const priority = routingJSON.priority;
+
+  if (!allowedRecipients.has(recipientUserID)) {
+    throw new Error("AI picked an invalid recipient.");
+  }
+  if (!allowedTypes.has(cardType)) {
+    throw new Error("AI returned an invalid card type.");
+  }
+  if (!allowedPriorities.has(priority)) {
+    throw new Error("AI returned an invalid priority.");
+  }
+  if (!title || !summary || !context) {
+    throw new Error("AI returned incomplete routing fields.");
+  }
+
+  if (isEchoOfInput(summary, originalText) || isEchoOfInput(title, originalText)) {
+    const rewritten = summarizeInstruction(originalText, {
+      sender,
+      cardType,
+      recipientUserID,
+    });
+    title = rewritten.title;
+    summary = rewritten.summary;
+    context = rewritten.context;
+  }
+
+  const recipientName = userNameFor(recipientUserID);
+  const agentRoute =
+    routingJSON.agentRoute || `${sender.name}'s AI → ${recipientName}'s AI`;
+  const routingReason =
+    routingJSON.routingReason || "Best match for this decision in org graph";
+
+  return applyRoutingGuard(
+    {
+      recipientUserID,
+      cardType,
+      title,
+      summary,
+      context,
+      priority,
+      agentRoute,
+      routingReason,
+      labels: routingJSON.labels || [],
+      toolCalls,
+    },
+    sender,
+    originalText,
+    organization
+  );
+}
+
+export function routeInstructionLocally({
+  text,
+  sender,
+  organization,
+  priorityOverride,
+}) {
+  const lower = String(text || "").toLowerCase();
+  const { recipientUserID, namedInInstruction, routingReason } = resolveRecipient(
+    text,
+    sender.id,
+    organization
+  );
+
+  let cardType = "notification";
+  if (lower.includes("approve") || lower.includes("approval")) cardType = "approval";
+  else if (lower.includes("delegate") || lower.includes("assign")) cardType = "delegation";
+  else if (lower.includes("revise") || lower.includes("feedback")) cardType = "revision";
+  else if (lower.includes("task") || lower.includes("fix") || lower.includes("build")) {
+    cardType = "task";
+  }
+
+  const rewritten = summarizeInstruction(text, {
+    sender,
+    cardType,
+    recipientUserID,
+  });
+  const recipientName = userNameFor(recipientUserID);
+  const priority =
+    priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)
+      ? priorityOverride
+      : lower.includes("urgent")
+        ? "urgent"
+        : "high";
+
+  return validateRouting(
+    {
+      recipientUserID,
+      cardType,
+      title: rewritten.title,
+      summary: rewritten.summary,
+      context: rewritten.context,
+      priority,
+      agentRoute: `${sender.name}'s AI → ${recipientName}'s AI`,
+      routingReason: routingReasonFor({
+        recipientUserID,
+        senderID: sender.id,
+        namedInInstruction,
+        organization,
+        routingReason,
+      }),
+      labels: [],
+    },
+    sender,
+    text,
+    [
+      {
+        name: "create_decision_card",
+        label: "Local fallback route",
+        detail: `${recipientName} · ${cardType}`,
+      },
+    ],
+    organization
+  );
+}
+
+function parseRoutingJSON(content) {
+  const trimmed = String(content || "").trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : trimmed;
+  return JSON.parse(candidate);
+}
+
+async function routeInstructionWithOpenRouter({
+  text,
+  sender,
+  organization,
+  priorityOverride,
+  openRouter,
+  attempt = 0,
+}) {
+  const userPrompt = buildUserPrompt({ text, sender, organization });
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openRouter.apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": openRouter.appUrl,
+      "X-Title": openRouter.appName,
+    },
+    body: JSON.stringify({
+      model: openRouter.model,
+      temperature: 0.2,
+      max_tokens: 512,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      tools: AGENT_TOOLS,
+      tool_choice: {
+        type: "function",
+        function: { name: "create_decision_card" },
+      },
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    const message = data?.error?.message || "OpenRouter request failed.";
+    throw new Error(message);
+  }
+
+  const message = data?.choices?.[0]?.message;
+  const toolCalls = message?.tool_calls;
+
+  if (toolCalls?.length) {
+    const { card, toolCalls: steps } = materializeFromToolCalls(toolCalls, sender.name);
+    if (priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)) {
+      card.priority = priorityOverride;
+      steps.push({
+        name: "set_priority",
+        label: "Priority override",
+        detail: priorityOverride,
+      });
+    }
+    return validateRouting(card, sender, text, steps, organization);
+  }
+
+  const content = message?.content;
+  if (!content) {
+    if (attempt < 1) {
+      return routeInstructionWithOpenRouter({
+        text,
+        sender,
+        organization,
+        priorityOverride,
+        openRouter,
+        attempt: attempt + 1,
+      });
+    }
+    console.warn("OpenRouter returned empty routing response; using local fallback.");
+    return routeInstructionLocally({ text, sender, organization, priorityOverride });
+  }
+
+  const routingJSON = parseRoutingJSON(content);
+  const validated = validateRouting(
+    routingJSON,
+    sender,
+    text,
+    [
+      {
+        name: "create_decision_card",
+        label: "Route decision",
+        detail: `${userNameFor(routingJSON.recipientUserID)} · ${routingJSON.cardType}`,
+      },
+    ],
+    organization
+  );
+  if (priorityOverride) {
+    validated.priority = priorityOverride;
+  }
+  return validated;
+}
+
+export async function routeInstruction({
+  text,
+  sender,
+  organization,
+  priorityOverride,
+  openRouter,
+}) {
+  if (openRouter?.apiKey) {
+    try {
+      return await routeInstructionWithOpenRouter({
+        text,
+        sender,
+        organization,
+        priorityOverride,
+        openRouter,
+      });
+    } catch (error) {
+      console.warn("AI routing failed, using local fallback:", error.message);
+    }
+  }
+
+  return routeInstructionLocally({ text, sender, organization, priorityOverride });
 }
 
 export { SYSTEM_PROMPT, userNameFor };

@@ -11,7 +11,6 @@
 		07C5FC33B29D4DA8AF1C3AC8 /* FeedViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE01A8DEA5C1C23E8DF9CC2 /* FeedViewModel.swift */; };
 		09C9FB765322951B0B772C3E /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = F125BEDE2BF4518F791F5480 /* User.swift */; };
 		0AED7D88396FA52DF1F59258 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED63FE3692D666375D4EF19 /* SessionStore.swift */; };
-		0D7EFF7343B23CFB85322EDD /* InstructionRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90182B2CA8A42FA12E68F3ED /* InstructionRouter.swift */; };
 		1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9515750E6133D1846CBE8BD /* OrgGraphView.swift */; };
 		18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6977E782E374C75800103F /* AppLogo.swift */; };
 		18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */; };
@@ -32,7 +31,6 @@
 		BAAB141A7F64E597E716A38D /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A79579E123395F8C8DBED15 /* AgentModels.swift */; };
 		D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF594002A7A3A2A7FA072712 /* FeedView.swift */; };
 		D50B528853838F4769A08FCD /* WebAuthContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */; };
-		DB3352453D4C51C4D28BCA2C /* InstructionSummarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 269B5A7DAD32098AB28A22A6 /* InstructionSummarizer.swift */; };
 		DC8D27F537E8ACECB7FE9097 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C23763B3066E2A13F50B8D /* AppConfig.swift */; };
 		DD58B03BE813A05DC302635A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9A2EB4E8E9EE3FAA5CF579C5 /* Assets.xcassets */; };
 		E6C4713C78AA0FF264BA9753 /* DecisionCardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E5DA40629B98A94601F06DC /* DecisionCardService.swift */; };
@@ -46,7 +44,6 @@
 /* Begin PBXFileReference section */
 		050D0B7873E1D94841BB5228 /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
 		0ABD898A426994D5C516944E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
-		269B5A7DAD32098AB28A22A6 /* InstructionSummarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstructionSummarizer.swift; sourceTree = "<group>"; };
 		2E5DA40629B98A94601F06DC /* DecisionCardService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardService.swift; sourceTree = "<group>"; };
 		2E87DCC57193FEC4D70357DC /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		2F1C39E5BEABD558A524E5BC /* DecisionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCard.swift; sourceTree = "<group>"; };
@@ -64,7 +61,6 @@
 		838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokForWorkApp.swift; sourceTree = "<group>"; };
 		870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardView.swift; sourceTree = "<group>"; };
 		893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAuthContextProvider.swift; sourceTree = "<group>"; };
-		90182B2CA8A42FA12E68F3ED /* InstructionRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstructionRouter.swift; sourceTree = "<group>"; };
 		90C4072B436581D5A87F9542 /* AIInputSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIInputSheet.swift; sourceTree = "<group>"; };
 		9A2EB4E8E9EE3FAA5CF579C5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2589D42E0E778318D5E0400 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
@@ -182,8 +178,6 @@
 				CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */,
 				2E5DA40629B98A94601F06DC /* DecisionCardService.swift */,
 				E8E494243CEA2F9FA065D51B /* GitHubService.swift */,
-				90182B2CA8A42FA12E68F3ED /* InstructionRouter.swift */,
-				269B5A7DAD32098AB28A22A6 /* InstructionSummarizer.swift */,
 				CED63FE3692D666375D4EF19 /* SessionStore.swift */,
 				893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */,
 				050D0B7873E1D94841BB5228 /* WebSocketService.swift */,
@@ -311,8 +305,6 @@
 				07C5FC33B29D4DA8AF1C3AC8 /* FeedViewModel.swift in Sources */,
 				95290EBF4EDE097F8C064870 /* GitHubService.swift in Sources */,
 				F5A9DA5AC7C4E5F5EE7EAFFE /* Haptics.swift in Sources */,
-				0D7EFF7343B23CFB85322EDD /* InstructionRouter.swift in Sources */,
-				DB3352453D4C51C4D28BCA2C /* InstructionSummarizer.swift in Sources */,
 				1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */,
 				F0E1ACF8B655C80BE53223ED /* Organization.swift in Sources */,
 				F695C1E907F7BDCE3F7C4A40 /* ProcessingOverlay.swift in Sources */,
