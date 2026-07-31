@@ -116,6 +116,8 @@ TTFWCore extraction 1–2 days; Mac shell (split view, keyboard, menu bar) 2–3
 
 ## 4. Web
 
+> **Implementation-ready plan: [WEB_PLAN.md](WEB_PLAN.md)** — verified gap analysis against the current relay, locked stack decisions, file layout, endpoint specs, 7 phases with estimates and acceptance criteria. Read that to build; read this section for the architectural frame.
+
 **Strategy: React + TypeScript thin client on `@ttfw/core`** (Vite or Next.js static; no server rendering needed — the relay is the server). Swift-to-WASM rejected: immature, heavy payloads, poor a11y; the HTML demo already proved the UI ports naturally to the DOM.
 
 ### 4.1 Responsive behavior
