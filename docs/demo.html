@@ -1,0 +1,1092 @@
+<title>TikTok for Work — Interactive Demo</title>
+<style>
+  :root {
+    --bg: #F3F4F9;
+    --panel: #ffffff;
+    --ink: #171923;
+    --muted: #555B70;
+    --line: #E1E4F0;
+    --accent: #5561D6;
+    --accent2: #7B5BD6;
+    --good: #1FA45C;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0A0B12; --panel: #12141D; --ink: #F2F3F8;
+      --muted: #9AA0B4; --line: #232739; --accent: #6E7BF2; --accent2: #9C6BFF; --good: #4ADE80;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0A0B12; --panel: #12141D; --ink: #F2F3F8;
+    --muted: #9AA0B4; --line: #232739; --accent: #6E7BF2; --accent2: #9C6BFF; --good: #4ADE80;
+  }
+  :root[data-theme="light"] {
+    --bg: #F3F4F9; --panel: #ffffff; --ink: #171923;
+    --muted: #555B70; --line: #E1E4F0; --accent: #5561D6; --accent2: #7B5BD6; --good: #1FA45C;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.6;
+    padding: 32px 20px 64px;
+    background:
+      radial-gradient(80% 40% at 50% -5%, color-mix(in srgb, var(--accent) 16%, transparent) 0%, transparent 70%),
+      var(--bg);
+    transition: background-color .25s;
+  }
+  .guide .box, .phone { transition: background-color .25s, border-color .25s; }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+
+  header.page h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  header.page p.sub { color: var(--muted); font-size: 14px; max-width: 62ch; margin-top: 6px; }
+  .stage { display: flex; gap: 36px; margin-top: 28px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+
+  /* ---------- Guide panel ---------- */
+  .guide { flex: 1 1 300px; max-width: 380px; display: flex; flex-direction: column; gap: 16px; }
+  .guide .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  .guide h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
+  .steps { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .steps li { display: flex; gap: 10px; font-size: 13.5px; align-items: baseline; }
+  .steps .tick {
+    flex: none; width: 16px; height: 16px; border-radius: 50%;
+    border: 1.5px solid var(--line); position: relative; top: 2px;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .steps li.done .tick { background: var(--good); border-color: var(--good); }
+  .steps li.done { color: var(--muted); }
+  .steps code { font-size: 12px; background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; padding: 1px 5px; color: var(--accent); }
+  .guide .hint { font-size: 12.5px; color: var(--muted); }
+  .guide button.util {
+    font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 6px;
+    border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer;
+  }
+  .guide button.util:hover { border-color: var(--accent); color: var(--accent); }
+  .maplist { font-size: 12.5px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+  .maplist b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Phone ---------- */
+  .phone-outer { flex: none; }
+  .phone {
+    width: 390px; height: 780px; border-radius: 46px;
+    border: 1px solid rgba(110,123,242,0.22);
+    box-shadow: 0 30px 80px rgba(10,11,18,0.55), 0 0 0 1px rgba(0,0,0,0.35);
+    overflow: hidden; position: relative; display: flex; flex-direction: column;
+    font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Hiragino Maru Gothic ProN", "Helvetica Neue", sans-serif;
+    /* Design v2 tokens — dark */
+    --a-bg:#0A0B12; --a-surface:#12141D; --a-raised:#1B1E2A;
+    --a-t1:#F2F3F8; --a-t2:#9AA0B4; --a-t3:#646B80;
+    --a-acc:#6E7BF2; --a-acc2:#9C6BFF; --a-ok:#4ADE80; --a-no:#FF7B87; --a-warn:#FFC24B;
+    --a-hair: rgba(110,123,242,0.10);
+    --a-tint: rgba(110,123,242,0.12);
+    background:
+      radial-gradient(120% 55% at 50% -8%, rgba(110,123,242,0.20) 0%, rgba(110,123,242,0) 62%),
+      var(--a-bg);
+    color: var(--a-t1);
+  }
+  /* Design v2 tokens — light (in-app appearance setting) */
+  .phone[data-appearance="light"] {
+    --a-bg:#F3F4F9; --a-surface:#FFFFFF; --a-raised:#EAECF4;
+    --a-t1:#171923; --a-t2:#555B70; --a-t3:#8A90A5;
+    --a-acc:#5561D6; --a-acc2:#7B5BD6; --a-ok:#1FA45C; --a-no:#E5484D; --a-warn:#B47D0E;
+    --a-hair: rgba(85,97,214,0.14);
+    --a-tint: rgba(85,97,214,0.10);
+    background:
+      radial-gradient(120% 55% at 50% -8%, rgba(85,97,214,0.16) 0%, rgba(85,97,214,0) 62%),
+      var(--a-bg);
+  }
+  .phone, .phone * { -webkit-font-smoothing: antialiased; }
+  .phone button { font-family: inherit; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 22px 18px 10px; flex: none; }
+  .userchip { display: flex; align-items: center; gap: 7px; cursor: pointer; background: none; border: 0; color: var(--a-t1); font: inherit; font-size: 15px; font-weight: 600; }
+  .userchip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--a-ok); box-shadow: 0 0 8px var(--a-ok); }
+  .userchip .chev { font-size: 9px; color: var(--a-t3); }
+  .seg { display: flex; background: var(--a-raised); border-radius: 999px; padding: 3px; }
+  .seg button { font: inherit; font-size: 12px; font-weight: 600; border: 0; background: none; color: var(--a-t2); padding: 5px 13px; border-radius: 999px; cursor: pointer; transition: color .18s; }
+  .seg button.on { background: linear-gradient(135deg, var(--a-acc), var(--a-acc2)); color: #fff; box-shadow: 0 4px 14px rgba(110,123,242,0.40); }
+  .iconbtn { width: 34px; height: 34px; border-radius: 999px; border: 0; background: var(--a-raised); color: var(--a-t2); font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .iconbtn.on { background: linear-gradient(135deg, var(--a-acc), var(--a-acc2)); color: #fff; }
+
+  .screen { flex: 1; overflow: hidden; position: relative; }
+
+  /* Feed */
+  .feed { height: 100%; overflow-y: auto; scroll-snap-type: y mandatory; scrollbar-width: none; }
+  .feed::-webkit-scrollbar { display: none; }
+  .card { height: 100%; scroll-snap-align: start; scroll-snap-stop: always; padding: 10px 14px 14px; display: flex; flex-direction: column; position: relative; touch-action: pan-y; }
+  .card > .inner {
+    flex: 1; display: flex; flex-direction: column; padding: 22px 20px 18px;
+    background: var(--a-surface); border-radius: 22px; border: 1px solid var(--a-hair);
+    box-shadow: 0 18px 40px rgba(0,0,0,0.28); overflow: hidden;
+  }
+  .card .meta { font-size: 12px; font-weight: 600; color: var(--a-t2); display: flex; gap: 8px; align-items: center; }
+  .card .meta .pri-high { color: var(--a-warn); }
+  .card .meta .pri-urgent { color: var(--a-no); }
+  .card .meta .when { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--a-t3); }
+  .card .from { font-size: 12px; color: var(--a-t2); margin-top: 12px; }
+  .card .route { font-size: 11px; color: var(--a-t3); margin-top: 2px; }
+  .card .why { display: flex; gap: 10px; margin-top: 12px; background: var(--a-tint); border-radius: 10px; padding: 9px 11px; font-size: 12px; }
+  .card .why::before { content: ""; width: 3px; border-radius: 2px; background: linear-gradient(var(--a-acc), var(--a-acc2)); flex: none; }
+  .card h3 { font-size: 22px; font-weight: 700; line-height: 1.28; margin-top: 16px; letter-spacing: -0.015em; text-wrap: balance; }
+  .card .summary { font-size: 14.5px; color: var(--a-t2); line-height: 1.55; margin-top: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip { font-size: 11px; color: var(--a-t2); background: var(--a-raised); padding: 5px 9px; border-radius: 10px; }
+  .chip b { color: var(--a-t1); font-weight: 600; }
+  .issue-link { margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--a-acc); }
+  .card .status-label { font-size: 12px; color: var(--a-t3); margin-bottom: 8px; }
+  .card .spacer { flex: 1; min-height: 8px; }
+
+  .replybar { display: flex; gap: 8px; align-items: center; background: var(--a-raised); border-radius: 12px; padding: 11px 13px; font-size: 12px; color: var(--a-t3); cursor: pointer; border: 0; width: 100%; font-family: inherit; text-align: left; }
+  .recrow { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; background: var(--a-tint); border-radius: 12px; padding: 11px 13px; font-size: 13px; font-weight: 700; color: var(--a-acc); cursor: pointer; border: 1px solid var(--a-hair); width: 100%; font-family: inherit; text-align: left; margin-bottom: 8px; }
+  .recrow span { font-size: 11px; font-weight: 400; color: var(--a-t2); }
+  .langchip { font-size: 10px; font-weight: 600; color: var(--a-acc); background: var(--a-tint); border-radius: 999px; padding: 2px 7px; }
+  .srcrow { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .srclbl { font-size: 10px; color: var(--a-t3); }
+  .srcchip { font: inherit; font-size: 11px; font-weight: 600; color: var(--a-acc); background: var(--a-tint); border: 1px solid var(--a-hair); border-radius: 999px; padding: 5px 10px; cursor: pointer; }
+  .actions { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .btn-primary {
+    font: inherit; font-size: 15px; font-weight: 700; color: #fff; border: 0; border-radius: 14px;
+    padding: 14px; cursor: pointer; width: 100%;
+    background: linear-gradient(135deg, var(--a-acc), var(--a-acc2));
+    box-shadow: 0 8px 22px rgba(110,123,242,0.38);
+  }
+  .btn-primary.gh { display: flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(135deg, #2EA043, #1F883D); box-shadow: 0 8px 22px rgba(46,160,67,0.34); }
+  .secrow { display: flex; gap: 4px; }
+  .secrow button { flex: 1; font: inherit; font-size: 13px; font-weight: 600; background: var(--a-raised); border: 0; border-radius: 12px; color: var(--a-t2); padding: 10px 4px; cursor: pointer; }
+  .secrow button.danger { color: var(--a-no); }
+  .swipe-hint { font-size: 11px; color: var(--a-t3); text-align: center; margin-top: 2px; }
+
+  .swipe-label { position: absolute; top: 45%; font-size: 14px; font-weight: 700; padding: 9px 14px; border-radius: 999px; opacity: 0; pointer-events: none; z-index: 2; }
+  .swipe-label.right { left: 22px; color: var(--a-ok); background: rgba(74,222,128,0.16); box-shadow: 0 0 24px rgba(74,222,128,0.25); }
+  .swipe-label.left { right: 22px; color: var(--a-no); background: rgba(255,123,135,0.16); box-shadow: 0 0 24px rgba(255,123,135,0.25); }
+
+  .composer { flex: none; padding: 10px 18px 26px; }
+  .composer .repo { font-size: 10px; color: var(--a-t3); text-align: center; font-family: ui-monospace, monospace; margin-bottom: 8px; }
+  .composebar {
+    display: flex; align-items: center; gap: 9px; background: var(--a-surface);
+    border: 1px solid rgba(110,123,242,0.28); border-radius: 999px; padding: 14px 18px;
+    color: var(--a-t2); font-size: 14px; cursor: pointer; width: 100%; font-family: inherit; text-align: left;
+    box-shadow: 0 6px 20px rgba(110,123,242,0.16);
+  }
+  .composebar .spark { background: linear-gradient(135deg, var(--a-acc), var(--a-acc2)); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 700; }
+  .composebar .mic { margin-left: auto; color: var(--a-t3); }
+
+  .empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .empty .t { font-size: 17px; font-weight: 700; }
+  .empty .s { font-size: 12px; color: var(--a-t3); }
+
+  /* Channels */
+  .channels { height: 100%; display: flex; flex-direction: column; }
+  .chan-list { padding: 8px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .chan-row { display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; border: 1px solid var(--a-hair); border-radius: 16px; background: var(--a-surface); cursor: pointer; color: inherit; font: inherit; text-align: left; }
+  .chan-row .n { font-size: 15px; font-weight: 700; }
+  .chan-row .p { font-size: 12px; color: var(--a-t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .timeline { flex: 1; overflow-y: auto; padding: 6px 20px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { display: flex; gap: 10px; }
+  .msg .av { flex: none; width: 30px; height: 30px; border-radius: 10px; background: var(--a-raised); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--a-t2); }
+  .msg.agent .av { background: var(--a-tint); color: var(--a-acc); box-shadow: 0 0 14px rgba(110,123,242,0.25); }
+  .msg .body { flex: 1; min-width: 0; }
+  .msg .hd { display: flex; gap: 8px; align-items: baseline; font-size: 13px; font-weight: 500; }
+  .msg.agent .hd .nm { color: var(--a-acc); }
+  .msg .hd .ai { font-size: 9px; font-weight: 700; color: var(--a-acc); background: var(--a-tint); padding: 1px 5px; border-radius: 999px; }
+  .msg .hd .tm { font-size: 11px; color: var(--a-t3); font-weight: 400; }
+  .msg .tx { font-size: 14px; color: var(--a-t2); line-height: 1.5; margin-top: 2px; overflow-wrap: break-word; }
+  .msg .tool { display: inline-flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 11px; color: var(--a-t2); background: var(--a-raised); border-radius: 999px; padding: 4px 10px; }
+  .msg .tool::before { content: "⑃"; color: var(--a-acc); }
+  .chan-compose { flex: none; padding: 10px 18px 24px; display: flex; gap: 8px; }
+  .chan-compose input { flex: 1; font: inherit; font-size: 14px; background: var(--a-surface); border: 1px solid var(--a-hair); border-radius: 999px; padding: 13px 16px; color: var(--a-t1); outline: none; }
+  .chan-compose input:focus { border-color: var(--a-acc); box-shadow: 0 0 0 3px var(--a-tint); }
+  .chan-compose button { flex: none; width: 44px; border-radius: 999px; border: 0; background: linear-gradient(135deg, var(--a-acc), var(--a-acc2)); color: #fff; font-size: 15px; cursor: pointer; box-shadow: 0 6px 16px rgba(110,123,242,0.35); }
+  .chan-head { padding: 4px 20px 8px; display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; }
+  .chan-head button { background: none; border: 0; color: var(--a-t2); font-size: 15px; cursor: pointer; padding: 2px 6px; }
+  .chan-tip { font-size: 10.5px; color: var(--a-t3); padding: 0 20px 8px; }
+
+  /* Sheet */
+  .sheet-veil { position: absolute; inset: 0; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 5; }
+  .sheet-veil.open { opacity: 1; pointer-events: auto; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--a-surface); border-radius: 24px 24px 0 0; border-top: 1px solid var(--a-hair); padding: 14px 20px 28px; transform: translateY(105%); transition: transform 0.25s cubic-bezier(0.3,0.9,0.4,1); z-index: 6; }
+  .sheet.open { transform: translateY(0); }
+  .sheet .grab { width: 38px; height: 4px; border-radius: 2px; background: var(--a-t3); margin: 0 auto 14px; opacity: .6; }
+  .sheet h4 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .sheet .cap { font-size: 12px; color: var(--a-t3); margin-bottom: 12px; }
+  .sheet textarea { width: 100%; min-height: 84px; font: inherit; font-size: 14px; background: var(--a-raised); border: 1px solid transparent; border-radius: 14px; padding: 12px; color: var(--a-t1); resize: none; outline: none; }
+  .sheet textarea:focus { border-color: var(--a-acc); box-shadow: 0 0 0 3px var(--a-tint); }
+  .sheet .mic-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 12px; }
+  .sheet .mic { width: 38px; height: 38px; border-radius: 999px; border: 0; background: var(--a-raised); color: var(--a-t2); font-size: 15px; cursor: pointer; }
+  .sheet .mic.rec { color: var(--a-no); box-shadow: 0 0 0 3px rgba(255,123,135,0.20); }
+  .sheet .mic-cap { font-size: 11px; color: var(--a-t3); }
+  .sheet .btn-primary { margin-top: 2px; }
+  .draft-to { font-size: 12px; font-weight: 600; color: var(--a-acc); margin: 2px 0 8px; }
+  .draft-tools { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .draft-tools .tool { display: flex; gap: 8px; align-items: center; font-size: 11.5px; color: var(--a-t2); background: var(--a-raised); border-radius: 10px; padding: 7px 10px; }
+  .draft-tools .tool::before { content: "⑃"; color: var(--a-acc); }
+
+  /* Settings */
+  .settings { height: 100%; overflow-y: auto; padding: 6px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+  .sgroup { background: var(--a-surface); border: 1px solid var(--a-hair); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 12px 30px rgba(0,0,0,0.18); }
+  .sgroup h5 { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--a-t3); font-weight: 700; }
+  .stiles { display: flex; gap: 8px; }
+  .stile { flex: 1; font: inherit; border: 0; border-radius: 14px; background: var(--a-raised); color: var(--a-t2); padding: 12px 4px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; }
+  .stile .ic { font-size: 16px; }
+  .stile.on { background: linear-gradient(135deg, var(--a-acc), var(--a-acc2)); color: #fff; box-shadow: 0 8px 20px rgba(110,123,242,0.34); }
+  .srow { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+  .srow .ic { color: var(--a-acc); width: 20px; text-align: center; }
+  .srow .val { margin-left: auto; font-size: 11px; color: var(--a-t3); font-family: ui-monospace, monospace; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .srow.danger { color: var(--a-no); cursor: pointer; }
+  .sgroup .note { font-size: 11px; color: var(--a-t3); line-height: 1.5; }
+  .sfield { display: flex; gap: 8px; }
+  .sfield input { flex: 1; font: inherit; font-size: 14px; background: var(--a-raised); border: 1px solid transparent; border-radius: 12px; padding: 11px 13px; color: var(--a-t1); outline: none; }
+  .sfield input:focus { border-color: var(--a-acc); }
+  .sfield button { font: inherit; font-size: 13px; font-weight: 700; color: var(--a-acc); background: none; border: 0; cursor: pointer; padding: 0 6px; }
+
+  /* Toast */
+  .toast { position: absolute; top: 14px; left: 50%; transform: translate(-50%, -8px); background: var(--a-surface); border: 1px solid var(--a-hair); color: var(--a-t1); font-size: 12.5px; padding: 9px 15px; border-radius: 999px; opacity: 0; transition: opacity 0.2s, transform 0.2s; z-index: 9; white-space: nowrap; max-width: 92%; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  footer.page { margin-top: 40px; font-size: 12px; color: var(--muted); text-align: center; }
+
+  button:focus-visible, .replybar:focus-visible, .composebar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+  @media (max-width: 860px) {
+    .stage { flex-direction: column; align-items: center; }
+    .guide { max-width: 390px; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <h1>TikTok for Work — インタラクティブデモ</h1>
+    <p class="sub">iOSアプリの現機能をHTMLで再現した操作デモです。リレーサーバの挙動（AIルーティング・チャンネル・エージェント・ダイジェスト）はブラウザ内でシミュレートしています。実物はSwiftUI＋Node relayで動作します。</p>
+  </header>
+
+  <div class="stage">
+    <div class="phone-outer">
+      <div class="phone" id="phone">
+        <div class="toast" id="toast"></div>
+
+        <div class="topbar">
+          <button class="userchip" id="userchip" title="ユーザー切替">
+            <span class="dot"></span><span id="username">Alice</span><span class="chev">▼</span>
+          </button>
+          <div class="seg">
+            <button id="tab-feed" class="on">Feed</button>
+            <button id="tab-chan">Channels</button>
+          </div>
+          <button class="iconbtn" id="tab-set" title="Settings">⚙</button>
+        </div>
+
+        <div class="screen">
+          <div class="feed" id="feed"></div>
+          <div class="settings" id="settings" style="display:none"></div>
+          <div class="channels" id="channels" style="display:none"></div>
+          <div class="sheet-veil" id="veil"></div>
+          <div class="sheet" id="sheet"></div>
+        </div>
+
+        <div class="composer" id="composer">
+          <div class="repo">torutesu/honmaruai</div>
+          <button class="composebar" id="composebar">
+        <span class="spark">✦</span><span>Tell your AI</span><span class="mic">🎤</span>
+      </button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="guide">
+      <div class="box">
+        <h2>試すシナリオ</h2>
+        <ol class="steps" id="steps">
+          <li data-step="route"><span class="tick"></span><span>「Tell your AI」に指示（例: <code>Ask Bob to review the relay PR before Friday</code>）→ ドラフト確認 → 送信</span></li>
+          <li data-step="switch"><span class="tick"></span><span>左上の名前でBobに切替 → カードが届いている</span></li>
+          <li data-step="decide"><span class="tick"></span><span>カードを<b>右スワイプ</b>で承認（Issue化）or ボタン操作</span></li>
+          <li data-step="src"><span class="tick"></span><span>カードの<b>Sources</b>チップをタップ → 元になった会話や資料（Notion/GitHub）へワンタップ遷移</span></li>
+          <li data-step="reply"><span class="tick"></span><span>Replyに自由文（<code>OK, but release after Friday</code> / <code>Has auth signed off?</code>）→ AIが意図を解釈</span></li>
+          <li data-step="agent"><span class="tick"></span><span>Channelsで <code>@ai file: Carol to polish the empty states</code> → エージェントが会話から起票</span></li>
+          <li data-step="hook"><span class="tick"></span><span>「GitHub Webhook」→ PRレビュー依頼がカード化。<b>✦ AIの推奨</b>付きで届く（決裁履歴から学習）</span></li>
+          <li data-step="rec"><span class="tick"></span><span>推奨行を<b>ワンタップ</b> → そのまま承認・Issue化</span></li>
+          <li data-step="esc"><span class="tick"></span><span>「SLAスイープ」→ 9時間放置のカードが上司(Alice)へエスカレーション</span></li>
+          <li data-step="digest"><span class="tick"></span><span>「ダイジェスト生成」→ 未読チャンネル活動がカード1枚に（受信者の言語で）</span></li>
+          <li data-step="theme"><span class="tick"></span><span>右上の<b>⚙</b> → 設定画面。<b>ダーク / ライト</b>を切り替え（アプリ全体が即座に追従）</span></li>
+        </ol>
+      </div>
+      <div class="box">
+        <h2>サーバ操作（シミュレート）</h2>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="util" id="btn-hook">GitHub Webhook (PRレビュー依頼)</button>
+          <button class="util" id="btn-esc">SLAスイープ (/escalations/run)</button>
+          <button class="util" id="btn-digest">ダイジェスト生成 (/digest/run)</button>
+          <button class="util" id="btn-reset">リセット</button>
+        </div>
+        <p class="hint" style="margin-top:10px">通知ポリシー: 鳴るのは pending × high/urgent のみ・接続中は鳴らない（デモではトーストで表現）</p>
+      </div>
+      <div class="box">
+        <h2>デザイン v2</h2>
+        <p class="hint">深いインディゴブラック × アンビエントグロー、浮遊する角丸カード、グラデーションのプライマリ操作。<b>ダーク/ライト両対応</b>で、設定の外観トグルがアプリ全体（カード・チャンネル・シート）に即時反映されます。トークンは実装の <code>Theme.swift</code> と同じ値です。</p>
+      </div>
+      <div class="box">
+        <h2>言語レイヤー</h2>
+        <p class="hint">Alice = <b>日本語</b> / Bob・Carol = <b>English</b>。カード・決裁結果・質問・ダイジェスト・AI推奨は<b>受信者の言語</b>で届き、🌐チップが翻訳配信を示します。BobがEnglishで承認した結果は、Aliceには日本語で届きます。</p>
+      </div>
+      <div class="box">
+        <h2>実装との対応</h2>
+        <div class="maplist">
+          <span><b>指示のトリアージ</b> — relay /ai/ingest（決裁→カード、近況→チャンネル自動振り分け）</span>
+          <span><b>自由文リプライ</b> — /ai/reply（条件付き承認・理由付き却下・質問・メモ）</span>
+          <span><b>@aiエージェント</b> — チャンネル常駐、file_decisionツールで起票</span>
+          <span><b>ダイジェスト</b> — /digest/run、priority low＝通知なし</span>
+          <span><b>ソース遷移</b> — card.sources（会話＝該当メッセージへスクロール／Notion等のURL自動抽出）</span>
+          <span><b>翻訳配信</b> — deliverCard()が受信者言語へAI翻訳（translate.js）</span>
+          <span><b>GitHub流入</b> — /github/webhook（HMAC検証、レビュー依頼/アサイン/CI失敗）</span>
+          <span><b>エスカレーション</b> — /escalations/run、managesエッジを辿って上司へ</span>
+          <span><b>AI推奨</b> — 決裁履歴メモリ（memory.js）→ ワンタップ追認</span>
+          <span><b>外観設定</b> — AppearanceMode（System/Dark/Light）＋適応型トークン</span>
+          <span><b>Mac / Web</b> — docs/CROSS_PLATFORM.md（薄いクライアント設計）</span>
+          <span><b>音声入力</b> — 実機はSpeech framework（デモではマイクが例文を入力）</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="page">状態はブラウザ内のみ。GitHub Issue番号・AI応答はデモ用の擬似値です。</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- state ---------- */
+  const USERS = {
+    alice: { id: "alice", name: "Alice", role: "Product Manager", lang: "ja" },
+    bob:   { id: "bob",   name: "Bob",   role: "Engineer", lang: "en" },
+    carol: { id: "carol", name: "Carol", role: "Designer", lang: "en" },
+  };
+  const MANAGER = { bob: "alice", carol: "alice", alice: null };
+  // decision memory: seeded approvals so recommendations appear in the demo
+  const memory = { alice: 2, bob: 3, carol: 0 };
+  const L = (uid, en, ja) => (USERS[uid].lang === "ja" ? ja : en);
+  const langChip = (fromUid, toUid) =>
+    USERS[fromUid].lang !== USERS[toUid].lang
+      ? `${USERS[fromUid].lang.toUpperCase()}→${USERS[toUid].lang.toUpperCase()}`
+      : null;
+  let current = "alice";
+  let issueSeq = 123;
+  let cardSeq = 1;
+  let view = "feed";       // feed | chan-list | chan-timeline | settings
+  let appearance = "dark"; // system | dark | light (in-app appearance setting)
+  let openChannel = null;
+  const doneSteps = new Set();
+
+  const state = { cards: [], channels: {}, msgs: {} };
+
+  function seed() {
+    state.cards = [
+      {
+        id: "c-seed-1", owner: "bob", from: "alice", type: "Task", pri: "urgent",
+        title: "Fix auth latency regression", summary: "p95 on the auth endpoint is up 18% after the last deploy. Bob needs to land a hotfix before Friday's demo.",
+        ctx: [["deadline", "Friday demo"], ["metric", "p95 +18%"], ["scope", "auth endpoint"]],
+        why: "Engineering work detected in instruction", route: "Alice's AI → Bob's AI",
+        status: "pending", kind: "normal", when: "9h", ageMin: 560,
+        translated: "JA→EN",
+        src: [{ kind: "chan", chan: "general" }, { kind: "ext", label: "Notion" }],
+      },
+      {
+        id: "c-seed-2", owner: "alice", from: "carol", type: "Update", pri: "medium",
+        title: "メモ: オンボーディングの空状態", summary: "空状態のデザインが完了。仕様は明日Bobに共有します。",
+        ctx: [["note", "Empty states done, shipping specs tomorrow"]],
+        why: "Carolがあなたの依頼にメモを残しました", route: "Carol's AI → Alice's AI",
+        status: "pending", kind: "notification", when: "4h",
+        translated: "EN→JA",
+      },
+    ];
+    state.channels = {
+      general: { name: "general", purpose: "Team-wide updates. Mention @ai to bring the team AI in." },
+      "launch-plan": { name: "launch-plan", purpose: "Started from Alice's update" },
+    };
+    state.msgs = {
+      general: [
+        m("carol", "Wrapped up the onboarding empty states this morning.", false),
+        m("bob", "Relay migration is at 80%, deploy config left.", false),
+        agentMsg("Team AI", "Noted — I'll fold both into the next digest.", null, null),
+      ],
+      "launch-plan": [ m("alice", "Kicking off the launch checklist here.", false) ],
+    };
+  }
+  function m(uid, text, isAgent) { return { who: USERS[uid].name, isAgent: !!isAgent, text, tool: null }; }
+  function agentMsg(name, text, tool, cardRef) { return { who: name, isAgent: true, text, tool, cardRef }; }
+
+  /* ---------- helpers ---------- */
+  const $ = (id) => document.getElementById(id);
+  const other = () => (current === "alice" ? "bob" : "alice");
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  let toastTimer = null;
+  function toast(text) {
+    const el = $("toast");
+    el.textContent = text;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
+  }
+
+  function step(name) {
+    if (doneSteps.has(name)) return;
+    doneSteps.add(name);
+    const li = document.querySelector(`.steps li[data-step="${name}"]`);
+    if (li) li.classList.add("done");
+  }
+
+  /* ---------- simulated AI ---------- */
+  function triage(text) {
+    const lower = text.toLowerCase();
+    let recipient = null;
+    for (const uid of Object.keys(USERS)) {
+      if (uid !== current && lower.includes(uid)) recipient = uid;
+    }
+    const decisionish = /(ask|tell|approve|review|fix|please|urgent|need|remind|delegate|assign|deploy|ship it|check)/.test(lower);
+    if (!recipient && !decisionish) return { kind: "update" };
+    if (!recipient) recipient = /design|mockup|ux|empty state/.test(lower) ? "carol" : other();
+    let cleaned = text.replace(/^(please\s+)?(ask|tell|remind|ping)\s+\w+\s+(to\s+)?/i, "").trim();
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    return {
+      kind: "decision", recipient,
+      title: cleaned.split(" ").slice(0, 6).join(" "),
+      summary: `${USERS[recipient].name} should ${cleaned.charAt(0).toLowerCase() + cleaned.slice(1)}`,
+      pri: /urgent|asap|today/.test(lower) ? "urgent" : "high",
+      why: lower.includes(recipient) ? "Named in your instruction" : "Best match for this decision in org graph",
+    };
+  }
+
+  function interpretReply(text) {
+    const t = text.trim();
+    if (/^(ok|okay|approve|approved|lgtm|yes|ship it|sounds good|looks good|go ahead)/i.test(t))
+      return { action: "approve", note: t.replace(/^[^,.]*[,.]?\s*/i, "").trim() };
+    if (/^(no|nope|reject|declined?|pass|not now)/i.test(t)) return { action: "reject", note: t };
+    if (/\?\s*$/.test(t)) return { action: "question", note: t };
+    if (/(revise|split|redo|smaller|resend)/i.test(t)) return { action: "revise", note: t };
+    return { action: "note", note: t };
+  }
+
+  /* ---------- card ops ---------- */
+  function myCards() { return state.cards.filter((c) => c.owner === current); }
+
+  function pushCard(card) {
+    card.id = "c" + (++cardSeq);
+    // agent memory: decidable cards for users with a decision pattern
+    // arrive with a one-tap recommendation, in the recipient's language
+    if (card.kind === "normal" && card.status === "pending" && memory[card.owner] >= 2 && !card.rec) {
+      card.rec = {
+        action: "approve",
+        reason: L(card.owner,
+          `You approved your last ${memory[card.owner]} similar requests`,
+          `直近${memory[card.owner]}件の同種依頼を承認しています`),
+      };
+    }
+    state.cards.unshift(card);
+  }
+
+  function channelLog(chanKey, senderUid, recipientUid, title) {
+    (state.msgs[chanKey] = state.msgs[chanKey] || []).unshift; // noop guard
+    state.msgs[chanKey].push(agentMsg(`${USERS[senderUid].name}'s AI`,
+      `Routed a decision to ${USERS[recipientUid].name}: ${title}`,
+      `create_decision_card — ${USERS[recipientUid].name} · task`, null));
+  }
+
+  function resolveCard(card, action, note) {
+    if (card.status !== "pending") return;
+    const fromU = card.from, meU = current;
+    const t = (en, ja) => L(fromU, en, ja);
+    let label = "";
+    if (action === "approve") {
+      card.status = "approved"; card.issue = ++issueSeq;
+      label = t(`created GitHub issue #${card.issue}`, `GitHub Issue #${card.issue} を作成`);
+      if (note) card.ctx.push(["condition", note]);
+      memory[meU] = (memory[meU] || 0) + 1;
+      step("decide");
+    } else if (action === "reject") {
+      card.status = "rejected"; label = t("declined", "却下しました");
+      if (note) card.ctx.push(["reason", note]);
+    } else if (action === "revise") {
+      card.status = "revised"; label = t("requested revision", "修正を依頼");
+    }
+    pushCard({
+      owner: fromU, from: meU, type: action === "revise" ? "Revision" : "Update",
+      pri: "medium",
+      title: card.title,
+      summary: `${USERS[meU].name} · ${label}${note && action === "approve" ? ` — ${note}` : ""}`,
+      ctx: note ? [["note", note]] : [["about", card.summary.slice(0, 48)]],
+      why: action === "revise"
+        ? t(`${USERS[meU].name} asked for changes — revise and resend`, `${USERS[meU].name}が修正を希望 — 修正して再送`)
+        : t("Decision result", "決裁結果"),
+      route: `${USERS[meU].name}'s AI → ${USERS[fromU].name}'s AI`,
+      status: "pending", kind: action === "revise" ? "revision-request" : "notification",
+      revisionNote: action === "revise" ? note : null,
+      sourceTitle: card.title, issue: card.issue, when: "now",
+      translated: langChip(meU, fromU),
+    });
+    toast(action === "approve" ? `Issue #${card.issue} created · result sent to ${USERS[fromU].name}` :
+          action === "reject" ? `Declined · ${USERS[fromU].name} notified` :
+          `Revision requested · sent back to ${USERS[fromU].name}`);
+    render();
+  }
+
+  function sendReplyCard(card, isQuestion, note) {
+    const fromU = card.from;
+    const t = (en, ja) => L(fromU, en, ja);
+    pushCard({
+      owner: fromU, from: current, type: "Update", pri: isQuestion ? card.pri : "medium",
+      title: `${isQuestion ? t("Question", "質問") : t("Note", "メモ")}: ${card.title}`,
+      summary: note,
+      ctx: [["about", card.summary.slice(0, 52)]],
+      why: isQuestion
+        ? t(`${USERS[current].name} needs an answer before deciding`, `${USERS[current].name}が決裁前に確認したいことがあります`)
+        : t(`${USERS[current].name} left a note on your request`, `${USERS[current].name}があなたの依頼にメモを残しました`),
+      route: `${USERS[current].name}'s AI → ${USERS[fromU].name}'s AI`,
+      status: "pending", kind: "notification", when: "now",
+      translated: langChip(current, fromU),
+    });
+    toast(`${isQuestion ? "Question" : "Note"} sent to ${USERS[card.from].name} — decision stays pending`);
+    step("reply");
+    render();
+  }
+
+  /* ---------- sheets ---------- */
+  const sheet = $("sheet"), veil = $("veil");
+  function openSheet(html) { sheet.innerHTML = '<div class="grab"></div>' + html; sheet.classList.add("open"); veil.classList.add("open"); }
+  function closeSheet() { sheet.classList.remove("open"); veil.classList.remove("open"); }
+  veil.addEventListener("click", closeSheet);
+
+  function micInto(textareaId, btn) {
+    const sample = view === "feed"
+      ? "Ask Bob to review the relay PR before Friday"
+      : "@ai file: Carol to polish the empty states";
+    const ta = $(textareaId);
+    btn.classList.add("rec");
+    let i = 0;
+    const t = setInterval(() => {
+      ta.value = sample.slice(0, ++i);
+      if (i >= sample.length) { clearInterval(t); btn.classList.remove("rec"); }
+    }, 28);
+  }
+
+  function openComposeSheet() {
+    openSheet(`
+      <h4>Your AI</h4>
+      <p class="cap">Say anything — decisions become cards to review, updates are filed to a channel for you.</p>
+      <textarea id="ai-in" placeholder="Ask Bob to review the onboarding PR before Friday"></textarea>
+      <div class="mic-row"><button class="mic" id="ai-mic" title="Dictate">🎤</button><span class="mic-cap">Dictate — edit before sending（実機はオンデバイス音声認識）</span></div>
+      <button class="btn-primary" id="ai-go">Draft in background</button>
+    `);
+    $("ai-mic").onclick = (e) => micInto("ai-in", e.currentTarget);
+    $("ai-go").onclick = () => {
+      const text = $("ai-in").value.trim();
+      if (!text) return;
+      const r = triage(text);
+      if (r.kind === "update") {
+        const key = /launch/.test(text.toLowerCase()) ? "launch-plan" : "general";
+        state.msgs[key].push(m(current, text, false));
+        closeSheet();
+        toast(`Filed to #${key}`);
+        render();
+        return;
+      }
+      openDraftSheet(text, r);
+    };
+  }
+
+  function openDraftSheet(source, r) {
+    openSheet(`
+      <h4>Review card</h4>
+      <div class="draft-tools">
+        <span class="tool">create_decision_card — ${esc(USERS[r.recipient].name)} · task</span>
+        <span class="tool">set_priority — ${esc(r.pri)}</span>
+      </div>
+      <h4 style="font-size:18px">${esc(r.title)}</h4>
+      <div class="draft-to">→ ${esc(USERS[r.recipient].name)}</div>
+      <p class="cap" style="color:var(--a-t2); font-size:13.5px">${esc(r.summary)}</p>
+      <button class="btn-primary" id="draft-send">Send decision card</button>
+    `);
+    $("draft-send").onclick = () => {
+      pushCard({
+        owner: r.recipient, from: current, type: "Task", pri: r.pri,
+        title: r.title, summary: r.summary,
+        ctx: [["source", source.slice(0, 46)]],
+        why: r.why, route: `${USERS[current].name}'s AI → ${USERS[r.recipient].name}'s AI`,
+        status: "pending", kind: "normal", when: "now",
+        translated: langChip(current, r.recipient),
+        src: [{ kind: "chan", chan: "general" }],
+      });
+      channelLog("general", current, r.recipient, r.title);
+      closeSheet();
+      toast(`Routed to ${USERS[r.recipient].name}'s AI — logged in #general`);
+      step("route");
+      render();
+    };
+  }
+
+  function openReplySheet(card) {
+    openSheet(`
+      <h4>Reply to ${esc(USERS[card.from].name)}</h4>
+      <p class="cap">AIが意図を解釈 — 条件付き承認・理由付き却下・質問・メモに振り分けます。</p>
+      <textarea id="rep-in" placeholder="OK, but release after Friday's demo"></textarea>
+      <div class="mic-row"><button class="mic" id="rep-mic" title="Dictate">🎤</button><span class="mic-cap">Dictate — edit before sending</span></div>
+      <button class="btn-primary" id="rep-go">Send reply</button>
+    `);
+    $("rep-mic").onclick = (e) => {
+      const ta = $("rep-in"); const sample = "OK, but release after Friday's demo";
+      e.currentTarget.classList.add("rec"); let i = 0;
+      const t = setInterval(() => { ta.value = sample.slice(0, ++i); if (i >= sample.length) { clearInterval(t); e.currentTarget.classList.remove("rec"); } }, 28);
+    };
+    $("rep-go").onclick = () => {
+      const text = $("rep-in").value.trim();
+      if (!text) return;
+      closeSheet();
+      const r = interpretReply(text);
+      if (r.action === "approve") { resolveCard(card, "approve", r.note); step("reply"); }
+      else if (r.action === "reject") { resolveCard(card, "reject", r.note); step("reply"); }
+      else if (r.action === "revise") { resolveCard(card, "revise", r.note); step("reply"); }
+      else sendReplyCard(card, r.action === "question", r.note);
+    };
+  }
+
+  function openNoteSheet(title, cap, placeholder, cb) {
+    openSheet(`
+      <h4>${esc(title)}</h4>
+      <p class="cap">${esc(cap)}</p>
+      <textarea id="note-in" placeholder="${esc(placeholder)}"></textarea>
+      <button class="btn-primary" id="note-go" style="margin-top:12px">Send</button>
+    `);
+    $("note-go").onclick = () => { const v = $("note-in").value.trim(); if (!v) return; closeSheet(); cb(v); };
+  }
+
+  /* ---------- digest ---------- */
+  function runDigest() {
+    const counts = Object.keys(state.msgs).map((k) => {
+      const msgs = state.msgs[k].filter((x) => x.who !== USERS[current].name);
+      return { k, n: msgs.length, last: msgs[msgs.length - 1] };
+    }).filter((x) => x.n > 0);
+    if (counts.length === 0) { toast("No unseen activity"); return; }
+    const total = counts.reduce((s, x) => s + x.n, 0);
+    const t = (en, ja) => L(current, en, ja);
+    pushCard({
+      owner: current, from: current, type: "Update", pri: "low",
+      title: t("Team digest", "チームダイジェスト"),
+      summary: t(
+        `${total} updates across ${counts.length} channels while you were away. `,
+        `不在中に${counts.length}チャンネルで${total}件の更新。`
+      ) + counts.map((x) => `#${x.k}: ${x.last ? x.last.who + " — " + x.last.text.slice(0, 36) : ""}`).join(" · "),
+      ctx: counts.map((x) => ["#" + x.k, x.n + " new"]),
+      why: t(
+        `Unseen activity in ${counts.length} channels — read here, skip the scrollback`,
+        `未読の${counts.length}チャンネルを要約 — スクロールバックは不要です`
+      ),
+      route: `${USERS[current].name}'s AI · channel digest`,
+      status: "pending", kind: "notification", when: "now",
+      src: counts.map((x) => ({ kind: "chan", chan: x.k })),
+    });
+    toast("Digest delivered — priority low, no push");
+    step("digest");
+    render();
+  }
+
+  /* ---------- render: feed ---------- */
+  function cardHTML(c) {
+    const priClass = c.pri === "urgent" ? "pri-urgent" : c.pri === "high" ? "pri-high" : "";
+    const chips = c.ctx.map(([k, v]) => `<span class="chip"><b>${esc(k)}</b> ${esc(v)}</span>`).join("");
+    const statusLabel = { approved: "Issue created", rejected: "Declined", revised: "Revision requested", read: "Read", resent: "Revised and resent" }[c.status];
+    let actions = "";
+    if (c.status === "pending") {
+      const rec = (c.rec && c.kind === "normal")
+        ? `<button class="recrow" data-act="rec" data-id="${c.id}">✦ ${esc(L(c.owner, "Your AI suggests: Approve", "AIの提案: 承認"))}<span>${esc(c.rec.reason)} · ${esc(L(c.owner, "tap to accept", "タップで実行"))}</span></button>`
+        : "";
+      const reply = rec + `<button class="replybar" data-act="reply" data-id="${c.id}">💬 Reply — add a condition, ask a question…</button>`;
+      if (c.kind === "revision-request") {
+        actions = reply + `
+          <button class="btn-primary" data-act="resend" data-id="${c.id}">Revise and resend</button>
+          <div class="secrow"><button class="danger" data-act="reject" data-id="${c.id}">Decline</button></div>
+          <div class="swipe-hint">Swipe right to resend · left to decline</div>`;
+      } else if (c.kind === "notification") {
+        actions = reply + `
+          <div class="secrow"><button data-act="read" data-id="${c.id}">Mark as read</button></div>
+          <div class="swipe-hint">Swipe right to mark as read · reply above to respond</div>`;
+      } else {
+        actions = reply + `
+          <button class="btn-primary gh" data-act="approve" data-id="${c.id}"><span></span>Create issue</button>
+          <div class="secrow">
+            <button class="danger" data-act="reject" data-id="${c.id}">Decline</button>
+            <button data-act="revise" data-id="${c.id}">Revise</button>
+            <button data-act="delegate" data-id="${c.id}">Delegate</button>
+            <button data-act="askai" data-id="${c.id}">Ask AI</button>
+          </div>
+          <div class="swipe-hint">Swipe right to create issue · left to decline</div>`;
+      }
+    }
+    return `<div class="card" data-id="${c.id}">
+      <span class="swipe-label right">${c.kind === "notification" ? "Mark as read" : c.kind === "revision-request" ? "Revise and resend" : "Create issue"}</span>
+      <span class="swipe-label left">Reject</span>
+      <div class="inner">
+      <div class="meta"><span>${esc(c.type)}</span><span>·</span><span class="${priClass}">${esc(c.pri[0].toUpperCase() + c.pri.slice(1))}</span>${c.translated ? `<span class="langchip">🌐 ${esc(c.translated)}</span>` : ""}<span class="when">${esc(c.when || "now")}</span></div>
+      <div class="from">From ${esc(USERS[c.from].name)}</div>
+      <div class="route">${esc(c.route)}</div>
+      <div class="why">${esc(c.why)}</div>
+      <h3>${esc(c.title)}</h3>
+      <p class="summary">${esc(c.summary)}</p>
+      <div class="chips">${chips}</div>
+      ${(c.src && c.src.length)
+        ? `<div class="srcrow"><span class="srclbl">Sources</span>` + c.src.map((s) =>
+            s.kind === "chan"
+              ? `<button class="srcchip" data-srcchan="${esc(s.chan)}">✦ #${esc(s.chan)} の会話へ</button>`
+              : `<button class="srcchip" data-srcext="${esc(s.label)}">↗ ${esc(s.label)}</button>`
+          ).join("") + `</div>`
+        : ""}
+      ${c.issue ? `<div class="issue-link">Issue #${c.issue} ↗</div>` : ""}
+      <div class="spacer"></div>
+      ${statusLabel ? `<div class="status-label">${esc(statusLabel)}</div>` : ""}
+      <div class="actions">${actions}</div>
+      </div>
+    </div>`;
+  }
+
+  function renderFeed() {
+    const cards = myCards();
+    $("feed").innerHTML = cards.length
+      ? cards.map(cardHTML).join("")
+      : `<div class="empty"><div class="t">Tell your AI what you need</div><div class="s">Decisions will show up here</div></div>`;
+    attachSwipe();
+  }
+
+  /* ---------- render: channels ---------- */
+  function renderChannels() {
+    const el = $("channels");
+    if (view === "chan-timeline" && openChannel) {
+      const ms = state.msgs[openChannel] || [];
+      el.innerHTML = `
+        <div class="chan-head"><button id="chan-back" title="Back">‹</button> #${esc(openChannel)}</div>
+        <div class="timeline" id="tl">${ms.map((x) => `
+          <div class="msg ${x.isAgent ? "agent" : ""}">
+            <div class="av">${x.isAgent ? "✦" : esc(x.who[0])}</div>
+            <div class="body">
+              <div class="hd"><span class="nm">${esc(x.who)}</span>${x.isAgent ? '<span class="ai">AI</span>' : ""}<span class="tm">now</span></div>
+              <div class="tx">${esc(x.text)}</div>
+              ${x.tool ? `<span class="tool">${esc(x.tool)}</span>` : ""}
+            </div>
+          </div>`).join("")}
+        </div>
+        <div class="chan-tip">@ai joins the conversation · @ai file: &lt;ask&gt; routes a decision card</div>
+        <div class="chan-compose"><input id="chan-in" placeholder="Message #${esc(openChannel)}" autocomplete="off"><button id="chan-send" title="Send">↑</button></div>`;
+      $("chan-back").onclick = () => { view = "chan-list"; render(); };
+      $("chan-send").onclick = sendChanMsg;
+      $("chan-in").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChanMsg(); });
+      const tl = $("tl"); tl.scrollTop = tl.scrollHeight;
+    } else {
+      el.innerHTML = `<div class="chan-list">` + Object.keys(state.channels).map((k) => {
+        const last = (state.msgs[k] || [])[state.msgs[k].length - 1];
+        return `<button class="chan-row" data-chan="${k}">
+          <span class="n">#${esc(k)}</span>
+          <span class="p">${last ? esc(last.who + ": " + last.text) : esc(state.channels[k].purpose)}</span>
+        </button>`;
+      }).join("") + `</div>`;
+      el.querySelectorAll(".chan-row").forEach((b) => b.onclick = () => { openChannel = b.dataset.chan; view = "chan-timeline"; render(); });
+    }
+  }
+
+  function sendChanMsg() {
+    const input = $("chan-in");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    state.msgs[openChannel].push(m(current, text, false));
+    render();
+    const mention = /@ai\b/i.test(text);
+    if (!mention) return;
+    setTimeout(() => {
+      const fileMatch = text.match(/file:\s*(.+)$/i);
+      if (fileMatch) {
+        const r = triage("ask " + fileMatch[1]);
+        const rec = r.recipient || other();
+        pushCard({
+          owner: rec, from: current, type: "Task", pri: "high",
+          title: r.title || fileMatch[1].slice(0, 40), summary: r.summary || fileMatch[1],
+          ctx: [["filed from", "#" + openChannel]],
+          why: `Filed from #${openChannel} by Team AI`, route: `Team AI → ${USERS[rec].name}'s AI`,
+          status: "pending", kind: "normal", when: "now",
+          src: [{ kind: "chan", chan: openChannel }],
+        });
+        state.msgs[openChannel].push(agentMsg("Team AI",
+          `Filed that as a decision card for ${USERS[rec].name}.`,
+          `create_decision_card — ${USERS[rec].name} · task`, true));
+        toast(`Card routed to ${USERS[rec].name} from chat`);
+        step("agent");
+      } else {
+        state.msgs[openChannel].push(agentMsg("Team AI",
+          "On it — say `@ai file: <ask>` and I'll route it as a decision card.", null, null));
+      }
+      render();
+    }, 650);
+  }
+
+  /* ---------- render: settings ---------- */
+  function renderSettings() {
+    const t = (en, ja) => L(current, en, ja);
+    const modes = [
+      { id: "system", ic: "◐", label: t("System", "システム") },
+      { id: "dark", ic: "🌙", label: t("Dark", "ダーク") },
+      { id: "light", ic: "☀", label: t("Light", "ライト") },
+    ];
+
+    $("settings").innerHTML = `
+      <div class="sgroup">
+        <h5>${esc(t("Appearance", "外観"))}</h5>
+        <div class="stiles">
+          ${modes.map((m) => `
+            <button class="stile ${appearance === m.id ? "on" : ""}" data-mode="${m.id}">
+              <span class="ic">${m.ic}</span><span>${esc(m.label)}</span>
+            </button>`).join("")}
+        </div>
+        <p class="note">${esc(t(
+          "System follows your device. Cards, channels and sheets adapt instantly.",
+          "システムは端末設定に追従します。カード・チャンネル・シートが即座に切り替わります。"
+        ))}</p>
+      </div>
+
+      <div class="sgroup">
+        <h5>${esc(t("Language", "言語"))}</h5>
+        <div class="sfield">
+          <input id="set-lang" value="${esc(USERS[current].lang === "ja" ? "日本語" : "en")}" />
+          <button id="set-lang-save">${esc(t("Save", "保存"))}</button>
+        </div>
+        <p class="note">${esc(t(
+          "Cards, digests, agent replies and AI recommendations arrive translated into your language.",
+          "カード・ダイジェスト・エージェント返信・AI推奨が、この言語に翻訳されて届きます。"
+        ))}</p>
+      </div>
+
+      <div class="sgroup">
+        <h5>${esc(t("Connection", "接続"))}</h5>
+        <div class="srow"><span class="ic">◈</span><span>${esc(t("Relay server", "リレーサーバ"))}</span><span class="val">wss://relay.ttfw.app</span></div>
+        <div class="srow"><span class="ic">⑃</span><span>${esc(t("GitHub repository", "GitHubリポジトリ"))}</span><span class="val">torutesu/honmaruai</span></div>
+        <div class="srow danger"><span class="ic">⏻</span><span>${esc(t("Sign out", "サインアウト"))}</span></div>
+      </div>
+
+      <div class="sgroup">
+        <h5>${esc(t("Notifications", "通知"))}</h5>
+        <p class="note">${esc(t(
+          "Only pending high/urgent decisions ring — never chat, notes or digests, and never while you're connected.",
+          "鳴るのは保留中の high/urgent の決裁だけ。チャット・メモ・ダイジェストは鳴らず、接続中も鳴りません。"
+        ))}</p>
+      </div>
+
+      <div class="sgroup">
+        <h5>${esc(t("About", "情報"))}</h5>
+        <div class="srow"><span class="ic">✦</span><span>TikTok for Work</span><span class="val">1.0</span></div>
+        <p class="note">${esc(t(
+          "Decisions, not messages. Your AI routes, translates, remembers and escalates — you decide.",
+          "メッセージではなく意思決定を。AIが振り分け・翻訳・記憶・エスカレーションを行い、決めるのはあなたです。"
+        ))}</p>
+      </div>`;
+
+    $("settings").querySelectorAll(".stile").forEach((b) => {
+      b.onclick = () => {
+        appearance = b.dataset.mode;
+        applyAppearance();
+        toast(L(current, `Appearance: ${appearance}`, `外観: ${b.textContent.trim()}`));
+        step("theme");
+        render();
+      };
+    });
+    $("set-lang-save").onclick = () => {
+      const v = $("set-lang").value.trim().toLowerCase();
+      USERS[current].lang = /ja|日本|jp/.test(v) ? "ja" : "en";
+      toast(L(current, "Language saved — future cards arrive translated", "言語を保存 — 以降のカードは翻訳されて届きます"));
+      render();
+    };
+  }
+
+  // System appearance follows the page/OS theme; explicit modes override it.
+  function applyAppearance() {
+    const resolved = appearance === "system"
+      ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+      : appearance;
+    $("phone").dataset.appearance = resolved;
+    document.documentElement.dataset.theme = resolved;
+  }
+
+  /* ---------- swipe ---------- */
+  function attachSwipe() {
+    document.querySelectorAll(".card").forEach((el) => {
+      const id = el.dataset.id;
+      const card = state.cards.find((c) => c.id === id);
+      if (!card || card.status !== "pending") return;
+      let startX = null, dx = 0;
+      const right = el.querySelector(".swipe-label.right");
+      const left = el.querySelector(".swipe-label.left");
+      el.addEventListener("pointerdown", (e) => { if (e.target.closest("button")) return; startX = e.clientX; el.setPointerCapture(e.pointerId); });
+      el.addEventListener("pointermove", (e) => {
+        if (startX === null) return;
+        dx = e.clientX - startX;
+        el.style.transform = `translateX(${dx}px)`;
+        const p = Math.min(Math.abs(dx) / 96, 1);
+        right.style.opacity = dx > 24 ? p : 0;
+        left.style.opacity = (dx < -24 && card.kind !== "notification") ? p : 0;
+      });
+      el.addEventListener("pointerup", () => {
+        if (startX === null) return;
+        el.style.transform = ""; right.style.opacity = 0; left.style.opacity = 0;
+        if (dx > 96) act(card.kind === "notification" ? "read" : card.kind === "revision-request" ? "resend" : "approve", card);
+        else if (dx < -96 && card.kind !== "notification") act("reject", card);
+        startX = null; dx = 0;
+      });
+    });
+  }
+
+  /* ---------- actions ---------- */
+  function act(action, card) {
+    if (action === "rec") { resolveCard(card, "approve", null); toast(L(current, "One-tap: accepted your AI's call", "ワンタップ: AIの提案どおり承認")); step("rec"); }
+    else if (action === "approve") resolveCard(card, "approve", null);
+    else if (action === "reject") resolveCard(card, "reject", null);
+    else if (action === "reply") openReplySheet(card);
+    else if (action === "read") { card.status = "read"; toast("Marked as read — no notification sent"); if (card.title === "Team digest") step("digest"); render(); }
+    else if (action === "revise") openNoteSheet("Request revision", `送信者(${USERS[card.from].name})に修正依頼として返ります。`, "Split this into two smaller tasks", (note) => resolveCard(card, "revise", note));
+    else if (action === "askai") openNoteSheet("Ask your AI", "追加指示でカードをその場で更新します（/ai/refine）。", "Deadline moved — make this urgent", (note) => {
+      card.ctx.push(["note", note]);
+      if (/urgent|asap/i.test(note)) card.pri = "urgent";
+      toast("Card updated by your AI"); render();
+    });
+    else if (action === "delegate") {
+      const target = Object.keys(USERS).find((u) => u !== current && u !== card.from) || other();
+      card.status = "approved"; card.issue = ++issueSeq;
+      pushCard({ ...card, id: undefined, owner: target, from: current, status: "pending", kind: "normal",
+        why: `Delegated by ${USERS[current].name}`, route: `${USERS[current].name}'s AI → ${USERS[target].name}'s AI`, when: "now" });
+      toast(`Delegated to ${USERS[target].name} · Issue #${card.issue}`);
+      render();
+    }
+    else if (action === "resend") {
+      card.status = "resent";
+      pushCard({
+        owner: card.from, from: current, type: "Task", pri: "high",
+        title: card.sourceTitle || card.title, summary: `Revised per ${USERS[card.from].name}'s feedback: ${card.revisionNote || ""}`,
+        ctx: [["revision", card.revisionNote || "updated"]],
+        why: `Revised after ${USERS[card.from].name}'s feedback`, route: `${USERS[current].name}'s AI → ${USERS[card.from].name}'s AI`,
+        status: "pending", kind: "normal", when: "now",
+      });
+      toast(`Revised card sent back to ${USERS[card.from].name}`);
+      render();
+    }
+  }
+
+  $("feed").addEventListener("click", (e) => {
+    const chanChip = e.target.closest("[data-srcchan]");
+    if (chanChip) {
+      openChannel = chanChip.dataset.srcchan;
+      view = "chan-timeline";
+      toast(L(current, `Opened #${openChannel} — the conversation behind this card`, `#${openChannel} — このカードの元になった会話です`));
+      step("src");
+      render();
+      return;
+    }
+    const extChip = e.target.closest("[data-srcext]");
+    if (extChip) {
+      toast(`（デモ）${extChip.dataset.srcext} を開く — 実装ではワンタップでブラウザ起動`);
+      step("src");
+      return;
+    }
+    const btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    const card = state.cards.find((c) => c.id === btn.dataset.id);
+    if (card) act(btn.dataset.act, card);
+  });
+
+  /* ---------- top-level chrome ---------- */
+  function render() {
+    const isFeed = view === "feed";
+    const isSettings = view === "settings";
+    const isChan = !isFeed && !isSettings;
+
+    $("username").textContent = USERS[current].name;
+    $("tab-feed").classList.toggle("on", isFeed);
+    $("tab-chan").classList.toggle("on", isChan);
+    $("tab-set").classList.toggle("on", isSettings);
+    $("feed").style.display = isFeed ? "" : "none";
+    $("channels").style.display = isChan ? "" : "none";
+    $("settings").style.display = isSettings ? "" : "none";
+    $("composer").style.display = isFeed ? "" : "none";
+
+    if (isFeed) renderFeed();
+    else if (isChan) renderChannels();
+    else renderSettings();
+  }
+
+  $("userchip").onclick = () => {
+    current = other();
+    view = "feed";
+    closeSheet();
+    toast(`Now ${USERS[current].name} (${USERS[current].role} · ${USERS[current].lang === "ja" ? "日本語" : "English"})`);
+    step("switch");
+    render();
+  };
+  $("tab-feed").onclick = () => { view = "feed"; render(); };
+  $("tab-chan").onclick = () => { view = "chan-list"; render(); };
+  $("tab-set").onclick = () => { view = view === "settings" ? "feed" : "settings"; render(); };
+  $("composebar").onclick = openComposeSheet;
+  $("btn-digest").onclick = runDigest;
+
+  $("btn-hook").onclick = () => {
+    const target = current;
+    pushCard({
+      owner: target, from: target, type: "Approval", pri: "high",
+      title: L(target, "Review PR #12: Relay deploy config", "PR #12 のレビュー: Relay deploy config"),
+      summary: L(target,
+        "carol-gh requested your review on torutesu/honmaruai#12.",
+        "carol-gh があなたのレビューを依頼しています（torutesu/honmaruai#12）。"),
+      ctx: [["repo", "torutesu/honmaruai"], ["pr", "#12"], ["branch", "deploy"]],
+      why: L(target, "From GitHub · torutesu/honmaruai", "GitHubから · torutesu/honmaruai"),
+      route: `GitHub → ${USERS[target].name}'s AI`,
+      status: "pending", kind: "normal", when: "now",
+      src: [{ kind: "ext", label: "GitHub PR #12" }],
+    });
+    toast("GitHub Webhook → カード化（オフラインなら本来プッシュ通知）");
+    step("hook");
+    view = "feed";
+    render();
+  };
+
+  $("btn-esc").onclick = () => {
+    const SLA = { urgent: 120, high: 480 };
+    let count = 0;
+    state.cards
+      .filter((c) => c.status === "pending" && c.kind === "normal" && !c.escalated
+        && SLA[c.pri] && (c.ageMin || 0) > SLA[c.pri])
+      .forEach((c) => {
+        c.escalated = true;
+        const mgr = MANAGER[c.owner];
+        if (!mgr) return;
+        c.ctx.push(["escalated", L(c.owner, `${USERS[mgr].name} notified`, `${USERS[mgr].name}に通知済み`)]);
+        const hours = Math.round((c.ageMin || 0) / 60);
+        pushCard({
+          owner: mgr, from: c.from, type: "Task", pri: c.pri === "urgent" ? "urgent" : "high",
+          title: L(mgr, `Escalated: ${c.title}`, `エスカレーション: ${c.title}`),
+          summary: L(mgr,
+            `${USERS[c.owner].name} hasn't decided this in ${hours}h (${c.pri}). ${c.summary}`,
+            `${USERS[c.owner].name}が${hours}時間未決裁です（${c.pri}）。内容: ${c.summary}`),
+          ctx: [...c.ctx],
+          why: L(mgr, `SLA breach — you manage ${USERS[c.owner].name}`, `SLA超過 — あなたは${USERS[c.owner].name}の上司です`),
+          route: `${USERS[c.owner].name}'s AI → ${USERS[mgr].name}'s AI`,
+          status: "pending", kind: "normal", when: "now",
+          translated: langChip(c.owner, mgr),
+          src: [...(c.src || [])],
+        });
+        count += 1;
+      });
+    toast(count ? `${count}件を上司へエスカレーション（Aliceに切替えて確認）` : "SLA超過のカードはありません");
+    if (count) { step("esc"); render(); }
+  };
+  $("btn-reset").onclick = () => { doneSteps.clear(); document.querySelectorAll(".steps li").forEach((li) => li.classList.remove("done")); current = "alice"; view = "feed"; issueSeq = 123; memory.alice = 2; memory.bob = 3; memory.carol = 0; seed(); closeSheet(); toast("Reset"); render(); };
+
+  seed();
+  applyAppearance();
+  render();
+})();
+</script>

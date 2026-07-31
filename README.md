@@ -2,7 +2,7 @@
 
 **An AI-native work OS in the shape of a decision feed.** Humans only talk to their own AI. The AI triages everything — decisions become swipeable cards routed to the right person, updates flow into AI-managed channels — and every outcome lands in GitHub. No channels to manage, no scrollback to owe, no notification firehose.
 
-> 📱 Interactive demo (HTML mock of the app): available as a Claude artifact — feed, routing, translation, webhooks, escalation, and AI recommendations, all clickable in the browser.
+> 📱 **Interactive demo**: open [`docs/demo.html`](docs/demo.html) in a browser — the whole product is clickable (routing, decisions, freeform replies, channels with agents, translation, webhooks, SLA escalation, AI recommendations, source links, and the dark/light appearance setting) with the relay simulated in-page.
 
 ## Product overview
 
@@ -151,3 +151,4 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 - Feature-by-feature progress log: [PROGRESS.md](PROGRESS.md)
 - Design system (v2 — adaptive dark/light, glow language): [design.md](design.md)
 - Cross-platform architecture (macOS · Web): [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)
+- Clickable product demo: [docs/demo.html](docs/demo.html)
