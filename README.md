@@ -149,4 +149,5 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 
 - Relay internals, endpoints, and every env var: [server/README.md](server/README.md)
 - Feature-by-feature progress log: [PROGRESS.md](PROGRESS.md)
-- Design system: [design.md](design.md)
+- Design system (v2 — adaptive dark/light, glow language): [design.md](design.md)
+- Cross-platform architecture (macOS · Web): [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)

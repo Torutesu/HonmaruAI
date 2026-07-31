@@ -70,6 +70,12 @@ Last updated: 2026-07-30
 - [x] Agent memory: per-user decision history (persisted, capped) → one-tap recommendation on new cards when the pattern is clear (AI + offline consistency heuristic), written in the recipient's language; advisory only
 - [x] Provenance: cards carry one-tap sources — home-channel conversation (deep link + scroll to the triggering message) and auto-extracted document links (Notion/Docs/Figma/GitHub etc.); digests link to each summarized channel
 
+## Phase 11 — Visual v2, Settings, cross-platform
+
+- [x] Design v2: adaptive token system (full dark + light palettes), ambient accent glow backdrop, elevated rounded card surfaces, gradient primary actions, SF Rounded display type — all views adapt via tokens, no per-view branching
+- [x] Settings screen: appearance (System/Dark/Light with instant apply), language, relay connection, GitHub repo, notifications, sign out, about
+- [x] Cross-platform architecture doc (docs/CROSS_PLATFORM.md): TTFWCore package extraction, protocol schema + versioning, macOS three-column workbench + keyboard deciding + menu bar capture, Web thin client (@ttfw/core, web OAuth/PKCE, Web Push, GitHub proxy), shared design tokens pipeline, phased roadmap
+
 ## Phase 8 — Deployable relay
 
 - [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)

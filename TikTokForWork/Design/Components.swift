@@ -24,13 +24,22 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(enabled ? Theme.Colors.textPrimary : Theme.Colors.surfaceRaised)
-                .foregroundStyle(enabled ? Theme.Colors.background : Theme.Colors.textTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                .frame(height: 52)
+                .background(
+                    Group {
+                        if enabled {
+                            Theme.Colors.accentGradient
+                        } else {
+                            Theme.Colors.surfaceRaised
+                        }
+                    }
+                )
+                .foregroundStyle(enabled ? Color.white : Theme.Colors.textTertiary)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
         }
+        .accentGlow(enabled ? 14 : 0, opacity: enabled ? 0.35 : 0)
         .disabled(!enabled)
     }
 }
@@ -48,14 +57,18 @@ struct GitHubPrimaryButton: View {
                     .scaledToFit()
                     .frame(width: 16, height: 16)
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 48)
+            .frame(height: 52)
             .background(enabled ? Theme.Colors.issueGreen : Theme.Colors.surfaceRaised)
             .foregroundStyle(enabled ? Color.white : Theme.Colors.textTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
         }
+        .shadow(
+            color: enabled ? Theme.Colors.issueGreen.opacity(0.35) : .clear,
+            radius: 14, x: 0, y: 6
+        )
         .disabled(!enabled)
     }
 }
@@ -68,7 +81,7 @@ struct SecondaryAction: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
@@ -84,18 +97,25 @@ struct ComposeBar: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: "sparkle")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.accentGradient)
                 Text(placeholder)
                     .font(Theme.TypeScale.body)
-                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .foregroundStyle(Theme.Colors.textSecondary)
                 Spacer()
+                Image(systemName: "mic")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.Colors.textTertiary)
             }
-            .padding(.horizontal, Theme.Spacing.md)
-            .frame(height: 48)
-            .background(Theme.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+            .padding(.horizontal, Theme.Spacing.md + 4)
+            .frame(height: 52)
+            .background(Theme.Colors.surface)
+            .overlay(
+                Capsule().stroke(Theme.Colors.accent.opacity(0.28), lineWidth: 1)
+            )
+            .clipShape(Capsule())
         }
+        .accentGlow(12, opacity: 0.18)
     }
 }
 

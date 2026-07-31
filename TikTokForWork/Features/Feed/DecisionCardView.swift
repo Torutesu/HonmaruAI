@@ -13,7 +13,7 @@ struct DecisionCardView: View {
 
     var body: some View {
         ZStack {
-            Theme.Colors.background.ignoresSafeArea()
+            AppBackdrop().ignoresSafeArea()
 
             swipeHintLayer
 
@@ -79,9 +79,10 @@ struct DecisionCardView: View {
 
                 actionBlock
             }
-            .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.top, Theme.Spacing.md)
-            .padding(.bottom, Theme.Spacing.md)
+            .padding(Theme.Spacing.lg)
+            .cardSurface()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
             .offset(x: dragOffset)
         }
         .contentShape(Rectangle())

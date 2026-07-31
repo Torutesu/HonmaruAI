@@ -17,12 +17,13 @@ struct FeedView: View {
     @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
     @State private var showChannels = false
+    @State private var showSettings = false
     @State private var showMenu = false
     @State private var sourceTarget: SourceChannelTarget?
 
     var body: some View {
         ZStack {
-            Theme.Colors.background.ignoresSafeArea()
+            AppBackdrop().ignoresSafeArea()
 
             if viewModel.cards.isEmpty {
                 emptyState
@@ -230,8 +231,13 @@ struct FeedView: View {
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
             Button("Channels") { showChannels = true }
             Button("Organization") { showOrgGraph = true }
+            Button("Settings") { showSettings = true }
             Button("Sign out", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environmentObject(appState)
         }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) { viewModel.errorMessage = nil }
@@ -281,10 +287,6 @@ struct FeedView: View {
         .padding(.horizontal, Theme.Spacing.screen)
         .padding(.top, Theme.Spacing.sm)
         .padding(.bottom, Theme.Spacing.md)
-        .background(
-            Theme.Colors.background
-                .ignoresSafeArea(edges: .top)
-        )
     }
 
     private var bottomChrome: some View {
@@ -303,10 +305,6 @@ struct FeedView: View {
         .padding(.horizontal, Theme.Spacing.screen)
         .padding(.top, Theme.Spacing.sm)
         .padding(.bottom, Theme.Spacing.md)
-        .background(
-            Theme.Colors.background
-                .ignoresSafeArea(edges: .bottom)
-        )
     }
 
     private var emptyState: some View {
