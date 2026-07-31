@@ -22,6 +22,7 @@ import {
   recordableTransition,
   recommendDecision,
 } from "./memory.js";
+import { buildSources } from "./provenance.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -205,7 +206,7 @@ async function runDigest() {
       language: user.language,
       openRouter: openRouterConfig(),
     });
-    const card = buildDigestCard({ user, digest, sectionCount: sections.length });
+    const card = buildDigestCard({ user, digest, sectionCount: sections.length, sections });
 
     const store = getStore(ORG_ID);
     upsertCard(store, card);
@@ -346,6 +347,12 @@ async function deliverCard(orgId, card, { log = true } = {}) {
     targetLanguage: targetLanguageFor(card),
     openRouter: openRouterConfig(),
   });
+
+  // One-tap provenance: channel conversation + referenced documents.
+  const sources = buildSources({ card: translated, channelStore });
+  if (sources) {
+    translated.sources = sources;
+  }
 
   // Agent memory: annotate decidable cards with how this person usually
   // decides similar requests — advisory, one tap to accept, human decides.
@@ -1046,6 +1053,7 @@ async function respondAsAgent({ orgId, channel, message, mention }) {
       routingReason: `Filed from #${channel.name} by ${mention.agentName}`,
       sourceInstruction: reply.instruction,
       channelID: channel.id,
+      sourceMessageID: message.id,
     };
 
     // The agent already narrates the routing in its chat reply — skip the

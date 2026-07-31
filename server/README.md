@@ -54,6 +54,10 @@ Point a repository webhook (JSON, secret = `GITHUB_WEBHOOK_SECRET`) at `/github/
 
 Recipients resolve via each member's `githubUsername`; events for unknown logins are dropped. Cards flow through the normal delivery path — translation, channel trail, and the push policy all apply.
 
+## Provenance — one tap from summary to source
+
+Every delivered card carries a `sources` array (provenance.js): the **channel conversation** it came from (with the triggering message ID when the card was filed from chat), and **documents referenced in the original ask** — URLs in the instruction are auto-extracted and labeled (Notion, Google Docs, Figma, Linear, Jira, GitHub PR/Issue numbers, or the hostname). A webhook card's GitHub URL is its origin and is included; a *created* Issue link is the card's output and stays separate. The app renders these as tappable chips: links open in the browser, channel sources open the conversation scrolled to the exact message.
+
 ## Agent memory — your AI learns how you decide
 
 Every pending→decided transition (approve / reject / revise) is recorded per user (`data/memory.json`, last 50). When a new decidable card is delivered to someone with ≥3 relevant data points, their AI predicts the call (`recommend_decision` tool; offline, a ≥75%-consistency pattern heuristic over same-sender/same-type history) and attaches a one-tap recommendation — "Your AI suggests: Approve · You approved the last 3 review requests from Alice", written in the recipient's language. Advisory only: no clear pattern, no recommendation, and the human always decides.

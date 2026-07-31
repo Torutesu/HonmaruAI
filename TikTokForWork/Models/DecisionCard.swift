@@ -87,6 +87,19 @@ struct RecommendationHint: Codable, Hashable {
     }
 }
 
+// One-tap provenance: where this summary came from — the channel
+// conversation and/or documents referenced in the original ask.
+struct CardSource: Codable, Hashable, Identifiable {
+    let kind: String        // "channel" | "link"
+    let label: String
+    var url: String?
+    var channelID: String?
+    var messageID: String?
+
+    var id: String { url ?? channelID ?? label }
+    var isChannel: Bool { kind == "channel" }
+}
+
 struct DecisionCard: Identifiable, Codable, Hashable {
     let id: String
     let recipientUserID: String
@@ -107,9 +120,11 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var labels: [String]?
     var revisionNote: String?
     var channelID: String?
-    // Server-side SLA marker — round-tripped so client updates don't clear it.
+    // Server-side fields — round-tripped so client updates don't clear them.
     var escalatedAt: String?
     var recommendation: RecommendationHint?
+    var sources: [CardSource]?
+    var sourceMessageID: String?
 
     var isPending: Bool { status == .pending }
 

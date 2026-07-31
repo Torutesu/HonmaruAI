@@ -1,14 +1,24 @@
 import SwiftUI
 
+// Deep-link target for a card's source chip: a channel conversation,
+// optionally scrolled to the triggering message.
+struct SourceChannelTarget: Identifiable {
+    let channelID: String
+    let messageID: String?
+    var id: String { channelID }
+}
+
 struct FeedView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = FeedViewModel()
+    @Environment(\.openURL) private var openURL
     @State private var aiPrompt = ""
     @State private var showAIInput = false
     @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
     @State private var showChannels = false
     @State private var showMenu = false
+    @State private var sourceTarget: SourceChannelTarget?
 
     var body: some View {
         ZStack {
@@ -30,6 +40,9 @@ struct FeedView: View {
                                 },
                                 onShowDetails: {
                                     viewModel.detailCard = card
+                                },
+                                onOpenSource: { source in
+                                    openSource(source)
                                 }
                             )
                             .containerRelativeFrame(.vertical)
@@ -115,6 +128,14 @@ struct FeedView: View {
         .sheet(isPresented: $showChannels) {
             ChannelsView(channelService: appState.channelService)
                 .environmentObject(appState)
+        }
+        .sheet(item: $sourceTarget) { target in
+            ChannelsView(
+                channelService: appState.channelService,
+                initialChannelID: target.channelID,
+                highlightMessageID: target.messageID
+            )
+            .environmentObject(appState)
         }
         .sheet(isPresented: $showAIInput) {
             AIInputSheet(
@@ -300,6 +321,16 @@ struct FeedView: View {
                 .font(Theme.TypeScale.micro)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .padding(.top, Theme.Spacing.xs)
+        }
+    }
+
+    // One tap from a summarized card to its source: external documents open
+    // directly; channel sources open the conversation at the exact message.
+    private func openSource(_ source: CardSource) {
+        if let urlString = source.url, let url = URL(string: urlString) {
+            openURL(url)
+        } else if let channelID = source.channelID {
+            sourceTarget = SourceChannelTarget(channelID: channelID, messageID: source.messageID)
         }
     }
 

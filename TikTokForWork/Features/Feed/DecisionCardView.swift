@@ -5,6 +5,7 @@ struct DecisionCardView: View {
     let linkedRepository: String
     let onAction: (CardActionKind) -> Void
     let onShowDetails: () -> Void
+    let onOpenSource: (CardSource) -> Void
 
     @State private var dragOffset: CGFloat = 0
 
@@ -46,6 +47,11 @@ struct DecisionCardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
+
+                if let sources = card.sources, !sources.isEmpty {
+                    sourcesRow(sources)
+                        .padding(.top, Theme.Spacing.md)
+                }
 
                 if card.showsGitHubLink(for: linkedRepository),
                    let issueURL = card.githubIssueURL,
@@ -252,6 +258,38 @@ struct DecisionCardView: View {
         return "Create issue"
     }
 
+    // One-tap provenance: straight to the conversation or the referenced doc.
+    private func sourcesRow(_ sources: [CardSource]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("Sources")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+
+                ForEach(sources) { source in
+                    Button {
+                        Haptics.light()
+                        onOpenSource(source)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: source.isChannel ? "number" : "arrow.up.right.square")
+                                .font(.system(size: 10))
+                            Text(source.label)
+                                .font(Theme.TypeScale.label)
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(Theme.Colors.accent)
+                        .padding(.horizontal, Theme.Spacing.sm)
+                        .padding(.vertical, 5)
+                        .background(Theme.Colors.accent.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     private var replyBar: some View {
         Button {
             Haptics.light()
@@ -408,6 +446,7 @@ struct DecisionCardView: View {
         ),
         linkedRepository: "owner/repo",
         onAction: { _ in },
-        onShowDetails: {}
+        onShowDetails: {},
+        onOpenSource: { _ in }
     )
 }

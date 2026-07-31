@@ -153,8 +153,13 @@ export async function generateDigest({ sections, userName, language, openRouter 
   }
 }
 
-export function buildDigestCard({ user, digest, sectionCount }) {
+export function buildDigestCard({ user, digest, sectionCount, sections = [] }) {
   return {
+    sources: sections.slice(0, 4).map((section) => ({
+      kind: "channel",
+      label: `#${section.channel.name}`,
+      channelID: section.channel.id,
+    })),
     id: `card-${randomUUID()}`,
     recipientUserID: user.id,
     senderUserID: user.id,

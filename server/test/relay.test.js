@@ -245,6 +245,12 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     );
     assert.ok(agentEvent, "agent should reply in channel");
     assert.equal(agentEvent.payload.message.cardID, cardEvent.payload.card.id);
+
+    // one-tap provenance: the filed card links back to the conversation
+    const sources = cardEvent.payload.card.sources;
+    assert.ok(sources && sources[0].kind === "channel");
+    assert.equal(sources[0].channelID, "channel-general");
+    assert.ok(sources[0].messageID, "source should point at the triggering message");
     ws.close();
   });
 

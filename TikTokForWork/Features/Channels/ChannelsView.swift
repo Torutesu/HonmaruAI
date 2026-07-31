@@ -2,12 +2,15 @@ import SwiftUI
 
 struct ChannelsView: View {
     @ObservedObject var channelService: ChannelService
+    var initialChannelID: String?
+    var highlightMessageID: String?
     @Environment(\.dismiss) private var dismiss
     @State private var showNewChannel = false
     @State private var newChannelName = ""
+    @State private var path: [ChatChannel] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if channelService.channels.isEmpty {
                     VStack(spacing: Theme.Spacing.sm) {
@@ -37,7 +40,11 @@ struct ChannelsView: View {
             .navigationTitle("Channels")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: ChatChannel.self) { channel in
-                ChannelTimelineView(channel: channel, channelService: channelService)
+                ChannelTimelineView(
+                    channel: channel,
+                    channelService: channelService,
+                    highlightMessageID: channel.id == initialChannelID ? highlightMessageID : nil
+                )
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -69,6 +76,13 @@ struct ChannelsView: View {
         }
         .presentationBackground(Theme.Colors.surface)
         .presentationDragIndicator(.visible)
+        .onAppear {
+            // Deep link from a card's source chip straight into the conversation.
+            if let initialChannelID,
+               let channel = channelService.channels.first(where: { $0.id == initialChannelID }) {
+                path = [channel]
+            }
+        }
     }
 
     private func channelRow(_ channel: ChatChannel) -> some View {
@@ -115,6 +129,7 @@ struct ChannelsView: View {
 struct ChannelTimelineView: View {
     let channel: ChatChannel
     @ObservedObject var channelService: ChannelService
+    var highlightMessageID: String?
     @State private var draft = ""
     @FocusState private var isFocused: Bool
 
@@ -136,15 +151,21 @@ struct ChannelTimelineView: View {
                         }
 
                         ForEach(messages) { message in
-                            MessageRow(message: message)
-                                .id(message.id)
+                            MessageRow(
+                                message: message,
+                                highlighted: message.id == highlightMessageID
+                            )
+                            .id(message.id)
                         }
                     }
                     .padding(.horizontal, Theme.Spacing.screen)
                     .padding(.vertical, Theme.Spacing.md)
                 }
                 .onAppear {
-                    if let last = messages.last {
+                    if let highlightMessageID,
+                       messages.contains(where: { $0.id == highlightMessageID }) {
+                        proxy.scrollTo(highlightMessageID, anchor: .center)
+                    } else if let last = messages.last {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
@@ -213,6 +234,7 @@ struct ChannelTimelineView: View {
 
 private struct MessageRow: View {
     let message: ChatMessage
+    var highlighted: Bool = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Spacing.md) {
@@ -264,6 +286,9 @@ private struct MessageRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(highlighted ? Theme.Spacing.sm : 0)
+        .background(highlighted ? Theme.Colors.accent.opacity(0.08) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
     }
 
     private var avatar: some View {

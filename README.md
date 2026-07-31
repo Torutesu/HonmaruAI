@@ -64,6 +64,7 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 - **Freeform replies** (`/ai/reply`): conditional approvals with the condition recorded on the card and the Issue, rejections with reasons, questions that go back as cards while the decision stays pending, notes. Works in Japanese too — 「承認。ただし金曜以降で」
 - **Revise & resend loop**: a revision request returns as an actionable card; the redraft routes straight back to whoever asked
 - **AI recommendations**: your agent learns from every decision you make and attaches a one-tap suggestion when your history shows a clear pattern. Advisory only
+- **One tap to the source**: every card carries provenance chips — the channel conversation it came from (opens scrolled to the exact message) and any documents referenced in the ask (Notion, Google Docs, Figma, GitHub PR/Issue links, auto-extracted and labeled). The summary is the decision surface; the source is one tap away
 
 **Channels — the AI-native chat behind the feed**
 - "Tell your AI" is the only inbox: `/ai/ingest` triages input — decisions become cards, updates are filed to the best channel, genuinely new topics get channels auto-created
