@@ -7,9 +7,11 @@ import { useChannelStore } from "./core/stores/channels";
 import { applyAppearance, useSessionStore } from "./core/stores/session";
 import type { CardSource } from "./core/types";
 import { registerServiceWorker } from "./lib/push";
+import { useIsDesktop } from "./lib/useMediaQuery";
 import { ChannelsScreen } from "./features/channels/ChannelsScreen";
 import { FeedScreen } from "./features/feed/FeedScreen";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
+import { Workbench } from "./features/workbench/Workbench";
 import styles from "./App.module.css";
 
 type Tab = "feed" | "channels" | "settings";
@@ -29,6 +31,7 @@ export function App() {
   const setConnected = useCardStore((state) => state.setConnected);
   const connected = useCardStore((state) => state.connected);
 
+  const isDesktop = useIsDesktop();
   const [tab, setTab] = useState<Tab>("feed");
   const [deepLink, setDeepLink] = useState<{ channelID: string; messageID?: string } | null>(null);
   const [focusCardID, setFocusCardID] = useState<string | null>(null);
@@ -156,6 +159,21 @@ export function App() {
         <p>Your GitHub account isn't linked to an org member yet.</p>
         <p>Ask an admin to add you, or pick a member in Settings.</p>
       </div>
+    );
+  }
+
+  // Same stores, same relay socket — only the surface changes with the room
+  // the browser gives us.
+  if (isDesktop) {
+    return (
+      <>
+        <Workbench
+          connected={connected}
+          focusCardID={focusCardID}
+          onFocusHandled={() => setFocusCardID(null)}
+        />
+        {error && <div className={styles.centered}>{error}</div>}
+      </>
     );
   }
 

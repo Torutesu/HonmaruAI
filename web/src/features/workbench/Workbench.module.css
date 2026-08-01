@@ -1,0 +1,329 @@
+.shell,
+.shellWide {
+  position: relative;
+  display: grid;
+  height: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+.shell {
+  grid-template-columns: 248px minmax(420px, 1fr) 380px;
+}
+/* Channels and Settings own the whole working area — no context column. */
+.shellWide {
+  grid-template-columns: 248px minmax(420px, 1fr);
+}
+
+/* ---- Column 1: sidebar ---- */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 16px;
+  border-right: 1px solid var(--hairline);
+  overflow-y: auto;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-rounded);
+  font-size: 15px;
+  font-weight: 700;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t3);
+}
+.dotOnline {
+  background: var(--approve);
+  box-shadow: 0 0 8px var(--approve);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sectionTitle {
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--t3);
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--t2);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+.navItemActive {
+  color: var(--t1);
+  background: var(--tint);
+}
+.count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--t3);
+}
+
+.hintKeys {
+  margin-top: auto;
+  font-size: 11px;
+  color: var(--t3);
+  line-height: 1.7;
+}
+kbd {
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--t2);
+  background: var(--raised);
+  border-radius: 4px;
+}
+
+/* ---- Column 2: decision queue ---- */
+.queue {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--hairline);
+}
+.queueHeader {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 20px 20px 10px;
+}
+.queueTitle {
+  font-family: var(--font-rounded);
+  font-size: 17px;
+  font-weight: 700;
+}
+.queueMeta {
+  font-size: 12px;
+  color: var(--t3);
+}
+.queueList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.queueFooter {
+  flex: none;
+  padding: 10px 16px 18px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  text-align: left;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+.rowSelected {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px var(--tint);
+}
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t3);
+}
+.rowTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.rowSummary {
+  font-size: 12px;
+  color: var(--t2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pill {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--raised);
+}
+.pillUrgent {
+  color: var(--reject);
+  background: color-mix(in srgb, var(--reject) 14%, transparent);
+}
+.pillHigh {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.rowDone {
+  margin-left: auto;
+  color: var(--approve);
+}
+
+/* The feed card is built to fill a phone screen; in the queue it is just the
+   expanded row, so drop the full-height snap sizing. */
+.selectedCard > article {
+  min-height: 0;
+  padding: 0;
+  scroll-snap-align: none;
+}
+
+.toast {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 9px 15px;
+  font-size: 12.5px;
+  color: var(--t1);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* ---- Column 3: context ---- */
+.context {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.contextHeader {
+  flex: none;
+  padding: 20px 18px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--t3);
+}
+.contextBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.contextEmpty {
+  padding: 18px;
+  font-size: 12.5px;
+  color: var(--t3);
+  line-height: 1.6;
+}
+.contextLinks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--hairline);
+}
+.contextLink {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* ---- Command palette ---- */
+.paletteVeil {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: start center;
+  padding-top: 12vh;
+  background: rgba(5, 6, 12, 0.55);
+  backdrop-filter: blur(3px);
+}
+.palette {
+  width: min(520px, 92vw);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 18px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+.paletteInput {
+  width: 100%;
+  padding: 16px 18px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--t1);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.paletteInput:focus {
+  outline: none;
+}
+.paletteList {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.paletteItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  text-align: left;
+  color: var(--t1);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+.paletteItemActive {
+  background: var(--tint);
+}
+.paletteHint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--t3);
+}
+.paletteEmpty {
+  padding: 18px;
+  font-size: 13px;
+  color: var(--t3);
+}
+
+/* ---- Shortcut help ---- */
+.help {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 15;
+  padding: 16px 18px;
+  font-size: 12.5px;
+  line-height: 2;
+  color: var(--t2);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+}

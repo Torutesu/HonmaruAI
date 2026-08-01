@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CardSource, DecisionCard } from "../../core/types";
 import { isNotification, isPending, isRevisionRequest } from "../../core/types";
 import { MicButton } from "../../ui/MicButton";
@@ -19,6 +19,8 @@ interface Props {
   busy?: boolean;
   actions?: CardActions;
   onOpenSource?: (source: CardSource) => void;
+  /** Bumped by the workbench's `R` shortcut to open the reply composer. */
+  openReplySignal?: number;
 }
 
 const priorityClass: Record<string, string | undefined> = {
@@ -86,9 +88,14 @@ export function DecisionCardView({
   busy = false,
   actions,
   onOpenSource,
+  openReplySignal = 0,
 }: Props) {
   const priority = card.priority as string;
   const [composer, setComposer] = useState<Composer>(null);
+
+  useEffect(() => {
+    if (openReplySignal > 0) setComposer({ mode: "reply", text: "" });
+  }, [openReplySignal]);
 
   const submitComposer = () => {
     if (!composer || !actions) return;

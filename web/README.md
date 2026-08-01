@@ -33,11 +33,18 @@ src/
 
 `core/` runs unchanged in Node, which is how the integration test drives the real relay with the real client code.
 
+## Two surfaces, one app
+
+Below 1024px you get the phone shell: one card at a time, swipe-free buttons, a composer at the bottom. At 1024px and up `App` renders `features/workbench` instead — sidebar, decision queue and a context column showing the selected card's source conversation side by side. Both read the same stores and the same socket; nothing is duplicated.
+
+Keyboard (workbench): `J`/`K` or `↑`/`↓` move, `⏎` approve, `⌫` decline, `R` reply, `?` shortcuts, `⌘K` command palette.
+
 ## Tests
 
 - `core.test.ts` — protocol decoding (including forward compatibility) and card-store reducers
+- `features/workbench/shortcuts.test.ts` — the keyboard table as a pure function: typing never decides, `⌘K` still works from a text field, notifications can't be declined
 - `realtime.integration.test.ts` — boots the relay, asserts the built app is served, a card sent by one client reaches another client's store, and a client reconnects and re-syncs after the relay is killed
 
 ## Status
 
-Phase 4 complete: decision loop, channels, settings, PWA + Web Push + dictation. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).
+Phase 5 complete: decision loop, channels, settings, PWA + Web Push + dictation, desktop workbench. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).

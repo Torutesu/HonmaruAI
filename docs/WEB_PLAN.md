@@ -171,9 +171,12 @@ Sign-in screen on the session flow, Web Push subscribe + permission UX (mirrorin
 **Bug found**: `/health` reported `push` from APNs alone, so a relay with Web Push configured advertised "push off". It now reports `{apns, web}`.
 **Not verifiable here**: actual push delivery needs a browser + a real push service.
 
-### Phase 5 — Desktop workbench
+### Phase 5 — Desktop workbench — ✅ SHIPPED
 ≥1024px: three-column layout (sidebar / decision queue / **context panel showing the selected card's source conversation**), keyboard deciding (`J K` navigate, `⏎` approve, `⌫` decline, `R` reply, `?` shortcut sheet), `⌘K` command palette (jump to channel, switch user, run digest).
 **Done when**: a full decision session is possible without touching the mouse.
+**Shipped**: `useIsDesktop()` switches `App` between the phone shell and `Workbench` — same stores, same socket, only the surface changes. The queue shows compact rows; the selected one expands into the full card in place, and the context column shows its source channel with the triggering message highlighted, so deciding never requires navigating away. `⌘K` reaches every channel, every member and the digest/escalation sweeps.
+**Design note**: the key table is a pure function (`shortcuts.ts`) rather than a `switch` inside the effect, so all of it — including "typing never decides" and "nothing declines a notification" — is covered by 9 Node-side tests with no DOM.
+**Not verifiable here**: the visual layout itself; the build and the shortcut logic are.
 
 ### Phase 6 — Hardening
 Offline read cache (IndexedDB snapshot), error/empty/loading states everywhere, `prefers-reduced-motion`, focus-visible, screen-reader labels on card actions, Lighthouse a11y ≥95, bundle < 250KB gzip, Playwright E2E in CI.

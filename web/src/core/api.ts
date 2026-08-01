@@ -98,6 +98,12 @@ export const api = {
       toolCalls?: { name: string; label: string; detail: string }[];
     }>("/ai/refine", { method: "POST", body: JSON.stringify(input) }),
 
+  /** Ops actions the command palette exposes; both are idempotent sweeps. */
+  runDigest: () => request<{ digests: number }>("/digest/run", { method: "POST" }),
+
+  runEscalations: () =>
+    request<{ escalated: number }>("/escalations/run", { method: "POST" }),
+
   selectMember: (userId: string, repository?: string) =>
     request<{ user: User; repository: string | null }>("/auth/session", {
       method: "POST",
