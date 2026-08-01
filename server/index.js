@@ -32,6 +32,7 @@ import {
   recommendDecision,
 } from "./memory.js";
 import { buildSources } from "./provenance.js";
+import { ledgerEntries, leadTimeStats, bottlenecks } from "./ledger.js";
 import {
   DEFAULT_AUTOPILOT,
   autopilotNote,
@@ -601,6 +602,7 @@ const API_PREFIXES = [
   "/sources/",
   "/autopilot/",
   "/memory",
+  "/ledger",
 ];
 
 export function isApiPath(pathname) {
@@ -1020,6 +1022,35 @@ const server = createServer(async (req, res) => {
     } catch (error) {
       json(res, 400, { message: error.message || "Digest run failed." });
     }
+    return;
+  }
+
+  // The decision ledger: the card store read as history rather than a feed.
+  if (url.pathname === "/ledger" && req.method === "GET") {
+    const userId = url.searchParams.get("userId");
+    if (userId && !orgStore.findUser(userId)) {
+      json(res, 400, { message: "Unknown org member." });
+      return;
+    }
+
+    const entries = ledgerEntries({
+      cardsByUser: getStore(ORG_ID),
+      userID: userId,
+      status: url.searchParams.get("status"),
+      query: url.searchParams.get("q"),
+      since: url.searchParams.get("since"),
+      limit: Math.min(Number(url.searchParams.get("limit")) || 200, 500),
+    });
+
+    json(res, 200, {
+      entries,
+      stats: leadTimeStats(entries),
+      // Bottlenecks are an org-wide view; scoping them to one person's cards
+      // would say nothing about where work actually waits.
+      bottlenecks: userId
+        ? []
+        : bottlenecks({ entries, now: Date.now() }),
+    });
     return;
   }
 

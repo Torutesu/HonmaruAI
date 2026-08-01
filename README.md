@@ -68,6 +68,11 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 - **One tap to the source**: every card carries provenance chips — the channel conversation it came from (opens scrolled to the exact message) and any documents referenced in the ask (Notion, Google Docs, Figma, GitHub PR/Issue links, auto-extracted and labeled). The summary is the decision surface; the source is one tap away
 - **Notion, actually connected** (`NOTION_TOKEN`): a linked page arrives as its real title rather than a generic "Notion" chip, a decision that links nothing gets its page found by searching the workspace with the decision's own words, and the page opens *next to* the card — title and text excerpt in place, "Open in Notion" one tap further. The token stays on the relay
 
+**History — what we decided, and how long it took**
+- The **decision ledger** (`/ledger`): every card as a searchable record — who asked, who decided, the lead time. Scoped to you or the whole org, filtered by status or free text
+- **Lead time as median and p90**, never a mean, so one decision that sat over a weekend doesn't define the picture. Pending cards report no lead time rather than zero
+- **Where decisions wait**: each queue ranked by the age of its oldest item, not its size — a long queue that moves is fine, one card stuck three days is not
+
 **Channels — the AI-native chat behind the feed**
 - "Tell your AI" is the only inbox: `/ai/ingest` triages input — decisions become cards, updates are filed to the best channel, genuinely new topics get channels auto-created
 - Humans and **agents share the channels**: mention `@ai` (or `@ai-alice`) and the agent replies with conversation context — and **files decision cards straight from chat** when a real ask surfaces
@@ -142,7 +147,6 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 
 - Live APNs + TestFlight distribution (needs Apple Developer credentials; relay deploy is `docker build` away)
 - Real accounts: GitHub identity → org member binding with per-user auth on the relay
-- Decision ledger: search/timeline over the decision history (data already persisted), lead-time metrics, bottleneck visibility
 - PRs/Discussions/Projects as sync targets; multi-repo and multi-org
 - SQLite persistence, agent proactivity (unprompted context from past decisions), calendar/email inflow
 

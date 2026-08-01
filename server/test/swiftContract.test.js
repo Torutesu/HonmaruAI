@@ -100,6 +100,9 @@ function relayCardKeys() {
     escalatedAt: new Date().toISOString(),
     autopilotAt: new Date().toISOString(),
     decidedByAI: true,
+    // Stamped by applyDecision; the ledger's lead time depends on it.
+    decidedAt: new Date().toISOString(),
+    decidedByUserID: "user-bob",
   };
   collect(base);
 

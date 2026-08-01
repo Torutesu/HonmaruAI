@@ -12,12 +12,13 @@ import { useOfflineCache } from "./lib/useOfflineCache";
 import { ConnectionBanner } from "./ui/ConnectionBanner";
 import { ChannelsScreen } from "./features/channels/ChannelsScreen";
 import { FeedScreen } from "./features/feed/FeedScreen";
+import { LedgerScreen } from "./features/ledger/LedgerScreen";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
 import { DocPreview } from "./features/sources/DocPreview";
 import { Workbench } from "./features/workbench/Workbench";
 import styles from "./App.module.css";
 
-type Tab = "feed" | "channels" | "settings";
+type Tab = "feed" | "channels" | "ledger" | "settings";
 
 function relayUrl() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -200,7 +201,7 @@ export function App() {
           {me.name}
         </button>
         <div className={styles.tabs}>
-          {(["feed", "channels", "settings"] as Tab[]).map((id) => (
+          {(["feed", "channels", "ledger", "settings"] as Tab[]).map((id) => (
             <button
               key={id}
               className={`${styles.tab} ${tab === id ? styles.tabActive : ""}`}
@@ -210,7 +211,13 @@ export function App() {
                 if (id !== "channels") setDeepLink(null);
               }}
             >
-              {id === "feed" ? "Feed" : id === "channels" ? "Channels" : "⚙"}
+              {id === "feed"
+                ? "Feed"
+                : id === "channels"
+                  ? "Channels"
+                  : id === "ledger"
+                    ? "History"
+                    : "⚙"}
             </button>
           ))}
         </div>
@@ -231,6 +238,7 @@ export function App() {
             onConsumeDeepLink={() => setDeepLink(null)}
           />
         )}
+        {tab === "ledger" && <LedgerScreen />}
         {tab === "settings" && <SettingsScreen />}
       </div>
 

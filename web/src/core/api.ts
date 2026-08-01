@@ -59,6 +59,46 @@ export interface MemoryEntry {
   at: string;
 }
 
+export interface LedgerEntry {
+  id: string;
+  title: string;
+  summary: string;
+  type: string;
+  priority: string;
+  status: string;
+  senderUserID: string;
+  recipientUserID: string;
+  decidedByUserID: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  /** null while pending — zero would claim the decision was instant. */
+  leadTimeMinutes: number | null;
+  decidedByAI: boolean;
+  escalated: boolean;
+  githubIssueNumber: number | null;
+  githubIssueURL: string | null;
+  channelID: string | null;
+}
+
+export interface LedgerStats {
+  decided: number;
+  pending: number;
+  medianMinutes: number | null;
+  p90Minutes: number | null;
+  byPriority: Record<string, { decided: number; medianMinutes: number | null }>;
+  outcomes: Record<string, number>;
+  byAI: number;
+  escalated: number;
+}
+
+export interface Bottleneck {
+  userID: string;
+  pending: number;
+  oldestPendingMinutes: number;
+  decided: number;
+  medianMinutes: number | null;
+}
+
 export interface IngestResponse {
   kind: "decision" | "update";
   channel: { id: string; name: string; isNew?: boolean };
@@ -133,6 +173,14 @@ export const api = {
     }),
 
   runAutopilot: () => request<{ decided: number }>("/autopilot/run", { method: "POST" }),
+
+  /** The card store read as history: search, lead time, where work waits. */
+  ledger: (params: { userId?: string; status?: string; q?: string; since?: string } = {}) =>
+    request<{ entries: LedgerEntry[]; stats: LedgerStats; bottlenecks: Bottleneck[] }>(
+      `/ledger?${new URLSearchParams(
+        Object.entries(params).filter(([, value]) => Boolean(value)) as [string, string][]
+      )}`
+    ),
 
   /** The decision history a person's AI learns from — human decisions only. */
   memory: (userId: string) =>

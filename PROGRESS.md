@@ -116,6 +116,14 @@ Last updated: 2026-07-30
 - [x] `POST /org/autopilot` echoes the clamped settings rather than the request; `GET /memory` makes the learned history inspectable
 - [x] Settings UI states plainly what it will do; 11 unit tests (mostly refusals), a full relay integration test, and an E2E on the authority-granting surface
 
+## Phase 16 — Decision ledger
+
+- [x] `applyDecision` stamps `decidedAt` / `decidedByUserID` — lead time is unknowable without it
+- [x] `ledger.js`: searchable history (involved-as-anyone scoping, status/text/date filters), lead time as median + p90 rather than a mean, outcome and priority breakdowns, autopilot and escalation counts
+- [x] Bottlenecks rank queues by the age of the oldest waiting item, not by size — and are org-wide only, since the question is meaningless filtered to one queue
+- [x] `GET /ledger` + a History screen on both surfaces (phone tab, workbench column, `⌘K`) with search, scope and status filters
+- [x] 8 unit tests incl. pending-has-no-lead-time and no-double-counting, a relay endpoint test, and an E2E over the history the other specs produced
+
 ## Phase 8 — Deployable relay
 
 - [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)

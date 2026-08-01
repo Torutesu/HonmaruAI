@@ -83,6 +83,10 @@ export function applyDecision({ card, action, note, actorUserID, delegateToUserI
 
   const status = STATUS_FOR_ACTION[action];
   card.status = status;
+  // Stamped here rather than derived later: without it, how long a decision
+  // actually took is unknowable once it leaves the feed.
+  card.decidedAt = new Date().toISOString();
+  card.decidedByUserID = actorUserID;
 
   if (trimmedNote) {
     const label = NOTE_LABEL[action];

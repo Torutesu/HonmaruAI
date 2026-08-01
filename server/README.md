@@ -100,6 +100,15 @@ The sweep runs every `AUTOPILOT_INTERVAL_MINUTES` (default 10; `POST /autopilot/
 
 **One deliberate omission**: an autopilot decision is *not* written to decision memory. A system that learns from its own predictions only ever confirms itself — the pattern that justified acting has to keep being earned from human decisions. `GET /memory?userId=…` exposes that history, and the integration test asserts autopilot's own decisions never appear in it.
 
+## Decision ledger — the store read as history
+
+`GET /ledger` turns the card store into a searchable record: who asked, who decided, how long it took, and where work is waiting. `applyDecision` stamps `decidedAt` and `decidedByUserID` on every decision, because lead time is unknowable after the fact.
+
+- **Filters**: `userId` (involved as recipient, sender *or* decider — asking "what happened with Bob" and getting only what was addressed to him would hide half the story), `status` (`pending` / `decided` / a specific status), `q` full-text over title/summary/context/instruction, `since`, `limit`.
+- **Lead time as median and p90**, never a mean: one card that sat over a holiday weekend would otherwise define the whole picture. A pending card reports `null`, not `0` — it hasn't taken any time yet, and zero would claim it was instant.
+- **Bottlenecks** rank each person's queue by how long its *oldest* item has waited, not by size. A long queue that moves is fine; one card stuck for three days is not. Scoped to a single person the view is empty, because "where does work wait" means nothing filtered to one queue.
+- Also counts what autopilot decided and what had to be escalated — the two signals that a queue is not being handled by the person it belongs to.
+
 ## SLA escalation — stuck decisions climb the org graph
 
 Pending cards have an SLA by priority (urgent 2h · high 8h · medium 24h; low never — override with `SLA_MINUTES="urgent:60,high:240"`). A sweep (every `ESCALATION_INTERVAL_MINUTES`, default 15; `POST /escalations/run` on demand) finds breaches, follows the recipient's `manages` edge, and delivers the manager an actionable **"Escalated:"** copy of the stuck decision — urgent stays urgent, everything else arrives high, so offline managers get pushed. The original card is annotated (`escalated: Dana notified after 9h`) and marked so it never escalates twice. Escalations ride the normal delivery path: translated into the manager's language, logged to the card's channel.
@@ -162,6 +171,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | POST | `/autopilot/run` | Decide the cards autopilot is cleared to decide now (also runs on `AUTOPILOT_INTERVAL_MINUTES`) |
 | POST | `/org/autopilot` | Grant/revoke a member's autopilot — echoes the *clamped* settings, not the request |
 | GET | `/memory[?userId=…]` | The decision history a person's AI learns from (human decisions only) |
+| GET | `/ledger[?userId=&status=&q=&since=&limit=]` | The decision ledger: history, lead-time stats, bottlenecks |
 | POST | `/cards/decide` | Resolve a decision: approve / reject / revise / acknowledge / delegate / priority |
 | GET | `/auth/github/start` → `/auth/github/callback` | Browser OAuth (server-side `state`), sets the session cookie |
 | GET/POST | `/auth/me`, `/auth/session`, `/auth/signout` | Session identity, org-member selection, sign out |

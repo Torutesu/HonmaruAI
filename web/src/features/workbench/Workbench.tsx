@@ -8,6 +8,7 @@ import { isNotification, isPending } from "../../core/types";
 import { ChannelsScreen } from "../channels/ChannelsScreen";
 import { ComposeBar } from "../compose/ComposeBar";
 import { DecisionCardView } from "../feed/DecisionCardView";
+import { LedgerScreen } from "../ledger/LedgerScreen";
 import { useDecisions } from "../feed/useDecisions";
 import { SettingsScreen } from "../settings/SettingsScreen";
 import { CommandPalette } from "./CommandPalette";
@@ -16,7 +17,7 @@ import { ContextPanel } from "./ContextPanel";
 import { useKeyboardDecisions } from "./useKeyboardDecisions";
 import styles from "./Workbench.module.css";
 
-type View = "decisions" | "channels" | "settings";
+type View = "decisions" | "channels" | "ledger" | "settings";
 
 interface Props {
   connected: boolean;
@@ -126,6 +127,7 @@ export function Workbench({ connected, focusCardID, onFocusHandled }: Props) {
     const list: Command[] = [
       { id: "view-decisions", label: "Go to Decisions", hint: "queue", run: () => setView("decisions") },
       { id: "view-channels", label: "Go to Channels", hint: "conversations", run: () => setView("channels") },
+      { id: "view-ledger", label: "Go to History", hint: "the decision ledger", run: () => setView("ledger") },
       { id: "view-settings", label: "Go to Settings", hint: "appearance, org", run: () => setView("settings") },
       {
         id: "run-digest",
@@ -191,6 +193,7 @@ export function Workbench({ connected, focusCardID, onFocusHandled }: Props) {
             [
               ["decisions", "Decisions", pending],
               ["channels", "Channels", channels.length],
+              ["ledger", "History", null],
               ["settings", "Settings", null],
             ] as [View, string, number | null][]
           ).map(([id, label, count]) => (
@@ -285,6 +288,8 @@ export function Workbench({ connected, focusCardID, onFocusHandled }: Props) {
               highlightMessageID={deepLink?.messageID ?? null}
               onConsumeDeepLink={() => setDeepLink(null)}
             />
+          ) : view === "ledger" ? (
+            <LedgerScreen />
           ) : (
             <SettingsScreen />
           )}

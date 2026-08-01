@@ -855,6 +855,55 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     ws.close();
   });
 
+  await t.test("ledger: decisions made earlier in this suite are now history", async () => {
+    const headers = { Authorization: `Bearer ${TOKEN}` };
+
+    const all = await (await fetch(`${base}/ledger`, { headers })).json();
+    assert.ok(all.entries.length > 0, "the suite has decided cards by now");
+
+    const decided = all.entries.find((entry) => entry.decidedAt);
+    assert.ok(decided, "at least one entry carries when it was decided");
+    assert.equal(typeof decided.leadTimeMinutes, "number");
+    assert.ok(decided.decidedByUserID, "the ledger records who decided");
+
+    // A pending card has no lead time — zero would claim it was instant.
+    const pendingOnly = await (
+      await fetch(`${base}/ledger?status=pending`, { headers })
+    ).json();
+    for (const entry of pendingOnly.entries) {
+      assert.equal(entry.leadTimeMinutes, null);
+      assert.equal(entry.decidedAt, null);
+    }
+
+    // Scoping to a person still covers what they sent, and drops the org-wide
+    // bottleneck view, which would mean nothing filtered to one queue.
+    const bobs = await (
+      await fetch(`${base}/ledger?userId=user-bob`, { headers })
+    ).json();
+    assert.ok(bobs.entries.length > 0);
+    assert.ok(
+      bobs.entries.every(
+        (entry) =>
+          entry.recipientUserID === "user-bob" ||
+          entry.senderUserID === "user-bob" ||
+          entry.decidedByUserID === "user-bob"
+      )
+    );
+    assert.deepEqual(bobs.bottlenecks, []);
+
+    const search = await (
+      await fetch(`${base}/ledger?q=vendor+contract`, { headers })
+    ).json();
+    assert.ok(
+      search.entries.every((entry) =>
+        `${entry.title} ${entry.summary}`.toLowerCase().includes("vendor")
+      )
+    );
+
+    assert.equal((await fetch(`${base}/ledger?userId=nobody`, { headers })).status, 400);
+    assert.equal((await fetch(`${base}/ledger`)).status, 401);
+  });
+
   await t.test("autopilot: opt-in, held, marked, and not self-taught", async () => {
     const headers = { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` };
 

@@ -138,6 +138,10 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     // decision its recipient made.
     var autopilotAt: String?
     var decidedByAI: Bool?
+    // Stamped when the decision was made — the ledger's lead time is the gap
+    // between this and createdAt.
+    var decidedAt: String?
+    var decidedByUserID: String?
 
     var isPending: Bool { status == .pending }
 
