@@ -142,9 +142,11 @@ Preflight → `Access-Control-Allow-Headers: Content-Type, Authorization`, `Acce
 
 ## 4. Client phases
 
-### Phase 1 — Skeleton + realtime (foundation)
+### Phase 1 — Skeleton + realtime (foundation) — ✅ SHIPPED
 Scaffold, `tokens.css`, `core/types.ts` + `protocol.ts`, `RelaySocket`, `cardStore`, and a read-only feed rendering real cards from a live relay.
 **Done when**: two browser tabs signed in as different users see cards appear in real time; reconnect survives a relay restart.
+**Verified**: the integration suite boots the real relay and drives it with the real client core — the built app is served at `/`, a card sent by one client lands in another's store, and a killed relay is followed by automatic reconnection and re-sync. Bundle: 50.7 KB gzip.
+**Bug found and fixed**: reconnection was driven only by `onclose`, but Node/undici fires *only* `onerror` when a connection is refused — the retry loop stalled exactly while the relay was down. Both events now schedule reconnection (idempotent), with capped exponential backoff.
 
 ### Phase 2 — The decision loop (the product)
 Swipe/tap decide → optimistic update → GitHub Issue via proxy → result card. Reply sheet (`/ai/reply`), Ask AI (`/ai/refine`), delegate, priority, revise & resend. Compose bar → `/ai/ingest` → draft review → send. Recommendation row, source chips (external links + channel deep-link).

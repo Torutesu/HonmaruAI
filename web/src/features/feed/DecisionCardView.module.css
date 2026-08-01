@@ -1,0 +1,167 @@
+.card {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  min-height: 100%;
+  padding: 10px 14px 14px;
+  display: flex;
+}
+
+.inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 20px 18px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t2);
+}
+.high { color: var(--warn); }
+.urgent { color: var(--reject); }
+.when {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--t3);
+}
+.langChip {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--tint);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.from {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.route {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--t3);
+}
+
+.why {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 9px 11px;
+  font-size: 12px;
+  background: var(--tint);
+  border-radius: var(--radius-sm);
+}
+.why::before {
+  content: "";
+  flex: none;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(var(--accent), var(--accent-alt));
+}
+
+.title {
+  margin-top: 16px;
+  font-family: var(--font-rounded);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.28;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+.summary {
+  margin-top: 10px;
+  font-size: 14.5px;
+  color: var(--t2);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.chip {
+  font-size: 11px;
+  color: var(--t2);
+  background: var(--raised);
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+}
+.chip b {
+  color: var(--t1);
+  font-weight: 600;
+}
+
+.sources {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.sourcesLabel {
+  font-size: 10px;
+  color: var(--t3);
+}
+.sourceChip {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--tint);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 5px 10px;
+  text-decoration: none;
+}
+
+.recommendation {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px 13px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--tint);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+.recommendation span {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--t2);
+}
+
+.spacer {
+  flex: 1;
+  min-height: 12px;
+}
+
+.status {
+  font-size: 12px;
+  color: var(--t3);
+  margin-bottom: 8px;
+}
+
+.issueLink {
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}

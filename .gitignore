@@ -9,3 +9,5 @@ xcuserdata/
 *.xccheckout
 *.moved-aside
 *.xcscmblueprint
+web/node_modules/
+web/dist/

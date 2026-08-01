@@ -1,0 +1,46 @@
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--t1);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  /* Ambient accent glow bleeding from the top — AppBackdrop on iOS. */
+  background:
+    radial-gradient(120% 45% at 50% -6%, var(--glow) 0%, transparent 62%),
+    var(--bg);
+  background-attachment: fixed;
+  transition: background-color 0.25s ease;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
