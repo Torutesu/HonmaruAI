@@ -32,6 +32,7 @@ import {
   recommendDecision,
 } from "./memory.js";
 import { buildSources } from "./provenance.js";
+import { createNotion, notionPageIdFromUrl, resolveNotionSources } from "./notion.js";
 import {
   DECISION_ACTIONS,
   findCard,
@@ -79,6 +80,13 @@ const RELAY_TOKEN = process.env.RELAY_TOKEN || "";
 // (dev only) — the endpoint itself is exempt from the bearer-token gate
 // because GitHub cannot send it.
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || "";
+
+// Notion integration token (server-side only — the browser never sees it).
+// Unset means cards keep the link-extraction provenance they had before.
+const NOTION_TOKEN = process.env.NOTION_TOKEN || "";
+// Overridable so the E2E suite can point at a fixture workspace instead of
+// the live API; unset everywhere else.
+const NOTION_API_BASE = process.env.NOTION_API_BASE || undefined;
 
 const STORE_PATH =
   process.env.CARDS_STORE_PATH || join(__dirname, "data", "cards.json");
@@ -154,6 +162,7 @@ function persistOrg() {
 
 const apns = createAPNS(process.env);
 const webPush = createWebPush(process.env);
+const notion = createNotion({ token: NOTION_TOKEN, baseUrl: NOTION_API_BASE });
 
 const persistedSessions = loadPersistedStores(SESSIONS_STORE_PATH);
 const sessionStore = createSessionStore(
@@ -413,10 +422,18 @@ async function deliverCard(orgId, card, { log = true } = {}) {
     openRouter: openRouterConfig(),
   });
 
-  // One-tap provenance: channel conversation + referenced documents.
-  const sources = buildSources({ card: translated, channelStore });
-  if (sources) {
-    translated.sources = sources;
+  // One-tap provenance: channel conversation + referenced documents, then
+  // Notion resolves those documents to real titles and finds the page this
+  // decision is about when nobody linked one. Best-effort by construction.
+  const sources = buildSources({ card: translated, channelStore }) || [];
+  let enriched = sources;
+  try {
+    enriched = await resolveNotionSources({ card: translated, sources, notion });
+  } catch (error) {
+    console.warn("Notion provenance skipped:", error.message);
+  }
+  if (enriched.length > 0) {
+    translated.sources = enriched;
   }
 
   // Agent memory: annotate decidable cards with how this person usually
@@ -521,6 +538,7 @@ const API_PREFIXES = [
   "/digest/",
   "/escalations/",
   "/oauth/",
+  "/sources/",
 ];
 
 export function isApiPath(pathname) {
@@ -609,6 +627,7 @@ const server = createServer(async (req, res) => {
       aiModel: OPENROUTER_MODEL,
       authRequired: Boolean(RELAY_TOKEN),
       push: { apns: apns.configured, web: webPush.configured },
+      notion: notion.configured,
     });
     return;
   }
@@ -906,6 +925,29 @@ const server = createServer(async (req, res) => {
     } catch (error) {
       json(res, 400, { message: error.message || "AI routing failed." });
     }
+    return;
+  }
+
+  // Read a linked Notion page without leaving the decision. The client sends
+  // the URL it was given; the token stays here.
+  if (url.pathname === "/sources/notion" && req.method === "GET") {
+    if (!notion.configured) {
+      json(res, 503, { message: "Notion is not connected on this relay." });
+      return;
+    }
+    const pageID =
+      url.searchParams.get("pageID") || notionPageIdFromUrl(url.searchParams.get("url"));
+    if (!pageID) {
+      json(res, 400, { message: "Not a Notion page URL." });
+      return;
+    }
+
+    const page = await notion.page(pageID);
+    if (!page) {
+      json(res, 404, { message: "That page isn't shared with the integration." });
+      return;
+    }
+    json(res, 200, { ...page, excerpt: await notion.excerpt(pageID) });
     return;
   }
 
@@ -1546,6 +1588,11 @@ server.listen(PORT, () => {
   console.log(RELAY_TOKEN ? "Relay auth: token required" : "Relay auth: open (set RELAY_TOKEN before deploying)");
   console.log(apns.configured ? "Push: APNs configured" : "Push: APNs off (set APNS_KEY_P8/APNS_KEY_ID/APNS_TEAM_ID)");
   console.log(webPush.configured ? "Push: Web Push configured" : "Push: Web Push off (set VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY)");
+  console.log(
+    notion.configured
+      ? "Notion: connected (cards resolve linked pages and find related ones)"
+      : "Notion: off (set NOTION_TOKEN — cards keep link-only provenance)"
+  );
   console.log(
     existsSync(WEB_DIST_PATH) ? `Web client: serving ${WEB_DIST_PATH}` : "Web client: not built (run web build)"
   );

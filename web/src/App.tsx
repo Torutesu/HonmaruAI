@@ -13,6 +13,7 @@ import { ConnectionBanner } from "./ui/ConnectionBanner";
 import { ChannelsScreen } from "./features/channels/ChannelsScreen";
 import { FeedScreen } from "./features/feed/FeedScreen";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
+import { DocPreview } from "./features/sources/DocPreview";
 import { Workbench } from "./features/workbench/Workbench";
 import styles from "./App.module.css";
 
@@ -171,6 +172,7 @@ export function App() {
     return (
       <>
         <ConnectionBanner connected={connected} restoredAt={restoredAt} />
+        <DocPreview />
         <Workbench
           connected={connected}
           focusCardID={focusCardID}
@@ -191,6 +193,7 @@ export function App() {
   return (
     <div className={styles.shell}>
       <ConnectionBanner connected={connected} restoredAt={restoredAt} />
+      <DocPreview />
       <nav className={styles.nav}>
         <button className={styles.user}>
           <span className={`${styles.dot} ${connected ? styles.dotOnline : ""}`} />

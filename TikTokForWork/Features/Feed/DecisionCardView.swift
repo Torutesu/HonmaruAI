@@ -273,7 +273,7 @@ struct DecisionCardView: View {
                         onOpenSource(source)
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: source.isChannel ? "number" : "arrow.up.right.square")
+                            Image(systemName: source.icon)
                                 .font(.system(size: 10))
                             Text(source.label)
                                 .font(Theme.TypeScale.label)

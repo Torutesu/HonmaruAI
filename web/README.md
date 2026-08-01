@@ -48,6 +48,7 @@ Keyboard (workbench): `J`/`K` or `↑`/`↓` move, `⏎` approve, `⌫` decline,
 - `features/settings/orgGraph.test.ts` — the relay's flat node/edge list folded into teams, managers, agents and approval rights
 - `realtime.integration.test.ts` — boots the relay, asserts the built app is served, a card sent by one client reaches another client's store, and a client reconnects and re-syncs after the relay is killed
 - `e2e/decide.spec.ts` (Playwright) — two browsers on one relay: Alice's AI routes a card, Bob's feed receives it live, Bob approves, Alice is told. Plus keyboard-only deciding and the command palette on the desktop workbench.
+- `e2e/notion.spec.ts` — a decision mentioning a Notion page arrives as that page's real title, and the page reads in place; a decision linking nothing still gets its document found. The relay talks to `e2e/notion-fixture.mjs` through its real HTTP client, so only Notion's servers are mocked.
 
 E2E signs in through `/auth/dev?user=…`, which the relay only exposes when `DEV_AUTH=true` and never in production — no CI can complete a GitHub OAuth round trip.
 

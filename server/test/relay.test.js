@@ -746,6 +746,66 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     assert.equal(bad.status, 400);
   });
 
+  await t.test("notion: gated by auth, and off means off — not broken", async () => {
+    // Behind the auth gate like every other API route.
+    const denied = await fetch(`${base}/sources/notion?url=https://notion.so/x`);
+    assert.equal(denied.status, 401);
+
+    // This relay has no NOTION_TOKEN. The endpoint says so plainly instead of
+    // failing in a way a client would have to guess at.
+    const off = await fetch(`${base}/sources/notion?url=https://notion.so/x`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    assert.equal(off.status, 503);
+
+    // And the health check reports it, so a client knows before it asks.
+    const health = await (await fetch(`${base}/health`)).json();
+    assert.equal(health.notion, false);
+  });
+
+  await t.test("notion off: cards still carry their link provenance", async () => {
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(JSON.stringify({ type: "join", payload: { userId: "user-bob", token: TOKEN } }));
+    await collectMessages(ws, 2);
+
+    const created = collectUntil(ws, (messages) =>
+      messages.some(
+        (message) =>
+          message.type === "card_created" && message.payload.card.id === "card-notion-off"
+      )
+    );
+
+    ws.send(
+      JSON.stringify({
+        type: "card_created",
+        payload: {
+          card: {
+            id: "card-notion-off",
+            recipientUserID: "user-bob",
+            senderUserID: "user-alice",
+            type: "approval",
+            title: "Approve the onboarding rewrite",
+            summary: "Spec: https://www.notion.so/team/Onboarding-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+            context: "",
+            status: "pending",
+            priority: "high",
+            createdAt: new Date().toISOString(),
+          },
+        },
+      })
+    );
+
+    const messages = await created;
+    const card = messages.find((m) => m.payload?.card?.id === "card-notion-off").payload.card;
+    const notionSource = card.sources.find((source) => source.url?.includes("notion.so"));
+
+    // Unresolved, so it stays the generic chip — but it is still there.
+    assert.equal(notionSource.kind, "link");
+    assert.equal(notionSource.label, "Notion");
+
+    ws.close();
+  });
+
   await t.test("org: fetch, add member, routing follows", async () => {
     const headers = {
       "Content-Type": "application/json",

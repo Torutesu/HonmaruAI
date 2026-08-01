@@ -90,14 +90,23 @@ struct RecommendationHint: Codable, Hashable {
 // One-tap provenance: where this summary came from — the channel
 // conversation and/or documents referenced in the original ask.
 struct CardSource: Codable, Hashable, Identifiable {
-    let kind: String        // "channel" | "link"
+    let kind: String        // "channel" | "link" | "doc"
     let label: String
     var url: String?
     var channelID: String?
     var messageID: String?
+    var notionPageID: String?
 
     var id: String { url ?? channelID ?? label }
     var isChannel: Bool { kind == "channel" }
+    // A connected document: the relay resolved its real title, so the chip
+    // reads "Onboarding rewrite spec" rather than "Notion".
+    var isDoc: Bool { kind == "doc" }
+
+    var icon: String {
+        if isChannel { return "number" }
+        return isDoc ? "doc.richtext" : "arrow.up.right.square"
+    }
 }
 
 struct DecisionCard: Identifiable, Codable, Hashable {

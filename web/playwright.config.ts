@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const PORT = 8099;
+const NOTION_PORT = 8098;
 const data = mkdtempSync(join(tmpdir(), "ttfw-e2e-"));
 
 // Some sandboxes ship a Chromium that doesn't match this Playwright's pinned
@@ -31,28 +32,41 @@ export default defineConfig({
       ? { executablePath: PREINSTALLED_CHROMIUM }
       : {},
   },
-  webServer: {
-    command: "node ../server/index.js",
-    url: `http://127.0.0.1:${PORT}/health`,
-    reuseExistingServer: false,
-    stdout: "ignore",
-    env: {
-      PORT: String(PORT),
-      WEB_DIST_PATH: "../web/dist",
-      DEV_AUTH: "true",
-      // The suite runs over plain http, where Secure cookies never arrive.
-      INSECURE_COOKIES: "true",
-      OPENROUTER_API_KEY: "",
-      GITHUB_CLIENT_ID: "",
-      GITHUB_CLIENT_SECRET: "",
-      ESCALATION_INTERVAL_MINUTES: "0",
-      CARDS_STORE_PATH: join(data, "cards.json"),
-      CHANNELS_STORE_PATH: join(data, "channels.json"),
-      ORG_STORE_PATH: join(data, "org.json"),
-      PUSH_STORE_PATH: join(data, "push.json"),
-      DIGEST_STORE_PATH: join(data, "digest.json"),
-      MEMORY_STORE_PATH: join(data, "memory.json"),
-      SESSIONS_STORE_PATH: join(data, "sessions.json"),
+  webServer: [
+    // A stand-in Notion workspace: the relay reaches it with its real HTTP
+    // client, so only Notion's servers are mocked, not our integration.
+    {
+      command: "node ./e2e/notion-fixture.mjs",
+      url: `http://127.0.0.1:${NOTION_PORT}/health`,
+      reuseExistingServer: false,
+      stdout: "ignore",
+      env: { PORT: String(NOTION_PORT) },
     },
-  },
+    {
+      command: "node ../server/index.js",
+      url: `http://127.0.0.1:${PORT}/health`,
+      reuseExistingServer: false,
+      stdout: "ignore",
+      env: {
+        PORT: String(PORT),
+        WEB_DIST_PATH: "../web/dist",
+        DEV_AUTH: "true",
+        NOTION_TOKEN: "e2e-fixture-token",
+        NOTION_API_BASE: `http://127.0.0.1:${NOTION_PORT}`,
+        // The suite runs over plain http, where Secure cookies never arrive.
+        INSECURE_COOKIES: "true",
+        OPENROUTER_API_KEY: "",
+        GITHUB_CLIENT_ID: "",
+        GITHUB_CLIENT_SECRET: "",
+        ESCALATION_INTERVAL_MINUTES: "0",
+        CARDS_STORE_PATH: join(data, "cards.json"),
+        CHANNELS_STORE_PATH: join(data, "channels.json"),
+        ORG_STORE_PATH: join(data, "org.json"),
+        PUSH_STORE_PATH: join(data, "push.json"),
+        DIGEST_STORE_PATH: join(data, "digest.json"),
+        MEMORY_STORE_PATH: join(data, "memory.json"),
+        SESSIONS_STORE_PATH: join(data, "sessions.json"),
+      },
+    },
+  ],
 });

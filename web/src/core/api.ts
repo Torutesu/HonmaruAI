@@ -98,6 +98,14 @@ export const api = {
       toolCalls?: { name: string; label: string; detail: string }[];
     }>("/ai/refine", { method: "POST", body: JSON.stringify(input) }),
 
+  /** Read a connected document without leaving the decision — token stays server-side. */
+  notionSource: (input: { url?: string; pageID?: string }) =>
+    request<{ id: string; title: string; url: string | null; excerpt: string }>(
+      `/sources/notion?${new URLSearchParams(
+        input.pageID ? { pageID: input.pageID } : { url: input.url ?? "" }
+      )}`
+    ),
+
   /** Ops actions the command palette exposes; both are idempotent sweeps. */
   runDigest: () => request<{ digests: number }>("/digest/run", { method: "POST" }),
 

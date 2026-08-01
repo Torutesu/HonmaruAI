@@ -26,11 +26,13 @@ export type CardStatus =
 export type CardPriority = "low" | "medium" | "high" | "urgent" | (string & {});
 
 export interface CardSource {
-  kind: "channel" | "link" | (string & {});
+  /** "doc" is a connected document (Notion today) — readable in-app, not just linkable. */
+  kind: "channel" | "link" | "doc" | (string & {});
   label: string;
   url?: string;
   channelID?: string;
   messageID?: string;
+  notionPageID?: string;
 }
 
 export interface RecommendationHint {

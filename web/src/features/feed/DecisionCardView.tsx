@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { CardSource, DecisionCard } from "../../core/types";
 import { isNotification, isPending, isRevisionRequest } from "../../core/types";
 import { MicButton } from "../../ui/MicButton";
+import { isReadableDoc, useDocPreview } from "../sources/docPreview";
 import styles from "./DecisionCardView.module.css";
 
 export interface CardActions {
@@ -91,6 +92,7 @@ export function DecisionCardView({
   openReplySignal = 0,
 }: Props) {
   const priority = card.priority as string;
+  const openDoc = useDocPreview((state) => state.open);
   const [composer, setComposer] = useState<Composer>(null);
 
   useEffect(() => {
@@ -147,7 +149,17 @@ export function DecisionCardView({
           <div className={styles.sources}>
             <span className={styles.sourcesLabel}>Sources</span>
             {card.sources.map((source) =>
-              source.url ? (
+              // A connected document reads in place; a bare link can only leave.
+              isReadableDoc(source) ? (
+                <button
+                  key={source.url ?? source.label}
+                  className={`${styles.sourceChip} ${styles.docChip}`}
+                  aria-label={`Read ${source.label}`}
+                  onClick={() => openDoc(source)}
+                >
+                  ▤ {source.label}
+                </button>
+              ) : source.url ? (
                 <a
                   key={source.url}
                   className={styles.sourceChip}

@@ -65,6 +65,7 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 - **Revise & resend loop**: a revision request returns as an actionable card; the redraft routes straight back to whoever asked
 - **AI recommendations**: your agent learns from every decision you make and attaches a one-tap suggestion when your history shows a clear pattern. Advisory only
 - **One tap to the source**: every card carries provenance chips — the channel conversation it came from (opens scrolled to the exact message) and any documents referenced in the ask (Notion, Google Docs, Figma, GitHub PR/Issue links, auto-extracted and labeled). The summary is the decision surface; the source is one tap away
+- **Notion, actually connected** (`NOTION_TOKEN`): a linked page arrives as its real title rather than a generic "Notion" chip, a decision that links nothing gets its page found by searching the workspace with the decision's own words, and the page opens *next to* the card — title and text excerpt in place, "Open in Notion" one tap further. The token stays on the relay
 
 **Channels — the AI-native chat behind the feed**
 - "Tell your AI" is the only inbox: `/ai/ingest` triages input — decisions become cards, updates are filed to the best channel, genuinely new topics get channels auto-created

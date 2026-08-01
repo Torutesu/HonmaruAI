@@ -64,6 +64,18 @@ iOS still resolves locally and reports via `card_updated` — both paths converg
 
 Every delivered card carries a `sources` array (provenance.js): the **channel conversation** it came from (with the triggering message ID when the card was filed from chat), and **documents referenced in the original ask** — URLs in the instruction are auto-extracted and labeled (Notion, Google Docs, Figma, Linear, Jira, GitHub PR/Issue numbers, or the hostname). A webhook card's GitHub URL is its origin and is included; a *created* Issue link is the card's output and stays separate. The app renders these as tappable chips: links open in the browser, channel sources open the conversation scrolled to the exact message.
 
+### Notion, connected (`NOTION_TOKEN`)
+
+With an integration token the relay stops merely recognising Notion URLs and starts reading the workspace (notion.js), during the same delivery pipeline:
+
+- **A linked page becomes its title.** `sources` gains `kind: "doc"` and the chip reads *"Onboarding rewrite spec"* instead of *"Notion"*. A page the integration can't see degrades to the plain link rather than disappearing.
+- **A card that links nothing gets its page found.** The decision's own words — minus the boilerplate every card contains ("approve", "needs", "review") — become a workspace search, and a hit is attached only if its title covers ≥⅓ of that query. A vague match is worse than no source: it teaches people to distrust the chip. An explicitly linked page suppresses the search entirely; the human already said which page matters.
+- **`GET /sources/notion?url=…`** returns the title and a text excerpt so a client can render the document *next to* the decision. The token never leaves the relay, exactly like the GitHub token.
+
+Everything is best-effort by construction: unset, rate-limited, unreachable or slow (4s timeout), the card ships with the provenance it already had. `/health` reports `notion: true|false` so a client knows before it asks. Notion grants access per page — share the pages you want reachable with the integration.
+
+**Verified against a fixture workspace, not a live one**: the E2E suite points the relay's real HTTP client at a stand-in Notion API (`NOTION_API_BASE`), so the wire format, the resolution logic and the in-app preview are all exercised; only Notion's servers are swapped out.
+
 ## Agent memory — your AI learns how you decide
 
 Every pending→decided transition (approve / reject / revise) is recorded per user (`data/memory.json`, last 50). When a new decidable card is delivered to someone with ≥3 relevant data points, their AI predicts the call (`recommend_decision` tool; offline, a ≥75%-consistency pattern heuristic over same-sender/same-type history) and attaches a one-tap recommendation — "Your AI suggests: Approve · You approved the last 3 review requests from Alice", written in the recipient's language. Advisory only: no clear pattern, no recommendation, and the human always decides.
@@ -119,7 +131,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/health` | Health check (`aiRouting`, `aiModel`, `authRequired`, `push: {apns, web}`) |
+| GET | `/health` | Health check (`aiRouting`, `aiModel`, `authRequired`, `push: {apns, web}`, `notion`) |
 | GET | `/org` | Organization snapshot: users, nodes, edges |
 | POST | `/org/members` | Add a member (name, role, team, githubUsername) — broadcasts `org_updated` |
 | POST | `/push/register` | Register an APNs device token for a user |
@@ -131,6 +143,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | GET | `/auth/github/start` → `/auth/github/callback` | Browser OAuth (server-side `state`), sets the session cookie |
 | GET/POST | `/auth/me`, `/auth/session`, `/auth/signout` | Session identity, org-member selection, sign out |
 | GET/POST/PATCH | `/github/repos`, `/github/repo`, `/github/issues[/:n]` | GitHub proxy using the session's token |
+| GET | `/sources/notion?url=…` | Read a linked Notion page (title + excerpt) — the token never leaves the relay |
 | GET | `/auth/dev?user=…` | Sign in as an org member with no credentials — **404 unless `DEV_AUTH=true`, and never in production** |
 
 ## Web client (same-origin hosting)

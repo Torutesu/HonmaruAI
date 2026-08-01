@@ -1,5 +1,6 @@
 import { useChannelStore } from "../../core/stores/channels";
 import type { DecisionCard } from "../../core/types";
+import { isReadableDoc, useDocPreview } from "../sources/docPreview";
 import styles from "./Workbench.module.css";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 export function ContextPanel({ card }: Props) {
   const channels = useChannelStore((state) => state.channels);
   const messagesByChannel = useChannelStore((state) => state.messagesByChannel);
+  const openDoc = useDocPreview((state) => state.open);
 
   if (!card) {
     return (
@@ -81,17 +83,28 @@ export function ContextPanel({ card }: Props) {
 
       {links.length > 0 && (
         <div className={styles.contextLinks}>
-          {links.map((source) => (
-            <a
-              key={source.url}
-              className={styles.contextLink}
-              href={source.url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              ↗ {source.label}
-            </a>
-          ))}
+          {links.map((source) =>
+            isReadableDoc(source) ? (
+              <button
+                key={source.url}
+                className={styles.contextLink}
+                style={{ textAlign: "left", background: "none", border: 0 }}
+                onClick={() => openDoc(source)}
+              >
+                ▤ {source.label}
+              </button>
+            ) : (
+              <a
+                key={source.url}
+                className={styles.contextLink}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                ↗ {source.label}
+              </a>
+            )
+          )}
         </div>
       )}
     </aside>

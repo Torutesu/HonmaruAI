@@ -89,6 +89,15 @@ Last updated: 2026-07-30
 - [x] CI (GitHub Actions): relay `node --test`, web unit + integration, Playwright E2E — two browsers on one relay closing the decision loop
 - [ ] Lighthouse audit run (needs a Chrome audit environment; the a11y work it scores is in place)
 
+## Phase 13 — Notion connected for real
+
+- [x] `notion.js`: page-id extraction from every URL shape Notion produces, title resolution across workspace-named properties, blocks → readable excerpt, 4s-timeout client that degrades to null instead of throwing
+- [x] Delivery-time resolution: a linked page becomes its real title (`kind: "doc"`); an unlinked card gets its page found by searching with the decision's own words, gated on a ≥⅓ title-overlap score so vague matches are never attached
+- [x] `GET /sources/notion` + in-app document preview (title, excerpt, "Open in Notion") on both web surfaces — the token never leaves the relay; `/health` reports `notion`
+- [x] Off by default and safe: no token means the previous link-only provenance, unchanged, with tests covering that path as well as rate-limits and dropped connections
+- [x] E2E against a fixture workspace (`NOTION_API_BASE`): the relay's real HTTP client, the real resolution, the real preview
+- [ ] Verification against a live Notion workspace (needs an integration token)
+
 ## Phase 8 — Deployable relay
 
 - [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)

@@ -126,6 +126,13 @@
   text-decoration: none;
 }
 
+/* A document you can read here reads differently from a link that leaves. */
+.docChip {
+  color: var(--t1);
+  background: var(--raised);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
 .recommendation {
   display: flex;
   flex-direction: column;
