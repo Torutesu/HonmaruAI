@@ -1,0 +1,181 @@
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  color: inherit;
+}
+.rowName {
+  font-family: var(--font-rounded);
+  font-size: 15px;
+  font-weight: 700;
+}
+.rowPreview {
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px 8px;
+  font-family: var(--font-rounded);
+  font-size: 15px;
+  font-weight: 700;
+}
+.back {
+  background: none;
+  border: 0;
+  color: var(--t2);
+  font-size: 18px;
+  padding: 2px 6px;
+}
+
+.timeline {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.message {
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  margin: -8px;
+  border-radius: var(--radius-md);
+  transition: background-color 0.4s ease;
+}
+.highlighted {
+  background: var(--tint);
+}
+
+.avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--t2);
+  background: var(--raised);
+  border-radius: var(--radius-sm);
+}
+.avatarAgent {
+  color: var(--accent);
+  background: var(--tint);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.headerAgent {
+  color: var(--accent);
+}
+.badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--tint);
+  border-radius: 999px;
+  padding: 1px 5px;
+}
+.time {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--t3);
+}
+.text {
+  margin-top: 2px;
+  font-size: 14px;
+  color: var(--t2);
+  overflow-wrap: break-word;
+}
+.tool {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--t2);
+  background: var(--raised);
+  border-radius: 999px;
+}
+.cardNote {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+
+.composer {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px 20px;
+}
+.composer input {
+  flex: 1;
+  padding: 13px 16px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--t1);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+}
+.composer input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.composer button {
+  flex: none;
+  width: 44px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+  border: 0;
+  border-radius: 999px;
+  font-size: 15px;
+}
+
+.tip {
+  flex: none;
+  padding: 0 18px 6px;
+  font-size: 10.5px;
+  color: var(--t3);
+}

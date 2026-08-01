@@ -1,22 +1,35 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./core/api";
 import { setRelaySocket } from "./core/relay";
 import { RelaySocket } from "./core/socket";
 import { useCardStore } from "./core/stores/cards";
+import { useChannelStore } from "./core/stores/channels";
 import { applyAppearance, useSessionStore } from "./core/stores/session";
+import type { CardSource } from "./core/types";
+import { ChannelsScreen } from "./features/channels/ChannelsScreen";
 import { FeedScreen } from "./features/feed/FeedScreen";
+import { SettingsScreen } from "./features/settings/SettingsScreen";
+import styles from "./App.module.css";
+
+type Tab = "feed" | "channels" | "settings";
 
 function relayUrl() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  // Dev server proxies HTTP but not WS, so talk to the relay directly there.
+  // The dev server proxies HTTP but not WS, so talk to the relay directly there.
   const host = import.meta.env.DEV ? "127.0.0.1:8080" : location.host;
   return `${protocol}//${host}`;
 }
 
 export function App() {
-  const { me, appearance, loading, signedIn, setSession, setLoading } = useSessionStore();
-  const applyEvent = useCardStore((state) => state.apply);
+  const { me, appearance, loading, signedIn, setSession, setLoading, setOrganization } =
+    useSessionStore();
+  const applyCardEvent = useCardStore((state) => state.apply);
+  const applyChannelEvent = useChannelStore((state) => state.apply);
   const setConnected = useCardStore((state) => state.setConnected);
+  const connected = useCardStore((state) => state.connected);
+
+  const [tab, setTab] = useState<Tab>("feed");
+  const [deepLink, setDeepLink] = useState<{ channelID: string; messageID?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<RelaySocket | null>(null);
 
@@ -48,7 +61,7 @@ export function App() {
     };
   }, [setSession, setLoading]);
 
-  // One socket per identity; the store consumes snapshot + deltas.
+  // One socket per identity; every store consumes the same event stream.
   useEffect(() => {
     if (!me?.id) return;
 
@@ -57,8 +70,19 @@ export function App() {
     setRelaySocket(socket);
 
     const offEvent = socket.onEvent((event) => {
-      if (event.type === "error") setError(event.payload.message);
-      else applyEvent(event);
+      if (event.type === "error") {
+        setError(event.payload.message);
+        return;
+      }
+      if (event.type === "org_updated") {
+        setOrganization(event.payload.users, {
+          nodes: event.payload.nodes,
+          edges: event.payload.edges,
+        });
+        return;
+      }
+      applyCardEvent(event);
+      applyChannelEvent(event);
     });
     const offStatus = socket.onStatusChange(setConnected);
 
@@ -70,38 +94,79 @@ export function App() {
       socketRef.current = null;
       setRelaySocket(null);
     };
-  }, [me?.id, applyEvent, setConnected]);
+  }, [me?.id, applyCardEvent, applyChannelEvent, setConnected, setOrganization]);
 
-  if (loading) return <Centered>Restoring session…</Centered>;
+  // A card's channel source opens the conversation at the exact message.
+  const openSource = useCallback((source: CardSource) => {
+    if (source.url) {
+      window.open(source.url, "_blank", "noreferrer");
+      return;
+    }
+    if (source.channelID) {
+      setDeepLink({ channelID: source.channelID, messageID: source.messageID });
+      setTab("channels");
+    }
+  }, []);
+
+  if (loading) return <div className={styles.centered}>Restoring session…</div>;
+
   if (!signedIn) {
     return (
-      <Centered>
-        <a href="/auth/github/start">Sign in with GitHub</a>
-      </Centered>
+      <div className={styles.centered}>
+        <p>Decisions, not messages.</p>
+        <a className={styles.signIn} href="/auth/github/start">
+          Sign in with GitHub
+        </a>
+      </div>
     );
   }
-  if (!me) return <Centered>Pick your org member to continue.</Centered>;
+
+  if (!me) {
+    return (
+      <div className={styles.centered}>
+        <p>Your GitHub account isn't linked to an org member yet.</p>
+        <p>Ask an admin to add you, or pick a member in Settings.</p>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <FeedScreen />
-      {error && <Centered>{error}</Centered>}
-    </>
-  );
-}
+    <div className={styles.shell}>
+      <nav className={styles.nav}>
+        <button className={styles.user}>
+          <span className={`${styles.dot} ${connected ? styles.dotOnline : ""}`} />
+          {me.name}
+        </button>
+        <div className={styles.tabs}>
+          {(["feed", "channels", "settings"] as Tab[]).map((id) => (
+            <button
+              key={id}
+              className={`${styles.tab} ${tab === id ? styles.tabActive : ""}`}
+              aria-current={tab === id}
+              onClick={() => {
+                setTab(id);
+                if (id !== "channels") setDeepLink(null);
+              }}
+            >
+              {id === "feed" ? "Feed" : id === "channels" ? "Channels" : "⚙"}
+            </button>
+          ))}
+        </div>
+      </nav>
 
-function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        height: "100%",
-        display: "grid",
-        placeItems: "center",
-        color: "var(--t2)",
-        fontSize: 14,
-      }}
-    >
-      {children}
+      <div className={styles.body}>
+        {tab === "feed" && <FeedScreen onOpenSource={openSource} />}
+        {tab === "channels" && (
+          <ChannelsScreen
+            initialChannelID={deepLink?.channelID ?? null}
+            highlightMessageID={deepLink?.messageID ?? null}
+            onConsumeDeepLink={() => setDeepLink(null)}
+          />
+        )}
+        {tab === "settings" && <SettingsScreen />}
+      </div>
+
+      {error && <div className={styles.centered}>{error}</div>}
     </div>
   );
 }

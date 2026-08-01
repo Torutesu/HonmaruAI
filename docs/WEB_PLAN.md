@@ -157,9 +157,11 @@ Tap decide → optimistic update → GitHub Issue via proxy → result card. Rep
 
 **Bug caught in review**: `/cards/` wasn't in the relay's API prefix list, so the new endpoint would have bypassed the auth gate entirely. Added, with a test asserting an unauthenticated decide returns 401.
 
-### Phase 3 — Channels + org + settings
-Channel list/timeline with agent styling and tool chips, `@ai` mentions, scroll-to-message provenance. Org graph, user switcher, add member. Settings: appearance (System/Dark/Light via `data-theme`), language, connection, sign out.
+### Phase 3 — Channels + org + settings — ✅ SHIPPED
+Channel list/timeline with agent styling and tool chips, `@ai` mentions, scroll-to-message provenance. User switcher, language, appearance (System/Dark/Light via `data-theme`), connection, sign out.
 **Done when**: feature parity with the iOS app minus voice/push.
+**Shipped**: channel store (snapshot/created/message with echo de-duplication), timeline that lands on the exact message a card's source chip points to, tab shell (Feed / Channels / ⚙), settings with appearance tiles, relay-synced language, member switching and sign out.
+**Deferred to Phase 6**: org graph visualization and add-member form (both exist on iOS; the endpoints are already wired in `api.ts`).
 
 ### Phase 4 — Auth, push, PWA
 Real sign-in screen on the session flow, `OAuthCallback` route, Web Push subscribe + permission UX (mirroring the "we only ring for high/urgent" copy), manifest + service worker (installable, notification click → deep link to the card), Web Speech dictation where supported.

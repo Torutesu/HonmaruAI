@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
 import { selectCardsFor, selectPendingCount, useCardStore } from "../../core/stores/cards";
 import { useSessionStore } from "../../core/stores/session";
+import type { CardSource } from "../../core/types";
 import { ComposeBar } from "../compose/ComposeBar";
 import { DecisionCardView } from "./DecisionCardView";
 import { useDecisions } from "./useDecisions";
 import styles from "./FeedScreen.module.css";
 
-export function FeedScreen() {
+interface Props {
+  onOpenSource?: (source: CardSource) => void;
+}
+
+export function FeedScreen({ onOpenSource }: Props) {
   const me = useSessionStore((state) => state.me);
   const users = useSessionStore((state) => state.users);
-  const connected = useCardStore((state) => state.connected);
   const cards = useCardStore(selectCardsFor(me?.id ?? null));
   const pending = useCardStore(selectPendingCount(me?.id ?? null));
   const decisions = useDecisions();
@@ -33,16 +37,7 @@ export function FeedScreen() {
   return (
     <div className={styles.screen}>
       <header className={styles.topbar}>
-        <button className={styles.user} type="button">
-          <span
-            className={`${styles.dot} ${connected ? styles.dotOnline : ""}`}
-            title={connected ? "Connected" : "Reconnecting…"}
-          />
-          {me?.name ?? "…"}
-        </button>
-        <span className={styles.pending}>
-          {pending} pending
-        </span>
+        <span className={styles.pending}>{pending} pending</span>
       </header>
 
       {message && (
@@ -68,6 +63,7 @@ export function FeedScreen() {
               senderName={nameFor(card.senderUserID)}
               busy={decisions.busyCardId === card.id}
               actions={decisions}
+              onOpenSource={onOpenSource}
             />
           ))
         )}

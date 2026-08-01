@@ -109,6 +109,18 @@ export const api = {
   organization: () =>
     request<{ users: User[]; nodes: OrgNode[]; edges: OrgEdge[] }>("/org"),
 
+  setLanguage: (userId: string, language: string) =>
+    request<{ user: User; organization: { users: User[]; nodes: OrgNode[]; edges: OrgEdge[] } }>(
+      "/org/language",
+      { method: "POST", body: JSON.stringify({ userId, language }) }
+    ),
+
+  addMember: (input: { name: string; role: string; team?: string; language?: string }) =>
+    request<{ user: User; organization: { users: User[]; nodes: OrgNode[]; edges: OrgEdge[] } }>(
+      "/org/members",
+      { method: "POST", body: JSON.stringify(input) }
+    ),
+
   repositories: () =>
     request<{ repositories: { id: number; fullName: string; htmlURL: string }[] }>(
       "/github/repos"

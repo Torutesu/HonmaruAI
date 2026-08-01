@@ -40,4 +40,4 @@ src/
 
 ## Status
 
-Phase 2 complete: the decision loop. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).
+Phase 3 complete: decision loop, channels, settings. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).
