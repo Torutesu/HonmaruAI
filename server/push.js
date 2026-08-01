@@ -1,6 +1,7 @@
 import { createPrivateKey, sign as cryptoSign } from "node:crypto";
 import { connect } from "node:http2";
 import { readFileSync, existsSync } from "node:fs";
+import webpush from "web-push";
 
 function base64url(input) {
   return Buffer.from(input)
@@ -107,12 +108,70 @@ export function createAPNS(env = process.env) {
 }
 
 /**
- * Device token registry. A device token belongs to exactly one user —
- * switching users on a device moves the token.
+ * Web Push (VAPID). Same shape as the APNs client so callers stay
+ * platform-agnostic; disabled cleanly without VAPID keys.
+ */
+export function createWebPush(env = process.env) {
+  const publicKey = env.VAPID_PUBLIC_KEY || "";
+  const privateKey = env.VAPID_PRIVATE_KEY || "";
+  const subject = env.VAPID_SUBJECT || "mailto:relay@tiktokforwork.local";
+  const configured = Boolean(publicKey && privateKey);
+
+  if (configured) {
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+  }
+
+  return {
+    configured,
+    publicKey,
+
+    async send({ subscription, title, body, payload = {} }) {
+      if (!configured) return { ok: false, reason: "not_configured" };
+      try {
+        await webpush.sendNotification(
+          subscription,
+          JSON.stringify({ title, body, ...payload })
+        );
+        return { ok: true };
+      } catch (error) {
+        const status = error?.statusCode;
+        return {
+          ok: false,
+          status,
+          reason: error?.message,
+          // 404/410 mean the browser dropped the subscription for good.
+          prune: status === 404 || status === 410,
+        };
+      }
+    },
+  };
+}
+
+/**
+ * Push target registry. A target belongs to exactly one user — switching
+ * users on a device moves it. Targets are tagged unions:
+ *   { platform: "ios", token }  |  { platform: "web", subscription }
  */
 export function createPushRegistry(initial) {
   const tokens =
     initial?.tokens && typeof initial.tokens === "object" ? initial.tokens : {};
+
+  function keyOf(target) {
+    return target.platform === "web" ? target.subscription?.endpoint : target.token;
+  }
+
+  function normalize(entry) {
+    // Legacy rows were bare APNs token strings.
+    return typeof entry === "string" ? { platform: "ios", token: entry } : entry;
+  }
+
+  function detach(key) {
+    for (const uid of Object.keys(tokens)) {
+      tokens[uid] = (tokens[uid] || [])
+        .map(normalize)
+        .filter((target) => keyOf(target) !== key);
+    }
+  }
 
   return {
     serialize() {
@@ -124,23 +183,42 @@ export function createPushRegistry(initial) {
       if (!userID || !cleanedToken || !/^[0-9a-f]{16,}$/i.test(cleanedToken)) {
         return false;
       }
-      for (const uid of Object.keys(tokens)) {
-        tokens[uid] = tokens[uid].filter((token) => token !== cleanedToken);
-      }
-      const list = tokens[userID] || [];
-      list.push(cleanedToken);
-      tokens[userID] = list;
+      detach(cleanedToken);
+      tokens[userID] = [
+        ...(tokens[userID] || []).map(normalize),
+        { platform: "ios", token: cleanedToken },
+      ];
       return true;
     },
 
-    tokensFor(userID) {
-      return tokens[userID] || [];
+    registerWeb(userID, subscription) {
+      const endpoint = subscription?.endpoint;
+      if (!userID || typeof endpoint !== "string" || !/^https:\/\//.test(endpoint)) {
+        return false;
+      }
+      if (!subscription?.keys?.p256dh || !subscription?.keys?.auth) return false;
+
+      detach(endpoint);
+      tokens[userID] = [
+        ...(tokens[userID] || []).map(normalize),
+        { platform: "web", subscription },
+      ];
+      return true;
     },
 
-    prune(deviceToken) {
-      for (const uid of Object.keys(tokens)) {
-        tokens[uid] = tokens[uid].filter((token) => token !== deviceToken);
-      }
+    targetsFor(userID) {
+      return (tokens[userID] || []).map(normalize);
+    },
+
+    // Back-compat: APNs device tokens only.
+    tokensFor(userID) {
+      return this.targetsFor(userID)
+        .filter((target) => target.platform === "ios")
+        .map((target) => target.token);
+    },
+
+    prune(key) {
+      detach(key);
     },
   };
 }

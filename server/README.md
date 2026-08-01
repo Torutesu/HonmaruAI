@@ -121,6 +121,17 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | POST | `/org/language` | Set a member's language — future cards arrive translated |
 | POST | `/github/webhook` | GitHub events → decision cards (HMAC-verified, no bearer token) |
 | POST | `/escalations/run` | Sweep for SLA breaches now (also runs on `ESCALATION_INTERVAL_MINUTES`) |
+| GET | `/auth/github/start` → `/auth/github/callback` | Browser OAuth (server-side `state`), sets the session cookie |
+| GET/POST | `/auth/me`, `/auth/session`, `/auth/signout` | Session identity, org-member selection, sign out |
+| GET/POST/PATCH | `/github/repos`, `/github/repo`, `/github/issues[/:n]` | GitHub proxy using the session's token |
+
+## Web client (same-origin hosting)
+
+The relay serves the built web app (`WEB_DIST_PATH`, SPA fallback) so the app and API share an origin. That single decision removes CORS entirely, makes the OAuth redirect a real URL the relay owns, and keeps the **GitHub token server-side** — the browser only carries an `httpOnly; Secure; SameSite=Lax` session cookie and never sees a token.
+
+- **Auth**: `/auth/github/start` issues a single-use, server-side `state` and redirects to GitHub; the callback verifies it, exchanges the code, matches an org member by `githubUsername` (falling back to the member picker), and creates a session. PKCE is deliberately omitted: it protects *public* clients, while the relay is a confidential client holding the client secret, and GitHub OAuth Apps don't support it.
+- **Authorization**: API routes accept either the relay token (native clients) or a valid session cookie (web). Static assets are public — a browser must load the app before it has credentials.
+- **Push**: `/push/register` takes `{platform:"web", subscription}` alongside APNs device tokens; **the quiet policy is shared** — only pending high/urgent decisions, never to a connected user.
 | GET | `/oauth/github/config` | OAuth client config for iOS |
 | POST | `/oauth/github/token` | Exchange code → access token |
 | POST | `/ai/route` | Route instruction via OpenRouter |

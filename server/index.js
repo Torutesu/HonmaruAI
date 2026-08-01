@@ -12,7 +12,16 @@ import {
   setActiveOrg,
 } from "./agentTools.js";
 import { createOrgStore } from "./org.js";
-import { createAPNS, createPushRegistry, shouldNotify } from "./push.js";
+import { createAPNS, createWebPush, createPushRegistry, shouldNotify } from "./push.js";
+import {
+  createSessionStore,
+  serializeCookie,
+  clearCookie,
+  parseCookies,
+  originFor,
+} from "./session.js";
+import { resolveStaticFile, serveStaticFile } from "./static.js";
+import * as gh from "./githubProxy.js";
 import { collectDigestSections, generateDigest, buildDigestCard } from "./digest.js";
 import { translateCard } from "./translate.js";
 import { verifyWebhookSignature, cardsFromWebhook } from "./githubWebhook.js";
@@ -70,6 +79,17 @@ const ORG_STORE_PATH =
   process.env.ORG_STORE_PATH || join(__dirname, "data", "org.json");
 const PUSH_STORE_PATH =
   process.env.PUSH_STORE_PATH || join(__dirname, "data", "push.json");
+const SESSIONS_STORE_PATH =
+  process.env.SESSIONS_STORE_PATH || join(__dirname, "data", "sessions.json");
+
+// Web client hosted by the relay itself → same origin, so no CORS, and the
+// GitHub token can stay server-side behind an httpOnly session cookie.
+const WEB_DIST_PATH =
+  process.env.WEB_DIST_PATH || join(__dirname, "..", "web", "dist");
+// Explicit public origin when behind a proxy/CDN (used for OAuth redirects).
+const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || "";
+// Secure cookies are required in production; localhost http needs them off.
+const SECURE_COOKIES = process.env.INSECURE_COOKIES !== "true";
 const DIGEST_STORE_PATH =
   process.env.DIGEST_STORE_PATH || join(__dirname, "data", "digest.json");
 const MEMORY_STORE_PATH =
@@ -120,6 +140,20 @@ function persistOrg() {
 }
 
 const apns = createAPNS(process.env);
+const webPush = createWebPush(process.env);
+
+const persistedSessions = loadPersistedStores(SESSIONS_STORE_PATH);
+const sessionStore = createSessionStore(
+  persistedSessions ? Object.fromEntries(persistedSessions.entries()) : null
+);
+const sessionPersister = createPersister(SESSIONS_STORE_PATH);
+
+function persistSessions() {
+  sessionPersister.schedule(
+    new Map([["sessions", sessionStore.serialize().sessions]])
+  );
+}
+
 const persistedPush = loadPersistedStores(PUSH_STORE_PATH);
 const pushRegistry = createPushRegistry(
   persistedPush ? Object.fromEntries(persistedPush.entries()) : null
@@ -139,20 +173,38 @@ function onlineUserIDsFor(orgId) {
 // Only pending high/urgent decisions ring, and never for a user who is
 // already connected — their feed shows the card in real time.
 function maybeNotify(orgId, card) {
-  if (!apns.configured) return;
+  if (!apns.configured && !webPush.configured) return;
   if (!shouldNotify({ card, onlineUserIDs: onlineUserIDsFor(orgId) })) return;
 
-  for (const token of pushRegistry.tokensFor(card.recipientUserID)) {
-    apns
-      .send({
-        deviceToken: token,
-        title: card.title,
-        body: card.summary || "New decision for you",
-        payload: { cardID: card.id },
-      })
+  const title = card.title;
+  const body = card.summary || "New decision for you";
+
+  for (const target of pushRegistry.targetsFor(card.recipientUserID)) {
+    const delivery =
+      target.platform === "web"
+        ? webPush.configured &&
+          webPush.send({
+            subscription: target.subscription,
+            title,
+            body,
+            payload: { cardID: card.id },
+          })
+        : apns.configured &&
+          apns.send({
+            deviceToken: target.token,
+            title,
+            body,
+            payload: { cardID: card.id },
+          });
+
+    if (!delivery) continue;
+
+    delivery
       .then((result) => {
         if (result.prune) {
-          pushRegistry.prune(token);
+          pushRegistry.prune(
+            target.platform === "web" ? target.subscription.endpoint : target.token
+          );
           persistPush();
         }
       })
@@ -448,15 +500,26 @@ function readBody(req) {
   });
 }
 
+const API_PREFIXES = ["/ai/", "/org", "/push/", "/digest/", "/escalations/", "/oauth/"];
+
+export function isApiPath(pathname) {
+  return API_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+// Two ways in: the relay token (native clients) or a browser session cookie
+// (web client — it must never hold the relay token in JavaScript).
 function isAuthorizedRequest(req) {
   if (!RELAY_TOKEN) return true;
   const header = req.headers.authorization || "";
-  return header === `Bearer ${RELAY_TOKEN}`;
+  if (header === `Bearer ${RELAY_TOKEN}`) return true;
+  return Boolean(sessionStore.fromRequest(req));
 }
 
-function isAuthorizedJoin(payload) {
+function isAuthorizedJoin(payload, req) {
   if (!RELAY_TOKEN) return true;
-  return payload?.token === RELAY_TOKEN;
+  if (payload?.token === RELAY_TOKEN) return true;
+  // Browsers can't set WebSocket headers, but same-origin cookies ride along.
+  return Boolean(req && sessionStore.fromRequest(req));
 }
 
 function json(res, status, payload) {
@@ -467,7 +530,15 @@ function json(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-async function exchangeGitHubCode(code) {
+function redirect(res, location, cookie) {
+  res.writeHead(302, {
+    Location: location,
+    ...(cookie ? { "Set-Cookie": cookie } : {}),
+  });
+  res.end();
+}
+
+async function exchangeGitHubCode(code, redirectUri = GITHUB_REDIRECT_URI) {
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: {
@@ -478,7 +549,7 @@ async function exchangeGitHubCode(code) {
       client_id: GITHUB_CLIENT_ID,
       client_secret: GITHUB_CLIENT_SECRET,
       code,
-      redirect_uri: GITHUB_REDIRECT_URI,
+      redirect_uri: redirectUri,
     }),
   });
 
@@ -501,8 +572,8 @@ const server = createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     });
     res.end();
     return;
@@ -518,6 +589,176 @@ const server = createServer(async (req, res) => {
       authRequired: Boolean(RELAY_TOKEN),
       push: apns.configured,
     });
+    return;
+  }
+
+  // ---- Browser session auth (web client) -------------------------------
+  // These endpoints are cookie-authenticated, not bearer-authenticated:
+  // a browser redirect can't carry the relay token.
+
+  if (url.pathname === "/auth/github/start" && req.method === "GET") {
+    if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+      json(res, 503, { message: "GitHub OAuth is not configured on the server." });
+      return;
+    }
+
+    const state = sessionStore.beginAuth();
+    const redirectUri = `${originFor(req, PUBLIC_ORIGIN)}/auth/github/callback`;
+    const authorize = new URL("https://github.com/login/oauth/authorize");
+    authorize.searchParams.set("client_id", GITHUB_CLIENT_ID);
+    authorize.searchParams.set("redirect_uri", redirectUri);
+    authorize.searchParams.set("scope", GITHUB_OAUTH_SCOPE);
+    authorize.searchParams.set("state", state);
+
+    redirect(res, authorize.toString());
+    return;
+  }
+
+  if (url.pathname === "/auth/github/callback" && req.method === "GET") {
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+
+    if (!code || !state || !sessionStore.consumeAuth(state)) {
+      json(res, 400, { message: "Invalid or expired OAuth state." });
+      return;
+    }
+
+    try {
+      const redirectUri = `${originFor(req, PUBLIC_ORIGIN)}/auth/github/callback`;
+      const githubToken = await exchangeGitHubCode(code, redirectUri);
+      const viewer = await gh.getViewer(githubToken);
+
+      // Bind to the org member whose githubUsername matches; otherwise the
+      // client shows the member picker (keeps the demo org usable).
+      const member = orgStore.findByGitHub(viewer.login);
+      const sessionId = sessionStore.create({
+        userId: member?.id || null,
+        githubToken,
+        githubLogin: viewer.login,
+      });
+      persistSessions();
+
+      redirect(
+        res,
+        "/",
+        serializeCookie(sessionStore.cookieName, sessionId, { secure: SECURE_COOKIES })
+      );
+    } catch (error) {
+      json(res, 400, { message: error.message || "OAuth exchange failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/auth/me" && req.method === "GET") {
+    const found = sessionStore.fromRequest(req);
+    if (!found) {
+      json(res, 401, { message: "Not signed in." });
+      return;
+    }
+    json(res, 200, {
+      githubLogin: found.session.githubLogin,
+      user: found.session.userId ? orgStore.findUser(found.session.userId) : null,
+      repository: found.session.repository,
+      organization: orgStore.snapshot(),
+      push: { web: webPush.configured, publicKey: webPush.publicKey || null },
+    });
+    return;
+  }
+
+  if (url.pathname === "/auth/session" && req.method === "POST") {
+    // Pick the org member for this session (member picker / demo switching).
+    const found = sessionStore.fromRequest(req);
+    if (!found) {
+      json(res, 401, { message: "Not signed in." });
+      return;
+    }
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const user = orgStore.findUser(body.userId);
+      if (!user) {
+        json(res, 400, { message: "Unknown org member." });
+        return;
+      }
+      found.session.userId = user.id;
+      if (body.repository) sessionStore.setRepository(found.id, body.repository);
+      persistSessions();
+      json(res, 200, { user, repository: found.session.repository });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Could not update session." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/auth/signout" && req.method === "POST") {
+    const found = sessionStore.fromRequest(req);
+    if (found) {
+      sessionStore.destroy(found.id);
+      persistSessions();
+    }
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Set-Cookie": clearCookie(sessionStore.cookieName, { secure: SECURE_COOKIES }),
+    });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // ---- GitHub proxy (browser never holds a GitHub token) ---------------
+
+  if (url.pathname.startsWith("/github/") && url.pathname !== "/github/webhook") {
+    const found = sessionStore.fromRequest(req);
+    if (!found) {
+      json(res, 401, { message: "Not signed in." });
+      return;
+    }
+    const { session } = found;
+
+    try {
+      if (url.pathname === "/github/repos" && req.method === "GET") {
+        json(res, 200, { repositories: await gh.listRepositories(session.githubToken) });
+        return;
+      }
+
+      if (url.pathname === "/github/repo" && req.method === "POST") {
+        const raw = await readBody(req);
+        const body = raw ? JSON.parse(raw) : {};
+        if (!body.repository) {
+          json(res, 400, { message: "repository is required." });
+          return;
+        }
+        sessionStore.setRepository(found.id, body.repository);
+        persistSessions();
+        json(res, 200, { repository: body.repository });
+        return;
+      }
+
+      const issueMatch = url.pathname.match(/^\/github\/issues(?:\/(\d+))?$/);
+      if (issueMatch) {
+        const number = issueMatch[1] ? Number(issueMatch[1]) : null;
+
+        if (req.method === "POST" && !number) {
+          const raw = await readBody(req);
+          const body = raw ? JSON.parse(raw) : {};
+          json(res, 200, await gh.createIssue(session.githubToken, session.repository, body));
+          return;
+        }
+        if (req.method === "PATCH" && number) {
+          const raw = await readBody(req);
+          const body = raw ? JSON.parse(raw) : {};
+          json(res, 200, await gh.updateIssue(session.githubToken, session.repository, number, body));
+          return;
+        }
+        if (req.method === "GET" && number) {
+          json(res, 200, await gh.getIssue(session.githubToken, session.repository, number));
+          return;
+        }
+      }
+
+      json(res, 404, { message: "Unknown GitHub proxy route." });
+    } catch (error) {
+      json(res, error.status || 400, { message: error.message || "GitHub request failed." });
+    }
     return;
   }
 
@@ -545,7 +786,11 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (!isAuthorizedRequest(req)) {
+  // The token gate covers API routes only. Public-by-design paths (/health,
+  // /auth/*, /github/*, the webhook) are handled above; everything else falls
+  // through to the static web build, which a browser must be able to load
+  // before it has any credentials.
+  if (isApiPath(url.pathname) && !isAuthorizedRequest(req)) {
     json(res, 401, { message: "Relay token required. Set it in the app's relay settings." });
     return;
   }
@@ -644,15 +889,27 @@ const server = createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const body = raw ? JSON.parse(raw) : {};
-      const registered = pushRegistry.register(body.userId, body.deviceToken);
+      const userId = body.userId || sessionStore.fromRequest(req)?.session.userId;
+
+      const isWeb = body.platform === "web";
+      const registered = isWeb
+        ? pushRegistry.registerWeb(userId, body.subscription)
+        : pushRegistry.register(userId, body.deviceToken);
 
       if (!registered) {
-        json(res, 400, { message: "Valid userId and deviceToken are required." });
+        json(res, 400, {
+          message: isWeb
+            ? "Valid userId and push subscription are required."
+            : "Valid userId and deviceToken are required.",
+        });
         return;
       }
 
       persistPush();
-      json(res, 200, { registered: true, pushEnabled: apns.configured });
+      json(res, 200, {
+        registered: true,
+        pushEnabled: isWeb ? webPush.configured : apns.configured,
+      });
     } catch (error) {
       json(res, 400, { message: error.message || "Push registration failed." });
     }
@@ -832,13 +1089,26 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Web client: anything unmatched falls through to the static build
+  // (SPA routes resolve to index.html). API paths are matched above.
+  const staticFile =
+    req.method === "GET" || req.method === "HEAD"
+      ? resolveStaticFile(WEB_DIST_PATH, url.pathname)
+      : null;
+  if (staticFile) {
+    serveStaticFile(res, staticFile, { method: req.method });
+    return;
+  }
+
   res.writeHead(404, { "Content-Type": "text/plain" });
   res.end("Not found");
 });
 
 const wss = new WebSocketServer({ server });
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  // Keep the upgrade request so join can fall back to cookie auth.
+  ws.upgradeReq = req;
   ws.on("message", (raw) => {
     let message;
     try {
@@ -852,7 +1122,7 @@ wss.on("connection", (ws) => {
 
     switch (type) {
       case "join": {
-        if (!isAuthorizedJoin(payload)) {
+        if (!isAuthorizedJoin(payload, ws.upgradeReq)) {
           send(ws, "error", { message: "Relay token required or invalid." });
           ws.close(4401, "unauthorized");
           return;
@@ -1104,6 +1374,7 @@ function shutdown() {
     ])
   );
   pushPersister.flushNow(new Map([["tokens", pushRegistry.serialize().tokens]]));
+  sessionPersister.flushNow(new Map([["sessions", sessionStore.serialize().sessions]]));
   digestPersister.flushNow(new Map([["lastRunByUser", digestState]]));
   memoryPersister.flushNow(new Map([["entries", memoryStore.serialize().entries]]));
   process.exit(0);
@@ -1126,6 +1397,10 @@ server.listen(PORT, () => {
       : "AI routing: missing OPENROUTER_API_KEY"
   );
   console.log(RELAY_TOKEN ? "Relay auth: token required" : "Relay auth: open (set RELAY_TOKEN before deploying)");
-  console.log(apns.configured ? "Push: APNs configured" : "Push: off (set APNS_KEY_P8/APNS_KEY_ID/APNS_TEAM_ID)");
+  console.log(apns.configured ? "Push: APNs configured" : "Push: APNs off (set APNS_KEY_P8/APNS_KEY_ID/APNS_TEAM_ID)");
+  console.log(webPush.configured ? "Push: Web Push configured" : "Push: Web Push off (set VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY)");
+  console.log(
+    existsSync(WEB_DIST_PATH) ? `Web client: serving ${WEB_DIST_PATH}` : "Web client: not built (run web build)"
+  );
   console.log(`Card store: ${STORE_PATH}`);
 });

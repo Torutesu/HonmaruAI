@@ -90,7 +90,20 @@ web/
 
 ---
 
-## 3. Relay work (Phase 0) — precise specs
+## 3. Relay work (Phase 0) — ✅ SHIPPED
+
+Implemented and verified end-to-end (94 server tests green). Deviations from the original spec are noted inline.
+
+- ✅ Static hosting (`static.js`): SPA fallback, hashed-asset immutable caching, GET+HEAD, path-traversal containment
+- ✅ Sessions (`session.js`): single-use server-side `state`, httpOnly cookie, TTL + pruning, persistence
+- ✅ Auth endpoints: `/auth/github/start|callback`, `/auth/me`, `/auth/session`, `/auth/signout`
+- ✅ GitHub proxy (`githubProxy.js`): repos, repo selection, issue create/update/get — session token only
+- ✅ Web Push (`push.js`): VAPID via `web-push`, registry now a tagged union (`ios` | `web`), shared quiet policy
+- ✅ Authorization: relay token **or** session cookie, on HTTP and on WS `join`
+- **Deviation — PKCE dropped**: it protects public clients; the relay is a confidential client holding the client secret and GitHub OAuth Apps don't support it. Server-side single-use `state` is the correct control here.
+- **Bug found and fixed during verification**: the bearer gate sat in front of static hosting, so a browser could never load the app (it has no relay token before signing in). The gate now covers API prefixes only.
+
+### Original specs
 
 All server-side, all testable with `node --test` before a line of React exists.
 

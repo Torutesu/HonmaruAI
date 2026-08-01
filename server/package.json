@@ -9,6 +9,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "web-push": "^3.6.7",
     "ws": "^8.18.0"
   }
 }
