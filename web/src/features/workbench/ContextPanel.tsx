@@ -40,36 +40,25 @@ export function ContextPanel({ card }: Props) {
 
       <div className={styles.contextBody}>
         {channel ? (
-          <div style={{ padding: "0 18px 12px", display: "grid", gap: 14 }}>
-            {messages.map((message) => {
-              const highlighted = message.id === card.sourceMessageID;
-              return (
-                <div
-                  key={message.id}
-                  style={{
-                    padding: highlighted ? 10 : 0,
-                    margin: highlighted ? -10 : 0,
-                    borderRadius: 12,
-                    background: highlighted ? "var(--tint)" : "transparent",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 600,
-                      color:
-                        message.authorKind === "agent" ? "var(--accent)" : "var(--t1)",
-                    }}
-                  >
-                    {message.authorName}
-                    {message.authorKind === "agent" && " · AI"}
-                  </div>
-                  <div style={{ fontSize: 13.5, color: "var(--t2)", marginTop: 2 }}>
-                    {message.text}
-                  </div>
+          <div className={styles.thread}>
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`${styles.message} ${
+                  // The message that triggered this decision, marked so the
+                  // eye lands on it without reading the whole thread.
+                  message.id === card.sourceMessageID ? styles.messageSource : ""
+                }`}
+              >
+                <div className={styles.messageAuthor}>
+                  {message.authorName}
+                  {message.authorKind === "agent" && (
+                    <span className={styles.agentTag}>AI</span>
+                  )}
                 </div>
-              );
-            })}
+                <div className={styles.messageText}>{message.text}</div>
+              </div>
+            ))}
             {messages.length === 0 && (
               <p className={styles.contextEmpty}>No messages in this channel yet.</p>
             )}

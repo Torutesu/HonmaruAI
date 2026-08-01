@@ -24,7 +24,7 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .font(.system(size: 16, weight: .semibold))
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
                 .background(
@@ -57,7 +57,7 @@ struct GitHubPrimaryButton: View {
                     .scaledToFit()
                     .frame(width: 16, height: 16)
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 16, weight: .semibold))
             }
             .frame(maxWidth: .infinity)
             .frame(height: 52)

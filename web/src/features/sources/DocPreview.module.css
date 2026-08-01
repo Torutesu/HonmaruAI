@@ -41,16 +41,15 @@
 .eyebrow {
   grid-column: 1;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--accent);
 }
 .title {
   grid-column: 1;
-  font-family: var(--font-rounded);
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .close {
   grid-column: 2;
@@ -86,12 +85,11 @@
   flex: none;
   margin: 0 18px 18px;
   padding: 12px;
-  font-family: var(--font-rounded);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   text-align: center;
   text-decoration: none;
   color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+  background: var(--accent-strong);
   border-radius: var(--radius-md);
 }

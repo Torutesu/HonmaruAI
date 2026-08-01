@@ -17,6 +17,9 @@ const PREINSTALLED_CHROMIUM = "/opt/pw-browsers/chromium";
 // DEV_AUTH replaces the GitHub round trip, which no CI can perform.
 export default defineConfig({
   testDir: "./e2e",
+  // screens.spec.ts is a screenshot rig for design work, not an assertion
+  // suite — run it explicitly with `npm run screens`.
+  testIgnore: /screens\.spec\.ts/,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

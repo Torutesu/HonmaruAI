@@ -73,6 +73,7 @@ export function FeedScreen({ onOpenSource, focusCardID, onFocusHandled }: Props)
           cards.map((card) => (
             <div
               key={card.id}
+              className={styles.slot}
               ref={(element) => {
                 if (element) cardRefs.current.set(card.id, element);
                 else cardRefs.current.delete(card.id);

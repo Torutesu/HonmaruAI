@@ -1,57 +1,102 @@
-/* Design v2 tokens — the same values as TikTokForWork/Design/Theme.swift.
-   Dark is the default; [data-theme] is stamped by the appearance setting. */
+/* Design v3 — calm.
+ *
+ * v2 was Duolingo-loud: a purple ambient glow behind everything, a saturated
+ * green primary fighting a violet accent, 22px radii, and colour used for
+ * decoration. It read as a toy.
+ *
+ * The rule now: colour carries meaning, never decoration. The surface is a
+ * near-neutral dark with a faint cool cast; hierarchy comes from spacing,
+ * weight and one accent used sparingly. A screen you look at for eight hours
+ * should recede.
+ *
+ * Kept in sync with TikTokForWork/Design/Theme.swift. */
 
 :root,
 :root[data-theme="dark"] {
-  --bg: #0a0b12;
-  --surface: #12141d;
-  --raised: #1b1e2a;
-  --t1: #f2f3f8;
-  --t2: #9aa0b4;
-  --t3: #646b80;
-  --accent: #6e7bf2;
-  --accent-alt: #9c6bff;
-  --approve: #4ade80;
-  --issue-green: #2ea043;
-  --reject: #ff7b87;
-  --warn: #ffc24b;
-  --hairline: rgba(110, 123, 242, 0.1);
-  --tint: rgba(110, 123, 242, 0.12);
-  --glow: rgba(110, 123, 242, 0.2);
-  --card-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  /* Neutrals: a cool cast, not a blue tint. Each step is a real elevation. */
+  --bg: #0b0c0e;
+  --surface: #141518;
+  --raised: #1c1e22;
+  --overlay: #212429;
+
+  --t1: #ecedef;
+  --t2: #9ea3ab;
+  --t3: #6b7078;
+
+  /* One accent. Desaturated enough to sit under text without shouting. */
+  --accent: #7c8cf8;
+  --accent-strong: #6474f0;
+  --accent-alt: #7c8cf8; /* the gradient partner is gone; alias for compatibility */
+
+  /* Semantics — these are the only other colours, and they mark state. */
+  --approve: #3fb96b;
+  --issue-green: #3fb96b;
+  --reject: #e5646e;
+  --warn: #d9a441;
+
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+  --tint: rgba(124, 140, 248, 0.12);
+  /* No ambient glow. The backdrop is flat on purpose. */
+  --glow: transparent;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --lift-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 :root[data-theme="light"] {
-  --bg: #f3f4f9;
+  --bg: #fbfbfc;
   --surface: #ffffff;
-  --raised: #eaecf4;
-  --t1: #171923;
-  --t2: #555b70;
-  --t3: #8a90a5;
-  --accent: #5561d6;
-  --accent-alt: #7b5bd6;
-  --approve: #1fa45c;
-  --issue-green: #1f883d;
-  --reject: #e5484d;
-  --warn: #b47d0e;
-  --hairline: rgba(85, 97, 214, 0.14);
-  --tint: rgba(85, 97, 214, 0.1);
-  --glow: rgba(85, 97, 214, 0.16);
-  --card-shadow: 0 18px 40px rgba(23, 25, 35, 0.1);
+  --raised: #f2f3f5;
+  --overlay: #ffffff;
+
+  --t1: #16181c;
+  --t2: #5c626c;
+  --t3: #8b919b;
+
+  --accent: #4f5bd5;
+  --accent-strong: #4049c4;
+  --accent-alt: #4f5bd5;
+
+  --approve: #1a8245;
+  --issue-green: #1a8245;
+  --reject: #c9333c;
+  --warn: #9a6b0c;
+
+  --hairline: rgba(16, 18, 22, 0.1);
+  --hairline-strong: rgba(16, 18, 22, 0.16);
+  --tint: rgba(79, 91, 213, 0.09);
+  --glow: transparent;
+  --card-shadow: 0 1px 2px rgba(16, 18, 22, 0.06);
+  --lift-shadow: 0 8px 24px rgba(16, 18, 22, 0.1);
 }
 
 :root {
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
+  /* Tighter radii: 22px reads as a toy, 8–12px reads as a tool. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 16px;
   --space-lg: 24px;
   --space-xl: 32px;
-  --font-rounded: ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Rounded",
-    "Hiragino Maru Gothic ProN", "Segoe UI", sans-serif;
-  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
-    "Noto Sans JP", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* A real type scale. Display sizes tighten; small sizes stay legible. */
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 25px;
+  --tracking-tight: -0.02em;
+  --tracking-wide: 0.06em;
+
+  /* One family throughout — the rounded display face was the loudest part
+     of v2. `--font-rounded` is kept as an alias so nothing has to change at
+     every call site. */
+  --font-body: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
+    "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-rounded: var(--font-body);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace;
 }

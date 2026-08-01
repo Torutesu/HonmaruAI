@@ -19,9 +19,9 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-family: var(--font-rounded);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: 550;
+  letter-spacing: var(--tracking-tight);
   color: var(--t1);
   background: none;
   border: 0;
@@ -37,27 +37,29 @@
   box-shadow: 0 0 8px var(--approve);
 }
 
+/* Plain text tabs. The gradient pill in v2 was the loudest thing on screen
+   and it sat above the content it was supposed to serve. */
 .tabs {
   margin-left: auto;
   display: flex;
-  gap: 3px;
-  padding: 3px;
-  background: var(--raised);
-  border-radius: 999px;
+  gap: 2px;
 }
 .tab {
-  padding: 5px 13px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--t2);
+  padding: 5px 10px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--t3);
   background: none;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
-.tabActive {
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent);
+.tab:hover {
+  color: var(--t2);
+}
+.tabActive,
+.tabActive:hover {
+  color: var(--t1);
+  background: var(--raised);
 }
 
 .body {
@@ -103,13 +105,14 @@
 }
 
 .signIn {
-  padding: 14px 22px;
-  font-family: var(--font-rounded);
-  font-size: 15px;
-  font-weight: 700;
+  padding: 11px 20px;
+  font-size: var(--text-md);
+  font-weight: 550;
   color: #fff;
   text-decoration: none;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 38%, transparent);
+  background: var(--accent-strong);
+}
+.signIn:hover {
+  background: var(--accent);
 }

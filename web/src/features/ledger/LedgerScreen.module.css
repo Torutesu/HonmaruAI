@@ -14,15 +14,16 @@
 }
 .segment {
   display: flex;
-  gap: 3px;
-  padding: 3px;
+  gap: 2px;
+  padding: 2px;
   background: var(--raised);
-  border-radius: 999px;
+  border-radius: var(--radius-md);
 }
 .segment button {
   padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 500;
   text-transform: capitalize;
   color: var(--t2);
   background: none;
@@ -30,8 +31,9 @@
   border-radius: 999px;
 }
 .segmentActive {
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+  color: var(--t1);
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
 }
 
 .search {
@@ -63,9 +65,10 @@
   border-radius: var(--radius-md);
 }
 .statValue {
-  font-family: var(--font-rounded);
-  font-size: 20px;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: 550;
+  letter-spacing: var(--tracking-tight);
+  font-variant-numeric: tabular-nums;
 }
 .statLabel {
   font-size: 11px;
@@ -84,11 +87,11 @@
   padding: 14px;
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
 }
 .sectionTitle {
   font-size: 10.5px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--t3);
@@ -131,20 +134,20 @@
   font-weight: 600;
 }
 .outcome {
-  padding: 2px 8px;
+  padding: 2px 7px;
   color: var(--approve);
-  background: color-mix(in srgb, var(--approve) 14%, transparent);
-  border-radius: 999px;
+  background: color-mix(in srgb, var(--approve) 13%, transparent);
+  border-radius: var(--radius-sm);
 }
 .outcomePending {
   color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  background: color-mix(in srgb, var(--warn) 13%, transparent);
 }
 .chip {
-  padding: 2px 8px;
-  color: var(--accent);
-  background: var(--tint);
-  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--t3);
+  background: var(--raised);
+  border-radius: var(--radius-sm);
 }
 .lead {
   margin-left: auto;

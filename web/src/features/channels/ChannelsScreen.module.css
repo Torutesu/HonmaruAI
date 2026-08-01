@@ -26,9 +26,8 @@
   color: inherit;
 }
 .rowName {
-  font-family: var(--font-rounded);
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .rowPreview {
   font-size: 12px;
@@ -44,9 +43,8 @@
   align-items: center;
   gap: 8px;
   padding: 4px 16px 8px;
-  font-family: var(--font-rounded);
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .back {
   background: none;
@@ -84,7 +82,7 @@
   display: grid;
   place-items: center;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--t2);
   background: var(--raised);
   border-radius: var(--radius-sm);
@@ -111,7 +109,7 @@
 }
 .badge {
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--accent);
   background: var(--tint);
   border-radius: 999px;
@@ -167,7 +165,7 @@
   flex: none;
   width: 44px;
   color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+  background: var(--accent-strong);
   border: 0;
   border-radius: 999px;
   font-size: 15px;

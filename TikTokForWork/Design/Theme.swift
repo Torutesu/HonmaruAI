@@ -35,36 +35,46 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-// Visual language v2: deep indigo-biased dark with ambient glow, elevated
-// rounded surfaces, gradient accents — and a full light palette. Every
-// token is adaptive; views never branch on the color scheme themselves.
+// Visual language v3 — calm.
+//
+// v2 was loud: an ambient purple glow behind every screen, a saturated green
+// primary fighting a violet accent, 22pt radii and a rounded display face.
+// The rule now is that colour carries meaning and never decoration; hierarchy
+// comes from spacing, weight and one accent used sparingly.
+//
+// Kept in sync with web/src/styles/tokens.css. Every token is adaptive; views
+// never branch on the color scheme themselves.
 enum Theme {
     enum Colors {
-        static let background = adaptive(light: 0xF3F4F9, dark: 0x0A0B12)
-        static let surface = adaptive(light: 0xFFFFFF, dark: 0x12141D)
-        static let surfaceRaised = adaptive(light: 0xEAECF4, dark: 0x1B1E2A)
-        static let textPrimary = adaptive(light: 0x171923, dark: 0xF2F3F8)
-        static let textSecondary = adaptive(light: 0x555B70, dark: 0x9AA0B4)
-        static let textTertiary = adaptive(light: 0x8A90A5, dark: 0x646B80)
-        static let accent = adaptive(light: 0x5561D6, dark: 0x6E7BF2)
-        static let accentAlt = adaptive(light: 0x7B5BD6, dark: 0x9C6BFF)
-        static let approve = adaptive(light: 0x1FA45C, dark: 0x4ADE80)
-        static let issueGreen = adaptive(light: 0x1F883D, dark: 0x2EA043)
-        static let reject = adaptive(light: 0xE5484D, dark: 0xFF7B87)
-        static let warn = adaptive(light: 0xB47D0E, dark: 0xFFC24B)
+        static let background = adaptive(light: 0xFBFBFC, dark: 0x0B0C0E)
+        static let surface = adaptive(light: 0xFFFFFF, dark: 0x141518)
+        static let surfaceRaised = adaptive(light: 0xF2F3F5, dark: 0x1C1E22)
+        static let textPrimary = adaptive(light: 0x16181C, dark: 0xECEDEF)
+        static let textSecondary = adaptive(light: 0x5C626C, dark: 0x9EA3AB)
+        static let textTertiary = adaptive(light: 0x8B919B, dark: 0x6B7078)
+        static let accent = adaptive(light: 0x4F5BD5, dark: 0x7C8CF8)
+        static let accentStrong = adaptive(light: 0x4049C4, dark: 0x6474F0)
+        // The gradient partner is gone — aliased so call sites keep compiling.
+        static let accentAlt = accent
+        static let approve = adaptive(light: 0x1A8245, dark: 0x3FB96B)
+        // The primary action is the accent now; a saturated green next to a
+        // violet accent was two unrelated hues competing on one card.
+        static let issueGreen = accentStrong
+        static let reject = adaptive(light: 0xC9333C, dark: 0xE5646E)
+        static let warn = adaptive(light: 0x9A6B0C, dark: 0xD9A441)
 
+        // Flat: kept as a LinearGradient so existing call sites compile, but
+        // it is a single colour.
         static var accentGradient: LinearGradient {
-            LinearGradient(
-                colors: [accent, accentAlt],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            LinearGradient(colors: [accentStrong, accentStrong], startPoint: .top, endPoint: .bottom)
         }
     }
 
+    // One family throughout. The rounded display face was the loudest part
+    // of v2 and it made a decision tool read as a game.
     enum TypeScale {
-        static let title = Font.system(size: 24, weight: .semibold, design: .rounded)
-        static let body = Font.system(size: 16, weight: .regular)
+        static let title = Font.system(size: 21, weight: .semibold)
+        static let body = Font.system(size: 15, weight: .regular)
         static let caption = Font.system(size: 13, weight: .regular)
         static let label = Font.system(size: 12, weight: .medium)
         static let micro = Font.system(size: 11, weight: .regular)
@@ -80,11 +90,12 @@ enum Theme {
         static let screen: CGFloat = 24
     }
 
+    // 22pt read as a toy; 8–12 reads as a tool.
     enum Radius {
-        static let sm: CGFloat = 10
-        static let md: CGFloat = 14
-        static let lg: CGFloat = 22
-        static let sheet: CGFloat = 24
+        static let sm: CGFloat = 6
+        static let md: CGFloat = 8
+        static let lg: CGFloat = 12
+        static let sheet: CGFloat = 16
     }
 }
 
@@ -117,19 +128,12 @@ extension Color {
     }
 }
 
-// Ambient backdrop: canvas color with a soft accent glow bleeding from the
-// top — the "alive" quality of the reference visual direction.
+// The backdrop is flat on purpose. v2 bled an accent glow from the top of
+// every screen; it made the app look like a landing page and competed with
+// the content it was supposed to hold.
 struct AppBackdrop: View {
     var body: some View {
-        ZStack {
-            Theme.Colors.background
-            RadialGradient(
-                colors: [Theme.Colors.accent.opacity(0.14), .clear],
-                center: .top,
-                startRadius: 0,
-                endRadius: 460
-            )
-        }
+        Theme.Colors.background
     }
 }
 
@@ -138,21 +142,23 @@ extension View {
         background(AppBackdrop().ignoresSafeArea())
     }
 
-    // Soft brand glow for primary actions and hero elements.
+    // Kept so call sites compile, but glow is not part of v3: a primary
+    // action earns attention by being the only accent on the screen.
     func accentGlow(_ radius: CGFloat = 16, opacity: Double = 0.35) -> some View {
-        shadow(color: Theme.Colors.accent.opacity(opacity), radius: radius, x: 0, y: 6)
+        self
     }
 
-    // Elevated rounded card surface with a hairline accent stroke.
+    // A card is a surface with a hairline, not a floating slab. The heavy
+    // drop shadow in v2 did the work that spacing should do.
     func cardSurface(cornerRadius: CGFloat = Theme.Radius.lg) -> some View {
         background(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Theme.Colors.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Theme.Colors.accent.opacity(0.10), lineWidth: 1)
+                        .stroke(Theme.Colors.textPrimary.opacity(0.08), lineWidth: 1)
                 )
         )
-        .shadow(color: Color.black.opacity(0.22), radius: 22, x: 0, y: 10)
+        .shadow(color: Color.black.opacity(0.18), radius: 2, x: 0, y: 1)
     }
 }

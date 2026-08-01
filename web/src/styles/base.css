@@ -15,14 +15,14 @@ body,
 body {
   font-family: var(--font-body);
   color: var(--t1);
-  line-height: 1.55;
+  font-size: var(--text-md);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  /* Ambient accent glow bleeding from the top — AppBackdrop on iOS. */
-  background:
-    radial-gradient(120% 45% at 50% -6%, var(--glow) 0%, transparent 62%),
-    var(--bg);
-  background-attachment: fixed;
-  transition: background-color 0.25s ease;
+  text-rendering: optimizeLegibility;
+  /* Flat. v2 had a purple radial glow behind every screen; it made the whole
+     app look like a landing page and fought the content for attention. */
+  background: var(--bg);
+  transition: background-color 0.15s ease;
 }
 
 button {

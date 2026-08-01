@@ -29,12 +29,26 @@ const priorityClass: Record<string, string | undefined> = {
   urgent: styles.urgent,
 };
 
-/** "deadline: Friday · metric: p95 +18%" → labelled chips. */
-function contextChips(context: string) {
+/**
+ * "deadline: Friday · metric: p95 +18%" → labelled chips.
+ *
+ * `omit` drops anything the card already says elsewhere. The router writes
+ * "From Alice · decision routed to Bob" into context, which rendered as two
+ * chips repeating the header — three "Alice"s on one card.
+ */
+function contextChips(context: string, omit: string[] = []) {
+  const noise = omit.map((text) => text.toLowerCase()).filter(Boolean);
+
   return context
     .split(/\s·\s|\n/)
     .map((segment) => segment.trim())
     .filter(Boolean)
+    .filter((segment) => {
+      const lower = segment.toLowerCase();
+      if (/^(from|to)\s/.test(lower)) return false;
+      if (/routed to/.test(lower)) return false;
+      return !noise.some((text) => lower === text || lower === `from ${text}`);
+    })
     .map((segment) => {
       const colon = segment.indexOf(":");
       if (colon > 0 && colon <= 24) {
@@ -119,24 +133,26 @@ export function DecisionCardView({
     >
       <div className={styles.inner}>
         <div className={styles.meta}>
-          <span>{card.type}</span>
+          <span className={`${styles.priorityDot} ${priorityClass[priority] ?? ""}`} aria-hidden />
+          <span className={styles.metaStrong}>{senderName}</span>
           <span aria-hidden>·</span>
-          <span className={priorityClass[priority]}>
-            {priority.charAt(0).toUpperCase() + priority.slice(1)}
-          </span>
+          <span>{card.type}</span>
           <span className={styles.when}>{relativeTime(card.createdAt)}</span>
         </div>
-
-        <div className={styles.from}>From {senderName}</div>
-        {card.agentRoute && <div className={styles.route}>{card.agentRoute}</div>}
-        {card.routingReason && <div className={styles.why}>{card.routingReason}</div>}
 
         <h2 className={styles.title}>{card.title}</h2>
         <p className={styles.summary}>{card.summary}</p>
 
+        {/* Route and reason are one quiet line, not two stacked blocks. */}
+        {(card.agentRoute || card.routingReason) && (
+          <div className={styles.why}>
+            {[card.agentRoute, card.routingReason].filter(Boolean).join(" · ")}
+          </div>
+        )}
+
         {card.context && (
           <div className={styles.chips}>
-            {contextChips(card.context).map((chip, index) => (
+            {contextChips(card.context, [senderName]).map((chip, index) => (
               <span className={styles.chip} key={`${chip.value}-${index}`}>
                 {chip.label && <b>{chip.label} </b>}
                 {chip.value}
