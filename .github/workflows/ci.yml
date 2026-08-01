@@ -7,6 +7,9 @@ on:
 
 jobs:
   relay:
+    # Also runs the Swift contract test, which parses the iOS models and
+    # asserts the relay's JSON still fits them — the compiler check no Linux
+    # runner can perform.
     name: Relay (node --test)
     runs-on: ubuntu-latest
     steps:

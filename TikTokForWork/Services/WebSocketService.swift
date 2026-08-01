@@ -381,7 +381,9 @@ private extension JSONEncoder {
     }()
 }
 
-private extension ISO8601DateFormatter {
+// Shared with RelayDecisionClient: the relay emits both fractional and plain
+// ISO-8601, and every client-side decoder has to accept the pair.
+extension ISO8601DateFormatter {
     static let standard: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]

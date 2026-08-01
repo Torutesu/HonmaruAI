@@ -42,6 +42,7 @@ final class AppState: ObservableObject {
         await aiService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
         await orgService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
         pushService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
+        cardService.configureRelay(baseURL: backendBaseURL, token: relayToken)
         await restoreSessionIfNeeded()
     }
 
@@ -58,6 +59,7 @@ final class AppState: ObservableObject {
             await aiService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
             await orgService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
             pushService.configure(backendBaseURL: backendBaseURL, relayToken: relayToken)
+            cardService.configureRelay(baseURL: backendBaseURL, token: relayToken)
         }
 
         if isAuthenticated, let user = currentUser {

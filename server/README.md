@@ -58,7 +58,12 @@ Recipients resolve via each member's `githubUsername`; events for unknown logins
 
 `POST /cards/decide` owns what used to live only in the iOS client: the status transition, note handling (`Condition:` / `Reason:` / `Revision:`), the response card back to the sender (actionable when it's a revision request), delegation fan-out, decision-memory recording, and GitHub issue create/update when the caller's session has a token. Every client gets identical behavior instead of re-implementing it, and the result rides the normal delivery pipeline (translation, provenance, quiet push). Deciding an already-decided card returns `409`; a card belonging to another user returns `404`.
 
-iOS still resolves locally and reports via `card_updated` — both paths converge on the same store and broadcasts; migrating iOS to this endpoint is a follow-up.
+**iOS goes through this endpoint too** (`RelayDecisionClient`), so there is one implementation of the decision rules rather than one per client. Two deliberate exceptions:
+
+- **GitHub stays on the client for iOS.** The relay syncs issues only for callers whose *session* carries a GitHub token; iOS authenticates with the relay token and holds the user's OAuth token itself, so it files the issue after the decision lands and publishes the link as a `card_updated`.
+- **No relay, no relay decisions.** The app runs as a local demo when the socket won't open (`AppState` seeds the feed). In that mode a decision flips the status and keeps the note — nothing is broadcast, no response card is invented. It is a degraded mode, not a second copy of these rules.
+
+Since the iOS app can't be compiled in this repo's CI (no Xcode, and SwiftUI doesn't exist off Apple platforms), `test/swiftContract.test.js` covers the part a compiler would have: it parses the Swift models and asserts that every field, status, card type and decision action the relay can emit has somewhere to land. A field Swift doesn't declare is silently dropped; a non-optional Swift field the relay omits fails decoding and the card never appears — both are runtime-only bugs on a device.
 
 ## Provenance — one tap from summary to source
 

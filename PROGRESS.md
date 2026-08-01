@@ -98,6 +98,15 @@ Last updated: 2026-07-30
 - [x] E2E against a fixture workspace (`NOTION_API_BASE`): the relay's real HTTP client, the real resolution, the real preview
 - [ ] Verification against a live Notion workspace (needs an integration token)
 
+## Phase 14 — One implementation of the decision rules
+
+- [x] iOS decides through `POST /cards/decide` (`RelayDecisionClient`): status transition, note formatting, response card, delegation fan-out and decision memory now live only in `server/decisions.js`
+- [x] `DecisionCardService` loses 154 lines of resolution logic and gains 136 of routing; the codebase is not smaller (the HTTP client is new) — the point is that the *rules* now exist once. What remains offline is a labelled degraded mode (flip the status, keep the note) with almost nothing left to diverge
+- [x] GitHub sync stays on iOS by design — the relay only syncs for callers whose session holds a token; iOS files the issue after the decision and publishes the link
+- [x] Relay test for the exact request shape iOS sends (bearer + `actorUserID` in the body) across revise / acknowledge / delegate / priority, including a rejected non-member delegate
+- [x] `test/swiftContract.test.js`: parses the Swift models and asserts every field, status, card type and decision action the relay emits has somewhere to land — the compiler check CI can't run. Verified to fail when a model field is removed
+- [ ] Xcode build + two-simulator run (needs macOS; nothing here can compile SwiftUI)
+
 ## Phase 8 — Deployable relay
 
 - [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)

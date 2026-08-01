@@ -746,6 +746,96 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     assert.equal(bad.status, 400);
   });
 
+  await t.test("decide: the shape iOS sends works for every action", async () => {
+    // iOS authenticates with the relay token and names the actor in the body
+    // (no session cookie), unlike the web client. Every action it can send
+    // has to work through that door.
+    const headers = { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` };
+
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(JSON.stringify({ type: "join", payload: { userId: "user-bob", token: TOKEN } }));
+    await collectMessages(ws, 2);
+
+    const seed = async (id, overrides = {}) => {
+      const landed = collectUntil(ws, (messages) =>
+        messages.some((m) => m.type === "card_created" && m.payload.card.id === id)
+      );
+      ws.send(
+        JSON.stringify({
+          type: "card_created",
+          payload: {
+            card: {
+              id,
+              recipientUserID: "user-bob",
+              senderUserID: "user-alice",
+              type: "approval",
+              title: "Approve the rollout",
+              summary: "Staged rollout to 10%",
+              context: "",
+              status: "pending",
+              priority: "medium",
+              createdAt: new Date().toISOString(),
+              ...overrides,
+            },
+          },
+        })
+      );
+      await landed;
+    };
+
+    const decide = (body) =>
+      fetch(`${base}/cards/decide`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ actorUserID: "user-bob", ...body }),
+      });
+
+    await seed("card-ios-revise");
+    const revised = await decide({
+      cardId: "card-ios-revise",
+      action: "revise",
+      note: "split this in two",
+    });
+    assert.equal(revised.status, 200);
+    const revisedCard = (await revised.json()).card;
+    assert.equal(revisedCard.status, "revised");
+    assert.ok(revisedCard.context.includes("Revision: split this in two"));
+
+    await seed("card-ios-ack", { type: "notification" });
+    const acked = await decide({ cardId: "card-ios-ack", action: "acknowledge" });
+    assert.equal(acked.status, 200);
+    assert.equal((await acked.json()).card.status, "acknowledged");
+
+    await seed("card-ios-delegate");
+    const delegated = await decide({
+      cardId: "card-ios-delegate",
+      action: "delegate",
+      delegateToUserID: "user-carol",
+    });
+    assert.equal(delegated.status, 200);
+    assert.equal((await delegated.json()).card.status, "delegated");
+
+    await seed("card-ios-priority");
+    const prioritized = await decide({
+      cardId: "card-ios-priority",
+      action: "priority",
+      priority: "urgent",
+    });
+    assert.equal(prioritized.status, 200);
+    assert.equal((await prioritized.json()).card.priority, "urgent");
+
+    // Delegating to a non-member is rejected rather than silently dropped.
+    await seed("card-ios-bad-delegate");
+    const bad = await decide({
+      cardId: "card-ios-bad-delegate",
+      action: "delegate",
+      delegateToUserID: "user-nobody",
+    });
+    assert.equal(bad.status, 400);
+
+    ws.close();
+  });
+
   await t.test("notion: gated by auth, and off means off — not broken", async () => {
     // Behind the auth gate like every other API route.
     const denied = await fetch(`${base}/sources/notion?url=https://notion.so/x`);

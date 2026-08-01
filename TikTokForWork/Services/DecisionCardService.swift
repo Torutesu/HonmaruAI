@@ -16,6 +16,7 @@ enum CardServiceError: LocalizedError {
 final class DecisionCardService: ObservableObject {
     private var cardsByUser: [String: [DecisionCard]] = [:]
     private weak var webSocketService: WebSocketService?
+    private let relay = RelayDecisionClient()
 
     var onCardsUpdated: (() -> Void)?
 
@@ -24,6 +25,17 @@ final class DecisionCardService: ObservableObject {
         webSocketService.addEventHandler { [weak self] event in
             self?.handle(event)
         }
+    }
+
+    func configureRelay(baseURL: URL?, token: String?) {
+        relay.configure(baseURL: baseURL, token: token)
+    }
+
+    /// The relay owns decisions whenever there is one to talk to. Without a
+    /// connection the app still runs as a local demo (AppState seeds the feed
+    /// when the socket won't open) — see `decideOffline`.
+    private var relayOwnsDecisions: Bool {
+        relay.isConfigured && webSocketService?.isConnected == true
     }
 
     func applySnapshot(_ cardsByUser: [String: [DecisionCard]]) {
@@ -98,90 +110,26 @@ final class DecisionCardService: ObservableObject {
         note: String? = nil,
         githubService: GitHubService
     ) async throws -> DecisionCard {
-        guard var userCards = cardsByUser[actorUserID],
-              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
-            throw CardServiceError.cardNotFound
-        }
-
-        var card = userCards[index]
-        guard card.isPending else { return card }
-
+        let decision: DecisionAction
         switch action {
-        case .createIssue: card.status = .approved
-        case .reject: card.status = .rejected
-        case .requestRevision: card.status = .revised
-        case .delegate, .delete, .viewDetails, .askAI, .reviseResend, .reply, .acknowledge:
-            return card
-        }
-
-        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let decisionNote = (trimmedNote?.isEmpty == false) ? trimmedNote : nil
-        if let decisionNote {
-            switch action {
-            case .requestRevision:
-                card.revisionNote = decisionNote
-                card.context = [card.context, "Revision: \(decisionNote)"]
-                    .filter { !$0.isEmpty }.joined(separator: "\n")
-            case .createIssue:
-                card.context = [card.context, "Condition: \(decisionNote)"]
-                    .filter { !$0.isEmpty }.joined(separator: "\n")
-            case .reject:
-                card.context = [card.context, "Reason: \(decisionNote)"]
-                    .filter { !$0.isEmpty }.joined(separator: "\n")
-            default:
-                break
+        case .createIssue: decision = .approve
+        case .reject: decision = .reject
+        case .requestRevision: decision = .revise
+        case .acknowledge: decision = .acknowledge
+        case .delegate, .delete, .viewDetails, .askAI, .reviseResend, .reply:
+            guard let existing = findCard(cardID, for: actorUserID) else {
+                throw CardServiceError.cardNotFound
             }
+            return existing
         }
 
-        if action == .createIssue || card.githubIssueNumber != nil {
-            let synced = try await githubService.syncDecision(card)
-            card.githubIssueNumber = synced.number
-            card.githubIssueURL = synced.url
-            card.githubRepository = githubService.linkedRepository
-        }
-
-        userCards[index] = card
-        cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishUpdated(card)
-
-        let statusLabel: String = {
-            switch card.status {
-            case .approved: "created GitHub issue"
-            case .rejected: "declined"
-            case .revised: "requested revision"
-            default: card.status.label.lowercased()
-            }
-        }()
-
-        // A revision request goes back as an actionable card the sender can
-        // revise and resend; other outcomes are plain notifications.
-        let isRevisionRequest = card.status == .revised
-        let responseCard = DecisionCard(
-            id: UUID().uuidString,
-            recipientUserID: card.senderUserID,
-            senderUserID: actorUserID,
-            type: isRevisionRequest ? .revision : .notification,
-            title: card.title,
-            summary: "\(DemoData.userName(for: actorUserID)) · \(statusLabel)",
-            context: decisionNote ?? card.summary,
-            status: .pending,
-            priority: isRevisionRequest ? card.priority : .medium,
-            createdAt: .now,
-            githubIssueNumber: card.githubIssueNumber,
-            githubIssueURL: card.githubIssueURL,
-            agentRoute: card.agentRoute,
-            routingReason: isRevisionRequest
-                ? "\(DemoData.userName(for: actorUserID)) asked for changes — revise and resend"
-                : card.routingReason,
-            sourceInstruction: card.sourceInstruction ?? card.summary,
-            revisionNote: isRevisionRequest ? card.revisionNote : nil,
-            channelID: card.channelID
+        let decided = try await decide(
+            cardID: cardID,
+            action: decision,
+            actorUserID: actorUserID,
+            note: note
         )
-
-        append(responseCard, for: card.senderUserID)
-        await webSocketService?.publishCreated(responseCard)
-        onCardsUpdated?()
-        return card
+        return try await syncGitHubIfNeeded(decided, githubService: githubService)
     }
 
     @discardableResult
@@ -192,90 +140,137 @@ final class DecisionCardService: ObservableObject {
         organization: OrganizationGraph,
         githubService: GitHubService
     ) async throws -> DecisionCard {
-        guard var userCards = cardsByUser[actorUserID],
-              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
-            throw CardServiceError.cardNotFound
-        }
-
-        var card = userCards[index]
-        guard card.isPending else { return card }
         guard recipientUserID != actorUserID else {
             throw CardServiceError.githubSyncFailed("Pick someone else to delegate to.")
         }
 
-        card.status = .delegated
-        let synced = try await githubService.syncDecision(card)
-        card.githubIssueNumber = synced.number
-        card.githubIssueURL = synced.url
-        card.githubRepository = githubService.linkedRepository
-
-        userCards[index] = card
-        cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishUpdated(card)
-
-        let actorName = DemoData.userName(for: actorUserID)
-        let recipientName = DemoData.userName(for: recipientUserID)
-        let delegatedCard = DecisionCard(
-            id: UUID().uuidString,
-            recipientUserID: recipientUserID,
-            senderUserID: actorUserID,
-            type: .delegation,
-            title: card.title,
-            summary: card.summary,
-            context: "Delegated by \(actorName) · \(card.context)",
-            status: .pending,
-            priority: card.priority,
-            createdAt: .now,
-            githubIssueNumber: synced.number,
-            githubIssueURL: synced.url,
-            githubRepository: githubService.linkedRepository,
-            agentRoute: "\(actorName)'s AI → \(recipientName)'s AI",
-            routingReason: "Delegated by \(actorName)"
+        let decided = try await decide(
+            cardID: cardID,
+            action: .delegate,
+            actorUserID: actorUserID,
+            delegateToUserID: recipientUserID
         )
-
-        append(delegatedCard, for: recipientUserID)
-        await webSocketService?.publishCreated(delegatedCard)
-
-        let responseCard = DecisionCard(
-            id: UUID().uuidString,
-            recipientUserID: card.senderUserID,
-            senderUserID: actorUserID,
-            type: .notification,
-            title: card.title,
-            summary: "\(actorName) delegated to \(recipientName)",
-            context: card.summary,
-            status: .pending,
-            priority: .medium,
-            createdAt: .now,
-            githubIssueNumber: synced.number,
-            githubIssueURL: synced.url,
-            githubRepository: githubService.linkedRepository,
-            agentRoute: delegatedCard.agentRoute,
-            routingReason: "Delegation update"
-        )
-
-        append(responseCard, for: card.senderUserID)
-        await webSocketService?.publishCreated(responseCard)
-        onCardsUpdated?()
-        return card
+        return try await syncGitHubIfNeeded(decided, githubService: githubService)
     }
 
     @discardableResult
     func setPriority(cardID: String, to priority: CardPriority, actorUserID: String) async throws -> DecisionCard {
+        guard let current = findCard(cardID, for: actorUserID) else {
+            throw CardServiceError.cardNotFound
+        }
+        guard current.priority != priority else { return current }
+
+        return try await decide(
+            cardID: cardID,
+            action: .priority,
+            actorUserID: actorUserID,
+            priority: priority
+        )
+    }
+
+    // MARK: - Decision routing
+
+    /// Every decision goes to the relay when there is one; the local path is
+    /// the demo mode's minimum, not a second implementation of the rules.
+    private func decide(
+        cardID: String,
+        action: DecisionAction,
+        actorUserID: String,
+        note: String? = nil,
+        delegateToUserID: String? = nil,
+        priority: CardPriority? = nil
+    ) async throws -> DecisionCard {
+        guard relayOwnsDecisions else {
+            return try decideOffline(
+                cardID: cardID,
+                action: action,
+                actorUserID: actorUserID,
+                note: note,
+                priority: priority
+            )
+        }
+
+        let decided = try await relay.decide(
+            cardID: cardID,
+            action: action,
+            actorUserID: actorUserID,
+            note: note,
+            delegateToUserID: delegateToUserID,
+            priority: priority
+        )
+        // The socket delivers the same card plus any follow-ups; applying the
+        // response too just makes the feed update without waiting for it.
+        upsert(decided)
+        return decided
+    }
+
+    /// No relay: flip the status and keep the note visible. Nothing is
+    /// broadcast, nobody else can see it, and no response card is invented —
+    /// the demo stays coherent without duplicating `server/decisions.js`.
+    private func decideOffline(
+        cardID: String,
+        action: DecisionAction,
+        actorUserID: String,
+        note: String?,
+        priority: CardPriority?
+    ) throws -> DecisionCard {
         guard var userCards = cardsByUser[actorUserID],
               let index = userCards.firstIndex(where: { $0.id == cardID }) else {
             throw CardServiceError.cardNotFound
         }
 
         var card = userCards[index]
-        guard card.priority != priority else { return card }
+        if action == .priority {
+            card.priority = priority ?? card.priority
+        } else {
+            guard card.isPending else { return card }
+            switch action {
+            case .approve: card.status = .approved
+            case .reject: card.status = .rejected
+            case .revise:
+                card.status = .revised
+                card.revisionNote = note
+            case .acknowledge: card.status = .acknowledged
+            case .delegate: card.status = .delegated
+            case .priority: break
+            }
+            let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                card.context = [card.context, trimmed].filter { !$0.isEmpty }.joined(separator: "\n")
+            }
+        }
 
-        card.priority = priority
         userCards[index] = card
         cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishUpdated(card)
         onCardsUpdated?()
         return card
+    }
+
+    /// The relay syncs GitHub only for callers whose session carries a token.
+    /// iOS holds the user's OAuth token itself, so it files the issue here and
+    /// publishes the link as an update to the decision the relay already made.
+    private func syncGitHubIfNeeded(
+        _ card: DecisionCard,
+        githubService: GitHubService
+    ) async throws -> DecisionCard {
+        let wantsIssue = card.status == .approved || card.status == .delegated
+        guard githubService.isConnected, wantsIssue || card.githubIssueNumber != nil else {
+            return card
+        }
+
+        var synced = card
+        let issue = try await githubService.syncDecision(card)
+        synced.githubIssueNumber = issue.number
+        synced.githubIssueURL = issue.url
+        synced.githubRepository = githubService.linkedRepository
+
+        upsert(synced)
+        await webSocketService?.publishUpdated(synced)
+        return synced
+    }
+
+    private func findCard(_ cardID: String, for userID: String) -> DecisionCard? {
+        cardsByUser[userID]?.first { $0.id == cardID }
     }
 
     @discardableResult
@@ -304,20 +299,7 @@ final class DecisionCardService: ObservableObject {
     // Quietly close a notification card: no response card, no GitHub sync.
     @discardableResult
     func acknowledge(cardID: String, actorUserID: String) async throws -> DecisionCard {
-        guard var userCards = cardsByUser[actorUserID],
-              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
-            throw CardServiceError.cardNotFound
-        }
-
-        var card = userCards[index]
-        guard card.isPending else { return card }
-
-        card.status = .acknowledged
-        userCards[index] = card
-        cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishUpdated(card)
-        onCardsUpdated?()
-        return card
+        try await decide(cardID: cardID, action: .acknowledge, actorUserID: actorUserID)
     }
 
     // A question or note about a card, sent back to its sender as a
