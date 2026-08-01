@@ -12,7 +12,8 @@ Last updated: 2026-08-01
 
 ## Phase 7 — 3-second value + onboarding (see onboarding.md)
 
-- [x] Auth wall removed: one-tap persona entry (`OnboardingView`)
+- [x] Five-screen guided onboarding: welcome → how it works → interactive swipe demo → GitHub sign-in (skippable) → persona
+- [x] Auth wall removed: GitHub moved to step 4 of onboarding, after value is shown
 - [x] Seeded first-session feed per persona, staggered arrival + triage note
 - [x] Local-first approve/delegate (works without GitHub)
 - [x] Contextual GitHub connect sheet (post-first-approval, chip, menu)
@@ -47,8 +48,8 @@ Last updated: 2026-08-01
 ## Demo script
 
 1. (Optional for realtime/GitHub) `cd server && cp .env.example .env` → add credentials → `npm start`
-2. iOS → **Continue as Alice** → seeded decisions stream in → swipe right to approve
-3. After first approval → **Connect GitHub** sheet → OAuth → pick repo
+2. iOS → onboarding: pitch → routing → swipe the demo card → **Sign in with GitHub** (or skip) → **Continue as Alice** → seeded decisions stream in → swipe right to approve
+3. If GitHub was skipped: after first approval → **Connect GitHub** sheet → OAuth → pick repo
 4. Second simulator as Bob (same relay URL)
 5. Alice → Message your AI → instruction
 6. Bob sees card (green dot = connected)

@@ -2,7 +2,7 @@
 
 AI-native decision feed for teams. Humans talk to their AI; agents route Decision Cards across the org in real time.
 
-**The 3-second value:** open the app, and the decision you need to make is already there — clear it in one swipe. First launch requires zero setup: pick a persona, and your AI's triaged decisions stream in. GitHub connects later, contextually, right after your first approval. Design rationale in [onboarding.md](onboarding.md).
+**The 3-second value:** open the feed, and the decision you need to make is already there — clear it in one swipe. A five-screen guided onboarding gets you there: the pitch, how AI routing works, an interactive swipe tutorial, GitHub sign-in (skippable — the feed re-offers it after your first approval), and persona selection. Design rationale in [onboarding.md](onboarding.md).
 
 ## Stack
 
@@ -43,11 +43,13 @@ xcodegen generate
 open TikTokForWork.xcodeproj
 ```
 
-First run:
+First run (guided onboarding, 5 screens):
 
-1. **Continue as Alice** (one tap — no account, no server required)
-2. Your AI's triaged Decision Cards stream into the feed; swipe right to approve
-3. After the first approval the app offers **Connect GitHub** (OAuth browser sheet → pick repository) — from then on approvals sync as Issues. Also available from `Local mode · Connect GitHub` in the feed or the account menu.
+1. **Welcome** — the pitch: decisions, not messages
+2. **How it works** — the You → Your AI → Dana's AI → Dana routing chain
+3. **Try it** — swipe a real Decision Card to continue (learn the gesture by doing)
+4. **Sign in with GitHub** — OAuth browser sheet → pick repository. Skippable; the feed offers the connection again right after your first approval, and from `Local mode · Connect GitHub` or the account menu.
+5. **Who are you?** — pick a persona (Alice recommended) → your AI's triaged Decision Cards stream into the feed
 
 The relay server (`ws://127.0.0.1:8080`) is optional for a single simulator: without it the app runs fully local. It is required for the two-simulator realtime demo and for GitHub OAuth + AI routing (`OPENROUTER_API_KEY`).
 

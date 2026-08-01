@@ -5,8 +5,10 @@
 **Open the app, and the decision you need to make is already there — clear it in one swipe.**
 
 Every first-run choice is derived from this (see [onboarding.md](onboarding.md)):
-no auth wall, one-tap persona entry, a seeded feed that streams in as if your AI
-had been triaging overnight, and GitHub offered contextually after the first approval.
+a five-screen guided onboarding (value → mechanism → interactive swipe demo →
+GitHub sign-in → persona), then a seeded feed that streams in as if your AI had
+been triaging overnight. GitHub sign-in sits after the value is shown and stays
+skippable — the feed re-offers it contextually after the first approval.
 
 ## Direction
 

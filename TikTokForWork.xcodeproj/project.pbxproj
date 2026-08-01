@@ -26,6 +26,7 @@
 		95290EBF4EDE097F8C064870 /* GitHubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E494243CEA2F9FA065D51B /* GitHubService.swift */; };
 		9E9C73AE9AC5A2DA7409201A /* ConnectGitHubSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EACD6C16BA6FB48F6117E6 /* ConnectGitHubSheet.swift */; };
 		B2C3D4E5F60718293A4B5C6D /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* OnboardingView.swift */; };
+		E5F60718293A4B5C6D7E8F90 /* OnboardingSwipeDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F60718293A4B5C6D7E8F /* OnboardingSwipeDemo.swift */; };
 		A246F9D7027598688FF9D323 /* CardDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8750E0FA2DD54342124E00 /* CardDetailSheet.swift */; };
 		AF00A6C5624E178AF6832453 /* DecisionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */; };
 		B3C05C2EB5D07CE610D9EF38 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FAE0760357D0881EDB6897 /* DemoData.swift */; };
@@ -57,6 +58,7 @@
 		6296398BD566705F28FD07B2 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		66EACD6C16BA6FB48F6117E6 /* ConnectGitHubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectGitHubSheet.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5C /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		D4E5F60718293A4B5C6D7E8F /* OnboardingSwipeDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingSwipeDemo.swift; sourceTree = "<group>"; };
 		6A6977E782E374C75800103F /* AppLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogo.swift; sourceTree = "<group>"; };
 		6F84E8680AEE5FAB69B6DCF4 /* Organization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Organization.swift; sourceTree = "<group>"; };
 		70FAE0760357D0881EDB6897 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
@@ -178,6 +180,7 @@
 		C3D4E5F60718293A4B5C6D7E /* Onboarding */ = {
 			isa = PBXGroup;
 			children = (
+				D4E5F60718293A4B5C6D7E8F /* OnboardingSwipeDemo.swift */,
 				A1B2C3D4E5F60718293A4B5C /* OnboardingView.swift */,
 			);
 			path = Onboarding;
@@ -305,6 +308,7 @@
 				5B2137ED8A01082E09A11954 /* AppState.swift in Sources */,
 				9E9C73AE9AC5A2DA7409201A /* ConnectGitHubSheet.swift in Sources */,
 				B2C3D4E5F60718293A4B5C6D /* OnboardingView.swift in Sources */,
+				E5F60718293A4B5C6D7E8F90 /* OnboardingSwipeDemo.swift in Sources */,
 				A246F9D7027598688FF9D323 /* CardDetailSheet.swift in Sources */,
 				61546F7DD25035887C83D192 /* Components.swift in Sources */,
 				064B9C99CBB1BC04CD9B7307 /* DateFormatting.swift in Sources */,
