@@ -340,7 +340,11 @@ function QueueRow({
     priority === "urgent" ? styles.pillUrgent : priority === "high" ? styles.pillHigh : "";
 
   return (
-    <button className={styles.row} onClick={onSelect}>
+    <button
+      className={styles.row}
+      aria-label={`${card.title} — ${priority} priority, from ${senderName}`}
+      onClick={onSelect}
+    >
       <span className={styles.rowTop}>
         <span className={`${styles.pill} ${priorityClass}`}>{priority}</span>
         <span>{senderName}</span>

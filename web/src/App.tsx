@@ -8,6 +8,8 @@ import { applyAppearance, useSessionStore } from "./core/stores/session";
 import type { CardSource } from "./core/types";
 import { registerServiceWorker } from "./lib/push";
 import { useIsDesktop } from "./lib/useMediaQuery";
+import { useOfflineCache } from "./lib/useOfflineCache";
+import { ConnectionBanner } from "./ui/ConnectionBanner";
 import { ChannelsScreen } from "./features/channels/ChannelsScreen";
 import { FeedScreen } from "./features/feed/FeedScreen";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
@@ -32,6 +34,7 @@ export function App() {
   const connected = useCardStore((state) => state.connected);
 
   const isDesktop = useIsDesktop();
+  const restoredAt = useOfflineCache(me?.id ?? null);
   const [tab, setTab] = useState<Tab>("feed");
   const [deepLink, setDeepLink] = useState<{ channelID: string; messageID?: string } | null>(null);
   const [focusCardID, setFocusCardID] = useState<string | null>(null);
@@ -167,18 +170,27 @@ export function App() {
   if (isDesktop) {
     return (
       <>
+        <ConnectionBanner connected={connected} restoredAt={restoredAt} />
         <Workbench
           connected={connected}
           focusCardID={focusCardID}
           onFocusHandled={() => setFocusCardID(null)}
         />
-        {error && <div className={styles.centered}>{error}</div>}
+        {error && (
+          <div className={styles.errorBar} role="alert">
+            {error}
+            <button onClick={() => setError(null)} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        )}
       </>
     );
   }
 
   return (
     <div className={styles.shell}>
+      <ConnectionBanner connected={connected} restoredAt={restoredAt} />
       <nav className={styles.nav}>
         <button className={styles.user}>
           <span className={`${styles.dot} ${connected ? styles.dotOnline : ""}`} />
@@ -219,7 +231,14 @@ export function App() {
         {tab === "settings" && <SettingsScreen />}
       </div>
 
-      {error && <div className={styles.centered}>{error}</div>}
+      {error && (
+        <div className={styles.errorBar} role="alert">
+          {error}
+          <button onClick={() => setError(null)} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }

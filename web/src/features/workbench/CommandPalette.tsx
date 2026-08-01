@@ -57,6 +57,7 @@ export function CommandPalette({ commands, onClose }: Props) {
         <input
           autoFocus
           className={styles.paletteInput}
+          aria-label="Run a command"
           value={query}
           placeholder="Jump to a channel, switch member, run a digest…"
           onChange={(event) => setQuery(event.target.value)}

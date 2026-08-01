@@ -110,7 +110,11 @@ export function DecisionCardView({
   };
 
   return (
-    <article className={styles.card} aria-label={card.title}>
+    <article
+      className={styles.card}
+      aria-label={`${card.type} from ${senderName}: ${card.title}`}
+      aria-busy={busy}
+    >
       <div className={styles.inner}>
         <div className={styles.meta}>
           <span>{card.type}</span>
@@ -157,6 +161,7 @@ export function DecisionCardView({
                 <button
                   key={source.channelID ?? source.label}
                   className={styles.sourceChip}
+                  aria-label={`Open the conversation in ${source.label}`}
                   onClick={() => onOpenSource?.(source)}
                 >
                   # {source.label.replace(/^#/, "")}
@@ -238,6 +243,7 @@ export function DecisionCardView({
               <>
                 <button
                   className={styles.replyBar}
+                  aria-label={`Reply to ${card.title}`}
                   onClick={() => setComposer({ mode: "reply", text: "" })}
                 >
                   💬 Reply — add a condition, ask a question…
@@ -248,6 +254,7 @@ export function DecisionCardView({
                     <button
                       className={styles.secondary}
                       disabled={busy}
+                      aria-label={`Mark as read: ${card.title}`}
                       onClick={() => actions.acknowledge(card)}
                     >
                       Mark as read
@@ -259,6 +266,7 @@ export function DecisionCardView({
                     <button
                       className={`${styles.primary} ${isRevisionRequest(card) ? "" : styles.github}`}
                       disabled={busy}
+                      aria-label={`Approve: ${card.title}`}
                       onClick={() => actions.approve(card)}
                     >
                       {isRevisionRequest(card) ? "Approve as revised" : "Create issue"}
@@ -267,6 +275,7 @@ export function DecisionCardView({
                       <button
                         className={`${styles.secondary} ${styles.danger}`}
                         disabled={busy}
+                        aria-label={`Decline: ${card.title}`}
                         onClick={() => actions.reject(card)}
                       >
                         Decline
@@ -274,6 +283,7 @@ export function DecisionCardView({
                       <button
                         className={styles.secondary}
                         disabled={busy}
+                        aria-label={`Request a revision of ${card.title}`}
                         onClick={() => setComposer({ mode: "revise", text: "" })}
                       >
                         Revise
@@ -281,6 +291,7 @@ export function DecisionCardView({
                       <button
                         className={styles.secondary}
                         disabled={busy}
+                        aria-label={`Ask your AI to update ${card.title}`}
                         onClick={() => setComposer({ mode: "askAI", text: "" })}
                       >
                         Ask AI

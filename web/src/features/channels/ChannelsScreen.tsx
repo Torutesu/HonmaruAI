@@ -168,6 +168,7 @@ function Timeline({
       <div className={styles.composer}>
         <input
           value={draft}
+          aria-label={`Message #${name}`}
           placeholder={`Message #${name}`}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => event.key === "Enter" && send()}

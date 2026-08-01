@@ -142,3 +142,41 @@
   font-size: 12px;
   color: var(--reject);
 }
+
+/* ---- Org graph ---- */
+.team {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--raised);
+  border-radius: var(--radius-md);
+}
+.teamName {
+  font-family: var(--font-rounded);
+  font-size: 13px;
+  font-weight: 700;
+}
+.member {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.memberName {
+  font-size: 13px;
+  color: var(--t1);
+}
+.memberMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.tag {
+  padding: 2px 7px;
+  font-size: 10.5px;
+  color: var(--t2);
+  background: var(--surface);
+  border-radius: 999px;
+}

@@ -6,6 +6,24 @@ import { useSessionStore } from "../../core/stores/session";
 import type { DecisionCard } from "../../core/types";
 
 /**
+ * Failures the user can act on. Offline is the common one and the least
+ * self-explanatory: the cached feed still reads, but nothing decides.
+ */
+function describeFailure(cause: unknown, fallback: string) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return "You're offline — reconnect to decide.";
+  }
+  if (cause instanceof ApiError) {
+    if (cause.status === 409) return "Someone already decided this card.";
+    if (cause.status === 401) return "Your session expired — sign in again.";
+    return cause.message;
+  }
+  // fetch() rejects with a TypeError when the relay is unreachable.
+  if (cause instanceof TypeError) return "Can't reach the relay — retry in a moment.";
+  return cause instanceof Error ? cause.message : fallback;
+}
+
+/**
  * Card actions. The relay owns the outcome; the store still updates
  * optimistically so the feed feels instant, and rolls back on failure.
  */
@@ -51,13 +69,7 @@ export function useDecisions() {
         apply({ type: "card_updated", payload: { card: decided } });
       } catch (cause) {
         apply({ type: "card_updated", payload: { card: previous } });
-        setError(
-          cause instanceof ApiError && cause.status === 409
-            ? "Someone already decided this card."
-            : cause instanceof Error
-              ? cause.message
-              : "Could not save the decision."
-        );
+        setError(describeFailure(cause, "Could not save the decision."));
       } finally {
         setBusyCardId(null);
       }
@@ -89,7 +101,7 @@ export function useDecisions() {
           );
         }
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Could not read the reply.");
+        setError(describeFailure(cause, "Could not read the reply."));
       } finally {
         setBusyCardId(null);
       }
@@ -117,7 +129,7 @@ export function useDecisions() {
         });
         setNotice("Card updated by your AI");
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Could not update the card.");
+        setError(describeFailure(cause, "Could not update the card."));
       } finally {
         setBusyCardId(null);
       }

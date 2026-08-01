@@ -3,6 +3,7 @@ import { api } from "../../core/api";
 import { useSessionStore } from "../../core/stores/session";
 import type { Appearance } from "../../core/stores/session";
 import { currentPushState, enablePush, type PushState } from "../../lib/push";
+import { OrgSection } from "./OrgSection";
 import styles from "./SettingsScreen.module.css";
 
 const APPEARANCES: { id: Appearance; icon: string; label: string }[] = [
@@ -110,6 +111,7 @@ export function SettingsScreen() {
         <div className={styles.field}>
           <input
             value={language}
+            aria-label="Your language"
             placeholder="en / 日本語 / Français …"
             onChange={(event) => {
               setLanguage(event.target.value);
@@ -142,6 +144,8 @@ export function SettingsScreen() {
           </button>
         ))}
       </section>
+
+      <OrgSection />
 
       <section className={styles.group}>
         <h2 className={styles.groupTitle}>Connection</h2>

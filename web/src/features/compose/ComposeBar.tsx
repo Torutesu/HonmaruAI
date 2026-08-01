@@ -118,6 +118,7 @@ export function ComposeBar({ onSent }: Props) {
           <textarea
             autoFocus
             value={text}
+            aria-label="Tell your AI what you need"
             placeholder="Ask Bob to review the onboarding PR before Friday"
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
