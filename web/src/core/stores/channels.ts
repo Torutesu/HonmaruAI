@@ -52,8 +52,11 @@ export const useChannelStore = create<ChannelState>((set) => ({
     }),
 }));
 
+/** Same identity rule as the card store: never hand back a fresh empty array. */
+const NO_MESSAGES: ChatMessage[] = [];
+
 export const selectMessages = (channelID: string | null) => (state: ChannelState) =>
-  channelID ? state.messagesByChannel[channelID] ?? [] : [];
+  (channelID ? state.messagesByChannel[channelID] : null) ?? NO_MESSAGES;
 
 export const selectLastMessage = (channelID: string) => (state: ChannelState) => {
   const messages = state.messagesByChannel[channelID] ?? [];

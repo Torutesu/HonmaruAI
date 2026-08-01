@@ -111,6 +111,10 @@ const DIGEST_INTERVAL_MINUTES = Number(process.env.DIGEST_INTERVAL_MINUTES || 0)
 const SLA_MINUTES = parseSLAConfig(process.env.SLA_MINUTES);
 const ESCALATION_INTERVAL_MINUTES = Number(process.env.ESCALATION_INTERVAL_MINUTES || 15);
 
+// Password-less sign-in for local demos and the browser E2E suite. Never on
+// by default, and never in production even if the flag is set.
+const DEV_AUTH = process.env.DEV_AUTH === "true" && process.env.NODE_ENV !== "production";
+
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
 const GITHUB_REDIRECT_URI =
@@ -612,6 +616,29 @@ const server = createServer(async (req, res) => {
   // ---- Browser session auth (web client) -------------------------------
   // These endpoints are cookie-authenticated, not bearer-authenticated:
   // a browser redirect can't carry the relay token.
+
+  // Sign in as an org member without GitHub. Exists so the browser E2E suite
+  // can reach the app at all; refused unless DEV_AUTH is explicitly on and we
+  // are not in production, because it is an unauthenticated session grant.
+  if (url.pathname === "/auth/dev" && req.method === "GET") {
+    if (!DEV_AUTH) {
+      json(res, 404, { message: "Not found." });
+      return;
+    }
+    const user = orgStore.findUser(url.searchParams.get("user"));
+    if (!user) {
+      json(res, 400, { message: "Unknown org member." });
+      return;
+    }
+    const sessionId = sessionStore.create({
+      userId: user.id,
+      githubToken: "",
+      githubLogin: user.githubUsername || null,
+    });
+    persistSessions();
+    redirect(res, "/", serializeCookie(sessionStore.cookieName, sessionId, { secure: SECURE_COOKIES }));
+    return;
+  }
 
   if (url.pathname === "/auth/github/start" && req.method === "GET") {
     if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
@@ -1523,4 +1550,7 @@ server.listen(PORT, () => {
     existsSync(WEB_DIST_PATH) ? `Web client: serving ${WEB_DIST_PATH}` : "Web client: not built (run web build)"
   );
   console.log(`Card store: ${STORE_PATH}`);
+  if (DEV_AUTH) {
+    console.warn("DEV AUTH IS ON: /auth/dev?user=… grants a session with no credentials.");
+  }
 });

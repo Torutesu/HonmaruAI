@@ -131,6 +131,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | GET | `/auth/github/start` → `/auth/github/callback` | Browser OAuth (server-side `state`), sets the session cookie |
 | GET/POST | `/auth/me`, `/auth/session`, `/auth/signout` | Session identity, org-member selection, sign out |
 | GET/POST/PATCH | `/github/repos`, `/github/repo`, `/github/issues[/:n]` | GitHub proxy using the session's token |
+| GET | `/auth/dev?user=…` | Sign in as an org member with no credentials — **404 unless `DEV_AUTH=true`, and never in production** |
 
 ## Web client (same-origin hosting)
 
@@ -138,6 +139,7 @@ The relay serves the built web app (`WEB_DIST_PATH`, SPA fallback) so the app an
 
 - **Auth**: `/auth/github/start` issues a single-use, server-side `state` and redirects to GitHub; the callback verifies it, exchanges the code, matches an org member by `githubUsername` (falling back to the member picker), and creates a session. PKCE is deliberately omitted: it protects *public* clients, while the relay is a confidential client holding the client secret, and GitHub OAuth Apps don't support it.
 - **Authorization**: API routes accept either the relay token (native clients) or a valid session cookie (web). Static assets are public — a browser must load the app before it has credentials.
+- **Dev sign-in**: no CI can complete a GitHub OAuth round trip, so `DEV_AUTH=true` exposes `/auth/dev?user=user-bob`, which binds a session to an org member directly. It is off by default, refuses to work when `NODE_ENV=production`, returns 404 rather than 403 (nothing to probe for), and logs a warning at boot when it is on. The browser E2E suite is its only intended user.
 - **Push**: `/push/register` takes `{platform:"web", subscription}` alongside APNs device tokens; **the quiet policy is shared** — only pending high/urgent decisions, never to a connected user.
 | GET | `/oauth/github/config` | OAuth client config for iOS |
 | POST | `/oauth/github/token` | Exchange code → access token |

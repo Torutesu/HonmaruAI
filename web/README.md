@@ -9,6 +9,7 @@ npm install
 npm run dev      # http://localhost:5173, HTTP proxied to the relay on :8080
 npm test         # core unit tests + a real-relay integration suite
 npm run build    # type-check + build to dist/
+npm run e2e      # build, then Playwright against the relay serving that build
 ```
 
 Serve the build from the relay (same origin — no CORS, session cookie works):
@@ -43,8 +44,17 @@ Keyboard (workbench): `J`/`K` or `↑`/`↓` move, `⏎` approve, `⌫` decline,
 
 - `core.test.ts` — protocol decoding (including forward compatibility) and card-store reducers
 - `features/workbench/shortcuts.test.ts` — the keyboard table as a pure function: typing never decides, `⌘K` still works from a text field, notifications can't be declined
+- `core/cache.test.ts` — the offline cache's rules: trim to the recent end, expire after a week, never restore another member's feed
+- `features/settings/orgGraph.test.ts` — the relay's flat node/edge list folded into teams, managers, agents and approval rights
 - `realtime.integration.test.ts` — boots the relay, asserts the built app is served, a card sent by one client reaches another client's store, and a client reconnects and re-syncs after the relay is killed
+- `e2e/decide.spec.ts` (Playwright) — two browsers on one relay: Alice's AI routes a card, Bob's feed receives it live, Bob approves, Alice is told. Plus keyboard-only deciding and the command palette on the desktop workbench.
+
+E2E signs in through `/auth/dev?user=…`, which the relay only exposes when `DEV_AUTH=true` and never in production — no CI can complete a GitHub OAuth round trip.
+
+## Offline
+
+The last relay-confirmed snapshot is cached in IndexedDB (scoped to the signed-in member, expiring after a week) and restored while the socket connects, so a cold start on a bad connection shows your feed rather than an empty screen. A banner says how old it is. Reading works offline; deciding does not, and says so.
 
 ## Status
 
-Phase 5 complete: decision loop, channels, settings, PWA + Web Push + dictation, desktop workbench. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).
+Phase 6 complete — the plan is fully shipped: decision loop, channels, settings, PWA + Web Push + dictation, desktop workbench, offline cache, a11y and CI. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).

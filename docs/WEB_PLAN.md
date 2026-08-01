@@ -178,8 +178,13 @@ Sign-in screen on the session flow, Web Push subscribe + permission UX (mirrorin
 **Design note**: the key table is a pure function (`shortcuts.ts`) rather than a `switch` inside the effect, so all of it — including "typing never decides" and "nothing declines a notification" — is covered by 9 Node-side tests with no DOM.
 **Not verifiable here**: the visual layout itself; the build and the shortcut logic are.
 
-### Phase 6 — Hardening
+### Phase 6 — Hardening — ✅ SHIPPED
 Offline read cache (IndexedDB snapshot), error/empty/loading states everywhere, `prefers-reduced-motion`, focus-visible, screen-reader labels on card actions, Lighthouse a11y ≥95, bundle < 250KB gzip, Playwright E2E in CI.
+**Shipped**: IndexedDB snapshot scoped to the signed-in member, expiring after a week, written only from relay-confirmed state — plus a banner that says how old the visible feed is instead of leaving a silent stale screen. Failure copy now distinguishes offline, unreachable relay, expired session and lost race. The org graph deferred from Phase 3 landed in Settings (teams → members with each person's AI, manager and approval rights) with the add-member form. aria-labels name the card each action belongs to. CI runs three jobs: relay `node --test`, web unit + integration, browser E2E.
+**E2E**: 4 Playwright specs against the real relay serving the real build — the two-browser decision loop (Alice's AI routes → Bob's feed → Bob approves → Alice is told), keyboard-only deciding in the workbench, and the command palette. Sign-in uses a `DEV_AUTH`-gated relay route because no CI can complete a GitHub OAuth round trip; it 404s unless explicitly enabled and refuses to run in production.
+**Bug found — and this is the point of E2E**: the app crashed to a blank page on first paint in a real browser. `selectCardsFor` returned a fresh `[]` when a user had no cards, so zustand handed `useSyncExternalStore` a new snapshot identity on every render — an infinite loop (React #185). 44 unit tests and the Node integration suite all passed through it, because neither renders. Fixed with a shared empty-array constant in both stores.
+**Bundle**: 64 KB gzip, well inside the 250 KB budget.
+**Not verifiable here**: Lighthouse itself (needs a Chrome audit run); the a11y work it scores — labels, focus-visible, reduced motion, live regions — is in place.
 
 ---
 

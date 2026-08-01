@@ -67,10 +67,15 @@ export const useCardStore = create<CardState>((set) => ({
     }),
 }));
 
+// Shared empty array: a selector that returns a fresh `[]` hands zustand a new
+// snapshot identity on every render, which useSyncExternalStore reads as "the
+// store changed" — an infinite render loop.
+const NO_CARDS: DecisionCard[] = [];
+
 export const selectCardsFor = (userID: string | null) => (state: CardState) =>
-  userID ? state.cardsByUser[userID] ?? [] : [];
+  (userID ? state.cardsByUser[userID] : null) ?? NO_CARDS;
 
 export const selectPendingCount = (userID: string | null) => (state: CardState) =>
-  (userID ? state.cardsByUser[userID] ?? [] : []).filter(
+  ((userID ? state.cardsByUser[userID] : null) ?? NO_CARDS).filter(
     (card) => card.status === "pending"
   ).length;
