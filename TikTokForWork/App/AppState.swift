@@ -36,28 +36,33 @@ final class AppState: ObservableObject {
     }
 
     func restoreSessionIfNeeded() async {
+        // GitHub is optional: a saved persona alone is enough to return to the feed.
         guard SessionStore.hasSavedGitHubSession else {
             githubService.restorePartialCredentials()
+            if let userID = SessionStore.currentUserID,
+               let user = DemoData.user(for: userID) {
+                await activateSession(as: user)
+            }
             return
         }
 
-        guard githubService.restoreSavedSession() else {
-            SessionStore.clear()
-            return
+        let userID = SessionStore.currentUserID ?? AppConfig.defaultUser.id
+        let user = DemoData.user(for: userID) ?? AppConfig.defaultUser
+
+        if githubService.restoreSavedSession() {
+            do {
+                try await githubService.validateSavedSession()
+            } catch {
+                githubService.disconnect()
+            }
         }
 
-        do {
-            try await githubService.validateSavedSession()
-            let userID = SessionStore.currentUserID ?? AppConfig.defaultUser.id
-            let user = DemoData.user(for: userID) ?? AppConfig.defaultUser
-            await activateSession(as: user)
-        } catch {
-            githubService.disconnect()
-        }
+        await activateSession(as: user)
     }
 
     func activateSession(as user: User = AppConfig.defaultUser) async {
         SessionStore.currentUserID = user.id
+        cardService.setActiveUser(user.id)
 
         do {
             try await webSocketService.connect(urlString: relayURL, userId: user.id)
@@ -70,6 +75,7 @@ final class AppState: ObservableObject {
 
     func switchUser(to user: User) async {
         SessionStore.currentUserID = user.id
+        cardService.setActiveUser(user.id)
         webSocketService.disconnect()
         do {
             try await webSocketService.connect(urlString: relayURL, userId: user.id)
@@ -87,6 +93,8 @@ final class AppState: ObservableObject {
         githubService.disconnect()
         cardService.reset()
         SessionStore.clear()
+        DecisionCardService.resetSeedMarker()
+        UserDefaults.standard.removeObject(forKey: FirstRunFlags.promptedGitHubConnect)
         isAuthenticated = false
         currentUser = nil
     }

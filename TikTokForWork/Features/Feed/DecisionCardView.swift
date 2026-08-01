@@ -3,6 +3,7 @@ import SwiftUI
 struct DecisionCardView: View {
     let card: DecisionCard
     let linkedRepository: String
+    var isGitHubConnected: Bool = true
     let onAction: (CardActionKind) -> Void
     let onShowDetails: () -> Void
 
@@ -148,7 +149,10 @@ struct DecisionCardView: View {
         ZStack {
             if dragOffset > 24 {
                 HStack {
-                    swipeLabel("Create issue", color: Theme.Colors.issueGreen)
+                    swipeLabel(
+                        isGitHubConnected ? "Create issue" : "Approve",
+                        color: isGitHubConnected ? Theme.Colors.issueGreen : Theme.Colors.approve
+                    )
                     Spacer()
                 }
                 .padding(.leading, Theme.Spacing.screen)
@@ -243,9 +247,24 @@ struct DecisionCardView: View {
     private var actionBlock: some View {
         VStack(spacing: Theme.Spacing.sm) {
             if card.isPending {
-                GitHubPrimaryButton(title: "Create issue", enabled: true) {
-                    Haptics.light()
-                    onAction(.createIssue)
+                if isGitHubConnected {
+                    GitHubPrimaryButton(title: "Create issue", enabled: true) {
+                        Haptics.light()
+                        onAction(.createIssue)
+                    }
+                } else {
+                    Button {
+                        Haptics.light()
+                        onAction(.createIssue)
+                    } label: {
+                        Text("Approve")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Theme.Colors.accent)
+                            .foregroundStyle(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                    }
                 }
 
                 HStack(spacing: 0) {
@@ -265,7 +284,9 @@ struct DecisionCardView: View {
                     }
                 }
 
-                Text("Swipe right to create issue · left to decline")
+                Text(isGitHubConnected
+                     ? "Swipe right to create issue · left to decline"
+                     : "Swipe right to approve · left to decline")
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .frame(maxWidth: .infinity)

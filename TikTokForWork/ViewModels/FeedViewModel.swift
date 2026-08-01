@@ -13,12 +13,16 @@ final class FeedViewModel: ObservableObject {
     @Published var delegateCard: DecisionCard?
     @Published var reviseCard: DecisionCard?
     @Published var reviewDraft: InstructionDraft?
+    @Published var arrivalNote: String?
+    @Published var showConnectPrompt = false
+    @Published var isTriaging = false
 
     private var cardService: DecisionCardService?
     private var githubService: GitHubService?
     private var userID: String?
     private var draftTask: Task<Void, Never>?
     private var githubSyncTask: Task<Void, Never>?
+    private var arrivalNoteTask: Task<Void, Never>?
 
     var currentIndex: Int {
         guard let scrollPosition,
@@ -37,12 +41,21 @@ final class FeedViewModel: ObservableObject {
         self.githubService = githubService
         userID = user.id
         refreshCards(from: service)
+        // First run may still be waiting on the relay snapshot before seeding
+        // kicks in — show the triage state rather than a generic empty feed.
+        if cards.isEmpty, !UserDefaults.standard.bool(forKey: FirstRunFlags.seededFeed) {
+            isTriaging = true
+        }
 
         service.onCardsUpdated = { [weak self] in
             guard let self, let cardService = self.cardService else { return }
             withAnimation(.easeOut(duration: 0.2)) {
                 self.refreshCards(from: cardService)
             }
+        }
+
+        service.onSeedArrival = { [weak self] count in
+            self?.showArrivalNote(count: count)
         }
 
         githubSyncTask?.cancel()
@@ -216,9 +229,11 @@ final class FeedViewModel: ObservableObject {
     ) async {
         guard let cardService, let userID else { return }
 
+        let isGitHubConnected = appState.githubService.isConnected
+
         isProcessing = true
         processingMessage = switch action {
-        case .createIssue: "Creating GitHub issue…"
+        case .createIssue: isGitHubConnected ? "Creating GitHub issue…" : "Approving"
         case .reject: "Declining"
         case .requestRevision: "Sending revision"
         default: "Syncing"
@@ -237,6 +252,7 @@ final class FeedViewModel: ObservableObject {
             refreshCards(from: cardService)
             await syncGitHub()
             advanceIfNeeded()
+            promptGitHubConnectIfNeeded(after: action, isConnected: isGitHubConnected)
         } catch {
             errorMessage = error.localizedDescription
             Haptics.light()
@@ -245,11 +261,45 @@ final class FeedViewModel: ObservableObject {
         isProcessing = false
     }
 
+    /// The first approval without GitHub is the one contextual moment to offer
+    /// the connection — the value ("this becomes an Issue") is self-evident.
+    private func promptGitHubConnectIfNeeded(after action: CardActionKind, isConnected: Bool) {
+        guard action == .createIssue, !isConnected,
+              !UserDefaults.standard.bool(forKey: FirstRunFlags.promptedGitHubConnect) else {
+            return
+        }
+        UserDefaults.standard.set(true, forKey: FirstRunFlags.promptedGitHubConnect)
+
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            self?.showConnectPrompt = true
+        }
+    }
+
+    private func showArrivalNote(count: Int) {
+        isTriaging = false
+        arrivalNoteTask?.cancel()
+        withAnimation(.easeOut(duration: 0.25)) {
+            arrivalNote = count == 1
+                ? "Your AI triaged 1 decision for you"
+                : "Your AI triaged \(count) decisions for you"
+        }
+
+        arrivalNoteTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.4)) {
+                self?.arrivalNote = nil
+            }
+        }
+    }
+
     private func refreshCards(from service: DecisionCardService) {
         guard let userID else { return }
         let previousCount = cards.count
         let updated = service.cards(for: userID)
         cards = updated
+        isTriaging = updated.isEmpty && service.isSeedingActive
 
         if updated.isEmpty {
             scrollPosition = nil

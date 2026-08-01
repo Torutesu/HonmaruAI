@@ -1,14 +1,23 @@
 # Progress Checklist
 
-Last updated: 2026-07-27
+Last updated: 2026-08-01
 
 ## Overall
 
-- Current phase: Phase 5 complete, GitHub OAuth done
+- Current phase: Phase 7 — 3-second value + onboarding rework done
 - Core flow working: yes
-- GitHub sync working: yes (OAuth + Issues API)
-- Realtime sync working: yes (localhost WebSocket relay)
+- GitHub sync working: yes (OAuth + Issues API, now contextual/optional)
+- Realtime sync working: yes (localhost WebSocket relay, optional for single simulator)
 - AI routing: OpenRouter via relay server with keyword fallback
+
+## Phase 7 — 3-second value + onboarding (see onboarding.md)
+
+- [x] Auth wall removed: one-tap persona entry (`OnboardingView`)
+- [x] Seeded first-session feed per persona, staggered arrival + triage note
+- [x] Local-first approve/delegate (works without GitHub)
+- [x] Contextual GitHub connect sheet (post-first-approval, chip, menu)
+- [x] Session restore without GitHub; sign-out resets first-run flags
+- [x] Empty relay snapshot merges with local seeds instead of wiping
 
 ## GitHub OAuth
 
@@ -37,12 +46,13 @@ Last updated: 2026-07-27
 
 ## Demo script
 
-1. `cd server && cp .env.example .env` → add GitHub OAuth credentials → `npm start`
-2. iOS → **Sign in with GitHub** → pick repo → Continue as Alice
-3. Second simulator as Bob (same relay URL)
-4. Alice → Message your AI → instruction
-5. Bob sees card (green dot = connected)
-6. Bob approves → GitHub Issue → Alice gets result
+1. (Optional for realtime/GitHub) `cd server && cp .env.example .env` → add credentials → `npm start`
+2. iOS → **Continue as Alice** → seeded decisions stream in → swipe right to approve
+3. After first approval → **Connect GitHub** sheet → OAuth → pick repo
+4. Second simulator as Bob (same relay URL)
+5. Alice → Message your AI → instruction
+6. Bob sees card (green dot = connected)
+7. Bob approves → GitHub Issue → Alice gets result
 
 ## Mocked vs Real
 

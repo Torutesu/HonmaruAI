@@ -1,7 +1,35 @@
 import SwiftUI
 
-struct AuthView: View {
+/// Contextual GitHub connection. Presented from the feed — after the first
+/// approval, from the local-mode chip, or from the account menu — instead of
+/// blocking the app behind an auth wall.
+struct ConnectGitHubSheet: View {
+    enum Context {
+        case afterFirstApproval
+        case settings
+
+        var title: String {
+            switch self {
+            case .afterFirstApproval: "Decision recorded"
+            case .settings: "Sync to GitHub"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .afterFirstApproval:
+                "Connect GitHub and every approval becomes an Issue your team can track."
+            case .settings:
+                "Approvals, delegations, and revisions sync as GitHub Issues."
+            }
+        }
+    }
+
+    let context: Context
+
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
     @State private var selectedRepository: GitHubRepository?
     @State private var isConnecting = false
     @State private var isSigningInWithGitHub = false
@@ -9,23 +37,27 @@ struct AuthView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                AppLogo(size: 56)
-                Text("TikTok for Work")
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                Text("Decisions, not messages")
-                    .font(Theme.TypeScale.caption)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.bottom, Theme.Spacing.xxl)
-
+        NavigationStack {
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                    if context == .afterFirstApproval {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 24, weight: .regular))
+                            .foregroundStyle(Theme.Colors.approve)
+                            .padding(.bottom, Theme.Spacing.xs)
+                    }
+
+                    Text(context.title)
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(Theme.Colors.textPrimary)
+
+                    Text(context.subtitle)
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 if appState.githubService.hasToken {
                     repositoryPicker
                 } else {
@@ -41,23 +73,30 @@ struct AuthView: View {
                         .font(Theme.TypeScale.label)
                         .foregroundStyle(Theme.Colors.reject)
                 }
-            }
-            .padding(.horizontal, Theme.Spacing.screen)
 
-            Spacer()
+                Spacer()
 
-            PrimaryButton(title: "Continue", enabled: canContinue && !isConnecting && !isSigningInWithGitHub) {
-                connectAndEnter()
-            }
-            .overlay {
-                if isConnecting {
-                    ProgressView().tint(Theme.Colors.background)
+                PrimaryButton(
+                    title: appState.githubService.isConnected ? "Done" : "Connect",
+                    enabled: canConnect && !isConnecting && !isSigningInWithGitHub
+                ) {
+                    connect()
+                }
+                .overlay {
+                    if isConnecting {
+                        ProgressView().tint(Theme.Colors.background)
+                    }
                 }
             }
-            .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.bottom, Theme.Spacing.xl)
+            .padding(Theme.Spacing.screen)
+            .background(Theme.Colors.surface)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Not now") { dismiss() }
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
         }
-        .appBackground()
         .onAppear {
             if selectedRepository == nil,
                let repository = appState.githubService.connection?.repository {
@@ -141,7 +180,9 @@ struct AuthView: View {
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .fieldStyle()
+                    .padding(Theme.Spacing.md)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
             } else {
                 Picker("Repository", selection: $selectedRepository) {
                     Text("Select").tag(Optional<GitHubRepository>.none)
@@ -159,19 +200,8 @@ struct AuthView: View {
         }
     }
 
-    private var canContinue: Bool {
+    private var canConnect: Bool {
         appState.githubService.isConnected || selectedRepository != nil
-    }
-
-    private func fieldSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Text(title)
-                .font(Theme.TypeScale.micro)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .textCase(.uppercase)
-                .tracking(0.8)
-            content()
-        }
     }
 
     private func refreshRepositories() {
@@ -212,7 +242,12 @@ struct AuthView: View {
         }
     }
 
-    private func connectAndEnter() {
+    private func connect() {
+        if appState.githubService.isConnected, selectedRepository?.fullName == appState.githubService.connection?.repository {
+            dismiss()
+            return
+        }
+
         errorMessage = nil
         isConnecting = true
 
@@ -223,8 +258,8 @@ struct AuthView: View {
                 } else {
                     throw GitHubServiceError.missingCredentials
                 }
-
-                await appState.activateSession()
+                Haptics.success()
+                dismiss()
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -233,16 +268,7 @@ struct AuthView: View {
     }
 }
 
-private extension View {
-    func fieldStyle() -> some View {
-        padding(Theme.Spacing.md)
-            .background(Theme.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
-            .foregroundStyle(Theme.Colors.textPrimary)
-    }
-}
-
 #Preview {
-    AuthView()
+    ConnectGitHubSheet(context: .settings)
         .environmentObject(AppState())
 }

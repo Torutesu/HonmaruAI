@@ -8,13 +8,19 @@ struct FeedView: View {
     @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
     @State private var showMenu = false
+    @State private var showConnectGitHub = false
+    @State private var connectContext: ConnectGitHubSheet.Context = .settings
 
     var body: some View {
         ZStack {
             Theme.Colors.background.ignoresSafeArea()
 
             if viewModel.cards.isEmpty {
-                emptyState
+                if viewModel.isTriaging {
+                    triagingState
+                } else {
+                    emptyState
+                }
             } else {
                 ScrollView(.vertical) {
                     LazyVStack(spacing: 0) {
@@ -22,6 +28,7 @@ struct FeedView: View {
                             DecisionCardView(
                                 card: card,
                                 linkedRepository: appState.githubService.linkedRepository,
+                                isGitHubConnected: appState.githubService.isConnected,
                                 onAction: { action in
                                     Task {
                                         await viewModel.handle(action: action, for: card, appState: appState)
@@ -51,6 +58,22 @@ struct FeedView: View {
                     DraftingBanner()
                     Spacer()
                 }
+            }
+
+            if let note = viewModel.arrivalNote {
+                VStack {
+                    Text(note)
+                        .font(Theme.TypeScale.label)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.vertical, Theme.Spacing.sm)
+                        .background(Theme.Colors.surfaceRaised)
+                        .clipShape(Capsule())
+                        .transition(.opacity)
+                    Spacer()
+                }
+                .padding(.top, Theme.Spacing.sm)
+                .allowsHitTesting(false)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -120,6 +143,20 @@ struct FeedView: View {
                 }
             }
         }
+        .sheet(isPresented: $showConnectGitHub) {
+            ConnectGitHubSheet(context: connectContext)
+                .environmentObject(appState)
+                .presentationDetents([.medium, .large])
+                .presentationBackground(Theme.Colors.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .onChange(of: viewModel.showConnectPrompt) { _, shouldShow in
+            guard shouldShow else { return }
+            viewModel.showConnectPrompt = false
+            guard !appState.githubService.isConnected else { return }
+            connectContext = .afterFirstApproval
+            showConnectGitHub = true
+        }
         .sheet(item: $viewModel.delegateCard) { card in
             DelegatePickerSheet(
                 card: card,
@@ -132,6 +169,12 @@ struct FeedView: View {
         }
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
             Button("Organization") { showOrgGraph = true }
+            if !appState.githubService.isConnected {
+                Button("Connect GitHub") {
+                    connectContext = .settings
+                    showConnectGitHub = true
+                }
+            }
             Button("Sign out", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}
         }
@@ -196,6 +239,16 @@ struct FeedView: View {
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .lineLimit(1)
+            } else {
+                Button {
+                    connectContext = .settings
+                    showConnectGitHub = true
+                } label: {
+                    Text("Local mode · Connect GitHub")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                        .lineLimit(1)
+                }
             }
 
             ComposeBar(placeholder: "Tell your AI") {
@@ -209,6 +262,16 @@ struct FeedView: View {
             Theme.Colors.background
                 .ignoresSafeArea(edges: .bottom)
         )
+    }
+
+    private var triagingState: some View {
+        VStack(spacing: Theme.Spacing.md) {
+            ProgressView()
+                .tint(Theme.Colors.accent)
+            Text("Your AI is triaging your decisions…")
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.textTertiary)
+        }
     }
 
     private var emptyState: some View {

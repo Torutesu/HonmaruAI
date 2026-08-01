@@ -79,7 +79,163 @@ enum DemoData {
         ]
     )
 
-    static let initialCards: [String: [DecisionCard]] = [:]
+    /// First-session cards: what each person's AI has already triaged for them.
+    /// Every card is a real, actionable decision so the first swipe teaches the product.
+    static func seedCards(now: Date = .now) -> [DecisionCard] {
+        [
+            // Alice (default persona) — flagship card lands on top.
+            DecisionCard(
+                id: "seed-alice-release",
+                recipientUserID: DemoUser.alice.user.id,
+                senderUserID: DemoUser.dana.user.id,
+                type: .approval,
+                title: "Ship Onboarding v2 to production?",
+                summary: "Dana's AI batched the release: 6 PRs merged, QA green on staging. It needs your go before the Friday demo.",
+                context: "deadline: Friday demo · scope: 6 PRs, staging verified · action: approve to cut the release",
+                status: .pending,
+                priority: .urgent,
+                createdAt: now.addingTimeInterval(-6 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Dana's AI → Your AI",
+                routingReason: "You hold release approval for Onboarding v2"
+            ),
+            DecisionCard(
+                id: "seed-alice-latency",
+                recipientUserID: DemoUser.alice.user.id,
+                senderUserID: DemoUser.bob.user.id,
+                type: .task,
+                title: "Auth latency: rollback or hotfix?",
+                summary: "p95 is up 18% since yesterday's deploy. Bob's AI drafted both paths — rollback is instant, the hotfix lands in ~2 hours.",
+                context: "metric: p95 +18% · action: rollback or hotfix · deadline: today",
+                status: .pending,
+                priority: .high,
+                createdAt: now.addingTimeInterval(-22 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Bob's AI → Your AI",
+                routingReason: "You are Bob's manager"
+            ),
+            DecisionCard(
+                id: "seed-alice-illustrations",
+                recipientUserID: DemoUser.alice.user.id,
+                senderUserID: DemoUser.carol.user.id,
+                type: .approval,
+                title: "Pick the empty-state illustration set",
+                summary: "Carol's AI shortlisted 3 candidates that match the flat design. Design handoff is blocked on your pick.",
+                context: "scope: onboarding + feed empty states · deadline: next sprint",
+                status: .pending,
+                priority: .medium,
+                createdAt: now.addingTimeInterval(-64 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Carol's AI → Your AI",
+                routingReason: "Design handoff waits on Product"
+            ),
+
+            // Bob
+            DecisionCard(
+                id: "seed-bob-hotfix",
+                recipientUserID: DemoUser.bob.user.id,
+                senderUserID: DemoUser.dana.user.id,
+                type: .delegation,
+                title: "Take the auth latency hotfix",
+                summary: "Dana's AI split the incident: you own the hotfix branch, Dana reviews the merge.",
+                context: "metric: p95 +18% · action: hotfix branch · deadline: today",
+                status: .pending,
+                priority: .urgent,
+                createdAt: now.addingTimeInterval(-9 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Dana's AI → Your AI",
+                routingReason: "You shipped the auth changes yesterday"
+            ),
+            DecisionCard(
+                id: "seed-bob-analytics",
+                recipientUserID: DemoUser.bob.user.id,
+                senderUserID: DemoUser.alice.user.id,
+                type: .task,
+                title: "Add decision analytics to the feed",
+                summary: "Alice's AI wants approve/decline rates per card type before the board update.",
+                context: "scope: feed events · deadline: next week",
+                status: .pending,
+                priority: .medium,
+                createdAt: now.addingTimeInterval(-45 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Alice's AI → Your AI",
+                routingReason: "You own the iOS client"
+            ),
+
+            // Carol
+            DecisionCard(
+                id: "seed-carol-tokens",
+                recipientUserID: DemoUser.carol.user.id,
+                senderUserID: DemoUser.alice.user.id,
+                type: .approval,
+                title: "Freeze the flat design tokens?",
+                summary: "Alice's AI locked the palette for the Friday demo. Two components still reference legacy colors.",
+                context: "scope: buttons, sheets · deadline: Friday demo",
+                status: .pending,
+                priority: .high,
+                createdAt: now.addingTimeInterval(-12 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Alice's AI → Your AI",
+                routingReason: "The design system is yours"
+            ),
+            DecisionCard(
+                id: "seed-carol-offline",
+                recipientUserID: DemoUser.carol.user.id,
+                senderUserID: DemoUser.dana.user.id,
+                type: .task,
+                title: "Design the offline-mode empty state",
+                summary: "Dana's AI flagged that the feed shows nothing when the relay is down. Needs a designed fallback.",
+                context: "scope: feed offline state · deadline: next sprint",
+                status: .pending,
+                priority: .medium,
+                createdAt: now.addingTimeInterval(-55 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Dana's AI → Your AI",
+                routingReason: "Design gap found in review"
+            ),
+
+            // Dana
+            DecisionCard(
+                id: "seed-dana-merge",
+                recipientUserID: DemoUser.dana.user.id,
+                senderUserID: DemoUser.bob.user.id,
+                type: .approval,
+                title: "Merge the auth hotfix to main?",
+                summary: "Bob's AI verified the fix on staging — p95 back to baseline. One approval left to merge.",
+                context: "metric: p95 back to baseline · action: merge PR #214 · deadline: today",
+                status: .pending,
+                priority: .urgent,
+                createdAt: now.addingTimeInterval(-4 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Bob's AI → Your AI",
+                routingReason: "You review protected branches"
+            ),
+            DecisionCard(
+                id: "seed-dana-headcount",
+                recipientUserID: DemoUser.dana.user.id,
+                senderUserID: DemoUser.alice.user.id,
+                type: .approval,
+                title: "One more iOS engineer for Q3?",
+                summary: "Alice's AI packaged the case: feed roadmap needs 1 more engineer or the analytics work slips a quarter.",
+                context: "scope: Q3 roadmap · action: approve headcount · deadline: planning Monday",
+                status: .pending,
+                priority: .medium,
+                createdAt: now.addingTimeInterval(-90 * 60),
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                agentRoute: "Alice's AI → Your AI",
+                routingReason: "Hiring approvals route to you"
+            )
+        ]
+    }
 
     static func user(for id: String) -> User? {
         DemoUser.allCases.map(\.user).first { $0.id == id }

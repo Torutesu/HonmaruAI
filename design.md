@@ -1,5 +1,13 @@
 # TikTok for Work — Design
 
+## The 3-second value
+
+**Open the app, and the decision you need to make is already there — clear it in one swipe.**
+
+Every first-run choice is derived from this (see [onboarding.md](onboarding.md)):
+no auth wall, one-tap persona entry, a seeded feed that streams in as if your AI
+had been triaging overnight, and GitHub offered contextually after the first approval.
+
 ## Direction
 
 Clean, flat, restrained. Linear clarity in a vertical feed shell. No gradients, no decorative borders, no heavy bold type.

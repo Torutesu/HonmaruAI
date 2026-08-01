@@ -16,7 +16,7 @@ struct RootView: View {
             } else if appState.isAuthenticated, appState.currentUser != nil {
                 FeedView()
             } else {
-                AuthView()
+                OnboardingView()
             }
         }
         .appBackground()
