@@ -540,6 +540,102 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
     ws.close();
   });
 
+  await t.test("decide: resolves server-side and notifies the sender", async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+    };
+
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(JSON.stringify({ type: "join", payload: { userId: "user-bob", token: TOKEN } }));
+    await collectMessages(ws, 2);
+
+    // Alice asks Bob for something.
+    ws.send(
+      JSON.stringify({
+        type: "card_created",
+        payload: {
+          card: {
+            id: "card-decide-1",
+            recipientUserID: "user-bob",
+            senderUserID: "user-alice",
+            type: "approval",
+            title: "Approve the launch plan",
+            summary: "Launch plan needs sign-off.",
+            context: "deadline: Friday",
+            status: "pending",
+            priority: "high",
+            createdAt: new Date().toISOString(),
+          },
+        },
+      })
+    );
+    await collectUntil(ws, (messages) =>
+      messages.some((m) => m.type === "card_created" && m.payload.card.id === "card-decide-1")
+    );
+
+    const eventsPromise = collectUntil(
+      ws,
+      (messages) =>
+        messages.some(
+          (m) => m.type === "card_updated" && m.payload.card.id === "card-decide-1"
+        ) &&
+        messages.some(
+          (m) => m.type === "card_created" && m.payload.card.recipientUserID === "user-alice"
+        )
+    );
+    eventsPromise.catch(() => {});
+
+    // Bob approves with a condition — no GitHub credentials in this test, so
+    // the decision must still land (the sync is best-effort).
+    const response = await fetch(`${base}/cards/decide`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        actorUserID: "user-bob",
+        cardId: "card-decide-1",
+        action: "approve",
+        note: "release after Friday",
+      }),
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.card.status, "approved");
+    assert.ok(result.card.context.includes("Condition: release after Friday"));
+
+    const events = await eventsPromise;
+    const notice = events.find(
+      (m) => m.type === "card_created" && m.payload.card.recipientUserID === "user-alice"
+    ).payload.card;
+    assert.ok(notice.summary.includes("Bob"));
+
+    // Deciding twice is a conflict, not a duplicate decision.
+    const again = await fetch(`${base}/cards/decide`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ actorUserID: "user-bob", cardId: "card-decide-1", action: "reject" }),
+    });
+    assert.equal(again.status, 409);
+
+    // Another user can't decide Bob's card.
+    const wrongUser = await fetch(`${base}/cards/decide`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ actorUserID: "user-carol", cardId: "card-decide-1", action: "approve" }),
+    });
+    assert.equal(wrongUser.status, 404);
+
+    // And the endpoint is behind the auth gate.
+    const unauthorized = await fetch(`${base}/cards/decide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actorUserID: "user-bob", cardId: "x", action: "approve" }),
+    });
+    assert.equal(unauthorized.status, 401);
+
+    ws.close();
+  });
+
   await t.test("github webhook: signed review request lands as a card", async () => {
     const ws = await wsOpen(`ws://127.0.0.1:${port}`);
     ws.send(

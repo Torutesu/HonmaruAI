@@ -54,6 +54,12 @@ Point a repository webhook (JSON, secret = `GITHUB_WEBHOOK_SECRET`) at `/github/
 
 Recipients resolve via each member's `githubUsername`; events for unknown logins are dropped. Cards flow through the normal delivery path — translation, channel trail, and the push policy all apply.
 
+## Decisions resolve on the relay
+
+`POST /cards/decide` owns what used to live only in the iOS client: the status transition, note handling (`Condition:` / `Reason:` / `Revision:`), the response card back to the sender (actionable when it's a revision request), delegation fan-out, decision-memory recording, and GitHub issue create/update when the caller's session has a token. Every client gets identical behavior instead of re-implementing it, and the result rides the normal delivery pipeline (translation, provenance, quiet push). Deciding an already-decided card returns `409`; a card belonging to another user returns `404`.
+
+iOS still resolves locally and reports via `card_updated` — both paths converge on the same store and broadcasts; migrating iOS to this endpoint is a follow-up.
+
 ## Provenance — one tap from summary to source
 
 Every delivered card carries a `sources` array (provenance.js): the **channel conversation** it came from (with the triggering message ID when the card was filed from chat), and **documents referenced in the original ask** — URLs in the instruction are auto-extracted and labeled (Notion, Google Docs, Figma, Linear, Jira, GitHub PR/Issue numbers, or the hostname). A webhook card's GitHub URL is its origin and is included; a *created* Issue link is the card's output and stays separate. The app renders these as tappable chips: links open in the browser, channel sources open the conversation scrolled to the exact message.
@@ -121,6 +127,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | POST | `/org/language` | Set a member's language — future cards arrive translated |
 | POST | `/github/webhook` | GitHub events → decision cards (HMAC-verified, no bearer token) |
 | POST | `/escalations/run` | Sweep for SLA breaches now (also runs on `ESCALATION_INTERVAL_MINUTES`) |
+| POST | `/cards/decide` | Resolve a decision: approve / reject / revise / acknowledge / delegate / priority |
 | GET | `/auth/github/start` → `/auth/github/callback` | Browser OAuth (server-side `state`), sets the session cookie |
 | GET/POST | `/auth/me`, `/auth/session`, `/auth/signout` | Session identity, org-member selection, sign out |
 | GET/POST/PATCH | `/github/repos`, `/github/repo`, `/github/issues[/:n]` | GitHub proxy using the session's token |

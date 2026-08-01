@@ -1,6 +1,9 @@
+import { useEffect, useState } from "react";
 import { selectCardsFor, selectPendingCount, useCardStore } from "../../core/stores/cards";
 import { useSessionStore } from "../../core/stores/session";
+import { ComposeBar } from "../compose/ComposeBar";
 import { DecisionCardView } from "./DecisionCardView";
+import { useDecisions } from "./useDecisions";
 import styles from "./FeedScreen.module.css";
 
 export function FeedScreen() {
@@ -9,6 +12,20 @@ export function FeedScreen() {
   const connected = useCardStore((state) => state.connected);
   const cards = useCardStore(selectCardsFor(me?.id ?? null));
   const pending = useCardStore(selectPendingCount(me?.id ?? null));
+  const decisions = useDecisions();
+  const [toast, setToast] = useState<string | null>(null);
+
+  const message = toast ?? decisions.notice ?? decisions.error;
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+      decisions.clearNotice();
+      decisions.clearError();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [message, decisions]);
 
   const nameFor = (userID: string) =>
     users.find((user) => user.id === userID)?.name ?? userID;
@@ -28,6 +45,15 @@ export function FeedScreen() {
         </span>
       </header>
 
+      {message && (
+        <div
+          className={`${styles.toast} ${decisions.error ? styles.toastError : ""}`}
+          role="status"
+        >
+          {message}
+        </div>
+      )}
+
       <main className={styles.feed}>
         {cards.length === 0 ? (
           <div className={styles.empty}>
@@ -36,10 +62,20 @@ export function FeedScreen() {
           </div>
         ) : (
           cards.map((card) => (
-            <DecisionCardView key={card.id} card={card} senderName={nameFor(card.senderUserID)} />
+            <DecisionCardView
+              key={card.id}
+              card={card}
+              senderName={nameFor(card.senderUserID)}
+              busy={decisions.busyCardId === card.id}
+              actions={decisions}
+            />
           ))
         )}
       </main>
+
+      <footer className={styles.composer}>
+        <ComposeBar onSent={setToast} />
+      </footer>
     </div>
   );
 }

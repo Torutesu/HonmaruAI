@@ -32,6 +32,15 @@ import {
   recommendDecision,
 } from "./memory.js";
 import { buildSources } from "./provenance.js";
+import {
+  DECISION_ACTIONS,
+  findCard,
+  applyDecision,
+  needsGitHubSync,
+  issueTitle,
+  issueBody,
+  githubStateFor,
+} from "./decisions.js";
 import { loadPersistedStores, createPersister } from "./persistence.js";
 import {
   createChannelStore,
@@ -500,7 +509,15 @@ function readBody(req) {
   });
 }
 
-const API_PREFIXES = ["/ai/", "/org", "/push/", "/digest/", "/escalations/", "/oauth/"];
+const API_PREFIXES = [
+  "/ai/",
+  "/org",
+  "/cards/",
+  "/push/",
+  "/digest/",
+  "/escalations/",
+  "/oauth/",
+];
 
 export function isApiPath(pathname) {
   return API_PREFIXES.some((prefix) => pathname.startsWith(prefix));
@@ -963,6 +980,109 @@ const server = createServer(async (req, res) => {
       json(res, 200, { user, organization: orgStore.snapshot() });
     } catch (error) {
       json(res, 400, { message: error.message || "Could not add member." });
+    }
+    return;
+  }
+
+  // Server-side decision resolution: one implementation for every client.
+  // Native clients may still resolve locally and report via card_updated;
+  // both paths converge on the same store and broadcasts.
+  if (url.pathname === "/cards/decide" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const session = sessionStore.fromRequest(req)?.session;
+      const actorUserID = body.actorUserID || session?.userId;
+      const { cardId, action, note, delegateToUserID, priority } = body;
+
+      if (!actorUserID || !cardId || !DECISION_ACTIONS.includes(action)) {
+        json(res, 400, { message: "actorUserID, cardId and a valid action are required." });
+        return;
+      }
+
+      const store = getStore(ORG_ID);
+      const card = findCard(store, actorUserID, cardId);
+      if (!card) {
+        json(res, 404, { message: "Card not found for this user." });
+        return;
+      }
+      if (card.status !== "pending") {
+        json(res, 409, { message: "This card has already been decided." });
+        return;
+      }
+      if (action === "delegate" && !orgStore.findUser(delegateToUserID)) {
+        json(res, 400, { message: "delegateToUserID must be an org member." });
+        return;
+      }
+
+      if (action === "priority") {
+        if (!["low", "medium", "high", "urgent"].includes(priority)) {
+          json(res, 400, { message: "priority must be low, medium, high or urgent." });
+          return;
+        }
+        card.priority = priority;
+        persister.schedule(orgStores);
+        broadcast(ORG_ID, "card_updated", { card });
+        json(res, 200, { card });
+        return;
+      }
+
+      const { followUps } = applyDecision({
+        card,
+        action,
+        note,
+        actorUserID,
+        delegateToUserID,
+      });
+
+      // Sync GitHub when this session can: the browser never holds a token,
+      // so the relay does it with the session's.
+      if (session?.githubToken && session.repository && needsGitHubSync(action, card)) {
+        try {
+          const synced = card.githubIssueNumber
+            ? await gh.updateIssue(session.githubToken, session.repository, card.githubIssueNumber, {
+                title: issueTitle(card),
+                body: issueBody(card),
+                state: githubStateFor(card.status),
+              })
+            : await gh.createIssue(session.githubToken, session.repository, {
+                title: issueTitle(card),
+                body: issueBody(card),
+                labels: card.labels,
+              });
+          card.githubIssueNumber = synced.number;
+          card.githubIssueURL = synced.url;
+          card.githubRepository = session.repository;
+          for (const followUp of followUps) {
+            followUp.githubIssueNumber = synced.number;
+            followUp.githubIssueURL = synced.url;
+            followUp.githubRepository = session.repository;
+          }
+        } catch (error) {
+          // A GitHub outage must not lose the decision: keep it, report it.
+          console.warn("GitHub sync failed during decision:", error.message);
+        }
+      }
+
+      memoryStore.record(actorUserID, {
+        action: action === "acknowledge" ? "approve" : action,
+        type: card.type,
+        priority: card.priority,
+        senderUserID: card.senderUserID,
+        title: String(card.title || "").slice(0, 60),
+        at: new Date().toISOString(),
+      });
+      persistMemory();
+
+      persister.schedule(orgStores);
+      broadcast(ORG_ID, "card_updated", { card });
+      for (const followUp of followUps) {
+        await deliverCard(ORG_ID, followUp);
+      }
+
+      json(res, 200, { card, followUps: followUps.length });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Decision failed." });
     }
     return;
   }

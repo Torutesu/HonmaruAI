@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./core/api";
+import { setRelaySocket } from "./core/relay";
 import { RelaySocket } from "./core/socket";
 import { useCardStore } from "./core/stores/cards";
 import { applyAppearance, useSessionStore } from "./core/stores/session";
@@ -53,6 +54,7 @@ export function App() {
 
     const socket = new RelaySocket({ url: relayUrl(), userId: me.id });
     socketRef.current = socket;
+    setRelaySocket(socket);
 
     const offEvent = socket.onEvent((event) => {
       if (event.type === "error") setError(event.payload.message);
@@ -66,6 +68,7 @@ export function App() {
       offStatus();
       socket.disconnect();
       socketRef.current = null;
+      setRelaySocket(null);
     };
   }, [me?.id, applyEvent, setConnected]);
 

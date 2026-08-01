@@ -1,4 +1,4 @@
-import type { OrgEdge, OrgNode, User } from "./types";
+import type { DecisionCard, OrganizationGraph, OrgEdge, OrgNode, User } from "./types";
 
 // Same-origin by default: the relay serves this app, so no base URL and no
 // CORS. Credentials ride along as the httpOnly session cookie.
@@ -35,8 +35,68 @@ export interface MeResponse {
   push: { web: boolean; publicKey: string | null };
 }
 
+export type DecisionAction =
+  | "approve"
+  | "reject"
+  | "revise"
+  | "acknowledge"
+  | "delegate"
+  | "priority";
+
+export interface IngestResponse {
+  kind: "decision" | "update";
+  channel: { id: string; name: string; isNew?: boolean };
+  routing?: {
+    recipientUserID: string;
+    cardType: string;
+    title: string;
+    summary: string;
+    context: string;
+    priority: string;
+    agentRoute?: string;
+    routingReason?: string;
+    labels?: string[];
+    toolCalls?: { name: string; label: string; detail: string }[];
+  };
+}
+
 export const api = {
   me: () => request<MeResponse>("/auth/me"),
+
+  // The relay resolves decisions — status transition, note handling, GitHub
+  // sync, response card — so every client behaves identically.
+  decide: (input: {
+    cardId: string;
+    action: DecisionAction;
+    note?: string;
+    delegateToUserID?: string;
+    priority?: string;
+  }) =>
+    request<{ card: DecisionCard; followUps: number }>("/cards/decide", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  ingest: (input: { text: string; sender: User; organization: OrganizationGraph; priorityOverride?: string }) =>
+    request<IngestResponse>("/ai/ingest", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  interpretReply: (input: { card: DecisionCard; reply: string; sender: User }) =>
+    request<{ action: "approve" | "reject" | "revise" | "question" | "comment"; note: string }>(
+      "/ai/reply",
+      { method: "POST", body: JSON.stringify(input) }
+    ),
+
+  refineCard: (input: { card: DecisionCard; instruction: string }) =>
+    request<{
+      title: string;
+      summary: string;
+      context: string;
+      priority: string;
+      toolCalls?: { name: string; label: string; detail: string }[];
+    }>("/ai/refine", { method: "POST", body: JSON.stringify(input) }),
 
   selectMember: (userId: string, repository?: string) =>
     request<{ user: User; repository: string | null }>("/auth/session", {

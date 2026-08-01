@@ -1,0 +1,112 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 14px 18px;
+  font-size: 14px;
+  text-align: left;
+  color: var(--t2);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.spark {
+  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--t3);
+}
+
+.hint,
+.error {
+  font-size: 11.5px;
+  color: var(--t3);
+}
+.error {
+  color: var(--reject);
+}
+
+.sheet textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--t1);
+  background: var(--raised);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  resize: vertical;
+}
+.sheet textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.tool {
+  font-size: 11.5px;
+  color: var(--t2);
+  background: var(--raised);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+}
+
+.draftTitle {
+  font-family: var(--font-rounded);
+  font-size: 18px;
+  font-weight: 700;
+}
+.draftTo {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.draftSummary {
+  font-size: 14px;
+  color: var(--t2);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+.actions button {
+  flex: 1;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t2);
+  background: var(--raised);
+  border: 0;
+  border-radius: var(--radius-md);
+}
+.actions button.send {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+}
+.actions button:disabled {
+  opacity: 0.55;
+}

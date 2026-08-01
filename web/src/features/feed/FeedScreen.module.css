@@ -53,6 +53,30 @@
   display: none;
 }
 
+.composer {
+  flex: none;
+  padding: 10px 18px 22px;
+}
+
+.toast {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: 90%;
+  padding: 9px 15px;
+  font-size: 12.5px;
+  border-radius: 999px;
+  color: var(--t1);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.toastError {
+  color: var(--reject);
+}
+
 .empty {
   height: 100%;
   display: flex;

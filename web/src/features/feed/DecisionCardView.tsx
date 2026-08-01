@@ -1,10 +1,22 @@
+import { useState } from "react";
 import type { CardSource, DecisionCard } from "../../core/types";
-import { isPending } from "../../core/types";
+import { isNotification, isPending, isRevisionRequest } from "../../core/types";
 import styles from "./DecisionCardView.module.css";
+
+export interface CardActions {
+  approve: (card: DecisionCard) => void;
+  reject: (card: DecisionCard) => void;
+  acknowledge: (card: DecisionCard) => void;
+  reply: (card: DecisionCard, text: string) => void;
+  revise: (card: DecisionCard, note: string) => void;
+  askAI: (card: DecisionCard, instruction: string) => void;
+}
 
 interface Props {
   card: DecisionCard;
   senderName: string;
+  busy?: boolean;
+  actions?: CardActions;
   onOpenSource?: (source: CardSource) => void;
 }
 
@@ -47,8 +59,47 @@ const statusLabels: Record<string, string> = {
   acknowledged: "Read",
 };
 
-export function DecisionCardView({ card, senderName, onOpenSource }: Props) {
+type Composer = { mode: "reply" | "revise" | "askAI"; text: string } | null;
+
+const composerCopy = {
+  reply: {
+    placeholder: "OK, but release after Friday",
+    hint: "Your AI reads the intent — approve with a condition, decline with a reason, or ask a question.",
+    send: "Send reply",
+  },
+  revise: {
+    placeholder: "Split this into two smaller tasks",
+    hint: "Goes back to the sender as an actionable revision request.",
+    send: "Request revision",
+  },
+  askAI: {
+    placeholder: "Deadline moved — make this urgent",
+    hint: "Updates this card in place.",
+    send: "Update card",
+  },
+} as const;
+
+export function DecisionCardView({
+  card,
+  senderName,
+  busy = false,
+  actions,
+  onOpenSource,
+}: Props) {
   const priority = card.priority as string;
+  const [composer, setComposer] = useState<Composer>(null);
+
+  const submitComposer = () => {
+    if (!composer || !actions) return;
+    const text = composer.text.trim();
+    if (!text) return;
+
+    if (composer.mode === "reply") actions.reply(card, text);
+    else if (composer.mode === "revise") actions.revise(card, text);
+    else actions.askAI(card, text);
+
+    setComposer(null);
+  };
 
   return (
     <article className={styles.card} aria-label={card.title}>
@@ -107,11 +158,19 @@ export function DecisionCardView({ card, senderName, onOpenSource }: Props) {
           </div>
         )}
 
-        {isPending(card) && card.recommendation && (
-          <div className={styles.recommendation}>
-            ✦ Your AI suggests: {card.recommendation.action}
-            <span>{card.recommendation.reason}</span>
-          </div>
+        {isPending(card) && card.recommendation && actions && (
+          <button
+            className={styles.recommendation}
+            disabled={busy}
+            onClick={() => {
+              if (card.recommendation?.action === "reject") actions.reject(card);
+              else actions.approve(card);
+            }}
+          >
+            ✦ Your AI suggests:{" "}
+            {card.recommendation.action === "reject" ? "Decline" : "Approve"}
+            <span>{card.recommendation.reason} · tap to accept</span>
+          </button>
         )}
 
         {card.githubIssueURL && (
@@ -129,6 +188,96 @@ export function DecisionCardView({ card, senderName, onOpenSource }: Props) {
 
         {!isPending(card) && (
           <div className={styles.status}>{statusLabels[card.status] ?? card.status}</div>
+        )}
+
+        {isPending(card) && actions && (
+          <div className={styles.actions}>
+            {composer ? (
+              <div className={styles.composerRow}>
+                <textarea
+                  autoFocus
+                  value={composer.text}
+                  placeholder={composerCopy[composer.mode].placeholder}
+                  aria-label={composerCopy[composer.mode].send}
+                  onChange={(event) =>
+                    setComposer({ ...composer, text: event.target.value })
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                      submitComposer();
+                    }
+                    if (event.key === "Escape") setComposer(null);
+                  }}
+                />
+                <p className={styles.hint}>{composerCopy[composer.mode].hint}</p>
+                <div className={styles.composerActions}>
+                  <button onClick={() => setComposer(null)}>Cancel</button>
+                  <button
+                    className={styles.send}
+                    disabled={busy || !composer.text.trim()}
+                    onClick={submitComposer}
+                  >
+                    {composerCopy[composer.mode].send}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <button
+                  className={styles.replyBar}
+                  onClick={() => setComposer({ mode: "reply", text: "" })}
+                >
+                  💬 Reply — add a condition, ask a question…
+                </button>
+
+                {isNotification(card) ? (
+                  <>
+                    <button
+                      className={styles.secondary}
+                      disabled={busy}
+                      onClick={() => actions.acknowledge(card)}
+                    >
+                      Mark as read
+                    </button>
+                    <p className={styles.hint}>Reply above to respond</p>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className={`${styles.primary} ${isRevisionRequest(card) ? "" : styles.github}`}
+                      disabled={busy}
+                      onClick={() => actions.approve(card)}
+                    >
+                      {isRevisionRequest(card) ? "Approve as revised" : "Create issue"}
+                    </button>
+                    <div className={styles.secondaryRow}>
+                      <button
+                        className={`${styles.secondary} ${styles.danger}`}
+                        disabled={busy}
+                        onClick={() => actions.reject(card)}
+                      >
+                        Decline
+                      </button>
+                      <button
+                        className={styles.secondary}
+                        disabled={busy}
+                        onClick={() => setComposer({ mode: "revise", text: "" })}
+                      >
+                        Revise
+                      </button>
+                      <button
+                        className={styles.secondary}
+                        disabled={busy}
+                        onClick={() => setComposer({ mode: "askAI", text: "" })}
+                      >
+                        Ask AI
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
         )}
       </div>
     </article>

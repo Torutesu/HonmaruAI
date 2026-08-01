@@ -148,9 +148,14 @@ Scaffold, `tokens.css`, `core/types.ts` + `protocol.ts`, `RelaySocket`, `cardSto
 **Verified**: the integration suite boots the real relay and drives it with the real client core — the built app is served at `/`, a card sent by one client lands in another's store, and a killed relay is followed by automatic reconnection and re-sync. Bundle: 50.7 KB gzip.
 **Bug found and fixed**: reconnection was driven only by `onclose`, but Node/undici fires *only* `onerror` when a connection is refused — the retry loop stalled exactly while the relay was down. Both events now schedule reconnection (idempotent), with capped exponential backoff.
 
-### Phase 2 — The decision loop (the product)
-Swipe/tap decide → optimistic update → GitHub Issue via proxy → result card. Reply sheet (`/ai/reply`), Ask AI (`/ai/refine`), delegate, priority, revise & resend. Compose bar → `/ai/ingest` → draft review → send. Recommendation row, source chips (external links + channel deep-link).
+### Phase 2 — The decision loop (the product) — ✅ SHIPPED
+Tap decide → optimistic update → GitHub Issue via proxy → result card. Reply (`/ai/reply`), Ask AI (`/ai/refine`), revise, acknowledge, one-tap recommendation. Compose bar → `/ai/ingest` → draft review → send.
 **Done when**: a decision started in the browser closes in iOS and vice versa, Issue included.
+**Verified**: the integration suite drives the real relay — a card created by one client is decided through `/cards/decide`, the original flips to approved for every client, and the sender receives the result card carrying the condition.
+
+**Architectural change made here — decision resolution moved to the relay.** It lived only in `DecisionCardService.swift`: status transitions, note handling (Condition/Reason/Revision), the response card, delegation fan-out, GitHub sync. Re-implementing that in TypeScript would have created exactly the drift this plan warns about, so it now lives in `server/decisions.js` behind `POST /cards/decide`, and the web client calls it. GitHub sync happens relay-side using the session's token (the browser holds none). iOS keeps its local path and stays compatible — both converge on the same store and broadcasts — with migration as a follow-up.
+
+**Bug caught in review**: `/cards/` wasn't in the relay's API prefix list, so the new endpoint would have bypassed the auth gate entirely. Added, with a test asserting an unauthenticated decide returns 401.
 
 ### Phase 3 — Channels + org + settings
 Channel list/timeline with agent styling and tool chips, `@ai` mentions, scroll-to-message provenance. Org graph, user switcher, add member. Settings: appearance (System/Dark/Light via `data-theme`), language, connection, sign out.

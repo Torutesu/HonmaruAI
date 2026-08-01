@@ -157,6 +157,76 @@ describe("realtime between two clients", () => {
   }, 15000);
 });
 
+describe("the decision loop closes across clients", () => {
+  it("Bob decides in the web client and Alice is notified", async () => {
+    useCardStore.setState({ cardsByUser: {}, connected: false });
+
+    // Alice watches; Bob acts through the web client's API layer.
+    const alice = new RelaySocket({
+      url: `ws://127.0.0.1:${PORT}`,
+      userId: "user-alice",
+      token: TOKEN,
+    });
+    alice.onEvent((event) => useCardStore.getState().apply(event));
+    alice.connect();
+    await waitFor(() => alice.connected, "Alice connected");
+
+    const cardId = "card-decide-web";
+    alice.send({
+      type: "card_created",
+      payload: {
+        card: {
+          ...bobsCard(cardId),
+          title: "Approve the vendor contract",
+          type: "approval",
+        },
+      },
+    });
+    await waitFor(
+      () =>
+        (useCardStore.getState().cardsByUser["user-bob"] ?? []).some((c) => c.id === cardId),
+      "card reached the store"
+    );
+
+    // Exactly what the web UI does — same endpoint, same payload.
+    const response = await fetch(`${base}/cards/decide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({
+        actorUserID: "user-bob",
+        cardId,
+        action: "approve",
+        note: "sign after the Friday demo",
+      }),
+    });
+    expect(response.status).toBe(200);
+
+    // The original flips to approved for everyone…
+    await waitFor(
+      () =>
+        (useCardStore.getState().cardsByUser["user-bob"] ?? []).find((c) => c.id === cardId)
+          ?.status === "approved",
+      "original card marked approved"
+    );
+
+    // …and Alice receives the result card carrying the condition.
+    await waitFor(
+      () =>
+        (useCardStore.getState().cardsByUser["user-alice"] ?? []).some((c) =>
+          c.summary.includes("sign after the Friday demo")
+        ),
+      "Alice received the decision result"
+    );
+
+    const decided = useCardStore
+      .getState()
+      .cardsByUser["user-bob"]?.find((c) => c.id === cardId);
+    expect(decided?.context).toContain("Condition: sign after the Friday demo");
+
+    alice.disconnect();
+  }, 20000);
+});
+
 describe("resilience", () => {
   it("reconnects and re-syncs after the relay restarts", async () => {
     useCardStore.setState({ cardsByUser: {}, connected: false });

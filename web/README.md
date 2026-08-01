@@ -40,4 +40,4 @@ src/
 
 ## Status
 
-Phase 1 complete: realtime feed, read-only. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).
+Phase 2 complete: the decision loop. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).
