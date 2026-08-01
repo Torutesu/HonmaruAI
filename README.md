@@ -151,5 +151,6 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 - Feature-by-feature progress log: [PROGRESS.md](PROGRESS.md)
 - Design system (v2 — adaptive dark/light, glow language): [design.md](design.md)
 - Cross-platform architecture (macOS · Web): [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)
-- Web client implementation plan: [docs/WEB_PLAN.md](docs/WEB_PLAN.md)
+- Web client — how to run it, and what it does that the phone can't: [web/README.md](web/README.md)
+- Web client implementation plan (Phases 0–6, all shipped): [docs/WEB_PLAN.md](docs/WEB_PLAN.md)
 - Clickable product demo: [docs/demo.html](docs/demo.html)

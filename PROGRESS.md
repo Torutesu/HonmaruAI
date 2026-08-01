@@ -76,6 +76,19 @@ Last updated: 2026-07-30
 - [x] Settings screen: appearance (System/Dark/Light with instant apply), language, relay connection, GitHub repo, notifications, sign out, about
 - [x] Cross-platform architecture doc (docs/CROSS_PLATFORM.md): TTFWCore package extraction, protocol schema + versioning, macOS three-column workbench + keyboard deciding + menu bar capture, Web thin client (@ttfw/core, web OAuth/PKCE, Web Push, GitHub proxy), shared design tokens pipeline, phased roadmap
 
+## Phase 12 — Web client (docs/WEB_PLAN.md, Phases 0–6 all shipped)
+
+- [x] Relay hosts the build (`WEB_DIST_PATH`, SPA fallback) — same origin, so no CORS, a real OAuth redirect URL, and the GitHub token never leaves the server
+- [x] Browser sessions: GitHub OAuth with single-use server-side `state`, `httpOnly` cookie, GitHub proxy endpoints; API routes accept the relay token *or* the cookie
+- [x] React + TS client over a framework-agnostic `core/` (types, protocol, socket, api, stores) that also runs in Node — the integration suite drives the real relay with the real client code
+- [x] Full decision loop: approve / decline / revise / Ask AI / freeform reply (text + dictation), optimistic with rollback, `POST /cards/decide` shared with iOS
+- [x] Channels, org, settings — including the org graph (teams → members with each person's AI, manager, approval rights) and add-member
+- [x] PWA: manifest, service worker, Web Push (VAPID), notification tap → the exact card
+- [x] Desktop workbench ≥1024px: sidebar / queue / context column showing the card's source conversation; `J K ⏎ ⌫ R ?` and a `⌘K` palette — a full session without the mouse
+- [x] Offline read cache (IndexedDB, per-member, week-expiry) + a banner stating how old the feed is; failure copy distinguishes offline / unreachable / expired session / lost race
+- [x] CI (GitHub Actions): relay `node --test`, web unit + integration, Playwright E2E — two browsers on one relay closing the decision loop
+- [ ] Lighthouse audit run (needs a Chrome audit environment; the a11y work it scores is in place)
+
 ## Phase 8 — Deployable relay
 
 - [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)
