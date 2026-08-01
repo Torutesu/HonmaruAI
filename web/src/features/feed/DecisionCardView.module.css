@@ -253,6 +253,12 @@
   outline: none;
   border-color: var(--accent);
 }
+.micRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .composerActions {
   display: flex;
   gap: 8px;

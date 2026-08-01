@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { selectCardsFor, selectPendingCount, useCardStore } from "../../core/stores/cards";
 import { useSessionStore } from "../../core/stores/session";
 import type { CardSource } from "../../core/types";
@@ -9,9 +9,12 @@ import styles from "./FeedScreen.module.css";
 
 interface Props {
   onOpenSource?: (source: CardSource) => void;
+  /** From a notification tap: scroll this card into view. */
+  focusCardID?: string | null;
+  onFocusHandled?: () => void;
 }
 
-export function FeedScreen({ onOpenSource }: Props) {
+export function FeedScreen({ onOpenSource, focusCardID, onFocusHandled }: Props) {
   const me = useSessionStore((state) => state.me);
   const users = useSessionStore((state) => state.users);
   const cards = useCardStore(selectCardsFor(me?.id ?? null));
@@ -30,6 +33,17 @@ export function FeedScreen({ onOpenSource }: Props) {
     }, 3000);
     return () => clearTimeout(timer);
   }, [message, decisions]);
+
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
+
+  // A tapped notification lands on its card — once it has actually arrived.
+  useEffect(() => {
+    if (!focusCardID) return;
+    const element = cardRefs.current.get(focusCardID);
+    if (!element) return;
+    element.scrollIntoView({ block: "start", behavior: "smooth" });
+    onFocusHandled?.();
+  }, [focusCardID, cards, onFocusHandled]);
 
   const nameFor = (userID: string) =>
     users.find((user) => user.id === userID)?.name ?? userID;
@@ -57,14 +71,21 @@ export function FeedScreen({ onOpenSource }: Props) {
           </div>
         ) : (
           cards.map((card) => (
-            <DecisionCardView
+            <div
               key={card.id}
+              ref={(element) => {
+                if (element) cardRefs.current.set(card.id, element);
+                else cardRefs.current.delete(card.id);
+              }}
+            >
+            <DecisionCardView
               card={card}
               senderName={nameFor(card.senderUserID)}
               busy={decisions.busyCardId === card.id}
               actions={decisions}
               onOpenSource={onOpenSource}
             />
+            </div>
           ))
         )}
       </main>

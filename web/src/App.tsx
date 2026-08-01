@@ -6,6 +6,7 @@ import { useCardStore } from "./core/stores/cards";
 import { useChannelStore } from "./core/stores/channels";
 import { applyAppearance, useSessionStore } from "./core/stores/session";
 import type { CardSource } from "./core/types";
+import { registerServiceWorker } from "./lib/push";
 import { ChannelsScreen } from "./features/channels/ChannelsScreen";
 import { FeedScreen } from "./features/feed/FeedScreen";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
@@ -30,10 +31,37 @@ export function App() {
 
   const [tab, setTab] = useState<Tab>("feed");
   const [deepLink, setDeepLink] = useState<{ channelID: string; messageID?: string } | null>(null);
+  const [focusCardID, setFocusCardID] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<RelaySocket | null>(null);
 
   useEffect(() => applyAppearance(appearance), [appearance]);
+
+  // Installable shell + a place for push notifications to land.
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
+
+  // Notification click → that exact card. Cold start carries ?card=…; a
+  // focused tab is told by the service worker.
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(location.search).get("card");
+    if (fromUrl) {
+      setFocusCardID(fromUrl);
+      setTab("feed");
+      history.replaceState(null, "", location.pathname);
+    }
+
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "open-card" && event.data.cardID) {
+        setFocusCardID(event.data.cardID);
+        setTab("feed");
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, []);
 
   // Who am I? The session cookie answers; 401 means we need to sign in.
   useEffect(() => {
@@ -51,6 +79,7 @@ export function App() {
             nodes: response.organization.nodes,
             edges: response.organization.edges,
           },
+          vapidPublicKey: response.push.publicKey,
         });
       })
       .catch(() => {
@@ -155,7 +184,13 @@ export function App() {
       </nav>
 
       <div className={styles.body}>
-        {tab === "feed" && <FeedScreen onOpenSource={openSource} />}
+        {tab === "feed" && (
+          <FeedScreen
+            onOpenSource={openSource}
+            focusCardID={focusCardID}
+            onFocusHandled={() => setFocusCardID(null)}
+          />
+        )}
         {tab === "channels" && (
           <ChannelsScreen
             initialChannelID={deepLink?.channelID ?? null}

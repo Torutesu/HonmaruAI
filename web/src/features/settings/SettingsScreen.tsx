@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../core/api";
 import { useSessionStore } from "../../core/stores/session";
 import type { Appearance } from "../../core/stores/session";
+import { currentPushState, enablePush, type PushState } from "../../lib/push";
 import styles from "./SettingsScreen.module.css";
 
 const APPEARANCES: { id: Appearance; icon: string; label: string }[] = [
@@ -11,13 +12,41 @@ const APPEARANCES: { id: Appearance; icon: string; label: string }[] = [
 ];
 
 export function SettingsScreen() {
-  const { me, users, repository, githubLogin, appearance, setAppearance, setMe, setOrganization } =
-    useSessionStore();
+  const {
+    me,
+    users,
+    repository,
+    githubLogin,
+    appearance,
+    vapidPublicKey,
+    setAppearance,
+    setMe,
+    setOrganization,
+  } = useSessionStore();
 
   const [language, setLanguage] = useState(me?.language ?? "");
   const [savingLanguage, setSavingLanguage] = useState(false);
   const [languageSaved, setLanguageSaved] = useState(false);
+  const [pushState, setPushState] = useState<PushState>("default");
+  const [enabling, setEnabling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    currentPushState(vapidPublicKey).then(setPushState);
+  }, [vapidPublicKey]);
+
+  const enableNotifications = async () => {
+    if (!vapidPublicKey) return;
+    setEnabling(true);
+    setError(null);
+    try {
+      setPushState(await enablePush(vapidPublicKey));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not turn on notifications.");
+    } finally {
+      setEnabling(false);
+    }
+  };
 
   const saveLanguage = async () => {
     if (!me || !language.trim()) return;
@@ -138,6 +167,24 @@ export function SettingsScreen() {
           Only pending high/urgent decisions ring — never chat, notes or digests, and never while
           you're connected.
         </p>
+
+        {pushState === "subscribed" ? (
+          <p className={styles.rowActive}>✓ Notifications on for this browser</p>
+        ) : pushState === "denied" ? (
+          <p className={styles.note}>
+            Blocked in your browser settings — re-allow notifications for this site to turn them on.
+          </p>
+        ) : pushState === "unsupported" ? (
+          <p className={styles.note}>This browser doesn't support push notifications.</p>
+        ) : pushState === "unconfigured" ? (
+          <p className={styles.note}>
+            The relay has no VAPID keys configured, so push is off for everyone.
+          </p>
+        ) : (
+          <button className={styles.enable} disabled={enabling} onClick={enableNotifications}>
+            {enabling ? "Enabling…" : "Turn on notifications"}
+          </button>
+        )}
       </section>
 
       {error && <p className={styles.error}>{error}</p>}

@@ -604,7 +604,7 @@ const server = createServer(async (req, res) => {
       aiRouting: Boolean(OPENROUTER_API_KEY),
       aiModel: OPENROUTER_MODEL,
       authRequired: Boolean(RELAY_TOKEN),
-      push: apns.configured,
+      push: { apns: apns.configured, web: webPush.configured },
     });
     return;
   }

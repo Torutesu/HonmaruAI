@@ -40,4 +40,4 @@ src/
 
 ## Status
 
-Phase 3 complete: decision loop, channels, settings. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).
+Phase 4 complete: decision loop, channels, settings, PWA + Web Push + dictation. See [../docs/WEB_PLAN.md](../docs/WEB_PLAN.md).

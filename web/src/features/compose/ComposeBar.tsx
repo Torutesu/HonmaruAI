@@ -3,6 +3,7 @@ import { api } from "../../core/api";
 import type { IngestResponse } from "../../core/api";
 import { publishCard } from "../../core/relay";
 import { useSessionStore } from "../../core/stores/session";
+import { MicButton } from "../../ui/MicButton";
 import styles from "./ComposeBar.module.css";
 
 type Draft = NonNullable<IngestResponse["routing"]> & { sourceText: string; channelID?: string };
@@ -125,6 +126,10 @@ export function ComposeBar({ onSent }: Props) {
             }}
           />
           {error && <p className={styles.error}>{error}</p>}
+          <div className={styles.micRow}>
+            <MicButton onTranscript={setText} language={me?.language} />
+            <span className={styles.hint}>Dictate — edit before sending</span>
+          </div>
           <div className={styles.actions}>
             <button onClick={() => setOpen(false)}>Cancel</button>
             <button className={styles.send} disabled={busy || !text.trim()} onClick={triage}>

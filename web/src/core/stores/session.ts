@@ -12,12 +12,15 @@ interface SessionState {
   appearance: Appearance;
   loading: boolean;
   signedIn: boolean;
+  /** VAPID key from the relay; null when Web Push isn't configured there. */
+  vapidPublicKey: string | null;
   setSession: (input: {
     me: User | null;
     githubLogin: string | null;
     repository: string | null;
     users: User[];
     organization: OrganizationGraph;
+    vapidPublicKey?: string | null;
   }) => void;
   setMe: (me: User) => void;
   setOrganization: (users: User[], organization: OrganizationGraph) => void;
@@ -55,9 +58,19 @@ export const useSessionStore = create<SessionState>((set) => ({
   appearance: storedAppearance(),
   loading: true,
   signedIn: false,
+  vapidPublicKey: null,
 
-  setSession: ({ me, githubLogin, repository, users, organization }) =>
-    set({ me, githubLogin, repository, users, organization, signedIn: true, loading: false }),
+  setSession: ({ me, githubLogin, repository, users, organization, vapidPublicKey }) =>
+    set({
+      me,
+      githubLogin,
+      repository,
+      users,
+      organization,
+      vapidPublicKey: vapidPublicKey ?? null,
+      signedIn: true,
+      loading: false,
+    }),
 
   setMe: (me) => set({ me }),
 

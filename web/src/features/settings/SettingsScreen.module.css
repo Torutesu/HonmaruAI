@@ -124,6 +124,20 @@
   color: var(--reject);
 }
 
+.enable {
+  padding: 12px;
+  font-family: var(--font-rounded);
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+  border: 0;
+  border-radius: var(--radius-md);
+}
+.enable:disabled {
+  opacity: 0.6;
+}
+
 .error {
   font-size: 12px;
   color: var(--reject);

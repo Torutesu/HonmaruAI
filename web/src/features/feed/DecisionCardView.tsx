@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CardSource, DecisionCard } from "../../core/types";
 import { isNotification, isPending, isRevisionRequest } from "../../core/types";
+import { MicButton } from "../../ui/MicButton";
 import styles from "./DecisionCardView.module.css";
 
 export interface CardActions {
@@ -209,7 +210,12 @@ export function DecisionCardView({
                     if (event.key === "Escape") setComposer(null);
                   }}
                 />
-                <p className={styles.hint}>{composerCopy[composer.mode].hint}</p>
+                <div className={styles.micRow}>
+                  <MicButton
+                    onTranscript={(text) => setComposer((current) => (current ? { ...current, text } : current))}
+                  />
+                  <span className={styles.hint}>{composerCopy[composer.mode].hint}</span>
+                </div>
                 <div className={styles.composerActions}>
                   <button onClick={() => setComposer(null)}>Cancel</button>
                   <button

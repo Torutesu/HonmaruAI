@@ -163,9 +163,13 @@ Channel list/timeline with agent styling and tool chips, `@ai` mentions, scroll-
 **Shipped**: channel store (snapshot/created/message with echo de-duplication), timeline that lands on the exact message a card's source chip points to, tab shell (Feed / Channels / ⚙), settings with appearance tiles, relay-synced language, member switching and sign out.
 **Deferred to Phase 6**: org graph visualization and add-member form (both exist on iOS; the endpoints are already wired in `api.ts`).
 
-### Phase 4 — Auth, push, PWA
-Real sign-in screen on the session flow, `OAuthCallback` route, Web Push subscribe + permission UX (mirroring the "we only ring for high/urgent" copy), manifest + service worker (installable, notification click → deep link to the card), Web Speech dictation where supported.
+### Phase 4 — Auth, push, PWA — ✅ SHIPPED
+Sign-in screen on the session flow, Web Push subscribe + permission UX (mirroring the "we only ring for high/urgent" copy), manifest + service worker (installable, notification click → deep link to the card), Web Speech dictation where supported.
 **Done when**: install to home screen, receive a push for an urgent card while the tab is closed, tap → the exact card.
+**Shipped**: service worker (push → notification, click → focus the open tab and jump to the card, or cold-start via `?card=`), manifest + SVG icon, `enablePush()` with every permission state explained in Settings, and dictation on the composer and card replies — transcript editable before sending, exactly like iOS.
+**Verified**: subscription registration and validation against a live relay with real VAPID keys; the integration suite asserts the manifest, service worker and icon are served with the MIME types browsers require (a wrong one silently breaks registration).
+**Bug found**: `/health` reported `push` from APNs alone, so a relay with Web Push configured advertised "push off". It now reports `{apns, web}`.
+**Not verifiable here**: actual push delivery needs a browser + a real push service.
 
 ### Phase 5 — Desktop workbench
 ≥1024px: three-column layout (sidebar / decision queue / **context panel showing the selected card's source conversation**), keyboard deciding (`J K` navigate, `⏎` approve, `⌫` decline, `R` reply, `?` shortcut sheet), `⌘K` command palette (jump to channel, switch user, run digest).

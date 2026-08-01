@@ -3,6 +3,7 @@ import { decodeServerEvent, encodeClientEvent } from "./protocol";
 import { useCardStore } from "./stores/cards";
 import { useChannelStore } from "./stores/channels";
 import type { ChatMessage, DecisionCard } from "./types";
+import { urlBase64ToUint8Array } from "../lib/push";
 
 const card = (overrides: Partial<DecisionCard> = {}): DecisionCard => ({
   id: "c1",
@@ -139,6 +140,25 @@ describe("card store", () => {
     });
 
     expect(useCardStore.getState().cardsByUser["user-bob"]).toHaveLength(0);
+  });
+});
+
+describe("web push key conversion", () => {
+  it("decodes base64url VAPID keys into raw bytes", () => {
+    // "hello" in base64url, no padding
+    expect(Array.from(urlBase64ToUint8Array("aGVsbG8"))).toEqual([104, 101, 108, 108, 111]);
+  });
+
+  it("handles the url-safe alphabet and missing padding", () => {
+    // 0xFB 0xFF 0xBE encodes to "+/++" in standard base64 → "-_--" url-safe
+    expect(Array.from(urlBase64ToUint8Array("-_--"))).toEqual(
+      Array.from(urlBase64ToUint8Array("+/++"))
+    );
+    expect(urlBase64ToUint8Array("aGVsbG8gd29ybGQ").length).toBe(11);
+  });
+
+  it("returns a plain ArrayBuffer — PushManager rejects shared buffers", () => {
+    expect(urlBase64ToUint8Array("aGVsbG8").buffer).toBeInstanceOf(ArrayBuffer);
   });
 });
 

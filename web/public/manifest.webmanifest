@@ -1,0 +1,19 @@
+{
+  "name": "TikTok for Work",
+  "short_name": "TTFW",
+  "description": "Decisions, not messages.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A0B12",
+  "theme_color": "#0A0B12",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

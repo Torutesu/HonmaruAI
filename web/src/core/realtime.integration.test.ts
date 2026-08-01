@@ -109,6 +109,23 @@ describe("relay hosts the built web app", () => {
     expect(html).toMatch(/<script[^>]+src="\/assets\/index-[^"]+\.js"/);
   });
 
+  it("serves the PWA shell assets the browser needs to install", async () => {
+    const manifest = await fetch(`${base}/manifest.webmanifest`);
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
+    expect((await manifest.json()).start_url).toBe("/");
+
+    const worker = await fetch(`${base}/sw.js`);
+    expect(worker.status).toBe(200);
+    // Wrong MIME here silently breaks service worker registration.
+    expect(worker.headers.get("content-type")).toContain("text/javascript");
+    const source = await worker.text();
+    expect(source).toContain("notificationclick");
+
+    const icon = await fetch(`${base}/icon.svg`);
+    expect(icon.headers.get("content-type")).toContain("image/svg+xml");
+  });
+
   it("serves SPA routes without shadowing the API", async () => {
     expect((await fetch(`${base}/settings`)).status).toBe(200);
     // API path stays API even though it has no file extension

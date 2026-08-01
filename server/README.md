@@ -119,7 +119,7 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/health` | Health check (`aiRouting`, `aiModel`, `authRequired`) |
+| GET | `/health` | Health check (`aiRouting`, `aiModel`, `authRequired`, `push: {apns, web}`) |
 | GET | `/org` | Organization snapshot: users, nodes, edges |
 | POST | `/org/members` | Add a member (name, role, team, githubUsername) — broadcasts `org_updated` |
 | POST | `/push/register` | Register an APNs device token for a user |

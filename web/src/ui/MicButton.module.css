@@ -1,0 +1,17 @@
+.mic {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  color: var(--t2);
+  background: var(--raised);
+  border: 0;
+  border-radius: 999px;
+}
+
+.recording {
+  color: var(--reject);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--reject) 20%, transparent);
+}
