@@ -131,6 +131,26 @@ export function createOrgStore(initial) {
       return edge ? this.findUser(edge.fromID) : null;
     },
 
+    /**
+     * Autopilot is stored per person because it is a delegation of authority,
+     * not a workspace setting. Only the fields we understand are kept.
+     */
+    setAutopilot(userID, settings) {
+      const user = this.findUser(userID);
+      if (!user || !settings || typeof settings !== "object") return null;
+
+      const next = { ...(user.autopilot || {}) };
+      if (typeof settings.enabled === "boolean") next.enabled = settings.enabled;
+      if (Number.isFinite(Number(settings.holdMinutes))) {
+        next.holdMinutes = Number(settings.holdMinutes);
+      }
+      if (typeof settings.maxPriority === "string") next.maxPriority = settings.maxPriority;
+      if (Array.isArray(settings.actions)) next.actions = settings.actions;
+
+      user.autopilot = next;
+      return user;
+    },
+
     setLanguage(userID, language) {
       const user = this.findUser(userID);
       if (!user) return false;

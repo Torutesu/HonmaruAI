@@ -134,8 +134,14 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var recommendation: RecommendationHint?
     var sources: [CardSource]?
     var sourceMessageID: String?
+    // Autopilot decided this one. Marked so it is never mistaken for a
+    // decision its recipient made.
+    var autopilotAt: String?
+    var decidedByAI: Bool?
 
     var isPending: Bool { status == .pending }
+
+    var wasDecidedByAI: Bool { decidedByAI == true }
 
     var canDelete: Bool { status == .rejected }
 

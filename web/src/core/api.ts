@@ -1,4 +1,11 @@
-import type { DecisionCard, OrganizationGraph, OrgEdge, OrgNode, User } from "./types";
+import type {
+  AutopilotSettings,
+  DecisionCard,
+  OrganizationGraph,
+  OrgEdge,
+  OrgNode,
+  User,
+} from "./types";
 
 // Same-origin by default: the relay serves this app, so no base URL and no
 // CORS. Credentials ride along as the httpOnly session cookie.
@@ -42,6 +49,15 @@ export type DecisionAction =
   | "acknowledge"
   | "delegate"
   | "priority";
+
+export interface MemoryEntry {
+  action: "approve" | "reject" | "revise" | (string & {});
+  type: string;
+  priority: string;
+  senderUserID: string;
+  title: string;
+  at: string;
+}
 
 export interface IngestResponse {
   kind: "decision" | "update";
@@ -104,6 +120,24 @@ export const api = {
       `/sources/notion?${new URLSearchParams(
         input.pageID ? { pageID: input.pageID } : { url: input.url ?? "" }
       )}`
+    ),
+
+  /**
+   * Delegating decision authority is a per-person choice. The relay clamps
+   * what it stores, so the response — not the request — is what will happen.
+   */
+  setAutopilot: (userId: string, autopilot: Partial<AutopilotSettings>) =>
+    request<{ user: User; autopilot: AutopilotSettings }>("/org/autopilot", {
+      method: "POST",
+      body: JSON.stringify({ userId, autopilot }),
+    }),
+
+  runAutopilot: () => request<{ decided: number }>("/autopilot/run", { method: "POST" }),
+
+  /** The decision history a person's AI learns from — human decisions only. */
+  memory: (userId: string) =>
+    request<{ userId: string; entries: MemoryEntry[] }>(
+      `/memory?${new URLSearchParams({ userId })}`
     ),
 
   /** Ops actions the command palette exposes; both are idempotent sweeps. */

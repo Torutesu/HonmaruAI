@@ -32,6 +32,12 @@ import {
   recommendDecision,
 } from "./memory.js";
 import { buildSources } from "./provenance.js";
+import {
+  DEFAULT_AUTOPILOT,
+  autopilotNote,
+  autopilotSettings,
+  findAutopilotCards,
+} from "./autopilot.js";
 import { createNotion, notionPageIdFromUrl, resolveNotionSources } from "./notion.js";
 import {
   DECISION_ACTIONS,
@@ -118,6 +124,10 @@ const DIGEST_INTERVAL_MINUTES = Number(process.env.DIGEST_INTERVAL_MINUTES || 0)
 // to sweep for breaches. 0 disables the sweep; POST /escalations/run always works.
 const SLA_MINUTES = parseSLAConfig(process.env.SLA_MINUTES);
 const ESCALATION_INTERVAL_MINUTES = Number(process.env.ESCALATION_INTERVAL_MINUTES || 15);
+
+// How often to look for cards autopilot may decide. Harmless by default:
+// autopilot is off for every user until they turn it on themselves.
+const AUTOPILOT_INTERVAL_MINUTES = Number(process.env.AUTOPILOT_INTERVAL_MINUTES || 10);
 
 // Password-less sign-in for local demos and the browser E2E suite. Never on
 // by default, and never in production even if the flag is set.
@@ -338,6 +348,56 @@ async function runEscalations(now = Date.now()) {
   return escalated;
 }
 
+// Autopilot acts on cards their recipient left sitting. Nothing happens for
+// anyone who hasn't turned it on, so the sweep is safe to run by default.
+async function runAutopilot(now = Date.now()) {
+  const store = getStore(ORG_ID);
+  const ready = findAutopilotCards({
+    cardsByUser: store,
+    settingsFor: (userID) => autopilotSettings(orgStore.findUser(userID)),
+    now,
+  });
+
+  let decided = 0;
+  for (const { card, decision } of ready) {
+    const note = autopilotNote(decision);
+    const { followUps } = applyDecision({
+      card,
+      action: decision.action,
+      note,
+      actorUserID: card.recipientUserID,
+    });
+
+    // Marked on the card itself: whoever opens it sees a machine decided, and
+    // the sweep never reconsiders it.
+    card.autopilotAt = new Date(now).toISOString();
+    card.decidedByAI = true;
+    for (const followUp of followUps) {
+      followUp.decidedByAI = true;
+    }
+
+    // Deliberately not recorded in decision memory — see autopilot.js.
+    broadcast(ORG_ID, "card_updated", { card });
+    for (const followUp of followUps) {
+      await deliverCard(ORG_ID, followUp);
+    }
+    decided += 1;
+  }
+
+  if (decided > 0) {
+    persister.schedule(orgStores);
+  }
+  return decided;
+}
+
+if (AUTOPILOT_INTERVAL_MINUTES > 0) {
+  setInterval(() => {
+    runAutopilot().catch((error) =>
+      console.warn("Autopilot sweep failed:", error.message)
+    );
+  }, AUTOPILOT_INTERVAL_MINUTES * 60 * 1000).unref();
+}
+
 if (ESCALATION_INTERVAL_MINUTES > 0) {
   setInterval(() => {
     runEscalations().catch((error) =>
@@ -539,6 +599,8 @@ const API_PREFIXES = [
   "/escalations/",
   "/oauth/",
   "/sources/",
+  "/autopilot/",
+  "/memory",
 ];
 
 export function isApiPath(pathname) {
@@ -957,6 +1019,57 @@ const server = createServer(async (req, res) => {
       json(res, 200, { digests: created });
     } catch (error) {
       json(res, 400, { message: error.message || "Digest run failed." });
+    }
+    return;
+  }
+
+  // The decision history a person's AI learns from — the same data the
+  // recommendation engine reads, made inspectable. Nothing here was written
+  // by autopilot: it records human decisions only.
+  if (url.pathname === "/memory" && req.method === "GET") {
+    const userId = url.searchParams.get("userId");
+    if (userId) {
+      if (!orgStore.findUser(userId)) {
+        json(res, 400, { message: "Unknown org member." });
+        return;
+      }
+      json(res, 200, { userId, entries: memoryStore.entriesFor(userId) });
+      return;
+    }
+    json(res, 200, {
+      entriesByUser: Object.fromEntries(
+        orgStore.userIDs().map((id) => [id, memoryStore.entriesFor(id)])
+      ),
+    });
+    return;
+  }
+
+  if (url.pathname === "/autopilot/run" && req.method === "POST") {
+    try {
+      const decided = await runAutopilot();
+      json(res, 200, { decided });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Autopilot sweep failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/org/autopilot" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const user = orgStore.setAutopilot(body.userId, body.autopilot ?? body);
+      if (!user) {
+        json(res, 400, { message: "Unknown org member." });
+        return;
+      }
+      persistOrg();
+      broadcast(ORG_ID, "org_updated", orgStore.snapshot());
+      // Echo the effective settings, not the raw input — the stored values are
+      // clamped, and the client should show what will actually happen.
+      json(res, 200, { user, autopilot: autopilotSettings(user) });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Could not update autopilot." });
     }
     return;
   }

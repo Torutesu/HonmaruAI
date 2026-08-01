@@ -64,6 +64,7 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 - **Freeform replies** (`/ai/reply`): conditional approvals with the condition recorded on the card and the Issue, rejections with reasons, questions that go back as cards while the decision stays pending, notes. Works in Japanese too — 「承認。ただし金曜以降で」
 - **Revise & resend loop**: a revision request returns as an actionable card; the redraft routes straight back to whoever asked
 - **AI recommendations**: your agent learns from every decision you make and attaches a one-tap suggestion when your history shows a clear pattern. Advisory only
+- **Autopilot** (opt-in, per person): those predictions allowed to act — but only on decisions you left sitting past a hold window, never on anything urgent, approve-only unless you say otherwise, and every card it touches says *"decided by your AI"*. Its own decisions are excluded from what it learns from, so it can't talk itself into a pattern
 - **One tap to the source**: every card carries provenance chips — the channel conversation it came from (opens scrolled to the exact message) and any documents referenced in the ask (Notion, Google Docs, Figma, GitHub PR/Issue links, auto-extracted and labeled). The summary is the decision surface; the source is one tap away
 - **Notion, actually connected** (`NOTION_TOKEN`): a linked page arrives as its real title rather than a generic "Notion" chip, a decision that links nothing gets its page found by searching the workspace with the decision's own words, and the page opens *next to* the card — title and text excerpt in place, "Open in Notion" one tap further. The token stays on the relay
 
@@ -141,7 +142,6 @@ Simulator A = Alice, Simulator B = Bob (user switcher, top left). Alice: *"Ask B
 
 - Live APNs + TestFlight distribution (needs Apple Developer credentials; relay deploy is `docker build` away)
 - Real accounts: GitHub identity → org member binding with per-user auth on the relay
-- Autopilot: recommendations already predict decisions — graduate high-confidence, low-risk cards to AI pre-approval with human review in the digest
 - Decision ledger: search/timeline over the decision history (data already persisted), lead-time metrics, bottleneck visibility
 - PRs/Discussions/Projects as sync targets; multi-repo and multi-org
 - SQLite persistence, agent proactivity (unprompted context from past decisions), calendar/email inflow

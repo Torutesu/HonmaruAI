@@ -85,6 +85,21 @@ Everything is best-effort by construction: unset, rate-limited, unreachable or s
 
 Every pending→decided transition (approve / reject / revise) is recorded per user (`data/memory.json`, last 50). When a new decidable card is delivered to someone with ≥3 relevant data points, their AI predicts the call (`recommend_decision` tool; offline, a ≥75%-consistency pattern heuristic over same-sender/same-type history) and attaches a one-tap recommendation — "Your AI suggests: Approve · You approved the last 3 review requests from Alice", written in the recipient's language. Advisory only: no clear pattern, no recommendation, and the human always decides.
 
+## Autopilot — the recommendation engine allowed to act
+
+The recommendation engine already predicts how someone decides. Autopilot lets it act, under conditions strict enough that acting is defensible. The design is mostly about what it refuses to do:
+
+- **Opt-in per person** (`POST /org/autopilot`), stored on the org member because it is a delegation of authority, not a workspace setting. Off for everyone until they turn it on.
+- **Never immediately.** A hold window (default 2h, minimum 15m — zero is refused) means the human always gets first refusal; autopilot only handles what they left sitting.
+- **Never urgent.** If it genuinely can't wait, it needs a person. A stored `maxPriority: "urgent"` is clamped to `high`.
+- **Approve only, by default.** Auto-approving is recoverable and visible; silently declining someone's request is not, so it takes a second opt-in. Anything else (`delegate`, `revise`) is dropped from the action list entirely.
+- **Never a revision request**, never your own card, never twice — the card records `autopilotAt`.
+- **Never invisibly.** The card carries `decidedByAI`, the context says *"Approved by your AI after 3h · <the pattern it saw>"*, and the sender's notification carries the same mark.
+
+The sweep runs every `AUTOPILOT_INTERVAL_MINUTES` (default 10; `POST /autopilot/run` on demand) and resolves through the same `applyDecision` as every other client, so an autopilot approval is not a special kind of decision.
+
+**One deliberate omission**: an autopilot decision is *not* written to decision memory. A system that learns from its own predictions only ever confirms itself — the pattern that justified acting has to keep being earned from human decisions. `GET /memory?userId=…` exposes that history, and the integration test asserts autopilot's own decisions never appear in it.
+
 ## SLA escalation — stuck decisions climb the org graph
 
 Pending cards have an SLA by priority (urgent 2h · high 8h · medium 24h; low never — override with `SLA_MINUTES="urgent:60,high:240"`). A sweep (every `ESCALATION_INTERVAL_MINUTES`, default 15; `POST /escalations/run` on demand) finds breaches, follows the recipient's `manages` edge, and delivers the manager an actionable **"Escalated:"** copy of the stuck decision — urgent stays urgent, everything else arrives high, so offline managers get pushed. The original card is annotated (`escalated: Dana notified after 9h`) and marked so it never escalates twice. Escalations ride the normal delivery path: translated into the manager's language, logged to the card's channel.
@@ -144,6 +159,9 @@ The iOS app calls `POST /ai/route` on the relay server. The OpenRouter key stays
 | POST | `/org/language` | Set a member's language — future cards arrive translated |
 | POST | `/github/webhook` | GitHub events → decision cards (HMAC-verified, no bearer token) |
 | POST | `/escalations/run` | Sweep for SLA breaches now (also runs on `ESCALATION_INTERVAL_MINUTES`) |
+| POST | `/autopilot/run` | Decide the cards autopilot is cleared to decide now (also runs on `AUTOPILOT_INTERVAL_MINUTES`) |
+| POST | `/org/autopilot` | Grant/revoke a member's autopilot — echoes the *clamped* settings, not the request |
+| GET | `/memory[?userId=…]` | The decision history a person's AI learns from (human decisions only) |
 | POST | `/cards/decide` | Resolve a decision: approve / reject / revise / acknowledge / delegate / priority |
 | GET | `/auth/github/start` → `/auth/github/callback` | Browser OAuth (server-side `state`), sets the session cookie |
 | GET/POST | `/auth/me`, `/auth/session`, `/auth/signout` | Session identity, org-member selection, sign out |

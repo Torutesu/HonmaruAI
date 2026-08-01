@@ -96,6 +96,10 @@ function relayCardKeys() {
     githubRepository: "acme/app",
     // Written by memory.js at delivery time.
     recommendation: { action: "approve", reason: "You approved the last 3" },
+    // Written by the escalation and autopilot sweeps.
+    escalatedAt: new Date().toISOString(),
+    autopilotAt: new Date().toISOString(),
+    decidedByAI: true,
   };
   collect(base);
 

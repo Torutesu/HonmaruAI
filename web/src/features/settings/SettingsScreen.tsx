@@ -3,6 +3,7 @@ import { api } from "../../core/api";
 import { useSessionStore } from "../../core/stores/session";
 import type { Appearance } from "../../core/stores/session";
 import { currentPushState, enablePush, type PushState } from "../../lib/push";
+import { AutopilotSection } from "./AutopilotSection";
 import { OrgSection } from "./OrgSection";
 import styles from "./SettingsScreen.module.css";
 
@@ -144,6 +145,8 @@ export function SettingsScreen() {
           </button>
         ))}
       </section>
+
+      <AutopilotSection />
 
       <OrgSection />
 

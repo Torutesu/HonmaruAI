@@ -13,17 +13,36 @@ const SERVER_PATH = join(__dirname, "..", "index.js");
 const TOKEN = "test-relay-token";
 const HOOK_SECRET = "test-hook-secret";
 
+// Every store lives beside the card store, in the test's own temp directory.
+// Sharing the repo's server/data would make these tests read each other's
+// state — and the autopilot test asserts on what memory.json does *not*
+// contain.
+function storePathsFrom(storePath) {
+  const dir = dirname(storePath);
+  return {
+    CARDS_STORE_PATH: storePath,
+    CHANNELS_STORE_PATH: join(dir, "channels.json"),
+    ORG_STORE_PATH: join(dir, "org.json"),
+    PUSH_STORE_PATH: join(dir, "push.json"),
+    DIGEST_STORE_PATH: join(dir, "digest.json"),
+    MEMORY_STORE_PATH: join(dir, "memory.json"),
+    SESSIONS_STORE_PATH: join(dir, "sessions.json"),
+  };
+}
+
 function startServer(port, storePath) {
   const child = spawn(process.execPath, [SERVER_PATH], {
     env: {
       ...process.env,
       PORT: String(port),
       RELAY_TOKEN: TOKEN,
-      CARDS_STORE_PATH: storePath,
+      ...storePathsFrom(storePath),
       GITHUB_CLIENT_ID: "",
       GITHUB_CLIENT_SECRET: "",
       GITHUB_WEBHOOK_SECRET: HOOK_SECRET,
       OPENROUTER_API_KEY: "",
+      // The sweeps are driven explicitly by the tests that need them.
+      AUTOPILOT_INTERVAL_MINUTES: "0",
     },
     stdio: "ignore",
   });
@@ -832,6 +851,117 @@ test("relay auth, refine endpoint, and persistence", async (t) => {
       delegateToUserID: "user-nobody",
     });
     assert.equal(bad.status, 400);
+
+    ws.close();
+  });
+
+  await t.test("autopilot: opt-in, held, marked, and not self-taught", async () => {
+    const headers = { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` };
+
+    const ws = await wsOpen(`ws://127.0.0.1:${port}`);
+    ws.send(JSON.stringify({ type: "join", payload: { userId: "user-bob", token: TOKEN } }));
+    await collectMessages(ws, 2);
+
+    const seed = async (id, overrides = {}) => {
+      const landed = collectUntil(ws, (messages) =>
+        messages.some((m) => m.type === "card_created" && m.payload.card.id === id)
+      );
+      ws.send(
+        JSON.stringify({
+          type: "card_created",
+          payload: {
+            card: {
+              id,
+              recipientUserID: "user-bob",
+              senderUserID: "user-alice",
+              type: "approval",
+              title: "Approve the staging rollout",
+              summary: "10% traffic",
+              context: "",
+              status: "pending",
+              priority: "medium",
+              // Old enough to be past any hold window.
+              createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+              recommendation: { action: "approve", reason: "You approved the last 4" },
+              ...overrides,
+            },
+          },
+        })
+      );
+      await landed;
+    };
+
+    await seed("card-autopilot-1");
+
+    // Nobody has opted in yet, so a sweep does nothing at all.
+    const idle = await fetch(`${base}/autopilot/run`, { method: "POST", headers });
+    assert.equal(idle.status, 200);
+    assert.equal((await idle.json()).decided, 0);
+
+    // Opting in is a per-person choice, and the relay echoes what will
+    // actually happen rather than what was asked for.
+    const opted = await fetch(`${base}/org/autopilot`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        userId: "user-bob",
+        autopilot: { enabled: true, holdMinutes: 60, maxPriority: "urgent" },
+      }),
+    });
+    assert.equal(opted.status, 200);
+    assert.equal((await opted.json()).autopilot.maxPriority, "high");
+
+    const decidedEvents = collectUntil(ws, (messages) =>
+      messages.some(
+        (m) => m.type === "card_updated" && m.payload.card.id === "card-autopilot-1"
+      )
+    );
+
+    const run = await fetch(`${base}/autopilot/run`, { method: "POST", headers });
+    assert.equal(run.status, 200);
+    assert.equal((await run.json()).decided, 1);
+
+    const messages = await decidedEvents;
+    const decided = messages
+      .filter((m) => m.type === "card_updated" && m.payload.card.id === "card-autopilot-1")
+      .pop().payload.card;
+
+    assert.equal(decided.status, "approved");
+    assert.equal(decided.decidedByAI, true);
+    assert.ok(decided.autopilotAt, "the card records when autopilot acted");
+    assert.ok(
+      decided.context.includes("Approved by your AI"),
+      "the card says a machine decided it"
+    );
+
+    // Running again is a no-op: it never reconsiders its own work.
+    const again = await fetch(`${base}/autopilot/run`, { method: "POST", headers });
+    assert.equal((await again.json()).decided, 0);
+
+    // The decision must NOT enter Bob's memory — a system that learns from its
+    // own predictions only ever confirms itself. A card that arrives later
+    // still has to earn its recommendation from human decisions alone.
+    const memory = await (
+      await fetch(`${base}/memory?userId=user-bob`, { headers })
+    ).json();
+    assert.ok(
+      memory.entries.length > 0,
+      "Bob's human decisions earlier in this suite should be recorded"
+    );
+    assert.ok(
+      !memory.entries.some((entry) => entry.title?.includes("staging rollout")),
+      "an autopilot decision was written to decision memory"
+    );
+
+    // Turning it back off holds for the next sweep.
+    await fetch(`${base}/org/autopilot`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ userId: "user-bob", autopilot: { enabled: false } }),
+    });
+    await seed("card-autopilot-2");
+    const off = await fetch(`${base}/autopilot/run`, { method: "POST", headers });
+    assert.equal((await off.json()).decided, 0);
 
     ws.close();
   });

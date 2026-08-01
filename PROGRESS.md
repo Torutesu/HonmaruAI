@@ -107,6 +107,15 @@ Last updated: 2026-07-30
 - [x] `test/swiftContract.test.js`: parses the Swift models and asserts every field, status, card type and decision action the relay emits has somewhere to land — the compiler check CI can't run. Verified to fail when a model field is removed
 - [ ] Xcode build + two-simulator run (needs macOS; nothing here can compile SwiftUI)
 
+## Phase 15 — Autopilot
+
+- [x] `autopilot.js`: opt-in per person, hold window (default 2h, sub-15m refused), urgent never, approve-only by default, no revision requests, no self-sent cards, never twice
+- [x] Sweep resolves through the same `applyDecision` as every client — an autopilot approval is not a special kind of decision
+- [x] Every decision is marked (`decidedByAI`, `autopilotAt`, a context note naming the pattern) and shown as such on the card, so it can never read as one the recipient made
+- [x] **Autopilot decisions are excluded from decision memory** — learning from your own predictions is how a system convinces itself of anything; asserted by the integration test
+- [x] `POST /org/autopilot` echoes the clamped settings rather than the request; `GET /memory` makes the learned history inspectable
+- [x] Settings UI states plainly what it will do; 11 unit tests (mostly refusals), a full relay integration test, and an E2E on the authority-granting surface
+
 ## Phase 8 — Deployable relay
 
 - [x] Relay URL + token configurable in-app (auth screen, Keychain-persisted, test connection)

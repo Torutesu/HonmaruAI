@@ -70,6 +70,16 @@ export interface DecisionCard {
   recommendation?: RecommendationHint;
   sources?: CardSource[];
   sourceMessageID?: string;
+  /** Autopilot decided this card; never shown as the recipient's own call. */
+  autopilotAt?: string;
+  decidedByAI?: boolean;
+}
+
+export interface AutopilotSettings {
+  enabled: boolean;
+  holdMinutes: number;
+  maxPriority: CardPriority;
+  actions: string[];
 }
 
 export interface ChatChannel {
@@ -98,6 +108,7 @@ export interface User {
   teamID?: string;
   githubUsername?: string;
   language?: string;
+  autopilot?: Partial<AutopilotSettings>;
 }
 
 export interface OrgNode {

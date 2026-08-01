@@ -212,7 +212,11 @@ export function DecisionCardView({
         <div className={styles.spacer} />
 
         {!isPending(card) && (
-          <div className={styles.status}>{statusLabels[card.status] ?? card.status}</div>
+          <div className={styles.status}>
+            {statusLabels[card.status] ?? card.status}
+            {/* Never let an autopilot decision read as one you made. */}
+            {card.decidedByAI && <span className={styles.byAI}>✦ decided by your AI</span>}
+          </div>
         )}
 
         {isPending(card) && actions && (
