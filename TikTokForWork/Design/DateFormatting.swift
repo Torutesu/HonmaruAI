@@ -10,4 +10,8 @@ enum DateFormatting {
     static func relative(_ date: Date) -> String {
         relative.localizedString(for: date, relativeTo: .now)
     }
+
+    static func mediumDate(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .omitted)
+    }
 }

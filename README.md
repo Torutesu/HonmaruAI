@@ -7,6 +7,7 @@ AI-native decision feed for teams. Humans talk to their AI; agents route Decisio
 | Layer | Tech |
 |-------|------|
 | iOS | SwiftUI, ASWebAuthenticationSession, URLSession WebSocket |
+| Payments | RevenueCat (`purchases-ios-spm`), hosted paywall + Customer Center |
 | Backend | Node.js localhost relay (`server/`) |
 | AI | OpenRouter `inclusionai/ling-3.0-flash:free` via relay server |
 | GitHub | OAuth via localhost + Issues API |
@@ -55,6 +56,25 @@ On sign-in:
 4. Alice → Message your AI → natural language instruction
 5. Bob sees card via WebSocket
 6. Bob approves → GitHub Issue created → Alice gets result
+
+## Subscriptions
+
+`honmaruai Pro` is sold through RevenueCat. The Swift package is already declared in
+`project.yml` and the Xcode project, so `xcodegen generate` is all that's needed — Xcode
+resolves `purchases-ios-spm` on first open.
+
+| | |
+|---|---|
+| Entitlement | `honmaruai Pro` |
+| Products | `yearly`, `monthly` (offering `default`) |
+| Free tier | 3 AI routes/day, org graph locked |
+| Pro | unlimited routing, org graph, priority delivery |
+
+The committed API key is a **Test Store** key, so purchases work on the simulator with no
+App Store Connect setup. Entry points: **⋯ → Upgrade to Pro / Manage subscription** in the
+feed, the paywall when the daily routing allowance runs out, and the Pro-gated org graph.
+
+Full setup, dashboard configuration, and testing notes: [docs/revenuecat.md](docs/revenuecat.md)
 
 ## Architecture
 

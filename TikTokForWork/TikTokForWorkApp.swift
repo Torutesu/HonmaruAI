@@ -8,6 +8,10 @@ struct TikTokForWorkApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(appState)
+                // Subscription state is observed directly by the paywall, the Customer
+                // Center entry points, and any view that gates on `honmaruai Pro`.
+                .environmentObject(appState.subscriptionService)
+                .environmentObject(appState.routingQuota)
         }
     }
 }

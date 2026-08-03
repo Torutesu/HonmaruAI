@@ -2,11 +2,14 @@ import SwiftUI
 
 struct FeedView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var subscriptions: SubscriptionService
+    @EnvironmentObject private var quota: RoutingQuota
     @StateObject private var viewModel = FeedViewModel()
     @State private var aiPrompt = ""
     @State private var showAIInput = false
     @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
+    @State private var showSubscription = false
     @State private var showMenu = false
 
     var body: some View {
@@ -86,6 +89,10 @@ struct FeedView: View {
         .sheet(isPresented: $showOrgGraph) {
             OrgGraphView()
         }
+        .sheet(isPresented: $showSubscription) {
+            SubscriptionView()
+        }
+        .proPaywall(isPresented: $subscriptions.showPaywall)
         .sheet(isPresented: $showAIInput) {
             AIInputSheet(
                 prompt: $aiPrompt,
@@ -132,6 +139,9 @@ struct FeedView: View {
         }
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
             Button("Organization") { showOrgGraph = true }
+            Button(subscriptions.isPro ? "Manage subscription" : "Upgrade to Pro") {
+                showSubscription = true
+            }
             Button("Sign out", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}
         }
@@ -159,6 +169,9 @@ struct FeedView: View {
                     Text(appState.currentUser?.name ?? "")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Theme.Colors.textPrimary)
+                    if subscriptions.isPro {
+                        ProBadge()
+                    }
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Theme.Colors.textTertiary)
@@ -198,8 +211,20 @@ struct FeedView: View {
                     .lineLimit(1)
             }
 
+            if !subscriptions.isPro {
+                Text("\(quota.remaining) of \(quota.dailyLimit) AI routes left today")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+
             ComposeBar(placeholder: "Tell your AI") {
-                showAIInput = true
+                // Soft gate: free accounts route a few decisions a day, Pro is unlimited.
+                if quota.canRoute(isPro: subscriptions.isPro) {
+                    showAIInput = true
+                } else {
+                    Haptics.light()
+                    subscriptions.showPaywall = true
+                }
             }
         }
         .padding(.horizontal, Theme.Spacing.screen)
@@ -232,6 +257,9 @@ struct FeedView: View {
 }
 
 #Preview {
+    let appState = AppState()
     FeedView()
-        .environmentObject(AppState())
+        .environmentObject(appState)
+        .environmentObject(appState.subscriptionService)
+        .environmentObject(appState.routingQuota)
 }

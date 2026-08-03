@@ -1,3 +1,5 @@
+import RevenueCat
+import RevenueCatUI
 import SwiftUI
 
 struct OrgGraphView: View {
@@ -39,6 +41,13 @@ struct OrgGraphView: View {
             }
         }
         .presentationBackground(Theme.Colors.background)
+        // Hard gate: the org graph is Pro-only, so RevenueCatUI puts the paywall over this
+        // screen whenever `honmaruai Pro` isn't active and takes it away once it is.
+        .presentPaywallIfNeeded(
+            requiredEntitlementIdentifier: RevenueCatConfig.proEntitlementID,
+            purchaseCompleted: { _ in Haptics.success() },
+            restoreCompleted: { _ in Haptics.success() }
+        )
     }
 
     private func section(_ title: String, items: [OrgNode]) -> some View {

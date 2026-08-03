@@ -10,6 +10,8 @@ final class AppState: ObservableObject {
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
+    let subscriptionService = SubscriptionService()
+    let routingQuota = RoutingQuota()
 
     let relayURL = AppConfig.relayURL
 
@@ -18,6 +20,14 @@ final class AppState: ObservableObject {
     }
 
     init() {
+        // Configure RevenueCat before anything renders so `isPro` is known on first frame.
+        // A saved session identifies the app user right away; otherwise the SDK starts
+        // anonymous and `activateSession(as:)` aliases it once the user signs in.
+        subscriptionService.configure(appUserID: SessionStore.currentUserID)
+        if let userID = SessionStore.currentUserID {
+            routingQuota.bind(userID: userID)
+        }
+
         cardService.attach(webSocketService: webSocketService)
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
@@ -58,6 +68,8 @@ final class AppState: ObservableObject {
 
     func activateSession(as user: User = AppConfig.defaultUser) async {
         SessionStore.currentUserID = user.id
+        await subscriptionService.identify(userID: user.id)
+        routingQuota.bind(userID: user.id)
 
         do {
             try await webSocketService.connect(urlString: relayURL, userId: user.id)
@@ -70,6 +82,10 @@ final class AppState: ObservableObject {
 
     func switchUser(to user: User) async {
         SessionStore.currentUserID = user.id
+        // Each demo persona is its own RevenueCat app user, so entitlements don't leak
+        // between them when switching accounts on the same device.
+        await subscriptionService.identify(userID: user.id)
+        routingQuota.bind(userID: user.id)
         webSocketService.disconnect()
         do {
             try await webSocketService.connect(urlString: relayURL, userId: user.id)
@@ -82,7 +98,9 @@ final class AppState: ObservableObject {
     func signOut() {
         Task {
             await webSocketService.publishClearStore()
+            await subscriptionService.signOut()
         }
+        routingQuota.reset()
         webSocketService.disconnect()
         githubService.disconnect()
         cardService.reset()

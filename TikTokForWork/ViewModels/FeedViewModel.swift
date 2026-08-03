@@ -198,6 +198,8 @@ final class FeedViewModel: ObservableObject {
                 sourceText: draft.sourceText,
                 from: user
             )
+            // Only a route that actually landed spends a free-tier credit.
+            appState.routingQuota.consume(isPro: appState.subscriptionService.isPro)
             refreshCards(from: cardService)
             Haptics.light()
         } catch {

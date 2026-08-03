@@ -35,6 +35,17 @@ Last updated: 2026-07-27
 - [x] AIService (OpenRouter via relay)
 - [ ] TestFlight or installable build
 
+## Phase 7 — Monetization (RevenueCat)
+
+- [x] `purchases-ios-spm` (RevenueCat + RevenueCatUI) via SPM
+- [x] SDK configured at launch, app user aliased to the signed-in user
+- [x] `honmaruai Pro` entitlement checked via `customerInfoStream`
+- [x] Hosted paywall (`PaywallView`) + native fallback
+- [x] Customer Center for cancel / refund / plan change
+- [x] Free tier: 3 AI routes/day; org graph is Pro-only
+- [ ] Production `appl_…` key + App Store Connect products
+- [ ] RevenueCat webhooks → relay server for server-side entitlement checks
+
 ## Demo script
 
 1. `cd server && cp .env.example .env` → add GitHub OAuth credentials → `npm start`

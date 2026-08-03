@@ -27,6 +27,9 @@ struct RootView: View {
 }
 
 #Preview {
+    let appState = AppState()
     RootView()
-        .environmentObject(AppState())
+        .environmentObject(appState)
+        .environmentObject(appState.subscriptionService)
+        .environmentObject(appState.routingQuota)
 }
