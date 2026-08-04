@@ -83,9 +83,23 @@ store (covered by an integration test).
    legacy `card_*` for now — switching decisions to `tool_result` waits for
    the `decision` field on `DecisionCard` (Phase 2), since today's revise/
    delegate semantics don't map 1:1 onto `submit_decision` actions.
-4. Web: CopilotKit client consuming the same socket
-5. Phase 2: `STATE_DELTA` for profile.md context; rollback as compensating
-   events; move `/ai/route` streaming onto `TEXT_MESSAGE_*` events
+4. ✅ Web: dependency-free reference AG-UI client at `web/index.html`, served
+   by the relay at `GET /` (and `/web`). It joins as `agui/1`, renders the
+   inbox per `format`, answers via `tool_result`, edits context, rolls back
+   decisions, and shows the raw event stream. Production web app should be
+   CopilotKit (AG-UI native); this file is the protocol's executable
+   documentation.
+5. ✅ Phase 2 (server): curated context lives at `/context/{userId}` in state.
+   Clients send `context_updated {context}` → everyone gets a `STATE_DELTA`
+   on `/context/<user>`; late joiners get it in the snapshot. Rollback:
+   clients send `rollback {cardId}` → the card returns to `pending`
+   (decision cleared), AG-UI peers get `CUSTOM decision_rolled_back`
+   (with `previousAction` and `senderUserID` so the sender's agent can
+   react), legacy peers get a plain `card_updated`. Rolling back a pending
+   card is a `RUN_ERROR`.
+6. Next: iOS outbound `tool_result` (needs `decision` on `DecisionCard`);
+   iOS/`profile.md` UI on top of `/context`; `/ai/route` streaming as
+   `TEXT_MESSAGE_*` events
 
 ## Notes / risks
 

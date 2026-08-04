@@ -13,24 +13,43 @@ import {
 } from "./events.js";
 import { ACTION_STATUS } from "./tools.js";
 
-// legacy store shape: { [recipientUserID]: card[] } → AG-UI state
-export function snapshotState(store) {
+// legacy store shape: { [recipientUserID]: card[] } → AG-UI state.
+// `contexts` is the per-user curated context ("profile.md" behind the UI):
+// { [userId]: object } — synced verbatim so every device shows the same file.
+export function snapshotState(store, contexts = {}) {
   const cardsById = {};
   for (const cards of Object.values(store)) {
     for (const card of cards) cardsById[card.id] = card;
   }
-  return { cardsById };
+  return { cardsById, context: contexts };
 }
 
 // JSON Pointer escaping (RFC 6901): "~" → "~0", "/" → "~1"
-function pointer(id) {
-  return "/cardsById/" + String(id).replace(/~/g, "~0").replace(/\//g, "~1");
+function escapeSegment(segment) {
+  return String(segment).replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
-export function joinEvents(userId, store) {
+function pointer(id) {
+  return "/cardsById/" + escapeSegment(id);
+}
+
+export function joinEvents(userId, store, contexts = {}) {
   return [
     runStarted(userId),
-    stateSnapshot(snapshotState(store)),
+    stateSnapshot(snapshotState(store, contexts)),
+  ];
+}
+
+// Curated context changed (onboarding curation, settings edits).
+export function contextEvents(userId, context, { isNew }) {
+  return [
+    stateDelta([
+      {
+        op: isNew ? "add" : "replace",
+        path: "/context/" + escapeSegment(userId),
+        value: context,
+      },
+    ]),
   ];
 }
 
@@ -109,4 +128,37 @@ export function applyDecision(store, content) {
     decidedAt: content.decidedAt || new Date().toISOString(),
   };
   return { card: found, removed: false };
+}
+
+// Undo/rollback as a compensating event: the card returns to pending and the
+// previous decision is surfaced so the sender's agent can be notified
+// (CUSTOM decision_rolled_back). The event log keeps the full history — this
+// never rewrites it.
+export function applyRollback(store, cardId, actorUserID) {
+  let found = null;
+  for (const cards of Object.values(store)) {
+    const card = cards.find((item) => item.id === cardId);
+    if (card) {
+      found = card;
+      break;
+    }
+  }
+  if (!found) throw new Error(`Unknown card: ${cardId}`);
+  if (found.status === "pending" || found.status === undefined) {
+    throw new Error(`Card is not decided: ${cardId}`);
+  }
+
+  const previous = found.decision || { action: found.status };
+  found.status = "pending";
+  delete found.decision;
+
+  return {
+    card: found,
+    notice: custom("decision_rolled_back", {
+      cardId,
+      actorUserID,
+      previousAction: previous.action,
+      senderUserID: found.senderUserID,
+    }),
+  };
 }

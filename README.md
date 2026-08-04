@@ -35,6 +35,8 @@ npm start
 
 - HTTP: `http://127.0.0.1:8080`
 - WebSocket: `ws://127.0.0.1:8080`
+- Web client (AG-UI reference): open `http://127.0.0.1:8080/` in a browser
+- Agent↔client protocol: [AG-UI](https://github.com/ag-ui-protocol/ag-ui) — see `docs/agui-protocol.md`
 
 ### 3. Run iOS app
 

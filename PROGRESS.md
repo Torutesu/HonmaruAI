@@ -16,7 +16,11 @@ Last updated: 2026-08-01
 - [x] Relay speaks AG-UI events behind `join {protocol: "agui/1"}`; legacy dialect intact
 - [x] `npm test` in `server/`: 8 tests incl. dual-dialect integration
 - [x] iOS inbound decoder (`AGUIEventAssembler`) + `WebSocketService` joins as `agui/1` with legacy fallback
-- [ ] Web client via CopilotKit; outbound `tool_result` from iOS (Phase 2)
+- [x] Context sync: `context_updated` → `STATE_DELTA /context/{userId}`; in snapshots for late joiners
+- [x] Rollback: `rollback {cardId}` → pending + `CUSTOM decision_rolled_back` (legacy gets `card_updated`)
+- [x] Reference web client (`web/index.html`) served at relay `GET /` — inbox, decisions, context editor, live event stream
+- [x] `npm test`: 10 tests (unit + 2 multi-client integration + HTTP)
+- [ ] iOS outbound `tool_result` (needs `decision` field); production web via CopilotKit
 
 ## Phase 7 — 3-second value + onboarding (see onboarding.md)
 

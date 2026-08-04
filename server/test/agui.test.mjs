@@ -215,3 +215,88 @@ test("relay speaks legacy and AG-UI side by side", async () => {
     relay.kill();
   }
 });
+
+/* ---------------- phase 2: context sync + rollback ---------------- */
+
+test("relay syncs context and rolls back decisions", async () => {
+  const relay = await startRelay();
+  try {
+    const alice = await connect({ userId: "user-alice", orgId: "t2", protocol: PROTOCOL_VERSION });
+    const bob = await connect({ userId: "user-bob", orgId: "t2", protocol: PROTOCOL_VERSION });
+    const legacy = await connect({ userId: "user-carol", orgId: "t2" });
+
+    // context_updated → other AG-UI clients get STATE_DELTA on /context/<user>
+    bob.received.length = 0;
+    alice.ws.send(JSON.stringify({
+      type: "context_updated",
+      payload: { context: { md: "# profile.md — Alice\n- Title: PM" } },
+    }));
+    await wait(200);
+    const ctxDelta = bob.received.find((e) => e.type === EventType.STATE_DELTA);
+    assert.ok(ctxDelta, "bob receives context delta");
+    assert.equal(ctxDelta.delta[0].path, "/context/user-alice");
+    assert.match(ctxDelta.delta[0].value.md, /profile\.md/);
+
+    // late joiner gets context in the snapshot
+    const dana = await connect({ userId: "user-dana", orgId: "t2", protocol: PROTOCOL_VERSION });
+    const snap = dana.received.find((e) => e.type === EventType.STATE_SNAPSHOT);
+    assert.match(snap.snapshot.context["user-alice"].md, /Alice/);
+
+    // create + decide + rollback
+    const card = {
+      id: "c-rb-1", recipientUserID: "user-alice", senderUserID: "user-bob",
+      format: "approve", title: "Ship?", priority: "high", status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    legacy.ws.send(JSON.stringify({ type: "card_created", payload: { card } }));
+    await wait(200);
+    alice.ws.send(JSON.stringify({
+      type: "tool_result",
+      payload: { content: { cardId: "c-rb-1", action: "approve", actorUserID: "user-alice" } },
+    }));
+    await wait(200);
+
+    bob.received.length = 0;
+    legacy.received.length = 0;
+    alice.ws.send(JSON.stringify({ type: "rollback", payload: { cardId: "c-rb-1" } }));
+    await wait(200);
+
+    // AG-UI peers get the compensating notice + pending patch
+    const notice = bob.received.find((e) => e.type === EventType.CUSTOM && e.name === "decision_rolled_back");
+    assert.ok(notice, "sender's side is notified");
+    assert.equal(notice.value.previousAction, "approve");
+    assert.equal(notice.value.senderUserID, "user-bob");
+    const patch = bob.received.find((e) => e.type === EventType.STATE_DELTA);
+    assert.equal(patch.delta[0].value.status, "pending");
+    assert.equal(patch.delta[0].value.decision, undefined);
+
+    // legacy dialect sees a plain card_updated back to pending
+    const legacyUpdate = legacy.received.find((m) => m.type === "card_updated");
+    assert.equal(legacyUpdate.payload.card.status, "pending");
+
+    // rolling back a pending card fails cleanly
+    alice.received.length = 0;
+    alice.ws.send(JSON.stringify({ type: "rollback", payload: { cardId: "c-rb-1" } }));
+    await wait(200);
+    assert.ok(alice.received.some((e) => e.type === EventType.RUN_ERROR));
+
+    for (const c of [alice, bob, dana, legacy]) c.ws.close();
+    await wait(100);
+  } finally {
+    relay.kill();
+  }
+});
+
+test("relay serves the reference web client", async () => {
+  const relay = await startRelay();
+  try {
+    const res = await fetch(`http://127.0.0.1:${PORT}/web`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /AG-UI reference client/);
+    const manifest = await (await fetch(`http://127.0.0.1:${PORT}/agui/tools`)).json();
+    assert.equal(manifest.tools[0].name, "request_decision");
+  } finally {
+    relay.kill();
+  }
+});

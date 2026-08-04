@@ -13,7 +13,9 @@ import {
   removeEvents,
   clearEvents,
   presenceEvents,
+  contextEvents,
   applyDecision,
+  applyRollback,
 } from "./agui/adapter.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +55,17 @@ const initialCards = {};
 
 /** @type {Map<string, Record<string, object[]>>} */
 const orgStores = new Map([[ORG_ID, structuredClone(initialCards)]]);
+
+/** Per-user curated context ("profile.md" behind the UI). */
+/** @type {Map<string, Record<string, object>>} */
+const orgContexts = new Map();
+
+function getContexts(orgId) {
+  if (!orgContexts.has(orgId)) {
+    orgContexts.set(orgId, {});
+  }
+  return orgContexts.get(orgId);
+}
 
 /** @type {Map<import('ws').WebSocket, { userId: string, orgId: string, agui: boolean }>} */
 const sessions = new Map();
@@ -203,6 +216,16 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Reference AG-UI web client (no build step). Production path: CopilotKit.
+  if ((url.pathname === "/" || url.pathname === "/web") && req.method === "GET") {
+    const file = join(__dirname, "..", "web", "index.html");
+    if (existsSync(file)) {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(readFileSync(file));
+      return;
+    }
+  }
+
   if (url.pathname === "/health") {
     json(res, 200, {
       ok: true,
@@ -320,7 +343,7 @@ wss.on("connection", (ws) => {
         }
         sessions.set(ws, { userId, orgId, agui });
         if (agui) {
-          sendEvents(ws, joinEvents(userId, getStore(orgId)));
+          sendEvents(ws, joinEvents(userId, getStore(orgId), getContexts(orgId)));
         } else {
           send(ws, "snapshot", { cardsByUser: getStore(orgId) });
         }
@@ -402,6 +425,47 @@ wss.on("connection", (ws) => {
         const store = getStore(session.orgId);
         removeCard(store, cardId, recipientUserID);
         publishRemove(session.orgId, cardId, recipientUserID);
+        break;
+      }
+
+      // AG-UI phase 2: curated context changed on one device →
+      // STATE_DELTA on /context/{userId} to every AG-UI session.
+      case "context_updated": {
+        const session = sessions.get(ws);
+        const context = payload?.context;
+        if (!session || typeof context !== "object" || context === null) {
+          send(ws, "error", { message: "Invalid context_updated payload" });
+          return;
+        }
+        const userId = payload?.userId || session.userId;
+        const contexts = getContexts(session.orgId);
+        const isNew = !(userId in contexts);
+        contexts[userId] = context;
+        broadcastEvents(session.orgId, contextEvents(userId, context, { isNew }));
+        break;
+      }
+
+      // AG-UI phase 2: undo a decision. The card returns to pending; a
+      // CUSTOM decision_rolled_back notice lets the sender's agent react.
+      case "rollback": {
+        const session = sessions.get(ws);
+        const cardId = payload?.cardId;
+        if (!session || !cardId) {
+          send(ws, "error", { message: "Invalid rollback payload" });
+          return;
+        }
+        try {
+          const store = getStore(session.orgId);
+          const { card, notice } = applyRollback(store, cardId, session.userId);
+          broadcastEvents(session.orgId, [notice]);
+          publishUpsert(session.orgId, card, false);
+        } catch (error) {
+          if (session.agui) {
+            sendEvents(ws, [runError(error.message || "rollback failed")]);
+          } else {
+            send(ws, "error", { message: error.message || "rollback failed" });
+          }
+        }
         break;
       }
 

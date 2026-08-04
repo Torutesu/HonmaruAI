@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TikTok for Work — Web (AG-UI reference client)</title>
+<style>
+  :root {
+    --bg: #101013; --panel: #1C1C1E; --panel2: #17171b; --line: rgba(255,255,255,.07);
+    --ink: #F4F4F5; --ink2: #a1a1aa; --ink3: #71717A;
+    --accent: #5E6AD2; --green: #30D158; --red: #FF453A; --yellow: #FFD60A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+    border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  }
+  header b { font-size: 14px; }
+  header .spacer { flex: 1; }
+  select, input[type=text], textarea {
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 9px; padding: 7px 10px; font-family: inherit; font-size: 13px;
+  }
+  textarea { width: 100%; min-height: 140px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.6; resize: vertical; }
+  button {
+    background: rgba(118,118,128,.18); color: var(--ink); border: 0; border-radius: 9px;
+    padding: 7px 13px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  button:hover { filter: brightness(1.2); }
+  button.primary { background: var(--accent); color: #fff; }
+  button.ok { background: rgba(48,209,88,.15); color: var(--green); }
+  button.ng { background: rgba(255,69,58,.13); color: var(--red); }
+  .status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink3); }
+  .status .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--ink3); }
+  .status.on { color: var(--green); } .status.on .dot { background: var(--green); }
+
+  main { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 16px; padding: 16px 18px; align-items: start; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  section > h2 {
+    margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink3); padding: 12px 14px 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .body { padding: 0 14px 14px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 9px; }
+  .card .meta { display: flex; align-items: center; gap: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+  .card .meta time { margin-left: auto; color: var(--ink3); font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .card h3 { margin: 7px 0 3px; font-size: 14.5px; font-weight: 650; }
+  .card p { margin: 0 0 4px; font-size: 12.5px; color: var(--ink2); line-height: 1.5; }
+  .card .reason { font-size: 11px; color: var(--ink3); border-left: 2px solid var(--accent); padding-left: 8px; margin: 7px 0; }
+  .card .acts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+  .opt { border: 1px solid var(--line); background: none; font-weight: 500; text-align: left; }
+  .opt.rec { border-color: var(--accent); }
+  .opt .aiTag { color: var(--accent); font-size: 9px; font-weight: 800; margin-left: 6px; }
+  .statuschip { font-size: 9.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; }
+  .st-approved, .st-completed { color: var(--green); background: rgba(48,209,88,.1); }
+  .st-rejected { color: var(--red); background: rgba(255,69,58,.1); }
+  .st-revised, .st-delegated { color: var(--yellow); background: rgba(255,214,10,.1); }
+  .empty { color: var(--ink3); font-size: 12.5px; padding: 14px 0 6px; text-align: center; }
+
+  #eventlog {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px; line-height: 1.65;
+    color: var(--ink2); max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  #eventlog .t { color: #8f9aeb; }
+  .presence { display: flex; gap: 12px; font-size: 12px; color: var(--ink2); padding: 0 14px 10px; flex-wrap: wrap; }
+  .presence .p { display: flex; align-items: center; gap: 5px; }
+  .presence .pd { width: 7px; height: 7px; border-radius: 4px; background: var(--ink3); }
+  .presence .on .pd { background: var(--green); }
+  .note { font-size: 11px; color: var(--ink3); line-height: 1.6; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <b>TikTok for Work — Web</b>
+  <span style="font-size:11px;color:var(--ink3)">AG-UI reference client</span>
+  <span class="spacer"></span>
+  <select id="userSel">
+    <option value="user-alice">Alice</option>
+    <option value="user-bob">Bob</option>
+    <option value="user-carol">Carol</option>
+    <option value="user-dana">Dana</option>
+  </select>
+  <button class="primary" id="connectBtn">Connect</button>
+  <span class="status" id="connStatus"><span class="dot"></span><span id="connText">Offline</span></span>
+</header>
+
+<main>
+  <section>
+    <h2>Inbox — decisions for you</h2>
+    <div class="presence" id="presence"></div>
+    <div class="body" id="inbox"><div class="empty">Connect to load your feed.</div></div>
+    <h2>Decided</h2>
+    <div class="body" id="decided"></div>
+  </section>
+
+  <section>
+    <h2>Context — profile.md <span style="color:var(--green);text-transform:none;letter-spacing:0">● synced</span></h2>
+    <div class="body">
+      <textarea id="ctxText" placeholder="# profile.md — edited here, synced to every device"></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="primary" id="ctxSave">Save & sync</button>
+      </div>
+      <p class="note">Saving broadcasts a <code>STATE_DELTA</code> on <code>/context/&lt;you&gt;</code>. Other devices (and this page on another user) receive it live.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>AG-UI event stream</h2>
+    <div class="body"><div id="eventlog"></div></div>
+  </section>
+</main>
+
+<script>
+(() => {
+'use strict';
+
+const PROTOCOL = 'agui/1';
+let ws = null;
+let me = 'user-alice';
+let state = { cardsById: {}, context: {} };
+let toolCallByCard = {};
+let pendingCalls = {};
+let online = new Set();
+
+const $ = id => document.getElementById(id);
+const wsURL = () => {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  return location.host ? `${proto}://${location.host}` : 'ws://127.0.0.1:8080';
+};
+
+/* ---------- tiny JSON Patch (add/replace/remove on object paths) ---------- */
+function unescapeSeg(seg) { return seg.replace(/~1/g, '/').replace(/~0/g, '~'); }
+function applyPatch(target, ops) {
+  for (const { op, path, value } of ops) {
+    const segs = path.split('/').slice(1).map(unescapeSeg);
+    const last = segs.pop();
+    let node = target;
+    for (const seg of segs) {
+      if (node[seg] === undefined) node[seg] = {};
+      node = node[seg];
+    }
+    if (op === 'remove') delete node[last];
+    else node[last] = value;
+  }
+}
+
+/* ---------- AG-UI event handling ---------- */
+function onEvent(ev) {
+  logEvent(ev);
+  switch (ev.type) {
+    case 'STATE_SNAPSHOT':
+      state = { cardsById: {}, context: {}, ...ev.snapshot };
+      renderAll(); loadCtx();
+      break;
+    case 'STATE_DELTA':
+      applyPatch(state, ev.delta || []);
+      renderAll(); loadCtx();
+      break;
+    case 'TOOL_CALL_START':
+      pendingCalls[ev.toolCallId] = { name: ev.toolCallName, args: '' };
+      break;
+    case 'TOOL_CALL_ARGS':
+      if (pendingCalls[ev.toolCallId]) pendingCalls[ev.toolCallId].args += ev.delta;
+      break;
+    case 'TOOL_CALL_END': {
+      const call = pendingCalls[ev.toolCallId];
+      delete pendingCalls[ev.toolCallId];
+      if (call && call.name === 'request_decision') {
+        try {
+          const { card } = JSON.parse(call.args);
+          toolCallByCard[card.id] = ev.toolCallId;
+          state.cardsById[card.id] = state.cardsById[card.id] || card;
+          renderAll();
+        } catch { /* malformed args — state patch will still arrive */ }
+      }
+      break;
+    }
+    case 'CUSTOM':
+      if (ev.name === 'presence') {
+        if (ev.value.status === 'online') online.add(ev.value.userId);
+        else online.delete(ev.value.userId);
+        renderPresence();
+      }
+      break;
+  }
+}
+
+/* ---------- outbound ---------- */
+function sendMsg(type, payload) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type, payload }));
+}
+function decide(cardId, content) {
+  sendMsg('tool_result', {
+    toolCallId: toolCallByCard[cardId] || null,
+    content: { cardId, actorUserID: me, decidedAt: new Date().toISOString(), ...content },
+  });
+}
+function rollback(cardId) { sendMsg('rollback', { cardId }); }
+
+/* ---------- rendering ---------- */
+const FORMAT_COLORS = { approve: 'var(--green)', choice: 'var(--yellow)', reply: 'var(--accent)', fyi: 'var(--ink3)' };
+const fmtOf = c => c.format || ({ approval: 'approve', task: 'approve', delegation: 'approve', notification: 'fyi', revision: 'reply' }[c.type] || 'approve');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+function cardHTML(c) {
+  const fmt = fmtOf(c);
+  let acts = '';
+  if (fmt === 'approve') {
+    acts = `<button class="ng" data-a="decline" data-id="${esc(c.id)}">✕ Decline</button>
+            <button class="ok" data-a="approve" data-id="${esc(c.id)}">✓ Approve</button>`;
+  } else if (fmt === 'choice' && c.options) {
+    acts = c.options.map(o =>
+      `<button class="opt${o.recommended ? ' rec' : ''}" data-a="choose" data-id="${esc(c.id)}" data-opt="${esc(o.id)}">
+         ${esc(o.label)}${o.recommended ? '<span class="aiTag">AI</span>' : ''}</button>`).join('');
+  } else if (fmt === 'reply') {
+    acts = (c.drafts || []).map(d =>
+      `<button class="opt" data-a="reply" data-id="${esc(c.id)}" data-text="${esc(d)}">${esc(d)}</button>`).join('') +
+      `<button data-a="reply-custom" data-id="${esc(c.id)}">✎ Write reply…</button>`;
+  } else {
+    acts = `<button data-a="ack" data-id="${esc(c.id)}">Got it</button>`;
+  }
+  return `
+    <div class="card">
+      <div class="meta"><span style="color:${FORMAT_COLORS[fmt]}">${fmt}</span><time>${esc(c.priority || '')}</time></div>
+      <h3>${esc(c.title)}</h3>
+      ${c.summary ? `<p>${esc(c.summary)}</p>` : ''}
+      ${c.routingReason ? `<div class="reason">${esc(c.routingReason)}</div>` : ''}
+      ${c.source ? `<p style="font-size:11px;color:var(--ink3)">❝ ${esc(c.source.type)} ${esc(c.source.where || '')} — ${esc(c.source.raw)}</p>` : ''}
+      <div class="acts">${acts}</div>
+    </div>`;
+}
+
+function decidedHTML(c) {
+  return `
+    <div class="card" style="opacity:.85">
+      <div class="meta">
+        <span class="statuschip st-${esc(c.status)}">${esc(c.status)}</span>
+        ${c.decision ? `<span style="color:var(--ink3);font-weight:400;text-transform:none;letter-spacing:0">${esc(c.decision.action)}${c.decision.optionId ? ' · ' + esc(c.decision.optionId) : ''}${c.decision.note ? ' · “' + esc(c.decision.note) + '”' : ''}</span>` : ''}
+      </div>
+      <h3 style="font-size:13px">${esc(c.title)}</h3>
+      <div class="acts"><button data-a="rollback" data-id="${esc(c.id)}">↩ Roll back</button></div>
+    </div>`;
+}
+
+function renderAll() {
+  const mine = Object.values(state.cardsById).filter(c => c.recipientUserID === me);
+  const pending = mine.filter(c => !c.status || c.status === 'pending')
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const decided = mine.filter(c => c.status && c.status !== 'pending');
+  $('inbox').innerHTML = pending.map(cardHTML).join('') ||
+    '<div class="empty">Inbox zero — synced with every device.</div>';
+  $('decided').innerHTML = decided.map(decidedHTML).join('') || '<div class="empty">Nothing decided yet.</div>';
+}
+
+function renderPresence() {
+  $('presence').innerHTML = ['user-alice', 'user-bob', 'user-carol', 'user-dana'].map(u =>
+    `<span class="p ${online.has(u) ? 'on' : ''}"><span class="pd"></span>${u.replace('user-', '')}</span>`).join('');
+}
+
+function loadCtx() {
+  const mineCtx = state.context && state.context[me];
+  if (mineCtx && typeof mineCtx.md === 'string' && document.activeElement !== $('ctxText')) {
+    $('ctxText').value = mineCtx.md;
+  }
+}
+
+let logCount = 0;
+function logEvent(ev) {
+  if (logCount++ > 400) { $('eventlog').innerHTML = ''; logCount = 0; }
+  const line = document.createElement('div');
+  const detail = ev.type === 'STATE_DELTA' ? (ev.delta || []).map(d => `${d.op} ${d.path}`).join(', ')
+    : ev.type.startsWith('TOOL_CALL') ? (ev.toolCallName || (ev.delta ? ev.delta.slice(0, 40) + '…' : '') || ev.toolCallId?.slice(0, 8))
+    : ev.type === 'CUSTOM' ? `${ev.name} ${JSON.stringify(ev.value)}`
+    : '';
+  line.innerHTML = `<span class="t">${ev.type}</span> ${esc(detail)}`;
+  $('eventlog').prepend(line);
+}
+
+/* ---------- connection ---------- */
+function connect() {
+  if (ws) { ws.onclose = null; ws.close(); }
+  me = $('userSel').value;
+  ws = new WebSocket(wsURL());
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'join', payload: { userId: me, orgId: 'core-team', protocol: PROTOCOL } }));
+    $('connStatus').classList.add('on');
+    $('connText').textContent = `Synced as ${me.replace('user-', '')}`;
+  };
+  ws.onmessage = raw => { try { onEvent(JSON.parse(raw.data)); } catch { /* ignore */ } };
+  ws.onclose = () => {
+    $('connStatus').classList.remove('on');
+    $('connText').textContent = 'Offline — reconnecting…';
+    setTimeout(connect, 2000);
+  };
+}
+
+$('connectBtn').addEventListener('click', connect);
+$('userSel').addEventListener('change', connect);
+$('ctxSave').addEventListener('click', () => {
+  sendMsg('context_updated', { context: { md: $('ctxText').value } });
+});
+
+document.body.addEventListener('click', e => {
+  const el = e.target.closest('[data-a]');
+  if (!el) return;
+  const id = el.dataset.id;
+  switch (el.dataset.a) {
+    case 'approve': decide(id, { action: 'approve' }); break;
+    case 'decline': decide(id, { action: 'decline' }); break;
+    case 'choose': decide(id, { action: 'choose', optionId: el.dataset.opt }); break;
+    case 'reply': decide(id, { action: 'reply', replyText: el.dataset.text }); break;
+    case 'reply-custom': {
+      const text = prompt('Your reply:');
+      if (text) decide(id, { action: 'reply', replyText: text });
+      break;
+    }
+    case 'ack': decide(id, { action: 'acknowledge' }); break;
+    case 'rollback': rollback(id); break;
+  }
+});
+
+renderPresence();
+})();
+</script>
+</body>
+</html>
