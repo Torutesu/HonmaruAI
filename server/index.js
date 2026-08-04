@@ -5,6 +5,16 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { routeInstruction } from "./agentTools.js";
+import { toolManifest, PROTOCOL_VERSION } from "./agui/tools.js";
+import { runError, toolCallResult } from "./agui/events.js";
+import {
+  joinEvents,
+  upsertEvents,
+  removeEvents,
+  clearEvents,
+  presenceEvents,
+  applyDecision,
+} from "./agui/adapter.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
@@ -44,7 +54,7 @@ const initialCards = {};
 /** @type {Map<string, Record<string, object[]>>} */
 const orgStores = new Map([[ORG_ID, structuredClone(initialCards)]]);
 
-/** @type {Map<import('ws').WebSocket, { userId: string, orgId: string }>} */
+/** @type {Map<import('ws').WebSocket, { userId: string, orgId: string, agui: boolean }>} */
 const sessions = new Map();
 
 function getStore(orgId) {
@@ -64,8 +74,53 @@ function broadcast(orgId, type, payload, except) {
   for (const [socket, session] of sessions.entries()) {
     if (session.orgId !== orgId) continue;
     if (except && socket === except) continue;
+    if (session.agui) continue; // AG-UI sessions are fed through publish* below
     send(socket, type, payload);
   }
+}
+
+function sendEvents(ws, events) {
+  if (ws.readyState !== ws.OPEN) return;
+  for (const event of events) {
+    ws.send(JSON.stringify(event));
+  }
+}
+
+function broadcastEvents(orgId, events, { recipientUserID, recipientEvents, except } = {}) {
+  for (const [socket, session] of sessions.entries()) {
+    if (session.orgId !== orgId || !session.agui) continue;
+    if (except && socket === except) continue;
+    sendEvents(socket, events);
+    if (recipientEvents && session.userId === recipientUserID) {
+      sendEvents(socket, recipientEvents);
+    }
+  }
+}
+
+// One mutation, both dialects: legacy clients get the old message,
+// AG-UI clients get STATE_DELTA (+ request_decision for the recipient).
+function publishUpsert(orgId, card, isNew) {
+  broadcast(orgId, isNew ? "card_created" : "card_updated", { card });
+  const { forEveryone, forRecipient } = upsertEvents(card, { isNew });
+  broadcastEvents(orgId, forEveryone, {
+    recipientUserID: card.recipientUserID,
+    recipientEvents: forRecipient,
+  });
+}
+
+function publishRemove(orgId, cardId, recipientUserID) {
+  broadcast(orgId, "card_deleted", { cardId, recipientUserID });
+  broadcastEvents(orgId, removeEvents(cardId));
+}
+
+function publishClear(orgId) {
+  broadcast(orgId, "snapshot", { cardsByUser: {} });
+  broadcastEvents(orgId, clearEvents());
+}
+
+function publishPresence(orgId, userId, status, except) {
+  broadcast(orgId, "presence", { userId, status }, except);
+  broadcastEvents(orgId, presenceEvents(userId, status), { except });
 }
 
 function upsertCard(store, card) {
@@ -140,6 +195,11 @@ const server = createServer(async (req, res) => {
       "Access-Control-Allow-Headers": "Content-Type",
     });
     res.end();
+    return;
+  }
+
+  if (url.pathname === "/agui/tools" && req.method === "GET") {
+    json(res, 200, toolManifest());
     return;
   }
 
@@ -253,13 +313,52 @@ wss.on("connection", (ws) => {
       case "join": {
         const userId = payload?.userId;
         const orgId = payload?.orgId || ORG_ID;
+        const agui = payload?.protocol === PROTOCOL_VERSION;
         if (!userId) {
           send(ws, "error", { message: "userId required" });
           return;
         }
-        sessions.set(ws, { userId, orgId });
-        send(ws, "snapshot", { cardsByUser: getStore(orgId) });
-        broadcast(orgId, "presence", { userId, status: "online" }, ws);
+        sessions.set(ws, { userId, orgId, agui });
+        if (agui) {
+          sendEvents(ws, joinEvents(userId, getStore(orgId)));
+        } else {
+          send(ws, "snapshot", { cardsByUser: getStore(orgId) });
+        }
+        publishPresence(orgId, userId, "online", ws);
+        break;
+      }
+
+      // AG-UI: the human answered a request_decision tool call.
+      case "tool_result": {
+        const session = sessions.get(ws);
+        if (!session) {
+          sendEvents(ws, [runError("Not joined")]);
+          return;
+        }
+        try {
+          const content =
+            typeof payload?.content === "string"
+              ? JSON.parse(payload.content)
+              : payload?.content;
+          const store = getStore(session.orgId);
+          const result = applyDecision(store, content);
+
+          // Echo the result onto the org stream so every device (and the
+          // sender's AI) sees the decision land against its toolCallId.
+          if (payload?.toolCallId) {
+            broadcastEvents(session.orgId, [
+              toolCallResult(payload.toolCallId, content),
+            ]);
+          }
+
+          if (result.removed) {
+            publishRemove(session.orgId, content.cardId, result.card.recipientUserID);
+          } else if (!result.unchanged) {
+            publishUpsert(session.orgId, result.card, false);
+          }
+        } catch (error) {
+          sendEvents(ws, [runError(error.message || "tool_result failed")]);
+        }
         break;
       }
 
@@ -271,8 +370,11 @@ wss.on("connection", (ws) => {
           return;
         }
         const store = getStore(session.orgId);
+        const existed = (store[card.recipientUserID] || []).some(
+          (item) => item.id === card.id
+        );
         upsertCard(store, card);
-        broadcast(session.orgId, "card_created", { card });
+        publishUpsert(session.orgId, card, !existed);
         break;
       }
 
@@ -285,7 +387,7 @@ wss.on("connection", (ws) => {
         }
         const store = getStore(session.orgId);
         upsertCard(store, card);
-        broadcast(session.orgId, "card_updated", { card });
+        publishUpsert(session.orgId, card, false);
         break;
       }
 
@@ -299,7 +401,7 @@ wss.on("connection", (ws) => {
         }
         const store = getStore(session.orgId);
         removeCard(store, cardId, recipientUserID);
-        broadcast(session.orgId, "card_deleted", { cardId, recipientUserID });
+        publishRemove(session.orgId, cardId, recipientUserID);
         break;
       }
 
@@ -310,7 +412,7 @@ wss.on("connection", (ws) => {
           return;
         }
         orgStores.set(session.orgId, {});
-        broadcast(session.orgId, "snapshot", { cardsByUser: {} });
+        publishClear(session.orgId);
         break;
       }
 
@@ -322,8 +424,8 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     const session = sessions.get(ws);
     if (session) {
-      broadcast(session.orgId, "presence", { userId: session.userId, status: "offline" }, ws);
       sessions.delete(ws);
+      publishPresence(session.orgId, session.userId, "offline");
     }
   });
 });
