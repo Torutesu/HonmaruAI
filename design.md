@@ -12,7 +12,14 @@ skippable — the feed re-offers it contextually after the first approval.
 
 ## Direction
 
-Clean, flat, restrained. Linear clarity in a vertical feed shell. No gradients, no decorative borders, no heavy bold type.
+**Superseded by [docs/design-system.md](docs/design-system.md)** — the light
+"hardworking dashboard on white marble" system: white canvas, `#202020` filled
+CTAs as 9999px pills, `1px #e8e8e8` borders instead of shadows, brand violet
+`#6647f0` for badges/AI markers only, interactive blue `#0091ff` for selected
+chips, and one rotating conic-gradient border per screen (the ＋ FAB).
+The token values below are historical (dark v1).
+
+Clean, flat, restrained. Linear clarity in a vertical feed shell.
 
 ## Principles
 

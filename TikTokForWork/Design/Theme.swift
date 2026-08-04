@@ -1,17 +1,23 @@
 import SwiftUI
 
+// Light "white marble" system — see docs/design-system.md.
+// Canvas white, near-black CTAs, brand violet for badges only,
+// interactive blue for selections, pink for destructive.
 enum Theme {
     enum Colors {
-        static let background = Color(hex: 0x000000)
-        static let surface = Color(hex: 0x0C0C0E)
-        static let surfaceRaised = Color(hex: 0x161618)
-        static let textPrimary = Color(hex: 0xF4F4F5)
-        static let textSecondary = Color(hex: 0xA1A1AA)
-        static let textTertiary = Color(hex: 0x71717A)
-        static let accent = Color(hex: 0x5E6AD2)
-        static let approve = Color(hex: 0x4ADE80)
+        static let background = Color(hex: 0xFFFFFF)
+        static let surface = Color(hex: 0xF8F9FA)
+        static let surfaceRaised = Color(hex: 0xEEEEEE)
+        static let textPrimary = Color(hex: 0x202020)
+        static let textSecondary = Color(hex: 0x646464)
+        static let textTertiary = Color(hex: 0x838383)
+        static let accent = Color(hex: 0x6647F0)
+        static let interactive = Color(hex: 0x0091FF)
+        static let approve = Color(hex: 0x00C07A)
         static let issueGreen = Color(hex: 0x238636)
-        static let reject = Color(hex: 0xF87171)
+        static let reject = Color(hex: 0xFA49A5)
+        static let border = Color(hex: 0xE8E8E8)
+        static let ctaFill = Color(hex: 0x202020)
     }
 
     enum TypeScale {
