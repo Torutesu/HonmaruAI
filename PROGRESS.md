@@ -10,6 +10,14 @@ Last updated: 2026-08-01
 - Realtime sync working: yes (localhost WebSocket relay, optional for single simulator)
 - AI routing: OpenRouter via relay server with keyword fallback
 
+## Phase 8 — AG-UI protocol adoption (see docs/agui-protocol.md)
+
+- [x] `request_decision` / `submit_decision` schemas (`server/agui/tools.js`, `GET /agui/tools`)
+- [x] Relay speaks AG-UI events behind `join {protocol: "agui/1"}`; legacy dialect intact
+- [x] `npm test` in `server/`: 8 tests incl. dual-dialect integration
+- [x] iOS inbound decoder (`AGUIEventAssembler`) + `WebSocketService` joins as `agui/1` with legacy fallback
+- [ ] Web client via CopilotKit; outbound `tool_result` from iOS (Phase 2)
+
 ## Phase 7 — 3-second value + onboarding (see onboarding.md)
 
 - [x] Five-screen guided onboarding: welcome → how it works → interactive swipe demo → GitHub sign-in (skippable) → persona

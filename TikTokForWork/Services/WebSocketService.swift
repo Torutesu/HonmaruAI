@@ -91,6 +91,10 @@ enum RealtimeEvent: Codable {
     }
 }
 
+enum AGUIProtocol {
+    static let version = "agui/1"
+}
+
 enum OutboundEvent {
     case join(userId: String, orgId: String)
     case cardCreated(DecisionCard)
@@ -101,7 +105,17 @@ enum OutboundEvent {
     var envelope: [String: Any] {
         switch self {
         case .join(let userId, let orgId):
-            return ["type": "join", "payload": ["userId": userId, "orgId": orgId]]
+            // Joining with a protocol marker upgrades the session to the
+            // AG-UI dialect; older relays ignore the extra field and keep
+            // speaking legacy messages, which we still parse below.
+            return [
+                "type": "join",
+                "payload": [
+                    "userId": userId,
+                    "orgId": orgId,
+                    "protocol": AGUIProtocol.version,
+                ],
+            ]
         case .cardCreated(let card):
             return ["type": "card_created", "payload": ["card": card.dictionary]]
         case .cardUpdated(let card):
@@ -132,6 +146,11 @@ final class WebSocketService: ObservableObject {
     private var lastUserID: String?
     private var lastOrgID = "core-team"
     private let session = URLSession(configuration: .default)
+
+    /// cardID → recipientUserID, maintained from snapshots and upserts so
+    /// AG-UI remove patches (which carry only the card id) can be routed.
+    private var cardOwners: [String: String] = [:]
+    private lazy var aguiAssembler = AGUIEventAssembler(decoder: decoder)
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -251,10 +270,26 @@ final class WebSocketService: ObservableObject {
     }
 
     private func handle(text: String) {
-        guard let data = text.data(using: .utf8),
-              let event = try? decoder.decode(RealtimeEvent.self, from: data) else {
+        guard let data = text.data(using: .utf8) else { return }
+
+        // AG-UI dialect first; anything else falls through to the legacy
+        // {type, payload} messages so older relays keep working.
+        if let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           AGUIEventAssembler.isAGUIEvent(json) {
+            for event in aguiAssembler.handle(json) {
+                dispatch(resolveRecipient(for: event))
+            }
             return
         }
+
+        guard let event = try? decoder.decode(RealtimeEvent.self, from: data) else {
+            return
+        }
+        dispatch(event)
+    }
+
+    private func dispatch(_ event: RealtimeEvent) {
+        trackOwnership(of: event)
 
         if case .presence(let userId, let status) = event {
             if status == "online" {
@@ -265,6 +300,32 @@ final class WebSocketService: ObservableObject {
         }
 
         onEvent?(event)
+    }
+
+    private func trackOwnership(of event: RealtimeEvent) {
+        switch event {
+        case .snapshot(let cardsByUser):
+            cardOwners = [:]
+            for (userID, cards) in cardsByUser {
+                for card in cards {
+                    cardOwners[card.id] = userID
+                }
+            }
+        case .cardCreated(let card), .cardUpdated(let card):
+            cardOwners[card.id] = card.recipientUserID
+        case .cardDeleted(let cardID, _):
+            cardOwners.removeValue(forKey: cardID)
+        case .presence, .error:
+            break
+        }
+    }
+
+    private func resolveRecipient(for event: RealtimeEvent) -> RealtimeEvent {
+        guard case .cardDeleted(let cardID, let recipient) = event,
+              recipient.isEmpty else {
+            return event
+        }
+        return .cardDeleted(cardID: cardID, recipientUserID: cardOwners[cardID] ?? "")
     }
 }
 

@@ -33,6 +33,7 @@
 		BAAB141A7F64E597E716A38D /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A79579E123395F8C8DBED15 /* AgentModels.swift */; };
 		D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF594002A7A3A2A7FA072712 /* FeedView.swift */; };
 		D50B528853838F4769A08FCD /* WebAuthContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */; };
+		0718293A4B5C6D7E8F90A1B2 /* AGUIEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60718293A4B5C6D7E8F90A1 /* AGUIEvent.swift */; };
 		DC8D27F537E8ACECB7FE9097 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C23763B3066E2A13F50B8D /* AppConfig.swift */; };
 		DD58B03BE813A05DC302635A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9A2EB4E8E9EE3FAA5CF579C5 /* Assets.xcassets */; };
 		E6C4713C78AA0FF264BA9753 /* DecisionCardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E5DA40629B98A94601F06DC /* DecisionCardService.swift */; };
@@ -65,6 +66,7 @@
 		838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokForWorkApp.swift; sourceTree = "<group>"; };
 		870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardView.swift; sourceTree = "<group>"; };
 		893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAuthContextProvider.swift; sourceTree = "<group>"; };
+		F60718293A4B5C6D7E8F90A1 /* AGUIEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AGUIEvent.swift; sourceTree = "<group>"; };
 		90C4072B436581D5A87F9542 /* AIInputSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIInputSheet.swift; sourceTree = "<group>"; };
 		9A2EB4E8E9EE3FAA5CF579C5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2589D42E0E778318D5E0400 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
@@ -189,6 +191,7 @@
 		944A4785A9104E7C15F0E422 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				F60718293A4B5C6D7E8F90A1 /* AGUIEvent.swift */,
 				CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */,
 				2E5DA40629B98A94601F06DC /* DecisionCardService.swift */,
 				E8E494243CEA2F9FA065D51B /* GitHubService.swift */,
@@ -332,6 +335,7 @@
 				09C9FB765322951B0B772C3E /* User.swift in Sources */,
 				E7A9679F6EB4E3A07796F260 /* UserSwitcherSheet.swift in Sources */,
 				D50B528853838F4769A08FCD /* WebAuthContextProvider.swift in Sources */,
+				0718293A4B5C6D7E8F90A1B2 /* AGUIEvent.swift in Sources */,
 				2D280564ADDED0AA2BF213A5 /* WebSocketService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

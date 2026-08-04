@@ -76,7 +76,13 @@ store (covered by an integration test).
 
 1. ✅ Schemas (`request_decision` / `submit_decision`) + `GET /agui/tools`
 2. ✅ Relay emits AG-UI events behind `protocol: "agui/1"` (legacy intact)
-3. iOS: `AGUIEventDecoder` in `WebSocketService`, join with `protocol`
+3. ✅ iOS inbound: `AGUIEventAssembler` (`Services/AGUIEvent.swift`) decodes
+   snapshots, patches, and chunked `request_decision` calls into the existing
+   `RealtimeEvent` stream; `WebSocketService` joins with `protocol: "agui/1"`
+   and falls back to the legacy dialect against older relays. Outbound stays
+   legacy `card_*` for now — switching decisions to `tool_result` waits for
+   the `decision` field on `DecisionCard` (Phase 2), since today's revise/
+   delegate semantics don't map 1:1 onto `submit_decision` actions.
 4. Web: CopilotKit client consuming the same socket
 5. Phase 2: `STATE_DELTA` for profile.md context; rollback as compensating
    events; move `/ai/route` streaming onto `TEXT_MESSAGE_*` events
