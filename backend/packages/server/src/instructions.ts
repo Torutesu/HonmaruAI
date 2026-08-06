@@ -6,6 +6,7 @@ import type { JobQueue } from "./jobs.js";
 import type { Logger } from "./log.js";
 import { listEdges, listMembers, listTeams, requireMember } from "./orgs.js";
 import { routeInstruction, routeLocally, type RoutingInput } from "./routing.js";
+import { dueAtFor } from "./sla.js";
 
 export interface InstructionDeps {
   db: Db;
@@ -41,7 +42,14 @@ export function createInstruction(
     priorityOverride,
   };
   const routing = routeLocally(input);
-  const result = createCardFromRouting(db, orgId, senderUserId, text, routing);
+  const result = createCardFromRouting(
+    db,
+    orgId,
+    senderUserId,
+    text,
+    routing,
+    dueAtFor(routing.priority)
+  );
 
   if (deps.config.openRouter) {
     deps.queue.enqueue("refine_card", {
@@ -80,7 +88,12 @@ export function makeRefineHandler(deps: InstructionDeps) {
       deps.config.openRouter,
       deps.log
     );
-    const refined = applyRefinement(db, payload.cardId, routing);
+    const refined = applyRefinement(
+      db,
+      payload.cardId,
+      routing,
+      dueAtFor(routing.priority)
+    );
     if (refined) {
       deps.emitEvents(payload.orgId, refined.events);
     }

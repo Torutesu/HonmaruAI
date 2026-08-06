@@ -18,6 +18,7 @@ import {
   type DeliveryChannel,
 } from "./notifications.js";
 import { Hub } from "./realtime.js";
+import { sweepOverdue } from "./sla.js";
 
 export interface App {
   db: Db;
@@ -26,6 +27,8 @@ export interface App {
   hub: Hub;
   queue: JobQueue;
   emitEvents: (orgId: string, events: OrgEvent[]) => void;
+  // Escalate overdue cards now (also runs on a timer per config).
+  runSlaSweep: () => void;
   close: () => void;
 }
 
@@ -91,6 +94,18 @@ export function createApp(config: Config): App {
     createInstruction: instruct,
   });
 
+  const runSlaSweep = (): void => {
+    for (const result of sweepOverdue(db)) {
+      emitEvents(result.orgId, result.events);
+      notifications.direct(result.notifications);
+    }
+  };
+  const sweepTimer =
+    config.slaSweepSeconds > 0
+      ? setInterval(runSlaSweep, config.slaSweepSeconds * 1000)
+      : null;
+  sweepTimer?.unref?.();
+
   return {
     db,
     log,
@@ -98,7 +113,9 @@ export function createApp(config: Config): App {
     hub,
     queue,
     emitEvents,
+    runSlaSweep,
     close: () => {
+      if (sweepTimer) clearInterval(sweepTimer);
       hub.close();
       db.close();
     },

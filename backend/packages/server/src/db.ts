@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS cards (
   source_instruction TEXT,
   revision_note TEXT,
   parent_card_id TEXT,
+  due_at TEXT,
+  escalated_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -155,5 +157,15 @@ export function openDb(path: string): Db {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA);
+  // Additive migrations for databases created before a column existed.
+  ensureColumn(db, "cards", "due_at", "TEXT");
+  ensureColumn(db, "cards", "escalated_at", "TEXT");
   return db;
+}
+
+function ensureColumn(db: Db, table: string, column: string, type: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((col) => col.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }

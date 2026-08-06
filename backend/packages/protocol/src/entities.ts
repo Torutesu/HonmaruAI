@@ -113,6 +113,11 @@ export const DecisionCard = z.object({
   revisionNote: z.string().nullish(),
   // Set when this card was spawned by delegating another card.
   parentCardId: z.string().nullish(),
+  // SLA: decide-by deadline derived from priority at creation (and
+  // recomputed when refinement changes the priority). Null = no SLA.
+  dueAt: z.string().nullish(),
+  // Set once the overdue sweeper has escalated this card.
+  escalatedAt: z.string().nullish(),
   externalRefs: z.array(ExternalRef).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -150,6 +155,7 @@ export const NotificationKind = z.enum([
   "card_status",
   "card_message",
   "card_rerouted",
+  "card_overdue",
 ]);
 export type NotificationKind = z.infer<typeof NotificationKind>;
 

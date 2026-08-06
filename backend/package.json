@@ -7,12 +7,15 @@
   ],
   "scripts": {
     "dev": "npm run dev -w @honmaru/server",
-    "build": "npm run build -w @honmaru/protocol && npm run build -w @honmaru/server",
-    "typecheck": "npm run typecheck -w @honmaru/protocol && npm run typecheck -w @honmaru/server",
+    "build": "npm run build -w @honmaru/protocol && npm run build -w @honmaru/server && npm run build -w @honmaru/web",
+    "typecheck": "npm run typecheck -w @honmaru/protocol && npm run typecheck -w @honmaru/server && npm run typecheck -w @honmaru/web",
     "test": "npm run test -w @honmaru/server",
     "start": "npm run start -w @honmaru/server"
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

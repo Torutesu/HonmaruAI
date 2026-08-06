@@ -7,6 +7,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     logLevel: "silent",
     sessionTtlDays: 30,
     authDevMode: true,
+    notifyWebhookUrl: null,
+    slaSweepSeconds: 0,
     github: { clientId: "", clientSecret: "", redirectUri: "" },
     openRouter: null,
     ...overrides,

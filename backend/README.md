@@ -30,6 +30,7 @@ of platforms. This backend inverts it:
 |---|---|
 | `packages/protocol` | zod schemas: entities, org events, WebSocket messages, REST payloads |
 | `packages/server` | Hono HTTP + `ws` realtime server with SQLite persistence |
+| `packages/web` | React/TS web client on the real protocol (dev login → org create/join → feed → rally → notifications) |
 
 ## Server architecture
 
@@ -112,6 +113,35 @@ the actor themselves). Delivery:
   member), pending queue depth, oldest-pending age, and a **bottleneck
   ranking** (pending volume weighted by staleness) — all derived from primary
   state, recomputable at any time.
+
+## SLA + escalation
+
+Every card gets a decide-by deadline from its priority (urgent 2h · high 8h ·
+medium 24h · low 72h; the clock follows the priority AI refinement settles
+on). A periodic sweep (`SLA_SWEEP_SECONDS`, default 60) escalates overdue
+pending cards exactly once: priority bumps to urgent (top of the feed), the
+recipient gets a `card_overdue` notification, and the recipient's manager is
+looped in via the org graph's `manages` edge.
+
+## Web client (`packages/web`)
+
+Deliberately plain React client wired to the real protocol — the 仮 frontend
+for fast feature iteration. Dev login → create/join org (invite codes in the
+header) → ranked feed with approve/decline/revise/delegate, due/overdue
+chips, thread rally with quick replies (👍 Got it / On it — today / …),
+notification inbox, presence dots, and WS auto-reconnect with cursor resume.
+
+```bash
+npm run dev -w @honmaru/server   # API on :8081 (AUTH_DEV_MODE=1)
+npm run dev -w @honmaru/web      # Vite on :5173 (proxies to :8081 by origin)
+```
+
+Browser end-to-end check (starts server + built client, drives two Chromium
+sessions through org setup → instruction → rally → approval):
+
+```bash
+npm run build && npx tsx packages/web/scripts/e2e.mts
+```
 
 ## Card state machine
 

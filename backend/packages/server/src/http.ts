@@ -18,6 +18,7 @@ import {
   type User,
 } from "@honmaru/protocol";
 import { Hono, type Context } from "hono";
+import { cors } from "hono/cors";
 import { ZodError } from "zod";
 import { computeAnalytics, rankCards } from "./analytics.js";
 import {
@@ -104,6 +105,10 @@ const ERROR_STATUS: Record<string, 400 | 401 | 403 | 404 | 409> = {
 export function createHttpApp(deps: HttpDeps): Hono<Env> {
   const { db, config, log, registry, emitEvents, createInstruction } = deps;
   const app = new Hono<Env>();
+
+  // Browser clients (web app on another origin). Auth is Bearer-token
+  // based, not cookie-based, so a permissive CORS policy is safe here.
+  app.use("*", cors());
 
   app.onError((error, c) => {
     if (error instanceof ZodError) {

@@ -35,6 +35,8 @@ interface CardRow {
   source_instruction: string | null;
   revision_note: string | null;
   parent_card_id: string | null;
+  due_at: string | null;
+  escalated_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -65,6 +67,8 @@ function toCard(db: Db, row: CardRow): DecisionCard {
     sourceInstruction: row.source_instruction,
     revisionNote: row.revision_note,
     parentCardId: row.parent_card_id,
+    dueAt: row.due_at,
+    escalatedAt: row.escalated_at,
     externalRefs: refs.map((ref) => ({
       integration: ref.integration as ExternalRef["integration"],
       externalId: ref.external_id,
@@ -108,8 +112,9 @@ function insertCard(db: Db, card: DecisionCard): void {
     `INSERT INTO cards (
        id, org_id, sender_user_id, recipient_user_id, type, title, summary,
        context, status, priority, labels, agent_route, routing_reason,
-       source_instruction, revision_note, parent_card_id, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       source_instruction, revision_note, parent_card_id, due_at, escalated_at,
+       created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     card.id,
     card.orgId,
@@ -127,6 +132,8 @@ function insertCard(db: Db, card: DecisionCard): void {
     card.sourceInstruction ?? null,
     card.revisionNote ?? null,
     card.parentCardId ?? null,
+    card.dueAt ?? null,
+    card.escalatedAt ?? null,
     card.createdAt,
     card.updatedAt
   );
@@ -137,7 +144,8 @@ export function createCardFromRouting(
   orgId: string,
   senderUserId: string,
   sourceInstruction: string,
-  routing: RoutingResult
+  routing: RoutingResult,
+  dueAt: string | null = null
 ): { card: DecisionCard; events: OrgEvent[] } {
   const timestamp = now();
   const card: DecisionCard = {
@@ -157,6 +165,8 @@ export function createCardFromRouting(
     sourceInstruction,
     revisionNote: null,
     parentCardId: null,
+    dueAt,
+    escalatedAt: null,
     externalRefs: [],
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -263,6 +273,7 @@ export function applyCardAction(
           status: "pending",
           parentCardId: card.id,
           revisionNote: options.note ?? null,
+          escalatedAt: null,
           externalRefs: [],
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -311,7 +322,8 @@ export function applyCardAction(
 export function applyRefinement(
   db: Db,
   cardId: string,
-  routing: RoutingResult
+  routing: RoutingResult,
+  dueAtForPriority?: string
 ): { card: DecisionCard; events: OrgEvent[] } | null {
   const card = getCard(db, cardId);
   if (!card || card.status !== "pending") return null;
@@ -335,6 +347,11 @@ export function applyRefinement(
       ? card.recipientUserId
       : null;
   const timestamp = now();
+  // The SLA clock follows the priority the AI settled on.
+  const nextDueAt =
+    routing.priority !== card.priority && dueAtForPriority
+      ? dueAtForPriority
+      : card.dueAt;
   const next: DecisionCard = {
     ...card,
     recipientUserId: routing.recipientUserId,
@@ -346,6 +363,7 @@ export function applyRefinement(
     labels: routing.labels,
     agentRoute: routing.agentRoute,
     routingReason: routing.routingReason,
+    dueAt: nextDueAt,
     updatedAt: timestamp,
   };
   const events: OrgEvent[] = [];
@@ -353,7 +371,7 @@ export function applyRefinement(
     db.prepare(
       `UPDATE cards SET recipient_user_id = ?, type = ?, title = ?, summary = ?,
          context = ?, priority = ?, labels = ?, agent_route = ?,
-         routing_reason = ?, updated_at = ?
+         routing_reason = ?, due_at = ?, updated_at = ?
        WHERE id = ?`
     ).run(
       next.recipientUserId,
@@ -365,6 +383,7 @@ export function applyRefinement(
       JSON.stringify(next.labels),
       next.agentRoute ?? null,
       next.routingReason ?? null,
+      next.dueAt ?? null,
       timestamp,
       cardId
     );

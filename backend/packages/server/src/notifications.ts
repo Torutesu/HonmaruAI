@@ -222,9 +222,17 @@ export class NotificationEngine {
   ) {}
 
   handle(events: OrgEvent[]): Notification[] {
-    const derived = deriveNotifications(events);
+    return this.direct(deriveNotifications(events));
+  }
+
+  // Persist + deliver notifications that were derived elsewhere (e.g. the
+  // SLA sweeper, which targets managers — a relation event derivation
+  // can't see).
+  direct(
+    items: Omit<Notification, "id" | "createdAt" | "readAt">[]
+  ): Notification[] {
     const created: Notification[] = [];
-    for (const item of derived) {
+    for (const item of items) {
       const notification: Notification = {
         ...item,
         id: newId("ntf"),

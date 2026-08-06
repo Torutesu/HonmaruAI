@@ -7,6 +7,8 @@ export interface Config {
   // Optional bridge: every notification is POSTed here (push provider
   // relay, ntfy, Slack webhook, ...).
   notifyWebhookUrl: string | null;
+  // Seconds between SLA sweeps (overdue escalation). 0 disables the timer.
+  slaSweepSeconds: number;
   github: {
     clientId: string;
     clientSecret: string;
@@ -28,6 +30,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sessionTtlDays: Number(env.SESSION_TTL_DAYS || 30),
     authDevMode: env.AUTH_DEV_MODE === "1",
     notifyWebhookUrl: env.NOTIFY_WEBHOOK_URL || null,
+    slaSweepSeconds: Number(env.SLA_SWEEP_SECONDS ?? 60),
     github: {
       clientId: env.GITHUB_CLIENT_ID || "",
       clientSecret: env.GITHUB_CLIENT_SECRET || "",

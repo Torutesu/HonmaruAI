@@ -50,8 +50,11 @@ Last updated: 2026-08-06
 - [x] Two-phase AI pipeline: instant local routing + async LLM refinement/re-route
 - [x] Notifications: unread inbox + WS frames + webhook bridge + device registry
 - [x] Analytics: decision latency, bottleneck ranking, AI-scored feed order
+- [x] Web client (React/TS) on `@honmaru/protocol` (`backend/packages/web`)
+- [x] Quick replies in threads (1-tap rally)
+- [x] SLA deadlines + overdue escalation to manager (sweeper + `card_overdue`)
+- [x] Browser E2E: 2 Chromium sessions through org setup → instruction → rally → approval
 - [ ] iOS client migration to new protocol
-- [ ] Web client (React/TS) on `@honmaru/protocol`
 - [ ] Deploy (Fly.io/Railway) + GitHub webhook reverse sync
 
 ## Demo script
