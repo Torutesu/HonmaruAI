@@ -303,6 +303,81 @@ export function applyCardAction(
   return { card: result, events };
 }
 
+// Applies async AI refinement on top of the fast local routing that
+// created the card. Refuses to touch a card that is no longer pending or
+// already has thread activity — by then humans have seen and acted on the
+// fast version, and swapping it out from under them would be worse than
+// keeping the rougher copy.
+export function applyRefinement(
+  db: Db,
+  cardId: string,
+  routing: RoutingResult
+): { card: DecisionCard; events: OrgEvent[] } | null {
+  const card = getCard(db, cardId);
+  if (!card || card.status !== "pending") return null;
+  const messageCount = (
+    db
+      .prepare("SELECT COUNT(*) AS n FROM card_messages WHERE card_id = ?")
+      .get(cardId) as { n: number }
+  ).n;
+  if (messageCount > 0) return null;
+
+  const unchanged =
+    routing.recipientUserId === card.recipientUserId &&
+    routing.title === card.title &&
+    routing.summary === card.summary &&
+    routing.context === card.context &&
+    routing.priority === card.priority;
+  if (unchanged) return null;
+
+  const previousRecipientUserId =
+    routing.recipientUserId !== card.recipientUserId
+      ? card.recipientUserId
+      : null;
+  const timestamp = now();
+  const next: DecisionCard = {
+    ...card,
+    recipientUserId: routing.recipientUserId,
+    type: routing.cardType,
+    title: routing.title,
+    summary: routing.summary,
+    context: routing.context,
+    priority: routing.priority,
+    labels: routing.labels,
+    agentRoute: routing.agentRoute,
+    routingReason: routing.routingReason,
+    updatedAt: timestamp,
+  };
+  const events: OrgEvent[] = [];
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE cards SET recipient_user_id = ?, type = ?, title = ?, summary = ?,
+         context = ?, priority = ?, labels = ?, agent_route = ?,
+         routing_reason = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      next.recipientUserId,
+      next.type,
+      next.title,
+      next.summary,
+      next.context,
+      next.priority,
+      JSON.stringify(next.labels),
+      next.agentRoute ?? null,
+      next.routingReason ?? null,
+      timestamp,
+      cardId
+    );
+    events.push(
+      appendEvent(db, card.orgId, "card_updated", null, {
+        card: next,
+        previousRecipientUserId,
+      })
+    );
+  })();
+  return { card: next, events };
+}
+
 export function setExternalRef(
   db: Db,
   cardId: string,

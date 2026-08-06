@@ -129,6 +129,48 @@ export const CardAction = z.enum([
 ]);
 export type CardAction = z.infer<typeof CardAction>;
 
+// A message in a card's thread — the high-frequency rally layer. Cards are
+// the decision container; messages are the back-and-forth around it.
+export const MessageKind = z.enum(["comment", "system", "ai_note"]);
+export type MessageKind = z.infer<typeof MessageKind>;
+
+export const CardMessage = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  orgId: z.string(),
+  authorUserId: z.string(),
+  kind: MessageKind,
+  text: z.string(),
+  createdAt: z.string(),
+});
+export type CardMessage = z.infer<typeof CardMessage>;
+
+export const NotificationKind = z.enum([
+  "card_assigned",
+  "card_status",
+  "card_message",
+  "card_rerouted",
+]);
+export type NotificationKind = z.infer<typeof NotificationKind>;
+
+// Per-user notification. Delivered in-app over WS immediately, and to
+// external channels (webhook / push) by the notification engine.
+export const Notification = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  userId: z.string(),
+  kind: NotificationKind,
+  cardId: z.string().nullish(),
+  title: z.string(),
+  body: z.string(),
+  readAt: z.string().nullish(),
+  createdAt: z.string(),
+});
+export type Notification = z.infer<typeof Notification>;
+
+export const DevicePlatform = z.enum(["ios", "android", "web"]);
+export type DevicePlatform = z.infer<typeof DevicePlatform>;
+
 export const IntegrationConfig = z.object({
   kind: IntegrationKind,
   enabled: z.boolean(),

@@ -68,6 +68,51 @@ Key properties:
   completed → close (completed), rejected-after-sync → close (not planned).
   Tokens are stored server-side and redacted on read.
 
+## Rally layer (Slack-grade message frequency)
+
+Cards are the decision container; **thread messages** are the high-frequency
+back-and-forth around them (`card_message` over WS, `/v1/cards/:id/messages`
+over REST). The rally path is deliberately synchronous and AI-free so a reply
+lands on the other participant's screen in one round-trip. Only the card's
+sender and recipient can post or read a thread.
+
+## Two-phase AI pipeline (fast path + async refinement)
+
+Model latency is kept out of the request path:
+
+1. **Fast path (a few ms, sync)** — deterministic routing creates the card and
+   acks immediately; the recipient sees it in real time.
+2. **Refinement (async job)** — the LLM re-routes/rewrites on the `JobQueue`
+   (bounded retries, exponential backoff). If it disagrees and the card is
+   still untouched (pending, no thread activity), a `card_updated` event
+   upgrades it in place; a re-route carries `previousRecipientUserId` so the
+   old recipient's feed drops the card and the new recipient is notified.
+   Refinement never overwrites a card a human has already acted on.
+
+## Notifications
+
+The `NotificationEngine` consumes committed events and derives per-user
+notifications (assigned / status change / thread reply / re-route; never for
+the actor themselves). Delivery:
+
+- **In-app**: persisted unread inbox (`/v1/orgs/:id/notifications`,
+  `/v1/notifications/read`) + instant `notification` WS frame.
+- **Webhook bridge** (`NOTIFY_WEBHOOK_URL`): every notification is POSTed to a
+  configured URL — the integration point for APNs/FCM relays, ntfy, or Slack
+  webhooks without baking a provider into the core.
+- **Device registry** (`POST /v1/devices`): APNs/FCM tokens are stored,
+  ready for a direct push channel.
+
+## Feed ranking + analytics
+
+- `GET /v1/orgs/:id/cards` and the WS snapshot are served in **feed order**:
+  pending before decided, then priority weight + waiting-time escalation +
+  a boost for cards sent by your manager (`analytics.ts#cardScore`).
+- `GET /v1/orgs/:id/analytics` computes decision latency (avg per org and per
+  member), pending queue depth, oldest-pending age, and a **bottleneck
+  ranking** (pending volume weighted by staleness) — all derived from primary
+  state, recomputable at any time.
+
 ## Card state machine
 
 ```
@@ -87,7 +132,7 @@ cd backend
 npm install
 cp packages/server/.env.example packages/server/.env   # then edit
 npm run dev        # tsx watch
-npm test           # vitest (17 tests)
+npm test           # vitest (25 tests)
 npm run smoke -w @honmaru/server   # boots server, drives 2 WS clients end-to-end
 npm run build && npm start
 ```
@@ -127,6 +172,10 @@ Migration order:
 
 ## Deliberate next steps (not yet built)
 
+- Direct APNs/FCM channel on top of the device registry (webhook bridge
+  covers push today)
+- Table-backed job queue if a job ever becomes the source of truth
+  (in-process queue loses jobs on restart; refinement is recoverable)
 - Rate limiting and request size caps at the edge
 - Token encryption-at-rest for integration configs (currently plaintext in
   SQLite; documented tradeoff)

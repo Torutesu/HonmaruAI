@@ -1,9 +1,11 @@
 import { z } from "zod";
 import {
   CardAction,
+  CardMessage,
   CardPriority,
   DecisionCard,
   Member,
+  Notification,
   Org,
   OrgEdge,
   Team,
@@ -46,12 +48,22 @@ export const CardActionMessage = z.object({
   delegateToUserId: z.string().optional(),
 });
 
+// A thread reply on a card — the high-frequency rally path. Handled
+// synchronously (no AI in the hot path) so round-trips stay fast.
+export const CardMessageMessage = z.object({
+  type: z.literal("card_message"),
+  clientRef: z.string().optional(),
+  cardId: z.string(),
+  text: z.string().min(1).max(4000),
+});
+
 export const PingMessage = z.object({ type: z.literal("ping") });
 
 export const ClientMessage = z.discriminatedUnion("type", [
   HelloMessage,
   InstructionMessage,
   CardActionMessage,
+  CardMessageMessage,
   PingMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -81,6 +93,13 @@ export const AckMessage = z.object({
   type: z.literal("ack"),
   clientRef: z.string().nullish(),
   card: DecisionCard.nullish(),
+  message: CardMessage.nullish(),
+});
+
+// Per-user frame (not part of the org event log).
+export const NotificationFrame = z.object({
+  type: z.literal("notification"),
+  notification: Notification,
 });
 
 export const PresenceMessage = z.object({
@@ -103,6 +122,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SnapshotMessage,
   EventMessage,
   AckMessage,
+  NotificationFrame,
   PresenceMessage,
   PongMessage,
   ErrorMessage,

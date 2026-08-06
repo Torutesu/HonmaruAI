@@ -4,6 +4,9 @@ export interface Config {
   logLevel: string;
   sessionTtlDays: number;
   authDevMode: boolean;
+  // Optional bridge: every notification is POSTed here (push provider
+  // relay, ntfy, Slack webhook, ...).
+  notifyWebhookUrl: string | null;
   github: {
     clientId: string;
     clientSecret: string;
@@ -24,6 +27,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: env.LOG_LEVEL || "info",
     sessionTtlDays: Number(env.SESSION_TTL_DAYS || 30),
     authDevMode: env.AUTH_DEV_MODE === "1",
+    notifyWebhookUrl: env.NOTIFY_WEBHOOK_URL || null,
     github: {
       clientId: env.GITHUB_CLIENT_ID || "",
       clientSecret: env.GITHUB_CLIENT_SECRET || "",

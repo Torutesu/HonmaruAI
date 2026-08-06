@@ -102,6 +102,29 @@ assert(
   "alice saw approval reflected back"
 );
 
+// Rally: Bob replies in the card thread; Alice receives the message event
+// and a notification frame.
+bobConn.ws.send(
+  JSON.stringify({ type: "card_message", clientRef: "ref-m1", cardId, text: "Deployed the fix." })
+);
+await wait(400);
+assert(
+  bobConn.received.find((m) => m.type === "ack" && m.clientRef === "ref-m1")?.message,
+  "message acked to author"
+);
+assert(
+  aliceConn.received.find(
+    (m) => m.type === "event" && m.event.type === "message_created"
+  ),
+  "alice received thread message event"
+);
+assert(
+  aliceConn.received.find(
+    (m) => m.type === "notification" && m.notification.kind === "card_message"
+  ),
+  "alice received notification frame"
+);
+
 // Unauthorized action: Alice tries to approve on Bob's behalf -> error frame.
 aliceConn.ws.send(
   JSON.stringify({ type: "card_action", clientRef: "ref-3", cardId, action: "approve" })

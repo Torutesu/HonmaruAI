@@ -2,18 +2,24 @@ import {
   AcceptInviteRequest,
   CardActionRequest,
   CreateInstructionRequest,
+  CreateMessageRequest,
   CreateOrgRequest,
   DevLoginRequest,
   GitHubExchangeRequest,
   IntegrationKind,
+  MarkNotificationsReadRequest,
+  RegisterDeviceRequest,
   UpdateGraphRequest,
   UpdateIntegrationRequest,
   UpdateMemberRequest,
+  type CardPriority,
+  type DecisionCard,
   type OrgEvent,
   type User,
 } from "@honmaru/protocol";
 import { Hono, type Context } from "hono";
 import { ZodError } from "zod";
+import { computeAnalytics, rankCards } from "./analytics.js";
 import {
   AuthError,
   authenticate,
@@ -25,7 +31,6 @@ import {
 import {
   applyCardAction,
   CardError,
-  createCardFromRouting,
   getCard,
   isCardVisibleTo,
   listCardsForUser,
@@ -39,6 +44,12 @@ import {
   type IntegrationRegistry,
 } from "./integrations/registry.js";
 import type { Logger } from "./log.js";
+import { createMessage, listMessages } from "./messages.js";
+import {
+  listNotifications,
+  markNotificationsRead,
+  registerDevice,
+} from "./notifications.js";
 import {
   acceptInvite,
   createInvite,
@@ -55,7 +66,6 @@ import {
   requireMember,
   updateMember,
 } from "./orgs.js";
-import { routeInstruction } from "./routing.js";
 
 export interface HttpDeps {
   db: Db;
@@ -63,6 +73,13 @@ export interface HttpDeps {
   log: Logger;
   registry: IntegrationRegistry;
   emitEvents: (orgId: string, events: OrgEvent[]) => void;
+  // Fast-path instruction pipeline shared with the WS hub.
+  createInstruction: (
+    orgId: string,
+    senderUserId: string,
+    text: string,
+    priorityOverride?: CardPriority
+  ) => { card: DecisionCard; events: OrgEvent[] };
 }
 
 export type HttpEnv = { Variables: { user: User } };
@@ -85,7 +102,7 @@ const ERROR_STATUS: Record<string, 400 | 401 | 403 | 404 | 409> = {
 };
 
 export function createHttpApp(deps: HttpDeps): Hono<Env> {
-  const { db, config, log, registry, emitEvents } = deps;
+  const { db, config, log, registry, emitEvents, createInstruction } = deps;
   const app = new Hono<Env>();
 
   app.onError((error, c) => {
@@ -230,8 +247,12 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
     const orgId = c.req.param("orgId");
     const user = me(c);
     requireMember(db, orgId, user.id);
+    // Feed order: AI-ranked (priority × waiting time × sender relation).
     return c.json({
-      cards: listCardsForUser(db, orgId, user.id),
+      cards: rankCards(
+        listCardsForUser(db, orgId, user.id),
+        listEdges(db, orgId)
+      ),
       seq: currentSeq(db, orgId),
     });
   });
@@ -239,29 +260,66 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
   app.post("/v1/orgs/:orgId/instructions", async (c) => {
     const orgId = c.req.param("orgId");
     const user = me(c);
-    const sender = requireMember(db, orgId, user.id);
     const body = CreateInstructionRequest.parse(await c.req.json());
-    const routing = await routeInstruction(
-      {
-        text: body.text,
-        sender,
-        members: listMembers(db, orgId),
-        teams: listTeams(db, orgId),
-        edges: listEdges(db, orgId),
-        priorityOverride: body.priorityOverride,
-      },
-      config.openRouter,
-      log
-    );
-    const { card, events } = createCardFromRouting(
-      db,
+    const { card, events } = createInstruction(
       orgId,
       user.id,
       body.text,
-      routing
+      body.priorityOverride
     );
     emitEvents(orgId, events);
     return c.json({ card }, 201);
+  });
+
+  app.get("/v1/cards/:cardId/messages", (c) => {
+    const cardId = c.req.param("cardId");
+    const user = me(c);
+    const card = getCard(db, cardId);
+    if (!card) throw new CardError("card_not_found", "Card not found.");
+    requireMember(db, card.orgId, user.id);
+    if (!isCardVisibleTo(card, user.id)) {
+      throw new CardError("not_allowed", "You cannot view this thread.");
+    }
+    return c.json({ messages: listMessages(db, cardId) });
+  });
+
+  app.post("/v1/cards/:cardId/messages", async (c) => {
+    const cardId = c.req.param("cardId");
+    const user = me(c);
+    const card = getCard(db, cardId);
+    if (!card) throw new CardError("card_not_found", "Card not found.");
+    requireMember(db, card.orgId, user.id);
+    const body = CreateMessageRequest.parse(await c.req.json());
+    const { message, events } = createMessage(db, user.id, cardId, body.text);
+    emitEvents(card.orgId, events);
+    return c.json({ message }, 201);
+  });
+
+  app.get("/v1/orgs/:orgId/notifications", (c) => {
+    const orgId = c.req.param("orgId");
+    const user = me(c);
+    requireMember(db, orgId, user.id);
+    return c.json(listNotifications(db, orgId, user.id));
+  });
+
+  app.post("/v1/notifications/read", async (c) => {
+    const user = me(c);
+    const body = MarkNotificationsReadRequest.parse(await c.req.json());
+    const updated = markNotificationsRead(db, user.id, body);
+    return c.json({ updated });
+  });
+
+  app.post("/v1/devices", async (c) => {
+    const user = me(c);
+    const body = RegisterDeviceRequest.parse(await c.req.json());
+    registerDevice(db, user.id, body.platform, body.token);
+    return c.json({ ok: true }, 201);
+  });
+
+  app.get("/v1/orgs/:orgId/analytics", (c) => {
+    const orgId = c.req.param("orgId");
+    requireMember(db, orgId, me(c).id);
+    return c.json(computeAnalytics(db, orgId));
   });
 
   app.post("/v1/cards/:cardId/actions", async (c) => {

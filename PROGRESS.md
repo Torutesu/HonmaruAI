@@ -45,7 +45,11 @@ Last updated: 2026-08-06
 - [x] Server-side routing (org-data-driven, no hardcoded users)
 - [x] Card state machine server-side (approve/reject/revise/delegate/complete/delete)
 - [x] Pluggable integration layer; GitHub Issues as first adapter
-- [x] 17 unit/API tests + WS end-to-end smoke script
+- [x] 25 unit/API tests + WS end-to-end smoke script
+- [x] Rally layer: card threads (`card_message`) for high-frequency exchange
+- [x] Two-phase AI pipeline: instant local routing + async LLM refinement/re-route
+- [x] Notifications: unread inbox + WS frames + webhook bridge + device registry
+- [x] Analytics: decision latency, bottleneck ranking, AI-scored feed order
 - [ ] iOS client migration to new protocol
 - [ ] Web client (React/TS) on `@honmaru/protocol`
 - [ ] Deploy (Fly.io/Railway) + GitHub webhook reverse sync

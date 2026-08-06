@@ -1,11 +1,14 @@
 import { z } from "zod";
 import {
   CardAction,
+  CardMessage,
   CardPriority,
   DecisionCard,
+  DevicePlatform,
   IntegrationConfig,
   IntegrationKind,
   Member,
+  Notification,
   Org,
   OrgEdge,
   OrgEdgeKind,
@@ -107,6 +110,51 @@ export const UpdateIntegrationRequest = z.object({
 });
 export const ListIntegrationsResponse = z.object({
   integrations: z.array(IntegrationConfig),
+});
+
+// GET /v1/cards/:cardId/messages · POST /v1/cards/:cardId/messages
+export const CreateMessageRequest = z.object({
+  text: z.string().min(1).max(4000),
+});
+export const ListMessagesResponse = z.object({
+  messages: z.array(CardMessage),
+});
+
+// GET /v1/orgs/:orgId/notifications
+export const ListNotificationsResponse = z.object({
+  notifications: z.array(Notification),
+  unreadCount: z.number().int(),
+});
+
+// POST /v1/notifications/read
+export const MarkNotificationsReadRequest = z.object({
+  ids: z.array(z.string()).optional(),
+  all: z.boolean().optional(),
+});
+
+// POST /v1/devices — register a push token (APNs/FCM/WebPush endpoint)
+export const RegisterDeviceRequest = z.object({
+  platform: DevicePlatform,
+  token: z.string().min(1),
+});
+
+// GET /v1/orgs/:orgId/analytics
+export const MemberAnalytics = z.object({
+  userId: z.string(),
+  name: z.string(),
+  pendingCount: z.number().int(),
+  oldestPendingAgeSeconds: z.number().nullable(),
+  decidedCount: z.number().int(),
+  avgDecisionSeconds: z.number().nullable(),
+});
+export const AnalyticsResponse = z.object({
+  totalCards: z.number().int(),
+  pendingCards: z.number().int(),
+  decidedCards: z.number().int(),
+  avgDecisionSeconds: z.number().nullable(),
+  perMember: z.array(MemberAnalytics),
+  // Members ranked by how much decision flow is stuck on them.
+  bottlenecks: z.array(z.string()),
 });
 
 export const ErrorResponse = z.object({

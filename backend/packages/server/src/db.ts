@@ -103,6 +103,40 @@ CREATE TABLE IF NOT EXISTS events (
   PRIMARY KEY (org_id, seq)
 );
 
+CREATE TABLE IF NOT EXISTS card_messages (
+  id TEXT PRIMARY KEY,
+  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  author_user_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_card
+  ON card_messages(card_id, created_at);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  user_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  card_id TEXT,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  read_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user
+  ON notifications(user_id, org_id, read_at);
+
+CREATE TABLE IF NOT EXISTS device_tokens (
+  user_id TEXT NOT NULL REFERENCES users(id),
+  platform TEXT NOT NULL,
+  token TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, token)
+);
+
 CREATE TABLE IF NOT EXISTS integration_configs (
   org_id TEXT NOT NULL REFERENCES orgs(id),
   kind TEXT NOT NULL,

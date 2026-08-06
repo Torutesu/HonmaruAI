@@ -1,12 +1,18 @@
-import type { OrgEvent, ServerMessage } from "@honmaru/protocol";
+import type {
+  CardPriority,
+  DecisionCard,
+  Notification,
+  OrgEvent,
+  ServerMessage,
+} from "@honmaru/protocol";
 import { ClientMessage } from "@honmaru/protocol";
 import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
+import { rankCards } from "./analytics.js";
 import { authenticate } from "./auth.js";
 import {
   applyCardAction,
   CardError,
-  createCardFromRouting,
   isCardVisibleTo,
   listCardsForUser,
 } from "./cards.js";
@@ -14,6 +20,7 @@ import type { Config } from "./config.js";
 import type { Db } from "./db.js";
 import { currentSeq, listEventsSince } from "./events.js";
 import type { Logger } from "./log.js";
+import { createMessage } from "./messages.js";
 import {
   getMember,
   getOrg,
@@ -22,22 +29,32 @@ import {
   listTeams,
   OrgError,
 } from "./orgs.js";
-import { routeInstruction } from "./routing.js";
 
 interface SocketSession {
   userId: string;
   orgId: string;
 }
 
-function isEventVisibleTo(event: OrgEvent, userId: string): boolean {
+export function isEventVisibleTo(event: OrgEvent, userId: string): boolean {
   switch (event.type) {
     case "card_created":
-    case "card_updated":
       return isCardVisibleTo(event.payload.card, userId);
+    case "card_updated":
+      // A re-routed card must also reach its previous recipient so their
+      // feed can drop it.
+      return (
+        isCardVisibleTo(event.payload.card, userId) ||
+        event.payload.previousRecipientUserId === userId
+      );
     case "card_deleted":
       return (
         event.payload.recipientUserId === userId ||
         event.payload.senderUserId === userId
+      );
+    case "message_created":
+      return (
+        event.payload.cardSenderUserId === userId ||
+        event.payload.cardRecipientUserId === userId
       );
     default:
       return true;
@@ -54,6 +71,17 @@ export class Hub {
     orgId,
     events
   ) => this.broadcastEvents(orgId, events);
+
+  // Assigned by the app composer: fast-path instruction pipeline
+  // (sync local routing + async LLM refinement job).
+  handleInstruction: (
+    orgId: string,
+    senderUserId: string,
+    text: string,
+    priorityOverride?: CardPriority
+  ) => { card: DecisionCard; events: OrgEvent[] } = () => {
+    throw new Error("handleInstruction not wired");
+  };
 
   constructor(
     private db: Db,
@@ -102,6 +130,14 @@ export class Hub {
         if (isEventVisibleTo(event, session.userId)) {
           this.send(ws, { type: "event", event });
         }
+      }
+    }
+  }
+
+  sendNotification(orgId: string, userId: string, notification: Notification): void {
+    for (const [ws, session] of this.sessions) {
+      if (session.orgId === orgId && session.userId === userId) {
+        this.send(ws, { type: "notification", notification });
       }
     }
   }
@@ -184,9 +220,13 @@ export class Hub {
           }
         }
       } else {
+        // Snapshot is served in feed order: AI-ranked, not chronological.
         this.send(ws, {
           type: "snapshot",
-          cards: listCardsForUser(this.db, org.id, user.id),
+          cards: rankCards(
+            listCardsForUser(this.db, org.id, user.id),
+            listEdges(this.db, org.id)
+          ),
           seq: currentSeq(this.db, org.id),
         });
       }
@@ -207,28 +247,29 @@ export class Hub {
 
     try {
       if (message.type === "instruction") {
-        const sender = getMember(this.db, session.orgId, session.userId);
-        if (!sender) throw new OrgError("not_a_member", "Membership revoked.");
-        const routing = await routeInstruction(
-          {
-            text: message.text,
-            sender,
-            members: listMembers(this.db, session.orgId),
-            teams: listTeams(this.db, session.orgId),
-            edges: listEdges(this.db, session.orgId),
-            priorityOverride: message.priorityOverride,
-          },
-          this.config.openRouter,
-          this.log
-        );
-        const { card, events } = createCardFromRouting(
-          this.db,
+        const { card, events } = this.handleInstruction(
           session.orgId,
           session.userId,
           message.text,
-          routing
+          message.priorityOverride
         );
         this.send(ws, { type: "ack", clientRef: message.clientRef, card });
+        this.onEventsCommitted(session.orgId, events);
+        return;
+      }
+
+      if (message.type === "card_message") {
+        const { message: created, events } = createMessage(
+          this.db,
+          session.userId,
+          message.cardId,
+          message.text
+        );
+        this.send(ws, {
+          type: "ack",
+          clientRef: message.clientRef,
+          message: created,
+        });
         this.onEventsCommitted(session.orgId, events);
         return;
       }

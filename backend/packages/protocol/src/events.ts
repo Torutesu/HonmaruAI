@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DecisionCard, Member, OrgEdge, Team } from "./entities.js";
+import { CardMessage, DecisionCard, Member, OrgEdge, Team } from "./entities.js";
 
 // ---------------------------------------------------------------------------
 // Domain events. Every state change appends exactly one event to the org's
@@ -13,6 +13,7 @@ export const EventType = z.enum([
   "card_created",
   "card_updated",
   "card_deleted",
+  "message_created",
   "member_joined",
   "member_updated",
   "member_left",
@@ -36,7 +37,24 @@ export const CardCreatedEvent = z.object({
 export const CardUpdatedEvent = z.object({
   ...base,
   type: z.literal("card_updated"),
-  payload: z.object({ card: DecisionCard }),
+  payload: z.object({
+    card: DecisionCard,
+    // Set when async AI refinement re-routed the card. The previous
+    // recipient receives this event too, and must drop the card.
+    previousRecipientUserId: z.string().nullish(),
+  }),
+});
+
+export const MessageCreatedEvent = z.object({
+  ...base,
+  type: z.literal("message_created"),
+  payload: z.object({
+    message: CardMessage,
+    // Card participants, denormalized so visibility can be decided
+    // without a lookup.
+    cardSenderUserId: z.string(),
+    cardRecipientUserId: z.string(),
+  }),
 });
 
 export const CardDeletedEvent = z.object({
@@ -80,6 +98,7 @@ export const OrgEvent = z.discriminatedUnion("type", [
   CardCreatedEvent,
   CardUpdatedEvent,
   CardDeletedEvent,
+  MessageCreatedEvent,
   MemberJoinedEvent,
   MemberUpdatedEvent,
   MemberLeftEvent,
