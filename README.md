@@ -72,6 +72,12 @@ On sign-in:
 
 Client secret stays on localhost server only.
 
-## Progress
+## Docs
 
-See [PROGRESS.md](PROGRESS.md)
+| Doc | Contents |
+|-----|----------|
+| [PROGRESS.md](PROGRESS.md) | Implementation checklist |
+| [docs/DESIGN_HANDOFF.en.md](docs/DESIGN_HANDOFF.en.md) | Designer handoff — product overview, screen inventory, design system, motion, copy rules, known debt |
+| [docs/DESIGN_HANDOFF.ja.md](docs/DESIGN_HANDOFF.ja.md) | デザイナー向け引き継ぎドキュメント（日本語版） |
+| [design.md](design.md) | Original design direction (values are stale — see handoff docs) |
+| [server/README.md](server/README.md) | Relay server, OAuth, WebSocket protocol |

@@ -1,5 +1,10 @@
 # TikTok for Work — Design
 
+> **Note:** This is the original design direction. Some values here (colors, type sizes,
+> radii) have drifted from the shipped implementation. `TikTokForWork/Design/Theme.swift`
+> is canonical. For the current, verified design system and a full designer handoff, see
+> [docs/DESIGN_HANDOFF.en.md](docs/DESIGN_HANDOFF.en.md) / [docs/DESIGN_HANDOFF.ja.md](docs/DESIGN_HANDOFF.ja.md).
+
 ## Direction
 
 Clean, flat, restrained. Linear clarity in a vertical feed shell. No gradients, no decorative borders, no heavy bold type.
