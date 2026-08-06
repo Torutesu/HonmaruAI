@@ -3,9 +3,11 @@ import SwiftUI
 struct AuthView: View {
     @EnvironmentObject private var appState: AppState
     @State private var selectedRepository: GitHubRepository?
+    @State private var selectedUserID: String?
     @State private var isConnecting = false
     @State private var isSigningInWithGitHub = false
     @State private var isRefreshingRepos = false
+    @State private var showAddMember = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -28,6 +30,7 @@ struct AuthView: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                 if appState.githubService.hasToken {
                     repositoryPicker
+                    identityPicker
                 } else {
                     githubSignInButton
                 }
@@ -58,11 +61,53 @@ struct AuthView: View {
             .padding(.bottom, Theme.Spacing.xl)
         }
         .appBackground()
+        .sheet(isPresented: $showAddMember) {
+            AddMemberSheet { member in
+                selectedUserID = member.id
+            }
+            .environmentObject(appState)
+        }
         .onAppear {
             if selectedRepository == nil,
                let repository = appState.githubService.connection?.repository {
                 selectedRepository = appState.githubService.repositories.first { $0.fullName == repository }
             }
+            if selectedUserID == nil {
+                selectedUserID = SessionStore.currentUserID ?? appState.directory.members.first?.id
+            }
+        }
+    }
+
+    private var identityPicker: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack {
+                Text("You")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+                Spacer()
+                Button("Add member") { showAddMember = true }
+                    .font(Theme.TypeScale.label)
+                    .foregroundStyle(Theme.Colors.accent)
+            }
+
+            Picker("You", selection: $selectedUserID) {
+                Text("Select").tag(String?.none)
+                ForEach(appState.directory.members) { member in
+                    Text("\(member.name) · \(member.role)").tag(Optional(member.id))
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(Theme.Colors.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Spacing.md)
+            .background(Theme.Colors.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+
+            Text("Your AI works on your behalf and receives cards addressed to you.")
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
         }
     }
 
@@ -160,18 +205,13 @@ struct AuthView: View {
     }
 
     private var canContinue: Bool {
-        appState.githubService.isConnected || selectedRepository != nil
+        let hasRepository = appState.githubService.isConnected || selectedRepository != nil
+        return hasRepository && selectedUser != nil
     }
 
-    private func fieldSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Text(title)
-                .font(Theme.TypeScale.micro)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .textCase(.uppercase)
-                .tracking(0.8)
-            content()
-        }
+    private var selectedUser: User? {
+        guard let selectedUserID else { return nil }
+        return appState.directory.member(for: selectedUserID)
     }
 
     private func refreshRepositories() {
@@ -218,13 +258,17 @@ struct AuthView: View {
 
         Task {
             do {
+                guard let user = selectedUser else {
+                    throw OrgDirectoryError.identityRequired
+                }
+
                 if let repository = selectedRepository?.fullName ?? appState.githubService.connection?.repository {
                     _ = try await appState.githubService.connect(repository: repository)
                 } else {
                     throw GitHubServiceError.missingCredentials
                 }
 
-                await appState.activateSession()
+                await appState.activateSession(as: user)
             } catch {
                 errorMessage = error.localizedDescription
             }

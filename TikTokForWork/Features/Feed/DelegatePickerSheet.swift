@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct DelegatePickerSheet: View {
+    @EnvironmentObject private var appState: AppState
+
     let card: DecisionCard
     let currentUserID: String
     let onPick: (User) -> Void
@@ -8,9 +10,7 @@ struct DelegatePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var candidates: [User] {
-        DemoUser.allCases
-            .map(\.user)
-            .filter { $0.id != currentUserID }
+        appState.directory.candidates(excluding: currentUserID)
     }
 
     var body: some View {

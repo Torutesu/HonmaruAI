@@ -2,6 +2,7 @@ import Foundation
 
 enum RealtimeEvent: Codable {
     case snapshot(cardsByUser: [String: [DecisionCard]])
+    case roster(members: [User])
     case cardCreated(card: DecisionCard)
     case cardUpdated(card: DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
@@ -19,6 +20,9 @@ enum RealtimeEvent: Codable {
         case "snapshot":
             let payload = try container.decode(SnapshotPayload.self, forKey: .payload)
             self = .snapshot(cardsByUser: payload.cardsByUser)
+        case "roster":
+            let payload = try container.decode(RosterPayload.self, forKey: .payload)
+            self = .roster(members: payload.members)
         case "card_created":
             let payload = try container.decode(CardPayload.self, forKey: .payload)
             self = .cardCreated(card: payload.card)
@@ -45,6 +49,9 @@ enum RealtimeEvent: Codable {
         case .snapshot(let cardsByUser):
             try container.encode("snapshot", forKey: .type)
             try container.encode(SnapshotPayload(cardsByUser: cardsByUser), forKey: .payload)
+        case .roster(let members):
+            try container.encode("roster", forKey: .type)
+            try container.encode(RosterPayload(members: members), forKey: .payload)
         case .cardCreated(let card):
             try container.encode("card_created", forKey: .type)
             try container.encode(CardPayload(card: card), forKey: .payload)
@@ -65,6 +72,10 @@ enum RealtimeEvent: Codable {
 
     private struct SnapshotPayload: Codable {
         let cardsByUser: [String: [DecisionCard]]
+    }
+
+    private struct RosterPayload: Codable {
+        let members: [User]
     }
 
     private struct CardPayload: Codable {
@@ -123,6 +134,7 @@ final class WebSocketService: ObservableObject {
     @Published private(set) var onlineUserIDs: Set<String> = []
 
     var onEvent: ((RealtimeEvent) -> Void)?
+    var onRoster: (([User]) -> Void)?
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?
@@ -256,12 +268,17 @@ final class WebSocketService: ObservableObject {
             return
         }
 
-        if case .presence(let userId, let status) = event {
+        switch event {
+        case .presence(let userId, let status):
             if status == "online" {
                 onlineUserIDs.insert(userId)
             } else {
                 onlineUserIDs.remove(userId)
             }
+        case .roster(let members):
+            onRoster?(members)
+        default:
+            break
         }
 
         onEvent?(event)

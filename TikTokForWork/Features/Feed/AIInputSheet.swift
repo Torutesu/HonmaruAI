@@ -20,7 +20,7 @@ struct AIInputSheet: View {
 
                 ZStack(alignment: .topLeading) {
                     if prompt.isEmpty {
-                        Text("Ask Bob to review the onboarding PR before Friday")
+                        Text("Ask Gota to review the onboarding PR before Friday")
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textTertiary)
                             .padding(.horizontal, 4)

@@ -1,9 +1,10 @@
 # TikTok for Work — Design
 
-> **Note:** This is the original design direction. Some values here (colors, type sizes,
-> radii) have drifted from the shipped implementation. `TikTokForWork/Design/Theme.swift`
-> is canonical. For the current, verified design system and a full designer handoff, see
-> [docs/DESIGN_HANDOFF.en.md](docs/DESIGN_HANDOFF.en.md) / [docs/DESIGN_HANDOFF.ja.md](docs/DESIGN_HANDOFF.ja.md).
+> **Note:** These are early design notes, not a settled system — and several values here
+> (colors, type sizes, radii) no longer match the code. The UI is still at mockup stage;
+> the real design system has yet to be defined. For what the code actually does today and
+> what remains open, see [docs/DESIGN_HANDOFF.en.md](docs/DESIGN_HANDOFF.en.md) /
+> [docs/DESIGN_HANDOFF.ja.md](docs/DESIGN_HANDOFF.ja.md).
 
 ## Direction
 

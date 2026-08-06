@@ -285,8 +285,8 @@ struct DecisionCardView: View {
     DecisionCardView(
         card: DecisionCard(
             id: "preview",
-            recipientUserID: "user-alice",
-            senderUserID: "user-bob",
+            recipientUserID: "user-toru",
+            senderUserID: "user-gota",
             type: .task,
             title: "Auth latency regression",
             summary: "p95 on auth endpoint up 18% after last deploy.",
@@ -296,8 +296,8 @@ struct DecisionCardView: View {
             createdAt: .now.addingTimeInterval(-3600),
             githubIssueNumber: nil,
             githubIssueURL: nil,
-            agentRoute: "Bob's AI → Alice's AI",
-            routingReason: "You are Bob's manager"
+            agentRoute: "Gota's AI → Toru's AI",
+            routingReason: "You are Gota's manager"
         ),
         linkedRepository: "owner/repo",
         onAction: { _ in },

@@ -157,7 +157,7 @@ final class AIService: ObservableObject {
             throw AIServiceError.invalidResponse
         }
 
-        let recipientName = DemoData.userName(for: routingResponse.recipientUserID)
+        let recipientName = OrgLookup.shared.name(for: routingResponse.recipientUserID)
         let agentRoute = routingResponse.agentRoute
             ?? "\(sender.name)'s AI → \(recipientName)'s AI"
         let routingReason = routingResponse.routingReason

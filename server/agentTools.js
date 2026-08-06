@@ -1,104 +1,175 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
+/** @typedef {{ id: string, name: string, role: string, githubUsername?: string, managerID?: string|null }} Member */
 
-export const DEMO_USER_IDS = [
-  "user-alice",
-  "user-bob",
-  "user-carol",
-  "user-dana",
-];
-
-const TEAM_ROUTES = [
+/**
+ * Role categories used to route by team/role instead of by hard-coded people.
+ * `rolePatterns` match against a member's role string, `phrases` against the instruction text.
+ */
+const ROLE_CATEGORIES = [
   {
-    phrases: ["design team", "designers", "designer", " ux", "ui team", "design dept"],
-    userID: "user-carol",
+    key: "design",
     label: "Design",
-  },
-  {
-    phrases: ["engineering team", "eng team", "engineers", "dev team", "developers", "engineering"],
-    userID: "user-dana",
-    label: "Engineering",
-  },
-  {
-    phrases: ["product team", "product managers", "pm team", "product manager"],
-    userID: "user-alice",
-    label: "Product",
-  },
-];
-
-const ROLE_ROUTES = [
-  {
-    phrases: ["mockup", "figma", "pixel", "spacing", "empty state", "visual", "ui ", "ux ", "design system", "copy pass"],
-    userID: "user-carol",
+    rolePatterns: [/design/i, /\bux\b/i, /\bui\b/i, /brand/i],
+    teamPhrases: ["design team", "designers", "designer", "design dept"],
+    phrases: [
+      "mockup",
+      "figma",
+      "pixel",
+      "spacing",
+      "empty state",
+      "visual",
+      "ui ",
+      "ux ",
+      "design system",
+      "copy pass",
+    ],
     reason: "Design work detected in instruction",
   },
   {
-    phrases: ["bug", "fix", "api", "deploy", "latency", "hotfix", "backend", "auth", "endpoint", "pr #", "merge", "regression"],
-    userID: "user-bob",
+    key: "engineering",
+    label: "Engineering",
+    rolePatterns: [/engineer/i, /developer/i, /\bdev\b/i, /\bcto\b/i, /\bsre\b/i, /tech lead/i],
+    teamPhrases: ["engineering team", "eng team", "engineers", "dev team", "developers", "engineering"],
+    phrases: [
+      "bug",
+      "fix",
+      "api",
+      "deploy",
+      "latency",
+      "hotfix",
+      "backend",
+      "auth",
+      "endpoint",
+      "pr #",
+      "merge",
+      "regression",
+      "architecture",
+      "infra",
+      "on-call",
+      "incident",
+      "system design",
+    ],
     reason: "Engineering work detected in instruction",
   },
   {
-    phrases: ["roadmap", "priorit", "stakeholder", "spec", "requirements", "launch plan", "approval"],
-    userID: "user-alice",
+    key: "product",
+    label: "Product",
+    rolePatterns: [/product/i, /\bpm\b/i, /program manager/i],
+    teamPhrases: ["product team", "product managers", "pm team", "product manager"],
+    phrases: ["roadmap", "priorit", "stakeholder", "spec", "requirements", "launch plan", "backlog"],
     reason: "Product decision detected in instruction",
   },
   {
-    phrases: ["architecture", "infra", "on-call", "incident", "eng lead", "system design"],
-    userID: "user-dana",
-    reason: "Engineering leadership scope detected",
+    key: "leadership",
+    label: "Leadership",
+    rolePatterns: [/\bceo\b/i, /founder/i, /chief/i, /\bhead\b/i, /\bvp\b/i, /director/i, /lead/i],
+    teamPhrases: ["leadership", "exec", "execs", "executive team", "management"],
+    phrases: ["budget", "hiring", "headcount", "fundraise", "investor", "company-wide", "strategy", "approval"],
+    reason: "Leadership decision detected in instruction",
   },
 ];
 
-function matchTeamRoute(text, senderID) {
+const CARD_TYPES = ["approval", "delegation", "notification", "task", "revision"];
+const PRIORITIES = ["low", "medium", "high", "urgent"];
+
+/**
+ * Wraps the live member roster so routing never depends on hard-coded people.
+ * @param {Member[]} members
+ */
+export function createDirectory(members) {
+  const list = (Array.isArray(members) ? members : []).filter(
+    (member) => member && typeof member.id === "string" && member.id && member.name
+  );
+
+  const nameFor = (userID) => list.find((member) => member.id === userID)?.name || userID;
+  const roleFor = (userID) => list.find((member) => member.id === userID)?.role || "";
+
+  const categoryFor = (member) => {
+    const role = String(member?.role || "");
+    return ROLE_CATEGORIES.find((category) =>
+      category.rolePatterns.some((pattern) => pattern.test(role))
+    )?.key;
+  };
+
+  const membersInCategory = (key, excludeID) =>
+    list.filter((member) => member.id !== excludeID && categoryFor(member) === key);
+
+  return {
+    members: list,
+    ids: list.map((member) => member.id),
+    isEmpty: list.length === 0,
+    has: (userID) => list.some((member) => member.id === userID),
+    nameFor,
+    roleFor,
+    categoryFor,
+    membersInCategory,
+    others: (excludeID) => list.filter((member) => member.id !== excludeID),
+  };
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchNamedPerson(text, senderID, directory) {
   const lower = String(text || "").toLowerCase();
-  for (const route of TEAM_ROUTES) {
-    if (route.userID === senderID) continue;
-    if (route.phrases.some((phrase) => lower.includes(phrase))) {
-      return route;
+  for (const member of directory.others(senderID)) {
+    const name = member.name.toLowerCase();
+    if (!name) continue;
+    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(name)}([^\\p{L}\\p{N}]|$)`, "iu");
+    if (pattern.test(lower)) {
+      return member;
     }
   }
   return null;
 }
 
-function matchRoleRoute(text, senderID) {
+function matchCategory(text, senderID, directory, field) {
   const lower = String(text || "").toLowerCase();
-  for (const route of ROLE_ROUTES) {
-    if (route.userID === senderID) continue;
-    if (route.phrases.some((phrase) => lower.includes(phrase))) {
-      return route;
+  for (const category of ROLE_CATEGORIES) {
+    const phrases = category[field] || [];
+    if (!phrases.some((phrase) => lower.includes(phrase))) continue;
+    const candidate = directory.membersInCategory(category.key, senderID)[0];
+    if (candidate) {
+      return { category, member: candidate };
     }
   }
   return null;
 }
 
-export function resolveRecipientTarget(text, senderID, organization) {
+/**
+ * Decide who a raw instruction belongs to, using the live roster and org edges.
+ * @param {string} text
+ * @param {string} senderID
+ * @param {object} organization
+ * @param {ReturnType<typeof createDirectory>} directory
+ */
+export function resolveRecipientTarget(text, senderID, organization, directory) {
   const lower = String(text || "").toLowerCase();
 
-  for (const userID of DEMO_USER_IDS) {
-    if (userID === senderID) continue;
-    const name = userNameFor(userID).toLowerCase();
-    if (lower.includes(name)) {
-      return {
-        recipientUserID: userID,
-        routingReason: "Named in your instruction",
-        forceOverride: true,
-      };
-    }
-  }
-
-  const team = matchTeamRoute(text, senderID);
-  if (team) {
+  const named = matchNamedPerson(text, senderID, directory);
+  if (named) {
     return {
-      recipientUserID: team.userID,
-      routingReason: `Routed to ${team.label} team · ${userNameFor(team.userID)}`,
+      recipientUserID: named.id,
+      routingReason: "Named in your instruction",
       forceOverride: true,
     };
   }
 
-  const role = matchRoleRoute(text, senderID);
+  const team = matchCategory(text, senderID, directory, "teamPhrases");
+  if (team) {
+    return {
+      recipientUserID: team.member.id,
+      routingReason: `Routed to ${team.category.label} · ${team.member.name}`,
+      forceOverride: true,
+    };
+  }
+
+  const role = matchCategory(text, senderID, directory, "phrases");
   if (role) {
     return {
-      recipientUserID: role.userID,
-      routingReason: role.reason,
+      recipientUserID: role.member.id,
+      routingReason: role.category.reason,
       forceOverride: true,
     };
   }
@@ -107,10 +178,10 @@ export function resolveRecipientTarget(text, senderID, organization) {
     const edge = organization?.edges?.find(
       (item) => item.toID === senderID && item.kind === "manages"
     );
-    if (edge) {
+    if (edge?.fromID && directory.has(edge.fromID)) {
       return {
         recipientUserID: edge.fromID,
-        routingReason: `You are ${userNameFor(senderID)}'s manager`,
+        routingReason: `You are ${directory.nameFor(senderID)}'s manager`,
         forceOverride: true,
       };
     }
@@ -119,15 +190,16 @@ export function resolveRecipientTarget(text, senderID, organization) {
   const managerEdge = organization?.edges?.find(
     (item) => item.toID === senderID && item.kind === "manages"
   );
-  if (managerEdge?.fromID && managerEdge.fromID !== senderID) {
+  if (managerEdge?.fromID && managerEdge.fromID !== senderID && directory.has(managerEdge.fromID)) {
     return {
       recipientUserID: managerEdge.fromID,
-      routingReason: `Escalated to ${userNameFor(managerEdge.fromID)}`,
+      routingReason: `Escalated to ${directory.nameFor(managerEdge.fromID)}`,
       forceOverride: false,
     };
   }
 
-  const fallback = DEMO_USER_IDS.find((userID) => userID !== senderID) || senderID;
+  const leader = directory.membersInCategory("leadership", senderID)[0];
+  const fallback = leader?.id || directory.others(senderID)[0]?.id || senderID;
   return {
     recipientUserID: fallback,
     routingReason: "Best match for this decision in org graph",
@@ -135,102 +207,118 @@ export function resolveRecipientTarget(text, senderID, organization) {
   };
 }
 
-export const AGENT_TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "create_decision_card",
-      description:
-        "Turn a messy workplace instruction into a structured decision card routed to the right teammate. Rewrite the sender's words — never echo them.",
-      parameters: {
-        type: "object",
-        properties: {
-          recipientUserID: {
-            type: "string",
-            enum: DEMO_USER_IDS,
-            description:
-              "Who should receive and act on this decision. Route by team/role: design→user-carol, engineering/dev/bugs→user-bob or user-dana, product/PM→user-alice",
-          },
-          cardType: {
-            type: "string",
-            enum: ["approval", "delegation", "notification", "task", "revision"],
-          },
-          title: {
-            type: "string",
-            description: "3-8 words, action-oriented, no filler like 'tell Bob'",
-          },
-          summary: {
-            type: "string",
-            description: "1-2 sentences, third person, what the recipient must decide or do",
-          },
-          context: {
-            type: "string",
-            description:
-              "2-4 structured facts as 'label: detail' segments separated by · e.g. 'deadline: Friday demo · metric: p95 +18% · scope: auth endpoint · action: hotfix branch'",
-          },
-          priority: {
-            type: "string",
-            enum: ["low", "medium", "high", "urgent"],
-          },
-          routingReason: {
-            type: "string",
-            description: "One sentence: why this person owns the decision",
-          },
-          labels: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional GitHub-style labels e.g. bug, infra, blocked",
-          },
-        },
-        required: [
-          "recipientUserID",
-          "cardType",
-          "title",
-          "summary",
-          "context",
-          "priority",
-          "routingReason",
-        ],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "set_priority",
-      description:
-        "Override urgency when the instruction clearly signals time sensitivity or low importance",
-      parameters: {
-        type: "object",
-        properties: {
-          level: { type: "string", enum: ["low", "medium", "high", "urgent"] },
-          reason: { type: "string" },
-        },
-        required: ["level", "reason"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "add_context",
-      description: "Attach extra structured context extracted from the instruction",
-      parameters: {
-        type: "object",
-        properties: {
-          key: { type: "string" },
-          value: { type: "string" },
-        },
-        required: ["key", "value"],
-        additionalProperties: false,
-      },
-    },
-  },
-];
+/**
+ * The recipient enum is built per request so newly added members are routable immediately.
+ * @param {ReturnType<typeof createDirectory>} directory
+ */
+export function buildAgentTools(directory) {
+  const routingHint = directory.members
+    .map((member) => `${member.id} (${member.name}, ${member.role})`)
+    .join("; ");
 
-const SYSTEM_PROMPT = `You route workplace instructions to the right teammate as structured Decision Cards.
+  return [
+    {
+      type: "function",
+      function: {
+        name: "create_decision_card",
+        description:
+          "Turn a messy workplace instruction into a structured decision card routed to the right teammate. Rewrite the sender's words — never echo them.",
+        parameters: {
+          type: "object",
+          properties: {
+            recipientUserID: {
+              type: "string",
+              enum: directory.ids,
+              description: `Who should receive and act on this decision. Members: ${routingHint}`,
+            },
+            cardType: {
+              type: "string",
+              enum: CARD_TYPES,
+            },
+            title: {
+              type: "string",
+              description: "3-8 words, action-oriented, no filler like 'tell Bob'",
+            },
+            summary: {
+              type: "string",
+              description: "1-2 sentences, third person, what the recipient must decide or do",
+            },
+            context: {
+              type: "string",
+              description:
+                "2-4 structured facts as 'label: detail' segments separated by · e.g. 'deadline: Friday demo · metric: p95 +18% · scope: auth endpoint · action: hotfix branch'",
+            },
+            priority: {
+              type: "string",
+              enum: PRIORITIES,
+            },
+            routingReason: {
+              type: "string",
+              description: "One sentence: why this person owns the decision",
+            },
+            labels: {
+              type: "array",
+              items: { type: "string" },
+              description: "Optional GitHub-style labels e.g. bug, infra, blocked",
+            },
+          },
+          required: [
+            "recipientUserID",
+            "cardType",
+            "title",
+            "summary",
+            "context",
+            "priority",
+            "routingReason",
+          ],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "set_priority",
+        description: "Override the card priority when urgency cues are explicit",
+        parameters: {
+          type: "object",
+          properties: {
+            level: { type: "string", enum: PRIORITIES },
+            reason: { type: "string" },
+          },
+          required: ["level"],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "add_context",
+        description: "Attach extra structured context extracted from the instruction",
+        parameters: {
+          type: "object",
+          properties: {
+            key: { type: "string" },
+            value: { type: "string" },
+          },
+          required: ["key", "value"],
+          additionalProperties: false,
+        },
+      },
+    },
+  ];
+}
+
+/**
+ * @param {ReturnType<typeof createDirectory>} directory
+ */
+export function buildSystemPrompt(directory) {
+  const roster = directory.members
+    .map((member) => `- ${member.id}: ${member.name}, ${member.role}`)
+    .join("\n");
+
+  return `You route workplace instructions to the right teammate as structured Decision Cards.
 
 Call create_decision_card once with all fields filled:
 - Never echo the sender's exact wording in title or summary
@@ -238,14 +326,18 @@ Call create_decision_card once with all fields filled:
 - summary: third person, what the recipient must decide or do
 - context: deadlines, metrics, PR numbers, blockers — always 2-4 segments as 'label: detail' joined by ·
 - priority: infer from urgency cues in the instruction
-- Pick recipient from org graph using team, role, and manager edges
+- Pick recipient from the roster below using role, team, and manager edges
 
-Team routing (critical):
-- design team / design / UX / UI → user-carol (Carol, Designer)
-- engineering / dev / bugs / APIs → user-bob (Bob, Engineer) or user-dana (Dana, Eng Lead) for leadership
-- product / PM / roadmap / approvals → user-alice (Alice, Product Manager)
-- named person in instruction → that person
-- "manager" → sender's manager from org edges`;
+Roster:
+${roster || "- (no members)"}
+
+Routing rules (critical):
+- A person named in the instruction wins over everything else
+- Otherwise match the work to the role: design work → a designer, engineering work → an engineer,
+  product/roadmap work → a product role, budget/hiring/strategy → the CEO or a lead
+- "manager" → the sender's manager from the org edges
+- Never route back to the sender unless nobody else can own it`;
+}
 
 export function buildUserPrompt({ text, sender, organization }) {
   const orgContext = organizationContext(organization);
@@ -274,14 +366,6 @@ function organizationContext(organization) {
   return `Nodes:\n${nodes}\nEdges:\n${edges}`;
 }
 
-function userNameFor(userID) {
-  if (userID === "user-alice") return "Alice";
-  if (userID === "user-bob") return "Bob";
-  if (userID === "user-carol") return "Carol";
-  if (userID === "user-dana") return "Dana";
-  return userID;
-}
-
 function parseToolArguments(raw) {
   if (!raw) return {};
   if (typeof raw === "object") return raw;
@@ -291,8 +375,9 @@ function parseToolArguments(raw) {
 /**
  * @param {import('openai').ChatCompletionMessageToolCall[] | undefined} toolCalls
  * @param {string} senderName
+ * @param {ReturnType<typeof createDirectory>} directory
  */
-export function materializeFromToolCalls(toolCalls, senderName) {
+export function materializeFromToolCalls(toolCalls, senderName, directory) {
   /** @type {DecisionCardArgs | null} */
   let card = null;
   /** @type {{ name: string, label: string, detail: string }[]} */
@@ -309,7 +394,7 @@ export function materializeFromToolCalls(toolCalls, senderName) {
       steps.push({
         name: "create_decision_card",
         label: "Route decision",
-        detail: `${userNameFor(args.recipientUserID)} · ${args.cardType}`,
+        detail: `${directory.nameFor(args.recipientUserID)} · ${args.cardType}`,
       });
     }
 
@@ -344,14 +429,14 @@ export function materializeFromToolCalls(toolCalls, senderName) {
     card.context = [card.context, ...contextExtras].filter(Boolean).join(" · ");
   }
 
-  const recipientName = userNameFor(card.recipientUserID);
+  const recipientName = directory.nameFor(card.recipientUserID);
   card.agentRoute = `${senderName}'s AI → ${recipientName}'s AI`;
 
   return { card, toolCalls: steps };
 }
 
-function resolveRecipient(text, senderID, organization) {
-  const target = resolveRecipientTarget(text, senderID, organization);
+function resolveRecipient(text, senderID, organization, directory) {
+  const target = resolveRecipientTarget(text, senderID, organization, directory);
   return {
     recipientUserID: target.recipientUserID,
     namedInInstruction: target.forceOverride,
@@ -365,6 +450,7 @@ function routingReasonFor({
   namedInInstruction,
   organization,
   routingReason,
+  directory,
 }) {
   if (routingReason) return routingReason;
   if (namedInInstruction) return "Named in your instruction";
@@ -372,7 +458,7 @@ function routingReasonFor({
     (item) => item.toID === senderID && item.kind === "manages"
   );
   if (managerEdge?.fromID === recipientUserID) {
-    return `You are ${userNameFor(senderID)}'s manager`;
+    return `You are ${directory.nameFor(senderID)}'s manager`;
   }
   if (recipientUserID !== senderID) {
     return "Best match for this decision in org graph";
@@ -395,15 +481,18 @@ function isEchoOfInput(summary, input) {
   return false;
 }
 
-function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
+function summarizeInstruction(text, { sender, cardType, recipientUserID, directory }) {
+  const names = directory.members.map((member) => escapeRegExp(member.name)).join("|");
+  const namePattern = names ? `${names}|manager` : "manager";
+
   let cleaned = String(text || "").trim();
   cleaned = cleaned.replace(
-    /^(please\s+)?(tell|ask|notify|send|ping|remind)\s+(alice|bob|carol|dana|manager)\s+(to\s+)?/i,
+    new RegExp(`^(please\\s+)?(tell|ask|notify|send|ping|remind)\\s+(${namePattern})\\s+(to\\s+)?`, "i"),
     ""
   );
   cleaned = cleaned.replace(/^(can you|could you|hey|hi|yo)\s+/i, "");
   cleaned = cleaned.replace(
-    /^(i need|we need)\s+(alice|bob|carol|dana|manager)\s+to\s+/i,
+    new RegExp(`^(i need|we need)\\s+(${namePattern})\\s+to\\s+`, "i"),
     ""
   );
   cleaned = cleaned.replace(/\s+/g, " ").trim();
@@ -411,7 +500,7 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
     cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
 
-  const recipientName = userNameFor(recipientUserID);
+  const recipientName = directory.nameFor(recipientUserID);
   const titles = {
     approval: "Approval needed",
     delegation: `Task for ${recipientName}`,
@@ -430,13 +519,13 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
   };
 }
 
-function applyRoutingGuard(routing, sender, originalText, organization = null) {
-  const target = resolveRecipientTarget(originalText, sender.id, organization);
+function applyRoutingGuard(routing, sender, originalText, organization, directory) {
+  const target = resolveRecipientTarget(originalText, sender.id, organization, directory);
   if (!target.forceOverride || target.recipientUserID === routing.recipientUserID) {
     return routing;
   }
 
-  const recipientName = userNameFor(target.recipientUserID);
+  const recipientName = directory.nameFor(target.recipientUserID);
   return {
     ...routing,
     recipientUserID: target.recipientUserID,
@@ -453,16 +542,9 @@ function applyRoutingGuard(routing, sender, originalText, organization = null) {
   };
 }
 
-function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null) {
-  const allowedRecipients = new Set(DEMO_USER_IDS);
-  const allowedTypes = new Set([
-    "approval",
-    "delegation",
-    "notification",
-    "task",
-    "revision",
-  ]);
-  const allowedPriorities = new Set(["low", "medium", "high", "urgent"]);
+function validateRouting(routingJSON, sender, originalText, toolCalls, organization, directory) {
+  const allowedTypes = new Set(CARD_TYPES);
+  const allowedPriorities = new Set(PRIORITIES);
 
   const recipientUserID = routingJSON.recipientUserID;
   const cardType = routingJSON.cardType;
@@ -471,8 +553,8 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
   let context = routingJSON.context;
   const priority = routingJSON.priority;
 
-  if (!allowedRecipients.has(recipientUserID)) {
-    throw new Error("AI picked an invalid recipient.");
+  if (!directory.has(recipientUserID)) {
+    throw new Error("AI picked a recipient who is not in the organization.");
   }
   if (!allowedTypes.has(cardType)) {
     throw new Error("AI returned an invalid card type.");
@@ -489,13 +571,14 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       sender,
       cardType,
       recipientUserID,
+      directory,
     });
     title = rewritten.title;
     summary = rewritten.summary;
     context = rewritten.context;
   }
 
-  const recipientName = userNameFor(recipientUserID);
+  const recipientName = directory.nameFor(recipientUserID);
   const agentRoute =
     routingJSON.agentRoute || `${sender.name}'s AI → ${recipientName}'s AI`;
   const routingReason =
@@ -516,7 +599,8 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
     },
     sender,
     originalText,
-    organization
+    organization,
+    directory
   );
 }
 
@@ -525,12 +609,14 @@ export function routeInstructionLocally({
   sender,
   organization,
   priorityOverride,
+  directory,
 }) {
   const lower = String(text || "").toLowerCase();
   const { recipientUserID, namedInInstruction, routingReason } = resolveRecipient(
     text,
     sender.id,
-    organization
+    organization,
+    directory
   );
 
   let cardType = "notification";
@@ -545,10 +631,11 @@ export function routeInstructionLocally({
     sender,
     cardType,
     recipientUserID,
+    directory,
   });
-  const recipientName = userNameFor(recipientUserID);
+  const recipientName = directory.nameFor(recipientUserID);
   const priority =
-    priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)
+    priorityOverride && PRIORITIES.includes(priorityOverride)
       ? priorityOverride
       : lower.includes("urgent")
         ? "urgent"
@@ -569,6 +656,7 @@ export function routeInstructionLocally({
         namedInInstruction,
         organization,
         routingReason,
+        directory,
       }),
       labels: [],
     },
@@ -581,7 +669,8 @@ export function routeInstructionLocally({
         detail: `${recipientName} · ${cardType}`,
       },
     ],
-    organization
+    organization,
+    directory
   );
 }
 
@@ -598,6 +687,7 @@ async function routeInstructionWithOpenRouter({
   organization,
   priorityOverride,
   openRouter,
+  directory,
   attempt = 0,
 }) {
   const userPrompt = buildUserPrompt({ text, sender, organization });
@@ -615,10 +705,10 @@ async function routeInstructionWithOpenRouter({
       temperature: 0.2,
       max_tokens: 512,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: buildSystemPrompt(directory) },
         { role: "user", content: userPrompt },
       ],
-      tools: AGENT_TOOLS,
+      tools: buildAgentTools(directory),
       tool_choice: {
         type: "function",
         function: { name: "create_decision_card" },
@@ -636,8 +726,12 @@ async function routeInstructionWithOpenRouter({
   const toolCalls = message?.tool_calls;
 
   if (toolCalls?.length) {
-    const { card, toolCalls: steps } = materializeFromToolCalls(toolCalls, sender.name);
-    if (priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)) {
+    const { card, toolCalls: steps } = materializeFromToolCalls(
+      toolCalls,
+      sender.name,
+      directory
+    );
+    if (priorityOverride && PRIORITIES.includes(priorityOverride)) {
       card.priority = priorityOverride;
       steps.push({
         name: "set_priority",
@@ -645,7 +739,7 @@ async function routeInstructionWithOpenRouter({
         detail: priorityOverride,
       });
     }
-    return validateRouting(card, sender, text, steps, organization);
+    return validateRouting(card, sender, text, steps, organization, directory);
   }
 
   const content = message?.content;
@@ -657,11 +751,12 @@ async function routeInstructionWithOpenRouter({
         organization,
         priorityOverride,
         openRouter,
+        directory,
         attempt: attempt + 1,
       });
     }
     console.warn("OpenRouter returned empty routing response; using local fallback.");
-    return routeInstructionLocally({ text, sender, organization, priorityOverride });
+    return routeInstructionLocally({ text, sender, organization, priorityOverride, directory });
   }
 
   const routingJSON = parseRoutingJSON(content);
@@ -673,10 +768,11 @@ async function routeInstructionWithOpenRouter({
       {
         name: "create_decision_card",
         label: "Route decision",
-        detail: `${userNameFor(routingJSON.recipientUserID)} · ${routingJSON.cardType}`,
+        detail: `${directory.nameFor(routingJSON.recipientUserID)} · ${routingJSON.cardType}`,
       },
     ],
-    organization
+    organization,
+    directory
   );
   if (priorityOverride) {
     validated.priority = priorityOverride;
@@ -684,13 +780,30 @@ async function routeInstructionWithOpenRouter({
   return validated;
 }
 
+/**
+ * @param {{ text: string, sender: object, organization: object, priorityOverride?: string, openRouter?: object, members: Member[] }} params
+ */
 export async function routeInstruction({
   text,
   sender,
   organization,
   priorityOverride,
   openRouter,
+  members,
 }) {
+  const directory = createDirectory(members);
+
+  if (!directory.has(sender?.id)) {
+    directory.members.push({ id: sender.id, name: sender.name, role: sender.role || "" });
+    directory.ids.push(sender.id);
+  }
+
+  if (directory.members.length < 2) {
+    throw new Error(
+      "Add at least one more member to the organization before routing decisions."
+    );
+  }
+
   if (openRouter?.apiKey) {
     try {
       return await routeInstructionWithOpenRouter({
@@ -699,13 +812,12 @@ export async function routeInstruction({
         organization,
         priorityOverride,
         openRouter,
+        directory,
       });
     } catch (error) {
       console.warn("AI routing failed, using local fallback:", error.message);
     }
   }
 
-  return routeInstructionLocally({ text, sender, organization, priorityOverride });
+  return routeInstructionLocally({ text, sender, organization, priorityOverride, directory });
 }
-
-export { SYSTEM_PROMPT, userNameFor };

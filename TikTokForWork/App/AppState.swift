@@ -10,6 +10,7 @@ final class AppState: ObservableObject {
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
+    let directory = OrgDirectory.shared
 
     let relayURL = AppConfig.relayURL
 
@@ -19,6 +20,9 @@ final class AppState: ObservableObject {
 
     init() {
         cardService.attach(webSocketService: webSocketService)
+        webSocketService.onRoster = { [weak self] members in
+            self?.directory.apply(members)
+        }
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
                 await self?.handleRepositoryChanged()
@@ -31,6 +35,8 @@ final class AppState: ObservableObject {
         defer { isBootstrapping = false }
 
         guard let backendBaseURL else { return }
+        directory.configure(backendBaseURL: backendBaseURL)
+        await directory.refresh()
         await aiService.configure(backendBaseURL: backendBaseURL)
         await restoreSessionIfNeeded()
     }
@@ -48,15 +54,18 @@ final class AppState: ObservableObject {
 
         do {
             try await githubService.validateSavedSession()
-            let userID = SessionStore.currentUserID ?? AppConfig.defaultUser.id
-            let user = DemoData.user(for: userID) ?? AppConfig.defaultUser
+            guard let userID = SessionStore.currentUserID,
+                  let user = directory.member(for: userID) else {
+                // The saved identity is no longer on the roster — ask again.
+                return
+            }
             await activateSession(as: user)
         } catch {
             githubService.disconnect()
         }
     }
 
-    func activateSession(as user: User = AppConfig.defaultUser) async {
+    func activateSession(as user: User) async {
         SessionStore.currentUserID = user.id
 
         do {

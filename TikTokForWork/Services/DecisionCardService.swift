@@ -32,9 +32,6 @@ final class DecisionCardService: ObservableObject {
     }
 
     func bootstrap(for user: User) {
-        if cardsByUser.isEmpty {
-            cardsByUser = DemoData.initialCards
-        }
         onCardsUpdated?()
     }
 
@@ -149,7 +146,7 @@ final class DecisionCardService: ObservableObject {
             senderUserID: actorUserID,
             type: .notification,
             title: card.title,
-            summary: "\(DemoData.userName(for: actorUserID)) · \(statusLabel)",
+            summary: "\(OrgLookup.shared.name(for: actorUserID)) · \(statusLabel)",
             context: card.revisionNote ?? card.summary,
             status: .pending,
             priority: .medium,
@@ -195,8 +192,8 @@ final class DecisionCardService: ObservableObject {
         cardsByUser[actorUserID] = userCards
         await webSocketService?.publishUpdated(card)
 
-        let actorName = DemoData.userName(for: actorUserID)
-        let recipientName = DemoData.userName(for: recipientUserID)
+        let actorName = OrgLookup.shared.name(for: actorUserID)
+        let recipientName = OrgLookup.shared.name(for: recipientUserID)
         let delegatedCard = DecisionCard(
             id: UUID().uuidString,
             recipientUserID: recipientUserID,
@@ -300,7 +297,7 @@ final class DecisionCardService: ObservableObject {
             upsert(card)
         case .cardDeleted(let cardID, let recipientUserID):
             remove(cardID: cardID, for: recipientUserID)
-        case .presence, .error:
+        case .roster, .presence, .error:
             break
         }
     }

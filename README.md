@@ -45,16 +45,30 @@ On sign-in:
 
 1. **Sign in with GitHub** (opens secure browser sheet)
 2. Pick **repository** from your GitHub account
-3. **Relay server** — `ws://127.0.0.1:8080` (AI routes through relay when `OPENROUTER_API_KEY` is set)
+3. Pick **who you are** in the organization — or add yourself with **Add member**
 
-### 4. Two-simulator demo
+### 4. Organization
+
+The relay owns the roster and starts with the founding members:
+
+| Member | Role |
+|--------|------|
+| Toru | CEO |
+| Gota | PM |
+
+Add teammates from **Organization → Add member** (or the user menu). Each member
+gets their own AI agent, appears on every connected client instantly, and becomes
+routable by the AI right away — routing matches work to **roles**, so no code
+change is needed to onboard someone.
+
+### 5. Two-device run
 
 1. Start relay server
-2. Simulator A → Alice
-3. Simulator B → Bob
-4. Alice → Message your AI → natural language instruction
-5. Bob sees card via WebSocket
-6. Bob approves → GitHub Issue created → Alice gets result
+2. Device A → sign in → continue as Toru
+3. Device B → sign in → continue as Gota
+4. Toru → Tell your AI → natural language instruction
+5. Gota sees the decision card via WebSocket
+6. Gota approves → GitHub Issue created → Toru gets the result
 
 ## Architecture
 
@@ -77,7 +91,7 @@ Client secret stays on localhost server only.
 | Doc | Contents |
 |-----|----------|
 | [PROGRESS.md](PROGRESS.md) | Implementation checklist |
-| [docs/DESIGN_HANDOFF.en.md](docs/DESIGN_HANDOFF.en.md) | Designer handoff — product overview, screen inventory, design system, motion, copy rules, known debt |
+| [docs/DESIGN_HANDOFF.en.md](docs/DESIGN_HANDOFF.en.md) | Designer handoff — product overview, screen inventory, what's built so far, and the open design decisions. **The UI is at mockup stage; the design system is still to be defined.** |
 | [docs/DESIGN_HANDOFF.ja.md](docs/DESIGN_HANDOFF.ja.md) | デザイナー向け引き継ぎドキュメント（日本語版） |
-| [design.md](design.md) | Original design direction (values are stale — see handoff docs) |
+| [design.md](design.md) | Early design notes (drifted from the code — see handoff docs) |
 | [server/README.md](server/README.md) | Relay server, OAuth, WebSocket protocol |

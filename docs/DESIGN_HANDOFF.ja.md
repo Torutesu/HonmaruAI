@@ -1,8 +1,24 @@
 # TikTok for Work — デザイナー向け プロジェクト概要 / 引き継ぎドキュメント
 
 最終更新: 2026-08-06
-対象読者: このプロダクトのUI/UXを引き継ぐデザイナー
+対象読者: このプロダクトのUI/UXをこれから作るデザイナー
 英語版: [DESIGN_HANDOFF.en.md](./DESIGN_HANDOFF.en.md)
+
+---
+
+> ## ⚠️ 最初に読んでください
+>
+> **現在のUIはモックアップ段階です。デザインシステムもクオリティラインも、まだ何も確定していません。**
+>
+> このドキュメントに書かれている色・サイズ・余白・コンポーネントは「実装が今こうなっている」という
+> **現状report**であって、**守るべき仕様ではありません**。
+>
+> - 今の見た目は、機能を動かすために置いた仮のものです
+> - 数値もコンポーネントも、丸ごと変えて構いません
+> - **デザインシステムをゼロから定義するのが、これからの仕事です**
+>
+> このドキュメントの目的は、「何が作られているか」「どこを触れば変えられるか」を渡すことであって、
+> 現状の見た目を追認してもらうことではありません。
 
 ---
 
@@ -12,15 +28,15 @@
 
 **「メッセージではなく、意思決定を届ける」チーム向けAIネイティブ・ワークプラットフォーム。**
 
-Slackのようにチャンネルやスレッドで人間同士が直接やりとりするのではなく、**ユーザーは自分専属のAIとだけ話す**。AI同士が組織図をもとに宛先を判断し、受け手には「判断しやすい形に再構成されたDecision Card（意思決定カード）」だけが届く。
+Slackのようにチャンネルやスレッドで人間同士が直接やりとりするのではなく、**ユーザーは自分専属のAIとだけ話す**。AI同士が組織の情報をもとに宛先を判断し、受け手には「判断しやすい形に再構成されたDecision Card（意思決定カード）」だけが届く。
 
 ### 解決したい課題
 
-| 既存ツールの課題 | 本プロダクトの答え |
+| 既存ツールの課題 | このプロダクトの答え |
 |---|---|
 | チャンネルが増え続ける | チャンネルという概念自体が存在しない |
 | 通知過多で重要情報を見落とす | 「今あなたが決めるべきカード」だけが1枚ずつ届く |
-| 誰が何を見ているか分からない | 送信はAIが組織グラフから宛先を決定し、理由も表示 |
+| 誰が何を見ているか分からない | AIが組織グラフから宛先を決定し、理由も表示する |
 | 誰が決めるべきか分からない | カードに「なぜあなたなのか（Why you）」が必ず付く |
 | 決定が会話に埋もれる | 決定は自動的にGitHub Issueとして記録される |
 | 同じ説明を何度もする | AIが受け手の役割に合わせて再構成する |
@@ -28,29 +44,34 @@ Slackのようにチャンネルやスレッドで人間同士が直接やりと
 ### コアループ（このプロダクトの心臓部）
 
 ```
-Alice が自分のAIに自然文で指示
+送信者が自分のAIに自然文で指示
    ↓  「Tell your AI」入力シート
 AI が意図・宛先・優先度・カード種別を判断（組織グラフ + LLM）
    ↓  Draft Review シートで送信前に確認
-Bob のフィードに Decision Card として届く（WebSocket、リアルタイム）
+受け手のフィードに Decision Card として届く（WebSocket、リアルタイム）
    ↓  縦スクロールで1枚ずつ表示
-Bob が判断する（Create issue / Decline / Revise / Delegate）
+受け手が判断する（Create issue / Decline / Revise / Delegate）
    ↓  スワイプ or ボタン
-GitHub Issue が作成され、結果が Alice 側に反映される
+GitHub Issue が作成され、結果が送信者側に反映される
 ```
 
-**デザイン上の最重要点**: この1周がストレスなく回ること。個別機能の網羅より、このループの体験の質を優先してきた。
+**デザイン上の最重要点**: この1周がストレスなく回ること。ここが体験の中心で、他はすべてこれを支える要素。
 
-### 想定利用シーン
+### 組織とメンバー
 
-社内デモは4人の固定チームで再現する。
+組織の名簿はリレーサーバが保持し、アプリから追加していく。**固定のダミーメンバーは存在しない。**
 
-| ユーザー | 役割 | 組織上の関係 |
-|---|---|---|
-| Alice | Product Manager | Bob のマネージャー / Onboarding v2 の承認権限 |
-| Bob | Engineer | Core Team, Engineering 所属 |
-| Carol | Designer | Core Team, Design Team 所属 |
-| Dana | Engineering Lead | Bob のマネージャー / Onboarding v2 の承認権限 |
+初期メンバー:
+
+| メンバー | 役割 |
+|---|---|
+| Toru | CEO |
+| Gota | PM |
+
+- メンバー追加はアプリ内の **Organization → Add member** から（名前 / 役割 / GitHubユーザー名 / 上長）
+- 追加した瞬間に全端末へ同期され、そのメンバーは**すぐにAIのルーティング対象になる**
+- 各メンバーには専属のAIエージェントが自動的に紐づく（`〇〇's AI`）
+- AIは「人」ではなく「役割」でルーティングする（デザイン系の仕事→デザイナー、開発→エンジニア、予算/採用→CEO）。コードを触らずに人を増やせる
 
 ---
 
@@ -62,20 +83,25 @@ GitHub Issue が作成され、結果が Alice 側に反映される
 | AIルーティング | 実装済み | OpenRouter経由。キー未設定時はキーワードベースのフォールバック |
 | リアルタイム同期 | 実装済み | localhost の WebSocket リレーサーバ（`server/`） |
 | GitHub連携 | 実装済み | OAuthログイン → リポジトリ選択 → Issues API |
-| 組織グラフ | UIは実装済み・データはデモ固定 | 表現は「グラフ」ではなくリスト（後述の課題参照） |
-| 複数ユーザー切替 | 実装済み | アプリ内のユーザー切替 + 2シミュレータ同時起動 |
+| 組織・メンバー管理 | 実装済み | 名簿はサーバ保持、アプリから追加、全端末に同期 |
+| 組織グラフの可視化 | 未着手に近い | データはあるが、画面は単なるリスト表示 |
+| **UI / デザインシステム** | **モックアップ段階** | **これから作る。現状は仮** |
+| 名簿の永続化 | 未対応 | リレー再起動で初期メンバーに戻る |
 | 配布ビルド | 未着手 | TestFlight / インストール可能ビルドは今後 |
 
 ---
 
 ## 3. 画面一覧（インフォメーションアーキテクチャ）
 
-画面数は意図的に少ない。**フィード1枚 + モーダル群**という構成。
+画面数は意図的に少ない。**フィード1枚 + モーダル群**という構成。この構造自体も見直して構わない。
 
 ```
 RootView                                 起動時の分岐
 ├─ 復元中インジケータ                     「Restoring session…」
 ├─ AuthView                              未ログイン時
+│  ├─ GitHubサインイン
+│  ├─ リポジトリ選択
+│  └─ 「You」= 組織内の自分を選ぶ / Add member
 └─ FeedView                              ログイン後のホーム（唯一の常設画面）
    ├─ 上部バー: ユーザー名 + 接続ドット / ページドット / ⋯メニュー
    ├─ カード領域: DecisionCardView を縦ページングでフルスクリーン表示
@@ -85,197 +111,156 @@ RootView                                 起動時の分岐
       ├─ DraftReviewSheet      AIが作った下書きの確認・送信
       ├─ CardDetailSheet       カード詳細（Why you / Context / Routing / GitHub）
       ├─ ReviseSheet           修正依頼メモの入力
-      ├─ DelegatePickerSheet   委任先の選択
-      ├─ UserSwitcherSheet     デモ用ユーザー切替
-      └─ OrgGraphView          組織（People / Agents / Teams / Projects / Relationships）
+      ├─ DelegatePickerSheet   委任先の選択（名簿から）
+      ├─ UserSwitcherSheet     自分の切り替え + Add member
+      ├─ OrgGraphView          組織（People / Agents / Teams / Relationships）+ Add member
+      └─ AddMemberSheet        メンバー追加（名前 / 役割 / GitHub / 上長）
 ```
 
 オーバーレイ:
-- `ProcessingOverlay` — 全画面を暗転（黒 55%）してスピナー + 処理中メッセージ
+- `ProcessingOverlay` — 全画面を暗転してスピナー + 処理中メッセージ
 - `DraftingBanner` — 上部からスライドイン。「Drafting decision card…」
 
-### 主要画面の構造
+### 主要画面の構造（現状）
 
 **AuthView（ログイン）**
-左揃えの縦積み。ロゴ56pt → ワードマーク32pt/medium →「Decisions, not messages」。中央に GitHub サインインボタン（未認証時）またはリポジトリピッカー（認証済み時）、接続済みバナー。最下部に固定の Continue ボタン。
+左揃えの縦積み。ロゴ → ワードマーク →「Decisions, not messages」。GitHubサインイン → リポジトリ選択 → 「You」で組織内の自分を選択。最下部に固定の Continue ボタン。
 
 **FeedView（ホーム）**
-背景は純黒。カードはコンテナ高さいっぱい（`containerRelativeFrame(.vertical)`）で縦方向ページングスクロール。スクロールインジケータは非表示。カードが0枚のときは中央に空状態テキスト3行。
+カードはコンテナ高さいっぱいで縦方向ページングスクロール。カードが0枚のときは中央に空状態テキスト3行。
 
 **DecisionCardView（意思決定カード）— 最重要コンポーネント**
-上から順に:
-1. メタ行 — カード種別 `·` 優先度 `·` 相対時刻（右寄せ）
-2. 送信者 — 「From Bob」+ エージェント経路（「Bob's AI → Alice's AI」）
-3. **Why you ボックス** — 左に2ptのアクセントバー、`surfaceRaised` 背景。ルーティング理由
-4. タイトル 26pt/medium
-5. サマリー 17pt/regular（`textSecondary`）
-6. コンテキスト（compact表示: `ラベル: 値 · ラベル: 値`）
-7. 「View details」リンク（アクセント色）
+現状の要素順序:
+1. メタ行 — カード種別 `·` 優先度 `·` 相対時刻
+2. 送信者 — 「From 〇〇」+ エージェント経路（「〇〇's AI → △△'s AI」）
+3. **Why you ボックス** — ルーティング理由
+4. タイトル
+5. サマリー
+6. コンテキスト（`ラベル: 値 · ラベル: 値`）
+7. 「View details」リンク
 8. GitHub Issue リンク（作成済みのとき）
 9. ステータスラベル（未処理でないとき）
-10. アクションブロック — Create issue（GitHubグリーン、48pt）/ Decline・Revise・Delegate（横3分割のテキストボタン）/ スワイプヒント
+10. アクションブロック — Create issue / Decline・Revise・Delegate / スワイプヒント
+
+この情報の順序と優先度づけは、**再設計の主戦場**。
 
 **OrgGraphView（組織）**
-People / Agents / Teams / Projects をセクション分けしたリスト + 末尾に関係性を等幅フォントで列挙（`Alice  manages  Bob` 形式）。
+People / Agents / Teams をセクション分けしたリスト + 関係性を等幅フォントで列挙。名簿から自動生成されるので、メンバーを増やすとそのまま伸びる。**「グラフ」としては全く表現できていない。**
 
 ---
 
-## 4. デザインシステム
+## 4. 現状の実装値（**暫定 — 確定仕様ではありません**）
 
-> **重要**: 実装上の真実は `TikTokForWork/Design/Theme.swift`。リポジトリ直下の `design.md` は初期案のままで、色・サイズが現行と食い違っている（後述「既知の課題」参照）。**Theme.swift を正とすること。**
+> ここに並ぶ数値は「今こう書いてある」というだけの現状値です。
+> デザインの根拠があって決まったものではなく、**全面的に置き換える前提**です。
+> 実装上の置き場所は `TikTokForWork/Design/Theme.swift`。
 
-### 4.1 カラー
+### 4.1 カラー（暫定）
 
-ダークモード専用（`preferredColorScheme(.dark)` を固定）。ライトモードは未対応。
+現状はダークモード専用（`preferredColorScheme(.dark)` 固定）。ライトモードは未対応。
 
-| トークン | Hex | 用途 |
+| トークン | 現状値 | 用途 |
 |---|---|---|
-| `background` | `#000000` | アプリ全体の地。純黒（OLED前提） |
+| `background` | `#000000` | アプリ全体の地 |
 | `surface` | `#0C0C0E` | シートの背景 |
 | `surfaceRaised` | `#161618` | 入力欄、チップ、Why youボックス、リスト行 |
 | `textPrimary` | `#F4F4F5` | タイトル、主要テキスト |
 | `textSecondary` | `#A1A1AA` | サマリー、補助テキスト |
 | `textTertiary` | `#71717A` | メタ情報、プレースホルダ、無効状態 |
-| `accent` | `#5E6AD2` | リンク、選択状態、アクセントバー。**1画面1箇所を原則** |
+| `accent` | `#5E6AD2` | リンク、選択状態、アクセントバー |
 | `approve` | `#4ADE80` | 接続インジケータ、承認系 |
-| `issueGreen` | `#238636` | GitHub Issue 作成ボタン（GitHubのブランドグリーン準拠） |
+| `issueGreen` | `#238636` | GitHub Issue 作成ボタン |
 | `reject` | `#F87171` | Decline、緊急優先度、エラー |
 
-Themeに未定義でコード内に直書きされている色（**要トークン化**）:
+Themeに入っていない直書きの色: `#FBBF24`（優先度High / deadline）、`#38BDF8`（channel）。
 
-| Hex | 使用箇所 |
-|---|---|
-| `#FBBF24` | 優先度 High、Context Insight の deadline 種別 |
-| `#38BDF8` | Context Insight の channel 種別 |
+### 4.2 タイポグラフィ（暫定）
 
-### 4.2 タイポグラフィ
+SF Pro（`Font.system`）。現状は `.regular` と `.medium` のみで、boldは使っていない。
 
-SF Pro（`Font.system`）。**boldは使わない。** `.regular` と `.medium` のみ。階層は太さではなくサイズと色で作る。
-
-| トークン | サイズ | ウェイト | 用途 |
-|---|---|---|---|
-| `title` | 26 | medium | カードタイトル、Draft Review のタイトル |
-| `body` | 17 | regular | サマリー、本文、入力テキスト |
-| `caption` | 13 | regular | 補助テキスト、メタ行、詳細の値 |
-| `label` | 12 | regular | セクション見出し、チップ、ステータス |
-| `micro` | 11 | regular | 時刻、ヒント、最小メタ |
-
-トークン外の直書きサイズ（**要整理**）: 32/medium（Authワードマーク）、16/medium（PrimaryButton）、16/semibold（GitHubPrimaryButton）、15/medium（上部バーのユーザー名、UserSwitcher）、15/regular（Org のノード名）、14（SecondaryAction）、13 monospaced（Org の関係性）、12 monospaced（接続リポジトリ）、10 monospaced（フッターのリポジトリ名）、9/semibold（chevron）。
-
-### 4.3 スペーシング
-
-4ptグリッド。
-
-| トークン | 値 |
-|---|---|
-| `xs` | 4 |
-| `sm` | 8 |
-| `md` | 16 |
-| `lg` | 24 |
-| `xl` | 32 |
-| `xxl` | 48 |
-| `screen` | 24（画面左右の余白） |
-
-### 4.4 角丸
-
-| トークン | 値 | 用途 |
+| トークン | サイズ | ウェイト |
 |---|---|---|
-| `sm` | 6 | チップ、Why youボックス、スワイプヒントラベル |
-| `md` | 10 | ボタン、入力欄、リスト行 |
-| `sheet` | 14 | シート（定義のみ、現状はシステム標準に委ねている） |
+| `title` | 26 | medium |
+| `body` | 17 | regular |
+| `caption` | 13 | regular |
+| `label` | 12 | regular |
+| `micro` | 11 | regular |
 
-### 4.5 コンポーネント一覧
+トークン外の直書きサイズが10種以上ある（32 / 16 / 15 / 14 / 13mono / 12mono / 10mono / 9 など）。**現状はシステムとして閉じていない。**
 
-すべて `TikTokForWork/Design/Components.swift` に集約（`AppLogo` と `ProcessingOverlay` は別ファイル）。
+### 4.3 スペーシング / 角丸（暫定）
 
-| コンポーネント | 説明 |
+4ptグリッド: `xs` 4 / `sm` 8 / `md` 16 / `lg` 24 / `xl` 32 / `xxl` 48 / `screen` 24
+角丸: `sm` 6（チップ）/ `md` 10（ボタン・入力欄）/ `sheet` 14（定義のみ・未使用）
+
+### 4.4 コンポーネント一覧（現状あるもの）
+
+`TikTokForWork/Design/Components.swift` に集約。
+
+| コンポーネント | 現状 |
 |---|---|
-| `PrimaryButton` | 高さ48、白地(`textPrimary`)に黒文字。無効時は `surfaceRaised` + `textTertiary` |
-| `GitHubPrimaryButton` | 高さ48、`issueGreen` 地に白文字 + GitHubマーク16pt。カードの主アクション |
-| `SecondaryAction` | 高さ40、テキストのみ。tint を指定可能（Decline は `reject`） |
-| `ComposeBar` | 高さ48、`surfaceRaised`。sparkleアイコン + 「Tell your AI」 |
-| `PageDots` | 現在位置は幅16の白カプセル、その他は幅5。高さ5固定。0.2s easeOut |
-| `PrioritySlider` | Low/Med/High/Now の4分割。選択中はバーが優先度色、ラベルが `textPrimary` |
-| `LabelChip` | カプセル型、`surfaceRaised`、micro |
-| `ToolCallChip` | AIのツール呼び出しを表示。アクセント色アイコン + ラベル + 詳細 |
-| `ContextInsightView` | コンテキスト文字列を解析して表示（下記参照） |
-| `AppLogo` | `AppMark` アセット（重なる3枚のカード + アクセントバー） |
-| `ProcessingOverlay` | 黒55%の全画面ディム + `surfaceRaised` のスピナーピル |
-| `DraftingBanner` | 上部インラインバナー。下端に0.5ptの区切り線 |
+| `PrimaryButton` | 高さ48、白地に黒文字 |
+| `GitHubPrimaryButton` | 高さ48、GitHubグリーン地に白文字 + マーク |
+| `SecondaryAction` | 高さ40、テキストのみ |
+| `ComposeBar` | 高さ48、「Tell your AI」 |
+| `PageDots` | 現在位置のみ幅16のカプセル |
+| `PrioritySlider` | Low/Med/High/Now の4分割 |
+| `LabelChip` | カプセル型チップ |
+| `ToolCallChip` | AIのツール呼び出し表示 |
+| `ContextInsightView` | コンテキスト文字列を解析して表示 |
+| `AppLogo` | 重なる3枚のカード + アクセントバー |
+| `ProcessingOverlay` / `DraftingBanner` | 処理中表現2種 |
 
-### 4.6 Context Insight（コンテキストの自動意味づけ）
+### 4.5 Context Insight（コンテキストの自動意味づけ）
 
-AIが返す `context` 文字列（`ラベル: 値 · ラベル: 値` 形式）を解析し、種別ごとにアイコンと色を割り当てる仕組み。カード上では compact 表示（1行テキスト）、詳細シートでは `ラベル72pt幅 + 値` の2カラム表示になる。
+AIが返す `context` 文字列（`ラベル: 値 · ラベル: 値`）を解析し、種別（deadline / metric / scope / channel / action / link / routing / general）ごとにアイコンと色を割り当てる仕組みが**定義だけされている**。
 
-| 種別 | アイコン | 色 | トリガーとなる語 |
-|---|---|---|---|
-| deadline | `calendar` | `#FBBF24` | deadline, due, friday, tomorrow, eod … |
-| metric | `chart.line.uptrend.xyaxis` | `reject` | %, p95, latency, regression … |
-| scope | `square.stack.3d.up` | `accent` | production, staging, scope … |
-| channel | `antenna.radiowaves.left.and.right` | `#38BDF8` | channel |
-| action | `bolt.fill` | `approve` | hotfix, branch, deploy, fix … |
-| link | `link` | `accent` | http, github.com |
-| routing | `arrow.triangle.branch` | `textSecondary` | routed from … |
-| general | `sparkle` | `textTertiary` | 上記以外 |
-
-> **注意**: 種別ごとのアイコン・色は定義済みだが、**現在の `ContextInsightView` は非compact表示でもアイコンを描画していない**（テキスト2カラムのみ）。デザイン上の伸びしろとして残っている。
+**ただし現在は描画されていない**（テキスト2カラムのみ）。仕組みは動くので、デザイン次第でそのまま活かせる。
 
 ---
 
-## 5. インタラクションとモーション
+## 5. インタラクションとモーション（暫定）
 
-**原則: 速く、機能的に。装飾的なアニメーションは入れない。**
+現状の実装値。方針も含めて見直して構わない。
 
-| 対象 | 仕様 |
+| 対象 | 現状 |
 |---|---|
-| フィードのページング | `.scrollTargetBehavior(.paging)` — 1スワイプ1カード。システム標準の物理挙動 |
-| カードのスワイプ判定 | 最小ドラッグ20pt、確定しきい値 **96pt**。横移動が縦移動を上回るときのみ反応 |
-| スワイプ右 | Create issue（成功ハプティクス） |
-| スワイプ左 | Decline（軽ハプティクス） |
-| スワイプヒント | ドラッグ24pt超で表示。不透明度は `移動量 / 96` に比例 |
-| ドラッグの戻し | easeOut 0.18s |
-| 優先度の切替 | easeOut 0.15s + 軽ハプティクス |
-| ページドット | easeOut 0.2s |
-| カードリストの更新 | easeOut 0.2s |
-| 判断後の次カードへの自動送り | easeOut 0.25s |
-| 画面遷移（Auth ↔ Feed） | easeOut 0.2s |
-| DraftingBanner | 上端からのスライド + フェード |
+| フィードのページング | `.scrollTargetBehavior(.paging)` — 1スワイプ1カード |
+| カードのスワイプ判定 | 最小ドラッグ20pt、確定しきい値 96pt |
+| スワイプ右 / 左 | Create issue / Decline |
+| スワイプヒント | ドラッグ24pt超で表示、不透明度は移動量に比例 |
+| アニメーション | すべて easeOut 0.15〜0.25s |
+| ハプティクス | `light`（タップ・優先度変更）と `success`（確定操作）の2種 |
 
-ハプティクス: `Haptics.light()`（ボタンタップ、Decline、優先度変更）と `Haptics.success()`（Issue作成、委任、判断確定）の2種のみ。
-
-**処理中の扱いが2種類ある点に注意**:
-- AIの下書き生成 → **ブロックしない**。上部バナーだけ出してフィードは操作可能（「keep scrolling while it works」）
-- GitHub同期などの確定操作 → **ブロックする**。`ProcessingOverlay` で全画面を覆う
+**処理中の扱いが2種類ある点は、意図的な設計として引き継ぐ価値がある**:
+- AIの下書き生成 → **ブロックしない**。上部バナーだけ出してフィードは操作可能
+- GitHub同期などの確定操作 → **ブロックする**。全画面オーバーレイ
 
 ---
 
-## 6. コピー（文言）のルール
+## 6. コピー（文言）
 
-### トーン
+### トーン（現状の方針）
 
 - 「Tell your AI」であって「Send message」ではない
 - 「Decision recorded」であって「Message sent」ではない
 - センテンスケース。短く。修飾語を入れない
-- プロダクトのタグライン: **「Decisions, not messages」**
+- タグライン: **「Decisions, not messages」**
 
-### 既存の主要コピー
+### 主要コピー（現状）
 
 | 場所 | 文言 |
 |---|---|
 | Auth タグライン | Decisions, not messages |
 | ComposeBar | Tell your AI |
-| AI入力 説明（AI有効時） | Your AI drafts a decision card in the background — keep scrolling while it works. |
-| AI入力 説明（オフライン時） | Offline mode — local routing with your priority setting. |
-| AI入力 プレースホルダ | Ask Bob to review the onboarding PR before Friday |
-| AI入力 送信ボタン | Draft in background / Draft card |
-| Draft Review 送信ボタン | Send decision card |
+| Auth 自分の選択 | Your AI works on your behalf and receives cards addressed to you. |
+| メンバー追加 | New members get their own AI agent and can receive decision cards immediately. |
+| AI入力 説明 | Your AI drafts a decision card in the background — keep scrolling while it works. |
 | カードのスワイプヒント | Swipe right to create issue · left to decline |
 | Revise 説明文 | What should change before this becomes a GitHub issue? |
-| 空状態 | Tell your AI what you need / Decisions will show up here / Use Tell your AI below to route one |
-| 起動中 | Restoring session… |
-| 下書き中 | Drafting decision card… |
+| 空状態 | Tell your AI what you need / Decisions will show up here |
 
-### ステータスの表示名（ユーザーに見える文言）
+### ステータスの表示名
 
 内部の状態名とは意図的に変えている。
 
@@ -292,52 +277,49 @@ AIが返す `context` 文字列（`ラベル: 値 · ラベル: 値` 形式）�
 
 ### AIが生成する文言の制約（サーバ側プロンプトで規定）
 
-カードの本文はLLMが書く。デザイン上の文字数見積もりはこの制約に従うこと。
+カードの本文はLLMが書く。**レイアウトの文字数見積もりはこの制約が根拠になる。**
 
 | フィールド | 制約 |
 |---|---|
-| title | **3〜8語**、動作を表す表現。「tell Bob」のような冗語は禁止 |
-| summary | **1〜2文**、三人称、受け手が何を決める/やるのかを書く |
+| title | **3〜8語**、動作を表す表現 |
+| summary | **1〜2文**、三人称、受け手が何を決める/やるのか |
 | context | **2〜4個**の `ラベル: 詳細` を ` · ` で連結 |
 | routingReason | **1文**、なぜこの人が決めるのか |
-| labels | 任意。GitHub風のラベル（bug, infra, blocked など） |
+| labels | 任意。GitHub風のラベル |
 
-送信者の言葉をそのまま繰り返すことは禁止されており、エコーを検出した場合はサーバ側で書き直しがかかる。
-
----
-
-## 7. 既知の課題・デザイン負債
-
-引き継ぎ後に着手する候補。おおよそ優先度順。
-
-### 高
-
-1. **`design.md` が実装と乖離している** — 初期案のままで、background が `#09090B`（実装は `#000000`）、タイトル22pt（実装は26pt）、角丸0/4（実装は6/10）など全体的にずれている。`Theme.swift` を正として `design.md` を更新するか、廃止して本ドキュメントに一本化すべき。
-2. **組織「グラフ」が実質リスト** — 課題要件はノード（人/チーム/AI/プロジェクト）とエッジ（管理関係/所属/承認権限）の可視化。現状はセクション分けリスト + 等幅テキストの関係性列挙で、構造が読み取れない。ここは伸びしろが大きい。
-3. **アクセシビリティ未検証** — フォントサイズが全て固定値で Dynamic Type に追随しない。VoiceOver ラベルは `AppLogo` と「Refresh repositories」のみ。`textTertiary`(#71717A) / `background`(#000000) のコントラスト比は約4.8:1で、11〜12ptの微細テキストに使うには厳しい。
-4. **タップ領域** — カード本文の「View details」はテキストのみで44pt未満。`SecondaryAction` は高さ40ptで最小推奨44ptを下回る。
-
-### 中
-
-5. **トークンの取りこぼし** — `#FBBF24` / `#38BDF8` の直書き、トークン外のフォントサイズ10種以上。デザインシステムとして閉じていない。
-6. **Context Insight のアイコンが未使用** — 種別ごとのアイコンと色は定義済みだが描画されていない。実装すればカード詳細の情報密度が上がる。
-7. **`Radius.sheet`(14) が未使用** — シートはシステム標準任せ。定義を使うか削除するか決める。
-8. **PageDots がカード枚数に比例して伸びる** — 10枚を超えると上部バーで破綻する。上限とオーバーフロー表現が必要。
-9. **英語のみ** — ローカライズ機構が入っていない。日本語チームでのデモを考えると日本語UIの検討余地あり。
-10. **アバター/アイデンティティ表現がない** — 送信者は「From Bob」のテキストのみ。誰からのカードかの視認性を上げられる。
-
-### 低
-
-11. **ライトモード非対応** — `preferredColorScheme(.dark)` 固定。純黒ベースの設計なので、対応するならトークン設計から見直しが必要。
-12. **`AuthView` に未使用の `fieldSection` が残っている** — デッドコード。
-13. **エラー表示がシステムアラート依存** — フィードのエラーは標準の `.alert`。プロダクトの静けさとトーンが合っていない。
-14. **空状態のバリエーション不足** — 「全部処理し終わった」と「まだ1枚も来ていない」が同じ画面。
+この制約自体もデザイン都合で変更できる（`server/agentTools.js`）。
 
 ---
 
-## 8. デザイナー向けセットアップ（実機で触るまで）
+## 7. これから決めること
 
-デザイン確認のためだけなら、GitHub認証とリレーサーバの起動が必要。
+現状「決まっていない」ことのリスト。優先度の目安つき。
+
+### 大きい
+
+1. **デザインシステム全体の定義** — 色・タイポ・スペーシング・コンポーネントを、根拠を持って一から決める。現状の値は出発点ですらなく、単なる仮置き。
+2. **クオリティラインの設定** — どこまで作り込むか、何を「完成」とするか。現状のUIは機能を通すための最低限。
+3. **Decision Card の情報設計** — プロダクトの中心。何を最初に見せ、何を畳むか。優先度・送信者・ルーティング理由の視覚的な重みづけ。
+4. **組織グラフの可視化** — データ（人・AI・チーム・上長関係）は揃っているのに、画面はリストのまま。「誰が決めるべきかが構造で分かる」というプロダクトの主張を最も体現できる場所。
+5. **メンバーが増えたときの設計** — 現状は2人前提の見え方。10人・50人になったときのフィード、委任先選択、組織画面、ページドットの破綻を含めて設計が必要。
+
+### 中くらい
+
+6. **アイデンティティ表現** — アバターなし、送信者は「From 〇〇」のテキストのみ。各メンバーのAIエージェントをどう見せるかも未定。
+7. **アクセシビリティ方針** — 現状フォントサイズは全て固定でDynamic Type非対応、VoiceOverラベルもほぼ無し、タップ領域も44pt未満の箇所あり。どこまで担保するかを決める。
+8. **ライト/ダークの方針** — 現在はダーク固定。両対応するならトークン設計から。
+9. **言語** — 現状は英語のみ、ローカライズ機構なし。日本語UIを出すなら早めに決める。
+10. **エラー・空状態の表現** — エラーはシステム標準アラート、空状態は1種類のみ。
+
+### 小さい
+
+11. Context Insight のアイコン・色を実際に使うかどうか
+12. `Radius.sheet`(14) を使うか消すか
+13. 直書きの色2種とフォントサイズをトークンに吸収するか
+
+---
+
+## 8. セットアップ（実機で触るまで）
 
 ### 必要なもの
 
@@ -362,22 +344,21 @@ xcodegen generate
 open TikTokForWork.xcodeproj
 ```
 
-GitHub OAuth アプリの作り方は `server/README.md` に記載（Callback URL は `tiktokforwork://oauth/callback`）。
+GitHub OAuth アプリの作り方は `server/README.md`（Callback URL は `tiktokforwork://oauth/callback`）。
 
-### 2台デモ（インターAI通信を確認する）
+### 2台で動かす
 
-1. シミュレータA を起動 → GitHubサインイン → リポジトリ選択 → Alice で入る
-2. シミュレータB を起動 → 同様にサインイン → ユーザー切替で Bob にする
-3. Alice で「Tell your AI」→ 自然文の指示を入力
-4. Bob の画面にカードがリアルタイムで出る（上部バーの緑ドット＝接続中）
-5. Bob が Create issue → GitHub に Issue が立ち、Alice 側に結果が戻る
+1. 端末A → GitHubサインイン → リポジトリ選択 → 自分として Toru を選択
+2. 端末B → 同様にサインイン → Gota を選択
+3. Toru で「Tell your AI」→ 自然文の指示を入力
+4. Gota の画面にカードがリアルタイムで出る（上部バーの緑ドット＝接続中）
+5. Gota が Create issue → GitHub に Issue が立ち、Toru 側に結果が戻る
+
+メンバーを増やすときは、どちらかの端末で **Organization → Add member**。即座に両方に反映される。
 
 ### SwiftUI プレビュー
 
-以下にプレビューが用意されている。単体でUIを見るならここが速い。
-
-- `RootView` / `FeedView` / `AuthView` / `OrgGraphView` / `AIInputSheet` / `AppLogo`
-- `DecisionCardView` — 実データ入りのプレビュー（緊急度Urgentのカード）あり
+`RootView` / `FeedView` / `AuthView` / `OrgGraphView` / `AddMemberSheet` / `AIInputSheet` / `AppLogo` / `DecisionCardView`（実データ入り）にプレビューあり。単体でUIを見るならここが速い。
 
 ---
 
@@ -386,14 +367,14 @@ GitHub OAuth アプリの作り方は `server/README.md` に記載（Callback UR
 ```
 TikTokForWork/
 ├─ Design/                     ← デザイントークンと共通部品。まずここ
-│  ├─ Theme.swift                色・タイポ・スペーシング・角丸の定義（正）
+│  ├─ Theme.swift                色・タイポ・スペーシング・角丸（※暫定値）
 │  ├─ Components.swift           ボタン、チップ、ComposeBar、PrioritySlider、ContextInsight
 │  ├─ ProcessingOverlay.swift    処理中オーバーレイ / 下書きバナー
 │  ├─ AppLogo.swift              ロゴ
 │  ├─ Haptics.swift              触覚フィードバック2種
 │  └─ DateFormatting.swift       相対時刻の表示
 ├─ Features/
-│  ├─ Auth/AuthView.swift        ログイン画面
+│  ├─ Auth/AuthView.swift        ログイン + 自分の選択
 │  ├─ Feed/
 │  │  ├─ FeedView.swift          ホーム（上部バー / 下部chrome / シート管理）
 │  │  ├─ DecisionCardView.swift  ★カード本体。スワイプ処理もここ
@@ -401,35 +382,28 @@ TikTokForWork/
 │  │  ├─ CardDetailSheet.swift   カード詳細
 │  │  ├─ ReviseSheet.swift       修正依頼
 │  │  ├─ DelegatePickerSheet.swift 委任先選択
-│  │  └─ UserSwitcherSheet.swift ユーザー切替
-│  └─ Org/OrgGraphView.swift     組織画面
-├─ Models/                      カード・組織・ユーザーの型定義（表示名もここ）
-├─ Data/DemoData.swift          デモの4人と組織グラフの定義
+│  │  └─ UserSwitcherSheet.swift 自分の切り替え
+│  └─ Org/
+│     ├─ OrgGraphView.swift      組織画面
+│     └─ AddMemberSheet.swift    メンバー追加
+├─ Models/                      カード・組織・ユーザーの型（表示名もここ）
+├─ Data/OrgDirectory.swift      ★組織の名簿。初期メンバーと同期処理
 ├─ ViewModels/FeedViewModel.swift フィードの状態管理（処理中メッセージの文言もここ）
 └─ Assets.xcassets/             アイコン、ロゴ、GitHubマーク（SVG）
 
 server/
+├─ members.js                   初期メンバー（Toru / Gota）とID採番
 ├─ agentTools.js                ★AIのプロンプトとカード生成の制約（文言の長さ規定）
-└─ index.js                     WebSocketリレー + OAuth + AIルーティング
+└─ index.js                     WebSocketリレー + OAuth + 名簿API + AIルーティング
 ```
 
 **文言を直したいとき**: UIの固定文言は各Viewファイル直書き。ステータス/種別の表示名は `Models/DecisionCard.swift`。処理中メッセージは `ViewModels/FeedViewModel.swift`。AI生成文の指示は `server/agentTools.js`。
 
 ---
 
-## 10. 引き継ぎ後の推奨アクション
-
-1. **`design.md` を実装に合わせて更新するか廃止する** — 二重管理の解消が最優先。新しく入る人が古い値を見て作業する事故を防ぐ。
-2. **組織グラフのビジュアル設計** — 現状の弱点であり、同時にプロダクトの差別化要素（「誰が決めるべきかが構造から分かる」）を最も体現できる画面。
-3. **アクセシビリティのパス** — Dynamic Type 対応、タップ領域44pt確保、コントラスト再検証、VoiceOver ラベル付与。
-4. **トークンの閉じ込め** — 直書きの色2種とフォントサイズを `Theme` に吸収し、デザインシステムを完結させる。
-5. **カードの情報密度の再検討** — Context Insight のアイコン活用、送信者のアイデンティティ表現、優先度の視覚的な強度差。
-
----
-
-## 11. 参考リンク
+## 10. 参考リンク
 
 - [README.md](../README.md) — プロダクト概要・セットアップ・アーキテクチャ
-- [PROGRESS.md](../PROGRESS.md) — 実装状況チェックリスト
-- [design.md](../design.md) — 初期デザイン方針（**値は古い。Theme.swift を正とすること**）
-- [server/README.md](../server/README.md) — リレーサーバ、OAuth、WebSocketプロトコル
+- [PROGRESS.md](../PROGRESS.md) — 実装状況
+- [design.md](../design.md) — 初期のデザインメモ（**現状と乖離。参考程度に**）
+- [server/README.md](../server/README.md) — リレーサーバ、OAuth、名簿API、WebSocketプロトコル

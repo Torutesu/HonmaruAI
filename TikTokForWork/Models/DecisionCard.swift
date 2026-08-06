@@ -88,7 +88,7 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     }
 
     var senderName: String {
-        DemoData.userName(for: senderUserID)
+        OrgLookup.shared.name(for: senderUserID)
     }
 
     func showsGitHubLink(for repository: String) -> Bool {

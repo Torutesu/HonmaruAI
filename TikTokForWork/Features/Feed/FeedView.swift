@@ -72,10 +72,10 @@ struct FeedView: View {
         .sheet(isPresented: $showUserSwitcher) {
             UserSwitcherSheet { user in
                 Task {
-                    await appState.switchUser(to: user.user)
+                    await appState.switchUser(to: user)
                     viewModel.bind(
                         to: appState.cardService,
-                        user: user.user,
+                        user: user,
                         githubService: appState.githubService
                     )
                     viewModel.clearSheets()
@@ -129,6 +129,7 @@ struct FeedView: View {
                     await viewModel.completeDelegate(for: card, to: user, appState: appState)
                 }
             }
+            .environmentObject(appState)
         }
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
             Button("Organization") { showOrgGraph = true }

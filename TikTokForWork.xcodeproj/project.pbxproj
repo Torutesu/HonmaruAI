@@ -11,6 +11,7 @@
 		07C5FC33B29D4DA8AF1C3AC8 /* FeedViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE01A8DEA5C1C23E8DF9CC2 /* FeedViewModel.swift */; };
 		09C9FB765322951B0B772C3E /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = F125BEDE2BF4518F791F5480 /* User.swift */; };
 		0AED7D88396FA52DF1F59258 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED63FE3692D666375D4EF19 /* SessionStore.swift */; };
+		3F2A1C7D5E9B084612AD3C51 /* AddMemberSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4E82A0C1D7F35948E20B76 /* AddMemberSheet.swift */; };
 		1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9515750E6133D1846CBE8BD /* OrgGraphView.swift */; };
 		18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6977E782E374C75800103F /* AppLogo.swift */; };
 		18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */; };
@@ -27,7 +28,7 @@
 		9E9C73AE9AC5A2DA7409201A /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EACD6C16BA6FB48F6117E6 /* AuthView.swift */; };
 		A246F9D7027598688FF9D323 /* CardDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8750E0FA2DD54342124E00 /* CardDetailSheet.swift */; };
 		AF00A6C5624E178AF6832453 /* DecisionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */; };
-		B3C05C2EB5D07CE610D9EF38 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FAE0760357D0881EDB6897 /* DemoData.swift */; };
+		B3C05C2EB5D07CE610D9EF38 /* OrgDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FAE0760357D0881EDB6897 /* OrgDirectory.swift */; };
 		BAAB141A7F64E597E716A38D /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A79579E123395F8C8DBED15 /* AgentModels.swift */; };
 		D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF594002A7A3A2A7FA072712 /* FeedView.swift */; };
 		D50B528853838F4769A08FCD /* WebAuthContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */; };
@@ -57,7 +58,7 @@
 		66EACD6C16BA6FB48F6117E6 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
 		6A6977E782E374C75800103F /* AppLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogo.swift; sourceTree = "<group>"; };
 		6F84E8680AEE5FAB69B6DCF4 /* Organization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Organization.swift; sourceTree = "<group>"; };
-		70FAE0760357D0881EDB6897 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
+		70FAE0760357D0881EDB6897 /* OrgDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrgDirectory.swift; sourceTree = "<group>"; };
 		838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokForWorkApp.swift; sourceTree = "<group>"; };
 		870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardView.swift; sourceTree = "<group>"; };
 		893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAuthContextProvider.swift; sourceTree = "<group>"; };
@@ -69,6 +70,7 @@
 		CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIService.swift; sourceTree = "<group>"; };
 		CED63FE3692D666375D4EF19 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		CFD842FAD29BFAA978BC0DB8 /* ReviseSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviseSheet.swift; sourceTree = "<group>"; };
+		6B4E82A0C1D7F35948E20B76 /* AddMemberSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMemberSheet.swift; sourceTree = "<group>"; };
 		D9515750E6133D1846CBE8BD /* OrgGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrgGraphView.swift; sourceTree = "<group>"; };
 		DF8750E0FA2DD54342124E00 /* CardDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDetailSheet.swift; sourceTree = "<group>"; };
 		E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelegatePickerSheet.swift; sourceTree = "<group>"; };
@@ -159,7 +161,7 @@
 		8922EB839358D4852DAAA527 /* Data */ = {
 			isa = PBXGroup;
 			children = (
-				70FAE0760357D0881EDB6897 /* DemoData.swift */,
+				70FAE0760357D0881EDB6897 /* OrgDirectory.swift */,
 			);
 			path = Data;
 			sourceTree = "<group>";
@@ -210,6 +212,7 @@
 		D14125CA6343D8755F5393CA /* Org */ = {
 			isa = PBXGroup;
 			children = (
+				6B4E82A0C1D7F35948E20B76 /* AddMemberSheet.swift */,
 				D9515750E6133D1846CBE8BD /* OrgGraphView.swift */,
 			);
 			path = Org;
@@ -300,11 +303,12 @@
 				E6C4713C78AA0FF264BA9753 /* DecisionCardService.swift in Sources */,
 				AF00A6C5624E178AF6832453 /* DecisionCardView.swift in Sources */,
 				18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */,
-				B3C05C2EB5D07CE610D9EF38 /* DemoData.swift in Sources */,
+				B3C05C2EB5D07CE610D9EF38 /* OrgDirectory.swift in Sources */,
 				D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */,
 				07C5FC33B29D4DA8AF1C3AC8 /* FeedViewModel.swift in Sources */,
 				95290EBF4EDE097F8C064870 /* GitHubService.swift in Sources */,
 				F5A9DA5AC7C4E5F5EE7EAFFE /* Haptics.swift in Sources */,
+				3F2A1C7D5E9B084612AD3C51 /* AddMemberSheet.swift in Sources */,
 				1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */,
 				F0E1ACF8B655C80BE53223ED /* Organization.swift in Sources */,
 				F695C1E907F7BDCE3F7C4A40 /* ProcessingOverlay.swift in Sources */,

@@ -45,7 +45,7 @@ struct InstructionDraft: Identifiable, Codable, Hashable {
     let toolCalls: [AgentToolCall]
 
     var recipientName: String {
-        DemoData.userName(for: recipientUserID)
+        OrgLookup.shared.name(for: recipientUserID)
     }
 
     func asRouting() -> InstructionRouting {

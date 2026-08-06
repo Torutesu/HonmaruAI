@@ -1,9 +1,14 @@
 import SwiftUI
 
 struct OrgGraphView: View {
+    @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
-    private let graph = DemoData.organization
+    @State private var showAddMember = false
+
+    private var graph: OrganizationGraph {
+        appState.directory.graph
+    }
 
     var body: some View {
         NavigationStack {
@@ -12,7 +17,11 @@ struct OrgGraphView: View {
                     section("People", items: graph.nodes.filter { $0.kind == .person })
                     section("Agents", items: graph.nodes.filter { $0.kind == .agent })
                     section("Teams", items: graph.nodes.filter { $0.kind == .team })
-                    section("Projects", items: graph.nodes.filter { $0.kind == .project })
+
+                    let projects = graph.nodes.filter { $0.kind == .project }
+                    if !projects.isEmpty {
+                        section("Projects", items: projects)
+                    }
 
                     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                         Text("Relationships")
@@ -25,6 +34,10 @@ struct OrgGraphView: View {
                                 .foregroundStyle(Theme.Colors.textSecondary)
                         }
                     }
+
+                    PrimaryButton(title: "Add member") {
+                        showAddMember = true
+                    }
                 }
                 .padding(Theme.Spacing.screen)
             }
@@ -36,6 +49,10 @@ struct OrgGraphView: View {
                     Button("Done") { dismiss() }
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }
+            }
+            .sheet(isPresented: $showAddMember) {
+                AddMemberSheet()
+                    .environmentObject(appState)
             }
         }
         .presentationBackground(Theme.Colors.background)
@@ -68,4 +85,5 @@ struct OrgGraphView: View {
 
 #Preview {
     OrgGraphView()
+        .environmentObject(AppState())
 }

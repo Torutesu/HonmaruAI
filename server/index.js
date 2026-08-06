@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { routeInstruction } from "./agentTools.js";
+import { DEFAULT_MEMBERS, normalizeMember, nextMemberID } from "./members.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
@@ -39,10 +40,11 @@ const OPENROUTER_MODEL =
 const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "TikTok for Work";
 const OPENROUTER_APP_URL = process.env.OPENROUTER_APP_URL || "http://localhost:8080";
 
-const initialCards = {};
-
 /** @type {Map<string, Record<string, object[]>>} */
-const orgStores = new Map([[ORG_ID, structuredClone(initialCards)]]);
+const orgStores = new Map([[ORG_ID, {}]]);
+
+/** @type {Map<string, import('./members.js').Member[]>} */
+const orgRosters = new Map([[ORG_ID, structuredClone(DEFAULT_MEMBERS)]]);
 
 /** @type {Map<import('ws').WebSocket, { userId: string, orgId: string }>} */
 const sessions = new Map();
@@ -52,6 +54,46 @@ function getStore(orgId) {
     orgStores.set(orgId, {});
   }
   return orgStores.get(orgId);
+}
+
+function getRoster(orgId) {
+  if (!orgRosters.has(orgId)) {
+    orgRosters.set(orgId, structuredClone(DEFAULT_MEMBERS));
+  }
+  return orgRosters.get(orgId);
+}
+
+/**
+ * Adds a member to an org roster. Returns the stored member, or the existing
+ * one when the same person is added twice.
+ */
+function addMember(orgId, input) {
+  const roster = getRoster(orgId);
+  const candidate = normalizeMember(input);
+  if (!candidate.name) {
+    throw new Error("Member name is required.");
+  }
+
+  const existing = roster.find(
+    (member) =>
+      member.id === candidate.id ||
+      member.name.toLowerCase() === candidate.name.toLowerCase()
+  );
+  if (existing) {
+    return { member: existing, created: false };
+  }
+
+  const member = {
+    ...candidate,
+    id: candidate.id || nextMemberID(candidate.name, roster),
+  };
+
+  if (member.managerID && !roster.some((item) => item.id === member.managerID)) {
+    member.managerID = null;
+  }
+
+  roster.push(member);
+  return { member, created: true };
 }
 
 function send(ws, type, payload) {
@@ -150,7 +192,36 @@ const server = createServer(async (req, res) => {
       githubOAuth: Boolean(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET),
       aiRouting: Boolean(OPENROUTER_API_KEY),
       aiModel: OPENROUTER_MODEL,
+      memberCount: getRoster(ORG_ID).length,
     });
+    return;
+  }
+
+  if (url.pathname === "/org/members" && req.method === "GET") {
+    const orgId = url.searchParams.get("orgId") || ORG_ID;
+    json(res, 200, { orgId, members: getRoster(orgId) });
+    return;
+  }
+
+  if (url.pathname === "/org/members" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      const orgId = body.orgId || ORG_ID;
+      const { member, created } = addMember(orgId, body);
+
+      if (created) {
+        broadcast(orgId, "roster", { members: getRoster(orgId) });
+      }
+
+      json(res, created ? 201 : 200, {
+        member,
+        created,
+        members: getRoster(orgId),
+      });
+    } catch (error) {
+      json(res, 400, { message: error.message || "Could not add member." });
+    }
     return;
   }
 
@@ -210,10 +281,12 @@ const server = createServer(async (req, res) => {
         return;
       }
 
+      const orgId = body.orgId || ORG_ID;
       const routing = await routeInstruction({
         text,
         sender,
         organization,
+        members: getRoster(orgId),
         priorityOverride: body.priorityOverride,
         openRouter: OPENROUTER_API_KEY
           ? {
@@ -258,8 +331,25 @@ wss.on("connection", (ws) => {
           return;
         }
         sessions.set(ws, { userId, orgId });
+        send(ws, "roster", { members: getRoster(orgId) });
         send(ws, "snapshot", { cardsByUser: getStore(orgId) });
         broadcast(orgId, "presence", { userId, status: "online" }, ws);
+        break;
+      }
+
+      case "member_added": {
+        const session = sessions.get(ws);
+        const member = payload?.member;
+        if (!session || !member?.name) {
+          send(ws, "error", { message: "Invalid member_added payload" });
+          return;
+        }
+        try {
+          addMember(session.orgId, member);
+          broadcast(session.orgId, "roster", { members: getRoster(session.orgId) });
+        } catch (error) {
+          send(ws, "error", { message: error.message || "Could not add member." });
+        }
         break;
       }
 
