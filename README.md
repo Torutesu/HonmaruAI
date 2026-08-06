@@ -72,6 +72,24 @@ On sign-in:
 
 Client secret stays on localhost server only.
 
+## Release
+
+TestFlight builds and App Store review submissions run from the terminal via the
+[`asc`](https://github.com/rorkai/App-Store-Connect-CLI) CLI — no browser.
+
+```bash
+brew install asc xcodegen
+cp .asc.env.example .asc.env   # API key id, issuer id, .p8 path, team id
+scripts/release.sh login
+scripts/release.sh doctor      # auth + signing + review readiness
+
+scripts/release.sh build 1.0.0 && scripts/release.sh testflight   # beta
+scripts/release.sh all 1.0.0                                      # submit for review
+```
+
+Add `--dry-run` to print the pipeline without executing it. Full setup and
+troubleshooting: [docs/app-store-release.md](docs/app-store-release.md)
+
 ## Progress
 
 See [PROGRESS.md](PROGRESS.md)

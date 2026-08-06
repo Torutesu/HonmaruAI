@@ -33,7 +33,8 @@ Last updated: 2026-07-27
 - [x] Org graph UI
 - [x] Agent route on cards
 - [x] AIService (OpenRouter via relay)
-- [ ] TestFlight or installable build
+- [x] Release tooling — `asc` CLI pipeline (`scripts/release.sh`, [docs](docs/app-store-release.md))
+- [ ] TestFlight or installable build — tooling ready, needs a real API key + `ASC_APP_ID`
 
 ## Demo script
 

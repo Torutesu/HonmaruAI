@@ -8,3 +8,9 @@ xcuserdata/
 *.xccheckout
 *.moved-aside
 *.xcscmblueprint
+
+# App Store Connect
+.asc.env
+*.p8
+*.xcarchive
+ExportOptions.plist
