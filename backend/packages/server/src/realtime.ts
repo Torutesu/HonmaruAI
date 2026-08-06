@@ -1,0 +1,261 @@
+import type { OrgEvent, ServerMessage } from "@honmaru/protocol";
+import { ClientMessage } from "@honmaru/protocol";
+import type { Server } from "node:http";
+import { WebSocket, WebSocketServer } from "ws";
+import { authenticate } from "./auth.js";
+import {
+  applyCardAction,
+  CardError,
+  createCardFromRouting,
+  isCardVisibleTo,
+  listCardsForUser,
+} from "./cards.js";
+import type { Config } from "./config.js";
+import type { Db } from "./db.js";
+import { currentSeq, listEventsSince } from "./events.js";
+import type { Logger } from "./log.js";
+import {
+  getMember,
+  getOrg,
+  listEdges,
+  listMembers,
+  listTeams,
+  OrgError,
+} from "./orgs.js";
+import { routeInstruction } from "./routing.js";
+
+interface SocketSession {
+  userId: string;
+  orgId: string;
+}
+
+function isEventVisibleTo(event: OrgEvent, userId: string): boolean {
+  switch (event.type) {
+    case "card_created":
+    case "card_updated":
+      return isCardVisibleTo(event.payload.card, userId);
+    case "card_deleted":
+      return (
+        event.payload.recipientUserId === userId ||
+        event.payload.senderUserId === userId
+      );
+    default:
+      return true;
+  }
+}
+
+export class Hub {
+  private sessions = new Map<WebSocket, SocketSession>();
+  private wss: WebSocketServer | null = null;
+
+  // Assigned by the app composer: fan events out to sockets AND to the
+  // integration registry. The hub itself only knows how to broadcast.
+  onEventsCommitted: (orgId: string, events: OrgEvent[]) => void = (
+    orgId,
+    events
+  ) => this.broadcastEvents(orgId, events);
+
+  constructor(
+    private db: Db,
+    private config: Config,
+    private log: Logger
+  ) {}
+
+  attach(server: Server): void {
+    this.wss = new WebSocketServer({ server });
+    this.wss.on("connection", (ws) => {
+      ws.on("message", (raw) => {
+        this.handleMessage(ws, String(raw)).catch((error) => {
+          this.log.error({ err: error }, "ws message handling failed");
+          this.send(ws, {
+            type: "error",
+            code: "internal",
+            message: "Internal error.",
+          });
+        });
+      });
+      ws.on("close", () => {
+        const session = this.sessions.get(ws);
+        if (session) {
+          this.sessions.delete(ws);
+          this.broadcastPresence(session.orgId, session.userId, "offline");
+        }
+      });
+    });
+  }
+
+  close(): void {
+    this.wss?.close();
+    for (const ws of this.sessions.keys()) ws.close();
+  }
+
+  private send(ws: WebSocket, message: ServerMessage): void {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(message));
+    }
+  }
+
+  broadcastEvents(orgId: string, events: OrgEvent[]): void {
+    for (const [ws, session] of this.sessions) {
+      if (session.orgId !== orgId) continue;
+      for (const event of events) {
+        if (isEventVisibleTo(event, session.userId)) {
+          this.send(ws, { type: "event", event });
+        }
+      }
+    }
+  }
+
+  private broadcastPresence(
+    orgId: string,
+    userId: string,
+    status: "online" | "offline"
+  ): void {
+    for (const [ws, session] of this.sessions) {
+      if (session.orgId === orgId && session.userId !== userId) {
+        this.send(ws, { type: "presence", userId, status });
+      }
+    }
+  }
+
+  private async handleMessage(ws: WebSocket, raw: string): Promise<void> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      this.send(ws, { type: "error", code: "bad_json", message: "Invalid JSON." });
+      return;
+    }
+    const result = ClientMessage.safeParse(parsed);
+    if (!result.success) {
+      this.send(ws, {
+        type: "error",
+        code: "bad_message",
+        message: result.error.issues[0]?.message ?? "Invalid message.",
+      });
+      return;
+    }
+    const message = result.data;
+
+    if (message.type === "ping") {
+      this.send(ws, { type: "pong" });
+      return;
+    }
+
+    if (message.type === "hello") {
+      const user = authenticate(this.db, message.token);
+      if (!user) {
+        this.send(ws, {
+          type: "error",
+          code: "unauthorized",
+          message: "Invalid or expired session token.",
+        });
+        ws.close();
+        return;
+      }
+      const org = getOrg(this.db, message.orgId);
+      const member = getMember(this.db, message.orgId, user.id);
+      if (!org || !member) {
+        this.send(ws, {
+          type: "error",
+          code: "not_a_member",
+          message: "You are not a member of this org.",
+        });
+        ws.close();
+        return;
+      }
+
+      this.sessions.set(ws, { userId: user.id, orgId: org.id });
+      this.send(ws, {
+        type: "welcome",
+        self: member,
+        org,
+        members: listMembers(this.db, org.id),
+        teams: listTeams(this.db, org.id),
+        edges: listEdges(this.db, org.id),
+        seq: currentSeq(this.db, org.id),
+      });
+
+      if (message.sinceSeq !== undefined) {
+        const events = listEventsSince(this.db, org.id, message.sinceSeq);
+        for (const event of events) {
+          if (isEventVisibleTo(event, user.id)) {
+            this.send(ws, { type: "event", event });
+          }
+        }
+      } else {
+        this.send(ws, {
+          type: "snapshot",
+          cards: listCardsForUser(this.db, org.id, user.id),
+          seq: currentSeq(this.db, org.id),
+        });
+      }
+      this.broadcastPresence(org.id, user.id, "online");
+      return;
+    }
+
+    // Everything below requires an authenticated session.
+    const session = this.sessions.get(ws);
+    if (!session) {
+      this.send(ws, {
+        type: "error",
+        code: "hello_required",
+        message: "Send hello before other messages.",
+      });
+      return;
+    }
+
+    try {
+      if (message.type === "instruction") {
+        const sender = getMember(this.db, session.orgId, session.userId);
+        if (!sender) throw new OrgError("not_a_member", "Membership revoked.");
+        const routing = await routeInstruction(
+          {
+            text: message.text,
+            sender,
+            members: listMembers(this.db, session.orgId),
+            teams: listTeams(this.db, session.orgId),
+            edges: listEdges(this.db, session.orgId),
+            priorityOverride: message.priorityOverride,
+          },
+          this.config.openRouter,
+          this.log
+        );
+        const { card, events } = createCardFromRouting(
+          this.db,
+          session.orgId,
+          session.userId,
+          message.text,
+          routing
+        );
+        this.send(ws, { type: "ack", clientRef: message.clientRef, card });
+        this.onEventsCommitted(session.orgId, events);
+        return;
+      }
+
+      if (message.type === "card_action") {
+        const { card, events } = applyCardAction(
+          this.db,
+          session.userId,
+          message.cardId,
+          message.action,
+          { note: message.note, delegateToUserId: message.delegateToUserId }
+        );
+        this.send(ws, { type: "ack", clientRef: message.clientRef, card });
+        this.onEventsCommitted(session.orgId, events);
+        return;
+      }
+    } catch (error) {
+      if (error instanceof CardError || error instanceof OrgError) {
+        this.send(ws, {
+          type: "error",
+          clientRef: "clientRef" in message ? message.clientRef : undefined,
+          code: error.code,
+          message: error.message,
+        });
+        return;
+      }
+      throw error;
+    }
+  }
+}

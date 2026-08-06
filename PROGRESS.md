@@ -1,10 +1,10 @@
 # Progress Checklist
 
-Last updated: 2026-07-27
+Last updated: 2026-08-06
 
 ## Overall
 
-- Current phase: Phase 5 complete, GitHub OAuth done
+- Current phase: Phase 7 — production backend (`backend/`) built; iOS migration pending
 - Core flow working: yes
 - GitHub sync working: yes (OAuth + Issues API)
 - Realtime sync working: yes (localhost WebSocket relay)
@@ -34,6 +34,21 @@ Last updated: 2026-07-27
 - [x] Agent route on cards
 - [x] AIService (OpenRouter via relay)
 - [ ] TestFlight or installable build
+
+## Phase 7 — Production backend (cross-platform foundation)
+
+- [x] Schema-first protocol package (`@honmaru/protocol`, zod)
+- [x] TypeScript server (`@honmaru/server`): Hono REST + WebSocket hub
+- [x] SQLite persistence (WAL) + per-org event log with cursor resume
+- [x] Session auth (GitHub OAuth exchange + hashed tokens + dev login)
+- [x] Multi-org: create/invite/accept, admin roles, org graph CRUD
+- [x] Server-side routing (org-data-driven, no hardcoded users)
+- [x] Card state machine server-side (approve/reject/revise/delegate/complete/delete)
+- [x] Pluggable integration layer; GitHub Issues as first adapter
+- [x] 17 unit/API tests + WS end-to-end smoke script
+- [ ] iOS client migration to new protocol
+- [ ] Web client (React/TS) on `@honmaru/protocol`
+- [ ] Deploy (Fly.io/Railway) + GitHub webhook reverse sync
 
 ## Demo script
 

@@ -7,7 +7,8 @@ AI-native decision feed for teams. Humans talk to their AI; agents route Decisio
 | Layer | Tech |
 |-------|------|
 | iOS | SwiftUI, ASWebAuthenticationSession, URLSession WebSocket |
-| Backend | Node.js localhost relay (`server/`) |
+| Backend (demo relay) | Node.js localhost relay (`server/`) — current iOS app runs against this |
+| Backend (production) | TypeScript monorepo (`backend/`) — schema-first protocol + Hono/SQLite server, see [backend/README.md](backend/README.md) |
 | AI | OpenRouter `inclusionai/ling-3.0-flash:free` via relay server |
 | GitHub | OAuth via localhost + Issues API |
 
@@ -71,6 +72,14 @@ On sign-in:
 ```
 
 Client secret stays on localhost server only.
+
+## Production backend (`backend/`)
+
+The cross-platform successor to the demo relay. All business logic
+(routing, card state machine, auth, persistence, GitHub sync) lives
+server-side behind a zod-schema-defined protocol so iOS / web / desktop /
+Android clients stay thin. The demo relay remains until the iOS client is
+migrated. Details: [backend/README.md](backend/README.md).
 
 ## Progress
 

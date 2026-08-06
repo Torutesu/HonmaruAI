@@ -1,0 +1,30 @@
+{
+  "name": "@honmaru/server",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "smoke": "tsx scripts/smoke.mts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@honmaru/protocol": "*",
+    "better-sqlite3": "^11.10.0",
+    "hono": "^4.6.0",
+    "pino": "^9.5.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
