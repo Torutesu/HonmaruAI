@@ -22,6 +22,12 @@ final class DecisionCardService: ObservableObject {
     @Published private(set) var notifications: [NotificationItem] = []
     @Published private(set) var unreadNotifications = 0
 
+    // Classic chat mode.
+    @Published private(set) var channels: [ChatChannel] = []
+    @Published private(set) var chatMessagesByChannel: [String: [ChatMessage]] = [:]
+    @Published private(set) var chatUnseenByChannel: [String: Int] = [:]
+    var activeChatChannelID: String?
+
     private weak var webSocketService: WebSocketService?
 
     var currentUserID: String?
@@ -41,8 +47,51 @@ final class DecisionCardService: ObservableObject {
         messagesByCard = [:]
         notifications = []
         unreadNotifications = 0
+        channels = []
+        chatMessagesByChannel = [:]
+        chatUnseenByChannel = [:]
+        activeChatChannelID = nil
         onCardsUpdated?()
         onInboxUpdated?()
+    }
+
+    var totalChatUnseen: Int {
+        chatUnseenByChannel.values.reduce(0, +)
+    }
+
+    func upsertChannel(_ channel: ChatChannel) {
+        if !channels.contains(where: { $0.id == channel.id }) {
+            channels.append(channel)
+        }
+    }
+
+    func openChatChannel(_ channelID: String) {
+        activeChatChannelID = channelID
+        chatUnseenByChannel[channelID] = 0
+    }
+
+    func seedChatMessages(channelID: String, messages: [ChatMessage]) {
+        var merged = messages
+        for streamed in chatMessagesByChannel[channelID] ?? []
+        where !merged.contains(where: { $0.id == streamed.id }) {
+            merged.append(streamed)
+        }
+        chatMessagesByChannel[channelID] = merged.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func sendChatMessage(
+        channelID: String,
+        text: String,
+        parentMessageID: String? = nil
+    ) async throws {
+        guard let webSocketService, webSocketService.isConnected else {
+            throw CardServiceError.notConnected
+        }
+        await webSocketService.sendChatMessage(
+            channelID: channelID,
+            text: text,
+            parentMessageID: parentMessageID
+        )
     }
 
     // REST-fetched history merges under any messages that streamed in.
@@ -137,8 +186,9 @@ final class DecisionCardService: ObservableObject {
 
     private func handle(_ event: RealtimeEvent) {
         switch event {
-        case .welcome(_, _, let members, let teams, let edges):
+        case .welcome(_, _, let members, let teams, let edges, let welcomeChannels):
             OrgDirectory.shared.apply(members: members, teams: teams, edges: edges)
+            channels = welcomeChannels
 
         case .snapshot(let snapshotCards):
             cards = Dictionary(uniqueKeysWithValues: snapshotCards.map { ($0.id, $0) })
@@ -178,6 +228,20 @@ final class DecisionCardService: ObservableObject {
             if !thread.contains(where: { $0.id == message.id }) {
                 thread.append(message)
                 messagesByCard[message.cardId] = thread
+            }
+
+        case .channelCreated(let channel):
+            upsertChannel(channel)
+
+        case .chatMessageCreated(let message):
+            var thread = chatMessagesByChannel[message.channelId] ?? []
+            if !thread.contains(where: { $0.id == message.id }) {
+                thread.append(message)
+                chatMessagesByChannel[message.channelId] = thread
+                if message.channelId != activeChatChannelID,
+                   message.authorUserId != currentUserID {
+                    chatUnseenByChannel[message.channelId, default: 0] += 1
+                }
             }
 
         case .notification(let item):

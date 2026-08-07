@@ -61,8 +61,10 @@ Last updated: 2026-08-06
 - [x] @Mentions + watchers: `@Name` in a thread pulls the member into the card (visibility + card_mention notification); 35 server tests
 - [x] Web UI overhaul: Slack-style 3-pane layout (sidebar views + members / compact card list / right thread panel), light-first theme with OS dark, mention highlighting + one-tap mention chips
 - [x] Classic chat mode: channels + DMs on the same event log (Slack-style notify semantics, #general auto-created, presence catch-up), Feed⇄Chat toggle in web UI with ⚡ chat→card bridge; 40 server tests
+- [x] Chat threads (one-level Slack-style replies, participant notifications) + ✨ AI channel digest → decision card (LLM + deterministic fallback); 43 server tests
+- [x] iOS Chat mode: Feed/Chat TabView, channel + DM lists with unseen badges, thread replies via context menu, mention highlighting, ✨ digest button (needs Xcode build to verify)
 - [ ] Run `fly deploy` (needs an account) + GitHub webhook reverse sync
-- [ ] iOS: mentions UI + light theme pass (server-side mentions already work for iOS users via notifications)
+- [ ] iOS: light theme pass to match the web client
 
 ## Demo script
 

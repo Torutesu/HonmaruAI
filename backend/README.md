@@ -79,12 +79,18 @@ recipient, and watchers can post and read its thread.
 
 **Classic chat mode (channels + DMs)**: alongside the decision feed, the
 same backend powers a traditional Slack-style layer — org-wide channels
-(`#general` is created automatically) and idempotent 1:1 DMs — on the same
-event log and realtime pipeline, so both modes stay in sync. Notification
-semantics follow Slack: DMs always notify, channel messages only on
-@mention. The web client switches modes with the Feed / Chat tabs, and the
-chat composer's ⚡ button hands the typed text to your AI as a decision
-card instead — the bridge between the two worlds.
+(`#general` is created automatically), idempotent 1:1 DMs, and one-level
+thread replies — on the same event log and realtime pipeline, so both
+modes stay in sync. Notification semantics follow Slack: DMs always
+notify, channel messages notify on @mention or thread participation. The
+web client switches modes with the Feed / Chat tabs; iOS ships the same
+split as a TabView.
+
+**Chat → decision bridges**: the chat composer's ⚡ button hands the typed
+text to your AI as a decision card, and ✨ Digest
+(`POST /v1/channels/:id/summarize`) has the AI read the recent
+conversation and deliver a digest card (decisions, action items, open
+questions) to your feed — LLM-backed with a deterministic fallback.
 
 **@Mentions + watchers**: writing `@Name` in a thread pulls that org member
 into the card as a **watcher** — they gain visibility (feed + thread), get a

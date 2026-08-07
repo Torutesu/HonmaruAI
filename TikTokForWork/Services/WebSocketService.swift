@@ -8,7 +8,8 @@ enum RealtimeEvent {
         org: ProtocolOrg,
         members: [ProtocolMember],
         teams: [ProtocolTeam],
-        edges: [ProtocolEdge]
+        edges: [ProtocolEdge],
+        channels: [ChatChannel]
     )
     case snapshot(cards: [DecisionCard])
     case cardCreated(card: DecisionCard)
@@ -16,6 +17,8 @@ enum RealtimeEvent {
     case cardDeleted(cardID: String, recipientUserID: String, senderUserID: String)
     case memberChanged(member: ProtocolMember)
     case messageCreated(message: CardMessage)
+    case channelCreated(channel: ChatChannel)
+    case chatMessageCreated(message: ChatMessage)
     case notification(NotificationItem)
     case presence(userId: String, status: String)
     case ack(clientRef: String?, card: DecisionCard?)
@@ -150,6 +153,19 @@ final class WebSocketService: ObservableObject {
         ])
     }
 
+    func sendChatMessage(channelID: String, text: String, parentMessageID: String? = nil) async {
+        var payload: [String: Any] = [
+            "type": "chat_message",
+            "clientRef": UUID().uuidString,
+            "channelId": channelID,
+            "text": text,
+        ]
+        if let parentMessageID {
+            payload["parentMessageId"] = parentMessageID
+        }
+        try? await send(payload)
+    }
+
     private func send(_ envelope: [String: Any]) async throws {
         guard let task else { throw URLError(.notConnectedToInternet) }
         let data = try JSONSerialization.data(withJSONObject: envelope)
@@ -222,10 +238,11 @@ final class WebSocketService: ObservableObject {
                 let members: [ProtocolMember]
                 let teams: [ProtocolTeam]
                 let edges: [ProtocolEdge]
+                let channels: [ChatChannel]?
                 let seq: Int
                 enum CodingKeys: String, CodingKey {
                     case selfMember = "self"
-                    case org, members, teams, edges, seq
+                    case org, members, teams, edges, channels, seq
                 }
             }
             guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
@@ -235,7 +252,8 @@ final class WebSocketService: ObservableObject {
                 org: frame.org,
                 members: frame.members,
                 teams: frame.teams,
-                edges: frame.edges
+                edges: frame.edges,
+                channels: frame.channels ?? []
             )
 
         case "snapshot":
@@ -322,6 +340,24 @@ final class WebSocketService: ObservableObject {
                 recipientUserID: frame.event.payload.recipientUserId,
                 senderUserID: frame.event.payload.senderUserId
             )
+
+        case "channel_created":
+            struct Frame: Decodable {
+                let event: Inner
+                struct Inner: Decodable { let payload: Payload }
+                struct Payload: Decodable { let channel: ChatChannel }
+            }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .channelCreated(channel: frame.event.payload.channel)
+
+        case "chat_message_created":
+            struct Frame: Decodable {
+                let event: Inner
+                struct Inner: Decodable { let payload: Payload }
+                struct Payload: Decodable { let message: ChatMessage }
+            }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .chatMessageCreated(message: frame.event.payload.message)
 
         case "member_joined", "member_updated":
             struct Frame: Decodable {

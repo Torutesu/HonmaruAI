@@ -65,6 +65,45 @@ struct BackendAPI {
         return response.code
     }
 
+    func listChannels(token: String, orgID: String) async throws -> [ChatChannel] {
+        struct Response: Decodable { let channels: [ChatChannel] }
+        let response: Response = try await request(
+            "v1/orgs/\(orgID)/channels", method: "GET", token: token, body: nil
+        )
+        return response.channels
+    }
+
+    func openDm(token: String, orgID: String, userID: String) async throws -> ChatChannel {
+        struct Response: Decodable { let channel: ChatChannel }
+        let response: Response = try await request(
+            "v1/orgs/\(orgID)/dms", method: "POST", token: token, body: ["userId": userID]
+        )
+        return response.channel
+    }
+
+    func createChannel(token: String, orgID: String, name: String) async throws -> ChatChannel {
+        struct Response: Decodable { let channel: ChatChannel }
+        let response: Response = try await request(
+            "v1/orgs/\(orgID)/channels", method: "POST", token: token, body: ["name": name]
+        )
+        return response.channel
+    }
+
+    func listChatMessages(token: String, channelID: String) async throws -> [ChatMessage] {
+        struct Response: Decodable { let messages: [ChatMessage] }
+        let response: Response = try await request(
+            "v1/channels/\(channelID)/messages", method: "GET", token: token, body: nil
+        )
+        return response.messages
+    }
+
+    func summarizeChannel(token: String, channelID: String) async throws {
+        struct Response: Decodable { let queued: Bool }
+        let _: Response = try await request(
+            "v1/channels/\(channelID)/summarize", method: "POST", token: token, body: [:]
+        )
+    }
+
     func listMessages(token: String, cardID: String) async throws -> [CardMessage] {
         struct Response: Decodable { let messages: [CardMessage] }
         let response: Response = try await request(
