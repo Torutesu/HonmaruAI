@@ -50,6 +50,12 @@ http.ts (REST)        realtime.ts (Hub)
             └──► IntegrationRegistry ──► github_issues (creates/closes issues)
 ```
 
+**GitHub reverse sync**: point a repository webhook (issues events, JSON,
+secret = `GITHUB_WEBHOOK_SECRET`) at `POST /v1/webhooks/github`. Closing a
+linked issue completes the card; reopening it re-activates the card — both
+parties are notified. Cards are matched by the issue URL recorded on the
+external ref, so multiple repos and orgs coexist.
+
 Key properties:
 
 - **Auth**: GitHub OAuth (code exchange server-side) or dev login

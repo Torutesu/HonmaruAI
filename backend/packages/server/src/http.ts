@@ -16,6 +16,7 @@ import {
   UpdateMemberRequest,
   type CardPriority,
   type DecisionCard,
+  type Notification,
   type OrgEvent,
   type User,
 } from "@honmaru/protocol";
@@ -80,6 +81,7 @@ import {
   requireMember,
   updateMember,
 } from "./orgs.js";
+import { handleGitHubEvent, verifyGitHubSignature } from "./webhooks.js";
 
 export interface HttpDeps {
   db: Db;
@@ -100,6 +102,10 @@ export interface HttpDeps {
     channelId: string;
     requesterUserId: string;
   }) => void;
+  // Deliver system-derived notifications (webhooks, sweepers).
+  notifyDirect: (
+    items: Omit<Notification, "id" | "createdAt" | "readAt">[]
+  ) => void;
 }
 
 export type HttpEnv = { Variables: { user: User } };
@@ -127,7 +133,7 @@ const ERROR_STATUS: Record<string, 400 | 401 | 403 | 404 | 409> = {
 };
 
 export function createHttpApp(deps: HttpDeps): Hono<Env> {
-  const { db, config, log, registry, emitEvents, createInstruction, enqueueSummarize } = deps;
+  const { db, config, log, registry, emitEvents, createInstruction, enqueueSummarize, notifyDirect } = deps;
   const app = new Hono<Env>();
 
   // Browser clients (web app on another origin). Auth is Bearer-token
@@ -188,10 +194,42 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
     return c.json({ token, user });
   });
 
+  // GitHub reverse sync: issue closed -> card completed, reopened ->
+  // active again. Authenticated by webhook signature, not a session.
+  app.post("/v1/webhooks/github", async (c) => {
+    if (!config.github.webhookSecret) {
+      return c.json({ code: "webhook_disabled", message: "Set GITHUB_WEBHOOK_SECRET." }, 503);
+    }
+    const rawBody = await c.req.text();
+    const ok = verifyGitHubSignature(
+      rawBody,
+      c.req.header("X-Hub-Signature-256"),
+      config.github.webhookSecret
+    );
+    if (!ok) {
+      return c.json({ code: "bad_signature", message: "Signature mismatch." }, 401);
+    }
+    const eventName = c.req.header("X-GitHub-Event") ?? "";
+    let payload: unknown;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      return c.json({ code: "bad_payload", message: "Invalid JSON." }, 400);
+    }
+    const result = handleGitHubEvent(db, eventName, payload as never);
+    if (result) {
+      emitEvents(result.orgId, result.events);
+      notifyDirect(result.notifications);
+    }
+    return c.json({ handled: Boolean(result) });
+  });
+
   // --- authenticated routes ------------------------------------------------
 
   app.use("/v1/*", async (c, next) => {
-    if (c.req.path.startsWith("/v1/auth/")) return next();
+    if (c.req.path.startsWith("/v1/auth/") || c.req.path.startsWith("/v1/webhooks/")) {
+      return next();
+    }
     const header = c.req.header("Authorization") ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
     const user = token ? authenticate(db, token) : null;

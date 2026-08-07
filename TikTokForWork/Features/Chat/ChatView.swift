@@ -63,7 +63,6 @@ struct ChatListView: View {
                 Text(errorMessage ?? "")
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private var errorBinding: Binding<Bool> {

@@ -63,8 +63,9 @@ Last updated: 2026-08-06
 - [x] Classic chat mode: channels + DMs on the same event log (Slack-style notify semantics, #general auto-created, presence catch-up), Feed⇄Chat toggle in web UI with ⚡ chat→card bridge; 40 server tests
 - [x] Chat threads (one-level Slack-style replies, participant notifications) + ✨ AI channel digest → decision card (LLM + deterministic fallback); 43 server tests
 - [x] iOS Chat mode: Feed/Chat TabView, channel + DM lists with unseen badges, thread replies via context menu, mention highlighting, ✨ digest button (needs Xcode build to verify)
-- [ ] Run `fly deploy` (needs an account) + GitHub webhook reverse sync
-- [ ] iOS: light theme pass to match the web client
+- [x] GitHub webhook reverse sync: issue closed → card completed, reopened → active, HMAC-verified, both parties notified; 46 server tests
+- [x] iOS light-first theme: adaptive tokens matching the web client (dark follows OS), compact type/spacing scale
+- [ ] Run `fly deploy` (needs an account)
 
 ## Demo script
 

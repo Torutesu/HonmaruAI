@@ -9,7 +9,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     authDevMode: true,
     notifyWebhookUrl: null,
     slaSweepSeconds: 0,
-    github: { clientId: "", clientSecret: "", redirectUri: "" },
+    github: { clientId: "", clientSecret: "", redirectUri: "", webhookSecret: "" },
     openRouter: null,
     ...overrides,
   };

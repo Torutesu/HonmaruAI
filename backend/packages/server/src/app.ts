@@ -103,6 +103,7 @@ export function createApp(config: Config): App {
     emitEvents,
     createInstruction: instruct,
     enqueueSummarize: (payload) => queue.enqueue("summarize_channel", payload),
+    notifyDirect: (items) => notifications.direct(items),
   });
 
   const runSlaSweep = (): void => {

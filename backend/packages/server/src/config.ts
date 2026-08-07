@@ -13,6 +13,9 @@ export interface Config {
     clientId: string;
     clientSecret: string;
     redirectUri: string;
+    // Secret for POST /v1/webhooks/github (reverse sync). Empty = endpoint
+    // disabled.
+    webhookSecret: string;
   };
   openRouter: {
     apiKey: string;
@@ -35,6 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       clientId: env.GITHUB_CLIENT_ID || "",
       clientSecret: env.GITHUB_CLIENT_SECRET || "",
       redirectUri: env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback",
+      webhookSecret: env.GITHUB_WEBHOOK_SECRET || "",
     },
     openRouter: env.OPENROUTER_API_KEY
       ? {
