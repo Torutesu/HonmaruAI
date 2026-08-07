@@ -83,6 +83,27 @@ productivity dialect: white canvas, near-black filled CTAs, one relentless
 | `issueGreen` | `#238636` (GitHub brand, unchanged) |
 | Buttons | `Capsule()` fills; primary = `#202020` |
 
+## Figma handoff
+
+Live in [Honmaru-AI-Mobile-App-UI-UX-Design](https://www.figma.com/design/ii8w8x7gvN3wp70vlszBSa/Honmaru-AI-Mobile-App-UI-UX-Design)
+on the `Refference` page (the team's Starter plan blocks extra pages), placed
+in clear space right of the reference shots (x ≈ 18400):
+
+- **Components row** — `Chrome/Status Bar`, `Chrome/Home Indicator`,
+  `Button/Primary`, `Button/Ghost`, `Chrome/Tab Bar` (conic-ring ＋ FAB)
+- **Section "Honmaru AI · Onboarding v3"** — 12 screens (390×844): Welcome,
+  Create account, Bring your own AI, Call name, Role, Connect your tools,
+  Scanning, Your projects, Who's who, House rules, Ready, Choose your plan
+- **Section "Honmaru AI · Core App v3"** — 6 screens: Home Decision / Choice /
+  Reply cards, Classic view, Capture, You (settings)
+
+Fonts used in the file: Plus Jakarta Sans ExtraBold (display), Inter
+(body/UI), Sometype Mono Medium (meta labels).
+
+Known nit: on `A5 Capture`, wrapper rows still carry Figma's default white
+fill and hide the dark viewfinder — select the rows under the screen frame
+and set fill to none (hit the Starter-plan MCP call limit before the fix).
+
 ## Don'ts (enforced)
 
 - No pure `#000` for text/background (camera viewfinder excepted)
