@@ -224,11 +224,19 @@ export function deriveNotifications(events: OrgEvent[]): Omit<
         break;
       }
       case "chat_message_created": {
-        const { message, channelKind, channelName, memberUserIds, mentionedUserIds } =
-          event.payload;
+        const {
+          message,
+          channelKind,
+          channelName,
+          memberUserIds,
+          mentionedUserIds,
+          threadParticipantIds,
+        } = event.payload;
         const mentioned = new Set(mentionedUserIds);
+        const notified = new Set<string>([message.authorUserId]);
         for (const target of mentioned) {
-          if (target === message.authorUserId) continue;
+          if (notified.has(target)) continue;
+          notified.add(target);
           out.push({
             orgId: event.orgId,
             userId: target,
@@ -242,11 +250,28 @@ export function deriveNotifications(events: OrgEvent[]): Omit<
             body: truncate(message.text),
           });
         }
-        // Slack semantics: DMs always notify; channel messages only on
-        // mention.
+        // Slack semantics: thread participants hear about replies…
+        for (const target of threadParticipantIds) {
+          if (notified.has(target)) continue;
+          notified.add(target);
+          out.push({
+            orgId: event.orgId,
+            userId: target,
+            kind: "chat_message",
+            cardId: null,
+            channelId: message.channelId,
+            title:
+              channelKind === "channel"
+                ? `Reply in a #${channelName} thread`
+                : "Reply in thread",
+            body: truncate(message.text),
+          });
+        }
+        // …DMs always notify; channel messages only via the cases above.
         if (channelKind === "dm") {
           for (const target of memberUserIds) {
-            if (target === message.authorUserId || mentioned.has(target)) continue;
+            if (notified.has(target)) continue;
+            notified.add(target);
             out.push({
               orgId: event.orgId,
               userId: target,

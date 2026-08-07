@@ -143,8 +143,14 @@ export class Realtime {
     this.send({ type: "card_message", clientRef: crypto.randomUUID(), cardId, text });
   }
 
-  chatMessage(channelId: string, text: string): void {
-    this.send({ type: "chat_message", clientRef: crypto.randomUUID(), channelId, text });
+  chatMessage(channelId: string, text: string, parentMessageId?: string): void {
+    this.send({
+      type: "chat_message",
+      clientRef: crypto.randomUUID(),
+      channelId,
+      text,
+      parentMessageId,
+    });
   }
 
   close(): void {

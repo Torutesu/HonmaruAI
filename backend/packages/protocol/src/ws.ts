@@ -64,6 +64,8 @@ export const ChatMessageMessage = z.object({
   clientRef: z.string().optional(),
   channelId: z.string(),
   text: z.string().min(1).max(4000),
+  // Reply into a message's thread.
+  parentMessageId: z.string().optional(),
 });
 
 export const PingMessage = z.object({ type: z.literal("ping") });

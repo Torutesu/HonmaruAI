@@ -387,6 +387,7 @@ function Main({ session, org }: { session: Session; org: Org }) {
   const [mode, setMode] = useState<"feed" | "chat">("feed");
   const [view, setView] = useState<FeedView>("inbox");
   const [threadCard, setThreadCard] = useState<string | null>(null);
+  const [chatThread, setChatThread] = useState<string | null>(null);
   const [showInbox, setShowInbox] = useState(false);
   const [invite, setInvite] = useState<string | null>(null);
   const [newChannel, setNewChannel] = useState("");
@@ -452,6 +453,7 @@ function Main({ session, org }: { session: Session; org: Org }) {
 
   const openChannel = useCallback(
     async (channelId: string) => {
+      setChatThread(null);
       dispatch({ kind: "open_channel", channelId, messages: [] });
       const r = await api<{ messages: ChatMessage[] }>(
         `/v1/channels/${channelId}/messages`,
@@ -520,11 +522,19 @@ function Main({ session, org }: { session: Session; org: Org }) {
   const activeThread = threadCard ? state.cards[threadCard] : undefined;
   const chatUnseen = Object.values(state.unseenByChannel).reduce((a, b) => a + b, 0);
   const activeChannel = state.channels.find((c) => c.id === state.activeChannelId);
+  const activeChannelMessages = activeChannel
+    ? state.chatMessages[activeChannel.id] ?? []
+    : [];
+  const chatThreadParent = chatThread
+    ? activeChannelMessages.find((m) => m.id === chatThread)
+    : undefined;
   const dmName = (channel: Channel) =>
     memberName(channel.memberUserIds.find((id) => id !== selfId) ?? "");
+  const withThread =
+    (mode === "feed" && activeThread) || (mode === "chat" && chatThreadParent);
 
   return (
-    <div className={`shell ${mode === "feed" && activeThread ? "with-thread" : ""}`}>
+    <div className={`shell ${withThread ? "with-thread" : ""}`}>
       <aside className="sidebar">
         <div className="side-org">
           <span className={`conn ${state.connection}`} />
@@ -680,6 +690,22 @@ function Main({ session, org }: { session: Session; org: Org }) {
                     : "offline"
                   : `${state.members.length} members`}
               </span>
+              {activeChannel && (
+                <button
+                  className="mini digest-btn"
+                  title="AI digest of this conversation → a card on your feed"
+                  onClick={async () => {
+                    await api(`/v1/channels/${activeChannel.id}/summarize`, {
+                      token: session.token,
+                      body: {},
+                    });
+                    setMode("feed");
+                    setView("inbox");
+                  }}
+                >
+                  ✨ Digest
+                </button>
+              )}
             </>
           )}
           <span className="spacer" />
@@ -757,12 +783,13 @@ function Main({ session, org }: { session: Session; org: Org }) {
         ) : (
           <ChatPane
             channel={activeChannel}
-            messages={activeChannel ? state.chatMessages[activeChannel.id] ?? [] : []}
+            messages={activeChannelMessages}
             selfId={selfId}
             memberName={memberName}
             onSend={(text) =>
               activeChannel && rt.current?.chatMessage(activeChannel.id, text)
             }
+            onOpenThread={setChatThread}
             onMakeCard={(text) => {
               rt.current?.instruction(text);
               setMode("feed");
@@ -771,6 +798,21 @@ function Main({ session, org }: { session: Session; org: Org }) {
           />
         )}
       </main>
+
+      {mode === "chat" && activeChannel && chatThreadParent && (
+        <ChatThreadPanel
+          parent={chatThreadParent}
+          replies={activeChannelMessages.filter(
+            (m) => m.parentMessageId === chatThreadParent.id
+          )}
+          selfId={selfId}
+          memberName={memberName}
+          onSend={(text) =>
+            rt.current?.chatMessage(activeChannel.id, text, chatThreadParent.id)
+          }
+          onClose={() => setChatThread(null)}
+        />
+      )}
 
       {mode === "feed" && activeThread && (
         <ThreadPanel
@@ -982,6 +1024,7 @@ function ChatPane(props: {
   selfId: string;
   memberName: (id: string) => string;
   onSend: (text: string) => void;
+  onOpenThread: (messageId: string) => void;
   onMakeCard: (text: string) => void;
 }) {
   const [text, setText] = useState("");
@@ -1005,20 +1048,25 @@ function ChatPane(props: {
     return <div className="chat-body empty"><p className="muted">Pick a channel.</p></div>;
   }
 
+  const topLevel = props.messages.filter((m) => !m.parentMessageId);
+  const replyCount = (id: string) =>
+    props.messages.filter((m) => m.parentMessageId === id).length;
+
   return (
     <>
       <div className="chat-body" ref={bodyRef}>
-        {props.messages.length === 0 && (
+        {topLevel.length === 0 && (
           <div className="muted small center">
             No messages yet. @name mentions notify; DMs always notify.
           </div>
         )}
-        {props.messages.map((message, index) => {
-          const prev = props.messages[index - 1];
+        {topLevel.map((message, index) => {
+          const prev = topLevel[index - 1];
           const grouped =
             prev &&
             prev.authorUserId === message.authorUserId &&
             Date.parse(message.createdAt) - Date.parse(prev.createdAt) < 180_000;
+          const replies = replyCount(message.id);
           return (
             <div key={message.id} className={`cmsg ${grouped ? "grouped" : ""}`}>
               {!grouped && (
@@ -1030,6 +1078,12 @@ function ChatPane(props: {
               )}
               <div className="cmsg-text">
                 <MentionText text={message.text} />
+                <button
+                  className="cmsg-thread"
+                  onClick={() => props.onOpenThread(message.id)}
+                >
+                  {replies > 0 ? `↳ ${replies} repl${replies === 1 ? "y" : "ies"}` : "↳ reply"}
+                </button>
               </div>
             </div>
           );
@@ -1056,6 +1110,67 @@ function ChatPane(props: {
         <button className="primary send" onClick={send}>↑</button>
       </footer>
     </>
+  );
+}
+
+function ChatThreadPanel(props: {
+  parent: ChatMessage;
+  replies: ChatMessage[];
+  selfId: string;
+  memberName: (id: string) => string;
+  onSend: (text: string) => void;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState("");
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bodyRef.current?.scrollTo(0, bodyRef.current.scrollHeight);
+  }, [props.replies.length]);
+  const send = () => {
+    if (!text.trim()) return;
+    props.onSend(text.trim());
+    setText("");
+  };
+  const bubble = (message: ChatMessage) => (
+    <div
+      key={message.id}
+      className={`msg ${message.authorUserId === props.selfId ? "me" : "them"}`}
+    >
+      <MentionText text={message.text} />
+      <span className="meta">
+        {props.memberName(message.authorUserId)} · {ago(message.createdAt)}
+      </span>
+    </div>
+  );
+  return (
+    <aside className="thread">
+      <div className="thread-head">
+        <div>
+          <div className="t">Thread</div>
+          <div className="muted small">
+            {props.replies.length} repl{props.replies.length === 1 ? "y" : "ies"}
+          </div>
+        </div>
+        <button className="icon" onClick={props.onClose}>✕</button>
+      </div>
+      <div className="thread-body" ref={bodyRef}>
+        <div className="thread-card small">
+          <b>{props.memberName(props.parent.authorUserId)}</b>{" "}
+          <MentionText text={props.parent.text} />
+        </div>
+        {props.replies.map(bubble)}
+      </div>
+      <div className="thread-input">
+        <input
+          autoFocus
+          placeholder="Reply in thread… (@name to mention)"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+        />
+        <button className="primary send" onClick={send}>↑</button>
+      </div>
+    </aside>
   );
 }
 

@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
   author_user_id TEXT NOT NULL,
   text TEXT NOT NULL,
+  parent_message_id TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_channel ON chat_messages(channel_id, created_at);
@@ -207,6 +208,7 @@ export function openDb(path: string): Db {
   ensureColumn(db, "cards", "due_at", "TEXT");
   ensureColumn(db, "cards", "escalated_at", "TEXT");
   ensureColumn(db, "notifications", "channel_id", "TEXT");
+  ensureColumn(db, "chat_messages", "parent_message_id", "TEXT");
   return db;
 }
 

@@ -347,6 +347,15 @@ button.send { width: 34px; padding: 6px 0; flex: none; }
   color: var(--accent); background: var(--accent-soft);
   border-radius: 4px; padding: 0 3px;
 }
+.cmsg-thread {
+  border: none; background: transparent;
+  color: var(--text3); font-size: 11px; padding: 0 0 0 8px;
+  opacity: 0; transition: opacity 0.1s;
+}
+.cmsg:hover .cmsg-thread { opacity: 1; }
+.cmsg-thread:hover { color: var(--accent); background: transparent; }
+.digest-btn { margin-left: 4px; }
+.digest-btn:hover { color: var(--accent); border-color: var(--accent); }
 .chat-composer .make-card { flex: none; width: 34px; padding: 6px 0; }
 .chat-composer .make-card:hover { color: var(--accent); border-color: var(--accent); }
 

@@ -311,7 +311,8 @@ export class Hub {
           this.db,
           session.userId,
           message.channelId,
-          message.text
+          message.text,
+          message.parentMessageId
         );
         this.send(ws, { type: "ack", clientRef: message.clientRef });
         this.onEventsCommitted(session.orgId, events);

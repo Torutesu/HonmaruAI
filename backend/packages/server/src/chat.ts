@@ -187,6 +187,7 @@ interface ChatRow {
   channel_id: string;
   author_user_id: string;
   text: string;
+  parent_message_id: string | null;
   created_at: string;
 }
 
@@ -197,6 +198,7 @@ function toMessage(row: ChatRow): ChatMessage {
     channelId: row.channel_id,
     authorUserId: row.author_user_id,
     text: row.text,
+    parentMessageId: row.parent_message_id,
     createdAt: row.created_at,
   };
 }
@@ -221,12 +223,36 @@ export function createChatMessage(
   db: Db,
   authorUserId: string,
   channelId: string,
-  text: string
+  text: string,
+  parentMessageId?: string
 ): { message: ChatMessage; events: OrgEvent[] } {
   const channel = getChannel(db, channelId);
   if (!channel) throw new ChatError("channel_not_found", "Channel not found.");
   if (!isChannelVisibleTo(channel, authorUserId)) {
     throw new ChatError("not_allowed", "You are not in this conversation.");
+  }
+
+  // Thread replies: one level deep (Slack semantics), same channel only.
+  let threadParticipantIds: string[] = [];
+  if (parentMessageId) {
+    const parent = db
+      .prepare("SELECT * FROM chat_messages WHERE id = ?")
+      .get(parentMessageId) as ChatRow | undefined;
+    if (!parent || parent.channel_id !== channelId) {
+      throw new ChatError("invalid_thread", "Parent message not found here.");
+    }
+    if (parent.parent_message_id) {
+      throw new ChatError("invalid_thread", "Cannot reply to a thread reply.");
+    }
+    const authors = db
+      .prepare(
+        `SELECT DISTINCT author_user_id AS id FROM chat_messages
+         WHERE id = ? OR parent_message_id = ?`
+      )
+      .all(parentMessageId, parentMessageId) as { id: string }[];
+    threadParticipantIds = authors
+      .map((row) => row.id)
+      .filter((id) => id !== authorUserId);
   }
 
   const mentionedUserIds = parseMentions(
@@ -241,19 +267,21 @@ export function createChatMessage(
     channelId,
     authorUserId,
     text,
+    parentMessageId: parentMessageId ?? null,
     createdAt: now(),
   };
   const events: OrgEvent[] = [];
   db.transaction(() => {
     db.prepare(
-      `INSERT INTO chat_messages (id, org_id, channel_id, author_user_id, text, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO chat_messages (id, org_id, channel_id, author_user_id, text, parent_message_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(
       message.id,
       message.orgId,
       message.channelId,
       message.authorUserId,
       message.text,
+      message.parentMessageId,
       message.createdAt
     );
     events.push(
@@ -263,6 +291,7 @@ export function createChatMessage(
         channelName: channel.name,
         memberUserIds: channel.memberUserIds,
         mentionedUserIds,
+        threadParticipantIds,
       })
     );
   })();

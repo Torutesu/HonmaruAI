@@ -20,6 +20,7 @@ import {
 } from "./notifications.js";
 import { Hub } from "./realtime.js";
 import { sweepOverdue } from "./sla.js";
+import { makeSummarizeHandler } from "./summarize.js";
 
 export interface App {
   db: Db;
@@ -82,6 +83,7 @@ export function createApp(config: Config): App {
   const queue = new JobQueue(log, {
     refine_card: makeRefineHandler(instructionDeps),
     condense_memory: makeCondenseHandler({ db, config, log }),
+    summarize_channel: makeSummarizeHandler({ db, config, log, emitEvents }),
   });
   instructionDeps.queue = queue;
 
@@ -100,6 +102,7 @@ export function createApp(config: Config): App {
     registry,
     emitEvents,
     createInstruction: instruct,
+    enqueueSummarize: (payload) => queue.enqueue("summarize_channel", payload),
   });
 
   const runSlaSweep = (): void => {

@@ -98,6 +98,9 @@ export const ChatMessageCreatedEvent = z.object({
     channelName: z.string(),
     memberUserIds: z.array(z.string()).default([]),
     mentionedUserIds: z.array(z.string()).default([]),
+    // For thread replies: authors already in the thread (they get a
+    // "reply in thread" notification).
+    threadParticipantIds: z.array(z.string()).default([]),
   }),
 });
 

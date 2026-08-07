@@ -94,6 +94,12 @@ export interface HttpDeps {
     text: string,
     priorityOverride?: CardPriority
   ) => { card: DecisionCard; events: OrgEvent[] };
+  // Async chat-digest job (chat → decision card bridge).
+  enqueueSummarize: (payload: {
+    orgId: string;
+    channelId: string;
+    requesterUserId: string;
+  }) => void;
 }
 
 export type HttpEnv = { Variables: { user: User } };
@@ -117,10 +123,11 @@ const ERROR_STATUS: Record<string, 400 | 401 | 403 | 404 | 409> = {
   channel_exists: 409,
   invalid_channel: 400,
   invalid_dm: 400,
+  invalid_thread: 400,
 };
 
 export function createHttpApp(deps: HttpDeps): Hono<Env> {
-  const { db, config, log, registry, emitEvents, createInstruction } = deps;
+  const { db, config, log, registry, emitEvents, createInstruction, enqueueSummarize } = deps;
   const app = new Hono<Env>();
 
   // Browser clients (web app on another origin). Auth is Bearer-token
@@ -367,6 +374,25 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
     const { channel, events } = openDm(db, orgId, user.id, body.userId);
     emitEvents(orgId, events);
     return c.json({ channel });
+  });
+
+  // Queue an AI digest of the channel; the card arrives on the
+  // requester's feed via the event stream.
+  app.post("/v1/channels/:channelId/summarize", (c) => {
+    const channelId = c.req.param("channelId");
+    const user = me(c);
+    const channel = getChannel(db, channelId);
+    if (!channel) throw new ChatError("channel_not_found", "Channel not found.");
+    requireMember(db, channel.orgId, user.id);
+    if (!isChannelVisibleTo(channel, user.id)) {
+      throw new ChatError("not_allowed", "You are not in this conversation.");
+    }
+    enqueueSummarize({
+      orgId: channel.orgId,
+      channelId,
+      requesterUserId: user.id,
+    });
+    return c.json({ queued: true }, 202);
   });
 
   app.get("/v1/channels/:channelId/messages", (c) => {

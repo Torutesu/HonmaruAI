@@ -93,6 +93,35 @@ describe("classic chat (channels + DMs)", () => {
     expect(mentionNotifs[0]!.title).toContain("#general");
   });
 
+  it("thread replies: one level deep, participants notified", () => {
+    const general = listChannelsForUser(db, orgId, alice).find(
+      (ch) => ch.name === "general"
+    )!;
+    const root = createChatMessage(db, alice, general.id, "ship today?").message;
+    const reply = createChatMessage(db, bob, general.id, "yes, after tests", root.id);
+    expect(reply.message.parentMessageId).toBe(root.id);
+
+    // Alice (thread participant) is notified of Bob's reply.
+    const notifs = deriveNotifications(reply.events);
+    expect(notifs).toHaveLength(1);
+    expect(notifs[0]).toMatchObject({ userId: alice, kind: "chat_message" });
+    expect(notifs[0]!.title).toContain("#general");
+
+    // Carol replies too: Alice and Bob both notified, once each.
+    const third = createChatMessage(db, carol, general.id, "docs updated", root.id);
+    const thirdNotifs = deriveNotifications(third.events);
+    expect(thirdNotifs.map((n) => n.userId).sort()).toEqual([alice, bob].sort());
+
+    // No nested threads; parent must live in the same channel.
+    expect(() =>
+      createChatMessage(db, alice, general.id, "nested", reply.message.id)
+    ).toThrow(ChatError);
+    const dm = openDm(db, orgId, alice, bob).channel;
+    expect(() => createChatMessage(db, alice, dm.id, "wrong home", root.id)).toThrow(
+      ChatError
+    );
+  });
+
   it("channel history is ordered and channel events reach all members", () => {
     const general = listChannelsForUser(db, orgId, alice).find(
       (ch) => ch.name === "general"

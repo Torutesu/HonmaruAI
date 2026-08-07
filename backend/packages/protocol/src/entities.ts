@@ -176,6 +176,9 @@ export const ChatMessage = z.object({
   channelId: z.string(),
   authorUserId: z.string(),
   text: z.string(),
+  // Slack-style threads: set when this message is a reply to a top-level
+  // message. One level deep only — replies cannot be replied to.
+  parentMessageId: z.string().nullish(),
   createdAt: z.string(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;

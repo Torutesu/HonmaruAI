@@ -64,6 +64,9 @@ const viewport = { width: 1180, height: 780 };
 const alice: Page = await (await browser.newContext({ viewport })).newPage();
 const bob: Page = await (await browser.newContext({ viewport })).newPage();
 const carol: Page = await (await browser.newContext({ viewport })).newPage();
+for (const [name, page] of [["alice", alice], ["bob", bob], ["carol", carol]] as const) {
+  page.on("pageerror", (error) => console.error(`[${name} pageerror]`, error.message));
+}
 const APP = "http://127.0.0.1:4173/";
 
 function fail(message: string): never {
@@ -176,12 +179,34 @@ await alice.waitForSelector('.cmsg-text:has-text("on my way")', { timeout: 8000 
 ok("alice reads the DM");
 await bob.screenshot({ path: bobShot.replace(".png", "-chat.png") });
 
+// Thread reply on a channel message
+await bob.click('.chan-item:has-text("# general")');
+await bob.hover(".cmsg");
+await bob.click(".cmsg .cmsg-thread");
+await bob.fill(".thread-input input", "joining the standup thread");
+await bob.press(".thread-input input", "Enter");
+await bob.waitForSelector('.thread-body .msg.me:has-text("standup thread")');
+ok("bob replied in a channel thread");
+
+await alice.click('.chan-item:has-text("# general")');
+await alice.waitForSelector('.cmsg-thread:has-text("1 repl")', { timeout: 8000 });
+await alice.click(".cmsg .cmsg-thread");
+await alice.waitForSelector('.thread-body .msg.them:has-text("standup thread")');
+ok("alice sees the thread reply (participant notified)");
+
+// AI digest: chat -> decision card (deterministic fallback, no LLM key)
+await alice.click(".digest-btn");
+await alice.waitForSelector('.card h3:has-text("Digest of #general")', {
+  timeout: 8000,
+});
+ok("digest card delivered to alice's feed");
+
 // back to feed mode for the approval flow
-await alice.click('button.mode-tab:has-text("Feed")');
 await bob.click('button.mode-tab:has-text("Feed")');
 await bob.waitForSelector(".card .approve");
 
-// Bob approves; Alice's card flips to approved
+// Bob approves; Alice's card flips to approved (visible in her Sent view)
+await alice.click('button.nav-item:has-text("Sent")');
 await bob.click(".card .approve");
 await alice.waitForSelector(".chip.st-approved", { timeout: 8000 });
 ok("approval reflected on alice's screen");
