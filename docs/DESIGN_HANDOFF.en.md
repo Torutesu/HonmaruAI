@@ -1,24 +1,24 @@
 # TikTok for Work — Project Overview & Design Handoff
 
-Last updated: 2026-08-06
+Last updated: 2026-08-07
 Audience: the designer who will build this product's UI/UX
 Japanese version: [DESIGN_HANDOFF.ja.md](./DESIGN_HANDOFF.ja.md)
 
 ---
 
-> ## ⚠️ Read this first
+> ## ⚠️ Read this first (two things)
 >
-> **The current UI is a mockup. Nothing about the design system or the quality bar is settled yet.**
+> ### 1. The UI is not settled
 >
-> The colors, sizes, spacing, and components described in this document are a **report of
-> what the code does today** — they are **not a spec to follow**.
+> **The current UI is a mockup. Nothing about the design system or the quality bar is decided yet.**
+> The colors, sizes, and spacing in this document are a **report of what the code does today** —
+> they are **not a spec to follow**. Defining the design system from scratch is the work ahead.
 >
-> - What's on screen now is scaffolding put there to make the product work
-> - Every value and every component is fair game to replace
-> - **Defining the design system from scratch is the work ahead**
+> ### 2. Six branches are running in parallel, with three conflicting design directions
 >
-> The point of this document is to hand over what exists and where to change it — not to
-> ask you to ratify the current look.
+> **Nothing has been merged to `main`.** Development is happening across six branches, and
+> **three mutually incompatible design directions exist simultaneously.**
+> **The first job is deciding which one to adopt.** See §3.
 
 ---
 
@@ -41,59 +41,133 @@ Instead of humans talking to each other through channels and threads, **every pe
 | Decisions get lost in conversation | Decisions are recorded automatically as GitHub Issues |
 | The same thing gets explained repeatedly | The AI restructures per the recipient's role |
 
-### The core loop (the heart of the product)
+### The core loop (unchanged across every branch)
 
 ```
 The sender gives their AI a natural-language instruction
-   ↓  "Tell your AI" input sheet
+   ↓  "Tell your AI"
 The AI infers intent, recipient, priority, and card type (org graph + LLM)
-   ↓  Draft Review sheet — confirm before sending
-The card lands in the recipient's feed in real time (WebSocket)
+   ↓  Review the draft before it sends
+The card lands in the recipient's feed in real time
    ↓  Vertical paging feed, one card at a time
-They decide (Create issue / Decline / Revise / Delegate)
+They decide (approve / decline / request revision / delegate)
    ↓  Swipe or button
 A GitHub Issue is created, and the result flows back to the sender
 ```
 
-**The key design point**: this one loop must run without friction. It's the center of the experience; everything else exists to support it.
+**No branch has changed this.** It's the center of the experience; everything else supports it.
 
-### Organization and members
+---
 
-The relay server owns the member roster and it grows from inside the app. **There is no fixed cast of placeholder users.**
+## 2. Organization and members
 
-Founding members:
+The founding members are real people:
 
 | Member | Role |
 |---|---|
 | Toru | CEO |
 | Gota | PM |
 
-- Members are added in-app via **Organization → Add member** (name / role / GitHub username / who they report to)
+- Members are added in-app (name / role / GitHub username / who they report to)
 - A new member syncs to every device instantly and is **immediately routable by the AI**
 - Each member automatically gets their own AI agent (`<Name>'s AI`)
-- Routing matches work to **roles**, not to specific people (design work → a designer, engineering → an engineer, budget/hiring → the CEO). Onboarding someone takes no code change
+- Routing matches work to **roles**, not to specific people (design → a designer, engineering → an engineer, budget/hiring → the CEO). Onboarding someone takes no code change
+
+> **Branch note**: this shape — server owns the roster, the app adds to it — was reached
+> **independently** by three branches (`designer-project-handoff-docs`,
+> `cross-platform-strategy`, `current-features-gaps`). Only `3sec-value-onboarding`
+> still carries the old fixed cast of four placeholder users (Alice/Bob/Carol/Dana).
 
 ---
 
-## 2. Current status
+## 3. Repository situation map (★ the core of this document)
 
-| Area | State | Notes |
+### 3.1 Branches
+
+`main` = `a2d907b`. **None of these are merged.**
+
+| Branch | Last update | Size | What's in it | Design direction |
+|---|---|---|---|---|
+| `cross-platform-strategy` | Aug 7 | 7 commits / 85 files | New backend (Hono + SQLite + zod schemas), web client, **classic chat mode** (channels + DMs, Feed/Chat toggle), @mentions, agent memory, SLA escalation, notifications. iOS becomes a thin client | **A. Current dark** (unchanged) |
+| `designer-project-handoff-docs` (this branch) | Aug 7 | 2 commits / 30 files | Real member roster (Toru/Gota) + in-app member management, role-based routing, this document | **A. Current dark** (unchanged) |
+| `app-store-connect-cli` | Aug 6 | 1 commit / 7 files | `asc` CLI release pipeline (TestFlight, review submission) | — |
+| `3sec-value-onboarding` | Aug 4 | 6 commits / 28 files | Five-screen onboarding (value → mechanism → hands-on → sign-in → identity), AG-UI protocol adoption | **B. Light "white marble"** |
+| `honmaruai-revenuecat-sdk` | Aug 3 | 1 commit / 17 files | RevenueCat billing (Pro), paywall, routing quota | — |
+| `current-features-gaps` | Aug 1 | **31 commits / 157 files** | The largest. Web client (React/Vite, PWA, Web Push, E2E), channels, Notion integration, autopilot, voice input, push notifications, settings, ledger view | **C. design v3 "calm"** |
+
+### 3.2 The three design directions (**the biggest fork**)
+
+| | **A. Current dark** | **B. Light "white marble"** | **C. design v3 "calm"** |
+|---|---|---|---|
+| **Where** | main / cross-platform / this branch | 3sec-value-onboarding | current-features-gaps |
+| **Character** | Placeholder. No design reasoning behind it | ClickUp-style, high-contrast productivity | Quiet; color only ever carries meaning |
+| **Background** | `#000000` | `#FFFFFF` (95% of every screen) | Adaptive `#FBFBFC` / `#0B0C0E` |
+| **Surfaces** | `#0C0C0E` / `#161618` | `#F8F9FA` / `#E9EBF0` / `#EEEEEE` | Adaptive `#FFFFFF` / `#141518` |
+| **Accent** | `#5E6AD2` | Violet `#6647F0` (badges only) + blue `#0091FF` (interactive) | Adaptive `#4F5BD5` / `#7C8CF8` |
+| **Primary CTA** | Light fill, dark label | **Filled dark `#202020` pill** (never violet) | The accent color |
+| **Title** | 26 / medium | Plus Jakarta Sans 650–800, −0.04em tracking at 48px+ | **21 / semibold** |
+| **Body** | 17 | Inter | **15** |
+| **Radius** | 6 / 10 | **buttons 9999 (pill)** / cards 12 / large 20 / inputs 9 | 6 / 8 / 12 / 16 |
+| **Separation** | Background steps, no lines | **1px `#E8E8E8` borders** (elevation is borders, not shadows) | Spacing and weight |
+| **Motion** | easeOut 0.15–0.25s | 0.45s `cubic-bezier(0.33,1,0.68,1)`, hovers 0.15s | easeOut family |
+| **Light/dark** | Dark-pinned | Light-pinned | **System/Dark/Light switch** |
+| **Spec doc** | None | `docs/design-system.md` (the most thorough) | Comments in Theme.swift, synced with `web/src/styles/tokens.css` |
+
+**Worth knowing**
+- **B** is the only one with a written design system, down to CSS tokens. It's the most finished
+- **C** is the only one supporting both light and dark, and the only one syncing tokens between iOS and web. It's a third generation, built as a reaction to "v2 was too loud"
+- **A** is just a starting point — nobody designed it on purpose
+- **B and C are fundamentally incompatible** (white pill language vs adaptive tonal, Plus Jakarta Sans vs system font). **You cannot take both**
+
+### 3.3 The architecture has also forked
+
+| | **1. Client-driven** | **2. Server-driven (thin clients)** |
 |---|---|---|
-| Core loop (instruct → card → decide → GitHub) | Working | Verified on simulator/device |
-| AI routing | Implemented | Via OpenRouter; keyword fallback when no key is set |
-| Realtime sync | Implemented | localhost WebSocket relay (`server/`) |
-| GitHub integration | Implemented | OAuth login → repo picker → Issues API |
-| Organization & members | Implemented | Server-owned roster, in-app add, synced to all clients |
-| Org graph visualization | Barely started | The data exists; the screen is just a list |
-| **UI / design system** | **Mockup stage** | **To be built. Everything current is provisional** |
-| Roster persistence | Not handled | Restarting the relay resets to the founding members |
-| Distributable build | Not started | TestFlight / installable build is future work |
+| Where | main / 3sec / this branch | cross-platform (`backend/`) / current-features-gaps (`server/` + `web/`) |
+| Where logic lives | The Swift client builds cards, syncs GitHub, owns state transitions | The server owns all domain logic; clients send intent and render state |
+| Protocol | Loose JSON | zod schemas (cross-platform) / AG-UI events (3sec) |
+| Other platforms | iOS only | Web exists; designed for desktop/Android too |
+
+**Design implication**: taking direction 2 means **iOS and web must share one design system** (C already syncs tokens across both). It stops being a single-surface design problem.
+
+### 3.4 Other unintegrated features
+
+Things that need design but sit in only one branch:
+
+| Feature | Where | Design state |
+|---|---|---|
+| Onboarding (5 screens) | 3sec | Built in white marble |
+| Chat mode (channels / DMs) | cross-platform, current-features-gaps | Built, still direction A |
+| Billing / paywall | revenuecat | Built only |
+| Settings screen | current-features-gaps | Built in design v3 |
+| Notifications / SLA escalation | cross-platform, current-features-gaps | Built only |
+| Voice input | current-features-gaps | Built only |
+| Web client | cross-platform, current-features-gaps | Two different designs |
 
 ---
 
-## 3. Screen inventory (information architecture)
+## 4. What the designer needs to decide first
 
-The surface count is deliberately small: **one feed plus modals.** This structure is also open to revision.
+In priority order. Items 1–3 block everything else.
+
+1. **Pick a design direction — A, B, C, or start over**
+   - Take B (white marble) → fastest, there's a spec. But light-only
+   - Take C (design v3 calm) → light/dark, already synced with web. But the spec is only code comments
+   - Start over → most freedom, but it means rewriting everything that exists
+2. **Pick the base branch** — it brings both a design direction and an architecture. In practice this is also the direction-1-vs-2 choice
+3. **Decide the platform scope** — iOS only, or web too. It changes how the design system must be built
+4. **Information design of the Decision Card** — the center of the product. What is seen first, what collapses
+5. **Visualize the org graph** — the data (people, AIs, teams, reporting lines) exists, but every branch renders it as a list. This is where the product's claim could actually land
+6. **Design for a growing roster** — everything currently reads as a 2–4 person org. The feed, delegate picker, and org screen need to hold at 10 and 50 people
+7. **Identity treatment** — no avatars; the sender is just "From <name>". How each member's AI agent is shown is also undecided
+8. **Accessibility policy** — every branch uses fixed font sizes (no Dynamic Type), VoiceOver labels are nearly absent, and some tap targets are under 44pt
+9. **Language** — every branch is English-only, with no localization layer
+
+---
+
+## 5. Screen inventory (this branch = direction A)
+
+Other branches add screens on top of this (5 onboarding screens, settings, channels, notifications, paywall, …).
 
 ```
 RootView                                 launch branch
@@ -117,20 +191,10 @@ RootView                                 launch branch
       └─ AddMemberSheet        add a member (name / role / GitHub / reports to)
 ```
 
-Overlays:
-- `ProcessingOverlay` — full-screen dim with a spinner and a progress message
-- `DraftingBanner` — slides in from the top: "Drafting decision card…"
+Overlays: `ProcessingOverlay` (full-screen dim + spinner) / `DraftingBanner` (slides in from the top)
 
-### Structure of the main screens (as built)
+### Current element order on the Decision Card (**the main battleground**)
 
-**AuthView (sign in)**
-Left-aligned vertical stack: logo → wordmark → "Decisions, not messages". GitHub sign-in → repository picker → "You" to pick yourself in the organization. A pinned Continue button at the bottom.
-
-**FeedView (home)**
-Cards fill the container height with vertical paging scroll. With zero cards, a three-line empty state sits centered.
-
-**DecisionCardView (the decision card) — the most important component**
-Current element order:
 1. Meta row — card type `·` priority `·` relative time
 2. Sender — "From <name>" plus the agent path (`<Name>'s AI → <Name>'s AI`)
 3. **Why you box** — routing reason
@@ -140,88 +204,11 @@ Current element order:
 7. "View details" link
 8. GitHub Issue link (once created)
 9. Status label (when not pending)
-10. Action block — Create issue / Decline · Revise · Delegate / swipe hint
-
-This ordering and weighting is **the main battleground for redesign**.
-
-**OrgGraphView (organization)**
-Sectioned lists for People / Agents / Teams plus relationships in monospace. It's generated from the roster, so it grows as members are added. **It does not read as a graph at all.**
+10. Action block — approve / decline · revise · delegate / swipe hint
 
 ---
 
-## 4. What's currently implemented (**provisional — not a spec**)
-
-> These numbers are a snapshot of what the code says today. They weren't arrived at through
-> design reasoning, and they are **expected to be replaced wholesale**.
-> They live in `TikTokForWork/Design/Theme.swift`.
-
-### 4.1 Color (provisional)
-
-Dark mode only right now (`preferredColorScheme(.dark)` is pinned). No light mode.
-
-| Token | Current value | Use |
-|---|---|---|
-| `background` | `#000000` | App canvas |
-| `surface` | `#0C0C0E` | Sheet backgrounds |
-| `surfaceRaised` | `#161618` | Inputs, chips, the Why-you box, list rows |
-| `textPrimary` | `#F4F4F5` | Titles, primary text |
-| `textSecondary` | `#A1A1AA` | Summaries, supporting text |
-| `textTertiary` | `#71717A` | Metadata, placeholders, disabled states |
-| `accent` | `#5E6AD2` | Links, selection, the accent bar |
-| `approve` | `#4ADE80` | Connection indicator, approval states |
-| `issueGreen` | `#238636` | Create-issue button |
-| `reject` | `#F87171` | Decline, urgent priority, errors |
-
-Colors hardcoded outside the theme: `#FBBF24` (priority High / deadline), `#38BDF8` (channel).
-
-### 4.2 Typography (provisional)
-
-SF Pro (`Font.system`). Currently only `.regular` and `.medium` — no bold anywhere.
-
-| Token | Size | Weight |
-|---|---|---|
-| `title` | 26 | medium |
-| `body` | 17 | regular |
-| `caption` | 13 | regular |
-| `label` | 12 | regular |
-| `micro` | 11 | regular |
-
-There are 10+ sizes hardcoded outside this scale (32 / 16 / 15 / 14 / 13 mono / 12 mono / 10 mono / 9). **The system isn't closed today.**
-
-### 4.3 Spacing / radius (provisional)
-
-4pt grid: `xs` 4 / `sm` 8 / `md` 16 / `lg` 24 / `xl` 32 / `xxl` 48 / `screen` 24
-Radius: `sm` 6 (chips) / `md` 10 (buttons, inputs) / `sheet` 14 (defined, unused)
-
-### 4.4 Components that exist today
-
-All in `TikTokForWork/Design/Components.swift`.
-
-| Component | Current state |
-|---|---|
-| `PrimaryButton` | 48pt tall, light fill with dark label |
-| `GitHubPrimaryButton` | 48pt tall, GitHub green with white label and mark |
-| `SecondaryAction` | 40pt tall, text only |
-| `ComposeBar` | 48pt tall, "Tell your AI" |
-| `PageDots` | Active dot is a wider capsule |
-| `PrioritySlider` | Four segments — Low/Med/High/Now |
-| `LabelChip` | Capsule chip |
-| `ToolCallChip` | Shows an AI tool call |
-| `ContextInsightView` | Parses and renders the context string |
-| `AppLogo` | Three stacked cards with an accent bar |
-| `ProcessingOverlay` / `DraftingBanner` | The two busy treatments |
-
-### 4.5 Context Insight (automatic meaning for context strings)
-
-The AI returns `context` as `label: value · label: value`. There is a parser that classifies each segment (deadline / metric / scope / channel / action / link / routing / general) and **already defines an icon and tint for each kind**.
-
-**None of it is drawn today** — the view renders two text columns only. The machinery works, so it's available to any design that wants it.
-
----
-
-## 5. Interaction & motion (provisional)
-
-Current values. The approach itself is open to revision.
+## 6. Interaction (direction A, as built)
 
 | Target | Current |
 |---|---|
@@ -238,27 +225,14 @@ Current values. The approach itself is open to revision.
 
 ---
 
-## 6. Copy
+## 7. Copy
 
-### Voice (current direction)
+### Voice (shared across branches)
 
 - "Tell your AI," not "Send message"
 - "Decision recorded," not "Message sent"
 - Sentence case. Short. No filler
 - Tagline: **"Decisions, not messages"**
-
-### Key strings today
-
-| Where | Copy |
-|---|---|
-| Auth tagline | Decisions, not messages |
-| ComposeBar | Tell your AI |
-| Auth identity picker | Your AI works on your behalf and receives cards addressed to you. |
-| Add member | New members get their own AI agent and can receive decision cards immediately. |
-| AI input helper | Your AI drafts a decision card in the background — keep scrolling while it works. |
-| Card swipe hint | Swipe right to create issue · left to decline |
-| Revise helper | What should change before this becomes a GitHub issue? |
-| Empty state | Tell your AI what you need / Decisions will show up here |
 
 ### Status display names
 
@@ -291,60 +265,28 @@ These constraints can themselves be changed for design reasons (`server/agentToo
 
 ---
 
-## 7. Open decisions
-
-What is genuinely undecided, roughly by weight.
-
-### Large
-
-1. **Define the design system** — color, type, spacing, components, decided with actual reasoning. The current values aren't even a starting point; they're placeholders.
-2. **Set the quality bar** — how far to build, and what counts as done. Today's UI is the minimum needed to make the mechanics work.
-3. **Information design of the Decision Card** — the center of the product. What is seen first, what collapses, how priority / sender / routing reason are weighted.
-4. **Visualize the org graph** — the data (people, AIs, teams, reporting lines) is all there, but the screen is a list. This is where the product's claim — "you can see structurally who should decide" — could actually land.
-5. **Design for a growing roster** — everything currently reads as a two-person org. The feed, the delegate picker, the org screen, and the page dots all need a design that holds at 10 and 50 people.
-
-### Medium
-
-6. **Identity treatment** — no avatars; the sender is just "From <name>" as text. How each member's AI agent is represented is also undecided.
-7. **Accessibility policy** — font sizes are all fixed (no Dynamic Type), VoiceOver labels are nearly absent, and some tap targets are under 44pt. Decide what to guarantee.
-8. **Light/dark policy** — dark-pinned today. Supporting both means revisiting the tokens.
-9. **Language** — English only, no localization layer. Decide early if a Japanese UI is needed.
-10. **Error and empty states** — errors use the stock system alert; there's only one empty state.
-
-### Small
-
-11. Whether to actually use the Context Insight icons and tints
-12. Whether to use or delete `Radius.sheet` (14)
-13. Whether to absorb the two hardcoded colors and stray font sizes into tokens
-
----
-
-## 8. Setup (getting it running)
+## 8. Setup
 
 ### Requirements
 
-- macOS + Xcode 16 or later
-- Node.js (for the relay server)
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
-- A GitHub account
+- macOS + Xcode 16 or later / Node.js / [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`) / a GitHub account
 
-### Steps
+### Steps (this branch)
 
 ```bash
 # 1) Start the relay server
 cd server
 cp .env.example .env
 #   fill in GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / OPENROUTER_API_KEY
-npm install
-npm start          # http://127.0.0.1:8080
+npm install && npm start          # http://127.0.0.1:8080
 
 # 2) Generate and open the Xcode project
-cd ..
-xcodegen generate
-open TikTokForWork.xcodeproj
+cd .. && xcodegen generate && open TikTokForWork.xcodeproj
 ```
 
-`server/README.md` covers creating the GitHub OAuth app (callback URL: `tiktokforwork://oauth/callback`).
+> Other branches set up differently. `cross-platform-strategy` uses `backend/`
+> (Docker/Fly-ready) and `current-features-gaps` uses `server/` + `web/` — check
+> their own READMEs.
 
 ### Running on two devices
 
@@ -354,15 +296,11 @@ open TikTokForWork.xcodeproj
 4. The card appears on Gota's screen in real time (green dot in the top bar = connected)
 5. Gota taps Create issue → a GitHub Issue is opened and the result flows back to Toru
 
-To add teammates, use **Organization → Add member** on either device — it lands on both immediately.
-
-### SwiftUI previews
-
-Previews exist for `RootView` / `FeedView` / `AuthView` / `OrgGraphView` / `AddMemberSheet` / `AIInputSheet` / `AppLogo` / `DecisionCardView` (with real data). Fastest way to look at UI in isolation.
+To add teammates: **Organization → Add member**. It lands on both devices immediately.
 
 ---
 
-## 9. File map (where to make changes)
+## 9. File map (this branch)
 
 ```
 TikTokForWork/
@@ -370,19 +308,15 @@ TikTokForWork/
 │  ├─ Theme.swift                color / type / spacing / radius (provisional values)
 │  ├─ Components.swift           buttons, chips, ComposeBar, PrioritySlider, ContextInsight
 │  ├─ ProcessingOverlay.swift    blocking overlay + drafting banner
-│  ├─ AppLogo.swift              logo
-│  ├─ Haptics.swift              the two haptic types
-│  └─ DateFormatting.swift       relative timestamps
+│  ├─ AppLogo.swift / Haptics.swift / DateFormatting.swift
 ├─ Features/
 │  ├─ Auth/AuthView.swift        sign-in + identity picker
 │  ├─ Feed/
 │  │  ├─ FeedView.swift          home (top bar / bottom chrome / sheet plumbing)
 │  │  ├─ DecisionCardView.swift  ★ the card itself, including swipe handling
 │  │  ├─ AIInputSheet.swift      AI input + DraftReviewSheet
-│  │  ├─ CardDetailSheet.swift   card detail
-│  │  ├─ ReviseSheet.swift       revision request
-│  │  ├─ DelegatePickerSheet.swift delegate picker
-│  │  └─ UserSwitcherSheet.swift switch who you are
+│  │  ├─ CardDetailSheet.swift / ReviseSheet.swift
+│  │  ├─ DelegatePickerSheet.swift / UserSwitcherSheet.swift
 │  └─ Org/
 │     ├─ OrgGraphView.swift      organization screen
 │     └─ AddMemberSheet.swift    add a member
@@ -398,6 +332,19 @@ server/
 ```
 
 **To change copy**: static UI strings are inline in each view file. Status and type display names are in `Models/DecisionCard.swift`. Progress messages are in `ViewModels/FeedViewModel.swift`. Instructions for AI-written copy are in `server/agentTools.js`.
+
+### Files worth reading on other branches
+
+| What you want | Branch | Path |
+|---|---|---|
+| The white marble design system spec | `3sec-value-onboarding` | `docs/design-system.md` |
+| Onboarding design thinking | `3sec-value-onboarding` | `onboarding.md` |
+| AG-UI protocol design | `3sec-value-onboarding` | `docs/agui-protocol.md` |
+| design v3 tokens and rationale | `current-features-gaps` | `TikTokForWork/Design/Theme.swift` (comments) / `web/src/styles/tokens.css` |
+| Cross-platform planning | `current-features-gaps` | `docs/CROSS_PLATFORM.md` / `docs/WEB_PLAN.md` |
+| Why the server-driven architecture | `cross-platform-strategy` | `backend/README.md` |
+| Billing design | `honmaruai-revenuecat-sdk` | `docs/revenuecat.md` |
+| Release procedure | `app-store-connect-cli` | `docs/app-store-release.md` |
 
 ---
 
