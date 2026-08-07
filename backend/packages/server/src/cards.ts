@@ -50,7 +50,11 @@ function toCard(db: Db, row: CardRow): DecisionCard {
     url: string | null;
     state: string | null;
   }[];
+  const watchers = db
+    .prepare("SELECT user_id FROM card_watchers WHERE card_id = ?")
+    .all(row.id) as { user_id: string }[];
   return {
+    watcherUserIds: watchers.map((watcher) => watcher.user_id),
     id: row.id,
     orgId: row.org_id,
     senderUserId: row.sender_user_id,
@@ -87,7 +91,8 @@ export function getCard(db: Db, cardId: string): DecisionCard | null {
   return row ? toCard(db, row) : null;
 }
 
-// A user sees a card when they sent it or must decide on it.
+// A user sees a card when they sent it, must decide on it, or were pulled
+// in as a watcher (e.g. via an @mention in the thread).
 export function listCardsForUser(
   db: Db,
   orgId: string,
@@ -96,15 +101,47 @@ export function listCardsForUser(
   const rows = db
     .prepare(
       `SELECT * FROM cards
-       WHERE org_id = ? AND (recipient_user_id = ? OR sender_user_id = ?)
+       WHERE org_id = ? AND (
+         recipient_user_id = ? OR sender_user_id = ?
+         OR id IN (SELECT card_id FROM card_watchers WHERE user_id = ?)
+       )
        ORDER BY created_at DESC`
     )
-    .all(orgId, userId, userId) as CardRow[];
+    .all(orgId, userId, userId, userId) as CardRow[];
   return rows.map((row) => toCard(db, row));
 }
 
 export function isCardVisibleTo(card: DecisionCard, userId: string): boolean {
-  return card.recipientUserId === userId || card.senderUserId === userId;
+  return (
+    card.recipientUserId === userId ||
+    card.senderUserId === userId ||
+    card.watcherUserIds.includes(userId)
+  );
+}
+
+// Pull a member into the card (mention/cc). Emits card_updated so the new
+// watcher's feed picks the card up in real time.
+export function addWatcher(
+  db: Db,
+  cardId: string,
+  userId: string,
+  actorUserId: string
+): { card: DecisionCard; events: OrgEvent[] } | null {
+  const card = getCard(db, cardId);
+  if (!card || isCardVisibleTo(card, userId)) return null;
+  const events: OrgEvent[] = [];
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO card_watchers (card_id, user_id, created_at)
+       VALUES (?, ?, ?) ON CONFLICT DO NOTHING`
+    ).run(cardId, userId, now());
+    db.prepare("UPDATE cards SET updated_at = ? WHERE id = ?").run(now(), cardId);
+    const next = getCard(db, cardId)!;
+    events.push(
+      appendEvent(db, card.orgId, "card_updated", actorUserId, { card: next })
+    );
+  })();
+  return { card: getCard(db, cardId)!, events };
 }
 
 function insertCard(db: Db, card: DecisionCard): void {
@@ -165,6 +202,7 @@ export function createCardFromRouting(
     sourceInstruction,
     revisionNote: null,
     parentCardId: null,
+    watcherUserIds: [],
     dueAt,
     escalatedAt: null,
     externalRefs: [],
@@ -273,6 +311,7 @@ export function applyCardAction(
           status: "pending",
           parentCardId: card.id,
           revisionNote: options.note ?? null,
+          watcherUserIds: [],
           escalatedAt: null,
           externalRefs: [],
           createdAt: timestamp,

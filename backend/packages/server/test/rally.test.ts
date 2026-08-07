@@ -81,6 +81,43 @@ describe("card thread rally", () => {
       CardError
     );
   });
+
+  it("@mention pulls the member in as a watcher with a dedicated notification", () => {
+    const { events } = createMessage(
+      db,
+      ctx.bob,
+      cardId,
+      "@Carol can you take the design side?"
+    );
+
+    // Watcher-add (card_updated) precedes the message event.
+    expect(events.map((event) => event.type)).toEqual([
+      "card_updated",
+      "message_created",
+    ]);
+    const messageEvent = events[1]!;
+    expect(messageEvent.payload).toMatchObject({
+      mentionedUserIds: [ctx.carol],
+      watcherUserIds: [ctx.carol],
+    });
+
+    // Carol now sees the card and can reply.
+    expect(listCardsForUser(db, ctx.orgId, ctx.carol).map((c) => c.id)).toContain(
+      cardId
+    );
+    expect(() => createMessage(db, ctx.carol, cardId, "on it")).not.toThrow();
+
+    // Carol gets card_mention; the other participant gets card_message.
+    const derived = deriveNotifications([messageEvent]);
+    expect(derived.find((n) => n.userId === ctx.carol)?.kind).toBe("card_mention");
+    expect(derived.find((n) => n.userId === ctx.alice)?.kind).toBe("card_message");
+  });
+
+  it("mentions ignore the author and unknown names", () => {
+    const { events } = createMessage(db, ctx.bob, cardId, "@Bob @Zorro hello");
+    const messageEvent = events.find((event) => event.type === "message_created")!;
+    expect(messageEvent.payload).toMatchObject({ mentionedUserIds: [] });
+  });
 });
 
 describe("notifications", () => {

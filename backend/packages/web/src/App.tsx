@@ -18,17 +18,14 @@ import {
 } from "react";
 import { api, rankCards, Realtime } from "./client.js";
 
-// ---------------------------------------------------------------------------
-// 仮フロントエンド (deliberately plain): one column, feed-first, wired to the
-// real protocol. Visual polish comes later; the flows are the real ones.
-// ---------------------------------------------------------------------------
-
 interface Session {
   token: string;
   user: User;
 }
 
 const QUICK_REPLIES = ["👍 Got it", "On it — today", "Need more info", "Ship it 🚀"];
+
+type FeedView = "inbox" | "sent" | "watching" | "all";
 
 // --- app state -------------------------------------------------------------
 
@@ -77,8 +74,15 @@ function reducer(state: AppState, action: Action): AppState {
         unread: 0,
         notifications: state.notifications.map((n) => ({ ...n, readAt: n.readAt ?? "now" })),
       };
-    case "thread":
-      return { ...state, messages: { ...state.messages, [action.cardId]: action.messages } };
+    case "thread": {
+      const streamed = state.messages[action.cardId] ?? [];
+      const merged = [...action.messages];
+      for (const message of streamed) {
+        if (!merged.some((m) => m.id === message.id)) merged.push(message);
+      }
+      merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return { ...state, messages: { ...state.messages, [action.cardId]: merged } };
+    }
     case "server":
       return applyServer(state, action.message, action.selfId);
   }
@@ -105,10 +109,13 @@ function applyServer(state: AppState, msg: ServerMessage, selfId: string): AppSt
       const ev = msg.event;
       if (ev.type === "card_created" || ev.type === "card_updated") {
         const card = ev.payload.card;
-        const visible = card.recipientUserId === selfId || card.senderUserId === selfId;
+        const visible =
+          card.recipientUserId === selfId ||
+          card.senderUserId === selfId ||
+          card.watcherUserIds.includes(selfId);
         const cards = { ...state.cards };
         if (visible) cards[card.id] = card;
-        else delete cards[card.id]; // re-routed away from me
+        else delete cards[card.id];
         return { ...state, cards };
       }
       if (ev.type === "card_deleted") {
@@ -118,8 +125,8 @@ function applyServer(state: AppState, msg: ServerMessage, selfId: string): AppSt
       }
       if (ev.type === "message_created") {
         const { message } = ev.payload;
-        const existing = state.messages[message.cardId];
-        if (!existing || existing.some((m) => m.id === message.id)) return state;
+        const existing = state.messages[message.cardId] ?? [];
+        if (existing.some((m) => m.id === message.id)) return state;
         return {
           ...state,
           messages: { ...state.messages, [message.cardId]: [...existing, message] },
@@ -162,10 +169,37 @@ const STATUS_LABEL: Record<DecisionCard["status"], string> = {
   pending: "Pending",
   approved: "Approved",
   rejected: "Declined",
-  revised: "Revision requested",
+  revised: "Changes requested",
   delegated: "Delegated",
   completed: "Completed",
 };
+
+// Highlight @mentions inside message text.
+function MentionText({ text }: { text: string }) {
+  const parts = text.split(/(@[\p{L}\p{N}_]+)/gu);
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.startsWith("@") ? (
+          <span key={index} className="mention">
+            {part}
+          </span>
+        ) : (
+          <span key={index}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
+}
 
 // --- root ------------------------------------------------------------------
 
@@ -296,14 +330,16 @@ function OrgGate({ session, onDone }: { session: Session; onDone: (o: Org) => vo
 
 function Main({ session, org }: { session: Session; org: Org }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [view, setView] = useState<FeedView>("inbox");
   const [threadCard, setThreadCard] = useState<string | null>(null);
   const [showInbox, setShowInbox] = useState(false);
   const [invite, setInvite] = useState<string | null>(null);
   const rt = useRef<Realtime | null>(null);
+  const selfId = session.user.id;
 
   useEffect(() => {
     const realtime = new Realtime(session.token, org.id, {
-      onMessage: (message) => dispatch({ kind: "server", message, selfId: session.user.id }),
+      onMessage: (message) => dispatch({ kind: "server", message, selfId }),
       onStatus: (status) => dispatch({ kind: "status", status }),
     });
     rt.current = realtime;
@@ -313,12 +349,34 @@ function Main({ session, org }: { session: Session; org: Org }) {
       { token: session.token }
     ).then((r) => dispatch({ kind: "inbox", notifications: r.notifications, unread: r.unreadCount }));
     return () => realtime.close();
-  }, [session, org.id]);
+  }, [session, org.id, selfId]);
 
-  const feed = useMemo(
+  const allCards = useMemo(
     () => rankCards(Object.values(state.cards), state.edges),
     [state.cards, state.edges]
   );
+  const counts = useMemo(() => {
+    const inbox = allCards.filter((c) => c.recipientUserId === selfId && c.status === "pending");
+    return { inboxPending: inbox.length };
+  }, [allCards, selfId]);
+
+  const feed = useMemo(() => {
+    switch (view) {
+      case "inbox":
+        return allCards.filter((c) => c.recipientUserId === selfId);
+      case "sent":
+        return allCards.filter((c) => c.senderUserId === selfId);
+      case "watching":
+        return allCards.filter(
+          (c) =>
+            c.watcherUserIds.includes(selfId) &&
+            c.recipientUserId !== selfId &&
+            c.senderUserId !== selfId
+        );
+      case "all":
+        return allCards;
+    }
+  }, [allCards, view, selfId]);
 
   const openThread = useCallback(
     async (cardId: string) => {
@@ -344,84 +402,173 @@ function Main({ session, org }: { session: Session; org: Org }) {
     setInvite(r.code);
   };
 
+  const signOut = () => {
+    sessionStorage.clear();
+    location.reload();
+  };
+
   const memberName = (id: string) =>
     state.members.find((m) => m.userId === id)?.name ?? "…";
 
+  const VIEWS: { key: FeedView; label: string; badge?: number }[] = [
+    { key: "inbox", label: "Inbox", badge: counts.inboxPending },
+    { key: "sent", label: "Sent" },
+    { key: "watching", label: "Watching" },
+    { key: "all", label: "All" },
+  ];
+
+  const activeThread = threadCard ? state.cards[threadCard] : undefined;
+
   return (
-    <div className="shell">
-      <header className="topbar">
-        <div className={`conn ${state.connection}`} title={state.connection} />
-        <div className="org-name">{org.name}</div>
-        <div className="me">{session.user.name}</div>
-        <button className="icon" onClick={makeInvite} title="Invite a teammate">+👤</button>
-        <button className="icon bell" onClick={() => { setShowInbox(!showInbox); if (!showInbox) markAllRead(); }}>
-          🔔{state.unread > 0 && <span className="badge">{state.unread}</span>}
-        </button>
-      </header>
-
-      {invite && (
-        <div className="invite-strip">
-          Invite code: <code>{invite}</code>
-          <button className="icon" onClick={() => setInvite(null)}>✕</button>
+    <div className={`shell ${activeThread ? "with-thread" : ""}`}>
+      <aside className="sidebar">
+        <div className="side-org">
+          <span className={`conn ${state.connection}`} />
+          <span className="org-name">{org.name}</span>
         </div>
-      )}
 
-      {showInbox && (
-        <div className="inbox">
-          {state.notifications.length === 0 && <div className="muted pad">All caught up.</div>}
-          {state.notifications.slice(0, 20).map((n) => (
-            <div key={n.id} className={`ntf ${n.readAt ? "" : "unread"}`}>
-              <div className="t">{n.title}</div>
-              <div className="b">{n.body}</div>
+        <nav className="side-nav">
+          {VIEWS.map((item) => (
+            <button
+              key={item.key}
+              className={`nav-item ${view === item.key ? "active" : ""}`}
+              onClick={() => setView(item.key)}
+            >
+              <span>{item.label}</span>
+              {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
+            </button>
+          ))}
+        </nav>
+
+        <div className="side-section">Members</div>
+        <div className="side-members">
+          {state.members.map((member) => (
+            <div key={member.userId} className="member-row">
+              <span className="avatar">{initials(member.name)}</span>
+              <span className="member-name">
+                {member.name}
+                {member.userId === selfId && <span className="you"> (you)</span>}
+              </span>
+              <span
+                className={`presence ${state.online[member.userId] || member.userId === selfId ? "on" : ""}`}
+              />
             </div>
           ))}
+          <button className="side-invite" title="Invite a teammate" onClick={makeInvite}>
+            + Invite a teammate
+          </button>
+          {invite && (
+            <div className="invite-strip">
+              <code>{invite}</code>
+              <button className="icon" onClick={() => setInvite(null)}>✕</button>
+            </div>
+          )}
         </div>
-      )}
 
-      <main className="feed">
-        {feed.length === 0 && (
-          <div className="empty">
-            <p>No decisions waiting.</p>
-            <p className="muted">Message your AI below — it will route the right card to the right person.</p>
+        <div className="side-footer">
+          <span className="avatar me">{initials(session.user.name)}</span>
+          <span className="member-name">{session.user.name}</span>
+          <button className="icon" title="Sign out" onClick={signOut}>⏻</button>
+        </div>
+      </aside>
+
+      <main className="main">
+        <header className="main-head">
+          <h1>{VIEWS.find((v) => v.key === view)?.label}</h1>
+          <span className="muted small">
+            {view === "inbox"
+              ? `${counts.inboxPending} to decide`
+              : `${feed.length} cards`}
+          </span>
+          <span className="spacer" />
+          <div className="bell-wrap">
+            <button
+              className="bell icon"
+              onClick={() => {
+                setShowInbox(!showInbox);
+                if (!showInbox) markAllRead();
+              }}
+            >
+              🔔{state.unread > 0 && <span className="badge">{state.unread}</span>}
+            </button>
+            {showInbox && (
+              <div className="inbox-pop">
+                {state.notifications.length === 0 && (
+                  <div className="muted pad">All caught up.</div>
+                )}
+                {state.notifications.slice(0, 20).map((n) => (
+                  <button
+                    key={n.id}
+                    className={`ntf ${n.readAt ? "" : "unread"}`}
+                    onClick={() => {
+                      if (n.cardId && state.cards[n.cardId]) openThread(n.cardId);
+                      setShowInbox(false);
+                    }}
+                  >
+                    <span className="t">{n.title}</span>
+                    <span className="b">{n.body}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-        {feed.map((card) => (
-          <Card
-            key={card.id}
-            card={card}
-            selfId={session.user.id}
-            members={state.members}
-            online={state.online}
-            memberName={memberName}
-            onAction={(action, extra) => rt.current?.cardAction(card.id, action, extra)}
-            onThread={() => openThread(card.id)}
-          />
-        ))}
+        </header>
+
+        <div className="cards">
+          {feed.length === 0 && (
+            <div className="empty">
+              <p>Nothing here.</p>
+              <p className="muted small">
+                Message your AI below — it routes the right card to the right person.
+              </p>
+            </div>
+          )}
+          {feed.map((card) => (
+            <CardRow
+              key={card.id}
+              card={card}
+              selfId={selfId}
+              members={state.members}
+              online={state.online}
+              memberName={memberName}
+              replyCount={(state.messages[card.id] ?? []).length}
+              active={threadCard === card.id}
+              onAction={(action, extra) => rt.current?.cardAction(card.id, action, extra)}
+              onThread={() => openThread(card.id)}
+            />
+          ))}
+        </div>
+
+        <Composer members={state.members} selfId={selfId} onSend={(text) => rt.current?.instruction(text)} />
       </main>
 
-      {threadCard && state.cards[threadCard] && (
-        <Thread
-          card={state.cards[threadCard]}
-          messages={state.messages[threadCard] ?? []}
-          selfId={session.user.id}
+      {activeThread && (
+        <ThreadPanel
+          card={activeThread}
+          messages={state.messages[activeThread.id] ?? []}
+          selfId={selfId}
+          members={state.members}
           memberName={memberName}
-          onSend={(text) => rt.current?.cardMessage(threadCard, text)}
+          onSend={(text) => rt.current?.cardMessage(activeThread.id, text)}
           onClose={() => setThreadCard(null)}
         />
       )}
-
-      <Composer onSend={(text) => rt.current?.instruction(text)} />
     </div>
   );
 }
 
-function Card(props: {
+function CardRow(props: {
   card: DecisionCard;
   selfId: string;
   members: Member[];
   online: Record<string, boolean>;
   memberName: (id: string) => string;
-  onAction: (action: "approve" | "reject" | "request_revision" | "delegate" | "delete", extra?: { note?: string; delegateToUserId?: string }) => void;
+  replyCount: number;
+  active: boolean;
+  onAction: (
+    action: "approve" | "reject" | "request_revision" | "delegate" | "delete",
+    extra?: { note?: string; delegateToUserId?: string }
+  ) => void;
   onThread: () => void;
 }) {
   const { card, selfId, memberName } = props;
@@ -434,42 +581,33 @@ function Card(props: {
   const counterpart = isRecipient ? card.senderUserId : card.recipientUserId;
 
   return (
-    <article className={`card ${card.status}`}>
-      <div className="row">
+    <article className={`card ${card.status} ${props.active ? "active" : ""}`}>
+      <div className="row meta-row">
         <span className={`chip type-${card.type}`}>{card.type}</span>
         <span className={`chip prio-${card.priority}`}>{card.priority}</span>
         {due && <span className={`chip ${due.overdue ? "overdue" : "due"}`}>{due.text}</span>}
+        {card.status !== "pending" && (
+          <span className={`chip st-${card.status}`}>{STATUS_LABEL[card.status]}</span>
+        )}
         <span className="spacer" />
-        <span className="muted small">
-          {props.online[counterpart] && <span className="dot on" title="online" />}
-          {isRecipient ? `from ${memberName(card.senderUserId)}` : `to ${memberName(card.recipientUserId)}`} · {ago(card.createdAt)}
+        <span className="muted small who">
+          {props.online[counterpart] && <span className="presence on inline" />}
+          {isRecipient ? `from ${memberName(card.senderUserId)}` : `to ${memberName(card.recipientUserId)}`}
+          {" · "}
+          {ago(card.createdAt)}
         </span>
       </div>
-      <h3>{card.title}</h3>
-      <p className="sum">{card.summary}</p>
-      <p className="ctx">{card.context}</p>
-      <p className="route">
-        {card.agentRoute} · {card.routingReason}
-      </p>
-      {gh && (
-        <p className="gh">
-          {gh.url ? <a href={gh.url} target="_blank" rel="noreferrer">Issue #{gh.externalId}</a> : `Issue #${gh.externalId}`}
-          {" "}on GitHub · {gh.state}
-        </p>
-      )}
-      {card.status !== "pending" && (
-        <div className="row">
-          <span className={`chip st-${card.status}`}>{STATUS_LABEL[card.status]}</span>
-          {card.revisionNote && <span className="muted small">“{card.revisionNote}”</span>}
-        </div>
-      )}
-      <div className="actions">
+      <button className="card-body" onClick={props.onThread}>
+        <h3>{card.title}</h3>
+        <p className="sum">{card.summary}</p>
+      </button>
+      <div className="row foot-row">
         {card.status === "pending" && isRecipient && !revising && !delegating && (
           <>
-            <button className="approve" onClick={() => props.onAction("approve")}>Approve</button>
-            <button className="reject" onClick={() => props.onAction("reject")}>Decline</button>
-            <button onClick={() => setRevising(true)}>Request changes</button>
-            <button onClick={() => setDelegating(true)}>Delegate</button>
+            <button className="mini approve" onClick={() => props.onAction("approve")}>Approve</button>
+            <button className="mini reject" onClick={() => props.onAction("reject")}>Decline</button>
+            <button className="mini" onClick={() => setRevising(true)}>Changes</button>
+            <button className="mini" onClick={() => setDelegating(true)}>Delegate</button>
           </>
         )}
         {revising && (
@@ -486,7 +624,7 @@ function Card(props: {
                 }
               }}
             />
-            <button onClick={() => setRevising(false)}>✕</button>
+            <button className="mini" onClick={() => setRevising(false)}>✕</button>
           </div>
         )}
         {delegating && (
@@ -494,26 +632,51 @@ function Card(props: {
             {props.members
               .filter((m) => m.userId !== selfId && m.userId !== card.recipientUserId)
               .map((m) => (
-                <button key={m.userId} onClick={() => { props.onAction("delegate", { delegateToUserId: m.userId }); setDelegating(false); }}>
+                <button
+                  key={m.userId}
+                  className="mini"
+                  onClick={() => {
+                    props.onAction("delegate", { delegateToUserId: m.userId });
+                    setDelegating(false);
+                  }}
+                >
                   → {m.name}
                 </button>
               ))}
-            <button onClick={() => setDelegating(false)}>✕</button>
+            <button className="mini" onClick={() => setDelegating(false)}>✕</button>
           </div>
         )}
-        <button className="thread-btn" onClick={props.onThread}>💬 Thread</button>
+        <button className="mini thread-btn" onClick={props.onThread}>
+          💬 {props.replyCount > 0 ? props.replyCount : "Reply"}
+        </button>
         {card.status === "rejected" && (
-          <button onClick={() => props.onAction("delete")}>Remove</button>
+          <button className="mini" onClick={() => props.onAction("delete")}>Remove</button>
+        )}
+        <span className="spacer" />
+        {gh && (
+          <span className="gh small">
+            {gh.url ? (
+              <a href={gh.url} target="_blank" rel="noreferrer">#{gh.externalId}</a>
+            ) : (
+              `#${gh.externalId}`
+            )}
+          </span>
+        )}
+        {card.watcherUserIds.length > 0 && (
+          <span className="muted small" title={card.watcherUserIds.map(memberName).join(", ")}>
+            👁 {card.watcherUserIds.length}
+          </span>
         )}
       </div>
     </article>
   );
 }
 
-function Thread(props: {
+function ThreadPanel(props: {
   card: DecisionCard;
   messages: CardMessage[];
   selfId: string;
+  members: Member[];
   memberName: (id: string) => string;
   onSend: (text: string) => void;
   onClose: () => void;
@@ -528,20 +691,29 @@ function Thread(props: {
     props.onSend(value.trim());
     setText("");
   };
+  const mentionables = props.members.filter((m) => m.userId !== props.selfId);
   return (
-    <div className="sheet">
-      <div className="sheet-head">
+    <aside className="thread">
+      <div className="thread-head">
         <div>
           <div className="t">{props.card.title}</div>
-          <div className="muted small">Replies land instantly — no AI in this path</div>
+          <div className="muted small">
+            {props.card.agentRoute} · {STATUS_LABEL[props.card.status]}
+          </div>
         </div>
         <button className="icon" onClick={props.onClose}>✕</button>
       </div>
-      <div className="sheet-body" ref={bodyRef}>
-        {props.messages.length === 0 && <div className="muted pad">Start the rally.</div>}
+      <div className="thread-body" ref={bodyRef}>
+        <div className="thread-card muted small">
+          {props.card.summary}
+          <div className="ctx">{props.card.context}</div>
+        </div>
+        {props.messages.length === 0 && (
+          <div className="muted small center">Replies land instantly — no AI in this path.</div>
+        )}
         {props.messages.map((m) => (
           <div key={m.id} className={`msg ${m.authorUserId === props.selfId ? "me" : "them"}`}>
-            {m.text}
+            <MentionText text={m.text} />
             <span className="meta">{props.memberName(m.authorUserId)} · {ago(m.createdAt)}</span>
           </div>
         ))}
@@ -550,37 +722,59 @@ function Thread(props: {
         {QUICK_REPLIES.map((q) => (
           <button key={q} onClick={() => send(q)}>{q}</button>
         ))}
+        {mentionables.slice(0, 3).map((m) => (
+          <button
+            key={m.userId}
+            title={`Mention ${m.name} — pulls them into this card`}
+            onClick={() => setText((t) => `${t}@${m.name.split(" ")[0]} `)}
+          >
+            @{m.name.split(" ")[0]}
+          </button>
+        ))}
       </div>
-      <div className="sheet-input">
+      <div className="thread-input">
         <input
           autoFocus
-          placeholder="Reply…"
+          placeholder="Reply… (@name to pull someone in)"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send(text)}
         />
-        <button className="primary" onClick={() => send(text)}>↑</button>
+        <button className="primary send" onClick={() => send(text)}>↑</button>
       </div>
-    </div>
+    </aside>
   );
 }
 
-function Composer({ onSend }: { onSend: (text: string) => void }) {
+function Composer({
+  members,
+  selfId,
+  onSend,
+}: {
+  members: Member[];
+  selfId: string;
+  onSend: (text: string) => void;
+}) {
   const [text, setText] = useState("");
   const send = () => {
     if (!text.trim()) return;
     onSend(text.trim());
     setText("");
   };
+  const names = members
+    .filter((m) => m.userId !== selfId)
+    .map((m) => m.name.split(" ")[0])
+    .slice(0, 3)
+    .join(", ");
   return (
     <footer className="composer">
       <input
-        placeholder="Message your AI… (e.g. tell Bob to fix the login bug asap)"
+        placeholder={`Message your AI… (e.g. "tell ${names.split(", ")[0] || "Bob"} to fix the login bug asap")`}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && send()}
       />
-      <button className="primary" onClick={send}>↑</button>
+      <button className="primary send" onClick={send}>↑</button>
     </footer>
   );
 }

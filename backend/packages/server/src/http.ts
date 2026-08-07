@@ -371,6 +371,14 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
             event.payload.senderUserId === user.id
           );
         }
+        if (event.type === "message_created") {
+          return (
+            event.payload.cardSenderUserId === user.id ||
+            event.payload.cardRecipientUserId === user.id ||
+            event.payload.watcherUserIds.includes(user.id) ||
+            event.payload.mentionedUserIds.includes(user.id)
+          );
+        }
         return true;
       }
     );

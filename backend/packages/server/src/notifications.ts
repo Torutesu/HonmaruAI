@@ -183,21 +183,41 @@ export function deriveNotifications(events: OrgEvent[]): Omit<
         break;
       }
       case "message_created": {
-        const { message, cardSenderUserId, cardRecipientUserId } = event.payload;
-        for (const participant of new Set([
+        const {
+          message,
           cardSenderUserId,
           cardRecipientUserId,
-        ])) {
-          if (participant !== message.authorUserId) {
-            out.push({
-              orgId: event.orgId,
-              userId: participant,
-              kind: "card_message",
-              cardId: message.cardId,
-              title: "New reply",
-              body: truncate(message.text),
-            });
-          }
+          watcherUserIds,
+          mentionedUserIds,
+        } = event.payload;
+        const mentioned = new Set(mentionedUserIds);
+        const audience = new Set([
+          cardSenderUserId,
+          cardRecipientUserId,
+          ...watcherUserIds,
+          ...mentionedUserIds,
+        ]);
+        for (const target of audience) {
+          if (target === message.authorUserId) continue;
+          out.push(
+            mentioned.has(target)
+              ? {
+                  orgId: event.orgId,
+                  userId: target,
+                  kind: "card_mention",
+                  cardId: message.cardId,
+                  title: "You were mentioned",
+                  body: truncate(message.text),
+                }
+              : {
+                  orgId: event.orgId,
+                  userId: target,
+                  kind: "card_message",
+                  cardId: message.cardId,
+                  title: "New reply",
+                  body: truncate(message.text),
+                }
+          );
         }
         break;
       }

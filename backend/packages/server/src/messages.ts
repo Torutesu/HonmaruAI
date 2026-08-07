@@ -1,8 +1,9 @@
-import type { CardMessage, MessageKind, OrgEvent } from "@honmaru/protocol";
-import { CardError, getCard, isCardVisibleTo } from "./cards.js";
+import type { CardMessage, Member, MessageKind, OrgEvent } from "@honmaru/protocol";
+import { addWatcher, CardError, getCard, isCardVisibleTo } from "./cards.js";
 import type { Db } from "./db.js";
 import { appendEvent } from "./events.js";
 import { newId, now } from "./ids.js";
+import { listMembers } from "./orgs.js";
 
 interface MessageRow {
   id: string;
@@ -41,8 +42,38 @@ export function countMessages(db: Db, cardId: string): number {
   ).n;
 }
 
+// Slack-style @mentions: "@Alice" (first name) or "@Alice Kato" pulls that
+// member in. Case-insensitive, author excluded.
+export function parseMentions(
+  text: string,
+  members: Member[],
+  authorUserId: string
+): string[] {
+  const lower = text.toLowerCase();
+  const mentioned: string[] = [];
+  for (const member of members) {
+    if (member.userId === authorUserId) continue;
+    const first = member.name.trim().split(/\s+/)[0]?.toLowerCase();
+    if (!first) continue;
+    const candidates = [first, member.name.toLowerCase()];
+    if (
+      candidates.some((candidate) => {
+        const index = lower.indexOf(`@${candidate}`);
+        if (index === -1) return false;
+        const after = lower[index + candidate.length + 1];
+        return after === undefined || !/[a-z0-9]/.test(after);
+      })
+    ) {
+      mentioned.push(member.userId);
+    }
+  }
+  return mentioned;
+}
+
 // The rally path. Deliberately synchronous and AI-free: a reply must land
-// on the other participant's screen in one round-trip.
+// on the other participant's screen in one round-trip. @mentions pull the
+// mentioned member into the card as a watcher and trigger a dedicated
+// notification.
 export function createMessage(
   db: Db,
   authorUserId: string,
@@ -60,6 +91,21 @@ export function createMessage(
       "Only the card's participants can reply."
     );
   }
+
+  const mentionedUserIds = parseMentions(
+    text,
+    listMembers(db, card.orgId),
+    authorUserId
+  );
+  const events: OrgEvent[] = [];
+  // Watcher events first so a newly mentioned member receives the card
+  // before the message that pulled them in.
+  for (const userId of mentionedUserIds) {
+    const added = addWatcher(db, cardId, userId, authorUserId);
+    if (added) events.push(...added.events);
+  }
+  const updatedCard = getCard(db, cardId)!;
+
   const message: CardMessage = {
     id: newId("msg"),
     cardId,
@@ -69,7 +115,6 @@ export function createMessage(
     text,
     createdAt: now(),
   };
-  const events: OrgEvent[] = [];
   db.transaction(() => {
     db.prepare(
       `INSERT INTO card_messages (id, card_id, org_id, author_user_id, kind, text, created_at)
@@ -86,8 +131,10 @@ export function createMessage(
     events.push(
       appendEvent(db, card.orgId, "message_created", authorUserId, {
         message,
-        cardSenderUserId: card.senderUserId,
-        cardRecipientUserId: card.recipientUserId,
+        cardSenderUserId: updatedCard.senderUserId,
+        cardRecipientUserId: updatedCard.recipientUserId,
+        watcherUserIds: updatedCard.watcherUserIds,
+        mentionedUserIds,
       })
     );
   })();

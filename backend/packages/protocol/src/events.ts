@@ -50,10 +50,14 @@ export const MessageCreatedEvent = z.object({
   type: z.literal("message_created"),
   payload: z.object({
     message: CardMessage,
-    // Card participants, denormalized so visibility can be decided
-    // without a lookup.
+    // Card participants + watchers, denormalized so visibility can be
+    // decided without a lookup.
     cardSenderUserId: z.string(),
     cardRecipientUserId: z.string(),
+    watcherUserIds: z.array(z.string()).default([]),
+    // Org members @mentioned in this message (they get a dedicated
+    // card_mention notification and become watchers).
+    mentionedUserIds: z.array(z.string()).default([]),
   }),
 });
 

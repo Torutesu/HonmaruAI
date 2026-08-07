@@ -113,6 +113,9 @@ export const DecisionCard = z.object({
   revisionNote: z.string().nullish(),
   // Set when this card was spawned by delegating another card.
   parentCardId: z.string().nullish(),
+  // Members pulled into the card without being sender/recipient — e.g. by
+  // an @mention in the thread. Watchers see the card and its thread.
+  watcherUserIds: z.array(z.string()).default([]),
   // SLA: decide-by deadline derived from priority at creation (and
   // recomputed when refinement changes the priority). Null = no SLA.
   dueAt: z.string().nullish(),
@@ -154,6 +157,7 @@ export const NotificationKind = z.enum([
   "card_assigned",
   "card_status",
   "card_message",
+  "card_mention",
   "card_rerouted",
   "card_overdue",
 ]);

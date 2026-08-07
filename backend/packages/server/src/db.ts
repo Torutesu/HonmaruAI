@@ -86,6 +86,14 @@ CREATE INDEX IF NOT EXISTS idx_cards_org_recipient
 CREATE INDEX IF NOT EXISTS idx_cards_org_sender
   ON cards(org_id, sender_user_id);
 
+CREATE TABLE IF NOT EXISTS card_watchers (
+  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (card_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_watchers_user ON card_watchers(user_id);
+
 CREATE TABLE IF NOT EXISTS external_refs (
   card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
   integration TEXT NOT NULL,

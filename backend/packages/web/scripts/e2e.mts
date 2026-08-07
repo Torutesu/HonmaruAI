@@ -60,8 +60,10 @@ await waitFor("http://127.0.0.1:4173/");
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium",
 });
-const alice: Page = await (await browser.newContext({ viewport: { width: 480, height: 800 } })).newPage();
-const bob: Page = await (await browser.newContext({ viewport: { width: 480, height: 800 } })).newPage();
+const viewport = { width: 1180, height: 780 };
+const alice: Page = await (await browser.newContext({ viewport })).newPage();
+const bob: Page = await (await browser.newContext({ viewport })).newPage();
+const carol: Page = await (await browser.newContext({ viewport })).newPage();
 const APP = "http://127.0.0.1:4173/";
 
 function fail(message: string): never {
@@ -118,20 +120,42 @@ ok("bob sent quick reply");
 // Alice sees the reply in her thread + a notification
 await alice.waitForSelector(".bell .badge", { timeout: 8000 });
 ok("alice got notification badge");
+await alice.click('button.nav-item:has-text("Sent")');
 await alice.click(".card .thread-btn");
 await alice.waitForSelector('.msg.them:has-text("On it — today")', { timeout: 8000 });
 ok("alice sees rally message");
-await alice.click(".sheet-head .icon");
+
+// Carol joins the org (third member) — invite codes are multi-use
+await carol.goto(APP);
+await carol.fill('input[placeholder="Your name"]', "Carol");
+await carol.click("text=Continue");
+await carol.fill('input[placeholder="Job title (e.g. Engineer)"]', "Designer");
+await carol.fill('input[placeholder="Invite code"]', code);
+await carol.click('button:text-is("Join")');
+await carol.waitForSelector(".composer input");
+ok("carol joined org");
+
+// Bob @mentions Carol in the thread -> Carol is pulled in as a watcher
+await bob.fill(".thread-input input", "@Carol can you take the design side?");
+await bob.press(".thread-input input", "Enter");
+await bob.waitForSelector(".msg.me .mention");
+ok("bob sent @mention (highlighted)");
+
+await carol.waitForSelector(".bell .badge", { timeout: 8000 });
+ok("carol got mention notification");
+await carol.click('button.nav-item:has-text("Watching")');
+await carol.waitForSelector(".card h3", { timeout: 8000 });
+ok("mentioned card appeared in carol's Watching view");
+await carol.click(".card .thread-btn");
+await carol.waitForSelector(".msg.them .mention", { timeout: 8000 });
+ok("carol can read the thread she was pulled into");
 
 // Bob approves; Alice's card flips to approved
-await bob.click(".sheet-head .icon");
 await bob.click(".card .approve");
 await alice.waitForSelector(".chip.st-approved", { timeout: 8000 });
 ok("approval reflected on alice's screen");
 
 // screenshots
-await bob.click(".card .thread-btn");
-await bob.waitForSelector(".msg.me");
 await alice.waitForTimeout(400);
 await alice.screenshot({ path: aliceShot });
 await bob.screenshot({ path: bobShot });

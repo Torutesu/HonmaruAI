@@ -74,8 +74,15 @@ Key properties:
 Cards are the decision container; **thread messages** are the high-frequency
 back-and-forth around them (`card_message` over WS, `/v1/cards/:id/messages`
 over REST). The rally path is deliberately synchronous and AI-free so a reply
-lands on the other participant's screen in one round-trip. Only the card's
-sender and recipient can post or read a thread.
+lands on the other participant's screen in one round-trip. A card's sender,
+recipient, and watchers can post and read its thread.
+
+**@Mentions + watchers**: writing `@Name` in a thread pulls that org member
+into the card as a **watcher** — they gain visibility (feed + thread), get a
+dedicated `card_mention` notification, and the watcher-add is an ordinary
+`card_updated` event so their feed updates live. Mentions are parsed
+server-side against the org roster (first or full name, case-insensitive,
+author excluded).
 
 ## Two-phase AI pipeline (fast path + async refinement)
 
@@ -125,11 +132,14 @@ looped in via the org graph's `manages` edge.
 
 ## Web client (`packages/web`)
 
-Deliberately plain React client wired to the real protocol — the 仮 frontend
-for fast feature iteration. Dev login → create/join org (invite codes in the
-header) → ranked feed with approve/decline/revise/delegate, due/overdue
-chips, thread rally with quick replies (👍 Got it / On it — today / …),
-notification inbox, presence dots, and WS auto-reconnect with cursor resume.
+React client wired to the real protocol. Slack-style three-pane layout,
+light-first (dark follows the OS): a sidebar with Inbox / Sent / Watching /
+All views, the member roster with presence, and invites; a compact ranked
+card list with inline approve/decline/changes/delegate and due/overdue
+chips; and a right-hand thread panel with quick replies and one-tap
+@mention buttons (mentions are highlighted and pull members in as
+watchers). Notification popover with unread badge; WS auto-reconnect with
+cursor resume.
 
 ```bash
 npm run dev -w @honmaru/server   # API on :8081 (AUTH_DEV_MODE=1)

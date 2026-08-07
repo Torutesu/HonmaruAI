@@ -54,7 +54,9 @@ export function isEventVisibleTo(event: OrgEvent, userId: string): boolean {
     case "message_created":
       return (
         event.payload.cardSenderUserId === userId ||
-        event.payload.cardRecipientUserId === userId
+        event.payload.cardRecipientUserId === userId ||
+        event.payload.watcherUserIds.includes(userId) ||
+        event.payload.mentionedUserIds.includes(userId)
       );
     default:
       return true;

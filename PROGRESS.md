@@ -58,7 +58,10 @@ Last updated: 2026-08-06
 - [x] iOS client migrated to protocol v1 (token auth, org create/join, server-side actions; AIService/GitHubService removed — needs an Xcode build to verify, no Swift toolchain in CI yet)
 - [x] iOS: thread rally UI (card detail sheet with quick replies) + notification inbox with unread badge
 - [x] Deploy-ready: Dockerfile + fly.toml example + server serves the built web client (single image)
+- [x] @Mentions + watchers: `@Name` in a thread pulls the member into the card (visibility + card_mention notification); 35 server tests
+- [x] Web UI overhaul: Slack-style 3-pane layout (sidebar views + members / compact card list / right thread panel), light-first theme with OS dark, mention highlighting + one-tap mention chips
 - [ ] Run `fly deploy` (needs an account) + GitHub webhook reverse sync
+- [ ] iOS: mentions UI + light theme pass (server-side mentions already work for iOS users via notifications)
 
 ## Demo script
 
