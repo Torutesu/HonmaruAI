@@ -6,8 +6,7 @@ struct FeedView: View {
     @State private var aiPrompt = ""
     @State private var showAIInput = false
     @State private var showUserSwitcher = false
-    @State private var showOrgGraph = false
-    @State private var showMenu = false
+    @State private var showHistory = false
 
     var body: some View {
         ZStack {
@@ -83,8 +82,9 @@ struct FeedView: View {
             }
             .environmentObject(appState)
         }
-        .sheet(isPresented: $showOrgGraph) {
-            OrgGraphView()
+        .sheet(isPresented: $showHistory) {
+            HistoryView()
+                .environmentObject(appState)
         }
         .sheet(isPresented: $showAIInput) {
             AIInputSheet(
@@ -130,11 +130,6 @@ struct FeedView: View {
                 }
             }
         }
-        .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
-            Button("Organization") { showOrgGraph = true }
-            Button("Sign out", role: .destructive) { disconnect() }
-            Button("Cancel", role: .cancel) {}
-        }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) { viewModel.errorMessage = nil }
         } message: {
@@ -173,12 +168,13 @@ struct FeedView: View {
 
             Spacer()
 
-            Button { showMenu = true } label: {
-                Image(systemName: "ellipsis")
+            Button { showHistory = true } label: {
+                Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(width: 32, height: 32)
             }
+            .accessibilityLabel("History")
         }
         .padding(.horizontal, Theme.Spacing.screen)
         .padding(.top, Theme.Spacing.sm)
@@ -224,10 +220,6 @@ struct FeedView: View {
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .padding(.top, Theme.Spacing.xs)
         }
-    }
-
-    private func disconnect() {
-        appState.signOut()
     }
 }
 

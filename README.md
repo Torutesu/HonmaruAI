@@ -1,6 +1,21 @@
-# TikTok for Work
+# Honmaru AI — TikTok for Work
 
 AI-native decision feed for teams. Humans talk to their AI; agents route Decision Cards across the org in real time.
+
+## App structure
+
+Follows the designer's UX Strategy & Architecture (33-screen IA):
+
+| Area | Screens |
+|------|---------|
+| Onboarding | 11 — welcome, problem, concept ×2, connect AI (identity), tools intro, GitHub OAuth, Slack, Notion/Gmail/Calendar, AI builds context, ready |
+| Core product | Decision feed (Approve / Reject / Revise / Delegate / Later), card detail, AI input, draft review, history |
+| AI Assistant | Assistant home, what your AI knows, agent activity |
+| Organization | Teams, People, AI Agents, Org graph |
+| Integrations | Hub + Slack / GitHub / Notion / Gmail / Calendar detail |
+| Settings | Profile, Context, Billing, Security, Language |
+
+GitHub is a live integration (OAuth + Issues). Slack / Notion / Gmail / Calendar are simulated connections in the MVP — the UI is real, the side effects are not.
 
 ## Stack
 

@@ -50,6 +50,7 @@ enum CardActionKind {
     case reject
     case requestRevision
     case delegate
+    case later
     case viewDetails
     case delete
 }

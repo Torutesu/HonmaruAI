@@ -1,5 +1,21 @@
 # TikTok for Work — Design
 
+## Information architecture
+
+Per the designer's UX Strategy & Architecture diagram:
+
+```
+Honmaru AI
+├── Onboarding (11 screens: intro → connect AI → connect tools → context build → ready)
+├── Decision Feed (+ card detail, AI input, draft review, history)
+├── AI Assistant (home, context, activity)
+├── Organization (Teams / People / AI Agents / Org Graph)
+├── Integrations (Slack / GitHub / Notion / Gmail / Calendar)
+└── Settings (Profile / Context / Billing / Security / Language)
+```
+
+Tab bar: Feed · Assistant · Org · Tools · Settings. History opens from the feed's top bar.
+
 ## Direction
 
 Clean, flat, restrained. Linear clarity in a vertical feed shell. No gradients, no decorative borders, no heavy bold type.

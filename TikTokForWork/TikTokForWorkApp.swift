@@ -8,6 +8,7 @@ struct TikTokForWorkApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(appState)
+                .environmentObject(appState.preferences)
         }
     }
 }

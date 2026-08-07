@@ -1,6 +1,19 @@
 # Progress Checklist
 
-Last updated: 2026-07-27
+Last updated: 2026-08-07
+
+## Phase 7 — Designer IA build (33 screens)
+
+- [x] Onboarding flow (11 screens): intro ×4, connect AI, tools intro, GitHub OAuth, Slack, Notion/Gmail/Calendar, context build, ready
+- [x] Main tab navigation: Feed / Assistant / Org / Tools / Settings
+- [x] Feed shows pending cards only; `Later` action snoozes a card to the end
+- [x] History screen (resolved decisions, grouped by day, GitHub links)
+- [x] AI Assistant tab: assistant home, "What your AI knows", agent activity log
+- [x] Organization tab: Teams / People / AI Agents / Org graph
+- [x] Integrations tab: GitHub live, Slack/Notion/Gmail/Calendar simulated
+- [x] Settings: Profile, Context, Billing, Security, Language
+- [x] App display name → Honmaru AI
+- [x] Xcode project updated (also regenerable via `xcodegen generate`)
 
 ## Overall
 

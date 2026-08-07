@@ -10,6 +10,7 @@ final class AppState: ObservableObject {
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
+    let preferences = AppPreferences()
 
     let relayURL = AppConfig.relayURL
 
@@ -66,6 +67,10 @@ final class AppState: ObservableObject {
         }
         currentUser = user
         isAuthenticated = true
+    }
+
+    func completeOnboarding(as user: User) async {
+        await activateSession(as: user)
     }
 
     func switchUser(to user: User) async {

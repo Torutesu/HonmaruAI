@@ -19,6 +19,7 @@ final class FeedViewModel: ObservableObject {
     private var userID: String?
     private var draftTask: Task<Void, Never>?
     private var githubSyncTask: Task<Void, Never>?
+    private var snoozedIDs: Set<String> = []
 
     var currentIndex: Int {
         guard let scrollPosition,
@@ -36,6 +37,7 @@ final class FeedViewModel: ObservableObject {
         cardService = service
         self.githubService = githubService
         userID = user.id
+        snoozedIDs = []
         refreshCards(from: service)
 
         service.onCardsUpdated = { [weak self] in
@@ -82,6 +84,9 @@ final class FeedViewModel: ObservableObject {
             return
         case .viewDetails:
             detailCard = card
+            return
+        case .later:
+            snooze(card)
             return
         default:
             break
@@ -245,10 +250,28 @@ final class FeedViewModel: ObservableObject {
         isProcessing = false
     }
 
+    /// Push a card to the end of the feed without resolving it.
+    func snooze(_ card: DecisionCard) {
+        guard let cardService else { return }
+        let index = currentIndex
+        snoozedIDs.insert(card.id)
+        Haptics.light()
+        withAnimation(.easeOut(duration: 0.25)) {
+            refreshCards(from: cardService)
+        }
+        if index < cards.count, cards[index].id != card.id {
+            withAnimation(.easeOut(duration: 0.25)) {
+                scrollPosition = cards[index].id
+            }
+        }
+    }
+
     private func refreshCards(from service: DecisionCardService) {
         guard let userID else { return }
         let previousCount = cards.count
-        let updated = service.cards(for: userID)
+        let pending = service.cards(for: userID).filter(\.isPending)
+        let updated = pending.filter { !snoozedIDs.contains($0.id) }
+            + pending.filter { snoozedIDs.contains($0.id) }
         cards = updated
 
         if updated.isEmpty {

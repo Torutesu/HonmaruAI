@@ -1,39 +1,48 @@
 import SwiftUI
 
-struct AuthView: View {
+struct OnboardingGitHubStep: View {
     @EnvironmentObject private var appState: AppState
     @State private var selectedRepository: GitHubRepository?
     @State private var isConnecting = false
-    @State private var isSigningInWithGitHub = false
+    @State private var isSigningIn = false
     @State private var isRefreshingRepos = false
     @State private var errorMessage: String?
+    let onContinue: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                AppLogo(size: 56)
-                Text("TikTok for Work")
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                Text("Decisions, not messages")
-                    .font(Theme.TypeScale.caption)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.bottom, Theme.Spacing.xxl)
-
-            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+        OnboardingScaffold(
+            kicker: "Connect tools · 1 of 5",
+            title: "Connect GitHub",
+            subtitle: "Approved decisions become Issues, so engineers see them without opening the app.",
+            buttonTitle: appState.githubService.isConnected ? "Continue" : "Link repository",
+            buttonEnabled: canContinue && !isConnecting && !isSigningIn,
+            action: connectAndAdvance
+        ) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                 if appState.githubService.hasToken {
                     repositoryPicker
                 } else {
-                    githubSignInButton
+                    signInButton
                 }
 
                 if appState.githubService.isConnected, let connection = appState.githubService.connection {
-                    connectedBanner(connection)
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.Colors.approve)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(connection.username)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(Theme.Colors.textPrimary)
+                            Text(connection.repository)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                        }
+                        Spacer()
+                    }
+                    .padding(Theme.Spacing.md)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
                 }
 
                 if let errorMessage {
@@ -41,23 +50,12 @@ struct AuthView: View {
                         .font(Theme.TypeScale.label)
                         .foregroundStyle(Theme.Colors.reject)
                 }
-            }
-            .padding(.horizontal, Theme.Spacing.screen)
 
-            Spacer()
-
-            PrimaryButton(title: "Continue", enabled: canContinue && !isConnecting && !isSigningInWithGitHub) {
-                connectAndEnter()
+                Text("Your GitHub secret never leaves the localhost relay.")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
             }
-            .overlay {
-                if isConnecting {
-                    ProgressView().tint(Theme.Colors.background)
-                }
-            }
-            .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.bottom, Theme.Spacing.xl)
         }
-        .appBackground()
         .onAppear {
             if selectedRepository == nil,
                let repository = appState.githubService.connection?.repository {
@@ -66,10 +64,10 @@ struct AuthView: View {
         }
     }
 
-    private var githubSignInButton: some View {
-        Button(action: signInWithGitHub) {
+    private var signInButton: some View {
+        Button(action: signIn) {
             HStack(spacing: 10) {
-                if isSigningInWithGitHub {
+                if isSigningIn {
                     ProgressView().tint(Theme.Colors.textPrimary)
                 } else {
                     Image("GitHubMark")
@@ -86,27 +84,7 @@ struct AuthView: View {
             .foregroundStyle(Theme.Colors.textPrimary)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
         }
-        .disabled(isSigningInWithGitHub)
-    }
-
-    private func connectedBanner(_ connection: GitHubConnection) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.Colors.approve)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(connection.username)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                Text(connection.repository)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            Spacer()
-        }
-        .padding(Theme.Spacing.md)
-        .background(Theme.Colors.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .disabled(isSigningIn)
     }
 
     private var repositoryPicker: some View {
@@ -141,7 +119,9 @@ struct AuthView: View {
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .fieldStyle()
+                    .padding(Theme.Spacing.md)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
             } else {
                 Picker("Repository", selection: $selectedRepository) {
                     Text("Select").tag(Optional<GitHubRepository>.none)
@@ -163,14 +143,21 @@ struct AuthView: View {
         appState.githubService.isConnected || selectedRepository != nil
     }
 
-    private func fieldSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Text(title)
-                .font(Theme.TypeScale.micro)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .textCase(.uppercase)
-                .tracking(0.8)
-            content()
+    private func signIn() {
+        errorMessage = nil
+        isSigningIn = true
+
+        Task {
+            do {
+                guard let backendBaseURL = appState.backendBaseURL else {
+                    throw URLError(.badURL)
+                }
+                try await appState.githubService.signInWithOAuth(backendBaseURL: backendBaseURL)
+                selectedRepository = appState.githubService.repositories.first
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isSigningIn = false
         }
     }
 
@@ -194,25 +181,12 @@ struct AuthView: View {
         }
     }
 
-    private func signInWithGitHub() {
-        errorMessage = nil
-        isSigningInWithGitHub = true
-
-        Task {
-            do {
-                guard let backendBaseURL = appState.backendBaseURL else {
-                    throw URLError(.badURL)
-                }
-                try await appState.githubService.signInWithOAuth(backendBaseURL: backendBaseURL)
-                selectedRepository = appState.githubService.repositories.first
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isSigningInWithGitHub = false
+    private func connectAndAdvance() {
+        if appState.githubService.isConnected, selectedRepository == nil {
+            onContinue()
+            return
         }
-    }
 
-    private func connectAndEnter() {
         errorMessage = nil
         isConnecting = true
 
@@ -223,26 +197,12 @@ struct AuthView: View {
                 } else {
                     throw GitHubServiceError.missingCredentials
                 }
-
-                await appState.activateSession()
+                Haptics.success()
+                onContinue()
             } catch {
                 errorMessage = error.localizedDescription
             }
             isConnecting = false
         }
     }
-}
-
-private extension View {
-    func fieldStyle() -> some View {
-        padding(Theme.Spacing.md)
-            .background(Theme.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
-            .foregroundStyle(Theme.Colors.textPrimary)
-    }
-}
-
-#Preview {
-    AuthView()
-        .environmentObject(AppState())
 }

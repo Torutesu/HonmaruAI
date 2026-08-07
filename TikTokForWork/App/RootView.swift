@@ -14,9 +14,9 @@ struct RootView: View {
                         .foregroundStyle(Theme.Colors.textTertiary)
                 }
             } else if appState.isAuthenticated, appState.currentUser != nil {
-                FeedView()
+                MainTabView()
             } else {
-                AuthView()
+                OnboardingFlow()
             }
         }
         .appBackground()

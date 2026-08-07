@@ -263,6 +263,10 @@ struct DecisionCardView: View {
                         Haptics.light()
                         onAction(.delegate)
                     }
+
+                    SecondaryAction(title: "Later") {
+                        onAction(.later)
+                    }
                 }
 
                 Text("Swipe right to create issue · left to decline")

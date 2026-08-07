@@ -90,6 +90,13 @@ final class DecisionCardService: ObservableObject {
         cardsByUser[userID, default: []].sorted { $0.createdAt > $1.createdAt }
     }
 
+    func cards(sentBy userID: String) -> [DecisionCard] {
+        cardsByUser.values
+            .flatMap { $0 }
+            .filter { $0.senderUserID == userID && $0.recipientUserID != userID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
     @discardableResult
     func resolve(
         cardID: String,
@@ -111,6 +118,8 @@ final class DecisionCardService: ObservableObject {
         case .reject: card.status = .rejected
         case .requestRevision: card.status = .revised
         case .delegate:
+            return card
+        case .later:
             return card
         case .delete:
             return card
