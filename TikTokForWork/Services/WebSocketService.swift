@@ -15,6 +15,8 @@ enum RealtimeEvent {
     case cardUpdated(card: DecisionCard, previousRecipientUserID: String?)
     case cardDeleted(cardID: String, recipientUserID: String, senderUserID: String)
     case memberChanged(member: ProtocolMember)
+    case messageCreated(message: CardMessage)
+    case notification(NotificationItem)
     case presence(userId: String, status: String)
     case ack(clientRef: String?, card: DecisionCard?)
     case error(code: String, message: String)
@@ -255,13 +257,18 @@ final class WebSocketService: ObservableObject {
             guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
             return .presence(userId: frame.userId, status: frame.status)
 
+        case "notification":
+            struct Frame: Decodable { let notification: NotificationItem }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .notification(frame.notification)
+
         case "error":
             struct Frame: Decodable { let code: String; let message: String }
             guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
             return .error(code: frame.code, message: frame.message)
 
         default:
-            // notification / pong / future frames: safe to skip for now.
+            // pong / future frames: safe to skip.
             return .ignored
         }
     }
@@ -325,8 +332,17 @@ final class WebSocketService: ObservableObject {
             guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
             return .memberChanged(member: frame.event.payload.member)
 
+        case "message_created":
+            struct Frame: Decodable {
+                let event: Inner
+                struct Inner: Decodable { let payload: Payload }
+                struct Payload: Decodable { let message: CardMessage }
+            }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .messageCreated(message: frame.event.payload.message)
+
         default:
-            // message_created / org_graph_updated / member_left: no iOS UI yet.
+            // org_graph_updated / member_left: no iOS UI yet.
             return .ignored
         }
     }

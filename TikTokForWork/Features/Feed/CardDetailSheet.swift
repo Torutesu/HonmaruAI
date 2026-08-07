@@ -2,7 +2,12 @@ import SwiftUI
 
 struct CardDetailSheet: View {
     let card: DecisionCard
+    @ObservedObject var cardService: DecisionCardService
+    @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @State private var replyText = ""
+
+    private static let quickReplies = ["👍 Got it", "On it — today", "Need more info", "Ship it 🚀"]
 
     var body: some View {
         NavigationStack {
@@ -82,10 +87,18 @@ struct CardDetailSheet: View {
                             }
                         }
                     }
+
+                    detailSection(title: "Thread") {
+                        threadSection
+                    }
                 }
                 .padding(Theme.Spacing.screen)
             }
             .background(Theme.Colors.background)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                replyBar
+            }
+            .onAppear { loadThread() }
             .navigationTitle(card.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -97,6 +110,102 @@ struct CardDetailSheet: View {
         }
         .presentationBackground(Theme.Colors.surface)
         .presentationDragIndicator(.visible)
+    }
+
+    private var messages: [CardMessage] {
+        cardService.messagesByCard[card.id] ?? []
+    }
+
+    private var threadSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            if messages.isEmpty {
+                Text("Replies land instantly — no AI in this path.")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            ForEach(messages) { message in
+                messageBubble(message)
+            }
+        }
+    }
+
+    private func messageBubble(_ message: CardMessage) -> some View {
+        let isMine = message.authorUserId == appState.currentUser?.id
+        return VStack(
+            alignment: isMine ? .trailing : .leading,
+            spacing: 2
+        ) {
+            Text(message.text)
+                .font(Theme.TypeScale.body)
+                .foregroundStyle(isMine ? Color.white : Theme.Colors.textPrimary)
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.vertical, Theme.Spacing.sm)
+                .background(isMine ? Theme.Colors.accent : Theme.Colors.surfaceRaised)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+            Text("\(message.authorName) · \(DateFormatting.relative(message.createdAt))")
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: isMine ? .trailing : .leading)
+    }
+
+    private var replyBar: some View {
+        VStack(spacing: Theme.Spacing.sm) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Self.quickReplies, id: \.self) { reply in
+                        Button(reply) { send(reply) }
+                            .font(Theme.TypeScale.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.horizontal, Theme.Spacing.md)
+                            .padding(.vertical, 6)
+                            .background(Theme.Colors.surfaceRaised)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            HStack(spacing: Theme.Spacing.sm) {
+                TextField("Reply…", text: $replyText)
+                    .font(Theme.TypeScale.body)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .padding(Theme.Spacing.md)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                    .onSubmit { send(replyText) }
+                Button {
+                    send(replyText)
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Theme.Colors.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                }
+            }
+        }
+        .padding(.horizontal, Theme.Spacing.screen)
+        .padding(.vertical, Theme.Spacing.sm)
+        .background(Theme.Colors.surface)
+    }
+
+    private func send(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        replyText = ""
+        Task {
+            try? await cardService.sendMessage(cardID: card.id, text: trimmed)
+            Haptics.light()
+        }
+    }
+
+    private func loadThread() {
+        guard let api = appState.api, let token = SessionStore.sessionToken else { return }
+        Task {
+            if let history = try? await api.listMessages(token: token, cardID: card.id) {
+                cardService.seedMessages(cardID: card.id, messages: history)
+            }
+        }
     }
 
     private var issueLabel: String {

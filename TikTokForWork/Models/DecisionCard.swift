@@ -186,9 +186,8 @@ struct DecisionCard: Identifiable, Codable, Hashable {
         }
     }
 
-    @MainActor
     var senderName: String {
-        OrgDirectory.shared.name(for: senderUserID)
+        MemberNameCache.shared.name(for: senderUserID)
     }
 
     // GitHub sync is now one of many server-side integrations; these read

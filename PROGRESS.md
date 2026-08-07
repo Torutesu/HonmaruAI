@@ -56,8 +56,9 @@ Last updated: 2026-08-06
 - [x] Browser E2E: 2 Chromium sessions through org setup → instruction → rally → approval
 - [x] Agent memory (context layer): decision observations → prompt injection → LLM condensation + `/v1/orgs/:id/memory`
 - [x] iOS client migrated to protocol v1 (token auth, org create/join, server-side actions; AIService/GitHubService removed — needs an Xcode build to verify, no Swift toolchain in CI yet)
-- [ ] iOS: thread rally + notifications UI (protocol already supports both)
-- [ ] Deploy (Fly.io/Railway) + GitHub webhook reverse sync
+- [x] iOS: thread rally UI (card detail sheet with quick replies) + notification inbox with unread badge
+- [x] Deploy-ready: Dockerfile + fly.toml example + server serves the built web client (single image)
+- [ ] Run `fly deploy` (needs an account) + GitHub webhook reverse sync
 
 ## Demo script
 

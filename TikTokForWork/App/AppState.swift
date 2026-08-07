@@ -63,6 +63,18 @@ final class AppState: ObservableObject {
         currentUser = user
         self.orgName = orgName
         isAuthenticated = true
+
+        // Backfill the notification inbox (live updates arrive over WS).
+        if let api {
+            Task { [weak self] in
+                if let inbox = try? await api.listNotifications(token: token, orgID: orgID) {
+                    self?.cardService.seedInbox(
+                        notifications: inbox.notifications,
+                        unread: inbox.unread
+                    )
+                }
+            }
+        }
     }
 
     func createInviteCode() async -> String? {

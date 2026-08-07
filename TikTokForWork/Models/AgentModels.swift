@@ -44,7 +44,6 @@ struct InstructionDraft: Identifiable, Codable, Hashable {
     let labels: [String]
     let toolCalls: [AgentToolCall]
 
-    @MainActor
     var recipientName: String {
         DemoData.userName(for: recipientUserID)
     }

@@ -1,5 +1,32 @@
 import Foundation
 
+// Thread-safe name lookup usable from any isolation context (SwiftUI view
+// helpers are not MainActor-isolated, so model computed properties like
+// `senderName` cannot touch a MainActor store directly).
+final class MemberNameCache {
+    static let shared = MemberNameCache()
+    private let lock = NSLock()
+    private var names: [String: String] = [:]
+
+    func replace(with names: [String: String]) {
+        lock.lock()
+        self.names = names
+        lock.unlock()
+    }
+
+    func upsert(id: String, name: String) {
+        lock.lock()
+        names[id] = name
+        lock.unlock()
+    }
+
+    func name(for id: String) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return names[id] ?? "Teammate"
+    }
+}
+
 // Live org roster, fed by the server's `welcome` frame and later member
 // events. Replaces the hardcoded demo org as the source of truth for
 // names, delegation candidates, and the org graph view.
@@ -12,6 +39,9 @@ final class OrgDirectory: ObservableObject {
     @Published private(set) var edges: [ProtocolEdge] = []
 
     func apply(members: [ProtocolMember], teams: [ProtocolTeam], edges: [ProtocolEdge]) {
+        MemberNameCache.shared.replace(
+            with: Dictionary(uniqueKeysWithValues: members.map { ($0.userId, $0.name) })
+        )
         self.members = members.map { member in
             User(
                 id: member.userId,
@@ -26,6 +56,7 @@ final class OrgDirectory: ObservableObject {
     }
 
     func upsert(member: ProtocolMember) {
+        MemberNameCache.shared.upsert(id: member.userId, name: member.name)
         var updated = members.filter { $0.id != member.userId }
         updated.append(
             User(
@@ -40,6 +71,7 @@ final class OrgDirectory: ObservableObject {
     }
 
     func reset() {
+        MemberNameCache.shared.replace(with: [:])
         members = []
         teams = []
         edges = []
@@ -110,17 +142,19 @@ struct ProtocolOrg: Codable, Hashable {
 }
 
 // Legacy shim: views still reference DemoData for names and the org graph.
-// It now proxies the live directory.
-@MainActor
+// It now proxies the live directory. Name lookups are nonisolated (via the
+// cache) so model computed properties can use them from any context.
 enum DemoData {
+    @MainActor
     static var organization: OrganizationGraph { OrgDirectory.shared.graph }
 
+    @MainActor
     static func user(for id: String) -> User? {
         OrgDirectory.shared.user(for: id)
     }
 
     static func userName(for userID: String) -> String {
-        OrgDirectory.shared.name(for: userID)
+        MemberNameCache.shared.name(for: userID)
     }
 
     static func agentName(for userID: String) -> String {

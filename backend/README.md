@@ -185,6 +185,26 @@ curl -s localhost:8081/v1/orgs/$ORG/instructions -H "Authorization: Bearer $TOKE
   -d '{"text":"tell Bob to fix the login bug urgently"}'
 ```
 
+## Deploy
+
+Single-image deployment: the server also serves the built web client (SPA
+fallback included), so one container = API + WebSocket + web app.
+
+```bash
+cd backend
+docker build -t honmaru .
+docker run -p 8080:8080 -v honmaru-data:/data -e AUTH_DEV_MODE=1 honmaru
+```
+
+Fly.io: copy `fly.toml.example` to `fly.toml`, then `fly launch --no-deploy`,
+create the `honmaru_data` volume, set secrets, `fly deploy`. SQLite lives on
+the mounted volume; keep `min_machines_running = 1` so WebSocket sessions and
+the SLA sweeper stay alive. Point the iOS app at the deployed host via
+`AppConfig.backendHTTP`/`backendWS`.
+
+Local equivalent (no Docker): `npm run build && npm start` — if
+`packages/web/dist` exists it is served automatically.
+
 ## Client migration plan
 
 The legacy relay (`../server/`) still runs the current iOS app unchanged.

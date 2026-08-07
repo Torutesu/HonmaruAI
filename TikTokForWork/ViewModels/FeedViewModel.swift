@@ -13,6 +13,7 @@ final class FeedViewModel: ObservableObject {
     @Published var delegateCard: DecisionCard?
     @Published var reviseCard: DecisionCard?
     @Published var reviewDraft: InstructionDraft?
+    @Published var unreadCount = 0
 
     private var cardService: DecisionCardService?
     private var userID: String?
@@ -42,6 +43,11 @@ final class FeedViewModel: ObservableObject {
         }
         service.onError = { [weak self] message in
             self?.errorMessage = message
+        }
+        unreadCount = service.unreadNotifications
+        service.onInboxUpdated = { [weak self, weak service] in
+            guard let self, let service else { return }
+            self.unreadCount = service.unreadNotifications
         }
     }
 

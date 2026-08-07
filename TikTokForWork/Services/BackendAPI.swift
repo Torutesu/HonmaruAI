@@ -65,11 +65,72 @@ struct BackendAPI {
         return response.code
     }
 
+    func listMessages(token: String, cardID: String) async throws -> [CardMessage] {
+        struct Response: Decodable { let messages: [CardMessage] }
+        let response: Response = try await request(
+            "v1/cards/\(cardID)/messages", method: "GET", token: token, body: nil
+        )
+        return response.messages
+    }
+
+    func listNotifications(
+        token: String,
+        orgID: String
+    ) async throws -> (notifications: [NotificationItem], unread: Int) {
+        struct Response: Decodable {
+            let notifications: [NotificationItem]
+            let unreadCount: Int
+        }
+        let response: Response = try await request(
+            "v1/orgs/\(orgID)/notifications", method: "GET", token: token, body: nil
+        )
+        return (response.notifications, response.unreadCount)
+    }
+
+    func markAllNotificationsRead(token: String) async throws {
+        struct Body: Encodable { let all = true }
+        struct Response: Decodable { let updated: Int }
+        let _: Response = try await requestEncodable(
+            "v1/notifications/read", method: "POST", token: token, body: Body()
+        )
+    }
+
     private func request<T: Decodable>(
         _ path: String,
         method: String,
         token: String?,
         body: [String: String]?
+    ) async throws -> T {
+        if let body {
+            return try await requestEncodable(path, method: method, token: token, body: body)
+        }
+        return try await requestEncodable(
+            path, method: method, token: token, body: Optional<[String: String]>.none
+        )
+    }
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let standard = ISO8601DateFormatter()
+            standard.formatOptions = [.withInternetDateTime]
+            if let date = fractional.date(from: value) ?? standard.date(from: value) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(value)")
+        }
+        return decoder
+    }()
+
+    private func requestEncodable<T: Decodable, B: Encodable>(
+        _ path: String,
+        method: String,
+        token: String?,
+        body: B?
     ) async throws -> T {
         let url = baseURL.appending(path: path)
         var request = URLRequest(url: url)
@@ -92,6 +153,6 @@ struct BackendAPI {
             let parsed = try? JSONDecoder().decode(ErrorBody.self, from: data)
             throw BackendAPIError.server(parsed?.message ?? "Request failed (\(http.statusCode)).")
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        return try Self.decoder.decode(T.self, from: data)
     }
 }

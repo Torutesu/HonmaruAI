@@ -18,10 +18,15 @@ enum CardServiceError: LocalizedError {
 @MainActor
 final class DecisionCardService: ObservableObject {
     private(set) var cards: [String: DecisionCard] = [:]
+    @Published private(set) var messagesByCard: [String: [CardMessage]] = [:]
+    @Published private(set) var notifications: [NotificationItem] = []
+    @Published private(set) var unreadNotifications = 0
+
     private weak var webSocketService: WebSocketService?
 
     var currentUserID: String?
     var onCardsUpdated: (() -> Void)?
+    var onInboxUpdated: (() -> Void)?
     var onError: ((String) -> Void)?
 
     func attach(webSocketService: WebSocketService) {
@@ -33,7 +38,43 @@ final class DecisionCardService: ObservableObject {
 
     func reset() {
         cards = [:]
+        messagesByCard = [:]
+        notifications = []
+        unreadNotifications = 0
         onCardsUpdated?()
+        onInboxUpdated?()
+    }
+
+    // REST-fetched history merges under any messages that streamed in.
+    func seedMessages(cardID: String, messages: [CardMessage]) {
+        var merged = messages
+        for streamed in messagesByCard[cardID] ?? [] where !merged.contains(where: { $0.id == streamed.id }) {
+            merged.append(streamed)
+        }
+        messagesByCard[cardID] = merged.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func seedInbox(notifications: [NotificationItem], unread: Int) {
+        self.notifications = notifications
+        unreadNotifications = unread
+        onInboxUpdated?()
+    }
+
+    func markInboxRead() {
+        unreadNotifications = 0
+        notifications = notifications.map { item in
+            var updated = item
+            if updated.readAt == nil { updated.readAt = .now }
+            return updated
+        }
+        onInboxUpdated?()
+    }
+
+    func sendMessage(cardID: String, text: String) async throws {
+        guard let webSocketService, webSocketService.isConnected else {
+            throw CardServiceError.notConnected
+        }
+        await webSocketService.sendCardMessage(cardID: cardID, text: text)
     }
 
     // Feed order mirrors the server's ranking: pending first, then
@@ -131,6 +172,18 @@ final class DecisionCardService: ObservableObject {
 
         case .memberChanged(let member):
             OrgDirectory.shared.upsert(member: member)
+
+        case .messageCreated(let message):
+            var thread = messagesByCard[message.cardId] ?? []
+            if !thread.contains(where: { $0.id == message.id }) {
+                thread.append(message)
+                messagesByCard[message.cardId] = thread
+            }
+
+        case .notification(let item):
+            notifications.insert(item, at: 0)
+            unreadNotifications += 1
+            onInboxUpdated?()
 
         case .error(_, let message):
             onError?(message)

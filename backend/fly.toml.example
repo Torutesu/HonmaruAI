@@ -1,0 +1,27 @@
+# Fly.io config — copy to fly.toml, set app name, then:
+#   fly launch --no-deploy   (once, from backend/)
+#   fly volumes create honmaru_data --size 1
+#   fly secrets set OPENROUTER_API_KEY=... GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
+#   fly deploy
+app = "honmaru-backend"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DATABASE_PATH = "/data/honmaru.db"
+  # Dev login is for demos; disable once GitHub OAuth is configured.
+  AUTH_DEV_MODE = "1"
+  SLA_SWEEP_SECONDS = "60"
+
+[[mounts]]
+  source = "honmaru_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # keep WebSocket + SLA sweeper alive
+  min_machines_running = 1

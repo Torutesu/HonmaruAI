@@ -7,6 +7,7 @@ struct FeedView: View {
     @State private var showAIInput = false
     @State private var showOrgGraph = false
     @State private var showMenu = false
+    @State private var showNotifications = false
     @State private var inviteCode: String?
 
     var body: some View {
@@ -81,7 +82,11 @@ struct FeedView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $viewModel.detailCard) { card in
-            CardDetailSheet(card: card)
+            CardDetailSheet(card: card, cardService: appState.cardService)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showNotifications) {
+            NotificationsSheet(cardService: appState.cardService)
                 .presentationDetents([.medium, .large])
         }
         .sheet(item: $viewModel.reviseCard) { card in
@@ -155,6 +160,23 @@ struct FeedView: View {
             }
 
             Spacer()
+
+            Button { showNotifications = true } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "bell")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .frame(width: 32, height: 32)
+                    if viewModel.unreadCount > 0 {
+                        Text("\(min(viewModel.unreadCount, 9))")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 15, height: 15)
+                            .background(Theme.Colors.reject)
+                            .clipShape(Circle())
+                    }
+                }
+            }
 
             Button { showMenu = true } label: {
                 Image(systemName: "ellipsis")
