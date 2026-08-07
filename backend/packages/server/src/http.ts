@@ -1,9 +1,11 @@
 import {
   AcceptInviteRequest,
   CardActionRequest,
+  CreateChannelRequest,
   CreateInstructionRequest,
   CreateMessageRequest,
   CreateOrgRequest,
+  OpenDmRequest,
   DevLoginRequest,
   GitHubExchangeRequest,
   IntegrationKind,
@@ -36,6 +38,16 @@ import {
   isCardVisibleTo,
   listCardsForUser,
 } from "./cards.js";
+import {
+  ChatError,
+  createChannel,
+  ensureDefaultChannel,
+  getChannel,
+  isChannelVisibleTo,
+  listChannelsForUser,
+  listChatMessages,
+  openDm,
+} from "./chat.js";
 import type { Config } from "./config.js";
 import type { Db } from "./db.js";
 import { currentSeq, listEventsSince } from "./events.js";
@@ -101,6 +113,10 @@ const ERROR_STATUS: Record<string, 400 | 401 | 403 | 404 | 409> = {
   org_not_found: 404,
   invalid_transition: 409,
   invalid_delegate: 400,
+  channel_not_found: 404,
+  channel_exists: 409,
+  invalid_channel: 400,
+  invalid_dm: 400,
 };
 
 export function createHttpApp(deps: HttpDeps): Hono<Env> {
@@ -121,7 +137,8 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
     if (
       error instanceof AuthError ||
       error instanceof OrgError ||
-      error instanceof CardError
+      error instanceof CardError ||
+      error instanceof ChatError
     ) {
       return c.json(
         { code: error.code, message: error.message },
@@ -320,6 +337,49 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
     const body = RegisterDeviceRequest.parse(await c.req.json());
     registerDevice(db, user.id, body.platform, body.token);
     return c.json({ ok: true }, 201);
+  });
+
+  // --- classic chat (channels + DMs) --------------------------------------
+
+  app.get("/v1/orgs/:orgId/channels", (c) => {
+    const orgId = c.req.param("orgId");
+    const user = me(c);
+    requireMember(db, orgId, user.id);
+    ensureDefaultChannel(db, orgId);
+    return c.json({ channels: listChannelsForUser(db, orgId, user.id) });
+  });
+
+  app.post("/v1/orgs/:orgId/channels", async (c) => {
+    const orgId = c.req.param("orgId");
+    const user = me(c);
+    requireMember(db, orgId, user.id);
+    const body = CreateChannelRequest.parse(await c.req.json());
+    const { channel, events } = createChannel(db, orgId, user.id, body.name);
+    emitEvents(orgId, events);
+    return c.json({ channel }, 201);
+  });
+
+  app.post("/v1/orgs/:orgId/dms", async (c) => {
+    const orgId = c.req.param("orgId");
+    const user = me(c);
+    requireMember(db, orgId, user.id);
+    const body = OpenDmRequest.parse(await c.req.json());
+    const { channel, events } = openDm(db, orgId, user.id, body.userId);
+    emitEvents(orgId, events);
+    return c.json({ channel });
+  });
+
+  app.get("/v1/channels/:channelId/messages", (c) => {
+    const channelId = c.req.param("channelId");
+    const user = me(c);
+    const channel = getChannel(db, channelId);
+    if (!channel) throw new ChatError("channel_not_found", "Channel not found.");
+    requireMember(db, channel.orgId, user.id);
+    if (!isChannelVisibleTo(channel, user.id)) {
+      throw new ChatError("not_allowed", "You are not in this conversation.");
+    }
+    const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
+    return c.json({ messages: listChatMessages(db, channelId, limit) });
   });
 
   // What the org's AIs have learned about each member (context layer).

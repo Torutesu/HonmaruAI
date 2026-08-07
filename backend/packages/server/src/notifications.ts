@@ -17,6 +17,7 @@ interface NotificationRow {
   user_id: string;
   kind: Notification["kind"];
   card_id: string | null;
+  channel_id: string | null;
   title: string;
   body: string;
   read_at: string | null;
@@ -30,6 +31,7 @@ function toNotification(row: NotificationRow): Notification {
     userId: row.user_id,
     kind: row.kind,
     cardId: row.card_id,
+    channelId: row.channel_id,
     title: row.title,
     body: row.body,
     readAt: row.read_at,
@@ -221,6 +223,43 @@ export function deriveNotifications(events: OrgEvent[]): Omit<
         }
         break;
       }
+      case "chat_message_created": {
+        const { message, channelKind, channelName, memberUserIds, mentionedUserIds } =
+          event.payload;
+        const mentioned = new Set(mentionedUserIds);
+        for (const target of mentioned) {
+          if (target === message.authorUserId) continue;
+          out.push({
+            orgId: event.orgId,
+            userId: target,
+            kind: "chat_mention",
+            cardId: null,
+            channelId: message.channelId,
+            title:
+              channelKind === "channel"
+                ? `You were mentioned in #${channelName}`
+                : "You were mentioned",
+            body: truncate(message.text),
+          });
+        }
+        // Slack semantics: DMs always notify; channel messages only on
+        // mention.
+        if (channelKind === "dm") {
+          for (const target of memberUserIds) {
+            if (target === message.authorUserId || mentioned.has(target)) continue;
+            out.push({
+              orgId: event.orgId,
+              userId: target,
+              kind: "chat_message",
+              cardId: null,
+              channelId: message.channelId,
+              title: "New direct message",
+              body: truncate(message.text),
+            });
+          }
+        }
+        break;
+      }
       default:
         break;
     }
@@ -261,8 +300,8 @@ export class NotificationEngine {
       };
       this.db
         .prepare(
-          `INSERT INTO notifications (id, org_id, user_id, kind, card_id, title, body, read_at, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+          `INSERT INTO notifications (id, org_id, user_id, kind, card_id, channel_id, title, body, read_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
         )
         .run(
           notification.id,
@@ -270,6 +309,7 @@ export class NotificationEngine {
           notification.userId,
           notification.kind,
           notification.cardId ?? null,
+          notification.channelId ?? null,
           notification.title,
           notification.body,
           notification.createdAt

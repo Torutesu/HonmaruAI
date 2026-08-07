@@ -157,6 +157,18 @@ export const AnalyticsResponse = z.object({
   bottlenecks: z.array(z.string()),
 });
 
+// GET /v1/orgs/:orgId/channels · POST /v1/orgs/:orgId/channels
+export const CreateChannelRequest = z.object({
+  name: z.string().min(1).max(60),
+});
+
+// POST /v1/orgs/:orgId/dms — open (or return existing) DM with a member
+export const OpenDmRequest = z.object({
+  userId: z.string(),
+});
+
+// GET /v1/channels/:channelId/messages?limit=N
+
 export const ErrorResponse = z.object({
   code: z.string(),
   message: z.string(),

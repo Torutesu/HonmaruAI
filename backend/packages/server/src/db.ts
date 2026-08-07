@@ -86,6 +86,31 @@ CREATE INDEX IF NOT EXISTS idx_cards_org_recipient
 CREATE INDEX IF NOT EXISTS idx_cards_org_sender
   ON cards(org_id, sender_user_id);
 
+CREATE TABLE IF NOT EXISTS channels (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  kind TEXT NOT NULL,             -- channel | dm
+  name TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_channels_org ON channels(org_id);
+
+CREATE TABLE IF NOT EXISTS channel_members (
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  PRIMARY KEY (channel_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  author_user_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_channel ON chat_messages(channel_id, created_at);
+
 CREATE TABLE IF NOT EXISTS card_watchers (
   card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL,
@@ -131,6 +156,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   user_id TEXT NOT NULL,
   kind TEXT NOT NULL,
   card_id TEXT,
+  channel_id TEXT,
   title TEXT NOT NULL,
   body TEXT NOT NULL,
   read_at TEXT,
@@ -180,6 +206,7 @@ export function openDb(path: string): Db {
   // Additive migrations for databases created before a column existed.
   ensureColumn(db, "cards", "due_at", "TEXT");
   ensureColumn(db, "cards", "escalated_at", "TEXT");
+  ensureColumn(db, "notifications", "channel_id", "TEXT");
   return db;
 }
 

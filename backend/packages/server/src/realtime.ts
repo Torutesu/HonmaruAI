@@ -16,6 +16,12 @@ import {
   isCardVisibleTo,
   listCardsForUser,
 } from "./cards.js";
+import {
+  ChatError,
+  createChatMessage,
+  ensureDefaultChannel,
+  listChannelsForUser,
+} from "./chat.js";
 import type { Config } from "./config.js";
 import type { Db } from "./db.js";
 import { currentSeq, listEventsSince } from "./events.js";
@@ -57,6 +63,16 @@ export function isEventVisibleTo(event: OrgEvent, userId: string): boolean {
         event.payload.cardRecipientUserId === userId ||
         event.payload.watcherUserIds.includes(userId) ||
         event.payload.mentionedUserIds.includes(userId)
+      );
+    case "channel_created":
+      return (
+        event.payload.channel.kind === "channel" ||
+        event.payload.channel.memberUserIds.includes(userId)
+      );
+    case "chat_message_created":
+      return (
+        event.payload.channelKind === "channel" ||
+        event.payload.memberUserIds.includes(userId)
       );
     default:
       return true;
@@ -204,6 +220,7 @@ export class Hub {
       }
 
       this.sessions.set(ws, { userId: user.id, orgId: org.id });
+      ensureDefaultChannel(this.db, org.id);
       this.send(ws, {
         type: "welcome",
         self: member,
@@ -211,6 +228,7 @@ export class Hub {
         members: listMembers(this.db, org.id),
         teams: listTeams(this.db, org.id),
         edges: listEdges(this.db, org.id),
+        channels: listChannelsForUser(this.db, org.id, user.id),
         seq: currentSeq(this.db, org.id),
       });
 
@@ -233,6 +251,18 @@ export class Hub {
         });
       }
       this.broadcastPresence(org.id, user.id, "online");
+      // Catch the newcomer up on who is already online.
+      const seen = new Set<string>();
+      for (const session of this.sessions.values()) {
+        if (
+          session.orgId === org.id &&
+          session.userId !== user.id &&
+          !seen.has(session.userId)
+        ) {
+          seen.add(session.userId);
+          this.send(ws, { type: "presence", userId: session.userId, status: "online" });
+        }
+      }
       return;
     }
 
@@ -276,6 +306,18 @@ export class Hub {
         return;
       }
 
+      if (message.type === "chat_message") {
+        const { events } = createChatMessage(
+          this.db,
+          session.userId,
+          message.channelId,
+          message.text
+        );
+        this.send(ws, { type: "ack", clientRef: message.clientRef });
+        this.onEventsCommitted(session.orgId, events);
+        return;
+      }
+
       if (message.type === "card_action") {
         const { card, events } = applyCardAction(
           this.db,
@@ -289,7 +331,11 @@ export class Hub {
         return;
       }
     } catch (error) {
-      if (error instanceof CardError || error instanceof OrgError) {
+      if (
+        error instanceof CardError ||
+        error instanceof OrgError ||
+        error instanceof ChatError
+      ) {
         this.send(ws, {
           type: "error",
           clientRef: "clientRef" in message ? message.clientRef : undefined,

@@ -153,6 +153,33 @@ export const CardMessage = z.object({
 });
 export type CardMessage = z.infer<typeof CardMessage>;
 
+// Classic chat layer: org-wide channels and 1:1 DMs. Channels are open to
+// every org member; DM visibility is limited to its two members.
+export const ChannelKind = z.enum(["channel", "dm"]);
+export type ChannelKind = z.infer<typeof ChannelKind>;
+
+export const Channel = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  kind: ChannelKind,
+  // "#general" style name for channels; empty for DMs (clients render the
+  // other member's name).
+  name: z.string(),
+  memberUserIds: z.array(z.string()).default([]),
+  createdAt: z.string(),
+});
+export type Channel = z.infer<typeof Channel>;
+
+export const ChatMessage = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  channelId: z.string(),
+  authorUserId: z.string(),
+  text: z.string(),
+  createdAt: z.string(),
+});
+export type ChatMessage = z.infer<typeof ChatMessage>;
+
 export const NotificationKind = z.enum([
   "card_assigned",
   "card_status",
@@ -160,6 +187,8 @@ export const NotificationKind = z.enum([
   "card_mention",
   "card_rerouted",
   "card_overdue",
+  "chat_message",
+  "chat_mention",
 ]);
 export type NotificationKind = z.infer<typeof NotificationKind>;
 
@@ -171,6 +200,7 @@ export const Notification = z.object({
   userId: z.string(),
   kind: NotificationKind,
   cardId: z.string().nullish(),
+  channelId: z.string().nullish(),
   title: z.string(),
   body: z.string(),
   readAt: z.string().nullish(),

@@ -139,6 +139,26 @@ button.mini.reject { background: var(--reject-soft); border-color: transparent; 
 .conn.connecting { background: var(--warn); }
 .conn.closed { background: var(--reject); }
 
+.mode-tabs {
+  display: flex; gap: 4px;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 6px;
+}
+.mode-tab {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  border: 1px solid transparent; background: transparent;
+  padding: 5px 0; border-radius: 7px;
+  color: var(--text2); font-weight: 600; font-size: 12px;
+}
+.mode-tab:hover { background: var(--raised); }
+.mode-tab.active { background: var(--accent-soft); color: var(--accent); }
+
+.new-channel { padding: 2px 4px; }
+.new-channel input { font-size: 12px; padding: 4px 8px; border-color: transparent; background: var(--raised); }
+.new-channel input:focus { border-color: var(--accent); }
+
 .side-nav { display: flex; flex-direction: column; gap: 1px; }
 .nav-item {
   display: flex; align-items: center; justify-content: space-between;
@@ -310,6 +330,25 @@ button.mini.reject { background: var(--reject-soft); border-color: transparent; 
 .quick button:hover { color: var(--accent); background: var(--accent-soft); }
 .thread-input { display: flex; gap: 6px; padding: 8px 10px 10px; }
 button.send { width: 34px; padding: 6px 0; flex: none; }
+
+/* --- chat mode --- */
+.chat-body {
+  flex: 1; overflow-y: auto;
+  padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.cmsg { padding: 1px 0; }
+.cmsg:not(.grouped) { margin-top: 10px; }
+.cmsg-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 1px; }
+.cmsg-head .avatar { align-self: center; }
+.cmsg-author { font-weight: 700; font-size: 12.5px; }
+.cmsg-text { font-size: 13px; line-height: 1.5; padding-left: 27px; }
+.cmsg-text .mention {
+  color: var(--accent); background: var(--accent-soft);
+  border-radius: 4px; padding: 0 3px;
+}
+.chat-composer .make-card { flex: none; width: 34px; padding: 6px 0; }
+.chat-composer .make-card:hover { color: var(--accent); border-color: var(--accent); }
 
 /* --- composer --- */
 .composer {

@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { CardMessage, DecisionCard, Member, OrgEdge, Team } from "./entities.js";
+import {
+  CardMessage,
+  Channel,
+  ChannelKind,
+  ChatMessage,
+  DecisionCard,
+  Member,
+  OrgEdge,
+  Team,
+} from "./entities.js";
 
 // ---------------------------------------------------------------------------
 // Domain events. Every state change appends exactly one event to the org's
@@ -14,6 +23,8 @@ export const EventType = z.enum([
   "card_updated",
   "card_deleted",
   "message_created",
+  "channel_created",
+  "chat_message_created",
   "member_joined",
   "member_updated",
   "member_left",
@@ -71,6 +82,25 @@ export const CardDeletedEvent = z.object({
   }),
 });
 
+export const ChannelCreatedEvent = z.object({
+  ...base,
+  type: z.literal("channel_created"),
+  payload: z.object({ channel: Channel }),
+});
+
+export const ChatMessageCreatedEvent = z.object({
+  ...base,
+  type: z.literal("chat_message_created"),
+  payload: z.object({
+    message: ChatMessage,
+    // Denormalized for lookup-free visibility + notification rendering.
+    channelKind: ChannelKind,
+    channelName: z.string(),
+    memberUserIds: z.array(z.string()).default([]),
+    mentionedUserIds: z.array(z.string()).default([]),
+  }),
+});
+
 export const MemberJoinedEvent = z.object({
   ...base,
   type: z.literal("member_joined"),
@@ -103,6 +133,8 @@ export const OrgEvent = z.discriminatedUnion("type", [
   CardUpdatedEvent,
   CardDeletedEvent,
   MessageCreatedEvent,
+  ChannelCreatedEvent,
+  ChatMessageCreatedEvent,
   MemberJoinedEvent,
   MemberUpdatedEvent,
   MemberLeftEvent,

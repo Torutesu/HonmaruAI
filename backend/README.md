@@ -77,6 +77,15 @@ over REST). The rally path is deliberately synchronous and AI-free so a reply
 lands on the other participant's screen in one round-trip. A card's sender,
 recipient, and watchers can post and read its thread.
 
+**Classic chat mode (channels + DMs)**: alongside the decision feed, the
+same backend powers a traditional Slack-style layer — org-wide channels
+(`#general` is created automatically) and idempotent 1:1 DMs — on the same
+event log and realtime pipeline, so both modes stay in sync. Notification
+semantics follow Slack: DMs always notify, channel messages only on
+@mention. The web client switches modes with the Feed / Chat tabs, and the
+chat composer's ⚡ button hands the typed text to your AI as a decision
+card instead — the bridge between the two worlds.
+
 **@Mentions + watchers**: writing `@Name` in a thread pulls that org member
 into the card as a **watcher** — they gain visibility (feed + thread), get a
 dedicated `card_mention` notification, and the watcher-add is an ordinary

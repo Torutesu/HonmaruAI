@@ -1,5 +1,7 @@
 import type {
   CardMessage,
+  Channel,
+  ChatMessage,
   DecisionCard,
   Member,
   Notification,
@@ -36,6 +38,10 @@ interface AppState {
   edges: OrgEdge[];
   cards: Record<string, DecisionCard>;
   messages: Record<string, CardMessage[]>;
+  channels: Channel[];
+  chatMessages: Record<string, ChatMessage[]>;
+  activeChannelId: string | null;
+  unseenByChannel: Record<string, number>;
   notifications: Notification[];
   unread: number;
   online: Record<string, boolean>;
@@ -49,6 +55,10 @@ const initialState: AppState = {
   edges: [],
   cards: {},
   messages: {},
+  channels: [],
+  chatMessages: {},
+  activeChannelId: null,
+  unseenByChannel: {},
   notifications: [],
   unread: 0,
   online: {},
@@ -60,6 +70,7 @@ type Action =
   | { kind: "status"; status: AppState["connection"] }
   | { kind: "inbox"; notifications: Notification[]; unread: number }
   | { kind: "thread"; cardId: string; messages: CardMessage[] }
+  | { kind: "open_channel"; channelId: string; messages: ChatMessage[] }
   | { kind: "read_all" };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -83,6 +94,20 @@ function reducer(state: AppState, action: Action): AppState {
       merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       return { ...state, messages: { ...state.messages, [action.cardId]: merged } };
     }
+    case "open_channel": {
+      const streamed = state.chatMessages[action.channelId] ?? [];
+      const merged = [...action.messages];
+      for (const message of streamed) {
+        if (!merged.some((m) => m.id === message.id)) merged.push(message);
+      }
+      merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return {
+        ...state,
+        activeChannelId: action.channelId,
+        chatMessages: { ...state.chatMessages, [action.channelId]: merged },
+        unseenByChannel: { ...state.unseenByChannel, [action.channelId]: 0 },
+      };
+    }
     case "server":
       return applyServer(state, action.message, action.selfId);
   }
@@ -91,7 +116,14 @@ function reducer(state: AppState, action: Action): AppState {
 function applyServer(state: AppState, msg: ServerMessage, selfId: string): AppState {
   switch (msg.type) {
     case "welcome":
-      return { ...state, self: msg.self, org: msg.org, members: msg.members, edges: msg.edges };
+      return {
+        ...state,
+        self: msg.self,
+        org: msg.org,
+        members: msg.members,
+        edges: msg.edges,
+        channels: msg.channels,
+      };
     case "snapshot": {
       const cards: Record<string, DecisionCard> = {};
       for (const card of msg.cards) cards[card.id] = card;
@@ -130,6 +162,28 @@ function applyServer(state: AppState, msg: ServerMessage, selfId: string): AppSt
         return {
           ...state,
           messages: { ...state.messages, [message.cardId]: [...existing, message] },
+        };
+      }
+      if (ev.type === "channel_created") {
+        const channel = ev.payload.channel;
+        if (state.channels.some((c) => c.id === channel.id)) return state;
+        return { ...state, channels: [...state.channels, channel] };
+      }
+      if (ev.type === "chat_message_created") {
+        const { message } = ev.payload;
+        const existing = state.chatMessages[message.channelId] ?? [];
+        if (existing.some((m) => m.id === message.id)) return state;
+        const unseen =
+          message.channelId !== state.activeChannelId && message.authorUserId !== selfId
+            ? (state.unseenByChannel[message.channelId] ?? 0) + 1
+            : state.unseenByChannel[message.channelId] ?? 0;
+        return {
+          ...state,
+          chatMessages: {
+            ...state.chatMessages,
+            [message.channelId]: [...existing, message],
+          },
+          unseenByChannel: { ...state.unseenByChannel, [message.channelId]: unseen },
         };
       }
       if (ev.type === "member_joined" || ev.type === "member_updated") {
@@ -330,10 +384,12 @@ function OrgGate({ session, onDone }: { session: Session; onDone: (o: Org) => vo
 
 function Main({ session, org }: { session: Session; org: Org }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [mode, setMode] = useState<"feed" | "chat">("feed");
   const [view, setView] = useState<FeedView>("inbox");
   const [threadCard, setThreadCard] = useState<string | null>(null);
   const [showInbox, setShowInbox] = useState(false);
   const [invite, setInvite] = useState<string | null>(null);
+  const [newChannel, setNewChannel] = useState("");
   const rt = useRef<Realtime | null>(null);
   const selfId = session.user.id;
 
@@ -394,6 +450,50 @@ function Main({ session, org }: { session: Session; org: Org }) {
     await api("/v1/notifications/read", { token: session.token, body: { all: true } });
   };
 
+  const openChannel = useCallback(
+    async (channelId: string) => {
+      dispatch({ kind: "open_channel", channelId, messages: [] });
+      const r = await api<{ messages: ChatMessage[] }>(
+        `/v1/channels/${channelId}/messages`,
+        { token: session.token }
+      );
+      dispatch({ kind: "open_channel", channelId, messages: r.messages });
+    },
+    [session.token]
+  );
+
+  const openDmWith = useCallback(
+    async (userId: string) => {
+      const r = await api<{ channel: Channel }>(`/v1/orgs/${org.id}/dms`, {
+        token: session.token,
+        body: { userId },
+      });
+      await openChannel(r.channel.id);
+    },
+    [org.id, session.token, openChannel]
+  );
+
+  const addChannel = async () => {
+    const name = newChannel.trim();
+    if (!name) return;
+    setNewChannel("");
+    const r = await api<{ channel: Channel }>(`/v1/orgs/${org.id}/channels`, {
+      token: session.token,
+      body: { name },
+    });
+    await openChannel(r.channel.id);
+  };
+
+  // Entering chat mode lands in #general.
+  useEffect(() => {
+    if (mode === "chat" && !state.activeChannelId && state.channels.length > 0) {
+      const general =
+        state.channels.find((c) => c.kind === "channel" && c.name === "general") ??
+        state.channels[0];
+      if (general) void openChannel(general.id);
+    }
+  }, [mode, state.activeChannelId, state.channels, openChannel]);
+
   const makeInvite = async () => {
     const r = await api<{ code: string }>(`/v1/orgs/${org.id}/invites`, {
       token: session.token,
@@ -418,42 +518,123 @@ function Main({ session, org }: { session: Session; org: Org }) {
   ];
 
   const activeThread = threadCard ? state.cards[threadCard] : undefined;
+  const chatUnseen = Object.values(state.unseenByChannel).reduce((a, b) => a + b, 0);
+  const activeChannel = state.channels.find((c) => c.id === state.activeChannelId);
+  const dmName = (channel: Channel) =>
+    memberName(channel.memberUserIds.find((id) => id !== selfId) ?? "");
 
   return (
-    <div className={`shell ${activeThread ? "with-thread" : ""}`}>
+    <div className={`shell ${mode === "feed" && activeThread ? "with-thread" : ""}`}>
       <aside className="sidebar">
         <div className="side-org">
           <span className={`conn ${state.connection}`} />
           <span className="org-name">{org.name}</span>
         </div>
 
-        <nav className="side-nav">
-          {VIEWS.map((item) => (
-            <button
-              key={item.key}
-              className={`nav-item ${view === item.key ? "active" : ""}`}
-              onClick={() => setView(item.key)}
-            >
-              <span>{item.label}</span>
-              {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
-            </button>
-          ))}
-        </nav>
+        <div className="mode-tabs">
+          <button
+            className={`mode-tab ${mode === "feed" ? "active" : ""}`}
+            onClick={() => setMode("feed")}
+          >
+            ⚡ Feed
+          </button>
+          <button
+            className={`mode-tab ${mode === "chat" ? "active" : ""}`}
+            onClick={() => setMode("chat")}
+          >
+            💬 Chat{chatUnseen > 0 && <span className="nav-badge">{chatUnseen}</span>}
+          </button>
+        </div>
 
-        <div className="side-section">Members</div>
-        <div className="side-members">
-          {state.members.map((member) => (
-            <div key={member.userId} className="member-row">
-              <span className="avatar">{initials(member.name)}</span>
-              <span className="member-name">
-                {member.name}
-                {member.userId === selfId && <span className="you"> (you)</span>}
-              </span>
-              <span
-                className={`presence ${state.online[member.userId] || member.userId === selfId ? "on" : ""}`}
-              />
+        {mode === "feed" ? (
+          <>
+            <nav className="side-nav">
+              {VIEWS.map((item) => (
+                <button
+                  key={item.key}
+                  className={`nav-item ${view === item.key ? "active" : ""}`}
+                  onClick={() => setView(item.key)}
+                >
+                  <span>{item.label}</span>
+                  {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
+                </button>
+              ))}
+            </nav>
+
+            <div className="side-section">Members</div>
+            <div className="side-members">
+              {state.members.map((member) => (
+                <div key={member.userId} className="member-row">
+                  <span className="avatar">{initials(member.name)}</span>
+                  <span className="member-name">
+                    {member.name}
+                    {member.userId === selfId && <span className="you"> (you)</span>}
+                  </span>
+                  <span
+                    className={`presence ${state.online[member.userId] || member.userId === selfId ? "on" : ""}`}
+                  />
+                </div>
+              ))}
             </div>
-          ))}
+          </>
+        ) : (
+          <>
+            <div className="side-section">Channels</div>
+            <nav className="side-nav">
+              {state.channels
+                .filter((c) => c.kind === "channel")
+                .map((channel) => (
+                  <button
+                    key={channel.id}
+                    className={`nav-item chan-item ${state.activeChannelId === channel.id ? "active" : ""}`}
+                    onClick={() => openChannel(channel.id)}
+                  >
+                    <span># {channel.name}</span>
+                    {state.unseenByChannel[channel.id] ? (
+                      <span className="nav-badge">{state.unseenByChannel[channel.id]}</span>
+                    ) : null}
+                  </button>
+                ))}
+              <div className="new-channel">
+                <input
+                  placeholder="+ new channel"
+                  value={newChannel}
+                  onChange={(e) => setNewChannel(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addChannel()}
+                />
+              </div>
+            </nav>
+
+            <div className="side-section">Direct messages</div>
+            <nav className="side-nav">
+              {state.members
+                .filter((m) => m.userId !== selfId)
+                .map((member) => {
+                  const dm = state.channels.find(
+                    (c) => c.kind === "dm" && c.memberUserIds.includes(member.userId)
+                  );
+                  const unseen = dm ? state.unseenByChannel[dm.id] ?? 0 : 0;
+                  return (
+                    <button
+                      key={member.userId}
+                      className={`nav-item chan-item ${dm && state.activeChannelId === dm.id ? "active" : ""}`}
+                      onClick={() => openDmWith(member.userId)}
+                    >
+                      <span>
+                        <span
+                          className={`presence inline ${state.online[member.userId] ? "on" : ""}`}
+                        />
+                        {member.name}
+                      </span>
+                      {unseen ? <span className="nav-badge">{unseen}</span> : null}
+                    </button>
+                  );
+                })}
+            </nav>
+          </>
+        )}
+
+        <div className="side-members">
           <button className="side-invite" title="Invite a teammate" onClick={makeInvite}>
             + Invite a teammate
           </button>
@@ -474,12 +655,33 @@ function Main({ session, org }: { session: Session; org: Org }) {
 
       <main className="main">
         <header className="main-head">
-          <h1>{VIEWS.find((v) => v.key === view)?.label}</h1>
-          <span className="muted small">
-            {view === "inbox"
-              ? `${counts.inboxPending} to decide`
-              : `${feed.length} cards`}
-          </span>
+          {mode === "feed" ? (
+            <>
+              <h1>{VIEWS.find((v) => v.key === view)?.label}</h1>
+              <span className="muted small">
+                {view === "inbox"
+                  ? `${counts.inboxPending} to decide`
+                  : `${feed.length} cards`}
+              </span>
+            </>
+          ) : (
+            <>
+              <h1>
+                {activeChannel
+                  ? activeChannel.kind === "channel"
+                    ? `# ${activeChannel.name}`
+                    : dmName(activeChannel)
+                  : "Chat"}
+              </h1>
+              <span className="muted small">
+                {activeChannel?.kind === "dm"
+                  ? state.online[activeChannel.memberUserIds.find((id) => id !== selfId) ?? ""]
+                    ? "online"
+                    : "offline"
+                  : `${state.members.length} members`}
+              </span>
+            </>
+          )}
           <span className="spacer" />
           <div className="bell-wrap">
             <button
@@ -501,7 +703,13 @@ function Main({ session, org }: { session: Session; org: Org }) {
                     key={n.id}
                     className={`ntf ${n.readAt ? "" : "unread"}`}
                     onClick={() => {
-                      if (n.cardId && state.cards[n.cardId]) openThread(n.cardId);
+                      if (n.channelId) {
+                        setMode("chat");
+                        void openChannel(n.channelId);
+                      } else if (n.cardId && state.cards[n.cardId]) {
+                        setMode("feed");
+                        openThread(n.cardId);
+                      }
                       setShowInbox(false);
                     }}
                   >
@@ -514,35 +722,57 @@ function Main({ session, org }: { session: Session; org: Org }) {
           </div>
         </header>
 
-        <div className="cards">
-          {feed.length === 0 && (
-            <div className="empty">
-              <p>Nothing here.</p>
-              <p className="muted small">
-                Message your AI below — it routes the right card to the right person.
-              </p>
+        {mode === "feed" ? (
+          <>
+            <div className="cards">
+              {feed.length === 0 && (
+                <div className="empty">
+                  <p>Nothing here.</p>
+                  <p className="muted small">
+                    Message your AI below — it routes the right card to the right person.
+                  </p>
+                </div>
+              )}
+              {feed.map((card) => (
+                <CardRow
+                  key={card.id}
+                  card={card}
+                  selfId={selfId}
+                  members={state.members}
+                  online={state.online}
+                  memberName={memberName}
+                  replyCount={(state.messages[card.id] ?? []).length}
+                  active={threadCard === card.id}
+                  onAction={(action, extra) => rt.current?.cardAction(card.id, action, extra)}
+                  onThread={() => openThread(card.id)}
+                />
+              ))}
             </div>
-          )}
-          {feed.map((card) => (
-            <CardRow
-              key={card.id}
-              card={card}
-              selfId={selfId}
+            <Composer
               members={state.members}
-              online={state.online}
-              memberName={memberName}
-              replyCount={(state.messages[card.id] ?? []).length}
-              active={threadCard === card.id}
-              onAction={(action, extra) => rt.current?.cardAction(card.id, action, extra)}
-              onThread={() => openThread(card.id)}
+              selfId={selfId}
+              onSend={(text) => rt.current?.instruction(text)}
             />
-          ))}
-        </div>
-
-        <Composer members={state.members} selfId={selfId} onSend={(text) => rt.current?.instruction(text)} />
+          </>
+        ) : (
+          <ChatPane
+            channel={activeChannel}
+            messages={activeChannel ? state.chatMessages[activeChannel.id] ?? [] : []}
+            selfId={selfId}
+            memberName={memberName}
+            onSend={(text) =>
+              activeChannel && rt.current?.chatMessage(activeChannel.id, text)
+            }
+            onMakeCard={(text) => {
+              rt.current?.instruction(text);
+              setMode("feed");
+              setView("sent");
+            }}
+          />
+        )}
       </main>
 
-      {activeThread && (
+      {mode === "feed" && activeThread && (
         <ThreadPanel
           card={activeThread}
           messages={state.messages[activeThread.id] ?? []}
@@ -743,6 +973,89 @@ function ThreadPanel(props: {
         <button className="primary send" onClick={() => send(text)}>↑</button>
       </div>
     </aside>
+  );
+}
+
+function ChatPane(props: {
+  channel: Channel | undefined;
+  messages: ChatMessage[];
+  selfId: string;
+  memberName: (id: string) => string;
+  onSend: (text: string) => void;
+  onMakeCard: (text: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bodyRef.current?.scrollTo(0, bodyRef.current.scrollHeight);
+  }, [props.messages.length, props.channel?.id]);
+
+  const send = () => {
+    if (!text.trim()) return;
+    props.onSend(text.trim());
+    setText("");
+  };
+  const makeCard = () => {
+    if (!text.trim()) return;
+    props.onMakeCard(text.trim());
+    setText("");
+  };
+
+  if (!props.channel) {
+    return <div className="chat-body empty"><p className="muted">Pick a channel.</p></div>;
+  }
+
+  return (
+    <>
+      <div className="chat-body" ref={bodyRef}>
+        {props.messages.length === 0 && (
+          <div className="muted small center">
+            No messages yet. @name mentions notify; DMs always notify.
+          </div>
+        )}
+        {props.messages.map((message, index) => {
+          const prev = props.messages[index - 1];
+          const grouped =
+            prev &&
+            prev.authorUserId === message.authorUserId &&
+            Date.parse(message.createdAt) - Date.parse(prev.createdAt) < 180_000;
+          return (
+            <div key={message.id} className={`cmsg ${grouped ? "grouped" : ""}`}>
+              {!grouped && (
+                <div className="cmsg-head">
+                  <span className="avatar">{initials(props.memberName(message.authorUserId))}</span>
+                  <span className="cmsg-author">{props.memberName(message.authorUserId)}</span>
+                  <span className="muted small">{ago(message.createdAt)}</span>
+                </div>
+              )}
+              <div className="cmsg-text">
+                <MentionText text={message.text} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <footer className="composer chat-composer">
+        <input
+          placeholder={
+            props.channel.kind === "channel"
+              ? `Message #${props.channel.name} (@name to mention)`
+              : "Message… (@name to mention)"
+          }
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+        />
+        <button
+          className="make-card"
+          title="Send this to your AI as a decision card instead"
+          onClick={makeCard}
+        >
+          ⚡
+        </button>
+        <button className="primary send" onClick={send}>↑</button>
+      </footer>
+    </>
   );
 }
 

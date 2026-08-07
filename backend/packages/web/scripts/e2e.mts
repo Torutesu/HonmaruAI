@@ -150,6 +150,37 @@ await carol.click(".card .thread-btn");
 await carol.waitForSelector(".msg.them .mention", { timeout: 8000 });
 ok("carol can read the thread she was pulled into");
 
+// --- classic chat mode -----------------------------------------------------
+await alice.click('button.mode-tab:has-text("Chat")');
+await alice.waitForSelector('h1:has-text("# general")');
+ok("alice switched to chat mode (#general)");
+await alice.fill(".chat-composer input", "@Bob standup in 5");
+await alice.press(".chat-composer input", "Enter");
+await alice.waitForSelector(".cmsg-text .mention");
+ok("alice posted channel message with mention");
+
+await bob.click('button.mode-tab:has-text("Chat")');
+await bob.waitForSelector('.cmsg-text:has-text("standup in 5")', { timeout: 8000 });
+ok("bob sees channel message in #general");
+
+// DM: bob opens a DM with alice and replies
+await bob.click('.chan-item:has-text("Alice")');
+await bob.fill(".chat-composer input", "on my way");
+await bob.press(".chat-composer input", "Enter");
+await bob.waitForSelector('.cmsg-text:has-text("on my way")');
+ok("bob sent DM");
+await alice.waitForSelector('.chan-item:has-text("Bob") .nav-badge', { timeout: 8000 });
+ok("alice sees DM unread badge");
+await alice.click('.chan-item:has-text("Bob")');
+await alice.waitForSelector('.cmsg-text:has-text("on my way")', { timeout: 8000 });
+ok("alice reads the DM");
+await bob.screenshot({ path: bobShot.replace(".png", "-chat.png") });
+
+// back to feed mode for the approval flow
+await alice.click('button.mode-tab:has-text("Feed")');
+await bob.click('button.mode-tab:has-text("Feed")');
+await bob.waitForSelector(".card .approve");
+
 // Bob approves; Alice's card flips to approved
 await bob.click(".card .approve");
 await alice.waitForSelector(".chip.st-approved", { timeout: 8000 });

@@ -3,6 +3,7 @@ import {
   CardAction,
   CardMessage,
   CardPriority,
+  Channel,
   DecisionCard,
   Member,
   Notification,
@@ -57,6 +58,14 @@ export const CardMessageMessage = z.object({
   text: z.string().min(1).max(4000),
 });
 
+// Classic chat: post into a channel or DM.
+export const ChatMessageMessage = z.object({
+  type: z.literal("chat_message"),
+  clientRef: z.string().optional(),
+  channelId: z.string(),
+  text: z.string().min(1).max(4000),
+});
+
 export const PingMessage = z.object({ type: z.literal("ping") });
 
 export const ClientMessage = z.discriminatedUnion("type", [
@@ -64,6 +73,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   InstructionMessage,
   CardActionMessage,
   CardMessageMessage,
+  ChatMessageMessage,
   PingMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -75,6 +85,8 @@ export const WelcomeMessage = z.object({
   members: z.array(Member),
   teams: z.array(Team),
   edges: z.array(OrgEdge),
+  // Channels visible to this user (all org channels + their DMs).
+  channels: z.array(Channel),
   seq: z.number().int(),
 });
 
