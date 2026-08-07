@@ -7,10 +7,10 @@ struct DelegatePickerSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    @MainActor
     private var candidates: [User] {
-        DemoUser.allCases
-            .map(\.user)
-            .filter { $0.id != currentUserID }
+        OrgDirectory.shared.members
+            .filter { $0.id != currentUserID && $0.id != card.recipientUserID }
     }
 
     var body: some View {

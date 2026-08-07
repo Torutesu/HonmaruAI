@@ -4,6 +4,7 @@ import type { Config } from "./config.js";
 import type { Db } from "./db.js";
 import type { JobQueue } from "./jobs.js";
 import type { Logger } from "./log.js";
+import { memoryContext } from "./memory.js";
 import { listEdges, listMembers, listTeams, requireMember } from "./orgs.js";
 import { routeInstruction, routeLocally, type RoutingInput } from "./routing.js";
 import { dueAtFor } from "./sla.js";
@@ -76,14 +77,21 @@ export function makeRefineHandler(deps: InstructionDeps) {
     const payload = raw as RefinePayload;
     const { db } = deps;
     const sender = requireMember(db, payload.orgId, payload.senderUserId);
+    const members = listMembers(db, payload.orgId);
+    const candidates = members
+      .filter((member) => member.userId !== payload.senderUserId)
+      .map((member) => member.userId);
+    const nameOf = (userId: string) =>
+      members.find((member) => member.userId === userId)?.name ?? userId;
     const routing = await routeInstruction(
       {
         text: payload.text,
         sender,
-        members: listMembers(db, payload.orgId),
+        members,
         teams: listTeams(db, payload.orgId),
         edges: listEdges(db, payload.orgId),
         priorityOverride: payload.priorityOverride,
+        memoryContext: memoryContext(db, payload.orgId, candidates, nameOf),
       },
       deps.config.openRouter,
       deps.log

@@ -3,98 +3,82 @@ import Foundation
 @MainActor
 final class AppState: ObservableObject {
     @Published var currentUser: User?
+    @Published var orgName: String?
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
 
     let cardService = DecisionCardService()
-    let githubService = GitHubService()
     let webSocketService = WebSocketService()
-    let aiService = AIService()
 
-    let relayURL = AppConfig.relayURL
-
-    var backendBaseURL: URL? {
-        BackendURL.httpBase(from: relayURL)
+    var api: BackendAPI? {
+        AppConfig.backendBaseURL.map { BackendAPI(baseURL: $0) }
     }
 
     init() {
         cardService.attach(webSocketService: webSocketService)
-        githubService.onRepositoryChanged = { [weak self] in
-            Task { @MainActor in
-                await self?.handleRepositoryChanged()
-            }
-        }
-        Task { await bootstrapBackend() }
-    }
-
-    func bootstrapBackend() async {
-        defer { isBootstrapping = false }
-
-        guard let backendBaseURL else { return }
-        await aiService.configure(backendBaseURL: backendBaseURL)
-        await restoreSessionIfNeeded()
+        Task { await restoreSessionIfNeeded() }
     }
 
     func restoreSessionIfNeeded() async {
-        guard SessionStore.hasSavedGitHubSession else {
-            githubService.restorePartialCredentials()
+        defer { isBootstrapping = false }
+        guard SessionStore.hasSavedSession,
+              let token = SessionStore.sessionToken,
+              let userID = SessionStore.userID,
+              let orgID = SessionStore.orgID else {
             return
         }
-
-        guard githubService.restoreSavedSession() else {
-            SessionStore.clear()
-            return
-        }
-
-        do {
-            try await githubService.validateSavedSession()
-            let userID = SessionStore.currentUserID ?? AppConfig.defaultUser.id
-            let user = DemoData.user(for: userID) ?? AppConfig.defaultUser
-            await activateSession(as: user)
-        } catch {
-            githubService.disconnect()
-        }
+        let user = User(
+            id: userID,
+            name: SessionStore.userName ?? "You",
+            role: "",
+            teamID: nil,
+            githubUsername: nil
+        )
+        await activateSession(
+            token: token,
+            user: user,
+            orgID: orgID,
+            orgName: SessionStore.orgName ?? "Workspace"
+        )
     }
 
-    func activateSession(as user: User = AppConfig.defaultUser) async {
-        SessionStore.currentUserID = user.id
-
+    func activateSession(token: String, user: User, orgID: String, orgName: String) async {
+        SessionStore.save(
+            token: token,
+            userID: user.id,
+            userName: user.name,
+            orgID: orgID,
+            orgName: orgName
+        )
+        cardService.currentUserID = user.id
         do {
-            try await webSocketService.connect(urlString: relayURL, userId: user.id)
+            try await webSocketService.connect(
+                urlString: AppConfig.backendWS,
+                token: token,
+                orgId: orgID
+            )
         } catch {
-            cardService.bootstrap(for: user)
+            // The socket retries in the background; the feed fills on join.
         }
         currentUser = user
+        self.orgName = orgName
         isAuthenticated = true
     }
 
-    func switchUser(to user: User) async {
-        SessionStore.currentUserID = user.id
-        webSocketService.disconnect()
-        do {
-            try await webSocketService.connect(urlString: relayURL, userId: user.id)
-        } catch {
-            cardService.bootstrap(for: user)
-        }
-        currentUser = user
+    func createInviteCode() async -> String? {
+        guard let api,
+              let token = SessionStore.sessionToken,
+              let orgID = SessionStore.orgID else { return nil }
+        return try? await api.createInvite(token: token, orgID: orgID)
     }
 
     func signOut() {
-        Task {
-            await webSocketService.publishClearStore()
-        }
-        webSocketService.disconnect()
-        githubService.disconnect()
+        webSocketService.disconnect(intentional: true)
         cardService.reset()
+        OrgDirectory.shared.reset()
         SessionStore.clear()
         isAuthenticated = false
         currentUser = nil
-    }
-
-    func handleRepositoryChanged() async {
-        cardService.reset()
-        if webSocketService.isConnected {
-            await webSocketService.publishClearStore()
-        }
+        orgName = nil
     }
 }

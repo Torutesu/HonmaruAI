@@ -294,8 +294,6 @@ struct DecisionCardView: View {
             status: .pending,
             priority: .urgent,
             createdAt: .now.addingTimeInterval(-3600),
-            githubIssueNumber: nil,
-            githubIssueURL: nil,
             agentRoute: "Bob's AI → Alice's AI",
             routingReason: "You are Bob's manager"
         ),

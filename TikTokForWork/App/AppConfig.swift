@@ -1,6 +1,12 @@
 import Foundation
 
 enum AppConfig {
-    static let relayURL = "ws://127.0.0.1:8080"
-    static let defaultUser = DemoUser.alice.user
+    // Protocol v1 backend (backend/ in this repo). Point at your deployed
+    // host in production builds.
+    static let backendHTTP = "http://127.0.0.1:8081"
+    static let backendWS = "ws://127.0.0.1:8081"
+
+    static var backendBaseURL: URL? {
+        URL(string: backendHTTP)
+    }
 }

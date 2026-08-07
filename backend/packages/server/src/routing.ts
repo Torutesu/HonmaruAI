@@ -22,6 +22,9 @@ export interface RoutingInput {
   teams: Team[];
   edges: OrgEdge[];
   priorityOverride?: CardPriority;
+  // Agent-memory block ("What each person's AI has learned: …"),
+  // injected into the LLM prompt to personalize routing and card copy.
+  memoryContext?: string;
 }
 
 export const RoutingResult = z.object({
@@ -248,7 +251,7 @@ function buildTool(input: RoutingInput) {
   };
 }
 
-function rosterPrompt(input: RoutingInput): string {
+export function rosterPrompt(input: RoutingInput): string {
   const teamName = (teamId: string | null | undefined) =>
     input.teams.find((team) => team.id === teamId)?.name;
   const memberLines = input.members
@@ -269,7 +272,7 @@ Org members:
 ${memberLines}
 
 Org edges:
-${edgeLines || "- none"}`;
+${edgeLines || "- none"}${input.memoryContext ? `\n\n${input.memoryContext}` : ""}`;
 }
 
 const SYSTEM_PROMPT = `You route workplace instructions to the right teammate as structured Decision Cards.
@@ -280,7 +283,8 @@ Call create_decision_card once with all fields filled:
 - summary: third person, what the recipient must decide or do
 - context: deadlines, metrics, PR numbers, blockers — always 2-4 segments as 'label: detail' joined by ·
 - priority: infer from urgency cues in the instruction
-- Pick the recipient from the org members list using name mentions, job titles, team names, and manager edges. Never route back to the sender.`;
+- Pick the recipient from the org members list using name mentions, job titles, team names, and manager edges. Never route back to the sender.
+- If a "What each person's AI has learned" section is present, use it: route around known objections, and include the context that person usually asks for (e.g. attach repro steps for someone who always requests them).`;
 
 function isEcho(candidate: string, original: string): boolean {
   const normalize = (value: string) =>

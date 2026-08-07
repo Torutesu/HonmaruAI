@@ -5,9 +5,9 @@ struct FeedView: View {
     @StateObject private var viewModel = FeedViewModel()
     @State private var aiPrompt = ""
     @State private var showAIInput = false
-    @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
     @State private var showMenu = false
+    @State private var inviteCode: String?
 
     var body: some View {
         ZStack {
@@ -21,7 +21,7 @@ struct FeedView: View {
                         ForEach(viewModel.cards) { card in
                             DecisionCardView(
                                 card: card,
-                                linkedRepository: appState.githubService.linkedRepository,
+                                linkedRepository: "",
                                 onAction: { action in
                                     Task {
                                         await viewModel.handle(action: action, for: card, appState: appState)
@@ -62,26 +62,7 @@ struct FeedView: View {
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {
             guard let user = appState.currentUser else { return }
-            viewModel.bind(
-                to: appState.cardService,
-                user: user,
-                githubService: appState.githubService
-            )
-            Task { await viewModel.syncGitHub() }
-        }
-        .sheet(isPresented: $showUserSwitcher) {
-            UserSwitcherSheet { user in
-                Task {
-                    await appState.switchUser(to: user.user)
-                    viewModel.bind(
-                        to: appState.cardService,
-                        user: user.user,
-                        githubService: appState.githubService
-                    )
-                    viewModel.clearSheets()
-                }
-            }
-            .environmentObject(appState)
+            viewModel.bind(to: appState.cardService, user: user)
         }
         .sheet(isPresented: $showOrgGraph) {
             OrgGraphView()
@@ -89,22 +70,12 @@ struct FeedView: View {
         .sheet(isPresented: $showAIInput) {
             AIInputSheet(
                 prompt: $aiPrompt,
-                isAIConfigured: appState.aiService.isConfigured,
+                isAIConfigured: true,
                 onSubmit: { text, priority in
-                    viewModel.beginDraft(text, priority: priority, appState: appState)
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationBackground(Theme.Colors.surface)
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(item: $viewModel.reviewDraft) { draft in
-            DraftReviewSheet(draft: draft) { finalDraft in
-                Task {
-                    await viewModel.sendDraft(finalDraft, appState: appState)
+                    viewModel.sendInstruction(text, priority: priority, appState: appState)
                     aiPrompt = ""
                 }
-            }
+            )
             .presentationDetents([.medium, .large])
             .presentationBackground(Theme.Colors.surface)
             .presentationDragIndicator(.visible)
@@ -132,8 +103,20 @@ struct FeedView: View {
         }
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
             Button("Organization") { showOrgGraph = true }
+            Button("Invite a teammate") { createInvite() }
             Button("Sign out", role: .destructive) { disconnect() }
             Button("Cancel", role: .cancel) {}
+        }
+        .alert(
+            "Invite code",
+            isPresented: Binding(
+                get: { inviteCode != nil },
+                set: { if !$0 { inviteCode = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { inviteCode = nil }
+        } message: {
+            Text(inviteCode ?? "")
         }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) { viewModel.errorMessage = nil }
@@ -151,7 +134,7 @@ struct FeedView: View {
 
     private var topBar: some View {
         HStack(alignment: .center) {
-            Button { showUserSwitcher = true } label: {
+            Button { showMenu = true } label: {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(appState.webSocketService.isConnected ? Theme.Colors.approve : Theme.Colors.textTertiary)
@@ -191,8 +174,8 @@ struct FeedView: View {
 
     private var bottomChrome: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            if let repo = appState.githubService.connection?.repository {
-                Text(repo)
+            if let orgName = appState.orgName {
+                Text(orgName)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .lineLimit(1)
@@ -228,6 +211,12 @@ struct FeedView: View {
 
     private func disconnect() {
         appState.signOut()
+    }
+
+    private func createInvite() {
+        Task {
+            inviteCode = await appState.createInviteCode()
+        }
     }
 }
 

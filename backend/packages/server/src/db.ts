@@ -139,6 +139,18 @@ CREATE TABLE IF NOT EXISTS device_tokens (
   PRIMARY KEY (user_id, token)
 );
 
+CREATE TABLE IF NOT EXISTS agent_memories (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  user_id TEXT NOT NULL,
+  kind TEXT NOT NULL,           -- observation | preference
+  content TEXT NOT NULL,
+  source_card_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memories_user
+  ON agent_memories(org_id, user_id, kind, created_at);
+
 CREATE TABLE IF NOT EXISTS integration_configs (
   org_id TEXT NOT NULL REFERENCES orgs(id),
   kind TEXT NOT NULL,

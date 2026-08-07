@@ -3,7 +3,8 @@ import SwiftUI
 struct OrgGraphView: View {
     @Environment(\.dismiss) private var dismiss
 
-    private let graph = DemoData.organization
+    @MainActor
+    private var graph: OrganizationGraph { OrgDirectory.shared.graph }
 
     var body: some View {
         NavigationStack {

@@ -54,7 +54,9 @@ Last updated: 2026-08-06
 - [x] Quick replies in threads (1-tap rally)
 - [x] SLA deadlines + overdue escalation to manager (sweeper + `card_overdue`)
 - [x] Browser E2E: 2 Chromium sessions through org setup → instruction → rally → approval
-- [ ] iOS client migration to new protocol
+- [x] Agent memory (context layer): decision observations → prompt injection → LLM condensation + `/v1/orgs/:id/memory`
+- [x] iOS client migrated to protocol v1 (token auth, org create/join, server-side actions; AIService/GitHubService removed — needs an Xcode build to verify, no Swift toolchain in CI yet)
+- [ ] iOS: thread rally + notifications UI (protocol already supports both)
 - [ ] Deploy (Fly.io/Railway) + GitHub webhook reverse sync
 
 ## Demo script

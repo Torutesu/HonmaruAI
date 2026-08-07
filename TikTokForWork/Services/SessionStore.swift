@@ -1,67 +1,65 @@
 import Foundation
 import Security
 
+// Keychain-backed session state for the protocol v1 backend.
 enum SessionStore {
     private static let service = "com.tangle.tiktokforwork.session"
 
     private enum Key {
-        static let githubToken = "githubToken"
-        static let githubRepository = "githubRepository"
-        static let githubUsername = "githubUsername"
-        static let githubRepositoryURL = "githubRepositoryURL"
-        static let currentUserID = "currentUserID"
+        static let sessionToken = "sessionToken"
+        static let userID = "userID"
+        static let userName = "userName"
+        static let orgID = "orgID"
+        static let orgName = "orgName"
     }
 
-    static var githubToken: String? {
-        get { read(Key.githubToken) }
-        set { write(newValue, key: Key.githubToken) }
+    static var sessionToken: String? {
+        get { read(Key.sessionToken) }
+        set { write(newValue, key: Key.sessionToken) }
     }
 
-    static var githubRepository: String? {
-        get { read(Key.githubRepository) }
-        set { write(newValue, key: Key.githubRepository) }
+    static var userID: String? {
+        get { read(Key.userID) }
+        set { write(newValue, key: Key.userID) }
     }
 
-    static var githubUsername: String? {
-        get { read(Key.githubUsername) }
-        set { write(newValue, key: Key.githubUsername) }
+    static var userName: String? {
+        get { read(Key.userName) }
+        set { write(newValue, key: Key.userName) }
     }
 
-    static var githubRepositoryURL: String? {
-        get { read(Key.githubRepositoryURL) }
-        set { write(newValue, key: Key.githubRepositoryURL) }
+    static var orgID: String? {
+        get { read(Key.orgID) }
+        set { write(newValue, key: Key.orgID) }
     }
 
-    static var currentUserID: String? {
-        get { read(Key.currentUserID) }
-        set { write(newValue, key: Key.currentUserID) }
+    static var orgName: String? {
+        get { read(Key.orgName) }
+        set { write(newValue, key: Key.orgName) }
     }
 
-    static var hasSavedGitHubSession: Bool {
-        guard let token = githubToken, !token.isEmpty,
-              let repository = githubRepository, !repository.isEmpty else {
+    static var hasSavedSession: Bool {
+        guard let token = sessionToken, !token.isEmpty,
+              let orgID, !orgID.isEmpty else {
             return false
         }
         return true
     }
 
-    static func saveGitHubConnection(_ connection: GitHubConnection, token: String, repository: String) {
-        githubToken = token
-        githubRepository = repository
-        githubUsername = connection.username
-        githubRepositoryURL = connection.repositoryURL
-    }
-
-    static func saveGitHubToken(_ token: String) {
-        githubToken = token
+    static func save(token: String, userID: String, userName: String, orgID: String, orgName: String) {
+        sessionToken = token
+        self.userID = userID
+        self.userName = userName
+        self.orgID = orgID
+        self.orgName = orgName
     }
 
     static func clear() {
-        delete(Key.githubToken)
-        delete(Key.githubRepository)
-        delete(Key.githubUsername)
-        delete(Key.githubRepositoryURL)
-        delete(Key.currentUserID)
+        delete(Key.sessionToken)
+        delete(Key.userID)
+        delete(Key.userName)
+        delete(Key.orgID)
+        delete(Key.orgName)
     }
 
     private static func read(_ key: String) -> String? {

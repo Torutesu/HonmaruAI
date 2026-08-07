@@ -12,6 +12,7 @@ import { githubIssuesIntegration } from "./integrations/github.js";
 import { IntegrationRegistry } from "./integrations/registry.js";
 import { JobQueue } from "./jobs.js";
 import { createLogger, type Logger } from "./log.js";
+import { captureFromEvents, makeCondenseHandler } from "./memory.js";
 import {
   NotificationEngine,
   webhookChannel,
@@ -58,6 +59,12 @@ export function createApp(config: Config): App {
     if (events.length === 0) return;
     hub.broadcastEvents(orgId, events);
     notifications.handle(events);
+    // Agent memory learns from every decision; users whose observation
+    // count crossed the threshold get an async LLM condensation pass.
+    for (const key of captureFromEvents(db, events)) {
+      const [memOrgId, userId] = key.split(" ");
+      queue.enqueue("condense_memory", { orgId: memOrgId, userId });
+    }
     void registry.dispatch(orgId, events, (refOrgId, refEvents) =>
       hub.broadcastEvents(refOrgId, refEvents)
     );
@@ -74,6 +81,7 @@ export function createApp(config: Config): App {
   };
   const queue = new JobQueue(log, {
     refine_card: makeRefineHandler(instructionDeps),
+    condense_memory: makeCondenseHandler({ db, config, log }),
   });
   instructionDeps.queue = queue;
 

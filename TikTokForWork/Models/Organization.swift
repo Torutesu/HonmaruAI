@@ -49,7 +49,9 @@ struct OrganizationGraph: Codable {
             return "Named in your instruction"
         }
         if let manager = manager(of: senderID), manager.id == recipientID {
-            return "You are \(DemoData.userName(for: senderID))'s manager"
+            let senderLabel = nodes.first { $0.id == senderID }?.label
+                .components(separatedBy: " ·").first ?? "them"
+            return "You are \(senderLabel)'s manager"
         }
         if let project = approvalProjects(for: recipientID).first {
             return "Approval authority on \(project.label)"

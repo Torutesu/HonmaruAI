@@ -45,6 +45,7 @@ import {
   type IntegrationRegistry,
 } from "./integrations/registry.js";
 import type { Logger } from "./log.js";
+import { listMemories } from "./memory.js";
 import { createMessage, listMessages } from "./messages.js";
 import {
   listNotifications,
@@ -319,6 +320,14 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
     const body = RegisterDeviceRequest.parse(await c.req.json());
     registerDevice(db, user.id, body.platform, body.token);
     return c.json({ ok: true }, 201);
+  });
+
+  // What the org's AIs have learned about each member (context layer).
+  app.get("/v1/orgs/:orgId/memory", (c) => {
+    const orgId = c.req.param("orgId");
+    requireMember(db, orgId, me(c).id);
+    const userId = c.req.query("userId");
+    return c.json({ memories: listMemories(db, orgId, userId || undefined) });
   });
 
   app.get("/v1/orgs/:orgId/analytics", (c) => {

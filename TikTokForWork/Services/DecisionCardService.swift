@@ -1,23 +1,28 @@
 import Foundation
 
 enum CardServiceError: LocalizedError {
-    case githubSyncFailed(String)
+    case notConnected
     case cardNotFound
 
     var errorDescription: String? {
         switch self {
-        case .githubSyncFailed(let message): message
+        case .notConnected: "Not connected to the server."
         case .cardNotFound: "Card not found."
         }
     }
 }
 
+// Thin client-side store. The server owns routing, the card state machine,
+// and integrations; this class renders the event stream and forwards
+// intent (instruction / card_action) upstream.
 @MainActor
 final class DecisionCardService: ObservableObject {
-    private var cardsByUser: [String: [DecisionCard]] = [:]
+    private(set) var cards: [String: DecisionCard] = [:]
     private weak var webSocketService: WebSocketService?
 
+    var currentUserID: String?
     var onCardsUpdated: (() -> Void)?
+    var onError: ((String) -> Void)?
 
     func attach(webSocketService: WebSocketService) {
         self.webSocketService = webSocketService
@@ -26,306 +31,112 @@ final class DecisionCardService: ObservableObject {
         }
     }
 
-    func applySnapshot(_ cardsByUser: [String: [DecisionCard]]) {
-        self.cardsByUser = cardsByUser
-        onCardsUpdated?()
-    }
-
-    func bootstrap(for user: User) {
-        if cardsByUser.isEmpty {
-            cardsByUser = DemoData.initialCards
-        }
-        onCardsUpdated?()
-    }
-
     func reset() {
-        cardsByUser = [:]
+        cards = [:]
         onCardsUpdated?()
     }
 
-    func syncGitHubStatus(githubService: GitHubService) async {
-        guard githubService.isConnected else { return }
-
-        var changed = false
-        for (userID, var userCards) in cardsByUser {
-            var userChanged = false
-
-            for index in userCards.indices {
-                guard let issueNumber = userCards[index].githubIssueNumber else { continue }
-                guard userCards[index].githubRepository == githubService.linkedRepository else { continue }
-
-                let status = userCards[index].status
-                guard status == .approved || status == .completed || status == .delegated else {
-                    continue
-                }
-
-                do {
-                    let issueState = try await githubService.issueState(number: issueNumber)
-                    if issueState == "closed", status != .completed {
-                        userCards[index].status = .completed
-                        userChanged = true
-                        await webSocketService?.publishUpdated(userCards[index])
-                    } else if issueState == "open", status == .completed {
-                        userCards[index].status = .approved
-                        userChanged = true
-                        await webSocketService?.publishUpdated(userCards[index])
-                    }
-                } catch {
-                    continue
-                }
-            }
-
-            if userChanged {
-                cardsByUser[userID] = userCards
-                changed = true
-            }
-        }
-
-        if changed {
-            onCardsUpdated?()
-        }
-    }
-
+    // Feed order mirrors the server's ranking: pending first, then
+    // priority weight plus waiting-time escalation.
     func cards(for userID: String) -> [DecisionCard] {
-        cardsByUser[userID, default: []].sorted { $0.createdAt > $1.createdAt }
+        cards.values
+            .filter { $0.recipientUserID == userID || $0.senderUserID == userID }
+            .sorted { score($0) > score($1) }
     }
 
-    @discardableResult
-    func resolve(
-        cardID: String,
+    private func score(_ card: DecisionCard) -> Double {
+        let priorityWeight: Double = switch card.priority {
+        case .urgent: 400
+        case .high: 200
+        case .medium: 100
+        case .low: 20
+        }
+        let ageHours = max(0, Date.now.timeIntervalSince(card.createdAt)) / 3600
+        var value = priorityWeight + min(ageHours * 8, 300)
+        if card.isPending { value += 10_000 }
+        return value
+    }
+
+    // MARK: - Intent
+
+    func sendInstruction(text: String, priority: CardPriority?) async throws {
+        guard let webSocketService, webSocketService.isConnected else {
+            throw CardServiceError.notConnected
+        }
+        await webSocketService.sendInstruction(text: text, priorityOverride: priority)
+    }
+
+    func send(
         action: CardActionKind,
-        actorUserID: String,
-        revisionNote: String? = nil,
-        githubService: GitHubService
-    ) async throws -> DecisionCard {
-        guard var userCards = cardsByUser[actorUserID],
-              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
-            throw CardServiceError.cardNotFound
+        card: DecisionCard,
+        note: String? = nil,
+        delegateToUserID: String? = nil
+    ) async throws {
+        guard let webSocketService, webSocketService.isConnected else {
+            throw CardServiceError.notConnected
         }
-
-        var card = userCards[index]
-        guard card.isPending else { return card }
-
-        switch action {
-        case .createIssue: card.status = .approved
-        case .reject: card.status = .rejected
-        case .requestRevision: card.status = .revised
-        case .delegate:
-            return card
-        case .delete:
-            return card
-        case .viewDetails:
-            return card
+        let wireAction: String? = switch action {
+        case .createIssue: "approve"
+        case .reject: "reject"
+        case .requestRevision: "request_revision"
+        case .delegate: "delegate"
+        case .delete: "delete"
+        case .viewDetails: nil
         }
-
-        if let revisionNote, !revisionNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            card.revisionNote = revisionNote.trimmingCharacters(in: .whitespacesAndNewlines)
-            card.context = [card.context, "Revision: \(card.revisionNote!)"].filter { !$0.isEmpty }.joined(separator: "\n")
-        }
-
-        if action == .createIssue || card.githubIssueNumber != nil {
-            let synced = try await githubService.syncDecision(card)
-            card.githubIssueNumber = synced.number
-            card.githubIssueURL = synced.url
-            card.githubRepository = githubService.linkedRepository
-        }
-
-        userCards[index] = card
-        cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishUpdated(card)
-
-        let statusLabel: String = {
-            switch card.status {
-            case .approved: "created GitHub issue"
-            case .rejected: "declined"
-            case .revised: "requested revision"
-            default: card.status.label.lowercased()
-            }
-        }()
-
-        let responseCard = DecisionCard(
-            id: UUID().uuidString,
-            recipientUserID: card.senderUserID,
-            senderUserID: actorUserID,
-            type: .notification,
-            title: card.title,
-            summary: "\(DemoData.userName(for: actorUserID)) · \(statusLabel)",
-            context: card.revisionNote ?? card.summary,
-            status: .pending,
-            priority: .medium,
-            createdAt: .now,
-            githubIssueNumber: card.githubIssueNumber,
-            githubIssueURL: card.githubIssueURL,
-            agentRoute: card.agentRoute,
-            routingReason: card.routingReason
+        guard let wireAction else { return }
+        await webSocketService.sendCardAction(
+            cardID: card.id,
+            action: wireAction,
+            note: note,
+            delegateToUserID: delegateToUserID
         )
-
-        append(responseCard, for: card.senderUserID)
-        await webSocketService?.publishCreated(responseCard)
-        onCardsUpdated?()
-        return card
     }
 
-    @discardableResult
-    func delegate(
-        cardID: String,
-        to recipientUserID: String,
-        actorUserID: String,
-        organization: OrganizationGraph,
-        githubService: GitHubService
-    ) async throws -> DecisionCard {
-        guard var userCards = cardsByUser[actorUserID],
-              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
-            throw CardServiceError.cardNotFound
-        }
-
-        var card = userCards[index]
-        guard card.isPending else { return card }
-        guard recipientUserID != actorUserID else {
-            throw CardServiceError.githubSyncFailed("Pick someone else to delegate to.")
-        }
-
-        card.status = .delegated
-        let synced = try await githubService.syncDecision(card)
-        card.githubIssueNumber = synced.number
-        card.githubIssueURL = synced.url
-        card.githubRepository = githubService.linkedRepository
-
-        userCards[index] = card
-        cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishUpdated(card)
-
-        let actorName = DemoData.userName(for: actorUserID)
-        let recipientName = DemoData.userName(for: recipientUserID)
-        let delegatedCard = DecisionCard(
-            id: UUID().uuidString,
-            recipientUserID: recipientUserID,
-            senderUserID: actorUserID,
-            type: .delegation,
-            title: card.title,
-            summary: card.summary,
-            context: "Delegated by \(actorName) · \(card.context)",
-            status: .pending,
-            priority: card.priority,
-            createdAt: .now,
-            githubIssueNumber: synced.number,
-            githubIssueURL: synced.url,
-            githubRepository: githubService.linkedRepository,
-            agentRoute: "\(actorName)'s AI → \(recipientName)'s AI",
-            routingReason: "Delegated by \(actorName)"
-        )
-
-        append(delegatedCard, for: recipientUserID)
-        await webSocketService?.publishCreated(delegatedCard)
-
-        let responseCard = DecisionCard(
-            id: UUID().uuidString,
-            recipientUserID: card.senderUserID,
-            senderUserID: actorUserID,
-            type: .notification,
-            title: card.title,
-            summary: "\(actorName) delegated to \(recipientName)",
-            context: card.summary,
-            status: .pending,
-            priority: .medium,
-            createdAt: .now,
-            githubIssueNumber: synced.number,
-            githubIssueURL: synced.url,
-            githubRepository: githubService.linkedRepository,
-            agentRoute: delegatedCard.agentRoute,
-            routingReason: "Delegation update"
-        )
-
-        append(responseCard, for: card.senderUserID)
-        await webSocketService?.publishCreated(responseCard)
-        onCardsUpdated?()
-        return card
-    }
-
-    func delete(cardID: String, actorUserID: String) async throws {
-        guard var userCards = cardsByUser[actorUserID],
-              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
-            throw CardServiceError.cardNotFound
-        }
-
-        let card = userCards[index]
-        guard card.canDelete else {
-            throw CardServiceError.githubSyncFailed("Only declined cards can be deleted.")
-        }
-
-        userCards.remove(at: index)
-        cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishDeleted(cardID: cardID, recipientUserID: actorUserID)
-        onCardsUpdated?()
-    }
-
-    @discardableResult
-    func processRouting(
-        _ routing: InstructionRouting,
-        sourceText: String,
-        from sender: User
-    ) async throws -> DecisionCard {
-        let card = DecisionCard(
-            id: UUID().uuidString,
-            recipientUserID: routing.recipientID,
-            senderUserID: sender.id,
-            type: routing.cardType,
-            title: routing.title,
-            summary: routing.summary,
-            context: routing.context,
-            status: .pending,
-            priority: routing.priority,
-            createdAt: .now,
-            githubIssueNumber: nil,
-            githubIssueURL: nil,
-            agentRoute: routing.agentRoute,
-            routingReason: routing.routingReason,
-            sourceInstruction: sourceText,
-            labels: routing.labels.isEmpty ? nil : routing.labels
-        )
-
-        append(card, for: routing.recipientID)
-        await webSocketService?.publishCreated(card)
-        onCardsUpdated?()
-        return card
-    }
+    // MARK: - Event stream
 
     private func handle(_ event: RealtimeEvent) {
         switch event {
-        case .snapshot(let cardsByUser):
-            applySnapshot(cardsByUser)
+        case .welcome(_, _, let members, let teams, let edges):
+            OrgDirectory.shared.apply(members: members, teams: teams, edges: edges)
+
+        case .snapshot(let snapshotCards):
+            cards = Dictionary(uniqueKeysWithValues: snapshotCards.map { ($0.id, $0) })
+            onCardsUpdated?()
+
         case .cardCreated(let card):
-            upsert(card)
-        case .cardUpdated(let card):
-            upsert(card)
-        case .cardDeleted(let cardID, let recipientUserID):
-            remove(cardID: cardID, for: recipientUserID)
-        case .presence, .error:
+            cards[card.id] = card
+            onCardsUpdated?()
+
+        case .cardUpdated(let card, let previousRecipientUserID):
+            // A re-route can move the card away from this user entirely.
+            if let currentUserID,
+               previousRecipientUserID == currentUserID,
+               card.recipientUserID != currentUserID,
+               card.senderUserID != currentUserID {
+                cards[card.id] = nil
+            } else {
+                cards[card.id] = card
+            }
+            onCardsUpdated?()
+
+        case .cardDeleted(let cardID, _, _):
+            cards[cardID] = nil
+            onCardsUpdated?()
+
+        case .ack(_, let card):
+            if let card {
+                cards[card.id] = card
+                onCardsUpdated?()
+            }
+
+        case .memberChanged(let member):
+            OrgDirectory.shared.upsert(member: member)
+
+        case .error(_, let message):
+            onError?(message)
+
+        case .presence, .ignored:
             break
         }
-    }
-
-    private func upsert(_ card: DecisionCard) {
-        var cards = cardsByUser[card.recipientUserID, default: []]
-        if let index = cards.firstIndex(where: { $0.id == card.id }) {
-            cards[index] = card
-        } else {
-            cards.insert(card, at: 0)
-        }
-        cardsByUser[card.recipientUserID] = cards
-        onCardsUpdated?()
-    }
-
-    private func append(_ card: DecisionCard, for userID: String) {
-        var cards = cardsByUser[userID, default: []]
-        cards.insert(card, at: 0)
-        cardsByUser[userID] = cards
-    }
-
-    private func remove(cardID: String, for userID: String) {
-        var cards = cardsByUser[userID, default: []]
-        cards.removeAll { $0.id == cardID }
-        cardsByUser[userID] = cards
-        onCardsUpdated?()
     }
 }

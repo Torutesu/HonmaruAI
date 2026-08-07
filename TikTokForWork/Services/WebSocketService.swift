@@ -1,120 +1,24 @@
 import Foundation
 
-enum RealtimeEvent: Codable {
-    case snapshot(cardsByUser: [String: [DecisionCard]])
+// Client-side view of the protocol v1 WebSocket stream
+// (backend/packages/protocol/src/ws.ts).
+enum RealtimeEvent {
+    case welcome(
+        selfMember: ProtocolMember,
+        org: ProtocolOrg,
+        members: [ProtocolMember],
+        teams: [ProtocolTeam],
+        edges: [ProtocolEdge]
+    )
+    case snapshot(cards: [DecisionCard])
     case cardCreated(card: DecisionCard)
-    case cardUpdated(card: DecisionCard)
-    case cardDeleted(cardID: String, recipientUserID: String)
+    case cardUpdated(card: DecisionCard, previousRecipientUserID: String?)
+    case cardDeleted(cardID: String, recipientUserID: String, senderUserID: String)
+    case memberChanged(member: ProtocolMember)
     case presence(userId: String, status: String)
-    case error(message: String)
-
-    private enum CodingKeys: String, CodingKey {
-        case type, payload
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-        switch type {
-        case "snapshot":
-            let payload = try container.decode(SnapshotPayload.self, forKey: .payload)
-            self = .snapshot(cardsByUser: payload.cardsByUser)
-        case "card_created":
-            let payload = try container.decode(CardPayload.self, forKey: .payload)
-            self = .cardCreated(card: payload.card)
-        case "card_updated":
-            let payload = try container.decode(CardPayload.self, forKey: .payload)
-            self = .cardUpdated(card: payload.card)
-        case "card_deleted":
-            let payload = try container.decode(DeletePayload.self, forKey: .payload)
-            self = .cardDeleted(cardID: payload.cardID, recipientUserID: payload.recipientUserID)
-        case "presence":
-            let payload = try container.decode(PresencePayload.self, forKey: .payload)
-            self = .presence(userId: payload.userId, status: payload.status)
-        case "error":
-            let payload = try container.decode(ErrorPayload.self, forKey: .payload)
-            self = .error(message: payload.message)
-        default:
-            self = .error(message: "Unknown event: \(type)")
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .snapshot(let cardsByUser):
-            try container.encode("snapshot", forKey: .type)
-            try container.encode(SnapshotPayload(cardsByUser: cardsByUser), forKey: .payload)
-        case .cardCreated(let card):
-            try container.encode("card_created", forKey: .type)
-            try container.encode(CardPayload(card: card), forKey: .payload)
-        case .cardUpdated(let card):
-            try container.encode("card_updated", forKey: .type)
-            try container.encode(CardPayload(card: card), forKey: .payload)
-        case .cardDeleted(let cardID, let recipientUserID):
-            try container.encode("card_deleted", forKey: .type)
-            try container.encode(DeletePayload(cardID: cardID, recipientUserID: recipientUserID), forKey: .payload)
-        case .presence(let userId, let status):
-            try container.encode("presence", forKey: .type)
-            try container.encode(PresencePayload(userId: userId, status: status), forKey: .payload)
-        case .error(let message):
-            try container.encode("error", forKey: .type)
-            try container.encode(ErrorPayload(message: message), forKey: .payload)
-        }
-    }
-
-    private struct SnapshotPayload: Codable {
-        let cardsByUser: [String: [DecisionCard]]
-    }
-
-    private struct CardPayload: Codable {
-        let card: DecisionCard
-    }
-
-    private struct DeletePayload: Codable {
-        let cardID: String
-        let recipientUserID: String
-
-        enum CodingKeys: String, CodingKey {
-            case cardID = "cardId"
-            case recipientUserID
-        }
-    }
-
-    private struct PresencePayload: Codable {
-        let userId: String
-        let status: String
-    }
-
-    private struct ErrorPayload: Codable {
-        let message: String
-    }
-}
-
-enum OutboundEvent {
-    case join(userId: String, orgId: String)
-    case cardCreated(DecisionCard)
-    case cardUpdated(DecisionCard)
-    case cardDeleted(cardID: String, recipientUserID: String)
-    case clearStore
-
-    var envelope: [String: Any] {
-        switch self {
-        case .join(let userId, let orgId):
-            return ["type": "join", "payload": ["userId": userId, "orgId": orgId]]
-        case .cardCreated(let card):
-            return ["type": "card_created", "payload": ["card": card.dictionary]]
-        case .cardUpdated(let card):
-            return ["type": "card_updated", "payload": ["card": card.dictionary]]
-        case .cardDeleted(let cardID, let recipientUserID):
-            return [
-                "type": "card_deleted",
-                "payload": ["cardId": cardID, "recipientUserID": recipientUserID]
-            ]
-        case .clearStore:
-            return ["type": "clear_store", "payload": [:]]
-        }
-    }
+    case ack(clientRef: String?, card: DecisionCard?)
+    case error(code: String, message: String)
+    case ignored
 }
 
 @MainActor
@@ -129,22 +33,18 @@ final class WebSocketService: ObservableObject {
     private var reconnectTask: Task<Void, Never>?
     private var intentionalDisconnect = false
     private var lastURLString: String?
-    private var lastUserID: String?
-    private var lastOrgID = "core-team"
+    private var lastToken: String?
+    private var lastOrgID: String?
+    // Resume cursor: highest event seq seen; reconnects replay the gap.
+    private var lastSeq: Int?
     private let session = URLSession(configuration: .default)
-    private let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }()
 
     private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let value = try container.decode(String.self)
-            let formatters = [ISO8601DateFormatter.fractional, ISO8601DateFormatter.standard]
-            for formatter in formatters {
+            for formatter in [ISO8601DateFormatter.fractional, ISO8601DateFormatter.standard] {
                 if let date = formatter.date(from: value) {
                     return date
                 }
@@ -154,12 +54,15 @@ final class WebSocketService: ObservableObject {
         return decoder
     }()
 
-    func connect(urlString: String, userId: String, orgId: String = "core-team") async throws {
+    func connect(urlString: String, token: String, orgId: String) async throws {
         intentionalDisconnect = false
         lastURLString = urlString
-        lastUserID = userId
+        lastToken = token
+        if lastOrgID != orgId {
+            lastSeq = nil
+        }
         lastOrgID = orgId
-        disconnect(intentional: true)
+        teardown()
 
         guard let url = URL(string: urlString) else {
             throw URLError(.badURL)
@@ -176,44 +79,83 @@ final class WebSocketService: ObservableObject {
             await self?.receiveLoop()
         }
 
-        try await send(.join(userId: userId, orgId: orgId))
+        var hello: [String: Any] = ["type": "hello", "token": token, "orgId": orgId]
+        if let lastSeq {
+            hello["sinceSeq"] = lastSeq
+        }
+        try await send(hello)
         isConnected = true
     }
 
-    func disconnect(intentional: Bool = false) {
+    func disconnect(intentional: Bool = true) {
         intentionalDisconnect = intentional
         reconnectTask?.cancel()
         reconnectTask = nil
+        teardown()
+        lastSeq = nil
+        onlineUserIDs = []
+    }
+
+    private func teardown() {
         receiveLoopTask?.cancel()
         receiveLoopTask = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         isConnected = false
-        onlineUserIDs = []
     }
 
-    func publishCreated(_ card: DecisionCard) async {
-        try? await send(.cardCreated(card))
+    // MARK: - Outbound intent (the server owns all state changes)
+
+    func sendInstruction(text: String, priorityOverride: CardPriority? = nil) async {
+        var payload: [String: Any] = [
+            "type": "instruction",
+            "clientRef": UUID().uuidString,
+            "text": text,
+        ]
+        if let priorityOverride {
+            payload["priorityOverride"] = priorityOverride.rawValue
+        }
+        try? await send(payload)
     }
 
-    func publishUpdated(_ card: DecisionCard) async {
-        try? await send(.cardUpdated(card))
+    func sendCardAction(
+        cardID: String,
+        action: String,
+        note: String? = nil,
+        delegateToUserID: String? = nil
+    ) async {
+        var payload: [String: Any] = [
+            "type": "card_action",
+            "clientRef": UUID().uuidString,
+            "cardId": cardID,
+            "action": action,
+        ]
+        if let note, !note.isEmpty {
+            payload["note"] = note
+        }
+        if let delegateToUserID {
+            payload["delegateToUserId"] = delegateToUserID
+        }
+        try? await send(payload)
     }
 
-    func publishDeleted(cardID: String, recipientUserID: String) async {
-        try? await send(.cardDeleted(cardID: cardID, recipientUserID: recipientUserID))
+    func sendCardMessage(cardID: String, text: String) async {
+        try? await send([
+            "type": "card_message",
+            "clientRef": UUID().uuidString,
+            "cardId": cardID,
+            "text": text,
+        ])
     }
 
-    func publishClearStore() async {
-        try? await send(.clearStore)
-    }
-
-    private func send(_ event: OutboundEvent) async throws {
+    private func send(_ envelope: [String: Any]) async throws {
         guard let task else { throw URLError(.notConnectedToInternet) }
-        let data = try JSONSerialization.data(withJSONObject: event.envelope)
+        let data = try JSONSerialization.data(withJSONObject: envelope)
         guard let text = String(data: data, encoding: .utf8) else { return }
         try await task.send(.string(text))
     }
+
+    // MARK: - Inbound
 
     private func receiveLoop() async {
         while !Task.isCancelled, let task {
@@ -240,21 +182,20 @@ final class WebSocketService: ObservableObject {
     private func scheduleReconnect() {
         guard !intentionalDisconnect,
               let lastURLString,
-              let lastUserID else { return }
+              let lastToken,
+              let lastOrgID else { return }
 
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self, !Task.isCancelled, !self.intentionalDisconnect else { return }
-            try? await self.connect(urlString: lastURLString, userId: lastUserID, orgId: self.lastOrgID)
+            try? await self.connect(urlString: lastURLString, token: lastToken, orgId: lastOrgID)
         }
     }
 
     private func handle(text: String) {
-        guard let data = text.data(using: .utf8),
-              let event = try? decoder.decode(RealtimeEvent.self, from: data) else {
-            return
-        }
+        guard let data = text.data(using: .utf8) else { return }
+        guard let event = decodeFrame(data) else { return }
 
         if case .presence(let userId, let status) = event {
             if status == "online" {
@@ -263,27 +204,132 @@ final class WebSocketService: ObservableObject {
                 onlineUserIDs.remove(userId)
             }
         }
-
+        if case .ignored = event { return }
         onEvent?(event)
     }
-}
 
-private extension DecisionCard {
-    var dictionary: [String: Any] {
-        guard let data = try? JSONEncoder.iso8601.encode(self),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return [:]
+    private func decodeFrame(_ data: Data) -> RealtimeEvent? {
+        struct Head: Decodable { let type: String }
+        guard let head = try? decoder.decode(Head.self, from: data) else { return nil }
+
+        switch head.type {
+        case "welcome":
+            struct Frame: Decodable {
+                let selfMember: ProtocolMember
+                let org: ProtocolOrg
+                let members: [ProtocolMember]
+                let teams: [ProtocolTeam]
+                let edges: [ProtocolEdge]
+                let seq: Int
+                enum CodingKeys: String, CodingKey {
+                    case selfMember = "self"
+                    case org, members, teams, edges, seq
+                }
+            }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            lastSeq = max(lastSeq ?? 0, frame.seq)
+            return .welcome(
+                selfMember: frame.selfMember,
+                org: frame.org,
+                members: frame.members,
+                teams: frame.teams,
+                edges: frame.edges
+            )
+
+        case "snapshot":
+            struct Frame: Decodable { let cards: [DecisionCard]; let seq: Int }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            lastSeq = max(lastSeq ?? 0, frame.seq)
+            return .snapshot(cards: frame.cards)
+
+        case "event":
+            return decodeOrgEvent(data)
+
+        case "ack":
+            struct Frame: Decodable { let clientRef: String?; let card: DecisionCard? }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .ack(clientRef: frame.clientRef, card: frame.card)
+
+        case "presence":
+            struct Frame: Decodable { let userId: String; let status: String }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .presence(userId: frame.userId, status: frame.status)
+
+        case "error":
+            struct Frame: Decodable { let code: String; let message: String }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .error(code: frame.code, message: frame.message)
+
+        default:
+            // notification / pong / future frames: safe to skip for now.
+            return .ignored
         }
-        return object
     }
-}
 
-private extension JSONEncoder {
-    static let iso8601: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }()
+    private func decodeOrgEvent(_ data: Data) -> RealtimeEvent? {
+        struct EventHead: Decodable {
+            let event: Inner
+            struct Inner: Decodable { let type: String; let seq: Int }
+        }
+        guard let head = try? decoder.decode(EventHead.self, from: data) else { return nil }
+        lastSeq = max(lastSeq ?? 0, head.event.seq)
+
+        switch head.event.type {
+        case "card_created":
+            struct Frame: Decodable {
+                let event: Inner
+                struct Inner: Decodable { let payload: Payload }
+                struct Payload: Decodable { let card: DecisionCard }
+            }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .cardCreated(card: frame.event.payload.card)
+
+        case "card_updated":
+            struct Frame: Decodable {
+                let event: Inner
+                struct Inner: Decodable { let payload: Payload }
+                struct Payload: Decodable {
+                    let card: DecisionCard
+                    let previousRecipientUserId: String?
+                }
+            }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .cardUpdated(
+                card: frame.event.payload.card,
+                previousRecipientUserID: frame.event.payload.previousRecipientUserId
+            )
+
+        case "card_deleted":
+            struct Frame: Decodable {
+                let event: Inner
+                struct Inner: Decodable { let payload: Payload }
+                struct Payload: Decodable {
+                    let cardId: String
+                    let recipientUserId: String
+                    let senderUserId: String
+                }
+            }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .cardDeleted(
+                cardID: frame.event.payload.cardId,
+                recipientUserID: frame.event.payload.recipientUserId,
+                senderUserID: frame.event.payload.senderUserId
+            )
+
+        case "member_joined", "member_updated":
+            struct Frame: Decodable {
+                let event: Inner
+                struct Inner: Decodable { let payload: Payload }
+                struct Payload: Decodable { let member: ProtocolMember }
+            }
+            guard let frame = try? decoder.decode(Frame.self, from: data) else { return nil }
+            return .memberChanged(member: frame.event.payload.member)
+
+        default:
+            // message_created / org_graph_updated / member_left: no iOS UI yet.
+            return .ignored
+        }
+    }
 }
 
 private extension ISO8601DateFormatter {

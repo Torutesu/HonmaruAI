@@ -6,13 +6,45 @@ AI-native decision feed for teams. Humans talk to their AI; agents route Decisio
 
 | Layer | Tech |
 |-------|------|
-| iOS | SwiftUI, ASWebAuthenticationSession, URLSession WebSocket |
-| Backend (demo relay) | Node.js localhost relay (`server/`) — current iOS app runs against this |
-| Backend (production) | TypeScript monorepo (`backend/`) — schema-first protocol + Hono/SQLite server, see [backend/README.md](backend/README.md) |
-| AI | OpenRouter `inclusionai/ling-3.0-flash:free` via relay server |
-| GitHub | OAuth via localhost + Issues API |
+| iOS | SwiftUI thin client on protocol v1 (URLSession WebSocket + REST) |
+| Web | React/TS client (`backend/packages/web`) on the same protocol |
+| Backend | TypeScript monorepo (`backend/`) — schema-first protocol + Hono/SQLite server, see [backend/README.md](backend/README.md) |
+| AI | OpenRouter via server (async refinement pipeline + agent memory), deterministic fallback |
+| GitHub | Server-side `github_issues` integration (pluggable) |
+
+> `server/` is the original localhost demo relay, kept for reference only —
+> the iOS app now speaks the production backend.
 
 ## Quick start
+
+### 1. Start the backend
+
+```bash
+cd backend
+npm install
+npm run dev        # API + WebSocket on http://127.0.0.1:8081 (dev login enabled)
+```
+
+### 2. Run the iOS app
+
+```bash
+xcodegen generate
+open TikTokForWork.xcodeproj
+```
+
+On first launch: enter your name and job title, create a workspace (or join
+with an invite code from a teammate's ⋯ menu). Two simulators against the
+same backend give you the full cross-user flow — instruction → card →
+approve/decline/revise/delegate — with AI refinement and SLA escalation
+happening server-side.
+
+The web client (`npm run dev -w @honmaru/web`) joins the same org from a
+browser.
+
+---
+
+The sections below describe the original localhost-relay demo setup and are
+kept for reference.
 
 ### 1. Configure GitHub OAuth app
 

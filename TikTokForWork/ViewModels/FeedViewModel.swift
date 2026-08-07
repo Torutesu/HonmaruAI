@@ -15,10 +15,7 @@ final class FeedViewModel: ObservableObject {
     @Published var reviewDraft: InstructionDraft?
 
     private var cardService: DecisionCardService?
-    private var githubService: GitHubService?
     private var userID: String?
-    private var draftTask: Task<Void, Never>?
-    private var githubSyncTask: Task<Void, Never>?
 
     var currentIndex: Int {
         guard let scrollPosition,
@@ -32,9 +29,8 @@ final class FeedViewModel: ObservableObject {
         cards.filter(\.isPending).count
     }
 
-    func bind(to service: DecisionCardService, user: User, githubService: GitHubService) {
+    func bind(to service: DecisionCardService, user: User) {
         cardService = service
-        self.githubService = githubService
         userID = user.id
         refreshCards(from: service)
 
@@ -44,20 +40,9 @@ final class FeedViewModel: ObservableObject {
                 self.refreshCards(from: cardService)
             }
         }
-
-        githubSyncTask?.cancel()
-        githubSyncTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.syncGitHub()
-                try? await Task.sleep(for: .seconds(30))
-            }
+        service.onError = { [weak self] message in
+            self?.errorMessage = message
         }
-    }
-
-    func syncGitHub() async {
-        guard let cardService, let githubService else { return }
-        await cardService.syncGitHubStatus(githubService: githubService)
-        refreshCards(from: cardService)
     }
 
     func clearSheets() {
@@ -65,7 +50,6 @@ final class FeedViewModel: ObservableObject {
         delegateCard = nil
         reviseCard = nil
         reviewDraft = nil
-        draftTask?.cancel()
         isDrafting = false
     }
 
@@ -77,172 +61,68 @@ final class FeedViewModel: ObservableObject {
         case .requestRevision:
             reviseCard = card
             return
-        case .delete:
-            await delete(card: card, appState: appState)
-            return
         case .viewDetails:
             detailCard = card
             return
         default:
             break
         }
-
-        await resolve(card: card, action: action, revisionNote: nil, appState: appState)
+        await send(action: action, card: card, note: nil, delegateTo: nil)
     }
 
     func completeRevision(for card: DecisionCard, note: String, appState: AppState) async {
         reviseCard = nil
-        await resolve(card: card, action: .requestRevision, revisionNote: note, appState: appState)
-    }
-
-    func delete(card: DecisionCard, appState: AppState) async {
-        guard let cardService, let userID else { return }
-
-        isProcessing = true
-        processingMessage = "Removing card"
-        errorMessage = nil
-
-        do {
-            try await cardService.delete(cardID: card.id, actorUserID: userID)
-            Haptics.light()
-            refreshCards(from: cardService)
-            if cards.isEmpty {
-                scrollPosition = nil
-            } else if scrollPosition == card.id {
-                scrollPosition = cards[min(currentIndex, cards.count - 1)].id
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-            Haptics.light()
-        }
-
-        isProcessing = false
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        await send(action: .requestRevision, card: card, note: trimmed.isEmpty ? nil : trimmed, delegateTo: nil)
     }
 
     func completeDelegate(for card: DecisionCard, to user: User, appState: AppState) async {
-        guard let cardService, let userID else { return }
-
-        isProcessing = true
-        processingMessage = "Delegating"
-        errorMessage = nil
-
-        do {
-            _ = try await cardService.delegate(
-                cardID: card.id,
-                to: user.id,
-                actorUserID: userID,
-                organization: DemoData.organization,
-                githubService: appState.githubService
-            )
-            Haptics.success()
-            refreshCards(from: cardService)
-            advanceIfNeeded()
-        } catch {
-            errorMessage = error.localizedDescription
-            Haptics.light()
-        }
-
-        isProcessing = false
         delegateCard = nil
+        await send(action: .delegate, card: card, note: nil, delegateTo: user.id)
     }
 
-    func beginDraft(_ text: String, priority: CardPriority, appState: AppState) {
+    // Instruction pipeline: the server routes instantly (fast path) and an
+    // AI refinement upgrades the card moments later — so there is no local
+    // draft/review step anymore. Send and watch the feed.
+    func sendInstruction(_ text: String, priority: CardPriority, appState: AppState) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, let cardService else { return }
 
-        draftTask?.cancel()
         errorMessage = nil
-        isDrafting = true
-
-        draftTask = Task {
-            let draft = await draftInstruction(trimmed, priority: priority, appState: appState)
-            guard !Task.isCancelled else { return }
-            isDrafting = false
-            if let draft {
-                reviewDraft = draft
+        Task {
+            do {
+                try await cardService.sendInstruction(
+                    text: trimmed,
+                    priority: priority == .medium ? nil : priority
+                )
+                Haptics.light()
+            } catch {
+                errorMessage = error.localizedDescription
             }
         }
     }
 
-    func draftInstruction(_ text: String, priority: CardPriority, appState: AppState) async -> InstructionDraft? {
-        guard let user = appState.currentUser else { return nil }
-        guard appState.aiService.hasRelay else {
-            errorMessage = AIServiceError.notConfigured.localizedDescription
-            return nil
-        }
-
-        do {
-            return try await appState.aiService.draftInstruction(
-                text: text,
-                sender: user,
-                organization: DemoData.organization,
-                priorityOverride: priority
-            )
-        } catch {
-            errorMessage = error.localizedDescription
-            return nil
-        }
-    }
-
-    func sendDraft(_ draft: InstructionDraft, appState: AppState) async {
-        guard let cardService, let user = appState.currentUser else { return }
-
-        isProcessing = true
-        processingMessage = "Routing decision"
-        errorMessage = nil
-
-        do {
-            let routing = draft.asRouting()
-            _ = try await cardService.processRouting(
-                routing,
-                sourceText: draft.sourceText,
-                from: user
-            )
-            refreshCards(from: cardService)
-            Haptics.light()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-
-        isProcessing = false
-        reviewDraft = nil
-    }
-
-    private func resolve(
-        card: DecisionCard,
+    private func send(
         action: CardActionKind,
-        revisionNote: String?,
-        appState: AppState
+        card: DecisionCard,
+        note: String?,
+        delegateTo: String?
     ) async {
-        guard let cardService, let userID else { return }
-
-        isProcessing = true
-        processingMessage = switch action {
-        case .createIssue: "Creating GitHub issue…"
-        case .reject: "Declining"
-        case .requestRevision: "Sending revision"
-        default: "Syncing"
-        }
+        guard let cardService else { return }
         errorMessage = nil
-
         do {
-            _ = try await cardService.resolve(
-                cardID: card.id,
+            try await cardService.send(
                 action: action,
-                actorUserID: userID,
-                revisionNote: revisionNote,
-                githubService: appState.githubService
+                card: card,
+                note: note,
+                delegateToUserID: delegateTo
             )
             Haptics.success()
-            refreshCards(from: cardService)
-            await syncGitHub()
             advanceIfNeeded()
         } catch {
             errorMessage = error.localizedDescription
             Haptics.light()
         }
-
-        isProcessing = false
     }
 
     private func refreshCards(from service: DecisionCardService) {
