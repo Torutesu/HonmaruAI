@@ -100,9 +100,29 @@ in clear space right of the reference shots (x ≈ 18400):
 Fonts used in the file: Plus Jakarta Sans ExtraBold (display), Inter
 (body/UI), Sometype Mono Medium (meta labels).
 
-Known nit: on `A5 Capture`, wrapper rows still carry Figma's default white
-fill and hide the dark viewfinder — select the rows under the screen frame
-and set fill to none (hit the Starter-plan MCP call limit before the fix).
+### Classic view = Slack clone
+
+The Classic tab is a deliberate Slack iOS clone (the "old way" surface):
+workspace header (`Honmaru HQ ▾`), Jump-to search pill, `Channels` /
+`Direct messages` / `Apps` sections, unread rows in bold with red
+`#e01e5a` badges, `#2bac76` presence dots. Open decisions map to unreads;
+tapping a row surfaces that card back in the Cards view. Implemented in the
+prototype (`classicHTML()` / `.slk-*` styles); it intentionally uses Slack's
+palette, not ours.
+
+### Pending Figma writes (blocked by Starter-plan MCP limit)
+
+The file's team is on Figma Starter, whose MCP read-tool budget is monthly
+and currently exhausted. Two ready-to-run `use_figma` scripts live in
+[docs/figma/](figma/):
+
+- `classic-slack-rebuild.js` — rebuilds `A4 Home — Classic` (node `59:164`)
+  as the Slack clone above
+- `capture-fix.js` — clears white wrapper fills on `A5 Capture` (node
+  `60:122`) so the dark viewfinder shows
+
+Unblock by moving the file to a Professional team (limits jump to 200/day;
+the file URL/key stays the same) or waiting for the billing-cycle reset.
 
 ## Don'ts (enforced)
 
