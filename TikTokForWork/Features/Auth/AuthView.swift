@@ -7,6 +7,7 @@ struct AuthView: View {
     @State private var orgName = ""
     @State private var jobTitle = ""
     @State private var inviteCode = ""
+    @State private var serverURL = AppConfig.backendHTTP
     @State private var mode: Mode = .create
     @State private var isWorking = false
     @State private var errorMessage: String?
@@ -64,6 +65,13 @@ struct AuthView: View {
                     }
                 }
 
+                field(title: "Server") {
+                    TextField(AppConfig.defaultBackendHTTP, text: $serverURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+
                 if let errorMessage {
                     Text(errorMessage)
                         .font(Theme.TypeScale.label)
@@ -115,6 +123,8 @@ struct AuthView: View {
     }
 
     private func continueTapped() {
+        let trimmedURL = serverURL.trimmingCharacters(in: .whitespaces)
+        SessionStore.backendURL = trimmedURL.isEmpty ? nil : trimmedURL
         guard let api = appState.api else {
             errorMessage = "Backend URL is not configured."
             return

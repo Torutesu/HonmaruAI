@@ -251,6 +251,28 @@ Migration order:
 3. **Android**: Kotlin data classes ported from the same protocol package.
 4. Retire `../server/` once iOS is migrated.
 
+## Production posture & capacity
+
+There is no demo data anywhere: a fresh deployment starts blank and grows
+only through the real flows (sign in → create org → invite codes →
+channels/cards). Sign-in options: **GitHub OAuth** (set
+`GITHUB_CLIENT_ID`/`SECRET` and point `GITHUB_REDIRECT_URI` at
+`https://<host>/auth/github/callback`; the web client shows the button
+automatically) and **dev login**, which must stay off in production
+(`AUTH_DEV_MODE=0`, the fly example default).
+
+Sized comfortably for ~100-member orgs:
+
+- Feed snapshots are capped at the 500 most recent cards and batch-load
+  refs/watchers (no per-card queries); chat history pages at 100
+- Per-connection WS rate limit (60 msgs / 10 s) and a 256 KB request cap
+- Expired sessions and invites are purged on the periodic sweep
+- Load smoke (real server, SQLite): 100 users joining in ~0.4 s, 200
+  instructions in ~0.4 s, feed/chat/analytics reads at 2–3 ms each
+- Beyond that: the repo layer is plain functions over SQLite (WAL,
+  single writer) — the documented Postgres path is the next step when a
+  single node stops being enough
+
 ## Deliberate next steps (not yet built)
 
 - Direct APNs/FCM channel on top of the device registry (webhook bridge

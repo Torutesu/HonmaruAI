@@ -65,6 +65,7 @@ Last updated: 2026-08-06
 - [x] iOS Chat mode: Feed/Chat TabView, channel + DM lists with unseen badges, thread replies via context menu, mention highlighting, ✨ digest button (needs Xcode build to verify)
 - [x] GitHub webhook reverse sync: issue closed → card completed, reopened → active, HMAC-verified, both parties notified; 46 server tests
 - [x] iOS light-first theme: adaptive tokens matching the web client (dark follows OS), compact type/spacing scale
+- [x] Production posture: blank-state deploys, web GitHub OAuth sign-in, iOS server URL setting, snapshot caps + batch loads, WS rate limiting, request size cap, expired session/invite purge; 100-user load smoke (joins 0.4s, reads 2-3ms)
 - [ ] Run `fly deploy` (needs an account)
 
 ## Demo script

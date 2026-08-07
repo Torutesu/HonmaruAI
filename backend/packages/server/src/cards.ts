@@ -42,19 +42,34 @@ interface CardRow {
 }
 
 function toCard(db: Db, row: CardRow): DecisionCard {
-  const refs = db
-    .prepare("SELECT * FROM external_refs WHERE card_id = ?")
-    .all(row.id) as {
-    integration: string;
-    external_id: string;
-    url: string | null;
-    state: string | null;
-  }[];
-  const watchers = db
-    .prepare("SELECT user_id FROM card_watchers WHERE card_id = ?")
-    .all(row.id) as { user_id: string }[];
+  const refs = (
+    db.prepare("SELECT * FROM external_refs WHERE card_id = ?").all(row.id) as {
+      integration: string;
+      external_id: string;
+      url: string | null;
+      state: string | null;
+    }[]
+  ).map((ref) => ({
+    integration: ref.integration as ExternalRef["integration"],
+    externalId: ref.external_id,
+    url: ref.url,
+    state: ref.state,
+  }));
+  const watchers = (
+    db.prepare("SELECT user_id FROM card_watchers WHERE card_id = ?").all(row.id) as {
+      user_id: string;
+    }[]
+  ).map((watcher) => watcher.user_id);
+  return rowToCard(row, refs, watchers);
+}
+
+function rowToCard(
+  row: CardRow,
+  externalRefs: ExternalRef[],
+  watcherUserIds: string[]
+): DecisionCard {
   return {
-    watcherUserIds: watchers.map((watcher) => watcher.user_id),
+    watcherUserIds,
     id: row.id,
     orgId: row.org_id,
     senderUserId: row.sender_user_id,
@@ -73,12 +88,7 @@ function toCard(db: Db, row: CardRow): DecisionCard {
     parentCardId: row.parent_card_id,
     dueAt: row.due_at,
     escalatedAt: row.escalated_at,
-    externalRefs: refs.map((ref) => ({
-      integration: ref.integration as ExternalRef["integration"],
-      externalId: ref.external_id,
-      url: ref.url,
-      state: ref.state,
-    })),
+    externalRefs,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -92,11 +102,16 @@ export function getCard(db: Db, cardId: string): DecisionCard | null {
 }
 
 // A user sees a card when they sent it, must decide on it, or were pulled
-// in as a watcher (e.g. via an @mention in the thread).
+// in as a watcher (e.g. via an @mention in the thread). Capped to the most
+// recent cards so snapshots stay bounded as orgs accumulate history;
+// refs/watchers are batch-loaded to avoid per-card queries.
+export const SNAPSHOT_CARD_LIMIT = 500;
+
 export function listCardsForUser(
   db: Db,
   orgId: string,
-  userId: string
+  userId: string,
+  limit = SNAPSHOT_CARD_LIMIT
 ): DecisionCard[] {
   const rows = db
     .prepare(
@@ -105,10 +120,44 @@ export function listCardsForUser(
          recipient_user_id = ? OR sender_user_id = ?
          OR id IN (SELECT card_id FROM card_watchers WHERE user_id = ?)
        )
-       ORDER BY created_at DESC`
+       ORDER BY created_at DESC LIMIT ?`
     )
-    .all(orgId, userId, userId, userId) as CardRow[];
-  return rows.map((row) => toCard(db, row));
+    .all(orgId, userId, userId, userId, limit) as CardRow[];
+  if (rows.length === 0) return [];
+
+  const ids = rows.map((row) => row.id);
+  const placeholders = ids.map(() => "?").join(",");
+  const refsByCard = new Map<string, ExternalRef[]>();
+  for (const ref of db
+    .prepare(`SELECT * FROM external_refs WHERE card_id IN (${placeholders})`)
+    .all(...ids) as {
+    card_id: string;
+    integration: string;
+    external_id: string;
+    url: string | null;
+    state: string | null;
+  }[]) {
+    const list = refsByCard.get(ref.card_id) ?? [];
+    list.push({
+      integration: ref.integration as ExternalRef["integration"],
+      externalId: ref.external_id,
+      url: ref.url,
+      state: ref.state,
+    });
+    refsByCard.set(ref.card_id, list);
+  }
+  const watchersByCard = new Map<string, string[]>();
+  for (const watcher of db
+    .prepare(`SELECT card_id, user_id FROM card_watchers WHERE card_id IN (${placeholders})`)
+    .all(...ids) as { card_id: string; user_id: string }[]) {
+    const list = watchersByCard.get(watcher.card_id) ?? [];
+    list.push(watcher.user_id);
+    watchersByCard.set(watcher.card_id, list);
+  }
+
+  return rows.map((row) =>
+    rowToCard(row, refsByCard.get(row.id) ?? [], watchersByCard.get(row.id) ?? [])
+  );
 }
 
 export function isCardVisibleTo(card: DecisionCard, userId: string): boolean {

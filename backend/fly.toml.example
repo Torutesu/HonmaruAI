@@ -12,8 +12,10 @@ primary_region = "nrt"
 [env]
   PORT = "8080"
   DATABASE_PATH = "/data/honmaru.db"
-  # Dev login is for demos; disable once GitHub OAuth is configured.
-  AUTH_DEV_MODE = "1"
+  # Production: keep dev login OFF and sign in with GitHub OAuth
+  # (set GITHUB_CLIENT_ID/SECRET secrets and GITHUB_REDIRECT_URI to
+  # https://<app>.fly.dev/auth/github/callback). Flip to "1" only for demos.
+  AUTH_DEV_MODE = "0"
   SLA_SWEEP_SECONDS = "60"
 
 [[mounts]]

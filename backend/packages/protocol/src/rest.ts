@@ -168,6 +168,11 @@ export const OpenDmRequest = z.object({
 });
 
 // GET /v1/channels/:channelId/messages?limit=N
+// POST /v1/channels/:channelId/messages
+export const CreateChatMessageRequest = z.object({
+  text: z.string().min(1).max(4000),
+  parentMessageId: z.string().optional(),
+});
 
 export const ErrorResponse = z.object({
   code: z.string(),

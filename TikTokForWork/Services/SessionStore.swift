@@ -11,6 +11,13 @@ enum SessionStore {
         static let userName = "userName"
         static let orgID = "orgID"
         static let orgName = "orgName"
+        static let backendURL = "backendURL"
+    }
+
+    // Device-level setting: survives sign-out.
+    static var backendURL: String? {
+        get { read(Key.backendURL) }
+        set { write(newValue, key: Key.backendURL) }
     }
 
     static var sessionToken: String? {

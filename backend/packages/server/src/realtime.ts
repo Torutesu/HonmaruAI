@@ -39,7 +39,14 @@ import {
 interface SocketSession {
   userId: string;
   orgId: string;
+  // Sliding-window rate limit state.
+  windowStart: number;
+  windowCount: number;
 }
+
+// Per-connection write budget: generous for humans, a wall for runaways.
+const RATE_WINDOW_MS = 10_000;
+const RATE_MAX_MESSAGES = 60;
 
 export function isEventVisibleTo(event: OrgEvent, userId: string): boolean {
   switch (event.type) {
@@ -219,7 +226,12 @@ export class Hub {
         return;
       }
 
-      this.sessions.set(ws, { userId: user.id, orgId: org.id });
+      this.sessions.set(ws, {
+        userId: user.id,
+        orgId: org.id,
+        windowStart: Date.now(),
+        windowCount: 0,
+      });
       ensureDefaultChannel(this.db, org.id);
       this.send(ws, {
         type: "welcome",
@@ -273,6 +285,22 @@ export class Hub {
         type: "error",
         code: "hello_required",
         message: "Send hello before other messages.",
+      });
+      return;
+    }
+
+    const nowMs = Date.now();
+    if (nowMs - session.windowStart > RATE_WINDOW_MS) {
+      session.windowStart = nowMs;
+      session.windowCount = 0;
+    }
+    session.windowCount += 1;
+    if (session.windowCount > RATE_MAX_MESSAGES) {
+      this.send(ws, {
+        type: "error",
+        clientRef: "clientRef" in message ? message.clientRef : undefined,
+        code: "rate_limited",
+        message: "Slow down — too many messages.",
       });
       return;
     }

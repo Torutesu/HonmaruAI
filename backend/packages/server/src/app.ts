@@ -111,6 +111,11 @@ export function createApp(config: Config): App {
       emitEvents(result.orgId, result.events);
       notifications.direct(result.notifications);
     }
+    // Housekeeping piggybacks on the sweep: expired sessions and invites
+    // never accumulate.
+    const nowIso = new Date().toISOString();
+    db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(nowIso);
+    db.prepare("DELETE FROM invites WHERE expires_at < ?").run(nowIso);
   };
   const sweepTimer =
     config.slaSweepSeconds > 0

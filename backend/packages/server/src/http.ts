@@ -2,6 +2,7 @@ import {
   AcceptInviteRequest,
   CardActionRequest,
   CreateChannelRequest,
+  CreateChatMessageRequest,
   CreateInstructionRequest,
   CreateMessageRequest,
   CreateOrgRequest,
@@ -42,6 +43,7 @@ import {
 import {
   ChatError,
   createChannel,
+  createChatMessage,
   ensureDefaultChannel,
   getChannel,
   isChannelVisibleTo,
@@ -140,6 +142,16 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
   // based, not cookie-based, so a permissive CORS policy is safe here.
   app.use("*", cors());
 
+  // Bound request bodies (protocol payloads are small; anything larger is
+  // abuse or a bug).
+  app.use("*", async (c, next) => {
+    const length = Number(c.req.header("content-length") ?? 0);
+    if (length > 256 * 1024) {
+      return c.json({ code: "payload_too_large", message: "Request too large." }, 413);
+    }
+    return next();
+  });
+
   app.onError((error, c) => {
     if (error instanceof ZodError) {
       return c.json(
@@ -179,6 +191,17 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
     const user = upsertGitHubUser(db, profile);
     const token = createSession(db, user.id, config.sessionTtlDays);
     return c.json({ token, user });
+  });
+
+  // Web client GitHub sign-in: expose the OAuth app's public config.
+  app.get("/v1/auth/github/config", (c) => {
+    if (!config.github.clientId) {
+      return c.json({ code: "oauth_not_configured", message: "GitHub OAuth is not configured." }, 503);
+    }
+    return c.json({
+      clientId: config.github.clientId,
+      redirectUri: config.github.redirectUri,
+    });
   });
 
   app.post("/v1/auth/dev", async (c) => {
@@ -431,6 +454,24 @@ export function createHttpApp(deps: HttpDeps): Hono<Env> {
       requesterUserId: user.id,
     });
     return c.json({ queued: true }, 202);
+  });
+
+  app.post("/v1/channels/:channelId/messages", async (c) => {
+    const channelId = c.req.param("channelId");
+    const user = me(c);
+    const channel = getChannel(db, channelId);
+    if (!channel) throw new ChatError("channel_not_found", "Channel not found.");
+    requireMember(db, channel.orgId, user.id);
+    const body = CreateChatMessageRequest.parse(await c.req.json());
+    const { message, events } = createChatMessage(
+      db,
+      user.id,
+      channelId,
+      body.text,
+      body.parentMessageId
+    );
+    emitEvents(channel.orgId, events);
+    return c.json({ message }, 201);
   });
 
   app.get("/v1/channels/:channelId/messages", (c) => {

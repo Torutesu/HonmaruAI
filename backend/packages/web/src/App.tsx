@@ -266,7 +266,29 @@ export default function App() {
     const raw = sessionStorage.getItem("honmaru.org");
     return raw ? (JSON.parse(raw) as Org) : null;
   });
+  const [exchanging, setExchanging] = useState(
+    () => new URLSearchParams(location.search).has("code") && !session
+  );
 
+  // GitHub OAuth callback: ?code= arrives on /auth/github/callback.
+  useEffect(() => {
+    const code = new URLSearchParams(location.search).get("code");
+    if (!code || session) return;
+    api<Session>("/v1/auth/github/exchange", { body: { code } })
+      .then((result) => {
+        sessionStorage.setItem("honmaru.session", JSON.stringify(result));
+        setSession(result);
+      })
+      .finally(() => {
+        history.replaceState(null, "", "/");
+        setExchanging(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (exchanging) {
+    return <div className="gate"><div className="muted">Signing in with GitHub…</div></div>;
+  }
   if (!session) {
     return (
       <Login
@@ -294,6 +316,18 @@ export default function App() {
 function Login({ onDone }: { onDone: (s: Session) => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
+  const [devMode, setDevMode] = useState(true);
+  const [github, setGithub] = useState<{ clientId: string; redirectUri: string } | null>(null);
+
+  useEffect(() => {
+    api<{ devMode: boolean }>("/health")
+      .then((h) => setDevMode(h.devMode))
+      .catch(() => {});
+    api<{ clientId: string; redirectUri: string }>("/v1/auth/github/config")
+      .then(setGithub)
+      .catch(() => {});
+  }, []);
+
   const submit = async () => {
     if (!name.trim()) return;
     try {
@@ -303,19 +337,42 @@ function Login({ onDone }: { onDone: (s: Session) => void }) {
       setError(e instanceof Error ? e.message : "Login failed");
     }
   };
+  const githubSignIn = () => {
+    if (!github) return;
+    const params = new URLSearchParams({
+      client_id: github.clientId,
+      redirect_uri: github.redirectUri,
+    });
+    location.href = `https://github.com/login/oauth/authorize?${params}`;
+  };
   return (
     <div className="gate">
       <div className="gate-card">
         <div className="brand">HonmaruAI</div>
-        <p className="muted">AI-native decision feed — dev sign in</p>
-        <input
-          autoFocus
-          placeholder="Your name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-        />
-        <button className="primary" onClick={submit}>Continue</button>
+        <p className="muted">AI-native decision feed</p>
+        {github && (
+          <button className="primary" onClick={githubSignIn}>
+            Sign in with GitHub
+          </button>
+        )}
+        {devMode && (
+          <>
+            {github && <div className="divider">Or dev sign in</div>}
+            <input
+              autoFocus
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+            />
+            <button className={github ? "" : "primary"} onClick={submit}>Continue</button>
+          </>
+        )}
+        {!devMode && !github && (
+          <p className="error">
+            Sign-in is not configured on this server (enable GitHub OAuth or dev mode).
+          </p>
+        )}
         {error && <p className="error">{error}</p>}
       </div>
     </div>
