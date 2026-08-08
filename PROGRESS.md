@@ -1,6 +1,6 @@
 # Progress Checklist
 
-Last updated: 2026-07-27
+Last updated: 2026-08-08
 
 ## Overall
 
@@ -13,7 +13,7 @@ Last updated: 2026-07-27
 ## GitHub OAuth
 
 - [x] ASWebAuthenticationSession in iOS
-- [x] `tiktokforwork://oauth/callback` URL scheme
+- [x] `honmaruai://oauth/callback` URL scheme
 - [x] Localhost `/oauth/github/config` + `/oauth/github/token`
 - [x] Client secret stays on server only
 - [x] Repository picker after OAuth
@@ -34,7 +34,27 @@ Last updated: 2026-07-27
 - [x] Agent route on cards
 - [x] AIService (OpenRouter via relay)
 - [x] Release tooling — `asc` CLI pipeline (`scripts/release.sh`, [docs](docs/app-store-release.md))
+- [x] Rebrand to Honmaru AI (`com.honmaru.ai`, `honmaruai://`)
+- [x] App icon flattened to RGB — App Store rejects any alpha channel
 - [ ] TestFlight or installable build — tooling ready, needs a real API key + `ASC_APP_ID`
+
+## App Store submission blockers
+
+TestFlight **internal** testing needs none of these — it skips Beta App Review,
+so a build can go to a device today. All of them block App Store review.
+
+- [ ] **Relay server must be hosted.** `AppConfig.relayURL` is `ws://127.0.0.1:8080`;
+      on a device that is the phone itself. Deploy `server/` and switch to `wss://`.
+      Without it the reviewer cannot sign in at all → Guideline 2.1 (App Completeness).
+- [ ] **Reviewer demo account.** Sign-in is GitHub OAuth only. App Review
+      Information needs working credentials or the review stops at the auth screen.
+- [ ] Screenshots — 6.9" and 6.5" iPhone are mandatory
+- [ ] Privacy policy URL — required because the app handles GitHub tokens
+- [ ] App Privacy disclosure — GitHub account data, and user text sent to OpenRouter
+- [ ] Export compliance answer
+
+`scripts/release.sh doctor` runs `asc review doctor`, which catches most of the
+metadata-side items before a submission is spent.
 
 ## Demo script
 

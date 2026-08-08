@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# App Store Connect release pipeline for TikTok for Work.
+# App Store Connect release pipeline for Honmaru AI.
 #
 # Wraps the `asc` CLI (https://github.com/rorkai/App-Store-Connect-CLI) plus
 # xcodegen/xcodebuild so a release is one command instead of a browser session.
@@ -23,7 +23,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$REPO_ROOT/build"
-ARCHIVE_PATH="$BUILD_DIR/TikTokForWork.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/HonmaruAI.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"
 EXPORT_OPTIONS="$BUILD_DIR/ExportOptions.plist"
 
@@ -70,10 +70,10 @@ load_env() {
     warn ".asc.env not found — copy .asc.env.example and fill it in"
   fi
 
-  ASC_SCHEME="${ASC_SCHEME:-TikTokForWork}"
+  ASC_SCHEME="${ASC_SCHEME:-HonmaruAI}"
   ASC_LOCALE="${ASC_LOCALE:-en-US}"
-  ASC_BUNDLE_ID="${ASC_BUNDLE_ID:-com.tangle.tiktokforwork}"
-  ASC_PROFILE="${ASC_PROFILE:-TikTokForWork}"
+  ASC_BUNDLE_ID="${ASC_BUNDLE_ID:-com.honmaru.ai}"
+  ASC_PROFILE="${ASC_PROFILE:-HonmaruAI}"
   # asc reads these for non-interactive auth in CI.
   export ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY
 }
@@ -181,7 +181,7 @@ cmd_build() {
   # Version and build number are passed on the command line rather than written
   # into project.yml, so a release never leaves the repo dirty.
   run xcodebuild archive \
-    -project "$REPO_ROOT/TikTokForWork.xcodeproj" \
+    -project "$REPO_ROOT/HonmaruAI.xcodeproj" \
     -scheme "$ASC_SCHEME" \
     -configuration Release \
     -destination "generic/platform=iOS" \
@@ -214,7 +214,7 @@ require_ipa() {
   local ipa
   ipa="$(find_ipa || true)"
   if [ -z "$ipa" ]; then
-    [ "$DRY_RUN" -eq 1 ] && { printf '%s' "$EXPORT_DIR/TikTokForWork.ipa"; return 0; }
+    [ "$DRY_RUN" -eq 1 ] && { printf '%s' "$EXPORT_DIR/HonmaruAI.ipa"; return 0; }
     die "no .ipa in $EXPORT_DIR — run: scripts/release.sh build <version>"
   fi
   printf '%s' "$ipa"

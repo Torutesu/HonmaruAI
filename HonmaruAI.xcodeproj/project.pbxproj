@@ -14,7 +14,7 @@
 		1091720685F238A6212B62B4 /* OrgGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9515750E6133D1846CBE8BD /* OrgGraphView.swift */; };
 		18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6977E782E374C75800103F /* AppLogo.swift */; };
 		18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */; };
-		1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */; };
+		1935A4A91354E1D372E35B4F /* HonmaruAIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838F0359CE87B5FE9153AE96 /* HonmaruAIApp.swift */; };
 		2D280564ADDED0AA2BF213A5 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050D0B7873E1D94841BB5228 /* WebSocketService.swift */; };
 		5A19319FA34978C0202AAF85 /* ReviseSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD842FAD29BFAA978BC0DB8 /* ReviseSheet.swift */; };
 		5B2137ED8A01082E09A11954 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ABD898A426994D5C516944E /* AppState.swift */; };
@@ -58,13 +58,13 @@
 		6A6977E782E374C75800103F /* AppLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogo.swift; sourceTree = "<group>"; };
 		6F84E8680AEE5FAB69B6DCF4 /* Organization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Organization.swift; sourceTree = "<group>"; };
 		70FAE0760357D0881EDB6897 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
-		838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokForWorkApp.swift; sourceTree = "<group>"; };
+		838F0359CE87B5FE9153AE96 /* HonmaruAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HonmaruAIApp.swift; sourceTree = "<group>"; };
 		870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardView.swift; sourceTree = "<group>"; };
 		893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAuthContextProvider.swift; sourceTree = "<group>"; };
 		90C4072B436581D5A87F9542 /* AIInputSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIInputSheet.swift; sourceTree = "<group>"; };
 		9A2EB4E8E9EE3FAA5CF579C5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2589D42E0E778318D5E0400 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
-		BA38108D0FC0E79C981A23CB /* TikTokForWork.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TikTokForWork.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA38108D0FC0E79C981A23CB /* HonmaruAI.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HonmaruAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6C23763B3066E2A13F50B8D /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIService.swift; sourceTree = "<group>"; };
 		CED63FE3692D666375D4EF19 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
@@ -82,17 +82,17 @@
 		0183DCFD32BD1A663D6132B5 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				BA38108D0FC0E79C981A23CB /* TikTokForWork.app */,
+				BA38108D0FC0E79C981A23CB /* HonmaruAI.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		0D66552077CBE38527164058 /* TikTokForWork */ = {
+		0D66552077CBE38527164058 /* HonmaruAI */ = {
 			isa = PBXGroup;
 			children = (
 				9A2EB4E8E9EE3FAA5CF579C5 /* Assets.xcassets */,
 				5349B1ECC01DECCBD1B04E37 /* Info.plist */,
-				838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */,
+				838F0359CE87B5FE9153AE96 /* HonmaruAIApp.swift */,
 				843E97B36FD0784BDCA77BA7 /* App */,
 				8922EB839358D4852DAAA527 /* Data */,
 				2C96FF6A7E8677BF186766B2 /* Design */,
@@ -101,7 +101,7 @@
 				944A4785A9104E7C15F0E422 /* Services */,
 				4330E930C1D76ECBCD5F42DA /* ViewModels */,
 			);
-			path = TikTokForWork;
+			path = HonmaruAI;
 			sourceTree = "<group>";
 		};
 		2C96FF6A7E8677BF186766B2 /* Design */ = {
@@ -202,7 +202,7 @@
 		D0850E186A410FFC54953FED = {
 			isa = PBXGroup;
 			children = (
-				0D66552077CBE38527164058 /* TikTokForWork */,
+				0D66552077CBE38527164058 /* HonmaruAI */,
 				0183DCFD32BD1A663D6132B5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -218,9 +218,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		3ECF3122F6C22D5E631797BA /* TikTokForWork */ = {
+		3ECF3122F6C22D5E631797BA /* HonmaruAI */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 0E361BC480E80C517FD404A3 /* Build configuration list for PBXNativeTarget "TikTokForWork" */;
+			buildConfigurationList = 0E361BC480E80C517FD404A3 /* Build configuration list for PBXNativeTarget "HonmaruAI" */;
 			buildPhases = (
 				90C8711A81F7C55A59F4F1DF /* Sources */,
 				8F078B0B967771819729D3BB /* Resources */,
@@ -229,11 +229,11 @@
 			);
 			dependencies = (
 			);
-			name = TikTokForWork;
+			name = HonmaruAI;
 			packageProductDependencies = (
 			);
-			productName = TikTokForWork;
-			productReference = BA38108D0FC0E79C981A23CB /* TikTokForWork.app */;
+			productName = HonmaruAI;
+			productReference = BA38108D0FC0E79C981A23CB /* HonmaruAI.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -251,7 +251,7 @@
 					};
 				};
 			};
-			buildConfigurationList = E8D3BAA52B272CF428CB96BE /* Build configuration list for PBXProject "TikTokForWork" */;
+			buildConfigurationList = E8D3BAA52B272CF428CB96BE /* Build configuration list for PBXProject "HonmaruAI" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -265,7 +265,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				3ECF3122F6C22D5E631797BA /* TikTokForWork */,
+				3ECF3122F6C22D5E631797BA /* HonmaruAI */,
 			);
 		};
 /* End PBXProject section */
@@ -312,7 +312,7 @@
 				E95180D025339346C7D339A3 /* RootView.swift in Sources */,
 				0AED7D88396FA52DF1F59258 /* SessionStore.swift in Sources */,
 				657DDCB6385E9FB249AA8FC2 /* Theme.swift in Sources */,
-				1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */,
+				1935A4A91354E1D372E35B4F /* HonmaruAIApp.swift in Sources */,
 				09C9FB765322951B0B772C3E /* User.swift in Sources */,
 				E7A9679F6EB4E3A07796F260 /* UserSwitcherSheet.swift in Sources */,
 				D50B528853838F4769A08FCD /* WebAuthContextProvider.swift in Sources */,
@@ -389,8 +389,8 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = TikTokForWork/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "TikTok for Work";
+				INFOPLIST_FILE = HonmaruAI/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Honmaru AI";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Sync decision cards with your team in real time.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -400,7 +400,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tangle.tiktokforwork;
+				PRODUCT_BUNDLE_IDENTIFIER = com.honmaru.ai;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -414,8 +414,8 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = TikTokForWork/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "TikTok for Work";
+				INFOPLIST_FILE = HonmaruAI/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Honmaru AI";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Sync decision cards with your team in real time.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -425,7 +425,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tangle.tiktokforwork;
+				PRODUCT_BUNDLE_IDENTIFIER = com.honmaru.ai;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -499,7 +499,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		0E361BC480E80C517FD404A3 /* Build configuration list for PBXNativeTarget "TikTokForWork" */ = {
+		0E361BC480E80C517FD404A3 /* Build configuration list for PBXNativeTarget "HonmaruAI" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				182B4AEFA1F088E8D4A42221 /* Debug */,
@@ -508,7 +508,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		E8D3BAA52B272CF428CB96BE /* Build configuration list for PBXProject "TikTokForWork" */ = {
+		E8D3BAA52B272CF428CB96BE /* Build configuration list for PBXProject "HonmaruAI" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				86ACC7A4BCEBEE45292C513A /* Debug */,

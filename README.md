@@ -1,4 +1,4 @@
-# TikTok for Work
+# Honmaru AI
 
 AI-native decision feed for teams. Humans talk to their AI; agents route Decision Cards across the org in real time.
 
@@ -17,7 +17,7 @@ AI-native decision feed for teams. Humans talk to their AI; agents route Decisio
 
 1. [GitHub → Settings → Developer settings → OAuth Apps](https://github.com/settings/developers) → **New OAuth App**
 2. Homepage URL: `http://localhost:8080`
-3. Callback URL: `tiktokforwork://oauth/callback`
+3. Callback URL: `honmaruai://oauth/callback`
 4. Copy Client ID and Client secret
 
 ### 2. Start localhost backend
@@ -38,7 +38,7 @@ npm start
 
 ```bash
 xcodegen generate
-open TikTokForWork.xcodeproj
+open HonmaruAI.xcodeproj
 ```
 
 On sign-in:

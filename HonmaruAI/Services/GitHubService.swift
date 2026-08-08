@@ -272,7 +272,7 @@ final class GitHubService: NSObject, ObservableObject {
         return try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
                 url: authURL,
-                callbackURLScheme: "tiktokforwork"
+                callbackURLScheme: "honmaruai"
             ) { callbackURL, error in
                 if let error {
                     let nsError = error as NSError
@@ -396,7 +396,7 @@ final class GitHubService: NSObject, ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
-        request.setValue("TikTokForWork-iOS/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("HonmaruAI-iOS/1.0", forHTTPHeaderField: "User-Agent")
 
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -11,7 +11,7 @@ You do not need to perfectly implement all requirements.
 We will also evaluate how you prioritize features, what parts you choose to simplify, and how you establish the essential experience of the product within the given time constraints.
 
 Assignment Theme
-TikTok for Work
+Honmaru AI
 Please develop a native iOS mobile application intended for use by multi-person teams or organizations.
 This is not a personal AI assistant.
 It is a product designed for multiple users belonging to a company or team to communicate, make decisions, delegate tasks, approve requests, and share information via AI.

@@ -14,7 +14,7 @@ struct AuthView: View {
 
             VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 AppLogo(size: 56)
-                Text("TikTok for Work")
+                Text("Honmaru AI")
                     .font(.system(size: 32, weight: .medium))
                     .foregroundStyle(Theme.Colors.textPrimary)
                 Text("Decisions, not messages")

@@ -19,13 +19,13 @@ npm start
 
 1. Go to [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers)
 2. **New OAuth App**
-   - Application name: `TikTok for Work (local)`
+   - Application name: `Honmaru AI (local)`
    - Homepage URL: `http://localhost:8080`
-   - Authorization callback URL: `tiktokforwork://oauth/callback`
+   - Authorization callback URL: `honmaruai://oauth/callback`
 3. Copy **Client ID** and generate **Client secret**
 4. Paste both into `server/.env`
 
-The iOS app opens GitHub in a secure browser sheet. The authorization code returns to the app via the `tiktokforwork://` URL scheme. The localhost server exchanges the code for an access token so the client secret never ships in the app.
+The iOS app opens GitHub in a secure browser sheet. The authorization code returns to the app via the `honmaruai://` URL scheme. The localhost server exchanges the code for an access token so the client secret never ships in the app.
 
 ## OpenRouter setup
 

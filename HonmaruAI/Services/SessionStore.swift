@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 enum SessionStore {
-    private static let service = "com.tangle.tiktokforwork.session"
+    private static let service = "com.honmaru.ai.session"
 
     private enum Key {
         static let githubToken = "githubToken"

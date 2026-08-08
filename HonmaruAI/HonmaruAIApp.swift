@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct TikTokForWorkApp: App {
+struct HonmaruAIApp: App {
     @StateObject private var appState = AppState()
 
     var body: some Scene {

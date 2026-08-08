@@ -1,6 +1,6 @@
 # App Store release with `asc`
 
-Ship TikTok for Work — TestFlight builds and App Store review submissions — from
+Ship Honmaru AI — TestFlight builds and App Store review submissions — from
 the terminal, without opening App Store Connect in a browser.
 
 Everything here wraps [`asc`](https://github.com/rorkai/App-Store-Connect-CLI),
@@ -49,7 +49,7 @@ if something is going to reject a submission, it shows up here first.
 
 ### Find the app id
 
-The app must already exist in App Store Connect (bundle id `com.tangle.tiktokforwork`).
+The app must already exist in App Store Connect (bundle id `com.honmaru.ai`).
 Create it once in the web UI, then:
 
 ```bash
@@ -190,6 +190,15 @@ commands. Two habits worth keeping:
 | `xcodebuild` cannot sign | `DEVELOPMENT_TEAM` is empty in `.asc.env` |
 | Provisioning profile errors | The script already passes `-allowProvisioningUpdates`; confirm the bundle id exists with `asc bundle-ids list` |
 | Build rejected right after upload | `asc review doctor --app "$ASC_APP_ID"` — usually missing screenshots or export compliance |
+| `app icons can't be transparent nor contain an alpha channel` | Re-flatten `AppIcon.png`: `sips -s format jpeg AppIcon.png --out /tmp/i.jpg && sips -s format png /tmp/i.jpg --out AppIcon.png`. Any editor that re-exports with alpha reintroduces this. |
+
+## Before the first App Store submission
+
+TestFlight *internal* testing skips Beta App Review, so `build` + `testflight`
+works today. App Store review does not — see the blocker list in
+[PROGRESS.md](../PROGRESS.md#app-store-submission-blockers). The big one is that
+`AppConfig.relayURL` still points at `ws://127.0.0.1:8080`, which does not exist
+on a reviewer's device.
 
 The CLI's own help is authoritative for flags, and it moves faster than this doc:
 

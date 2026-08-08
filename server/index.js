@@ -30,13 +30,13 @@ const ORG_ID = "core-team";
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || "";
 const GITHUB_REDIRECT_URI =
-  process.env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback";
+  process.env.GITHUB_REDIRECT_URI || "honmaruai://oauth/callback";
 const GITHUB_OAUTH_SCOPE = process.env.GITHUB_OAUTH_SCOPE || "repo";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_MODEL =
   process.env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free";
-const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "TikTok for Work";
+const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "Honmaru AI";
 const OPENROUTER_APP_URL = process.env.OPENROUTER_APP_URL || "http://localhost:8080";
 
 const initialCards = {};
