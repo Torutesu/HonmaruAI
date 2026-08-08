@@ -19,22 +19,29 @@ ok()    { printf '\033[32m✓  %s\033[0m\n' "$*"; }
 warn()  { printf '\033[33m!  %s\033[0m\n' "$*"; }
 die()   { printf '\033[31mx  %s\033[0m\n' "$*" >&2; exit 1; }
 
-# ask VAR "Label" "where to find it" [default]
+# ask VAR "Label" "where to find it" [default] [optional]
+# Keeps asking until the answer is non-empty, unless the field is marked
+# optional — an empty required field only surfaces as a failure much later.
 ask() {
-  local var="$1" label="$2" hint="$3" default="${4:-}"
-  local current="${!var:-}" prompt reply
+  local var="$1" label="$2" hint="$3" default="${4:-}" optional="${5:-}"
+  local current="${!var:-}" reply
   [ -n "$current" ] && default="$current"
 
   printf '\n'
   bold "$label"
   dim  "   $hint"
-  if [ -n "$default" ]; then
-    printf '   [%s]: ' "$default"
-  else
-    printf '   > '
-  fi
-  read -r reply
-  reply="${reply:-$default}"
+  while :; do
+    if [ -n "$default" ]; then
+      printf '   [%s]: ' "$default"
+    else
+      printf '   > '
+    fi
+    read -r reply
+    reply="${reply:-$default}"
+    [ -n "$reply" ] && break
+    [ -n "$optional" ] && break
+    warn "  this one is required — paste the value, then press Enter"
+  done
   printf -v "$var" '%s' "$reply"
 }
 
@@ -72,7 +79,8 @@ ASC_PRIVATE_KEY="${ASC_PRIVATE_KEY/#\~/$HOME}"
 
 ask ASC_APP_ID \
   "App Store Connect app ID (optional for now)" \
-  "Numeric, e.g. 6478123456. Leave blank until you have created the app record; 'scripts/release.sh doctor' will remind you."
+  "Numeric, e.g. 6478123456. Leave blank until you have created the app record; 'scripts/release.sh doctor' will remind you." \
+  "" optional
 
 printf '\n'
 if [ -f "$ENV_FILE" ]; then
@@ -117,8 +125,20 @@ if [ -f "$ASC_PRIVATE_KEY" ]; then
   ok "Found your key file"
 else
   warn "No file at: $ASC_PRIVATE_KEY"
-  dim  "   Apple only lets you download the .p8 once. If it is in Downloads, move it with:"
-  dim  "   mkdir -p ~/.appstoreconnect/private_keys && mv ~/Downloads/AuthKey_*.p8 ~/.appstoreconnect/private_keys/"
+  # The .p8 is almost always still sitting wherever the browser dropped it.
+  found="$(find "$HOME/Downloads" "$HOME/Desktop" "$HOME/.appstoreconnect" \
+             -maxdepth 2 -name 'AuthKey_*.p8' 2>/dev/null | head -n 3)"
+  if [ -n "$found" ]; then
+    dim "   But there is a key file here:"
+    printf '%s\n' "$found" | while read -r f; do dim "     $f"; done
+    dim "   Move it into place with:"
+    dim "   mkdir -p ~/.appstoreconnect/private_keys && mv ~/Downloads/AuthKey_*.p8 ~/.appstoreconnect/private_keys/"
+    dim "   then re-run this script and accept the default path."
+  else
+    dim "   No AuthKey_*.p8 found in Downloads or Desktop either."
+    dim "   Download it from App Store Connect -> Users and Access -> Integrations."
+    dim "   Apple only lets you download it once; if it is lost, create a new key."
+  fi
 fi
 
 for tool in asc xcodegen xcodebuild; do
