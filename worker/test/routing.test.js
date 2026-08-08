@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { expect, test } from "vitest";
+import { buildAgentTools } from "../src/routing.js";
 
 const ORG = {
   nodes: [
@@ -71,4 +72,18 @@ test("a real member recipient is never rejected as invalid", async () => {
   expect(res.status).toBe(200);
   const card = await res.json();
   expect(card.recipientUserID).toBe("hubot");
+});
+
+test("buildAgentTools sets recipient enum to the org members, demo ids when empty", () => {
+  const org = { nodes: [
+    { id: "octocat", kind: "person", label: "octocat · Admin" },
+    { id: "hubot", kind: "person", label: "hubot · Engineer" },
+    { id: "team-web", kind: "team", label: "acme/web" },
+  ], edges: [] };
+  const tools = buildAgentTools(org);
+  const enumIds = tools[0].function.parameters.properties.recipientUserID.enum;
+  expect(enumIds).toEqual(["octocat", "hubot"]);
+  expect(tools.map((t) => t.function.name)).toEqual(["create_decision_card", "set_priority", "add_context"]);
+  const demoEnum = buildAgentTools({ nodes: [], edges: [] })[0].function.parameters.properties.recipientUserID.enum;
+  expect(demoEnum).toEqual(["user-toru", "user-tanaka", "user-yui", "user-alex"]);
 });

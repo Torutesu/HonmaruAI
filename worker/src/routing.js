@@ -164,100 +164,107 @@ export function resolveRecipientTarget(text, senderID, organization) {
   };
 }
 
-export const AGENT_TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "create_decision_card",
-      description:
-        "Turn a messy workplace instruction into a structured decision card routed to the right teammate. Rewrite the sender's words — never echo them.",
-      parameters: {
-        type: "object",
-        properties: {
-          recipientUserID: {
-            type: "string",
-            enum: DEMO_USER_IDS,
-            description:
-              "Who should receive and act on this decision. One-person business: money/pricing/invoices→user-toru, visual work→user-yui, engineering/deploys→user-alex, client sign-off→user-tanaka. Default to user-toru.",
+export function buildAgentTools(organization) {
+  const members = memberIdsOf(organization);
+  const recipientEnum = members.length ? members : DEMO_USER_IDS;
+  return [
+    {
+      type: "function",
+      function: {
+        name: "create_decision_card",
+        description:
+          "Turn a messy workplace instruction into a structured decision card routed to the right teammate. Rewrite the sender's words — never echo them.",
+        parameters: {
+          type: "object",
+          properties: {
+            recipientUserID: {
+              type: "string",
+              enum: recipientEnum,
+              description:
+                "Who should receive and act on this decision. Pick an id from the members listed under Organization in the user message. Route by the org graph: a named person → that person; an approval → a member with a canApprove edge; an escalation → the sender's manager. Never pick an id that is not in the list.",
+            },
+            cardType: {
+              type: "string",
+              enum: ["approval", "delegation", "notification", "task", "revision"],
+            },
+            title: {
+              type: "string",
+              description: "3-8 words, action-oriented, no filler like 'tell Bob'",
+            },
+            summary: {
+              type: "string",
+              description: "1-2 sentences, third person, what the recipient must decide or do",
+            },
+            context: {
+              type: "string",
+              description:
+                "2-4 structured facts as 'label: detail' segments separated by · e.g. 'deadline: Friday demo · metric: p95 +18% · scope: auth endpoint · action: hotfix branch'",
+            },
+            priority: {
+              type: "string",
+              enum: ["low", "medium", "high", "urgent"],
+            },
+            routingReason: {
+              type: "string",
+              description: "One sentence: why this person owns the decision",
+            },
+            labels: {
+              type: "array",
+              items: { type: "string" },
+              description: "Optional GitHub-style labels e.g. bug, infra, blocked",
+            },
           },
-          cardType: {
-            type: "string",
-            enum: ["approval", "delegation", "notification", "task", "revision"],
-          },
-          title: {
-            type: "string",
-            description: "3-8 words, action-oriented, no filler like 'tell Bob'",
-          },
-          summary: {
-            type: "string",
-            description: "1-2 sentences, third person, what the recipient must decide or do",
-          },
-          context: {
-            type: "string",
-            description:
-              "2-4 structured facts as 'label: detail' segments separated by · e.g. 'deadline: Friday demo · metric: p95 +18% · scope: auth endpoint · action: hotfix branch'",
-          },
-          priority: {
-            type: "string",
-            enum: ["low", "medium", "high", "urgent"],
-          },
-          routingReason: {
-            type: "string",
-            description: "One sentence: why this person owns the decision",
-          },
-          labels: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional GitHub-style labels e.g. bug, infra, blocked",
-          },
+          required: [
+            "recipientUserID",
+            "cardType",
+            "title",
+            "summary",
+            "context",
+            "priority",
+            "routingReason",
+          ],
+          additionalProperties: false,
         },
-        required: [
-          "recipientUserID",
-          "cardType",
-          "title",
-          "summary",
-          "context",
-          "priority",
-          "routingReason",
-        ],
-        additionalProperties: false,
       },
     },
-  },
-  {
-    type: "function",
-    function: {
-      name: "set_priority",
-      description:
-        "Override urgency when the instruction clearly signals time sensitivity or low importance",
-      parameters: {
-        type: "object",
-        properties: {
-          level: { type: "string", enum: ["low", "medium", "high", "urgent"] },
-          reason: { type: "string" },
+    {
+      type: "function",
+      function: {
+        name: "set_priority",
+        description:
+          "Override urgency when the instruction clearly signals time sensitivity or low importance",
+        parameters: {
+          type: "object",
+          properties: {
+            level: { type: "string", enum: ["low", "medium", "high", "urgent"] },
+            reason: { type: "string" },
+          },
+          required: ["level", "reason"],
+          additionalProperties: false,
         },
-        required: ["level", "reason"],
-        additionalProperties: false,
       },
     },
-  },
-  {
-    type: "function",
-    function: {
-      name: "add_context",
-      description: "Attach extra structured context extracted from the instruction",
-      parameters: {
-        type: "object",
-        properties: {
-          key: { type: "string" },
-          value: { type: "string" },
+    {
+      type: "function",
+      function: {
+        name: "add_context",
+        description: "Attach extra structured context extracted from the instruction",
+        parameters: {
+          type: "object",
+          properties: {
+            key: { type: "string" },
+            value: { type: "string" },
+          },
+          required: ["key", "value"],
+          additionalProperties: false,
         },
-        required: ["key", "value"],
-        additionalProperties: false,
       },
     },
-  },
-];
+  ];
+}
+
+// Back-compat: any importer of the old constant gets the demo-id variant.
+export const AGENT_TOOLS = buildAgentTools(null);
 
 const SYSTEM_PROMPT = `You route workplace instructions to the right teammate as structured Decision Cards.
 
@@ -664,7 +671,7 @@ async function routeInstructionWithOpenRouter({
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      tools: AGENT_TOOLS,
+      tools: buildAgentTools(organization),
       tool_choice: {
         type: "function",
         function: { name: "create_decision_card" },
