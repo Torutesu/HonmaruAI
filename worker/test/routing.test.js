@@ -70,5 +70,5 @@ test("a real member recipient is never rejected as invalid", async () => {
   });
   expect(res.status).toBe(200);
   const card = await res.json();
-  expect(["octocat", "hubot"]).toContain(card.recipientUserID);
+  expect(card.recipientUserID).toBe("hubot");
 });

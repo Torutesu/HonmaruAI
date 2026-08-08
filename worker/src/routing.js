@@ -61,16 +61,19 @@ const ROLE_ROUTES = [
 function defaultRecipient(senderID, organization) {
   const members = memberIdsOf(organization);
   if (!members.length) return "user-toru"; // demo fallback
-  const approver = (organization.edges || []).find((e) => e.kind === "canApprove" && e.fromID !== senderID);
+  const approver = (organization.edges || []).find(
+    (e) => e.kind === "canApprove" && e.fromID !== senderID && members.includes(e.fromID)
+  );
   if (approver) return approver.fromID;
   return members.find((id) => id !== senderID) || members[0];
 }
 
 function matchTeamRoute(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
+  const members = memberIdsOf(organization);
   for (const route of TEAM_ROUTES) {
     if (route.userID === senderID) continue;
-    if (memberIdsOf(organization).length && !memberIdsOf(organization).includes(route.userID)) continue;
+    if (members.length && !members.includes(route.userID)) continue;
     if (route.phrases.some((phrase) => lower.includes(phrase))) {
       return route;
     }
@@ -80,9 +83,10 @@ function matchTeamRoute(text, senderID, organization) {
 
 function matchRoleRoute(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
+  const members = memberIdsOf(organization);
   for (const route of ROLE_ROUTES) {
     if (route.userID === senderID) continue;
-    if (memberIdsOf(organization).length && !memberIdsOf(organization).includes(route.userID)) continue;
+    if (members.length && !members.includes(route.userID)) continue;
     if (route.phrases.some((phrase) => lower.includes(phrase))) {
       return route;
     }
@@ -93,15 +97,17 @@ function matchRoleRoute(text, senderID, organization) {
 export function resolveRecipientTarget(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
 
-  const candidateIds = memberIdsOf(organization).length ? memberIdsOf(organization) : DEMO_USER_IDS;
+  const members = memberIdsOf(organization);
+  const candidateIds = members.length ? members : DEMO_USER_IDS;
   for (const userID of candidateIds) {
     if (userID === senderID) continue;
-    const name = displayNameOf(organization, userID).toLowerCase();
-    if (name && lower.includes(name)) {
+    const displayName = displayNameOf(organization, userID);
+    const nameLower = displayName.toLowerCase();
+    if (nameLower && lower.includes(nameLower)) {
       return {
         recipientUserID: userID,
-        routingReason: `Mentioned ${displayNameOf(organization, userID)}`,
-        forceOverride: false,
+        routingReason: `Mentioned ${displayName}`,
+        forceOverride: true,
       };
     }
   }
