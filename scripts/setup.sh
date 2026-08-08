@@ -37,6 +37,9 @@ ask() {
       printf '   > '
     fi
     read -r reply
+    # Pasted values routinely arrive with stray spaces or a leading newline.
+    reply="${reply#"${reply%%[![:space:]]*}"}"
+    reply="${reply%"${reply##*[![:space:]]}"}"
     reply="${reply:-$default}"
     [ -n "$reply" ] && break
     [ -n "$optional" ] && break
@@ -115,10 +118,19 @@ ok "Saved to .asc.env"
 printf '\n'
 bold "Checking your answers"
 
-if [ ${#DEVELOPMENT_TEAM} -eq 10 ]; then
+if [ "$DEVELOPMENT_TEAM" = "$ASC_KEY_ID" ]; then
+  # Both are ~10 alphanumeric characters, so they get pasted into each other's slot.
+  warn "Team ID and Key ID are the same value — they are two different things."
+  dim  "   Team ID: developer.apple.com/account -> Membership details"
+  dim  "   Key ID:  App Store Connect -> Users and Access -> Integrations"
+elif [ ${#DEVELOPMENT_TEAM} -eq 10 ]; then
   ok "Team ID looks right (10 characters)"
 else
   warn "Team ID is ${#DEVELOPMENT_TEAM} characters — Apple's are normally 10. Double-check it."
+fi
+
+if [ -n "$ASC_ISSUER_ID" ] && [ "${ASC_ISSUER_ID//-/}" = "$ASC_ISSUER_ID" ]; then
+  warn "Issuer ID has no dashes — Apple's look like 1234abcd-56ef-78ab-90cd-1234567890ab"
 fi
 
 if [ -f "$ASC_PRIVATE_KEY" ]; then
