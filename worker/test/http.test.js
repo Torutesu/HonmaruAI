@@ -6,5 +6,7 @@ test("GET /health reports readiness", async () => {
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.ok).toBe(true);
-  expect(body.aiModel).toBe("gpt-4o-mini");
+  // No AI keys in the test env, so routing reports the keyword fallback.
+  expect(body.aiRouting).toBe(false);
+  expect(body.aiModel).toBe("fallback");
 });

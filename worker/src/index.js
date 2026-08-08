@@ -34,8 +34,12 @@ export default {
         ok: true,
         orgId: "core-team",
         githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
-        aiRouting: Boolean(env.OPENAI_API_KEY),
-        aiModel: env.OPENAI_MODEL || "gpt-4o-mini",
+        aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),
+        aiModel: env.OPENAI_API_KEY
+          ? env.OPENAI_MODEL || "gpt-4o-mini"
+          : env.OPENROUTER_API_KEY
+            ? env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free"
+            : "fallback",
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {
