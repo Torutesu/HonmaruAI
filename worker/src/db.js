@@ -76,3 +76,56 @@ export async function createSession(db, githubId, accessToken) {
     .run();
   return token;
 }
+
+export async function getSession(db, token) {
+  if (!token) return null;
+  const row = await db
+    .prepare("SELECT token, github_id, github_access_token FROM sessions WHERE token = ?1")
+    .bind(token)
+    .first();
+  return row || null;
+}
+
+export async function upsertUser(db, { githubId, login, name, avatarUrl, locale }) {
+  await db
+    .prepare(
+      `INSERT INTO users (github_id, login, name, avatar_url, locale, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(github_id) DO UPDATE SET
+         login = excluded.login, name = excluded.name,
+         avatar_url = excluded.avatar_url, locale = excluded.locale`
+    )
+    .bind(String(githubId), login, name || null, avatarUrl || null, locale || "en", new Date().toISOString())
+    .run();
+}
+
+export async function getUserByGithubId(db, githubId) {
+  return (
+    (await db
+      .prepare("SELECT github_id, login, name, avatar_url, locale FROM users WHERE github_id = ?1")
+      .bind(String(githubId))
+      .first()) || null
+  );
+}
+
+export async function upsertMembership(db, orgId, githubId, role) {
+  await db
+    .prepare(
+      `INSERT INTO memberships (org_id, user_github_id, role, created_at)
+       VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(org_id, user_github_id) DO UPDATE SET role = excluded.role`
+    )
+    .bind(orgId, String(githubId), role, new Date().toISOString())
+    .run();
+}
+
+export async function upsertAgent(db, orgId, githubId, displayName) {
+  await db
+    .prepare(
+      `INSERT INTO agents (id, org_id, user_github_id, display_name)
+       VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name`
+    )
+    .bind(`agent-${orgId}-${githubId}`, orgId, String(githubId), displayName)
+    .run();
+}
