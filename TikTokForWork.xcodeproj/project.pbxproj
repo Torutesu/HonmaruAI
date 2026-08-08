@@ -17,6 +17,7 @@
 		18A0FFC383332D02151C7865 /* AppLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6977E782E374C75800103F /* AppLogo.swift */; };
 		18A535EC113EFAA017574C68 /* DelegatePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */; };
 		1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */; };
+		1C9605FE899A8B2E0BE19F0A /* SourceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838F4B78CCA3E4A42A832324 /* SourceSheet.swift */; };
 		1F16AB9C37F593A86B996D5C /* TranslatedFrom.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96E780449264F0AC716EE60 /* TranslatedFrom.swift */; };
 		1FC24E0AC0C5F74BEBDA5F01 /* OfflineRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA1D4624E325FB43743C950 /* OfflineRouter.swift */; };
 		26ED53260B410867CAEF8292 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DC83C320FA4447AE38B10C2 /* OnboardingView.swift */; };
@@ -41,6 +42,7 @@
 		9F26CCB679703A63BC7E6D78 /* CaptureRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6018CEB31000BAFC422610C /* CaptureRequest.swift */; };
 		A04E2998E3246DC60474F3A2 /* KindTag.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2C2FBC9D12319E3D1DFE18B /* KindTag.swift */; };
 		A246F9D7027598688FF9D323 /* CardDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8750E0FA2DD54342124E00 /* CardDetailSheet.swift */; };
+		AA257262D7CC38343F2FE04D /* GeneratedBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF7E9F050EF149321AC010A /* GeneratedBlocks.swift */; };
 		AB8AE800981008789E312BED /* MediaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3682961C072107DA8A4887AB /* MediaStore.swift */; };
 		AF00A6C5624E178AF6832453 /* DecisionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */; };
 		B3C05C2EB5D07CE610D9EF38 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FAE0760357D0881EDB6897 /* DemoData.swift */; };
@@ -96,6 +98,7 @@
 		808E31ED7EAC44F0439F1599 /* ClassicChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClassicChannelView.swift; sourceTree = "<group>"; };
 		82558CC8B97D8C0273DBE33A /* SourceChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceChip.swift; sourceTree = "<group>"; };
 		838F0359CE87B5FE9153AE96 /* TikTokForWorkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokForWorkApp.swift; sourceTree = "<group>"; };
+		838F4B78CCA3E4A42A832324 /* SourceSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSheet.swift; sourceTree = "<group>"; };
 		870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardView.swift; sourceTree = "<group>"; };
 		88107ED503D94F2D9910A0F7 /* CameraViewfinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraViewfinder.swift; sourceTree = "<group>"; };
 		893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAuthContextProvider.swift; sourceTree = "<group>"; };
@@ -125,6 +128,7 @@
 		E8DF77ED1645CDC9CBE8C83A /* ConicRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConicRing.swift; sourceTree = "<group>"; };
 		E8E494243CEA2F9FA065D51B /* GitHubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubService.swift; sourceTree = "<group>"; };
 		EACB0C14D460B93B91EF7A4E /* DateFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatting.swift; sourceTree = "<group>"; };
+		EDF7E9F050EF149321AC010A /* GeneratedBlocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedBlocks.swift; sourceTree = "<group>"; };
 		EF594002A7A3A2A7FA072712 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
 		EFA1D4624E325FB43743C950 /* OfflineRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineRouter.swift; sourceTree = "<group>"; };
 		F125BEDE2BF4518F791F5480 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
@@ -276,9 +280,11 @@
 				870CE31A57CEB684AFD1CF2D /* DecisionCardView.swift */,
 				E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */,
 				EF594002A7A3A2A7FA072712 /* FeedView.swift */,
+				EDF7E9F050EF149321AC010A /* GeneratedBlocks.swift */,
 				F2C2FBC9D12319E3D1DFE18B /* KindTag.swift */,
 				CFD842FAD29BFAA978BC0DB8 /* ReviseSheet.swift */,
 				82558CC8B97D8C0273DBE33A /* SourceChip.swift */,
+				838F4B78CCA3E4A42A832324 /* SourceSheet.swift */,
 				D96E780449264F0AC716EE60 /* TranslatedFrom.swift */,
 				4F4AA4A684B4CEAA8EF8D4C5 /* UserSwitcherSheet.swift */,
 			);
@@ -421,6 +427,7 @@
 				0170EACCF6749B1A8F80FDF0 /* DictationService.swift in Sources */,
 				D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */,
 				07C5FC33B29D4DA8AF1C3AC8 /* FeedViewModel.swift in Sources */,
+				AA257262D7CC38343F2FE04D /* GeneratedBlocks.swift in Sources */,
 				95290EBF4EDE097F8C064870 /* GitHubService.swift in Sources */,
 				F5A9DA5AC7C4E5F5EE7EAFFE /* Haptics.swift in Sources */,
 				BA962F7429B93D6F10CA471E /* HomeSegmentedControl.swift in Sources */,
@@ -438,6 +445,7 @@
 				0AED7D88396FA52DF1F59258 /* SessionStore.swift in Sources */,
 				407D6DB1B7514FA41D9DB68A /* SlackPalette.swift in Sources */,
 				2A3438B49D2EFB7873404950 /* SourceChip.swift in Sources */,
+				1C9605FE899A8B2E0BE19F0A /* SourceSheet.swift in Sources */,
 				657DDCB6385E9FB249AA8FC2 /* Theme.swift in Sources */,
 				1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */,
 				1F16AB9C37F593A86B996D5C /* TranslatedFrom.swift in Sources */,

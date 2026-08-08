@@ -8,9 +8,9 @@ enum AIServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            "AI routing is not configured on the relay server."
+            String(localized: "AI routing is not configured on the relay server.")
         case .invalidResponse:
-            "AI returned an invalid routing response."
+            String(localized: "AI returned an invalid routing response.")
         case .serverError(let message):
             message
         }
@@ -149,7 +149,7 @@ final class AIService: ObservableObject {
         }
 
         guard (200...299).contains(http.statusCode) else {
-            let message = parseServerError(data) ?? "AI routing request failed."
+            let message = parseServerError(data) ?? String(localized: "AI routing request failed.")
             throw AIServiceError.serverError(message)
         }
 

@@ -165,9 +165,9 @@ struct PrioritySlider: View {
     private func shortLabel(for level: CardPriority) -> String {
         switch level {
         case .low: "Low"
-        case .medium: "Med"
+        case .medium: String(localized: "Med")
         case .high: "High"
-        case .urgent: "Now"
+        case .urgent: String(localized: "Now")
         }
     }
 }

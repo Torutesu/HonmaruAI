@@ -39,15 +39,15 @@ enum GitHubServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingCredentials:
-            "GitHub account and repository are required."
+            String(localized: "GitHub account and repository are required.")
         case .invalidRepository:
-            "Repository not found or inaccessible."
+            String(localized: "Repository not found or inaccessible.")
         case .unauthorized:
-            "GitHub authorization failed."
+            String(localized: "GitHub authorization failed.")
         case .oauthNotConfigured(let message):
             message
         case .oauthCancelled:
-            "GitHub sign-in was cancelled."
+            String(localized: "GitHub sign-in was cancelled.")
         case .network(let error):
             error.localizedDescription
         case .api(_, let message):

@@ -8,6 +8,7 @@ struct DecisionCardView: View {
     let onShowDetails: () -> Void
 
     @State private var dragOffset: CGFloat = 0
+    @State private var showsSource = false
 
     private let swipeThreshold: CGFloat = 96
 
@@ -43,6 +44,10 @@ struct DecisionCardView: View {
                         if let videoURL = card.videoURL {
                             CardVideoView(urlString: videoURL)
                         }
+
+                        // Blocks the agent's own facts justify, then the rest of
+                        // the context as prose.
+                        GeneratedBlocks(card: card)
 
                         if !card.context.isEmpty {
                             ContextInsightView(context: card.context, compact: true)
@@ -98,6 +103,12 @@ struct DecisionCardView: View {
         }
         .contentShape(Rectangle())
         .simultaneousGesture(swipeGesture)
+        .sheet(isPresented: $showsSource) {
+            if let app = card.sourceApp {
+                SourceSheet(app: app, detail: card.sourceDetail, card: card)
+                    .presentationDetents([.medium, .large])
+            }
+        }
     }
 
     private var header: some View {
@@ -134,7 +145,10 @@ struct DecisionCardView: View {
                     Spacer(minLength: Theme.Spacing.xs)
 
                     if let app = card.sourceApp {
-                        SourceChip(app: app, detail: card.sourceDetail)
+                        Button { showsSource = true } label: {
+                            SourceChip(app: app, detail: card.sourceDetail)
+                        }
+                        .buttonStyle(.plain)
                     } else if let route = card.agentRoute {
                         Text(route)
                             .font(.system(size: 10))
@@ -336,8 +350,8 @@ struct DecisionCardView: View {
                 }
 
                 Text(isGitHubConnected
-                     ? "Swipe right to create issue · left to decline"
-                     : "Swipe right to approve · left to decline")
+                     ? String(localized: "Swipe right to create issue · left to decline")
+                     : String(localized: "Swipe right to approve · left to decline"))
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .frame(maxWidth: .infinity)

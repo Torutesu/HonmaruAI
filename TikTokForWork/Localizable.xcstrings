@@ -2025,6 +2025,556 @@
           }
         }
       }
+    },
+    "From": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差出人"
+          }
+        }
+      }
+    },
+    "Type": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "種別"
+          }
+        }
+      }
+    },
+    "Status": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態"
+          }
+        }
+      }
+    },
+    "Created": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成"
+          }
+        }
+      }
+    },
+    "Agent path": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI の経路"
+          }
+        }
+      }
+    },
+    "GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub"
+          }
+        }
+      }
+    },
+    "People": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人"
+          }
+        }
+      }
+    },
+    "Agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI"
+          }
+        }
+      }
+    },
+    "Teams": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チーム"
+          }
+        }
+      }
+    },
+    "Projects": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "案件"
+          }
+        }
+      }
+    },
+    "Channels": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャンネル"
+          }
+        }
+      }
+    },
+    "Direct messages": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイレクトメッセージ"
+          }
+        }
+      }
+    },
+    "Apps": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App"
+          }
+        }
+      }
+    },
+    "Draft card": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードを作る"
+          }
+        }
+      }
+    },
+    "Draft in background": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裏で作る"
+          }
+        }
+      }
+    },
+    "Send to": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送り先"
+          }
+        }
+      }
+    },
+    "Swipe right to approve · left to decline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右で承認 · 左で却下"
+          }
+        }
+      }
+    },
+    "Swipe right to create issue · left to decline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右で Issue 作成 · 左で却下"
+          }
+        }
+      }
+    },
+    "Now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "たった今"
+          }
+        }
+      }
+    },
+    "Med": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中"
+          }
+        }
+      }
+    },
+    "by ": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限 "
+          }
+        }
+      }
+    },
+    "from ": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差出 "
+          }
+        }
+      }
+    },
+    "Connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "Sync to GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub と同期"
+          }
+        }
+      }
+    },
+    "Decision recorded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断を記録しました"
+          }
+        }
+      }
+    },
+    "Connect GitHub and every approval becomes an Issue your team can track.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub を接続すると、承認がそのまま追跡できる Issue になります。"
+          }
+        }
+      }
+    },
+    "Approvals, delegations, and revisions sync as GitHub Issues.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認・委任・修正依頼は GitHub Issue として同期されます。"
+          }
+        }
+      }
+    },
+    "Loading repositories…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリを読み込んでいます…"
+          }
+        }
+      }
+    },
+    "No repositories found": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリが見つかりません"
+          }
+        }
+      }
+    },
+    "Who are you?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたは誰ですか？"
+          }
+        }
+      }
+    },
+    "Talk only to your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "話す相手は自分の AI だけ"
+          }
+        }
+      }
+    },
+    "Connect and continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続して次へ"
+          }
+        }
+      }
+    },
+    "Reads intent, checks the org graph, picks who can decide.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "意図を読み、関係者を確認し、決められる人を選びます。"
+          }
+        }
+      }
+    },
+    "Rewrites it as one clear decision, in Dana's context.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相手の文脈に合わせ、1つの明確な判断に書き直します。"
+          }
+        }
+      }
+    },
+    "Sees a card. One tap: approved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードが届き、ひとタップで承認。"
+          }
+        }
+      }
+    },
+    "“Get the auth fix reviewed before Friday.”": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「金曜までに認証の修正をレビューしてもらって」"
+          }
+        }
+      }
+    },
+    "Approved — that's the whole job": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認 — これで完了です"
+          }
+        }
+      }
+    },
+    "Declined — also one swipe": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "却下 — 同じくスワイプ1回"
+          }
+        }
+      }
+    },
+    "Cards you clear move on. The next decision scrolls up.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "片づけたカードは流れ、次の判断が上がってきます。"
+          }
+        }
+      }
+    },
+    "In the real feed this records the decision — and syncs it to GitHub.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のフィードでは、これで判断が記録され GitHub にも同期されます。"
+          }
+        }
+      }
+    },
+    "Card not found.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードが見つかりません。"
+          }
+        }
+      }
+    },
+    "Only declined cards can be deleted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除できるのは却下したカードだけです。"
+          }
+        }
+      }
+    },
+    "Pick someone else to delegate to.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分以外を選んでください。"
+          }
+        }
+      }
+    },
+    "AI routing is not configured on the relay server.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーサーバーで AI ルーティングが設定されていません。"
+          }
+        }
+      }
+    },
+    "AI returned an invalid routing response.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI の応答を解釈できませんでした。"
+          }
+        }
+      }
+    },
+    "AI routing request failed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI ルーティングの呼び出しに失敗しました。"
+          }
+        }
+      }
+    },
+    "GitHub sign-in was cancelled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub のサインインが取り消されました。"
+          }
+        }
+      }
+    },
+    "GitHub authorization failed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub の認可に失敗しました。"
+          }
+        }
+      }
+    },
+    "GitHub account and repository are required.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub アカウントとリポジトリが必要です。"
+          }
+        }
+      }
+    },
+    "Repository not found or inaccessible.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリが見つからないか、アクセスできません。"
+          }
+        }
+      }
     }
   }
 }

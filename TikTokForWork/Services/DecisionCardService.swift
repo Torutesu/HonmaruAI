@@ -7,7 +7,7 @@ enum CardServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .githubSyncFailed(let message): message
-        case .cardNotFound: "Card not found."
+        case .cardNotFound: String(localized: "Card not found.")
         }
     }
 }
@@ -67,15 +67,20 @@ final class DecisionCardService: ObservableObject {
         onCardsUpdated?()
     }
 
-    /// Seeds the first-session feed once per install. The current user's cards
-    /// stream in with a short stagger so the feed visibly "arrives" instead of
-    /// popping in fully formed.
+    /// Puts the demo feed in place. The current user's cards stream in with a
+    /// short stagger so the feed visibly "arrives" instead of popping in fully
+    /// formed.
+    ///
+    /// It runs every launch and only adds what is missing, so the app is never
+    /// found empty. Seeding once per install meant a demo could be ruined by
+    /// the previous one, and getting the cards back needed a settings trip.
     func seedDemoFeedIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: FirstRunFlags.seededFeed), !isSeeding else { return }
-        isSeeding = true
-        UserDefaults.standard.set(true, forKey: FirstRunFlags.seededFeed)
+        guard !isSeeding else { return }
 
-        let seeds = DemoData.seedCards()
+        let existing = Set(cardsByUser.values.flatMap { $0 }.map(\.id))
+        let seeds = DemoData.seedCards().filter { !existing.contains($0.id) }
+        guard !seeds.isEmpty else { return }
+        isSeeding = true
         let visibleUserID = activeUserID
         let backgroundSeeds = seeds.filter { $0.recipientUserID != visibleUserID }
         let visibleSeeds = seeds
@@ -258,7 +263,7 @@ final class DecisionCardService: ObservableObject {
         var card = userCards[index]
         guard card.isPending else { return card }
         guard recipientUserID != actorUserID else {
-            throw CardServiceError.githubSyncFailed("Pick someone else to delegate to.")
+            throw CardServiceError.githubSyncFailed(String(localized: "Pick someone else to delegate to."))
         }
 
         card.status = .delegated
@@ -328,7 +333,7 @@ final class DecisionCardService: ObservableObject {
 
         let card = userCards[index]
         guard card.canDelete else {
-            throw CardServiceError.githubSyncFailed("Only declined cards can be deleted.")
+            throw CardServiceError.githubSyncFailed(String(localized: "Only declined cards can be deleted."))
         }
 
         userCards.remove(at: index)
