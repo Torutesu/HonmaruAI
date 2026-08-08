@@ -1,6 +1,8 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
-import { createSession } from "./db.js";
+import { createSession, getSession, upsertUser, upsertMembership, upsertAgent } from "./db.js";
+import { fetchCollaborators } from "./github.js";
+import { buildOrgGraph, roleName } from "./org.js";
 
 export { OrgRelay } from "./relay.js";
 
@@ -89,6 +91,26 @@ export default {
       const ghUser = await userRes.json();
       const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
       return json({ accessToken: data.access_token, tokenType: "bearer", sessionToken });
+    }
+    const orgGraphMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/graph$/);
+    if (orgGraphMatch && request.method === "GET") {
+      const [, owner, repo] = orgGraphMatch;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const orgId = `${owner}/${repo}`;
+      let collaborators;
+      try {
+        collaborators = await fetchCollaborators(session.github_access_token, owner, repo);
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+      const graph = buildOrgGraph(collaborators, { owner, repo });
+      for (const c of collaborators) {
+        await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url, locale: "en" });
+        await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
+        await upsertAgent(env.DB, orgId, c.id, `${c.login}'s AI`);
+      }
+      return json(graph);
     }
     if (request.headers.get("Upgrade") === "websocket") {
       const orgId = url.searchParams.get("orgId") || "core-team";
