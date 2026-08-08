@@ -77,9 +77,12 @@ Client secret stays on localhost server only.
 TestFlight builds and App Store review submissions run from the terminal via the
 [`asc`](https://github.com/rorkai/App-Store-Connect-CLI) CLI — no browser.
 
+Step-by-step guide in Japanese, written for non-engineers:
+**[docs/setup-ja.md](docs/setup-ja.md)** ← start here if this is your first release.
+
 ```bash
 brew install asc xcodegen
-cp .asc.env.example .asc.env   # API key id, issuer id, .p8 path, team id
+scripts/setup.sh               # asks for team id, key id, issuer id, .p8 path
 scripts/release.sh login
 scripts/release.sh doctor      # auth + signing + review readiness
 

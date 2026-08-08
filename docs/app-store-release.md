@@ -31,11 +31,17 @@ brew install asc xcodegen
 ### Configure the repo
 
 ```bash
-cp .asc.env.example .asc.env
-$EDITOR .asc.env          # fill in key id, issuer id, key path, team id
+scripts/setup.sh
 ```
 
+Prompts for the team id, key id, issuer id and `.p8` path, writes `.asc.env` with
+`umask 077`, then checks that the key file exists and the toolchain is installed.
+Re-running it offers your current values as defaults. Editing `.asc.env` by hand
+works too — `.asc.env.example` documents every field.
+
 `.asc.env` is gitignored, as is `*.p8`. Neither ever gets committed.
+
+A Japanese walkthrough aimed at non-engineers is in [setup-ja.md](setup-ja.md).
 
 Then store the credentials in the keychain and confirm they work:
 
