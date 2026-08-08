@@ -19,6 +19,11 @@
 	<!-- Capture (A5) dictates instead of typing. Both keys are required before
 	     the Speech framework will start, and iOS terminates the app on the
 	     first request if either is missing. -->
+	<!-- The capture screen shows you on camera while you talk. The video is a
+	     viewfinder only: nothing is recorded to disk or sent anywhere, and only
+	     the transcript leaves the screen. -->
+	<key>NSCameraUsageDescription</key>
+	<string>話しているあなたを画面に映すために使います。映像は保存も送信もされません。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>AI に話しかけて指示を伝えるために使います。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

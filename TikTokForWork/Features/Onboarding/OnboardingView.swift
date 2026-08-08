@@ -476,7 +476,7 @@ struct OnboardingView: View {
                     ProgressView()
                         .controlSize(.small)
                         .tint(Theme.Colors.textSecondary)
-                } else if demoUser == .alice {
+                } else if demoUser == .toru {
                     Text("Start here")
                         .font(Theme.TypeScale.micro)
                         .foregroundStyle(Theme.Colors.accent)

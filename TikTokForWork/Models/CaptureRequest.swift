@@ -6,9 +6,13 @@ import Foundation
 struct CaptureRequest: Equatable, Identifiable {
     let id: UUID
     let text: String
+    /// Set once the clip is on the relay. Nil when there was no video, or when
+    /// the upload failed — either way the decision still routes.
+    let videoURL: String?
 
-    init(text: String) {
+    init(text: String, videoURL: String? = nil) {
         self.id = UUID()
         self.text = text
+        self.videoURL = videoURL
     }
 }

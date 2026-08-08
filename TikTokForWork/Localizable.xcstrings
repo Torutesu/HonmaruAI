@@ -1145,6 +1145,886 @@
           }
         }
       }
+    },
+    "Microphone or speech access is off. Turn it on in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイクまたは音声認識が許可されていません。設定から有効にしてください。"
+          }
+        }
+      }
+    },
+    "Dictation is unavailable on this device.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末では音声入力を利用できません。"
+          }
+        }
+      }
+    },
+    "Confirm this quarter's tax filing?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今期の確定申告を確定しますか？"
+          }
+        }
+      }
+    },
+    "Accounting AI reconciled every receipt and found two it cannot categorise. Filing closes in three days.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "経理AI が全ての領収書を照合し、分類できないものが2件見つかりました。申告期限まで3日です。"
+          }
+        }
+      }
+    },
+    "amount: ¥62,000 unclear · deadline: 3 days · action: confirm or recategorise": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金額: ¥62,000 が不明 · 期限: 3日後 · 対応: 確定するか分類し直す"
+          }
+        }
+      }
+    },
+    "Accounting AI → You": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "経理AI → あなた"
+          }
+        }
+      }
+    },
+    "Filing is in your name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "申告はあなたの名義です"
+          }
+        }
+      }
+    },
+    "A lead went quiet for ten days": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見込み客が10日間音沙汰なし"
+          }
+        }
+      }
+    },
+    "Sales AI drafted a follow-up that does not sound desperate. Send it, or let this one go.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "営業AI が、しつこくならない追客文を用意しました。送るか、この件は諦めるか。"
+          }
+        }
+      }
+    },
+    "scope: ¥300,000 lead · deadline: today · action: send or drop": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: ¥300,000 の案件 · 期限: 本日 · 対応: 送るか諦めるか"
+          }
+        }
+      }
+    },
+    "Sales AI → You": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "営業AI → あなた"
+          }
+        }
+      }
+    },
+    "Only you can decide to chase": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追うかどうかはあなたの判断です"
+          }
+        }
+      }
+    },
+    "North Inc. wants to extend three months": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノース社が3か月の延長を希望"
+          }
+        }
+      }
+    },
+    "Tanaka asked to continue past the current contract at the same rate. Your rate has since gone up.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "田中さんから、現在の単価のまま契約を延長したいと連絡がありました。あなたの単価はその後上がっています。"
+          }
+        }
+      }
+    },
+    "amount: same rate · scope: 3 months · action: accept or renegotiate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金額: 単価据え置き · 範囲: 3か月 · 対応: 受けるか交渉するか"
+          }
+        }
+      }
+    },
+    "Your contract, your rate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "契約も単価もあなたのものです"
+          }
+        }
+      }
+    },
+    "Three tools renew this week": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今週3つのツールが更新されます"
+          }
+        }
+      }
+    },
+    "Accounting AI found ¥18,400 of subscriptions renewing, two of which you have not opened in 60 days.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "経理AI が ¥18,400 の更新を検出しました。うち2つは60日間開いていません。"
+          }
+        }
+      }
+    },
+    "amount: ¥18,400 · deadline: this week · action: cancel or keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金額: ¥18,400 · 期限: 今週 · 対応: 解約するか継続するか"
+          }
+        }
+      }
+    },
+    "Spending is yours to approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支出の承認はあなたです"
+          }
+        }
+      }
+    },
+    "Ask North Inc. for a testimonial?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノース社に推薦文を頼みますか？"
+          }
+        }
+      }
+    },
+    "Social AI noticed the project shipped well. The window for asking closes as the work fades.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SNS AI が、案件がうまく着地したことを検知しました。頼めるのは記憶が新しいうちです。"
+          }
+        }
+      }
+    },
+    "scope: 1 request · deadline: this month · action: approve to ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: 依頼1件 · 期限: 今月中 · 対応: 承認すると依頼します"
+          }
+        }
+      }
+    },
+    "Social AI → You": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SNS AI → あなた"
+          }
+        }
+      }
+    },
+    "Client relationships are yours": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顧客との関係はあなたのものです"
+          }
+        }
+      }
+    },
+    "Yui is two days from finishing early": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結衣の手が2日空きます"
+          }
+        }
+      }
+    },
+    "She can take more work this week or stop. Nothing is queued behind the current job.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今週さらに引き受けることも、そこで止めることもできます。後続の仕事は入っていません。"
+          }
+        }
+      }
+    },
+    "scope: 2 spare days · deadline: Wednesday · action: assign or leave": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: 空き2日 · 期限: 水曜 · 対応: 割り当てるか空けておくか"
+          }
+        }
+      }
+    },
+    "You decide what she works on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何を任せるかはあなたが決めます"
+          }
+        }
+      }
+    },
+    "Your host had an outage last night": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨夜サーバーが停止していました"
+          }
+        }
+      }
+    },
+    "Research AI saw four hours of downtime on the North Inc. site. Tanaka has not mentioned it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リサーチAI がノース社サイトの4時間の停止を検知しました。田中さんからの言及はありません。"
+          }
+        }
+      }
+    },
+    "metric: 4h downtime · action: tell the client or wait · deadline: today": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標: 4時間停止 · 対応: 先方に伝えるか様子を見るか · 期限: 本日"
+          }
+        }
+      }
+    },
+    "Research AI → You": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リサーチAI → あなた"
+          }
+        }
+      }
+    },
+    "Bad news travels better from you": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "悪い知らせはあなたから伝えた方が通ります"
+          }
+        }
+      }
+    },
+    "An invoice is 14 days overdue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求が14日遅延しています"
+          }
+        }
+      }
+    },
+    "Accounting AI drafted a reminder. The client is one you want to keep, so the wording matters.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "経理AI が催促文を用意しました。今後も付き合いたい相手なので、文面が重要です。"
+          }
+        }
+      }
+    },
+    "amount: ¥95,000 · deadline: overdue 14 days · action: send the reminder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金額: ¥95,000 · 期限: 14日超過 · 対応: 催促を送る"
+          }
+        }
+      }
+    },
+    "Chasing money is yours alone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入金の催促はあなたにしかできません"
+          }
+        }
+      }
+    },
+    "approved this": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認しました"
+          }
+        }
+      }
+    },
+    "declined this": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "却下しました"
+          }
+        }
+      }
+    },
+    "asked for changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を依頼しました"
+          }
+        }
+      }
+    },
+    "delegated this": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "委任しました"
+          }
+        }
+      }
+    },
+    "No messages yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだメッセージはありません"
+          }
+        }
+      }
+    },
+    "Engineer · English": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンジニア · 英語"
+          }
+        }
+      }
+    },
+    "Contract engineer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "業務委託エンジニア"
+          }
+        }
+      }
+    },
+    "Alex · Engineer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alex · エンジニア"
+          }
+        }
+      }
+    },
+    "Deploy the North Inc. site tonight?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノース社サイトを今夜デプロイしますか？"
+          }
+        }
+      }
+    },
+    "Alex finished the rebuild and wants to deploy during the client's night. If it waits, the next window is Monday.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alex が作り直しを終え、先方の深夜帯にデプロイしたいと言っています。見送ると次の安全枠は月曜です。"
+          }
+        }
+      }
+    },
+    "deadline: tonight · scope: North Inc. site · action: approve to deploy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限: 今夜 · 範囲: ノース社サイト · 対応: 承認するとデプロイします"
+          }
+        }
+      }
+    },
+    "Alex → Your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alex → あなたの AI"
+          }
+        }
+      }
+    },
+    "Deploys need your go": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デプロイの判断はあなたです"
+          }
+        }
+      }
+    },
+    "Alex found undocumented work": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仕様外の作業が見つかりました"
+          }
+        }
+      }
+    },
+    "The old site has a booking form nobody mentioned. Rebuilding it is roughly three extra days.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧サイトに、誰も触れていなかった予約フォームがあります。作り直すと約3日の追加です。"
+          }
+        }
+      }
+    },
+    "scope: booking form · deadline: this week · action: bill it or drop it": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: 予約フォーム · 期限: 今週 · 対応: 追加請求するか外すか"
+          }
+        }
+      }
+    },
+    "Scope changes are yours": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲の変更はあなたの判断です"
+          }
+        }
+      }
+    },
+    "Create issue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue を作成"
+          }
+        }
+      }
+    },
+    "Delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "Request revision": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を依頼"
+          }
+        }
+      }
+    },
+    "Approving": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認しています"
+          }
+        }
+      }
+    },
+    "Declining": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "却下しています"
+          }
+        }
+      }
+    },
+    "Delegating": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "委任しています"
+          }
+        }
+      }
+    },
+    "Sending revision": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を送っています"
+          }
+        }
+      }
+    },
+    "Removing card": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードを削除しています"
+          }
+        }
+      }
+    },
+    "Routing decision": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宛先を判断しています"
+          }
+        }
+      }
+    },
+    "Syncing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期しています"
+          }
+        }
+      }
+    },
+    "Creating GitHub issue…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub Issue を作成しています…"
+          }
+        }
+      }
+    },
+    "Send decision card": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定カードを送る"
+          }
+        }
+      }
+    },
+    "Summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要約"
+          }
+        }
+      }
+    },
+    "Context": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景"
+          }
+        }
+      }
+    },
+    "Why you": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なぜあなたに"
+          }
+        }
+      }
+    },
+    "Routing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルーティング"
+          }
+        }
+      }
+    },
+    "Labels": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベル"
+          }
+        }
+      }
+    },
+    "Revision note": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正メモ"
+          }
+        }
+      }
+    },
+    "Original message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のメッセージ"
+          }
+        }
+      }
+    },
+    "Continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次へ"
+          }
+        }
+      }
+    },
+    "Get started": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はじめる"
+          }
+        }
+      }
+    },
+    "You": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなた"
+          }
+        }
+      }
+    },
+    "No channels, no DMs, no inbox. Say what you need — the AIs handle who hears it, and how.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャンネルも DM も受信箱もありません。必要なことを言えば、誰にどう伝わるかは AI が引き受けます。"
+          }
+        }
+      }
+    },
+    "Every approval becomes a GitHub Issue your team can track — decisions never get lost in chat.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認はそのまま GitHub Issue になります。決定が会話に埋もれません。"
+          }
+        }
+      }
+    },
+    "Each person has their own AI — and sees only the decisions that are theirs to make. You can switch anytime from the feed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一人ひとりに専属の AI がつき、自分が決めるべきことだけが届きます。切り替えはいつでもできます。"
+          }
+        }
+      }
     }
   }
 }

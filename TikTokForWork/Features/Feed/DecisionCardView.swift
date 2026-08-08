@@ -35,6 +35,15 @@ struct DecisionCardView: View {
                             .lineSpacing(5)
                             .multilineTextAlignment(.leading)
 
+                        if let original = card.originalBody,
+                           let language = card.originalLanguage {
+                            TranslatedFrom(language: language, original: original)
+                        }
+
+                        if let videoURL = card.videoURL {
+                            CardVideoView(urlString: videoURL)
+                        }
+
                         if !card.context.isEmpty {
                             ContextInsightView(context: card.context, compact: true)
                         }
@@ -74,11 +83,11 @@ struct DecisionCardView: View {
 
                 actionBlock
 
-                // A3 in the mock replies to a card in free text. The reply layer
-                // that would interpret it lives on another branch, so this is
-                // shown inert and labelled rather than wired to nothing.
+                // A3 replies to a card in free text. It opens the revision flow,
+                // which is what a reply means here: the card goes back to the
+                // sender with what you said attached.
                 if card.isPending {
-                    replyComposerPlaceholder
+                    replyComposer
                         .padding(.top, Theme.Spacing.sm)
                 }
             }
@@ -124,7 +133,9 @@ struct DecisionCardView: View {
 
                     Spacer(minLength: Theme.Spacing.xs)
 
-                    if let route = card.agentRoute {
+                    if let app = card.sourceApp {
+                        SourceChip(app: app, detail: card.sourceDetail)
+                    } else if let route = card.agentRoute {
                         Text(route)
                             .font(.system(size: 10))
                             .foregroundStyle(Theme.Colors.textTertiary)
@@ -160,7 +171,7 @@ struct DecisionCardView: View {
             if dragOffset > 24 {
                 HStack {
                     swipeLabel(
-                        isGitHubConnected ? "Create issue" : "Approve",
+                        isGitHubConnected ? String(localized: "Create issue") : String(localized: "Approve"),
                         color: isGitHubConnected ? Theme.Colors.issueGreen : Theme.Colors.approve
                     )
                     Spacer()
@@ -171,7 +182,7 @@ struct DecisionCardView: View {
             if dragOffset < -24 {
                 HStack {
                     Spacer()
-                    swipeLabel("Reject", color: Theme.Colors.reject)
+                    swipeLabel(String(localized: "Reject"), color: Theme.Colors.reject)
                 }
                 .padding(.trailing, Theme.Spacing.screen)
             }
@@ -230,27 +241,29 @@ struct DecisionCardView: View {
         }
     }
 
-    private var replyComposerPlaceholder: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            Text("返信または音声入力…")
-                .font(Theme.TypeScale.caption)
-                .foregroundStyle(Theme.Colors.textTertiary)
-            Spacer()
-            Text("準備中")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Theme.Colors.surfaceRaised)
-                .clipShape(Capsule())
+    private var replyComposer: some View {
+        Button {
+            Haptics.light()
+            onAction(.requestRevision)
+        } label: {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("返信または音声入力…")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                Spacer()
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.input)
+                    .strokeBorder(Theme.Colors.border, lineWidth: 1)
+            }
         }
-        .padding(.horizontal, Theme.Spacing.md)
-        .padding(.vertical, 10)
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Radius.input)
-                .strokeBorder(Theme.Colors.border, lineWidth: 1)
-        }
-        .allowsHitTesting(false)
+        .buttonStyle(.plain)
     }
 
     private var priorityLabel: String {
@@ -283,7 +296,7 @@ struct DecisionCardView: View {
         VStack(spacing: Theme.Spacing.sm) {
             if card.isPending {
                 if isGitHubConnected {
-                    GitHubPrimaryButton(title: "Create issue", enabled: true) {
+                    GitHubPrimaryButton(title: String(localized: "Create issue"), enabled: true) {
                         Haptics.light()
                         onAction(.createIssue)
                     }
@@ -306,17 +319,17 @@ struct DecisionCardView: View {
                 }
 
                 HStack(spacing: 0) {
-                    SecondaryAction(title: "Decline", tint: Theme.Colors.reject) {
+                    SecondaryAction(title: String(localized: "Decline"), tint: Theme.Colors.reject) {
                         Haptics.light()
                         onAction(.reject)
                     }
 
-                    SecondaryAction(title: "Revise") {
+                    SecondaryAction(title: String(localized: "Revise")) {
                         Haptics.light()
                         onAction(.requestRevision)
                     }
 
-                    SecondaryAction(title: "Delegate") {
+                    SecondaryAction(title: String(localized: "Delegate")) {
                         Haptics.light()
                         onAction(.delegate)
                     }
@@ -330,7 +343,7 @@ struct DecisionCardView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, Theme.Spacing.xs)
             } else if card.canDelete {
-                SecondaryAction(title: "Delete", tint: Theme.Colors.reject) {
+                SecondaryAction(title: String(localized: "Delete"), tint: Theme.Colors.reject) {
                     Haptics.light()
                     onAction(.delete)
                 }
@@ -344,8 +357,8 @@ struct DecisionCardView: View {
     DecisionCardView(
         card: DecisionCard(
             id: "preview",
-            recipientUserID: "user-alice",
-            senderUserID: "user-bob",
+            recipientUserID: "user-toru",
+            senderUserID: "agent-accounting",
             type: .task,
             title: "Auth latency regression",
             summary: "p95 on auth endpoint up 18% after last deploy.",

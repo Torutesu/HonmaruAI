@@ -73,6 +73,22 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var sourceInstruction: String?
     var labels: [String]?
     var revisionNote: String?
+    /// Where this decision came from — the tool the message was sitting in.
+    /// Shown so you can see the card is a view onto real work rather than
+    /// something the app invented.
+    var sourceApp: String?
+    /// Where inside that tool: a channel, a page title, a subject line.
+    var sourceDetail: String?
+    /// What the sender actually wrote, when that was not the language you read
+    /// in. Kept so the card can prove it is a translation rather than ask you to
+    /// take its word for it — you are deciding on someone else's words.
+    var originalBody: String?
+    /// BCP-47 tag of `originalBody`, used only to label the badge.
+    var originalLanguage: String?
+    /// Where the video recorded alongside this decision lives on the relay.
+    /// Optional so a card that predates video, or one whose upload failed,
+    /// still arrives intact — a missing clip must not cost you the decision.
+    var videoURL: String?
 
     var isPending: Bool { status == .pending }
 

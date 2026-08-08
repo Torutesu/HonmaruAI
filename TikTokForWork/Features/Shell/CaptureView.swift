@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// A5 — the one sanctioned dark panel. `docs/design-system.md` keeps the
@@ -8,17 +9,34 @@ import SwiftUI
 struct CaptureView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var dictation = DictationService()
+    @StateObject private var recorder = VideoRecorder()
     @Environment(\.dismiss) private var dismiss
 
     @State private var edited = ""
     @State private var isEditing = false
+    @State private var cameraAuthorized = false
 
-    let onSend: (String) -> Void
+    /// The transcript, and the clip that was recorded while it was spoken.
+    let onSend: (String, URL?) -> Void
 
     var body: some View {
         ZStack {
+            Color.black.ignoresSafeArea()
+
+            if cameraAuthorized {
+                CameraViewfinder(session: recorder.session)
+                    .ignoresSafeArea()
+            }
+
+            // The sanctioned dark panel from docs/design-system.md, now doing a
+            // second job: without a scrim the transcript is unreadable against
+            // a bright face.
             LinearGradient(
-                colors: [Color(hex: 0x111111), .black],
+                colors: [
+                    Color(hex: 0x111111).opacity(0.85),
+                    Color.black.opacity(0.35),
+                    Color.black.opacity(0.9),
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -33,8 +51,20 @@ struct CaptureView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .task { await dictation.start() }
-        .onDisappear { dictation.stop() }
+        .task {
+            // Camera first: the viewfinder is what makes the screen legible as
+            // "you are on", and asking for it after the mic stacks two prompts.
+            cameraAuthorized = await Self.requestCamera()
+            if cameraAuthorized {
+                recorder.configure()
+                recorder.start()
+            }
+            await dictation.start()
+        }
+        .onDisappear {
+            dictation.stop()
+            recorder.teardown()
+        }
         .onChange(of: dictation.transcript) { _, new in
             guard !isEditing else { return }
             edited = new
@@ -43,6 +73,16 @@ struct CaptureView: View {
             Button("OK", role: .cancel) { dictation.errorMessage = nil }
         } message: {
             Text(dictation.errorMessage ?? "")
+        }
+    }
+
+    /// Declining the camera is not a failure — the screen still dictates, it
+    /// just stops showing you. So this reports rather than throws.
+    private static func requestCamera() async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: return true
+        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .video)
+        default: return false
         }
     }
 
@@ -59,7 +99,7 @@ struct CaptureView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.8))
             Spacer()
-            if dictation.isRecording {
+            if dictation.isRecording || recorder.isRecording {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(Theme.Colors.reject)
@@ -129,8 +169,12 @@ struct CaptureView: View {
                     let text = edited.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
                     dictation.stop()
-                    onSend(text)
-                    dismiss()
+                    // The movie file is only complete once the recorder says so.
+                    // Reading it earlier hands on a truncated clip.
+                    recorder.stop { file in
+                        onSend(text, file)
+                        dismiss()
+                    }
                 }
                 .disabled(edited.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -146,8 +190,10 @@ struct CaptureView: View {
         Button {
             if dictation.isRecording {
                 dictation.stop()
+                recorder.stop { _ in }
             } else {
                 isEditing = false
+                if cameraAuthorized { recorder.start() }
                 Task { await dictation.start() }
             }
         } label: {
@@ -188,6 +234,6 @@ struct CaptureView: View {
 }
 
 #Preview {
-    CaptureView { _ in }
+    CaptureView { _, _ in }
         .environmentObject(AppState())
 }

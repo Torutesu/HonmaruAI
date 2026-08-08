@@ -10,6 +10,9 @@ final class AppState: ObservableObject {
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
+    /// Classic's channels and messages. Local, so the comparison surface keeps
+    /// working when the relay does not.
+    let chatStore = ChatStore()
 
     let relayURL = AppConfig.relayURL
 

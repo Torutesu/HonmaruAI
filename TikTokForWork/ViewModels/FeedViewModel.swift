@@ -13,8 +13,10 @@ final class FeedViewModel: ObservableObject {
     @Published var delegateCard: DecisionCard?
     @Published var reviseCard: DecisionCard?
     @Published var reviewDraft: InstructionDraft?
+    /// Held between drafting and sending: the review sheet sits in between, and
+    /// the clip belongs to the card that comes out the far side.
+    private var pendingVideoURL: String?
     @Published var arrivalNote: String?
-    @Published var showConnectPrompt = false
     @Published var isTriaging = false
 
     private var cardService: DecisionCardService?
@@ -112,7 +114,7 @@ final class FeedViewModel: ObservableObject {
         guard let cardService, let userID else { return }
 
         isProcessing = true
-        processingMessage = "Removing card"
+        processingMessage = String(localized: "Removing card")
         errorMessage = nil
 
         do {
@@ -136,7 +138,7 @@ final class FeedViewModel: ObservableObject {
         guard let cardService, let userID else { return }
 
         isProcessing = true
-        processingMessage = "Delegating"
+        processingMessage = String(localized: "Delegating")
         errorMessage = nil
 
         do {
@@ -159,7 +161,8 @@ final class FeedViewModel: ObservableObject {
         delegateCard = nil
     }
 
-    func beginDraft(_ text: String, priority: CardPriority, appState: AppState) {
+    func beginDraft(_ text: String, priority: CardPriority, appState: AppState, videoURL: String? = nil) {
+        pendingVideoURL = videoURL
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -179,9 +182,9 @@ final class FeedViewModel: ObservableObject {
 
     func draftInstruction(_ text: String, priority: CardPriority, appState: AppState) async -> InstructionDraft? {
         guard let user = appState.currentUser else { return nil }
+
         guard appState.aiService.hasRelay else {
-            errorMessage = AIServiceError.notConfigured.localizedDescription
-            return nil
+            return OfflineRouter.draft(text: text, sender: user, priority: priority)
         }
 
         do {
@@ -192,8 +195,10 @@ final class FeedViewModel: ObservableObject {
                 priorityOverride: priority
             )
         } catch {
-            errorMessage = error.localizedDescription
-            return nil
+            // An unreachable relay is not a reason to lose what you just said.
+            // The card is filed locally and the error is not raised: it would
+            // only offer a retry that cannot succeed.
+            return OfflineRouter.draft(text: text, sender: user, priority: priority)
         }
     }
 
@@ -201,7 +206,7 @@ final class FeedViewModel: ObservableObject {
         guard let cardService, let user = appState.currentUser else { return }
 
         isProcessing = true
-        processingMessage = "Routing decision"
+        processingMessage = String(localized: "Routing decision")
         errorMessage = nil
 
         do {
@@ -209,8 +214,10 @@ final class FeedViewModel: ObservableObject {
             _ = try await cardService.processRouting(
                 routing,
                 sourceText: draft.sourceText,
-                from: user
+                from: user,
+                videoURL: pendingVideoURL
             )
+            pendingVideoURL = nil
             refreshCards(from: cardService)
             Haptics.light()
         } catch {
@@ -233,10 +240,10 @@ final class FeedViewModel: ObservableObject {
 
         isProcessing = true
         processingMessage = switch action {
-        case .createIssue: isGitHubConnected ? "Creating GitHub issue…" : "Approving"
-        case .reject: "Declining"
-        case .requestRevision: "Sending revision"
-        default: "Syncing"
+        case .createIssue: isGitHubConnected ? String(localized: "Creating GitHub issue…") : String(localized: "Approving")
+        case .reject: String(localized: "Declining")
+        case .requestRevision: String(localized: "Sending revision")
+        default: String(localized: "Syncing")
         }
         errorMessage = nil
 
@@ -250,9 +257,11 @@ final class FeedViewModel: ObservableObject {
             )
             Haptics.success()
             refreshCards(from: cardService)
-            await syncGitHub()
             advanceIfNeeded()
-            promptGitHubConnectIfNeeded(after: action, isConnected: isGitHubConnected)
+            // Deciding is a local state change; reconciling with GitHub is
+            // bookkeeping. Awaiting it here made every approval wait on the
+            // network, which is exactly the moment the app should feel instant.
+            Task { await syncGitHub() }
         } catch {
             errorMessage = error.localizedDescription
             Haptics.light()
@@ -261,20 +270,6 @@ final class FeedViewModel: ObservableObject {
         isProcessing = false
     }
 
-    /// The first approval without GitHub is the one contextual moment to offer
-    /// the connection — the value ("this becomes an Issue") is self-evident.
-    private func promptGitHubConnectIfNeeded(after action: CardActionKind, isConnected: Bool) {
-        guard action == .createIssue, !isConnected,
-              !UserDefaults.standard.bool(forKey: FirstRunFlags.promptedGitHubConnect) else {
-            return
-        }
-        UserDefaults.standard.set(true, forKey: FirstRunFlags.promptedGitHubConnect)
-
-        Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(700))
-            self?.showConnectPrompt = true
-        }
-    }
 
     private func showArrivalNote(count: Int) {
         isTriaging = false

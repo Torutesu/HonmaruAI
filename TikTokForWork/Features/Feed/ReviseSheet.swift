@@ -5,7 +5,9 @@ struct ReviseSheet: View {
     let onSubmit: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var dictation = DictationService()
     @State private var note = ""
+    @State private var dictationBase = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -39,8 +41,42 @@ struct ReviseSheet: View {
                 .background(Theme.Colors.surfaceRaised)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
 
+                // Dictation appends to whatever is already typed rather than
+                // replacing it, so switching between thumb and voice mid-reply
+                // does not throw away the half you already had.
+                HStack(spacing: Theme.Spacing.sm) {
+                    Button {
+                        if dictation.isRecording {
+                            dictation.stop()
+                        } else {
+                            dictationBase = note
+                            Task { await dictation.start() }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: dictation.isRecording ? "stop.fill" : "mic.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(dictation.isRecording ? "停止" : "音声で入力")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .foregroundStyle(dictation.isRecording ? Theme.Colors.reject : Theme.Colors.textPrimary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .overlay { Capsule().strokeBorder(Theme.Colors.border, lineWidth: 1) }
+                    }
+
+                    if let error = dictation.errorMessage {
+                        Text(error)
+                            .font(Theme.TypeScale.micro)
+                            .foregroundStyle(Theme.Colors.reject)
+                            .lineLimit(2)
+                    }
+
+                    Spacer()
+                }
+
                 PrimaryButton(
-                    title: "Request revision",
+                    title: String(localized: "Request revision"),
                     enabled: !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ) {
                     onSubmit(note.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -60,6 +96,11 @@ struct ReviseSheet: View {
                 }
             }
             .onAppear { isFocused = true }
+            .onDisappear { dictation.stop() }
+            .onChange(of: dictation.transcript) { _, spoken in
+                guard !spoken.isEmpty else { return }
+                note = dictationBase.isEmpty ? spoken : dictationBase + " " + spoken
+            }
         }
         .presentationDetents([.medium])
         .presentationBackground(Theme.Colors.surface)

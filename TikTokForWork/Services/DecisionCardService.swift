@@ -341,7 +341,8 @@ final class DecisionCardService: ObservableObject {
     func processRouting(
         _ routing: InstructionRouting,
         sourceText: String,
-        from sender: User
+        from sender: User,
+        videoURL: String? = nil
     ) async throws -> DecisionCard {
         let card = DecisionCard(
             id: UUID().uuidString,
@@ -359,7 +360,8 @@ final class DecisionCardService: ObservableObject {
             agentRoute: routing.agentRoute,
             routingReason: routing.routingReason,
             sourceInstruction: sourceText,
-            labels: routing.labels.isEmpty ? nil : routing.labels
+            labels: routing.labels.isEmpty ? nil : routing.labels,
+            videoURL: videoURL
         )
 
         append(card, for: routing.recipientID)

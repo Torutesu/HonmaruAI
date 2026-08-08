@@ -57,6 +57,17 @@ struct YouView: View {
                     row("バージョン", value: versionString)
                 }
 
+                // A demo starts from a known feed. Without this the only way to
+                // get the seeded cards back is to delete the app.
+                Button("デモデータを入れ直す") {
+                    appState.cardService.reset()
+                    DecisionCardService.resetSeedMarker()
+                    appState.cardService.seedDemoFeedIfNeeded()
+                }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.Colors.interactive)
+                .padding(.top, Theme.Spacing.sm)
+
                 Button("サインアウト") {
                     appState.signOut()
                 }

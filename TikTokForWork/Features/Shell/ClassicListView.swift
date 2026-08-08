@@ -1,18 +1,21 @@
 import SwiftUI
 
 /// A4 — the Classic surface: a deliberate Slack iOS clone standing in for the
-/// old way of working, so the difference from the Cards surface is visible
-/// side by side.
+/// old way of working, so the difference from the Cards surface is visible side
+/// by side.
 ///
-/// It intentionally uses Slack's palette rather than ours, and its rows are
-/// fixtures rather than live data — the point is the shape of the old surface,
-/// not its contents. Layout follows `docs/figma/classic-slack-rebuild.js`,
-/// which is the design of record for this screen.
+/// It intentionally uses Slack's palette rather than ours. Layout follows
+/// `docs/figma/classic-slack-rebuild.js`, which is the design of record. Inter
+/// is substituted by the system face, as `docs/design-system.md` allows.
 ///
-/// Inter is substituted by the system face, as `docs/design-system.md` allows.
+/// The rows are real: every one opens a conversation you can read and post to,
+/// and decisions taken on a card appear here as messages.
 struct ClassicListView: View {
-    /// Tapping any row returns to the decision the old surface buried.
-    var onOpenCards: () -> Void = {}
+    @EnvironmentObject private var appState: AppState
+
+    @State private var openChannel: ChatChannel?
+
+    let onAction: (DecisionCard, CardActionKind) -> Void
 
     var body: some View {
         ScrollView {
@@ -20,18 +23,35 @@ struct ClassicListView: View {
                 workspaceHeader
                 searchPill
 
-                sectionHeader("Channels")
-                ForEach(Fixtures.channels) { row($0) }
-
-                sectionHeader("Direct messages")
-                ForEach(Fixtures.directMessages) { row($0) }
-
-                sectionHeader("Apps")
-                ForEach(Fixtures.apps) { row($0) }
+                section("Channels", channels: appState.chatStore.channels(of: .channel))
+                section("Direct messages", channels: appState.chatStore.channels(of: .directMessage))
+                section("Apps", channels: appState.chatStore.channels(of: .app))
             }
             .padding(.bottom, Theme.Spacing.sm)
         }
         .background(Slack.canvas)
+        .onAppear(perform: mirrorPendingCards)
+        .sheet(item: $openChannel) { channel in
+            ClassicChannelView(
+                channel: channel,
+                pendingCards: channel.id == ChatStore.decisionsChannelID ? pendingCards : [],
+                onDecide: onAction
+            )
+            .environmentObject(appState)
+        }
+    }
+
+    private var pendingCards: [DecisionCard] {
+        guard let user = appState.currentUser else { return [] }
+        return appState.cardService.cards(for: user.id).filter(\.isPending)
+    }
+
+    /// Every waiting decision shows up in #decisions as an unread, which is the
+    /// claim this screen makes: the same work, buried in a list.
+    private func mirrorPendingCards() {
+        for card in pendingCards {
+            appState.chatStore.announce(card)
+        }
     }
 
     // MARK: - Chrome
@@ -82,55 +102,65 @@ struct ClassicListView: View {
         .padding(.bottom, 2)
     }
 
-    private func sectionHeader(_ label: String) -> some View {
-        HStack(spacing: 5) {
-            Text("▼")
-                .font(.system(size: 8))
-                .foregroundStyle(Slack.muted)
-            Text(label)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(Slack.muted)
-            Spacer()
+    private func section(_ label: String, channels: [ChatChannel]) -> some View {
+        Group {
+            HStack(spacing: 5) {
+                Text("▼")
+                    .font(.system(size: 8))
+                    .foregroundStyle(Slack.muted)
+                Text(label)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Slack.muted)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 13)
+            .padding(.bottom, 3)
+
+            ForEach(channels) { row($0) }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 13)
-        .padding(.bottom, 3)
     }
 
     // MARK: - Rows
 
-    private func row(_ item: Fixtures.Row) -> some View {
-        Button(action: onOpenCards) {
+    private func row(_ channel: ChatChannel) -> some View {
+        let unread = appState.chatStore.unreadCount(in: channel.id)
+        let last = appState.chatStore.lastMessage(in: channel.id)
+
+        return Button {
+            openChannel = channel
+        } label: {
             HStack(spacing: 10) {
-                switch item.lead {
-                case .hash:
+                if let tint = channel.tint {
+                    avatar(String(channel.name.prefix(1)), color: tint, online: channel.isOnline)
+                } else {
                     Text("#")
                         .font(.system(size: 16))
                         .foregroundStyle(Slack.muted)
                         .frame(width: 28, height: 28)
-                case let .avatar(letter, color, online):
-                    avatar(letter, color: color, online: online)
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(item.name)
-                            .font(.system(size: 14.5, weight: item.isUnread ? .heavy : .regular))
+                        Text(channel.name)
+                            .font(.system(size: 14.5, weight: unread > 0 ? .heavy : .regular))
                             .foregroundStyle(Slack.ink)
                         Spacer()
-                        Text(item.time)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(Slack.muted)
+                        if let last {
+                            Text(DateFormatting.relative(last.sentAt))
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(Slack.muted)
+                        }
                     }
-                    Text(item.preview)
-                        .font(.system(size: 12, weight: item.isUnread ? .medium : .regular))
-                        .foregroundStyle(item.isUnread ? Slack.ink : Slack.muted)
+                    Text(preview(last))
+                        .font(.system(size: 12, weight: unread > 0 ? .medium : .regular))
+                        .foregroundStyle(unread > 0 ? Slack.ink : Slack.muted)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
 
-                if item.badge > 0 {
-                    Text("\(item.badge)")
+                if unread > 0 {
+                    Text("\(unread)")
                         .font(.system(size: 10.5, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
@@ -144,6 +174,14 @@ struct ClassicListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func preview(_ message: ChatMessage?) -> String {
+        guard let message else { return String(localized: "No messages yet") }
+        // Cards carry a title and a summary on separate lines; a row has space
+        // for the title only.
+        let firstLine = message.body.split(separator: "\n").first.map(String.init) ?? message.body
+        return "\(message.authorName): \(firstLine)"
     }
 
     private func avatar(_ letter: String, color: UInt, online: Bool) -> some View {
@@ -170,63 +208,7 @@ struct ClassicListView: View {
     }
 }
 
-/// Slack's own palette. Deliberately not the Honmaru tokens — this screen is a
-/// quotation of another product.
-private enum Slack {
-    static let canvas = Color(hex: 0xFFFFFF)
-    static let ink = Color(hex: 0x1D1C1D)
-    static let muted = Color(hex: 0x616061)
-    static let badge = Color(hex: 0xE01E5A)
-    static let presence = Color(hex: 0x2BAC76)
-}
-
-private enum Fixtures {
-    enum Lead {
-        case hash
-        case avatar(String, UInt, Bool)
-    }
-
-    struct Row: Identifiable {
-        let id = UUID()
-        let lead: Lead
-        let name: String
-        let preview: String
-        let time: String
-        let isUnread: Bool
-        let badge: Int
-    }
-
-    static let channels: [Row] = [
-        .init(lead: .hash, name: "release",
-              preview: "Dana: I think we're ready to ship. Everything through PR214…",
-              time: "6m", isUnread: true, badge: 1),
-        .init(lead: .hash, name: "design",
-              preview: "Carol: team is split between warm and monochrome for the…",
-              time: "40m", isUnread: true, badge: 2),
-        .init(lead: .hash, name: "general",
-              preview: "Alex: standup notes posted",
-              time: "1d", isUnread: false, badge: 0),
-    ]
-
-    static let directMessages: [Row] = [
-        .init(lead: .avatar("B", 0xE8912D, true), name: "Bob",
-              preview: "▶︎ Voice memo · 0:42", time: "22m", isUnread: true, badge: 1),
-        .init(lead: .avatar("D", 0x7C3085, true), name: "Dana",
-              preview: "thanks! shipping notes updated", time: "2h", isUnread: false, badge: 0),
-        .init(lead: .avatar("C", 0x2BAC76, false), name: "Carol",
-              preview: "see you at the crit", time: "3h", isUnread: false, badge: 0),
-    ]
-
-    static let apps: [Row] = [
-        .init(lead: .avatar("G", 0x1D1C1D, false), name: "GitHub",
-              preview: "Merged: fix(auth): cache token validation — deploy verified",
-              time: "1h", isUnread: true, badge: 1),
-        .init(lead: .avatar("N", 0x616061, false), name: "Notion",
-              preview: "Q3 Planning: Without one more iOS hire the roadmap slips…",
-              time: "2h", isUnread: true, badge: 1),
-    ]
-}
-
 #Preview {
-    ClassicListView()
+    ClassicListView { _, _ in }
+        .environmentObject(AppState())
 }

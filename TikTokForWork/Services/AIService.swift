@@ -22,6 +22,9 @@ private struct RouteInstructionRequest: Encodable {
     let sender: User
     let organization: OrganizationGraph
     let priorityOverride: String?
+    /// The language the person deciding reads in. The sender's language is
+    /// theirs; the card is written for whoever has to act on it.
+    let readerLanguage: String
 }
 
 private struct RouteInstructionResponse: Decodable {
@@ -135,7 +138,8 @@ final class AIService: ObservableObject {
                 text: text,
                 sender: sender,
                 organization: organization,
-                priorityOverride: priorityOverride?.rawValue
+                priorityOverride: priorityOverride?.rawValue,
+                readerLanguage: Locale.current.language.languageCode?.identifier ?? "ja"
             )
         )
 

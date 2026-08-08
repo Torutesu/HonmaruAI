@@ -44,6 +44,15 @@ struct FeedView: View {
                                 onAction: { action in
                                     Task {
                                         await viewModel.handle(action: action, for: card, appState: appState)
+                                        // Classic has to agree with what just
+                                        // happened here, or the two surfaces
+                                        // tell different stories about the
+                                        // same decision.
+                                        appState.chatStore.recordDecision(
+                                            card,
+                                            action: action,
+                                            by: appState.currentUser?.name ?? ""
+                                        )
                                     }
                                 },
                                 onShowDetails: {
@@ -99,7 +108,7 @@ struct FeedView: View {
         }
         .onChange(of: captured) { _, request in
             guard let request else { return }
-            viewModel.beginDraft(request.text, priority: .medium, appState: appState)
+            viewModel.beginDraft(request.text, priority: .medium, appState: appState, videoURL: request.videoURL)
         }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {
@@ -168,13 +177,6 @@ struct FeedView: View {
                 .presentationDetents([.medium, .large])
                 .presentationBackground(Theme.Colors.surface)
                 .presentationDragIndicator(.visible)
-        }
-        .onChange(of: viewModel.showConnectPrompt) { _, shouldShow in
-            guard shouldShow else { return }
-            viewModel.showConnectPrompt = false
-            guard !appState.githubService.isConnected else { return }
-            connectContext = .afterFirstApproval
-            showConnectGitHub = true
         }
         .sheet(item: $viewModel.delegateCard) { card in
             DelegatePickerSheet(

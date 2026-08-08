@@ -12,6 +12,7 @@ struct AppShell: View {
     @State private var surface: HomeSurface = .cards
     @State private var composeTick = 0
     @State private var showCapture = false
+    @State private var pendingCapture: (text: String, video: URL?)?
     @State private var captured: CaptureRequest?
 
     var body: some View {
@@ -24,9 +25,12 @@ struct AppShell: View {
                 case .cards:
                     FeedView(showsChrome: false, composeTick: composeTick, captured: captured)
                 case .classic:
-                    // The old surface buries the decision; tapping a row is how
-                    // you get back to it.
-                    ClassicListView { surface = .cards }
+                    // Classic settles its own decisions. Bouncing people to the
+                    // Cards surface to act would undercut the comparison the
+                    // screen exists to make.
+                    ClassicListView { card, action in
+                        Task { await resolve(card, action) }
+                    }
                 }
             case .you:
                 YouView()
@@ -43,9 +47,17 @@ struct AppShell: View {
                 showCapture = true
             }
         }
-        .fullScreenCover(isPresented: $showCapture) {
-            CaptureView { text in
-                captured = CaptureRequest(text: text)
+        .fullScreenCover(isPresented: $showCapture, onDismiss: {
+            // Hand the text over only once the cover is gone. Starting the draft
+            // while it is still dismissing means the review sheet tries to
+            // present against a controller that is on its way out, and SwiftUI
+            // drops it — the tap looks like it did nothing.
+            guard let pending = pendingCapture else { return }
+            pendingCapture = nil
+            Task { await handleCapture(pending.text, video: pending.video) }
+        }) {
+            CaptureView { text, video in
+                pendingCapture = (text, video)
             }
             .environmentObject(appState)
         }
@@ -70,6 +82,38 @@ struct AppShell: View {
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.sm)
         .background(Theme.Colors.background.ignoresSafeArea(edges: .top))
+    }
+
+    /// Upload first, then draft. The clip has to have an address before the card
+    /// that references it exists, or the card ships pointing at nothing.
+    /// A failed upload is not fatal: the decision still routes, without video.
+    private func handleCapture(_ text: String, video: URL?) async {
+        guard let video else {
+            captured = CaptureRequest(text: text)
+            return
+        }
+
+        // Keep it locally first. Uploading is what lets someone else watch, but
+        // it must never be the reason the clip is missing on this phone.
+        let local = MediaStore.keep(video)
+
+        var remote: String?
+        if let local, let base = appState.backendBaseURL {
+            remote = try? await MediaUploader.upload(local, to: base)
+        }
+
+        captured = CaptureRequest(text: text, videoURL: remote ?? local?.absoluteString)
+    }
+
+    private func resolve(_ card: DecisionCard, _ action: CardActionKind) async {
+        guard let user = appState.currentUser else { return }
+        _ = try? await appState.cardService.resolve(
+            cardID: card.id,
+            action: action,
+            actorUserID: user.id,
+            githubService: appState.githubService
+        )
+        appState.chatStore.recordDecision(card, action: action, by: user.name)
     }
 
     private var openCount: Int {

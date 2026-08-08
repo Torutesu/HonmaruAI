@@ -26,7 +26,7 @@ enum AppConfig {
         return "ws://127.0.0.1:8080"
     }()
 
-    static let defaultUser = DemoUser.alice.user
+    static let defaultUser = DemoUser.toru.user
 }
 
 /// UserDefaults keys that gate one-time first-run moments.

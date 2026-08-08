@@ -330,7 +330,10 @@ enum ContextInsights {
         if haystack.contains("%") || haystack.contains("p95") || haystack.contains("p99")
             || haystack.contains("latency") || haystack.contains("regression")
             || haystack.contains("ms") || haystack.contains("up ") || haystack.contains("down ")
-            || haystack.contains("指標") || haystack.contains("遅延") || haystack.contains("悪化") { return .metric }
+            || haystack.contains("指標") || haystack.contains("遅延") || haystack.contains("悪化")
+            // Money is the metric a one-person business actually watches.
+            || haystack.contains("amount") || haystack.contains("金額")
+            || haystack.contains("¥") || haystack.contains("円") { return .metric }
         if haystack.contains("channel") || haystack.contains("チャンネル") { return .channel }
         if haystack.contains("production") || haystack.contains("staging") || haystack.contains("local")
             || haystack.contains("scope") || haystack.contains("split") || haystack.contains("environment")
