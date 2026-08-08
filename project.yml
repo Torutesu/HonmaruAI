@@ -18,6 +18,12 @@ targets:
     platform: iOS
     sources:
       - path: HonmaruAI
+    # RELAY_SCHEME / RELAY_HOST live here rather than in `settings` below,
+    # because target settings outrank an xcconfig and would make
+    # Config/Local.xcconfig (written by scripts/device.sh) have no effect.
+    configFiles:
+      Debug: Config/Base.xcconfig
+      Release: Config/Base.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.honmaru.ai

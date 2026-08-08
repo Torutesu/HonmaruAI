@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { networkInterfaces } from "node:os";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { routeInstruction } from "./agentTools.js";
@@ -328,9 +329,22 @@ wss.on("connection", (ws) => {
   });
 });
 
+// Addresses a phone on the same Wi-Fi can actually reach. listen() binds every
+// interface, so the only thing missing when a device cannot connect is usually
+// knowing which address to point it at.
+function lanAddresses() {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((i) => i && i.family === "IPv4" && !i.internal)
+    .map((i) => i.address);
+}
+
 server.listen(PORT, () => {
   console.log(`Relay listening on http://127.0.0.1:${PORT}`);
   console.log(`WebSocket: ws://127.0.0.1:${PORT}`);
+  for (const address of lanAddresses()) {
+    console.log(`On this network: ws://${address}:${PORT}  (use this for a device demo)`);
+  }
   console.log(
     GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET
       ? "GitHub OAuth: configured"

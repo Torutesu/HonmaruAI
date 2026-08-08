@@ -1,0 +1,14 @@
+// Build settings shared by every configuration.
+//
+// Note: "//" starts a comment in an xcconfig, so a full URL cannot be written
+// here. Scheme and host are kept separate and joined in Info.plist, where the
+// slashes are harmless.
+
+// Loopback is right for the simulator, where the Mac is the host.
+RELAY_SCHEME = ws
+RELAY_HOST = 127.0.0.1:8080
+
+// Written by scripts/device.sh with the Mac's LAN address, so a build for a
+// physical device reaches the relay instead of the phone itself. Gitignored,
+// and optional — the "?" means a missing file is not an error.
+#include? "Local.xcconfig"

@@ -13,5 +13,19 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Assembled from Config/Base.xcconfig; see AppConfig.relayURL. Scheme and
+	     host are separate build settings because "//" starts a comment in an
+	     xcconfig and cannot appear in a value there. -->
+	<key>RelayURL</key>
+	<string>$(RELAY_SCHEME)://$(RELAY_HOST)</string>
+	<!-- The relay speaks plain ws:// and http:// on the LAN, which App Transport
+	     Security blocks by default. NSAllowsLocalNetworking exempts private and
+	     link-local addresses only — public hosts still require HTTPS, so this
+	     does not weaken the app once the relay is hosted behind wss://. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
