@@ -14,4 +14,4 @@ new_sqlite_classes = ["OrgRelay"]
 [[d1_databases]]
 binding = "DB"
 database_name = "tiktokforwork"
-database_id = "PLACEHOLDER_SET_IN_TASK_9"
+database_id = "08d78a7f-45eb-4837-8393-4f7c92bf39cb"
