@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { routeInstruction } from "./agentTools.js";
+import { uploadMedia, serveMedia } from "./media.js";
 import { toolManifest, PROTOCOL_VERSION } from "./agui/tools.js";
 import { runError, toolCallResult } from "./agui/events.js";
 import {
@@ -46,10 +47,38 @@ const GITHUB_REDIRECT_URI =
 const GITHUB_OAUTH_SCOPE = process.env.GITHUB_OAUTH_SCOPE || "repo";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+// An OpenAI key takes precedence when both are present: it is the more explicit
+// choice, and having two configured is otherwise ambiguous.
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
 const OPENROUTER_MODEL =
   process.env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free";
 const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "TikTok for Work";
 const OPENROUTER_APP_URL = process.env.OPENROUTER_APP_URL || "http://localhost:8080";
+
+/** Which provider routing should call, or null to fall back to keyword routing. */
+function llmConfig() {
+  if (OPENAI_API_KEY) {
+    return {
+      providerName: "OpenAI",
+      endpoint: "https://api.openai.com/v1/chat/completions",
+      apiKey: OPENAI_API_KEY,
+      model: OPENAI_MODEL,
+    };
+  }
+  if (OPENROUTER_API_KEY) {
+    return {
+      providerName: "OpenRouter",
+      endpoint: "https://openrouter.ai/api/v1/chat/completions",
+      apiKey: OPENROUTER_API_KEY,
+      model: OPENROUTER_MODEL,
+      appName: OPENROUTER_APP_NAME,
+      appUrl: OPENROUTER_APP_URL,
+    };
+  }
+  return null;
+}
 
 const initialCards = {};
 
@@ -226,13 +255,28 @@ const server = createServer(async (req, res) => {
     }
   }
 
+  if (url.pathname === "/media" && req.method === "POST") {
+    // The phone needs an address it can reach, which is the host it dialled —
+    // not the loopback the server sees itself on.
+    const host = req.headers.host || `127.0.0.1:${PORT}`;
+    uploadMedia(req, res, { publicBaseURL: `http://${host}` });
+    return;
+  }
+
+  if (url.pathname.startsWith("/media/") && req.method === "GET") {
+    serveMedia(req, res, url.pathname.slice("/media/".length));
+    return;
+  }
+
   if (url.pathname === "/health") {
     json(res, 200, {
       ok: true,
       orgId: ORG_ID,
       githubOAuth: Boolean(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET),
-      aiRouting: Boolean(OPENROUTER_API_KEY),
-      aiModel: OPENROUTER_MODEL,
+      // The app decides whether to show AI routing as live from this, so it
+      // has to reflect the provider actually configured, not just OpenRouter.
+      aiRouting: Boolean(llmConfig()),
+      aiModel: llmConfig()?.model || OPENROUTER_MODEL,
     });
     return;
   }
@@ -298,14 +342,9 @@ const server = createServer(async (req, res) => {
         sender,
         organization,
         priorityOverride: body.priorityOverride,
-        openRouter: OPENROUTER_API_KEY
-          ? {
-              apiKey: OPENROUTER_API_KEY,
-              model: OPENROUTER_MODEL,
-              appName: OPENROUTER_APP_NAME,
-              appUrl: OPENROUTER_APP_URL,
-            }
-          : null,
+        // The app tells us what language the person deciding reads in.
+        readerLanguage: body.readerLanguage,
+        openRouter: llmConfig(),
       });
       json(res, 200, routing);
     } catch (error) {
@@ -503,8 +542,8 @@ server.listen(PORT, () => {
       : "GitHub OAuth: missing GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET"
   );
   console.log(
-    OPENROUTER_API_KEY
-      ? `AI routing: OpenRouter (${OPENROUTER_MODEL})`
-      : "AI routing: missing OPENROUTER_API_KEY"
+    llmConfig()
+      ? `AI routing: ${llmConfig().providerName} (${llmConfig().model})`
+      : "AI routing: off (set OPENAI_API_KEY or OPENROUTER_API_KEY)"
   );
 });

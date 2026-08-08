@@ -1,52 +1,47 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
 
-export const DEMO_USER_IDS = [
-  "user-alice",
-  "user-bob",
-  "user-carol",
-  "user-dana",
-];
+export const DEMO_USER_IDS = ["user-toru", "user-tanaka", "user-yui", "user-alex"];
+
+/// A one-person business: unless the work clearly belongs to the contractor or
+/// the client, the owner decides. Defaulting anywhere else invents a colleague.
+const DEFAULT_USER_ID = "user-toru";
 
 const TEAM_ROUTES = [
   {
-    phrases: ["design team", "designers", "designer", " ux", "ui team", "design dept"],
-    userID: "user-carol",
+    phrases: ["デザイナー", "外注", "designer", "contractor"],
+    userID: "user-yui",
     label: "Design",
   },
   {
-    phrases: ["engineering team", "eng team", "engineers", "dev team", "developers", "engineering"],
-    userID: "user-dana",
-    label: "Engineering",
-  },
-  {
-    phrases: ["product team", "product managers", "pm team", "product manager"],
-    userID: "user-alice",
-    label: "Product",
+    phrases: ["クライアント", "先方", "取引先", "client", "customer"],
+    userID: "user-tanaka",
+    label: "Client",
   },
 ];
 
 const ROLE_ROUTES = [
   {
-    phrases: ["mockup", "figma", "pixel", "spacing", "empty state", "visual", "ui ", "ux ", "design system", "copy pass"],
-    userID: "user-carol",
-    reason: "Design work detected in instruction",
+    phrases: ["ロゴ", "バナー", "デザイン", "画像", "ヒーロー", "logo", "banner", "design", "figma"],
+    userID: "user-yui",
+    reason: "Visual work goes to the contractor",
   },
   {
-    phrases: ["bug", "fix", "api", "deploy", "latency", "hotfix", "backend", "auth", "endpoint", "pr #", "merge", "regression"],
-    userID: "user-bob",
-    reason: "Engineering work detected in instruction",
+    phrases: ["納品", "検収", "先方確認", "承認依頼", "delivery", "sign-off", "change order"],
+    userID: "user-tanaka",
+    reason: "The client has to agree to this",
   },
   {
-    phrases: ["roadmap", "priorit", "stakeholder", "spec", "requirements", "launch plan", "approval"],
-    userID: "user-alice",
-    reason: "Product decision detected in instruction",
+    phrases: ["実装", "デプロイ", "バグ", "サーバー", "コード", "deploy", "bug", "server", "code", "staging"],
+    userID: "user-alex",
+    reason: "Engineering work goes to Alex",
   },
   {
-    phrases: ["architecture", "infra", "on-call", "incident", "eng lead", "system design"],
-    userID: "user-dana",
-    reason: "Engineering leadership scope detected",
+    phrases: ["請求", "見積", "入金", "経費", "単価", "値上げ", "invoice", "quote", "pricing", "payment"],
+    userID: "user-toru",
+    reason: "Money decisions are yours alone",
   },
 ];
+
 
 function matchTeamRoute(text, senderID) {
   const lower = String(text || "").toLowerCase();
@@ -127,10 +122,12 @@ export function resolveRecipientTarget(text, senderID, organization) {
     };
   }
 
-  const fallback = DEMO_USER_IDS.find((userID) => userID !== senderID) || senderID;
+  // In a one-person business the decision usually comes back to the owner, so
+  // routing to yourself is the right answer rather than a bug. Picking "anyone
+  // but the sender" hands your own work to a client.
   return {
-    recipientUserID: fallback,
-    routingReason: "Best match for this decision in org graph",
+    recipientUserID: DEFAULT_USER_ID,
+    routingReason: "This one is yours to decide",
     forceOverride: false,
   };
 }
@@ -149,7 +146,7 @@ export const AGENT_TOOLS = [
             type: "string",
             enum: DEMO_USER_IDS,
             description:
-              "Who should receive and act on this decision. Route by team/role: design→user-carol, engineering/dev/bugs→user-bob or user-dana, product/PM→user-alice",
+              "Who should receive and act on this decision. One-person business: money/pricing/invoices→user-toru, visual work→user-yui, engineering/deploys→user-alex, client sign-off→user-tanaka. Default to user-toru.",
           },
           cardType: {
             type: "string",
@@ -233,23 +230,31 @@ export const AGENT_TOOLS = [
 const SYSTEM_PROMPT = `You route workplace instructions to the right teammate as structured Decision Cards.
 
 Call create_decision_card once with all fields filled:
+- Write title, summary, context and routingReason in the READER's language,
+  given as "Reader language" below. The sender's language is irrelevant: an
+  English instruction read by a Japanese user must produce a Japanese card.
+  Deciding is the reader's job, so the card is written for them.
 - Never echo the sender's exact wording in title or summary
 - title: 3-8 words, action-oriented
 - summary: third person, what the recipient must decide or do
-- context: deadlines, metrics, PR numbers, blockers — always 2-4 segments as 'label: detail' joined by ·
+- context: deadlines, metrics, amounts, blockers — always 2-4 segments as
+  'label: detail' joined by ·. The app reads the label to choose an icon, so use
+  only: deadline / scope / metric / amount / action — or in Japanese
+  期限 / 範囲 / 指標 / 金額 / 対応.
 - priority: infer from urgency cues in the instruction
 - Pick recipient from org graph using team, role, and manager edges
 
-Team routing (critical):
-- design team / design / UX / UI → user-carol (Carol, Designer)
-- engineering / dev / bugs / APIs → user-bob (Bob, Engineer) or user-dana (Dana, Eng Lead) for leadership
-- product / PM / roadmap / approvals → user-alice (Alice, Product Manager)
-- named person in instruction → that person
-- "manager" → sender's manager from org edges`;
+Routing (critical). This is a one-person business, so the default is the owner:
+- money, pricing, invoices, taking on work → user-toru (the owner decides alone)
+- visual or production work to hand off → user-yui (contract designer)
+- anything the client must agree to → user-tanaka (client at North Inc.)
+- a named person in the instruction → that person
+- when in doubt → user-toru. Never invent a recipient that is not in the graph.`;
 
-export function buildUserPrompt({ text, sender, organization }) {
+export function buildUserPrompt({ text, sender, organization, readerLanguage }) {
   const orgContext = organizationContext(organization);
   return `Sender: ${sender.name} (${sender.id}, ${sender.role})
+Reader language: ${readerLanguage || "ja"}
 Instruction: ${text}
 
 Organization:
@@ -275,10 +280,10 @@ function organizationContext(organization) {
 }
 
 function userNameFor(userID) {
-  if (userID === "user-alice") return "Alice";
-  if (userID === "user-bob") return "Bob";
-  if (userID === "user-carol") return "Carol";
-  if (userID === "user-dana") return "Dana";
+  if (userID === "user-toru") return "Toru";
+  if (userID === "user-tanaka") return "田中";
+  if (userID === "user-yui") return "結衣";
+  if (userID === "user-alex") return "Alex";
   return userID;
 }
 
@@ -598,18 +603,26 @@ async function routeInstructionWithOpenRouter({
   organization,
   priorityOverride,
   openRouter,
+  readerLanguage,
   attempt = 0,
 }) {
-  const userPrompt = buildUserPrompt({ text, sender, organization });
+  const userPrompt = buildUserPrompt({ text, sender, organization, readerLanguage });
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  // OpenAI and OpenRouter speak the same chat/completions dialect, tools
+  // included, so the provider is just an endpoint and a couple of headers.
+  // OpenRouter wants attribution headers; OpenAI ignores them, so they are only
+  // sent when they exist.
+  const endpoint = openRouter.endpoint || "https://openrouter.ai/api/v1/chat/completions";
+  const headers = {
+    Authorization: `Bearer ${openRouter.apiKey}`,
+    "Content-Type": "application/json",
+  };
+  if (openRouter.appUrl) headers["HTTP-Referer"] = openRouter.appUrl;
+  if (openRouter.appName) headers["X-Title"] = openRouter.appName;
+
+  const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${openRouter.apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": openRouter.appUrl,
-      "X-Title": openRouter.appName,
-    },
+    headers,
     body: JSON.stringify({
       model: openRouter.model,
       temperature: 0.2,
@@ -628,7 +641,7 @@ async function routeInstructionWithOpenRouter({
 
   const data = await response.json();
   if (!response.ok) {
-    const message = data?.error?.message || "OpenRouter request failed.";
+    const message = data?.error?.message || `${openRouter.providerName || "LLM"} request failed.`;
     throw new Error(message);
   }
 
@@ -690,22 +703,30 @@ export async function routeInstruction({
   organization,
   priorityOverride,
   openRouter,
+  readerLanguage,
 }) {
   if (openRouter?.apiKey) {
     try {
-      return await routeInstructionWithOpenRouter({
+      const routed = await routeInstructionWithOpenRouter({
         text,
         sender,
         organization,
         priorityOverride,
         openRouter,
+        readerLanguage,
       });
+      return { ...routed, routedBy: openRouter.providerName || "llm" };
     } catch (error) {
       console.warn("AI routing failed, using local fallback:", error.message);
+      return {
+        ...routeInstructionLocally({ text, sender, organization, priorityOverride }),
+        routedBy: "fallback",
+        routingError: error.message,
+      };
     }
   }
 
-  return routeInstructionLocally({ text, sender, organization, priorityOverride });
+  return { ...routeInstructionLocally({ text, sender, organization, priorityOverride }), routedBy: "fallback" };
 }
 
 export { SYSTEM_PROMPT, userNameFor };
