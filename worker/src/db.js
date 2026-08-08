@@ -64,3 +64,15 @@ export async function saveContext(db, orgId, userId, context) {
     .bind(orgId, userId, JSON.stringify(context))
     .run();
 }
+
+export async function createSession(db, githubId, accessToken) {
+  const token = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO sessions (token, github_id, github_access_token, created_at)
+       VALUES (?1, ?2, ?3, ?4)`
+    )
+    .bind(token, githubId, accessToken, new Date().toISOString())
+    .run();
+  return token;
+}

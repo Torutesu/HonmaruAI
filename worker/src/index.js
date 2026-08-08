@@ -1,5 +1,6 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
+import { createSession } from "./db.js";
 
 function providerConfig(env) {
   if (env.OPENAI_API_KEY) {
@@ -59,6 +60,39 @@ export default {
         openRouter: providerConfig(env),
       });
       return json(result);
+    }
+    if (url.pathname === "/oauth/github/config" && request.method === "GET") {
+      if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+        return json({ message: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET as Worker secrets" }, 503);
+      }
+      return json({
+        clientId: env.GITHUB_CLIENT_ID,
+        redirectUri: env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback",
+        scope: env.GITHUB_OAUTH_SCOPE || "repo",
+      });
+    }
+    if (url.pathname === "/oauth/github/token" && request.method === "POST") {
+      const { code } = await request.json();
+      const ghRes = await fetch("https://github.com/login/oauth/access_token", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          client_id: env.GITHUB_CLIENT_ID,
+          client_secret: env.GITHUB_CLIENT_SECRET,
+          code,
+          redirect_uri: env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback",
+        }),
+      });
+      const data = await ghRes.json();
+      if (!data.access_token) {
+        return json({ message: data.error_description || "token exchange failed" }, 400);
+      }
+      const userRes = await fetch("https://api.github.com/user", {
+        headers: { authorization: `Bearer ${data.access_token}`, "user-agent": "tiktokforwork" },
+      });
+      const ghUser = await userRes.json();
+      const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
+      return json({ accessToken: data.access_token, tokenType: "bearer", sessionToken });
     }
     return new Response("not found", { status: 404 });
   },
