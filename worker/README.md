@@ -19,11 +19,29 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | POST | `/ai/route` | Instruction → intent, recipient, Decision Card (OpenAI, keyword fallback) |
 | GET | `/oauth/github/config` | Client id + scope + redirect for the app |
 | POST | `/oauth/github/token` | OAuth `code` → GitHub token (server-side) + app session |
+| GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1 |
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
 
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,
 `card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`,
-`clear_store`.
+`clear_store`. A `join` may carry `sessionToken`; when present the relay binds the
+connection to the session's real GitHub login instead of the (spoofable) `userId`.
+
+### Phase 2 status (real identity & org)
+
+Live-verified: `/health` 200, `/orgs/:owner/:repo/graph` returns 401 without a
+valid session (auth guard), and `/ai/route` routes to real org members — an
+invalid recipient guessed by the model is rejected and falls back to a real
+member (`routingError: "AI picked an invalid recipient."`, `routedBy:"fallback"`).
+
+Deferred: end-to-end `/orgs` against real GitHub needs the `GITHUB_CLIENT_ID`/
+`GITHUB_CLIENT_SECRET` secrets (a valid session comes from OAuth). Unit tests
+cover the build+persist logic via `fetchMock`.
+
+Phase 3 follow-up: the OpenAI `SYSTEM_PROMPT` still references demo members, so
+the model may guess a demo id (caught by the validator and corrected via
+fallback). Feed the real org members into the prompt so OpenAI picks them
+directly.
 
 ## Develop
 
