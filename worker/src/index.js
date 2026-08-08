@@ -2,6 +2,8 @@ import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import { createSession } from "./db.js";
 
+export { OrgRelay } from "./relay.js";
+
 function providerConfig(env) {
   if (env.OPENAI_API_KEY) {
     return {
@@ -22,16 +24,6 @@ function providerConfig(env) {
     };
   }
   return undefined; // keyword fallback
-}
-
-export class OrgRelay {
-  constructor(state, env) {
-    this.state = state;
-    this.env = env;
-  }
-  async fetch(request) {
-    return new Response("relay stub", { status: 200 });
-  }
 }
 
 export default {
@@ -93,6 +85,12 @@ export default {
       const ghUser = await userRes.json();
       const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
       return json({ accessToken: data.access_token, tokenType: "bearer", sessionToken });
+    }
+    if (request.headers.get("Upgrade") === "websocket") {
+      const orgId = url.searchParams.get("orgId") || "core-team";
+      const id = env.ORG_RELAY.idFromName(orgId);
+      const stub = env.ORG_RELAY.get(id);
+      return stub.fetch(request);
     }
     return new Response("not found", { status: 404 });
   },
