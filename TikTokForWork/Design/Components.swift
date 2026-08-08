@@ -317,20 +317,30 @@ enum ContextInsights {
     private static func classify(label: String?, value: String) -> ContextInsight.Kind {
         let haystack = "\(label ?? "") \(value)".lowercased()
 
+        // Matching is by keyword, so every language the app ships in needs its
+        // own terms here. Without the Japanese ones a localized context line
+        // falls through to .general and silently loses its icon.
         if haystack.contains("from ") && haystack.contains("routed") { return .routing }
         if haystack.contains("deadline") || haystack.contains("friday") || haystack.contains("monday")
             || haystack.contains("tomorrow") || haystack.contains("due") || haystack.contains("before")
-            || haystack.contains("eod") || haystack.contains("by ") { return .deadline }
+            || haystack.contains("eod") || haystack.contains("by ")
+            || haystack.contains("期限") || haystack.contains("締切") || haystack.contains("金曜")
+            || haystack.contains("月曜") || haystack.contains("明日") || haystack.contains("本日")
+            || haystack.contains("今日") { return .deadline }
         if haystack.contains("%") || haystack.contains("p95") || haystack.contains("p99")
             || haystack.contains("latency") || haystack.contains("regression")
-            || haystack.contains("ms") || haystack.contains("up ") || haystack.contains("down ") { return .metric }
-        if haystack.contains("channel") { return .channel }
+            || haystack.contains("ms") || haystack.contains("up ") || haystack.contains("down ")
+            || haystack.contains("指標") || haystack.contains("遅延") || haystack.contains("悪化") { return .metric }
+        if haystack.contains("channel") || haystack.contains("チャンネル") { return .channel }
         if haystack.contains("production") || haystack.contains("staging") || haystack.contains("local")
-            || haystack.contains("scope") || haystack.contains("split") || haystack.contains("environment") {
+            || haystack.contains("scope") || haystack.contains("split") || haystack.contains("environment")
+            || haystack.contains("範囲") || haystack.contains("本番") || haystack.contains("ステージング") {
             return .scope
         }
         if haystack.contains("pr #") || haystack.contains("hotfix") || haystack.contains("branch")
-            || haystack.contains("action") || haystack.contains("fix") || haystack.contains("deploy") {
+            || haystack.contains("action") || haystack.contains("fix") || haystack.contains("deploy")
+            || haystack.contains("対応") || haystack.contains("修正") || haystack.contains("ブランチ")
+            || haystack.contains("デプロイ") {
             return .action
         }
         if haystack.contains("http") || haystack.contains("github.com") || haystack.contains("#") {

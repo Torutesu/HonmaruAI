@@ -42,6 +42,12 @@ enum Theme {
         static let sm: CGFloat = 6
         static let md: CGFloat = 10
         static let sheet: CGFloat = 14
+        // From docs/design-system.md. Buttons and badges are pills, so they use
+        // Capsule() rather than a radius.
+        static let input: CGFloat = 9
+        static let card: CGFloat = 12
+        static let largeCard: CGFloat = 20
+        static let image: CGFloat = 16
     }
 }
 

@@ -9,11 +9,11 @@ enum CardType: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .approval: "Approval"
-        case .delegation: "Delegation"
-        case .notification: "Update"
-        case .task: "Task"
-        case .revision: "Revision"
+        case .approval: String(localized: "Approval")
+        case .delegation: String(localized: "Delegation")
+        case .notification: String(localized: "Update")
+        case .task: String(localized: "Task")
+        case .revision: String(localized: "Revision")
         }
     }
 }
@@ -28,12 +28,12 @@ enum CardStatus: String, Codable {
 
     var label: String {
         switch self {
-        case .pending: "Pending"
-        case .approved: "Issue created"
-        case .rejected: "Declined"
-        case .revised: "Revision requested"
-        case .delegated: "Delegated"
-        case .completed: "Closed on GitHub"
+        case .pending: String(localized: "Pending")
+        case .approved: String(localized: "Issue created")
+        case .rejected: String(localized: "Declined")
+        case .revised: String(localized: "Revision requested")
+        case .delegated: String(localized: "Delegated")
+        case .completed: String(localized: "Closed on GitHub")
         }
     }
 }
@@ -80,10 +80,10 @@ struct DecisionCard: Identifiable, Codable, Hashable {
 
     var priorityLabel: String {
         switch priority {
-        case .low: "Low"
-        case .medium: "Medium"
-        case .high: "High"
-        case .urgent: "Urgent"
+        case .low: String(localized: "Low")
+        case .medium: String(localized: "Medium")
+        case .high: String(localized: "High")
+        case .urgent: String(localized: "Urgent")
         }
     }
 

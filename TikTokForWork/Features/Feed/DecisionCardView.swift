@@ -73,6 +73,14 @@ struct DecisionCardView: View {
                 }
 
                 actionBlock
+
+                // A3 in the mock replies to a card in free text. The reply layer
+                // that would interpret it lives on another branch, so this is
+                // shown inert and labelled rather than wired to nothing.
+                if card.isPending {
+                    replyComposerPlaceholder
+                        .padding(.top, Theme.Spacing.sm)
+                }
             }
             .padding(.horizontal, Theme.Spacing.screen)
             .padding(.top, Theme.Spacing.md)
@@ -85,51 +93,53 @@ struct DecisionCardView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
-                Text(card.type.label)
-                    .font(Theme.TypeScale.label)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-
-                if card.priority == .urgent || card.priority == .high {
-                    Text("·")
-                        .font(Theme.TypeScale.micro)
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                    Text(priorityLabel)
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(priorityColor)
-                } else {
-                    Text("·")
-                        .font(Theme.TypeScale.micro)
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                    Text(card.priorityLabel)
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                }
+            HStack(alignment: .center, spacing: Theme.Spacing.sm) {
+                KindTag(type: card.type)
 
                 Spacer(minLength: Theme.Spacing.sm)
 
-                Text(DateFormatting.relative(card.createdAt))
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary)
+                // Priority reads as a dot plus a mono label, so the colour
+                // carries the urgency and the word confirms it.
+                if card.priority == .urgent || card.priority == .high {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(priorityColor)
+                            .frame(width: 5, height: 5)
+                        Text(card.priorityLabel.uppercased())
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .tracking(0.7)
+                            .foregroundStyle(priorityColor)
+                    }
+                }
             }
 
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text("From \(card.senderName)")
-                    .font(Theme.TypeScale.caption)
-                    .foregroundStyle(Theme.Colors.textSecondary)
+                HStack(spacing: Theme.Spacing.sm) {
+                    SenderAvatar(name: card.senderName)
 
-                if let route = card.agentRoute {
-                    Text(route)
-                        .font(Theme.TypeScale.micro)
-                        .foregroundStyle(Theme.Colors.textTertiary)
+                    Text("\(card.senderName) · \(DateFormatting.relative(card.createdAt))")
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: Theme.Spacing.xs)
+
+                    if let route = card.agentRoute {
+                        Text(route)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                            .lineLimit(1)
+                    }
                 }
             }
 
             if let reason = card.routingReason {
-                HStack(spacing: Theme.Spacing.sm) {
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Theme.Colors.accent)
-                        .frame(width: 2)
+                // The AI marker is one of the few sanctioned uses of brand
+                // violet: a badge, never a fill on a primary action.
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "sparkle")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.Colors.accent)
 
                     Text(reason)
                         .font(Theme.TypeScale.caption)
@@ -137,10 +147,10 @@ struct DecisionCardView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, Theme.Spacing.md)
-                .padding(.vertical, Theme.Spacing.sm)
+                .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.Colors.surfaceRaised)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                .background(Theme.Colors.accent.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
             }
         }
     }
@@ -220,6 +230,29 @@ struct DecisionCardView: View {
         }
     }
 
+    private var replyComposerPlaceholder: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            Text("返信または音声入力…")
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.textTertiary)
+            Spacer()
+            Text("準備中")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Theme.Colors.surfaceRaised)
+                .clipShape(Capsule())
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, 10)
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.input)
+                .strokeBorder(Theme.Colors.border, lineWidth: 1)
+        }
+        .allowsHitTesting(false)
+    }
+
     private var priorityLabel: String {
         switch card.priority {
         case .urgent: "Urgent"
@@ -229,11 +262,13 @@ struct DecisionCardView: View {
         }
     }
 
+    /// The priority stripe from docs/design-system.md: urgent pink, high blue,
+    /// everything quieter than that a neutral cloud.
     private var priorityColor: Color {
         switch card.priority {
         case .urgent: Theme.Colors.reject
-        case .high: Color(hex: 0xFBBF24)
-        default: Theme.Colors.textTertiary
+        case .high: Theme.Colors.interactive
+        default: Color(hex: 0xD4D4D4)
         }
     }
 
@@ -257,13 +292,16 @@ struct DecisionCardView: View {
                         Haptics.light()
                         onAction(.createIssue)
                     } label: {
+                        // Filled dark pill. docs/design-system.md lists "violet
+                        // never fills a primary CTA" under Don'ts (enforced),
+                        // and every button in the system is a pill.
                         Text("Approve")
                             .font(.system(size: 16, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
-                            .background(Theme.Colors.accent)
+                            .background(Theme.Colors.ctaFill)
                             .foregroundStyle(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                            .clipShape(Capsule())
                     }
                 }
 

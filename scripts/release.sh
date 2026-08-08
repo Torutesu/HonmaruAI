@@ -246,7 +246,7 @@ cmd_upload() {
   step "Uploading $(basename "$ipa") — bundle id $ASC_BUNDLE_ID, build $stamped"
   confirm "Upload this build?"
   run asc builds upload --app "$ASC_APP_ID" --ipa "$ipa"
-  verify_upload
+  verify_upload "$stamped"
 
   step "Processing status"
   info "Apple takes a few minutes to process. Watch it with:"
@@ -259,22 +259,30 @@ cmd_upload() {
 # Waits for the build to surface, or dies with the ITMS code if Apple rejects it.
 verify_upload() {
   [ "$DRY_RUN" -eq 1 ] && return 0
-  step "Waiting for Apple to validate the upload"
+  local wanted="${1:-}"
+  step "Waiting for Apple to validate build $wanted"
 
-  # Track the newest upload record specifically. Checking "does the app have any
-  # build" instead passes instantly on the second release, because the previous
-  # build is still sitting there.
+  # Match on the build number this run uploaded. Reading "the newest upload
+  # record" instead reports whatever landed last — so a second release running
+  # nearby makes this claim someone else's result as its own.
   local i report
   for i in $(seq 1 40); do
     report="$(asc builds uploads list --app "$ASC_APP_ID" --output json 2>/dev/null \
-      | python3 -c '
-import sys, json
-u = sorted(json.load(sys.stdin).get("data", []),
-           key=lambda x: x["attributes"].get("createdDate", ""), reverse=True)
-if not u:
-    print("PENDING no upload record yet")
+      | WANTED="$wanted" python3 -c '
+import sys, json, os
+wanted = os.environ.get("WANTED", "")
+records = sorted(json.load(sys.stdin).get("data", []),
+                 key=lambda x: x["attributes"].get("createdDate", ""), reverse=True)
+mine = [r for r in records
+        if not wanted or str(r["attributes"].get("cfBundleVersion")) == wanted]
+if not mine:
+    print("PENDING no upload record for build %s yet" % wanted)
 else:
-    a = u[0]["attributes"]
+    # Newest first, but an AWAITING_UPLOAD placeholder can outrank the real
+    # verdict for the same build, so prefer any terminal state.
+    terminal = [r for r in mine
+                if r["attributes"].get("state", {}).get("state") in ("COMPLETE", "FAILED")]
+    a = (terminal or mine)[0]["attributes"]
     s = a.get("state", {})
     codes = " ".join("ITMS-%s" % e.get("code") for e in s.get("errors", []) or [])
     print(s.get("state", "UNKNOWN"), "build %s" % a.get("cfBundleVersion"), codes)

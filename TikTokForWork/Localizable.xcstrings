@@ -1,0 +1,1150 @@
+{
+  "sourceLanguage": "en",
+  "version": "1.0",
+  "strings": {
+    "A work feed where nothing needs reading twice. Your AI turns your team's asks, approvals, and tasks into cards you clear in seconds.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "二度読む必要のない仕事のフィード。チームの依頼・承認・タスクを、AI が数秒で片づけられるカードに変えます。"
+          }
+        }
+      }
+    },
+    "Approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
+          }
+        }
+      }
+    },
+    "Approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認する"
+          }
+        }
+      }
+    },
+    "Approve the Friday release?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金曜のリリースを承認しますか？"
+          }
+        }
+      }
+    },
+    "Ask Bob to review the onboarding PR before Friday": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金曜までにオンボーディングの PR を Bob にレビューしてもらう"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "Connect GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub を接続"
+          }
+        }
+      }
+    },
+    "Dana's AI → Your AI · You hold release approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dana の AI → あなたの AI · リリース承認はあなたの担当です"
+          }
+        }
+      }
+    },
+    "Decisions will show up here": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここに決定が届きます"
+          }
+        }
+      }
+    },
+    "Decisions,\nnot messages": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージではなく、\n決定を。"
+          }
+        }
+      }
+    },
+    "Delegate decision": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定を委任"
+          }
+        }
+      }
+    },
+    "Discard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破棄"
+          }
+        }
+      }
+    },
+    "Done": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "Drafting decision card…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定カードを作成中…"
+          }
+        }
+      }
+    },
+    "Local mode · Connect GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルモード · GitHub を接続"
+          }
+        }
+      }
+    },
+    "Not now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        }
+      }
+    },
+    "Organization": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織"
+          }
+        }
+      }
+    },
+    "Priority": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先度"
+          }
+        }
+      }
+    },
+    "QA passed on staging. Your AI batched 6 merged PRs into one release and checked the deploy window.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステージングで QA 通過。AI がマージ済みの 6 件の PR を 1 リリースにまとめ、デプロイ枠も確認済みです。"
+          }
+        }
+      }
+    },
+    "Relationships": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "関係"
+          }
+        }
+      }
+    },
+    "Repository": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリ"
+          }
+        }
+      }
+    },
+    "Restoring session…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを復元中…"
+          }
+        }
+      }
+    },
+    "Select": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択"
+          }
+        }
+      }
+    },
+    "Sign in with GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でサインイン"
+          }
+        }
+      }
+    },
+    "Sign out": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト"
+          }
+        }
+      }
+    },
+    "Skip for now — connect later from the feed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はスキップ — あとからフィードで接続できます"
+          }
+        }
+      }
+    },
+    "Start here": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここから"
+          }
+        }
+      }
+    },
+    "Tell your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI に伝える"
+          }
+        }
+      }
+    },
+    "Tell your AI what you need": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI に頼みたいことを伝えてください"
+          }
+        }
+      }
+    },
+    "This is a Decision Card. Swipe right to approve, left to decline.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これが決定カードです。右にスワイプで承認、左で却下。"
+          }
+        }
+      }
+    },
+    "Tool calls": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール呼び出し"
+          }
+        }
+      }
+    },
+    "Try it": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試す"
+          }
+        }
+      }
+    },
+    "Urgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緊急"
+          }
+        }
+      }
+    },
+    "Use Tell your AI below to route one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下の「AI に伝える」から送れます"
+          }
+        }
+      }
+    },
+    "View details": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細を見る"
+          }
+        }
+      }
+    },
+    "What should change before this becomes a GitHub issue?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub Issue にする前に、何を直しますか？"
+          }
+        }
+      }
+    },
+    "Your AI is triaging your decisions…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI が決定を仕分けしています…"
+          }
+        }
+      }
+    },
+    "e.g. split into two issues, add acceptance criteria…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例：2 つの Issue に分割、受け入れ条件を追加…"
+          }
+        }
+      }
+    },
+    "Delegation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "委任"
+          }
+        }
+      }
+    },
+    "Update": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "Task": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク"
+          }
+        }
+      }
+    },
+    "Revision": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正"
+          }
+        }
+      }
+    },
+    "Pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応"
+          }
+        }
+      }
+    },
+    "Issue created": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue 作成済み"
+          }
+        }
+      }
+    },
+    "Declined": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "却下"
+          }
+        }
+      }
+    },
+    "Revision requested": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正依頼"
+          }
+        }
+      }
+    },
+    "Delegated": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "委任済み"
+          }
+        }
+      }
+    },
+    "Closed on GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でクローズ"
+          }
+        }
+      }
+    },
+    "Low": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低"
+          }
+        }
+      }
+    },
+    "Medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中"
+          }
+        }
+      }
+    },
+    "High": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高"
+          }
+        }
+      }
+    },
+    "Account": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウント"
+          }
+        }
+      }
+    },
+    "Back": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
+          }
+        }
+      }
+    },
+    "Decline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "却下"
+          }
+        }
+      }
+    },
+    "Delegate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "委任"
+          }
+        }
+      }
+    },
+    "Error": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー"
+          }
+        }
+      }
+    },
+    "OK": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "Refresh repositories": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリを再読み込み"
+          }
+        }
+      }
+    },
+    "Reject": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "却下"
+          }
+        }
+      }
+    },
+    "Review card": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードを確認"
+          }
+        }
+      }
+    },
+    "Revise": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を依頼"
+          }
+        }
+      }
+    },
+    "Switch user": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーを切り替える"
+          }
+        }
+      }
+    },
+    "Your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの AI"
+          }
+        }
+      }
+    },
+    "Jump to or search…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ジャンプまたは検索…"
+          }
+        }
+      }
+    },
+    "Ship Onboarding v2 to production?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンボーディング v2 を本番に出しますか？"
+          }
+        }
+      }
+    },
+    "Dana's AI batched the release: 6 PRs merged, QA green on staging. It needs your go before the Friday demo.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dana の AI がリリースをまとめました：6 件の PR をマージ、ステージングの QA は緑。金曜のデモ前にあなたの承認が必要です。"
+          }
+        }
+      }
+    },
+    "Auth latency: rollback or hotfix?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証の遅延：ロールバックか緊急修正か"
+          }
+        }
+      }
+    },
+    "p95 is up 18% since yesterday's deploy. Bob's AI drafted both paths — rollback is instant, the hotfix lands in ~2 hours.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨日のデプロイ以降 p95 が 18% 悪化。Bob の AI が両案を用意しました — ロールバックは即時、緊急修正は約2時間です。"
+          }
+        }
+      }
+    },
+    "Pick the empty-state illustration set": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空状態のイラストを選んでください"
+          }
+        }
+      }
+    },
+    "Carol's AI shortlisted 3 candidates that match the flat design. Design handoff is blocked on your pick.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carol の AI がフラットデザインに合う候補を3案に絞りました。あなたの選択待ちでデザインの引き渡しが止まっています。"
+          }
+        }
+      }
+    },
+    "Take the auth latency hotfix": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証遅延の緊急修正を担当する"
+          }
+        }
+      }
+    },
+    "Dana's AI split the incident: you own the hotfix branch, Dana reviews the merge.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dana の AI が対応を分担しました：緊急修正ブランチはあなた、マージのレビューは Dana です。"
+          }
+        }
+      }
+    },
+    "Merge the auth hotfix to main?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証の緊急修正を main にマージしますか？"
+          }
+        }
+      }
+    },
+    "Bob's AI verified the fix on staging — p95 back to baseline. One approval left to merge.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bob の AI がステージングで検証済み — p95 は元の水準に戻りました。あと1件の承認でマージできます。"
+          }
+        }
+      }
+    },
+    "One more iOS engineer for Q3?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Q3 に iOS エンジニアをもう1名追加しますか？"
+          }
+        }
+      }
+    },
+    "Alice's AI packaged the case: feed roadmap needs 1 more engineer or the analytics work slips a quarter.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice の AI が根拠をまとめました：あと1名いないと、分析機能は1四半期ずれ込みます。"
+          }
+        }
+      }
+    },
+    "Add decision analytics to the feed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードに決定の分析を追加する"
+          }
+        }
+      }
+    },
+    "Alice's AI wants approve/decline rates per card type before the board update.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice の AI が、取締役会の報告前にカード種別ごとの承認・却下率を求めています。"
+          }
+        }
+      }
+    },
+    "Freeze the flat design tokens?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フラットデザインのトークンを確定しますか？"
+          }
+        }
+      }
+    },
+    "Alice's AI locked the palette for the Friday demo. Two components still reference legacy colors.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice の AI が金曜デモ向けにパレットを確定しました。2つのコンポーネントが旧来の色を参照したままです。"
+          }
+        }
+      }
+    },
+    "Design the offline-mode empty state": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン時の空状態をデザインする"
+          }
+        }
+      }
+    },
+    "Dana's AI flagged that the feed shows nothing when the relay is down. Needs a designed fallback.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー停止時にフィードが真っ白になる、と Dana の AI が指摘しました。代替表示の設計が必要です。"
+          }
+        }
+      }
+    },
+    "Design gap found in review": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューでデザインの抜けが見つかりました"
+          }
+        }
+      }
+    },
+    "Alice's AI → Your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice の AI → あなたの AI"
+          }
+        }
+      }
+    },
+    "Bob's AI → Your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bob の AI → あなたの AI"
+          }
+        }
+      }
+    },
+    "Carol's AI → Your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carol の AI → あなたの AI"
+          }
+        }
+      }
+    },
+    "Dana's AI → Your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dana の AI → あなたの AI"
+          }
+        }
+      }
+    },
+    "You hold release approval for Onboarding v2": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンボーディング v2 のリリース承認はあなたの担当です"
+          }
+        }
+      }
+    },
+    "You are Bob's manager": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたは Bob の上長です"
+          }
+        }
+      }
+    },
+    "Design handoff waits on Product": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デザインの引き渡しはプロダクトの判断待ちです"
+          }
+        }
+      }
+    },
+    "You shipped the auth changes yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨日その認証の変更を出したのはあなたです"
+          }
+        }
+      }
+    },
+    "You review protected branches": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護ブランチのレビュー担当はあなたです"
+          }
+        }
+      }
+    },
+    "Hiring approvals route to you": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "採用の承認はあなたに回ります"
+          }
+        }
+      }
+    },
+    "The design system is yours": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デザインシステムの担当はあなたです"
+          }
+        }
+      }
+    },
+    "You own the iOS client": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS クライアントの担当はあなたです"
+          }
+        }
+      }
+    },
+    "deadline: Friday demo · scope: 6 PRs, staging verified · action: approve to cut the release": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限: 金曜のデモ · 範囲: PR 6 件、ステージング検証済み · 対応: 承認するとリリースを切ります"
+          }
+        }
+      }
+    },
+    "metric: p95 +18% · action: hotfix branch · deadline: today": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標: p95 +18% · 対応: 緊急修正ブランチ · 期限: 本日"
+          }
+        }
+      }
+    },
+    "metric: p95 +18% · action: rollback or hotfix · deadline: today": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標: p95 +18% · 対応: ロールバックか緊急修正 · 期限: 本日"
+          }
+        }
+      }
+    },
+    "metric: p95 back to baseline · action: merge PR #214 · deadline: today": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標: p95 は元の水準 · 対応: PR #214 をマージ · 期限: 本日"
+          }
+        }
+      }
+    },
+    "scope: buttons, sheets · deadline: Friday demo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: ボタン、シート · 期限: 金曜のデモ"
+          }
+        }
+      }
+    },
+    "scope: feed events · deadline: next week": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: フィードのイベント · 期限: 来週"
+          }
+        }
+      }
+    },
+    "scope: feed offline state · deadline: next sprint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: フィードのオフライン表示 · 期限: 次のスプリント"
+          }
+        }
+      }
+    },
+    "scope: onboarding + feed empty states · deadline: next sprint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: オンボーディングとフィードの空状態 · 期限: 次のスプリント"
+          }
+        }
+      }
+    },
+    "scope: Q3 roadmap · action: approve headcount · deadline: planning Monday": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲: Q3 ロードマップ · 対応: 増員を承認 · 期限: 月曜の計画会"
+          }
+        }
+      }
+    }
+  }
+}

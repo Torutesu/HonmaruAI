@@ -1,6 +1,18 @@
 import SwiftUI
 
 struct FeedView: View {
+    /// When embedded in `AppShell` the surrounding chrome — the segmented
+    /// control, the avatar, the tab bar — belongs to the shell, and this view
+    /// draws only the cards. Standalone it draws its own, which is what the
+    /// preview and any direct presentation still rely on.
+    var showsChrome: Bool = true
+    /// Incremented by the shell's ＋ button. The draft chain lives here with the
+    /// view model, so the shell asks for it rather than rebuilding it.
+    var composeTick: Int = 0
+    /// Text dictated on the capture screen. Carries an id so two identical
+    /// utterances still register as two separate requests.
+    var captured: CaptureRequest?
+
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = FeedViewModel()
     @State private var aiPrompt = ""
@@ -77,10 +89,17 @@ struct FeedView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            topBar
+            if showsChrome { topBar }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottomChrome
+            if showsChrome { bottomChrome }
+        }
+        .onChange(of: composeTick) { _, _ in
+            showAIInput = true
+        }
+        .onChange(of: captured) { _, request in
+            guard let request else { return }
+            viewModel.beginDraft(request.text, priority: .medium, appState: appState)
         }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {

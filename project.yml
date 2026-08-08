@@ -5,6 +5,10 @@ options:
     iOS: "17.0"
   xcodeVersion: "16.0"
   createIntermediateGroups: true
+  # Japanese ships as a real localization rather than by rewriting the source
+  # strings, so English survives for review and anywhere outside Japan.
+  developmentLanguage: en
+  knownRegions: [en, ja, Base]
 
 settings:
   base:

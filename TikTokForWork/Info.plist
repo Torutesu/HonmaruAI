@@ -16,6 +16,13 @@
 	<!-- Assembled from Config/Base.xcconfig; see AppConfig.relayURL. Scheme and
 	     host are separate build settings because "//" starts a comment in an
 	     xcconfig and cannot appear in a value there. -->
+	<!-- Capture (A5) dictates instead of typing. Both keys are required before
+	     the Speech framework will start, and iOS terminates the app on the
+	     first request if either is missing. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>AI に話しかけて指示を伝えるために使います。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>話した内容を文字にして、送る前に確認できるようにします。</string>
 	<key>RelayURL</key>
 	<string>$(RELAY_SCHEME)://$(RELAY_HOST)</string>
 	<!-- The relay speaks plain ws:// on the LAN, which App Transport Security
