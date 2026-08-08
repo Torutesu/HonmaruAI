@@ -34,3 +34,21 @@ test("join then a created card round-trips to a second client", async () => {
   const delta = bMessages.find((m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("c-relay"));
   expect(delta).toBeTruthy();
 });
+
+test("a bad submit sends RUN_ERROR to the sender without closing the socket", async () => {
+  const a = await open();
+  const aMessages = [];
+  a.addEventListener("message", (e) => aMessages.push(JSON.parse(e.data)));
+
+  a.send(JSON.stringify({ type: "join", payload: { userId: "user-toru", protocol: "agui/1" } }));
+  a.send(JSON.stringify({
+    type: "tool_result",
+    payload: { toolCallId: "t-1", content: { cardId: "does-not-exist", action: "delete" } },
+  }));
+
+  await new Promise((r) => setTimeout(r, 50));
+  const err = aMessages.find((m) => m.type === "RUN_ERROR");
+  expect(err).toBeTruthy();
+  expect(err.message).toContain("does-not-exist");
+  expect(a.readyState).toBe(WebSocket.OPEN);
+});

@@ -2,7 +2,7 @@ import {
   joinEvents, upsertEvents, removeEvents, clearEvents,
   presenceEvents, contextEvents, applyDecision, applyRollback,
 } from "./agui/adapter.js";
-import { toolCallResult } from "./agui/events.js";
+import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, clearCards, loadContexts, saveContext,
 } from "./db.js";
@@ -47,6 +47,7 @@ export class OrgRelay {
     try { msg = JSON.parse(raw); } catch { return; }
     const { type, payload = {} } = msg;
 
+    try {
     if (type === "join") {
       const userId = payload.userId;
       const agui = payload.protocol === "agui/1";
@@ -70,6 +71,7 @@ export class OrgRelay {
     }
 
     if (type === "card_created" || type === "card_updated") {
+      if (!payload.card?.id) return;
       const card = payload.card;
       await saveCard(this.db, orgId, card);
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
@@ -79,6 +81,7 @@ export class OrgRelay {
     }
 
     if (type === "card_deleted") {
+      if (!payload.cardId) return;
       await removeCard(this.db, orgId, payload.cardId);
       for (const ev of removeEvents(payload.cardId)) this.broadcast(orgId, ev);
       return;
@@ -86,8 +89,10 @@ export class OrgRelay {
 
     if (type === "context_updated") {
       const userId = payload.userId || att.userId;
+      const existing = await loadContexts(this.db, orgId);
+      const isNew = !(userId in existing);
       await saveContext(this.db, orgId, userId, payload.context);
-      for (const ev of contextEvents(userId, payload.context, { isNew: true })) this.broadcast(orgId, ev);
+      for (const ev of contextEvents(userId, payload.context, { isNew })) this.broadcast(orgId, ev);
       return;
     }
 
@@ -105,6 +110,9 @@ export class OrgRelay {
       await clearCards(this.db, orgId);
       for (const ev of clearEvents()) this.broadcast(orgId, ev);
       return;
+    }
+    } catch (err) {
+      try { ws.send(JSON.stringify(runError(err.message))); } catch {}
     }
   }
 
@@ -127,5 +135,9 @@ export class OrgRelay {
     if (att.userId) {
       for (const ev of presenceEvents(att.userId, "offline")) this.broadcast(att.orgId, ev, ws);
     }
+  }
+
+  webSocketError(ws, err) {
+    console.error("ws error", err);
   }
 }
