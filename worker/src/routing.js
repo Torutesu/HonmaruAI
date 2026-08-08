@@ -2,9 +2,24 @@
 
 export const DEMO_USER_IDS = ["user-toru", "user-tanaka", "user-yui", "user-alex"];
 
+// Person node ids of the passed organization (the real members).
+export function memberIdsOf(organization) {
+  return (organization?.nodes || [])
+    .filter((n) => n.kind === "person")
+    .map((n) => n.id);
+}
+
+// Display name for a user id: prefer the org node label ("<name> · <role>"),
+// then the demo map, then the raw id.
+export function displayNameOf(organization, userID) {
+  const node = (organization?.nodes || []).find((n) => n.id === userID && n.kind === "person");
+  if (node?.label) return node.label.split(" · ")[0].trim();
+  return userNameFor(userID);
+}
+
 /// A one-person business: unless the work clearly belongs to the contractor or
 /// the client, the owner decides. Defaulting anywhere else invents a colleague.
-const DEFAULT_USER_ID = "user-toru";
+/// (For a real org, defaultRecipient picks a member instead of a demo id.)
 
 const TEAM_ROUTES = [
   {
@@ -43,10 +58,19 @@ const ROLE_ROUTES = [
 ];
 
 
-function matchTeamRoute(text, senderID) {
+function defaultRecipient(senderID, organization) {
+  const members = memberIdsOf(organization);
+  if (!members.length) return "user-toru"; // demo fallback
+  const approver = (organization.edges || []).find((e) => e.kind === "canApprove" && e.fromID !== senderID);
+  if (approver) return approver.fromID;
+  return members.find((id) => id !== senderID) || members[0];
+}
+
+function matchTeamRoute(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
   for (const route of TEAM_ROUTES) {
     if (route.userID === senderID) continue;
+    if (memberIdsOf(organization).length && !memberIdsOf(organization).includes(route.userID)) continue;
     if (route.phrases.some((phrase) => lower.includes(phrase))) {
       return route;
     }
@@ -54,10 +78,11 @@ function matchTeamRoute(text, senderID) {
   return null;
 }
 
-function matchRoleRoute(text, senderID) {
+function matchRoleRoute(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
   for (const route of ROLE_ROUTES) {
     if (route.userID === senderID) continue;
+    if (memberIdsOf(organization).length && !memberIdsOf(organization).includes(route.userID)) continue;
     if (route.phrases.some((phrase) => lower.includes(phrase))) {
       return route;
     }
@@ -68,19 +93,20 @@ function matchRoleRoute(text, senderID) {
 export function resolveRecipientTarget(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
 
-  for (const userID of DEMO_USER_IDS) {
+  const candidateIds = memberIdsOf(organization).length ? memberIdsOf(organization) : DEMO_USER_IDS;
+  for (const userID of candidateIds) {
     if (userID === senderID) continue;
-    const name = userNameFor(userID).toLowerCase();
-    if (lower.includes(name)) {
+    const name = displayNameOf(organization, userID).toLowerCase();
+    if (name && lower.includes(name)) {
       return {
         recipientUserID: userID,
-        routingReason: "Named in your instruction",
-        forceOverride: true,
+        routingReason: `Mentioned ${displayNameOf(organization, userID)}`,
+        forceOverride: false,
       };
     }
   }
 
-  const team = matchTeamRoute(text, senderID);
+  const team = matchTeamRoute(text, senderID, organization);
   if (team) {
     return {
       recipientUserID: team.userID,
@@ -89,7 +115,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
     };
   }
 
-  const role = matchRoleRoute(text, senderID);
+  const role = matchRoleRoute(text, senderID, organization);
   if (role) {
     return {
       recipientUserID: role.userID,
@@ -126,7 +152,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
   // routing to yourself is the right answer rather than a bug. Picking "anyone
   // but the sender" hands your own work to a client.
   return {
-    recipientUserID: DEFAULT_USER_ID,
+    recipientUserID: defaultRecipient(senderID, organization),
     routingReason: "This one is yours to decide",
     forceOverride: false,
   };
@@ -459,7 +485,8 @@ function applyRoutingGuard(routing, sender, originalText, organization = null) {
 }
 
 function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null) {
-  const allowedRecipients = new Set(DEMO_USER_IDS);
+  const members = memberIdsOf(organization);
+  const allowedRecipients = new Set(members.length ? members : DEMO_USER_IDS);
   const allowedTypes = new Set([
     "approval",
     "delegation",
