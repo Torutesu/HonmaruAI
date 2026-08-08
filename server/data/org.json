@@ -1,0 +1,201 @@
+{
+  "users": [
+    {
+      "id": "user-alice",
+      "name": "Alice",
+      "role": "Product Manager",
+      "teamID": "team-core",
+      "githubUsername": "alice",
+      "language": "en"
+    },
+    {
+      "id": "user-bob",
+      "name": "Bob",
+      "role": "Engineer",
+      "teamID": "team-core",
+      "githubUsername": "bob",
+      "language": "en"
+    },
+    {
+      "id": "user-carol",
+      "name": "Carol",
+      "role": "Designer",
+      "teamID": "team-core",
+      "githubUsername": "carol",
+      "language": "en"
+    },
+    {
+      "id": "user-dana",
+      "name": "Dana",
+      "role": "Engineering Lead",
+      "teamID": "team-core",
+      "githubUsername": "dana",
+      "language": "en"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "user-alice",
+      "kind": "person",
+      "label": "Alice · Product"
+    },
+    {
+      "id": "user-bob",
+      "kind": "person",
+      "label": "Bob · Engineering"
+    },
+    {
+      "id": "user-carol",
+      "kind": "person",
+      "label": "Carol · Design"
+    },
+    {
+      "id": "user-dana",
+      "kind": "person",
+      "label": "Dana · Eng Lead"
+    },
+    {
+      "id": "agent-alice",
+      "kind": "agent",
+      "label": "Alice's AI"
+    },
+    {
+      "id": "agent-bob",
+      "kind": "agent",
+      "label": "Bob's AI"
+    },
+    {
+      "id": "agent-carol",
+      "kind": "agent",
+      "label": "Carol's AI"
+    },
+    {
+      "id": "agent-dana",
+      "kind": "agent",
+      "label": "Dana's AI"
+    },
+    {
+      "id": "team-core",
+      "kind": "team",
+      "label": "Core Team"
+    },
+    {
+      "id": "team-design",
+      "kind": "team",
+      "label": "Design Team"
+    },
+    {
+      "id": "team-engineering",
+      "kind": "team",
+      "label": "Engineering"
+    },
+    {
+      "id": "team-product",
+      "kind": "team",
+      "label": "Product"
+    },
+    {
+      "id": "project-onboarding",
+      "kind": "project",
+      "label": "Onboarding v2"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "fromID": "user-alice",
+      "toID": "team-core",
+      "kind": "memberOf"
+    },
+    {
+      "id": "e2",
+      "fromID": "user-bob",
+      "toID": "team-core",
+      "kind": "memberOf"
+    },
+    {
+      "id": "e3",
+      "fromID": "user-carol",
+      "toID": "team-core",
+      "kind": "memberOf"
+    },
+    {
+      "id": "e4",
+      "fromID": "user-dana",
+      "toID": "team-core",
+      "kind": "memberOf"
+    },
+    {
+      "id": "e13",
+      "fromID": "user-carol",
+      "toID": "team-design",
+      "kind": "memberOf"
+    },
+    {
+      "id": "e14",
+      "fromID": "user-bob",
+      "toID": "team-engineering",
+      "kind": "memberOf"
+    },
+    {
+      "id": "e15",
+      "fromID": "user-dana",
+      "toID": "team-engineering",
+      "kind": "memberOf"
+    },
+    {
+      "id": "e16",
+      "fromID": "user-alice",
+      "toID": "team-product",
+      "kind": "memberOf"
+    },
+    {
+      "id": "e5",
+      "fromID": "user-alice",
+      "toID": "user-bob",
+      "kind": "manages"
+    },
+    {
+      "id": "e6",
+      "fromID": "user-dana",
+      "toID": "user-bob",
+      "kind": "manages"
+    },
+    {
+      "id": "e7",
+      "fromID": "user-alice",
+      "toID": "project-onboarding",
+      "kind": "canApprove"
+    },
+    {
+      "id": "e8",
+      "fromID": "user-dana",
+      "toID": "project-onboarding",
+      "kind": "canApprove"
+    },
+    {
+      "id": "e9",
+      "fromID": "agent-alice",
+      "toID": "user-alice",
+      "kind": "assignedTo"
+    },
+    {
+      "id": "e10",
+      "fromID": "agent-bob",
+      "toID": "user-bob",
+      "kind": "assignedTo"
+    },
+    {
+      "id": "e11",
+      "fromID": "agent-carol",
+      "toID": "user-carol",
+      "kind": "assignedTo"
+    },
+    {
+      "id": "e12",
+      "fromID": "agent-dana",
+      "toID": "user-dana",
+      "kind": "assignedTo"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>__DEVELOPMENT_TEAM__</string>
+	<!-- Manual, to match the Release config in project.yml. Automatic export
+	     re-signs through a development identity, which needs a registered
+	     device — the thing a TestFlight build exists to avoid. -->
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>iPhone Distribution</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>com.honmaru.ai</key>
+		<string>HonmaruAI AppStore</string>
+	</dict>
+	<key>destination</key>
+	<string>export</string>
+	<key>uploadSymbols</key>
+	<true/>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>

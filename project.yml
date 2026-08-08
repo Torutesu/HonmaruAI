@@ -18,19 +18,40 @@ targets:
     platform: iOS
     sources:
       - path: TikTokForWork
+    # RELAY_SCHEME / RELAY_HOST live here rather than in `settings` below,
+    # because target settings outrank an xcconfig and would make
+    # Config/Local.xcconfig (written by scripts/device.sh) have no effect.
+    configFiles:
+      Debug: Config/Base.xcconfig
+      Release: Config/Base.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tangle.tiktokforwork
+        # The App Store Connect record is com.honmaru.ai. The target, directory
+        # and Xcode project keep the old name on purpose — renaming them touches
+        # every file on this branch and buys nothing a user can see.
+        PRODUCT_BUNDLE_IDENTIFIER: com.honmaru.ai
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: TikTokForWork/Info.plist
-        INFOPLIST_KEY_CFBundleDisplayName: TikTok for Work
+        INFOPLIST_KEY_CFBundleDisplayName: Honmaru AI
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Sync decision cards with your team in real time.
-        TARGETED_DEVICE_FAMILY: "1,2"
+        # iPhone only. Including iPad ("1,2") while declaring portrait only makes
+        # Apple reject the upload with ITMS-90474.
+        TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        # Release is signed manually against an App Store profile. Automatic
+        # signing archives with a development identity first, and a development
+        # profile needs a registered device — so an automatic archive cannot be
+        # produced without a phone plugged in, which TestFlight exists to avoid.
+        # Creating the certificate and profile: docs/app-store-release.md.
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: iPhone Distribution
+          PROVISIONING_PROFILE_SPECIFIER: HonmaruAI AppStore
     dependencies: []

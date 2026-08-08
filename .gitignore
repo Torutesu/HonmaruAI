@@ -8,3 +8,13 @@ xcuserdata/
 *.xccheckout
 *.moved-aside
 *.xcscmblueprint
+
+# App Store Connect. The glob also catches .asc.env.bak and similar copies,
+# which hold the same credentials as the original.
+.asc.env*
+*.p8
+*.xcarchive
+ExportOptions.plist
+
+# Machine-specific relay address, written by scripts/device.sh
+Config/Local.xcconfig

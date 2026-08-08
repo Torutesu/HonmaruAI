@@ -1,0 +1,13 @@
+{
+  "channels": {
+    "channel-general": {
+      "id": "channel-general",
+      "name": "general",
+      "purpose": "Team-wide updates. Mention @ai to bring the team AI in.",
+      "createdAt": "2026-08-08T04:31:43.443Z"
+    }
+  },
+  "messages": {
+    "channel-general": []
+  }
+}
