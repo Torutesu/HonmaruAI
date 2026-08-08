@@ -16,45 +16,48 @@
 リリース用のファイルは `claude/app-store-connect-cli-itldg5` という**枝分かれした置き場所（ブランチ）**にあり、
 最初はあなたの Mac に降りてきていないからです。
 
-### 0-1. プロジェクトのフォルダに移動する
+### 0-1. これを1回貼り付けて実行する
+
+**途中で改行せず、この1行をまるごとコピーして**貼り付けてください。
 
 ```
-cd ~/HonmaruAI
+cd ~/HonmaruAI && git fetch origin claude/app-store-connect-cli-itldg5 && git checkout claude/app-store-connect-cli-itldg5 && ls scripts/
 ```
 
-`No such file or directory` と出たら、フォルダの場所が違います。
-Finder でプロジェクトのフォルダを探して、ターミナルに `cd ` と打ち（**最後のスペースまで**）、
-そのあと**フォルダをターミナルにドラッグ＆ドロップ**して Enter してください。
+最後に `ExportOptions.plist.template` `release.sh` `setup.sh` の3つが表示されれば成功です。
+ステップ1に進んでください。
 
-そもそもフォルダが見当たらない場合は、まるごと取ってきます。
+> **なぜ1行にまとめているか**：`cd` は「今いる場所」を変えるコマンドです。
+> 途中で別のコマンドを挟んで場所が変わると、その後の `git` が
+> `not a git repository` で失敗します。`&&` でつないでおけば、
+> 場所が変わらないまま最後まで一息で進みます。
 
-```
-cd ~ && git clone https://github.com/Torutesu/HonmaruAI.git && cd ~/HonmaruAI
-```
+### 0-2. うまくいかなかったとき
 
-### 0-2. リリース用のファイルを取り込む
+**`cd: no such file or directory: /Users/あなた/HonmaruAI`**
 
-```
-git fetch origin claude/app-store-connect-cli-itldg5
-```
+フォルダの場所が違います。Finder でプロジェクトのフォルダを探して、
+ターミナルに `cd ` と打ち（**最後のスペースまで**）、そのあと
+**フォルダをターミナルにドラッグ＆ドロップ**して Enter。
+そのあと 0-1 の `cd ~/HonmaruAI && ` を取り除いた残り（`git fetch ...` 以降）を実行してください。
 
-```
-git checkout claude/app-store-connect-cli-itldg5
-```
-
-```
-git pull
-```
-
-### 0-3. ちゃんと来たか確認する
+フォルダがどこにも無い場合だけ、まるごと取ってきます。
 
 ```
-ls scripts/
+cd ~ && git clone https://github.com/Torutesu/HonmaruAI.git && cd ~/HonmaruAI && git checkout claude/app-store-connect-cli-itldg5 && ls scripts/
 ```
 
-`setup.sh` と `release.sh` の2つが表示されれば成功です。ステップ1に進んでください。
+**`Your local changes would be overwritten`**
 
-何も出てこない、または `No such file or directory` と出る場合は、0-2 が終わっていません。
+その Mac 側で編集途中のファイルがあります。取っておく場合はこれを実行してから 0-1 をやり直します。
+
+```
+cd ~/HonmaruAI && git stash
+```
+
+**`fatal: not a git repository`**
+
+`cd` が効いておらず、プロジェクト以外の場所にいます。0-1 の1行をまとめて貼り直してください。
 
 ---
 
