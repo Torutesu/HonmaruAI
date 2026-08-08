@@ -10,6 +10,54 @@
 
 ---
 
+## ステップ 0：ファイルを自分の Mac に持ってくる
+
+**ここを飛ばすと `scripts/setup.sh` は「そんなファイルはありません」と言われます。**
+リリース用のファイルは `claude/app-store-connect-cli-itldg5` という**枝分かれした置き場所（ブランチ）**にあり、
+最初はあなたの Mac に降りてきていないからです。
+
+### 0-1. プロジェクトのフォルダに移動する
+
+```
+cd ~/HonmaruAI
+```
+
+`No such file or directory` と出たら、フォルダの場所が違います。
+Finder でプロジェクトのフォルダを探して、ターミナルに `cd ` と打ち（**最後のスペースまで**）、
+そのあと**フォルダをターミナルにドラッグ＆ドロップ**して Enter してください。
+
+そもそもフォルダが見当たらない場合は、まるごと取ってきます。
+
+```
+cd ~ && git clone https://github.com/Torutesu/HonmaruAI.git && cd ~/HonmaruAI
+```
+
+### 0-2. リリース用のファイルを取り込む
+
+```
+git fetch origin claude/app-store-connect-cli-itldg5
+```
+
+```
+git checkout claude/app-store-connect-cli-itldg5
+```
+
+```
+git pull
+```
+
+### 0-3. ちゃんと来たか確認する
+
+```
+ls scripts/
+```
+
+`setup.sh` と `release.sh` の2つが表示されれば成功です。ステップ1に進んでください。
+
+何も出てこない、または `No such file or directory` と出る場合は、0-2 が終わっていません。
+
+---
+
 ## ステップ 1：道具をそろえる（初回だけ）
 
 ### 1-1. Homebrew を入れる
@@ -187,6 +235,9 @@ scripts/release.sh all 1.0.0 --dry-run
 
 | 出たメッセージ | 意味と対処 |
 |---|---|
+| `scripts/setup.sh: No such file or directory` | **ステップ0 がまだ**。ファイルが Mac に来ていません |
+| `zsh: permission denied: scripts/setup.sh` | `bash scripts/setup.sh` と、頭に `bash ` を付けて実行する |
+| `cd: no such file or directory` | フォルダの場所が違う。ステップ0-1 のドラッグ＆ドロップを使う |
 | `command not found: asc` | ステップ1-2 をやり直す |
 | `not authenticated` | `scripts/release.sh login` を実行する |
 | `DEVELOPMENT_TEAM unset` | ステップ3 をやり直して Team ID を入れる |
