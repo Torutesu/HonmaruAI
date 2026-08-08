@@ -85,6 +85,27 @@ Mac App Store で「Xcode」を検索してインストールします。**サ�
 
 ---
 
+## APIキーは本当に必要？
+
+**TestFlight で配るだけなら不要です。** Xcode の画面からでも配れます。
+
+| | TestFlight に必要 | App Store 審査に必要 |
+|---|---|---|
+| Apple Developer Program | ✅ | ✅ |
+| Team ID | ✅ | ✅ |
+| Xcode | ✅ | ✅ |
+| App Store Connect のアプリ登録枠 | ✅ | ✅ |
+| **APIキー（.p8 / Key ID / Issuer ID）** | **不要** | **不要**（あると自動化できる） |
+
+APIキーは「ターミナルから自動化するため」のものです。**毎回 Xcode を開いて10回以上クリックする作業**が、
+`scripts/release.sh testflight` の1行になります。リリースを繰り返すなら間違いなく元が取れますが、
+**初回はキー無しで進めても構いません。**
+
+キー無しで進める場合は、ステップ2〜4を飛ばして
+**[Xcode の画面から配る（APIキー不要）](#付録xcode-の画面から配るapiキー不要)** に進んでください。
+
+---
+
 ## ステップ 2：Apple から3つの情報を取ってくる
 
 貼る場所はステップ3で自動的に聞かれます。**ここではメモ帳などに控えるだけ**でOKです。
@@ -215,6 +236,55 @@ scripts/release.sh all 1.0.0
 [PROGRESS.md](../PROGRESS.md#app-store-submission-blockers) にまとめてあります。
 一番大きいのは、アプリが `127.0.0.1`（＝自分のMac）のサーバーに繋ぎに行く作りのままなので、
 審査担当者の iPhone ではサインインすらできない、という点です。
+
+---
+
+## 付録：Xcode の画面から配る（APIキー不要）
+
+.p8 が手元に無い、または先に1本動かしてみたい場合はこちらです。
+**ステップ5（アプリの登録枠を作る）は、この方法でも必須**なので先に済ませてください。
+
+### A-1. Xcode でプロジェクトを開く
+
+```
+cd ~/HonmaruAI && xcodegen generate && open HonmaruAI.xcodeproj
+```
+
+### A-2. チームを選ぶ
+
+1. 左側の一番上にある青いアイコン **HonmaruAI** をクリック
+2. 中央の **TARGETS** の下の **HonmaruAI** をクリック
+3. 上のタブから **Signing & Capabilities**
+4. **Automatically manage signing** にチェックが入っていることを確認
+5. **Team** のプルダウンから自分のチームを選ぶ
+
+赤いエラーが消えればOKです。
+
+> ここで選んだ設定は `xcodegen generate` を実行し直すと消えます。
+> 毎回選び直すのが面倒になったら、`.asc.env` に Team ID を入れて
+> `scripts/release.sh build` を使うほうが早くなります。
+
+### A-3. 書き出す
+
+1. 画面上部中央の実行先が iPhone シミュレータになっているので、
+   クリックして **Any iOS Device (arm64)** に変える
+2. メニューバー **Product** → **Archive**
+   - 10〜20分かかります。終わると Organizer ウインドウが自動で開きます
+3. **Distribute App** ボタン
+4. **TestFlight & App Store** を選んで **Distribute**
+5. Apple ID でのサインインを求められたら、Developer Program に登録したアカウントで
+
+アップロード後、Apple 側の処理に5〜15分かかります。
+処理が終わると App Store Connect の **TestFlight** タブにビルドが出てきます。
+
+### A-4. iPhone に入れる
+
+1. App Store Connect → マイ App → Honmaru AI → **TestFlight** タブ
+2. **内部テスト** グループに自分を追加
+3. iPhone に **TestFlight** アプリ（App Store から無料）を入れる
+4. Developer Program と同じ Apple ID でサインインすると出てきます
+
+**内部テストは審査不要**なので、追加すればすぐ届きます。
 
 ---
 
