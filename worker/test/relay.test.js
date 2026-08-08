@@ -4,6 +4,9 @@ import schemaSql from "../schema.sql?raw";
 
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  const { createSession, upsertUser } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "1001", login: "realdev", name: "Real Dev", avatarUrl: "http://a", locale: "en" });
+  globalThis.__sessionToken = await createSession(env.DB, "1001", "gho_x");
 });
 
 function open(orgId = "core-team") {
@@ -33,6 +36,25 @@ test("join then a created card round-trips to a second client", async () => {
   await new Promise((r) => setTimeout(r, 50));
   const delta = bMessages.find((m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("c-relay"));
   expect(delta).toBeTruthy();
+});
+
+test("join with a sessionToken uses the session's real user id, not the payload", async () => {
+  const b = await open();               // observer joins first
+  const bMessages = [];
+  b.addEventListener("message", (e) => bMessages.push(JSON.parse(e.data)));
+  b.send(JSON.stringify({ type: "join", payload: { userId: "observer", protocol: "agui/1" } }));
+  await new Promise((r) => setTimeout(r, 30));
+
+  const a = await open();               // A joins with a spoofed userId but a real session token
+  a.send(JSON.stringify({ type: "join", payload: { userId: "spoofed", sessionToken: globalThis.__sessionToken, protocol: "agui/1" } }));
+  await new Promise((r) => setTimeout(r, 60));
+
+  const presence = bMessages.find(
+    (m) => (m.type === "presence" && m.payload?.userId) || (m.type === "CUSTOM" && m.name === "presence")
+  );
+  const asText = JSON.stringify(bMessages);
+  expect(asText).toContain("realdev");   // resolved login was broadcast
+  expect(asText).not.toContain("spoofed"); // the spoofed id never appears
 });
 
 test("a bad submit sends RUN_ERROR to the sender without closing the socket", async () => {

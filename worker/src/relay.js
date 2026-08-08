@@ -5,6 +5,7 @@ import {
 import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, clearCards, loadContexts, saveContext,
+  getSession, getUserByGithubId,
 } from "./db.js";
 
 export class OrgRelay {
@@ -49,7 +50,14 @@ export class OrgRelay {
 
     try {
     if (type === "join") {
-      const userId = payload.userId;
+      let userId = payload.userId;
+      if (payload.sessionToken) {
+        const session = await getSession(this.db, payload.sessionToken);
+        if (session) {
+          const user = await getUserByGithubId(this.db, session.github_id);
+          userId = user?.login || session.github_id; // real identity wins
+        }
+      }
       const agui = payload.protocol === "agui/1";
       ws.serializeAttachment({ orgId, userId, agui });
       const store = await loadStore(this.db, orgId);
