@@ -1,6 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { expect, test } from "vitest";
-import { buildAgentTools } from "../src/routing.js";
+import { buildAgentTools, SYSTEM_PROMPT, buildUserPrompt } from "../src/routing.js";
 
 const ORG = {
   nodes: [
@@ -86,4 +86,16 @@ test("buildAgentTools sets recipient enum to the org members, demo ids when empt
   expect(tools.map((t) => t.function.name)).toEqual(["create_decision_card", "set_priority", "add_context"]);
   const demoEnum = buildAgentTools({ nodes: [], edges: [] })[0].function.parameters.properties.recipientUserID.enum;
   expect(demoEnum).toEqual(["user-toru", "user-tanaka", "user-yui", "user-alex"]);
+});
+
+test("SYSTEM_PROMPT no longer hardcodes demo recipient ids", () => {
+  expect(SYSTEM_PROMPT).not.toContain("user-toru");
+  expect(SYSTEM_PROMPT).not.toContain("user-yui");
+  expect(SYSTEM_PROMPT).not.toContain("user-tanaka");
+});
+
+test("buildUserPrompt lists the org members so the model can pick one", () => {
+  const org = { nodes: [{ id: "octocat", kind: "person", label: "octocat · Admin" }], edges: [] };
+  const prompt = buildUserPrompt({ text: "ship it", sender: { name: "octocat", id: "octocat", role: "Admin" }, organization: org, readerLanguage: "en" });
+  expect(prompt).toContain("octocat");
 });

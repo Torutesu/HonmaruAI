@@ -281,14 +281,14 @@ Call create_decision_card once with all fields filled:
   only: deadline / scope / metric / amount / action — or in Japanese
   期限 / 範囲 / 指標 / 金額 / 対応.
 - priority: infer from urgency cues in the instruction
-- Pick recipient from org graph using team, role, and manager edges
 
-Routing (critical). This is a one-person business, so the default is the owner:
-- money, pricing, invoices, taking on work → user-toru (the owner decides alone)
-- visual or production work to hand off → user-yui (contract designer)
-- anything the client must agree to → user-tanaka (client at North Inc.)
-- a named person in the instruction → that person
-- when in doubt → user-toru. Never invent a recipient that is not in the graph.`;
+Routing (critical):
+- recipientUserID MUST be one of the member ids listed under Organization in the
+  user message. Never invent an id or pick one that is not listed.
+- A person named in the instruction → that person.
+- Something that needs sign-off or approval → a member with a canApprove edge.
+- An escalation → the sender's manager (a "manages" edge pointing at the sender).
+- Otherwise pick the member whose role best fits the instruction.`;
 
 export function buildUserPrompt({ text, sender, organization, readerLanguage }) {
   const orgContext = organizationContext(organization);
@@ -726,7 +726,7 @@ async function routeInstructionWithOpenRouter({
       {
         name: "create_decision_card",
         label: "Route decision",
-        detail: `${userNameFor(routingJSON.recipientUserID)} · ${routingJSON.cardType}`,
+        detail: `${displayNameOf(organization, routingJSON.recipientUserID)} · ${routingJSON.cardType}`,
       },
     ],
     organization
