@@ -99,3 +99,27 @@ test("buildUserPrompt lists the org members so the model can pick one", () => {
   const prompt = buildUserPrompt({ text: "ship it", sender: { name: "octocat", id: "octocat", role: "Admin" }, organization: org, readerLanguage: "en" });
   expect(prompt).toContain("octocat");
 });
+
+test("buildUserPrompt carries the sender's context when supplied", () => {
+  const org = { nodes: [{ id: "octocat", kind: "person", label: "octocat · Admin" }], edges: [] };
+  const prompt = buildUserPrompt({
+    text: "ship it",
+    sender: { name: "octocat", id: "octocat", role: "Admin" },
+    organization: org,
+    readerLanguage: "en",
+    senderContext: "I own billing decisions and hate meetings.",
+  });
+  expect(prompt).toContain("Sender context:");
+  expect(prompt).toContain("I own billing decisions");
+});
+
+test("buildUserPrompt omits the context heading when there is none", () => {
+  const org = { nodes: [{ id: "octocat", kind: "person", label: "octocat · Admin" }], edges: [] };
+  const prompt = buildUserPrompt({
+    text: "ship it",
+    sender: { name: "octocat", id: "octocat", role: "Admin" },
+    organization: org,
+    readerLanguage: "en",
+  });
+  expect(prompt).not.toContain("Sender context:");
+});

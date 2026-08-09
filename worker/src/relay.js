@@ -92,10 +92,18 @@ export class OrgRelay {
       if (!payload.card?.id) return;
       const card = payload.card;
       await saveCard(this.db, orgId, card);
+      // The iOS client decides locally and republishes the whole card, so a
+      // card_updated that carries a decision IS a decision — recording it as a
+      // bland "updated" would make the history useless.
+      const decision = type === "card_updated" ? card.decision : undefined;
       await this.log(orgId, {
         cardId: card.id,
-        type: type === "card_created" ? "created" : "updated",
-        actorUserId: type === "card_created" ? (card.senderUserID || att.userId) : att.userId,
+        type: decision?.action ? "decided" : (type === "card_created" ? "created" : "updated"),
+        action: decision?.action,
+        actorUserId: decision?.action
+          ? (decision.actorUserID || att.userId)
+          : (type === "card_created" ? (card.senderUserID || att.userId) : att.userId),
+        note: decision?.note || decision?.replyText,
         snapshot: card,
       });
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });

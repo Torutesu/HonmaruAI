@@ -83,3 +83,24 @@ test("deleting a card keeps its history", async () => {
     .first();
   expect(row).toBeNull();
 });
+
+test("a decision published as card_updated is recorded as a decision", async () => {
+  const ws = await open();
+  ws.send(JSON.stringify({ type: "join", payload: { userId: "octocat", protocol: "agui/1" } }));
+  await sleep(40);
+  ws.send(JSON.stringify({ type: "card_created", payload: { card: card("c-upd") } }));
+  await sleep(60);
+  const decided = {
+    ...card("c-upd"),
+    status: "approved",
+    decision: { action: "approve", actorUserID: "hubot", decidedAt: "2026-08-09T02:00:00Z", note: "fine" },
+  };
+  ws.send(JSON.stringify({ type: "card_updated", payload: { card: decided } }));
+  await sleep(80);
+
+  const events = await listCardEvents(env.DB, "audit-org", "c-upd");
+  expect(events.map((e) => e.type)).toEqual(["created", "decided"]);
+  expect(events[1].action).toBe("approve");
+  expect(events[1].actorUserId).toBe("hubot");
+  expect(events[1].note).toBe("fine");
+});

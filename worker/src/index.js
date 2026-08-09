@@ -8,12 +8,15 @@ import { uploadMedia, serveMedia } from "./media.js";
 
 export { OrgRelay } from "./relay.js";
 
-function providerConfig(env) {
-  if (env.OPENAI_API_KEY) {
+// A user's own key is never stored on our side — it arrives per request and is
+// used for that request only. Never log it.
+function providerConfig(env, userKey) {
+  const openaiKey = userKey || env.OPENAI_API_KEY;
+  if (openaiKey) {
     return {
       providerName: "OpenAI",
       endpoint: "https://api.openai.com/v1/chat/completions",
-      apiKey: env.OPENAI_API_KEY,
+      apiKey: openaiKey,
       model: env.OPENAI_MODEL || "gpt-4o-mini",
     };
   }
@@ -27,7 +30,7 @@ function providerConfig(env) {
       appUrl: "https://tiktokforwork.dev",
     };
   }
-  return undefined; // keyword fallback
+  return undefined;
 }
 
 // Returns an error Response when the caller may not read this org's history, or
@@ -64,13 +67,15 @@ export default {
     }
     if (url.pathname === "/ai/route" && request.method === "POST") {
       const body = await request.json();
+      const userKey = request.headers.get("x-ai-key") || undefined;
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
         organization: body.organization,
         priorityOverride: body.priorityOverride,
         readerLanguage: body.readerLanguage,
-        openRouter: providerConfig(env),
+        senderContext: body.senderContext,
+        openRouter: providerConfig(env, userKey),
       });
       return json(result);
     }

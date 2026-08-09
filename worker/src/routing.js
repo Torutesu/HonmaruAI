@@ -290,12 +290,15 @@ Routing (critical):
 - An escalation → the sender's manager (a "manages" edge pointing at the sender).
 - Otherwise pick the member whose role best fits the instruction.`;
 
-export function buildUserPrompt({ text, sender, organization, readerLanguage }) {
+export function buildUserPrompt({ text, sender, organization, readerLanguage, senderContext }) {
   const orgContext = organizationContext(organization);
+  const contextBlock = senderContext && senderContext.trim()
+    ? `\nSender context: ${senderContext.trim()}\n`
+    : "";
   return `Sender: ${sender.name} (${sender.id}, ${sender.role})
 Reader language: ${readerLanguage || "ja"}
 Instruction: ${text}
-
+${contextBlock}
 Organization:
 ${orgContext}`;
 }
@@ -644,9 +647,10 @@ async function routeInstructionWithOpenRouter({
   priorityOverride,
   openRouter,
   readerLanguage,
+  senderContext,
   attempt = 0,
 }) {
-  const userPrompt = buildUserPrompt({ text, sender, organization, readerLanguage });
+  const userPrompt = buildUserPrompt({ text, sender, organization, readerLanguage, senderContext });
 
   // OpenAI and OpenRouter speak the same chat/completions dialect, tools
   // included, so the provider is just an endpoint and a couple of headers.
@@ -710,6 +714,8 @@ async function routeInstructionWithOpenRouter({
         organization,
         priorityOverride,
         openRouter,
+        readerLanguage,
+        senderContext,
         attempt: attempt + 1,
       });
     }
@@ -744,6 +750,7 @@ export async function routeInstruction({
   priorityOverride,
   openRouter,
   readerLanguage,
+  senderContext,
 }) {
   if (openRouter?.apiKey) {
     try {
@@ -754,6 +761,7 @@ export async function routeInstruction({
         priorityOverride,
         openRouter,
         readerLanguage,
+        senderContext,
       });
       return { ...routed, routedBy: openRouter.providerName || "llm" };
     } catch (error) {

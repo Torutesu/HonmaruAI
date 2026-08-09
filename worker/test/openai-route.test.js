@@ -1,4 +1,4 @@
-import { fetchMock } from "cloudflare:test";
+import { SELF, fetchMock } from "cloudflare:test";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import { routeInstruction, buildAgentTools } from "../src/routing.js";
 
@@ -93,4 +93,33 @@ test("an invalid OpenAI recipient is rejected and falls back to a real member", 
   expect(res.routedBy).toBe("fallback");
   expect(res.routingError).toBeTruthy();
   expect(["octocat", "hubot"]).toContain(res.recipientUserID);
+});
+
+test("a caller-supplied key is used for routing", async () => {
+  let seenAuth;
+  fetchMock.get("https://api.openai.com")
+    .intercept({
+      path: "/v1/chat/completions",
+      method: "POST",
+      headers: (h) => {
+        seenAuth = h.authorization;
+        return true;
+      },
+    })
+    .reply(200, toolCallReply("hubot"));
+
+  const res = await SELF.fetch("https://example.com/ai/route", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-ai-key": "sk-user-key" },
+    body: JSON.stringify({
+      text: "Ask hubot to review the deploy",
+      sender: { id: "octocat", name: "octocat" },
+      organization: REAL_ORG,
+    }),
+  });
+
+  expect(res.status).toBe(200);
+  const card = await res.json();
+  expect(card.routedBy).toBe("OpenAI");
+  expect(seenAuth).toBe("Bearer sk-user-key");
 });
