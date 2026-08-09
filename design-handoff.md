@@ -1,50 +1,83 @@
 # Design handoff — Figma
 
-**File:** [TikTok for Work — Current State (2026-08)](https://www.figma.com/design/6gMGzJwY1bHStnIKEhxu9h)
-Team: Select (pro) · Last generated: 2026-08-09
+**File:** https://www.figma.com/design/6gMGzJwY1bHStnIKEhxu9h
+Team: Select (pro) · Regenerated 2026-08-09
 
-Everything in that file was generated from the SwiftUI source via the Figma MCP server, not from a
-previous design file. Where `design.md` and the code disagreed, the code won.
+> **Mirrors `claude/testflight-light` @ `9dc4b82`, not `main`.**
+> `main` has not moved since 30 July and nothing has been merged into it. This file
+> tracks the newest branch — the only one carrying the white marble design system.
+
+## Why this branch
+
+Nine branches are open ahead of `main`, and three of them hold mutually incompatible
+design directions:
+
+| Direction | Where | Character |
+|---|---|---|
+| **B. Light "white marble"** | `claude/testflight-light` (8 Aug) | Written spec in `docs/design-system.md`. **This file.** |
+| C. design v3 "calm" | `claude/current-features-gaps` (1 Aug) | Largest branch. Only light/dark system, iOS+Web shared tokens. |
+| A. Dark placeholder | `main`, `cross-platform-strategy` | Never deliberately designed. |
+
+Picking B is a working assumption. Choosing between B and C is still the first
+real decision — see `docs/DESIGN_HANDOFF.ja.md` on
+`claude/designer-project-handoff-docs` for the longer cross-branch map.
 
 ## Pages
 
 | Page | Contents |
 |------|----------|
-| `00 · Read me` | Handoff brief: what the product is, the one flow that matters, real vs mocked, and the ranked open design questions |
-| `01 · Screens` | 8 iPhone frames (393×852) — Auth signed out / repo selected, Feed empty, Decision Card pending, mid-swipe, issue created, drafting banner, processing overlay |
-| `02 · Sheets` | 7 sheets — Your AI, Review card, Card detail, Revise, Delegate, Switch user, Organization. Detents are in the frame names |
-| `03 · Components` | 11 Figma components named after the structs in `Design/Components.swift` |
-| `04 · Tokens` | Colour, type, spacing and radius, each bound to a variable in the `Tokens` collection |
+| `00 · Read me` | Handoff brief: branch provenance, the two surfaces, real vs mocked, ranked open questions |
+| `01 · Core app` | 5 screens — Home/Cards (two generated card shapes), Home/Classic, You, Capture |
+| `02 · Onboarding` | 5 screens — welcome, routing explainer, swipe tutorial, GitHub sign-in (skippable), persona |
+| `04 · Components` | 13 Figma components named after the SwiftUI structs |
+| `05 · Tokens` | White marble palette, conic rainbow, type ramp, radius and spacing scales |
 
 ## Tokens
 
-The `Tokens` variable collection (21 variables, single `Dark` mode) mirrors
-`TikTokForWork/Design/Theme.swift`. Every fill and corner radius in the file is bound to it, so
-recolouring a variable updates every screen.
+The `Tokens` collection (31 variables, single `Light` mode) mirrors
+`TikTokForWork/Design/Theme.swift` plus the values `docs/design-system.md` defines but
+Theme does not yet carry (`plaster`, `mint`, `onyx`).
 
-One addition: `color/warning` (`#FBBF24`). It is used in code for high priority and deadline
-insights but is not declared in `Theme.swift`.
+Two things are deliberately *not* variable-bound:
+
+- **Translucent tints** (kind tags at 10%, routing reason at 7%, block pills at 8%).
+  Figma discards paint opacity when a colour variable is bound to a paint, so these
+  are raw paints.
+- **The conic rainbow.** Figma cannot bind a gradient to a variable.
 
 ## Open questions raised in the file
 
-Listed in full on `00 · Read me`. The ones that need a product decision rather than polish:
+Full list on `00 · Read me`. The ones that need a decision rather than polish:
 
-1. `design.md` no longer matches `Theme.swift` — background, surface, card title size and button
-   radius all differ. One of the two needs to be retired.
-2. A single Decision Card offers five ways to act (Create issue, Decline, Revise, Delegate, plus
-   two swipe directions) on a surface whose stated principle is "one card, one decision".
-3. `issueGreen` `#238636` is GitHub's brand green and the only saturated fill in the app.
-4. Resolved cards have ~200pt of empty space below the fold once the action block is gone.
-5. The org graph renders as flat rows plus monospaced relationship strings, but routing decisions
-   are justified from it.
+1. Pick one of the three design directions.
+2. **The design system's typefaces do not ship.** `docs/design-system.md` specifies
+   Plus Jakarta Sans, Inter and Sometype Mono. There are no font files in the project
+   and no `Font.custom` anywhere — every screen renders SF Pro.
+3. **Two primary buttons, two shapes.** The card's Approve is a `Capsule`;
+   `PrimaryButton` — used by all five onboarding screens — is still the 10pt rounded
+   rect from the dark build.
+4. **`GitHubPrimaryButton` is off-palette and off-shape.** Connecting GitHub silently
+   changes the card's primary action from a dark pill to a green rectangle.
+5. **The card body has no fixed layout, by design.** `GeneratedBlocks` emits an amount,
+   deadline, metric or side-by-side choice from the agent's own context string. This
+   needs designing as a system of blocks, not as one card.
+6. **The open-count badge renders on both segments** of `HomeSegmentedControl`.
+7. **The product has two names** — Honmaru AI in the repo and the design system,
+   TikTok for Work in the Xcode target, README and `tiktokforwork://` URL scheme.
+
+## Related Figma work
+
+`docs/design-system.md` on the same branch points at
+[Honmaru-AI-Mobile-App-UI-UX-Design](https://www.figma.com/design/ii8w8x7gvN3wp70vlszBSa),
+which holds the Onboarding v3 (12 screens) and Core App v3 (6 screens) sections on its
+`Refference` page.
+
+That file is on a **Starter** team, so the Figma MCP server refuses tool calls against
+it — the same blocker recorded at the top of `docs/figma/classic-slack-rebuild.js`.
+Moving it to a Professional team would unblock both that staged script and any attempt
+to consolidate the two files.
 
 ## Keeping it in sync
 
-Re-running the generation overwrites nothing automatically — the Figma file is a snapshot. When
-screens change materially in code, regenerate the affected frames rather than hand-editing them,
-so the file keeps its single source of truth.
-
-## Not represented
-
-Motion (120–200ms per `design.md`), haptics, and native iOS controls (repository picker menu,
-confirmation dialog, error alerts) are approximated or absent.
+The Figma file is a snapshot, not a live mirror. When screens change materially in
+code, regenerate the affected frames rather than hand-editing them.
