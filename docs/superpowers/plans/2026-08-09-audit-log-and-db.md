@@ -752,16 +752,13 @@ git commit -m "feat(worker): sessions expire after 30 days"
 
 **Files:** none (operational)
 
-- [ ] **Step 1: Create the new table on the deployed D1**
+- [ ] **Step 1: Add the card columns to the live table FIRST**
 
-`schema.sql` is all `CREATE TABLE IF NOT EXISTS`, so re-running it adds `card_events` and the new indexes without touching existing tables:
-
-Run: `cd worker && npx wrangler d1 execute tiktokforwork --remote --file=./schema.sql`
-Expected: executes without error.
-
-- [ ] **Step 2: Add the card columns to the live table**
-
-`CREATE TABLE IF NOT EXISTS` will NOT add columns to the existing `cards` table, so add them explicitly:
+Order matters: `schema.sql` ends with `CREATE INDEX … ON cards (org_id, status)`, and
+that index cannot be created before the column exists. Running the schema first
+fails with `no such column: status` and rolls the whole file back (verified).
+`CREATE TABLE IF NOT EXISTS` will NOT add columns to the existing `cards` table,
+so add them explicitly first:
 
 ```bash
 cd worker
@@ -772,6 +769,14 @@ npx wrangler d1 execute tiktokforwork --remote --command "ALTER TABLE cards ADD 
 npx wrangler d1 execute tiktokforwork --remote --command "CREATE INDEX IF NOT EXISTS idx_cards_status ON cards (org_id, status)"
 ```
 Expected: each succeeds. If one reports `duplicate column name`, that column already exists — that is fine, continue with the rest.
+
+- [ ] **Step 2: Now create the new table and indexes**
+
+With the columns in place, the schema file applies cleanly and adds `card_events`
+plus every `IF NOT EXISTS` index without touching existing tables:
+
+Run: `cd worker && npx wrangler d1 execute tiktokforwork --remote --file=./schema.sql`
+Expected: "Executed N queries" with no error.
 
 - [ ] **Step 3: Verify the live schema**
 
