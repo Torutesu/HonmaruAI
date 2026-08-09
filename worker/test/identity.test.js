@@ -28,6 +28,27 @@ test("upsertUser then getUserByGithubId round-trips and updates", async () => {
   expect(u.locale).toBe("ja");
 });
 
+test("expired sessions are rejected, legacy and fresh ones are not", async () => {
+  await env.DB
+    .prepare(
+      `INSERT INTO sessions (token, github_id, github_access_token, created_at, expires_at)
+       VALUES ('tok-expired', '901', 'gho_x', '2020-01-01T00:00:00Z', '2020-02-01T00:00:00Z')`
+    )
+    .run();
+  expect(await getSession(env.DB, "tok-expired")).toBeNull();
+
+  await env.DB
+    .prepare(
+      `INSERT INTO sessions (token, github_id, github_access_token, created_at)
+       VALUES ('tok-legacy', '902', 'gho_y', '2020-01-01T00:00:00Z')`
+    )
+    .run();
+  expect((await getSession(env.DB, "tok-legacy")).github_id).toBe("902");
+
+  const fresh = await createSession(env.DB, "903", "gho_z");
+  expect((await getSession(env.DB, fresh)).github_id).toBe("903");
+});
+
 test("upsertMembership and upsertAgent are idempotent", async () => {
   await upsertMembership(env.DB, "acme/web", "7", "Admin");
   await upsertMembership(env.DB, "acme/web", "7", "Engineer"); // update role

@@ -14,22 +14,32 @@ export async function loadStore(db, orgId) {
 }
 
 export async function saveCard(db, orgId, card) {
+  const now = new Date().toISOString();
   await db
     .prepare(
-      `INSERT INTO cards (org_id, card_id, recipient_user_id, sender_user_id, created_at, data)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+      `INSERT INTO cards (org_id, card_id, recipient_user_id, sender_user_id, created_at, data,
+                          status, priority, decided_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
        ON CONFLICT(org_id, card_id) DO UPDATE SET
          recipient_user_id = excluded.recipient_user_id,
          sender_user_id = excluded.sender_user_id,
-         data = excluded.data`
+         data = excluded.data,
+         status = excluded.status,
+         priority = excluded.priority,
+         decided_at = excluded.decided_at,
+         updated_at = excluded.updated_at`
     )
     .bind(
       orgId,
       card.id,
       card.recipientUserID,
       card.senderUserID || null,
-      card.createdAt || new Date().toISOString(),
-      JSON.stringify(card)
+      card.createdAt || now,
+      JSON.stringify(card),
+      card.status || null,
+      card.priority || null,
+      card.decision?.decidedAt || null,
+      now
     )
     .run();
 }
@@ -65,14 +75,18 @@ export async function saveContext(db, orgId, userId, context) {
     .run();
 }
 
+const SESSION_DAYS = 30;
+
 export async function createSession(db, githubId, accessToken) {
   const token = crypto.randomUUID();
+  const now = new Date();
+  const expires = new Date(now.getTime() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   await db
     .prepare(
-      `INSERT INTO sessions (token, github_id, github_access_token, created_at)
-       VALUES (?1, ?2, ?3, ?4)`
+      `INSERT INTO sessions (token, github_id, github_access_token, created_at, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?5)`
     )
-    .bind(token, githubId, accessToken, new Date().toISOString())
+    .bind(token, githubId, accessToken, now.toISOString(), expires.toISOString())
     .run();
   return token;
 }
@@ -80,10 +94,16 @@ export async function createSession(db, githubId, accessToken) {
 export async function getSession(db, token) {
   if (!token) return null;
   const row = await db
-    .prepare("SELECT token, github_id, github_access_token FROM sessions WHERE token = ?1")
+    .prepare(
+      "SELECT token, github_id, github_access_token, expires_at FROM sessions WHERE token = ?1"
+    )
     .bind(token)
     .first();
-  return row || null;
+  if (!row) return null;
+  // A NULL expiry is a session minted before expiry existed — still valid, so
+  // shipping this does not sign out the people currently testing.
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) return null;
+  return row;
 }
 
 export async function upsertUser(db, { githubId, login, name, avatarUrl, locale }) {

@@ -35,9 +35,14 @@ CREATE TABLE IF NOT EXISTS cards (
   sender_user_id    TEXT,
   created_at        TEXT NOT NULL,
   data              TEXT NOT NULL,
+  status            TEXT,
+  priority          TEXT,
+  decided_at        TEXT,
+  updated_at        TEXT,
   PRIMARY KEY (org_id, card_id)
 );
 CREATE INDEX IF NOT EXISTS idx_cards_recipient ON cards (org_id, recipient_user_id);
+CREATE INDEX IF NOT EXISTS idx_cards_status ON cards (org_id, status);
 
 CREATE TABLE IF NOT EXISTS contexts (
   org_id  TEXT NOT NULL,
