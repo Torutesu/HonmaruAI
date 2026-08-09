@@ -85,7 +85,24 @@ final class AppState: ObservableObject {
         )
     }
 
+    /// Whether the current session is a look-around guest (no GitHub sign-in).
+    @Published private(set) var isGuest = false
+
+    /// Enter without signing in, to look around. There is no org and no relay
+    /// connection — the feed is empty and AI routing has no teammates — but the
+    /// UI is fully explorable, and the user can sign in later from the account
+    /// screen to get the real thing.
+    func activateGuestSession() {
+        isGuest = true
+        organization = OrganizationGraph(nodes: [], edges: [])
+        let guest = User(id: "guest", name: "Guest", role: "Guest", teamID: nil, githubUsername: nil)
+        cardService.setActiveUser(guest.id)
+        currentUser = guest
+        isAuthenticated = true
+    }
+
     func activateGitHubSession(connection: GitHubConnection) async {
+        isGuest = false
         let user = AppState.user(from: connection)
         SessionStore.currentUserID = user.id
         cardService.setActiveUser(user.id)
@@ -133,6 +150,7 @@ final class AppState: ObservableObject {
         cardService.reset()
         SessionStore.clear()
         UserDefaults.standard.removeObject(forKey: FirstRunFlags.promptedGitHubConnect)
+        isGuest = false
         isAuthenticated = false
         currentUser = nil
     }

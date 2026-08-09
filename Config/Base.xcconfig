@@ -4,11 +4,9 @@
 // here. Scheme and host are kept separate and joined in Info.plist, where the
 // slashes are harmless.
 
-// Loopback is right for the simulator, where the Mac is the host.
-RELAY_SCHEME = ws
-RELAY_HOST = 127.0.0.1:8080
-
-// Written by scripts/device.sh with the Mac's LAN address, so a build for a
-// physical device reaches the relay instead of the phone itself. Gitignored,
-// and optional — the "?" means a missing file is not an error.
-#include? "Local.xcconfig"
+// The deployed Cloudflare backend. Every build — simulator, device, and
+// TestFlight — talks to the hosted relay over wss. (The old localhost/LAN
+// scheme via scripts/device.sh + Local.xcconfig is retired: it silently shipped
+// a dev machine's LAN address into TestFlight, so every request hung.)
+RELAY_SCHEME = wss
+RELAY_HOST = tiktokforwork.torubj0904.workers.dev

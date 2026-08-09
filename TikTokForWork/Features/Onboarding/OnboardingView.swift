@@ -242,6 +242,15 @@ struct OnboardingView: View {
                         ProgressView().tint(Theme.Colors.background)
                     }
                 }
+
+                Button {
+                    appState.activateGuestSession()
+                } label: {
+                    Text("Continue without signing in")
+                        .font(Theme.TypeScale.label)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+                .disabled(isConnecting || isSigningIn)
             }
             .padding(.bottom, Theme.Spacing.xl)
         }

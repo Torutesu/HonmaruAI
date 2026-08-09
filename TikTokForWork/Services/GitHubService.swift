@@ -239,7 +239,9 @@ final class GitHubService: NSObject, ObservableObject {
 
     private func fetchOAuthConfig(backendBaseURL: URL) async throws -> GitHubOAuthConfig {
         let url = backendBaseURL.appending(path: "oauth/github/config")
-        let (data, response) = try await URLSession.shared.data(from: url)
+        var configRequest = URLRequest(url: url)
+        configRequest.timeoutInterval = 12
+        let (data, response) = try await URLSession.shared.data(for: configRequest)
         guard let http = response as? HTTPURLResponse else {
             throw GitHubServiceError.api(statusCode: 0, message: "No response from relay server.")
         }
@@ -309,6 +311,7 @@ final class GitHubService: NSObject, ObservableObject {
         let url = backendBaseURL.appending(path: "oauth/github/token")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
 
