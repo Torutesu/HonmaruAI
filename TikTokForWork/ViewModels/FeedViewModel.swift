@@ -16,15 +16,11 @@ final class FeedViewModel: ObservableObject {
     /// Held between drafting and sending: the review sheet sits in between, and
     /// the clip belongs to the card that comes out the far side.
     private var pendingVideoURL: String?
-    @Published var arrivalNote: String?
-    @Published var isTriaging = false
-
     private var cardService: DecisionCardService?
     private var githubService: GitHubService?
     private var userID: String?
     private var draftTask: Task<Void, Never>?
     private var githubSyncTask: Task<Void, Never>?
-    private var arrivalNoteTask: Task<Void, Never>?
 
     var currentIndex: Int {
         guard let scrollPosition,
@@ -43,21 +39,12 @@ final class FeedViewModel: ObservableObject {
         self.githubService = githubService
         userID = user.id
         refreshCards(from: service)
-        // First run may still be waiting on the relay snapshot before seeding
-        // kicks in — show the triage state rather than a generic empty feed.
-        if cards.isEmpty, !UserDefaults.standard.bool(forKey: FirstRunFlags.seededFeed) {
-            isTriaging = true
-        }
 
         service.onCardsUpdated = { [weak self] in
             guard let self, let cardService = self.cardService else { return }
             withAnimation(.easeOut(duration: 0.2)) {
                 self.refreshCards(from: cardService)
             }
-        }
-
-        service.onSeedArrival = { [weak self] count in
-            self?.showArrivalNote(count: count)
         }
 
         githubSyncTask?.cancel()
@@ -271,30 +258,11 @@ final class FeedViewModel: ObservableObject {
     }
 
 
-    private func showArrivalNote(count: Int) {
-        isTriaging = false
-        arrivalNoteTask?.cancel()
-        withAnimation(.easeOut(duration: 0.25)) {
-            arrivalNote = count == 1
-                ? "Your AI triaged 1 decision for you"
-                : "Your AI triaged \(count) decisions for you"
-        }
-
-        arrivalNoteTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.4)) {
-                self?.arrivalNote = nil
-            }
-        }
-    }
-
     private func refreshCards(from service: DecisionCardService) {
         guard let userID else { return }
         let previousCount = cards.count
         let updated = service.cards(for: userID)
         cards = updated
-        isTriaging = updated.isEmpty && service.isSeedingActive
 
         if updated.isEmpty {
             scrollPosition = nil

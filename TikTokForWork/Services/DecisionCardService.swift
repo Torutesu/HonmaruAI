@@ -17,12 +17,8 @@ final class DecisionCardService: ObservableObject {
     private var cardsByUser: [String: [DecisionCard]] = [:]
     private weak var webSocketService: WebSocketService?
     private var activeUserID: String?
-    private var isSeeding = false
 
     var onCardsUpdated: (() -> Void)?
-    var onSeedArrival: ((Int) -> Void)?
-
-    var isSeedingActive: Bool { isSeeding }
 
     func attach(webSocketService: WebSocketService) {
         self.webSocketService = webSocketService
@@ -36,86 +32,19 @@ final class DecisionCardService: ObservableObject {
     }
 
     func applySnapshot(_ incoming: [String: [DecisionCard]]) {
-        let incomingIsEmpty = incoming.values.allSatisfy(\.isEmpty)
-        let localCards = cardsByUser.values.flatMap { $0 }
-
-        if incomingIsEmpty, !localCards.isEmpty {
-            // Relay store is empty but we already hold cards (e.g. a seeded first-run
-            // feed before the socket came up): push ours up instead of wiping the feed.
-            Task { [weak self] in
-                for card in localCards {
-                    await self?.webSocketService?.publishCreated(card)
-                }
-            }
-            onCardsUpdated?()
-            return
-        }
-
         cardsByUser = incoming
         onCardsUpdated?()
-
-        if incomingIsEmpty {
-            seedDemoFeedIfNeeded()
-        }
     }
 
     func bootstrap(for user: User) {
         activeUserID = user.id
-        if cardsByUser.isEmpty {
-            seedDemoFeedIfNeeded()
-        }
         onCardsUpdated?()
     }
 
-    /// Puts the demo feed in place. The current user's cards stream in with a
-    /// short stagger so the feed visibly "arrives" instead of popping in fully
-    /// formed.
-    ///
-    /// It runs every launch and only adds what is missing, so the app is never
-    /// found empty. Seeding once per install meant a demo could be ruined by
-    /// the previous one, and getting the cards back needed a settings trip.
-    func seedDemoFeedIfNeeded() {
-        guard !isSeeding else { return }
-
-        let existing = Set(cardsByUser.values.flatMap { $0 }.map(\.id))
-        let seeds = DemoData.seedCards().filter { !existing.contains($0.id) }
-        guard !seeds.isEmpty else { return }
-        isSeeding = true
-        let visibleUserID = activeUserID
-        let backgroundSeeds = seeds.filter { $0.recipientUserID != visibleUserID }
-        let visibleSeeds = seeds
-            .filter { $0.recipientUserID == visibleUserID }
-            .sorted { $0.createdAt < $1.createdAt }
-
-        for card in backgroundSeeds {
-            append(card, for: card.recipientUserID)
-        }
-        onCardsUpdated?()
-
-        Task { [weak self] in
-            guard let self else { return }
-            for card in backgroundSeeds {
-                await self.webSocketService?.publishCreated(card)
-            }
-            try? await Task.sleep(for: .milliseconds(350))
-            for (index, card) in visibleSeeds.enumerated() {
-                self.append(card, for: card.recipientUserID)
-                self.onCardsUpdated?()
-                await self.webSocketService?.publishCreated(card)
-                if index < visibleSeeds.count - 1 {
-                    try? await Task.sleep(for: .milliseconds(450))
-                }
-            }
-            self.isSeeding = false
-            if !visibleSeeds.isEmpty {
-                self.onSeedArrival?(visibleSeeds.count)
-            }
-        }
-    }
-
-    static func resetSeedMarker() {
-        UserDefaults.standard.removeObject(forKey: FirstRunFlags.seededFeed)
-    }
+    /// No-op: demo seeding is disabled. The feed starts empty and fills only
+    /// from real relay events. Method retained so call sites that have not yet
+    /// been removed still compile.
+    func seedDemoFeedIfNeeded() {}
 
     func reset() {
         cardsByUser = [:]

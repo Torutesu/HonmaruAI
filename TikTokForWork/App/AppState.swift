@@ -111,7 +111,6 @@ final class AppState: ObservableObject {
         githubService.disconnect()
         cardService.reset()
         SessionStore.clear()
-        DecisionCardService.resetSeedMarker()
         UserDefaults.standard.removeObject(forKey: FirstRunFlags.promptedGitHubConnect)
         isAuthenticated = false
         currentUser = nil

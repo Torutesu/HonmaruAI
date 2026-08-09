@@ -27,11 +27,7 @@ struct FeedView: View {
             Theme.Colors.background.ignoresSafeArea()
 
             if viewModel.cards.isEmpty {
-                if viewModel.isTriaging {
-                    triagingState
-                } else {
-                    emptyState
-                }
+                emptyState
             } else {
                 ScrollView(.vertical) {
                     LazyVStack(spacing: 0) {
@@ -80,21 +76,6 @@ struct FeedView: View {
                 }
             }
 
-            if let note = viewModel.arrivalNote {
-                VStack {
-                    Text(note)
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .padding(.horizontal, Theme.Spacing.md)
-                        .padding(.vertical, Theme.Spacing.sm)
-                        .background(Theme.Colors.surfaceRaised)
-                        .clipShape(Capsule())
-                        .transition(.opacity)
-                    Spacer()
-                }
-                .padding(.top, Theme.Spacing.sm)
-                .allowsHitTesting(false)
-            }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if showsChrome { topBar }
@@ -267,28 +248,13 @@ struct FeedView: View {
         )
     }
 
-    private var triagingState: some View {
-        VStack(spacing: Theme.Spacing.md) {
-            ProgressView()
-                .tint(Theme.Colors.accent)
-            Text("Your AI is triaging your decisions…")
-                .font(Theme.TypeScale.caption)
-                .foregroundStyle(Theme.Colors.textTertiary)
-        }
-    }
-
     private var emptyState: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            Text("Tell your AI what you need")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Theme.Colors.textPrimary)
-            Text("Decisions will show up here")
+            Text(String(localized: "No decisions yet. Tell your AI something, or wait for a teammate."))
                 .font(Theme.TypeScale.caption)
                 .foregroundStyle(Theme.Colors.textTertiary)
-            Text("Use Tell your AI below to route one")
-                .font(Theme.TypeScale.micro)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .padding(.top, Theme.Spacing.xs)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Theme.Spacing.md)
         }
     }
 
