@@ -9,6 +9,9 @@ struct FeedView: View {
     /// Incremented by the shell's ＋ button. The draft chain lives here with the
     /// view model, so the shell asks for it rather than rebuilding it.
     var composeTick: Int = 0
+    /// What the capture screen came back with. Arrives already uploaded, so the
+    /// draft chain starts the moment it is set.
+    var captured: CaptureRequest?
 
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = FeedViewModel()
@@ -73,6 +76,10 @@ struct FeedView: View {
         }
         .onChange(of: composeTick) { _, _ in
             showAIInput = true
+        }
+        .onChange(of: captured) { _, request in
+            guard let request else { return }
+            viewModel.beginDraft(request.text, priority: .medium, appState: appState, videoURL: request.videoURL)
         }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {

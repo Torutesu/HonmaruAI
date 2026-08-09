@@ -18,6 +18,10 @@ enum MediaUploader {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+        if let token = SessionStore.sessionToken {
+            request.setValue(token, forHTTPHeaderField: "x-session-token")
+        }
         // Uploading from a file keeps the clip off the heap; a minute of video
         // read into Data is tens of megabytes the phone does not need to hold.
         let (data, response) = try await URLSession.shared.upload(for: request, fromFile: file)

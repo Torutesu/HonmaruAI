@@ -13,6 +13,9 @@ enum AppTab: Hashable {
 struct AppTabBar: View {
     @Binding var selection: AppTab
     let onCompose: () -> Void
+    /// The way in without a camera, on a long press. Nil leaves the ＋ doing
+    /// one thing.
+    var onComposeText: (() -> Void)?
 
     var body: some View {
         HStack {
@@ -58,7 +61,11 @@ struct AppTabBar: View {
                         .foregroundStyle(Theme.Colors.textPrimary)
                 }
         }
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.4).onEnded { _ in onComposeText?() }
+        )
         .accessibilityLabel(Text("Create"))
+        .accessibilityAction(named: Text("Type instead")) { onComposeText?() }
     }
 }
 
