@@ -7,6 +7,7 @@ import {
   loadStore, saveCard, removeCard, clearCards, loadContexts, saveContext,
   getSession, getUserByGithubId,
 } from "./db.js";
+import { appendCardEvent } from "./events.js";
 
 export class OrgRelay {
   constructor(state, env) {
@@ -38,6 +39,15 @@ export class OrgRelay {
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
       if (att?.orgId === orgId && att?.userId === userId) ws.send(text);
+    }
+  }
+
+  /// Recording history must never break the mutation it records.
+  async log(orgId, event) {
+    try {
+      await appendCardEvent(this.db, orgId, event);
+    } catch (err) {
+      console.error("card event log failed", err);
     }
   }
 
@@ -82,6 +92,12 @@ export class OrgRelay {
       if (!payload.card?.id) return;
       const card = payload.card;
       await saveCard(this.db, orgId, card);
+      await this.log(orgId, {
+        cardId: card.id,
+        type: type === "card_created" ? "created" : "updated",
+        actorUserId: type === "card_created" ? (card.senderUserID || att.userId) : att.userId,
+        snapshot: card,
+      });
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
@@ -90,7 +106,14 @@ export class OrgRelay {
 
     if (type === "card_deleted") {
       if (!payload.cardId) return;
+      const store = await loadStore(this.db, orgId);
+      const doomed = Object.values(store).flat().find((item) => item.id === payload.cardId);
       await removeCard(this.db, orgId, payload.cardId);
+      if (doomed) {
+        await this.log(orgId, {
+          cardId: doomed.id, type: "deleted", actorUserId: att.userId, snapshot: doomed,
+        });
+      }
       for (const ev of removeEvents(payload.cardId)) this.broadcast(orgId, ev);
       return;
     }
@@ -106,8 +129,18 @@ export class OrgRelay {
 
     if (type === "rollback") {
       const store = await loadStore(this.db, orgId);
+      const before = JSON.parse(JSON.stringify(
+        Object.values(store).flat().find((item) => item.id === payload.cardId) || null
+      ));
       const { card, notice } = applyRollback(store, payload.cardId, att.userId);
       await saveCard(this.db, orgId, card);
+      await this.log(orgId, {
+        cardId: card.id,
+        type: "rolled_back",
+        action: before?.decision?.action,
+        actorUserId: att.userId,
+        snapshot: before || card,
+      });
       this.broadcast(orgId, notice);
       const { forEveryone } = upsertEvents(card, { isNew: false });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
@@ -129,9 +162,18 @@ export class OrgRelay {
     const out = applyDecision(store, content);
     if (out.removed) {
       await removeCard(this.db, orgId, out.card.id);
+      await this.log(orgId, {
+        cardId: out.card.id, type: "deleted", action: content.action,
+        actorUserId: content.actorUserID, note: content.note, snapshot: out.card,
+      });
       for (const ev of removeEvents(out.card.id)) this.broadcast(orgId, ev);
     } else if (!out.unchanged) {
       await saveCard(this.db, orgId, out.card);
+      await this.log(orgId, {
+        cardId: out.card.id, type: "decided", action: content.action,
+        actorUserId: content.actorUserID, note: content.note || content.replyText,
+        snapshot: out.card,
+      });
       const { forEveryone } = upsertEvents(out.card, { isNew: false });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
     }
