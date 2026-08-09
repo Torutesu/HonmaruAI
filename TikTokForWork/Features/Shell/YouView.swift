@@ -10,6 +10,7 @@ struct YouView: View {
     @State private var showConnectGitHub = false
 
     var body: some View {
+        NavigationStack {
         ScrollView {
             VStack(spacing: Theme.Spacing.md) {
                 header
@@ -22,20 +23,15 @@ struct YouView: View {
                     }
                 }
 
-                // Rows from the "Core App v3" mock whose features do not exist
-                // on this branch. They are shown dimmed and labelled rather than
-                // wired to nothing, so the screen never implies it can do
-                // something it cannot.
                 group {
                     pendingRow(String(localized: "Plan"))
-                    pendingRow(String(localized: "API key"))
-                    pendingRow(String(localized: "Context"))
+                    navRow(String(localized: "API key")) { APIKeyView() }
+                    navRow(String(localized: "Context")) { ContextView() }
                 }
 
                 group {
-                    pendingRow(String(localized: "Rollback history"))
+                    navRow(String(localized: "History")) { HistoryView() }
                     pendingRow(String(localized: "Notifications"))
-                    pendingRow(String(localized: "Set classic view as default"))
                 }
 
                 group {
@@ -87,6 +83,7 @@ struct YouView: View {
                 .presentationDetents([.medium, .large])
                 .presentationBackground(Theme.Colors.surface)
         }
+        } // NavigationStack
     }
 
     private var versionString: String {
@@ -159,6 +156,27 @@ struct YouView: View {
         }
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, 13)
+    }
+
+    /// A row that pushes a real screen, styled like `row(_:value:)`.
+    private func navRow<Destination: View>(
+        _ title: String,
+        @ViewBuilder destination: @escaping () -> Destination
+    ) -> some View {
+        NavigationLink { destination().environmentObject(appState) } label: {
+            HStack {
+                Text(title)
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, 13)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

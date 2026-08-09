@@ -430,10 +430,15 @@
         }
       }
     },
-    "Can't load the video" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "動画を読み込めません" } }
+    "Can't load the video": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を読み込めません"
+          }
+        }
       }
     },
     "Cancel": {
@@ -502,10 +507,15 @@
         }
       }
     },
-    "Clear" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "消す" } }
+    "Clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消す"
+          }
+        }
       }
     },
     "Chasing money is yours alone": {
@@ -635,7 +645,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "背景"
+            "value": "コンテキスト"
           }
         }
       }
@@ -1267,10 +1277,15 @@
         }
       }
     },
-    "Listening" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "聞き取り中" } }
+    "Listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聞き取り中"
+          }
+        }
       }
     },
     "Loading repositories…": {
@@ -1636,16 +1651,26 @@
         }
       }
     },
-    "Record" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "録音する" } }
+    "Record": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録音する"
+          }
+        }
       }
     },
-    "Recording" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "録音中" } }
+    "Recording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録音中"
+          }
+        }
       }
     },
     "Reads intent, checks the org graph, picks who can decide.": {
@@ -1945,10 +1970,15 @@
         }
       }
     },
-    "Send" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送る" } }
+    "Send": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送る"
+          }
+        }
       }
     },
     "Send decision card": {
@@ -1980,17 +2010,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "修正を送っています"
-          }
-        }
-      }
-    },
-    "Set classic view as default": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラシック表示を既定にする"
           }
         }
       }
@@ -2039,16 +2058,26 @@
         }
       }
     },
-    "Speak now…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "話しかけてください…" } }
+    "Speak now…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "話しかけてください…"
+          }
+        }
       }
     },
-    "Speak · edit · send, and your AI picks the recipient" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "話す · 直せる · 送ると AI が宛先を決めます" } }
+    "Speak · edit · send, and your AI picks the recipient": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "話す · 直せる · 送ると AI が宛先を決めます"
+          }
+        }
       }
     },
     "Skip for now — connect later from the feed": {
@@ -2117,10 +2146,15 @@
         }
       }
     },
-    "Stop recording" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "録音を止める" } }
+    "Stop recording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録音を止める"
+          }
+        }
       }
     },
     "Subject": {
@@ -2453,10 +2487,15 @@
         }
       }
     },
-    "Watch recording" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "録画を見る" } }
+    "Watch recording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録画を見る"
+          }
+        }
       }
     },
     "View details": {
@@ -2950,6 +2989,171 @@
           "stringUnit": {
             "state": "translated",
             "value": "「金曜までに認証の修正をレビューしてもらって」"
+          }
+        }
+      }
+    },
+    "History": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴"
+          }
+        }
+      }
+    },
+    "Nothing has happened yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ何も起きていません。"
+          }
+        }
+      }
+    },
+    "Sign in with GitHub to see your team's history.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの履歴を見るには GitHub でサインインしてください。"
+          }
+        }
+      }
+    },
+    "You are not a member of this repository.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリポジトリのメンバーではありません。"
+          }
+        }
+      }
+    },
+    "Deleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "Undone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消し"
+          }
+        }
+      }
+    },
+    "Approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
+          }
+        }
+      }
+    },
+    "Replied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信"
+          }
+        }
+      }
+    },
+    "Decided": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定"
+          }
+        }
+      }
+    },
+    "just now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "たった今"
+          }
+        }
+      }
+    },
+    "Save": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "Saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存しました"
+          }
+        }
+      }
+    },
+    "Tell your AI how you work — what you own, what you care about, who to involve. It uses this when routing your instructions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの仕事の進め方を AI に伝えてください。担当領域、重視すること、巻き込むべき相手。指示のルーティングに使われます。"
+          }
+        }
+      }
+    },
+    "Use your own OpenAI key for routing. It stays in this device's Keychain and is sent only with your own requests — we never store it on our servers.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルーティングにご自身の OpenAI キーを使えます。キーはこの端末のキーチェーンにのみ保存され、あなたのリクエストにのみ送信されます。当方のサーバーには保存しません。"
+          }
+        }
+      }
+    },
+    "History request failed (%lld).": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴の取得に失敗しました (%lld)。"
           }
         }
       }
