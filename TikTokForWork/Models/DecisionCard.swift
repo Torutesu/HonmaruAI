@@ -104,7 +104,7 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     }
 
     var senderName: String {
-        DemoData.userName(for: senderUserID)
+        DisplayName.of(senderUserID)
     }
 
     func showsGitHubLink(for repository: String) -> Bool {

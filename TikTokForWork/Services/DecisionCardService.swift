@@ -159,7 +159,7 @@ final class DecisionCardService: ObservableObject {
             senderUserID: actorUserID,
             type: .notification,
             title: card.title,
-            summary: "\(DemoData.userName(for: actorUserID)) · \(statusLabel)",
+            summary: "\(DisplayName.of(actorUserID)) · \(statusLabel)",
             context: card.revisionNote ?? card.summary,
             status: .pending,
             priority: .medium,
@@ -207,8 +207,8 @@ final class DecisionCardService: ObservableObject {
         cardsByUser[actorUserID] = userCards
         await webSocketService?.publishUpdated(card)
 
-        let actorName = DemoData.userName(for: actorUserID)
-        let recipientName = DemoData.userName(for: recipientUserID)
+        let actorName = DisplayName.of(actorUserID, in: organization)
+        let recipientName = DisplayName.of(recipientUserID, in: organization)
         let delegatedCard = DecisionCard(
             id: UUID().uuidString,
             recipientUserID: recipientUserID,

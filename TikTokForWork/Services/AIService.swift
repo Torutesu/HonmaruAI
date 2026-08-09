@@ -192,10 +192,7 @@ final class AIService: ObservableObject {
     }
 
     private func name(for userID: String, in organization: OrganizationGraph) -> String {
-        if let node = organization.nodes.first(where: { $0.id == userID && $0.kind == .person }) {
-            return node.label.split(separator: "·").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? userID
-        }
-        return userID
+        DisplayName.of(userID, in: organization)
     }
 
     private func parseServerError(_ data: Data) -> String? {

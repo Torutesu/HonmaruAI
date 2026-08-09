@@ -31,7 +31,7 @@ enum OfflineRouter {
             recipient = "user-tanaka"
             reason = String(localized: "The client has to agree to this")
         } else {
-            recipient = DemoUser.toru.user.id
+            recipient = sender.id
             reason = String(localized: "This one is yours to decide")
         }
 
@@ -59,7 +59,7 @@ enum OfflineRouter {
             summary: trimmed,
             context: String(localized: "対応: 手元で作成 · 範囲: オフライン"),
             priority: priority,
-            agentRoute: String(localized: "\(sender.name) → \(DemoData.userName(for: recipient))"),
+            agentRoute: String(localized: "\(sender.name) → \(DisplayName.of(recipient))"),
             routingReason: reason,
             labels: [],
             toolCalls: []
