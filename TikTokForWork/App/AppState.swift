@@ -35,7 +35,7 @@ final class AppState: ObservableObject {
         defer { isBootstrapping = false }
 
         guard let backendBaseURL else { return }
-        await aiService.configure(backendBaseURL: backendBaseURL)
+        aiService.configure(backendBaseURL: backendBaseURL)
         await restoreSessionIfNeeded()
     }
 
@@ -82,7 +82,8 @@ final class AppState: ObservableObject {
         }
         currentUser = user
         isAuthenticated = true
-        await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId))
+        // Load the org in the background so entry never blocks on reachability.
+        Task { await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId)) }
     }
 
     private func orgOwner(_ full: String) -> String { full.split(separator: "/").first.map(String.init) ?? "" }

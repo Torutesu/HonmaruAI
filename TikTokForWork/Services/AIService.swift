@@ -58,9 +58,13 @@ final class AIService: ObservableObject {
         backendBaseURL != nil
     }
 
-    func configure(backendBaseURL: URL) async {
+    /// Sets the backend and kicks off the AI-availability probe in the
+    /// background. App entry must NOT block on reachability, so this is
+    /// deliberately non-async — a slow or stalled `/health` can never hold the
+    /// launch screen.
+    func configure(backendBaseURL: URL) {
         self.backendBaseURL = backendBaseURL
-        await refreshAvailability()
+        Task { await refreshAvailability() }
     }
 
     func refreshAvailability() async {
@@ -75,7 +79,9 @@ final class AIService: ObservableObject {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 6
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 modelName = nil
                 return
