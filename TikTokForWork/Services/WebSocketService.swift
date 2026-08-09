@@ -96,7 +96,7 @@ enum AGUIProtocol {
 }
 
 enum OutboundEvent {
-    case join(userId: String, orgId: String)
+    case join(userId: String, orgId: String, sessionToken: String?)
     case cardCreated(DecisionCard)
     case cardUpdated(DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
@@ -104,18 +104,17 @@ enum OutboundEvent {
 
     var envelope: [String: Any] {
         switch self {
-        case .join(let userId, let orgId):
+        case .join(let userId, let orgId, let sessionToken):
             // Joining with a protocol marker upgrades the session to the
             // AG-UI dialect; older relays ignore the extra field and keep
             // speaking legacy messages, which we still parse below.
-            return [
-                "type": "join",
-                "payload": [
-                    "userId": userId,
-                    "orgId": orgId,
-                    "protocol": AGUIProtocol.version,
-                ],
+            var payload: [String: Any] = [
+                "userId": userId,
+                "orgId": orgId,
+                "protocol": AGUIProtocol.version,
             ]
+            if let sessionToken, !sessionToken.isEmpty { payload["sessionToken"] = sessionToken }
+            return ["type": "join", "payload": payload]
         case .cardCreated(let card):
             return ["type": "card_created", "payload": ["card": card.dictionary]]
         case .cardUpdated(let card):
@@ -145,6 +144,7 @@ final class WebSocketService: ObservableObject {
     private var lastURLString: String?
     private var lastUserID: String?
     private var lastOrgID = "core-team"
+    private var lastSessionToken: String?
     private let session = URLSession(configuration: .default)
 
     /// cardID → recipientUserID, maintained from snapshots and upserts so
@@ -173,11 +173,12 @@ final class WebSocketService: ObservableObject {
         return decoder
     }()
 
-    func connect(urlString: String, userId: String, orgId: String = "core-team") async throws {
+    func connect(urlString: String, userId: String, orgId: String = "core-team", sessionToken: String? = nil) async throws {
         intentionalDisconnect = false
         lastURLString = urlString
         lastUserID = userId
         lastOrgID = orgId
+        lastSessionToken = sessionToken
         disconnect(intentional: true)
 
         guard let url = URL(string: urlString) else {
@@ -195,7 +196,7 @@ final class WebSocketService: ObservableObject {
             await self?.receiveLoop()
         }
 
-        try await send(.join(userId: userId, orgId: orgId))
+        try await send(.join(userId: userId, orgId: orgId, sessionToken: sessionToken))
         isConnected = true
     }
 
@@ -265,7 +266,7 @@ final class WebSocketService: ObservableObject {
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self, !Task.isCancelled, !self.intentionalDisconnect else { return }
-            try? await self.connect(urlString: lastURLString, userId: lastUserID, orgId: self.lastOrgID)
+            try? await self.connect(urlString: lastURLString, userId: lastUserID, orgId: self.lastOrgID, sessionToken: self.lastSessionToken)
         }
     }
 

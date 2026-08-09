@@ -146,7 +146,7 @@ final class FeedViewModel: ObservableObject {
                 cardID: card.id,
                 to: user.id,
                 actorUserID: userID,
-                organization: DemoData.organization,
+                organization: appState.organization,
                 githubService: appState.githubService
             )
             Haptics.success()
@@ -191,7 +191,7 @@ final class FeedViewModel: ObservableObject {
             return try await appState.aiService.draftInstruction(
                 text: text,
                 sender: user,
-                organization: DemoData.organization,
+                organization: appState.organization,
                 priorityOverride: priority
             )
         } catch {

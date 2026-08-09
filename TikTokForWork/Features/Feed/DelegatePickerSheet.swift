@@ -5,12 +5,18 @@ struct DelegatePickerSheet: View {
     let currentUserID: String
     let onPick: (User) -> Void
 
+    @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
     private var candidates: [User] {
-        DemoUser.allCases
-            .map(\.user)
-            .filter { $0.id != currentUserID }
+        appState.organization.nodes
+            .filter { $0.kind == .person && $0.id != currentUserID }
+            .map { node in
+                let parts = node.label.split(separator: "·", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                let name = parts.first ?? node.label
+                let role = parts.count > 1 ? parts[1] : "Member"
+                return User(id: node.id, name: name, role: role, teamID: nil, githubUsername: node.id)
+            }
     }
 
     var body: some View {

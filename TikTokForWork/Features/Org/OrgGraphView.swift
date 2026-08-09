@@ -2,8 +2,9 @@ import SwiftUI
 
 struct OrgGraphView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appState: AppState
 
-    private let graph = DemoData.organization
+    private var graph: OrganizationGraph { appState.organization }
 
     var body: some View {
         NavigationStack {
@@ -68,4 +69,5 @@ struct OrgGraphView: View {
 
 #Preview {
     OrgGraphView()
+        .environmentObject(AppState())
 }

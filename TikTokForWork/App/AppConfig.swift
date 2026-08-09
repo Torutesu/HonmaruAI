@@ -25,8 +25,6 @@ enum AppConfig {
         }
         return "wss://tiktokforwork.torubj0904.workers.dev"
     }()
-
-    static let defaultUser = DemoUser.toru.user
 }
 
 /// UserDefaults keys that gate one-time first-run moments.

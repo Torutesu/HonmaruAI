@@ -161,7 +161,7 @@ final class AIService: ObservableObject {
             throw AIServiceError.invalidResponse
         }
 
-        let recipientName = DemoData.userName(for: routingResponse.recipientUserID)
+        let recipientName = name(for: routingResponse.recipientUserID, in: organization)
         let agentRoute = routingResponse.agentRoute
             ?? "\(sender.name)'s AI → \(recipientName)'s AI"
         let routingReason = routingResponse.routingReason
@@ -183,6 +183,13 @@ final class AIService: ObservableObject {
             labels: routingResponse.labels ?? [],
             toolCalls: routingResponse.toolCalls ?? []
         )
+    }
+
+    private func name(for userID: String, in organization: OrganizationGraph) -> String {
+        if let node = organization.nodes.first(where: { $0.id == userID && $0.kind == .person }) {
+            return node.label.split(separator: "·").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? userID
+        }
+        return userID
     }
 
     private func parseServerError(_ data: Data) -> String? {

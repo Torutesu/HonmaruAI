@@ -12,7 +12,6 @@ struct OnboardingView: View {
         case routing
         case swipe
         case github
-        case persona
     }
 
     @State private var step: Step = .welcome
@@ -23,9 +22,6 @@ struct OnboardingView: View {
     @State private var isConnecting = false
     @State private var isRefreshingRepos = false
     @State private var errorMessage: String?
-
-    // Persona step
-    @State private var enteringUserID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,7 +35,6 @@ struct OnboardingView: View {
                 case .routing: routingStep
                 case .swipe: swipeStep
                 case .github: githubStep
-                case .persona: personaStep
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -211,7 +206,7 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 0) {
             stepTitle(
                 "Sign in with GitHub",
-                subtitle: "Every approval becomes a GitHub Issue your team can track — decisions never get lost in chat."
+                subtitle: "Sign in with GitHub to reach your team. Your teammates are your repo's collaborators, and every approval becomes an Issue you can track."
             )
 
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
@@ -237,25 +232,15 @@ struct OnboardingView: View {
 
             VStack(spacing: Theme.Spacing.sm) {
                 PrimaryButton(
-                    title: appState.githubService.isConnected ? "Continue" : "Connect and continue",
+                    title: "Enter",
                     enabled: canConnectGitHub && !isConnecting && !isSigningIn
                 ) {
-                    connectGitHubAndAdvance()
+                    connectGitHubAndEnter()
                 }
                 .overlay {
                     if isConnecting {
                         ProgressView().tint(Theme.Colors.background)
                     }
-                }
-
-                Button {
-                    Haptics.light()
-                    advance()
-                } label: {
-                    Text("Skip for now — connect later from the feed")
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                        .frame(height: 32)
                 }
             }
             .padding(.bottom, Theme.Spacing.xl)
@@ -409,98 +394,23 @@ struct OnboardingView: View {
         }
     }
 
-    private func connectGitHubAndAdvance() {
-        if appState.githubService.isConnected,
-           selectedRepository?.fullName == appState.githubService.connection?.repository {
-            advance()
-            return
-        }
-
+    private func connectGitHubAndEnter() {
         errorMessage = nil
         isConnecting = true
 
         Task {
             do {
-                if let repository = selectedRepository?.fullName ?? appState.githubService.connection?.repository {
-                    _ = try await appState.githubService.connect(repository: repository)
-                } else {
+                guard let repository = selectedRepository?.fullName
+                    ?? appState.githubService.connection?.repository else {
                     throw GitHubServiceError.missingCredentials
                 }
+                let connection = try await appState.githubService.connect(repository: repository)
                 Haptics.success()
-                advance()
+                await appState.activateGitHubSession(connection: connection)
             } catch {
                 errorMessage = error.localizedDescription
             }
             isConnecting = false
-        }
-    }
-
-    // MARK: - 5. Persona
-
-    private var personaStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            stepTitle(
-                "Who are you?",
-                subtitle: "Each person has their own AI — and sees only the decisions that are theirs to make. You can switch anytime from the feed."
-            )
-
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                ForEach(DemoUser.allCases) { demoUser in
-                    personaRow(demoUser)
-                }
-            }
-            .padding(.top, Theme.Spacing.lg)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func personaRow(_ demoUser: DemoUser) -> some View {
-        Button {
-            enter(demoUser)
-        } label: {
-            HStack(spacing: Theme.Spacing.md) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(demoUser.displayName)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                    Text(demoUser.user.role)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                }
-
-                Spacer()
-
-                if enteringUserID == demoUser.id {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(Theme.Colors.textSecondary)
-                } else if demoUser == .toru {
-                    Text("Start here")
-                        .font(Theme.TypeScale.micro)
-                        .foregroundStyle(Theme.Colors.accent)
-                } else {
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                }
-            }
-            .padding(Theme.Spacing.md)
-            .background(Theme.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
-        }
-        .buttonStyle(.plain)
-        .disabled(enteringUserID != nil)
-    }
-
-    private func enter(_ demoUser: DemoUser) {
-        guard enteringUserID == nil else { return }
-        enteringUserID = demoUser.id
-        Haptics.light()
-
-        Task {
-            await appState.activateSession(as: demoUser.user)
         }
     }
 

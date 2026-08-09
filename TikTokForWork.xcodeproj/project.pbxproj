@@ -60,7 +60,6 @@
 		DC8D27F537E8ACECB7FE9097 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C23763B3066E2A13F50B8D /* AppConfig.swift */; };
 		DD58B03BE813A05DC302635A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9A2EB4E8E9EE3FAA5CF579C5 /* Assets.xcassets */; };
 		E6C4713C78AA0FF264BA9753 /* DecisionCardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E5DA40629B98A94601F06DC /* DecisionCardService.swift */; };
-		E7A9679F6EB4E3A07796F260 /* UserSwitcherSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F4AA4A684B4CEAA8EF8D4C5 /* UserSwitcherSheet.swift */; };
 		E7EE1783477562B0DE801C98 /* CameraViewfinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88107ED503D94F2D9910A0F7 /* CameraViewfinder.swift */; };
 		E95180D025339346C7D339A3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47CDF511A64EC8A49063D0B1 /* RootView.swift */; };
 		F0E1ACF8B655C80BE53223ED /* Organization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F84E8680AEE5FAB69B6DCF4 /* Organization.swift */; };
@@ -84,7 +83,6 @@
 		47CDF511A64EC8A49063D0B1 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		4A79579E123395F8C8DBED15 /* AgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentModels.swift; sourceTree = "<group>"; };
 		4BF5F4F8586DBA5624D8C6E0 /* AppShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShell.swift; sourceTree = "<group>"; };
-		4F4AA4A684B4CEAA8EF8D4C5 /* UserSwitcherSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSwitcherSheet.swift; sourceTree = "<group>"; };
 		5349B1ECC01DECCBD1B04E37 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		5E72B79FFDBF1A5E40F24D03 /* DictationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationService.swift; sourceTree = "<group>"; };
 		60BC4F8F23BB6265F3E0CDB9 /* VideoRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRecorder.swift; sourceTree = "<group>"; };
@@ -286,7 +284,6 @@
 				82558CC8B97D8C0273DBE33A /* SourceChip.swift */,
 				838F4B78CCA3E4A42A832324 /* SourceSheet.swift */,
 				D96E780449264F0AC716EE60 /* TranslatedFrom.swift */,
-				4F4AA4A684B4CEAA8EF8D4C5 /* UserSwitcherSheet.swift */,
 			);
 			path = Feed;
 			sourceTree = "<group>";
@@ -450,7 +447,6 @@
 				1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */,
 				1F16AB9C37F593A86B996D5C /* TranslatedFrom.swift in Sources */,
 				09C9FB765322951B0B772C3E /* User.swift in Sources */,
-				E7A9679F6EB4E3A07796F260 /* UserSwitcherSheet.swift in Sources */,
 				D9CD3AA057BB98FC0D536503 /* VideoRecorder.swift in Sources */,
 				D50B528853838F4769A08FCD /* WebAuthContextProvider.swift in Sources */,
 				2D280564ADDED0AA2BF213A5 /* WebSocketService.swift in Sources */,

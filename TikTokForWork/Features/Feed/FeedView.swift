@@ -17,7 +17,6 @@ struct FeedView: View {
     @StateObject private var viewModel = FeedViewModel()
     @State private var aiPrompt = ""
     @State private var showAIInput = false
-    @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
     @State private var showMenu = false
     @State private var showConnectGitHub = false
@@ -120,22 +119,9 @@ struct FeedView: View {
             )
             Task { await viewModel.syncGitHub() }
         }
-        .sheet(isPresented: $showUserSwitcher) {
-            UserSwitcherSheet { user in
-                Task {
-                    await appState.switchUser(to: user.user)
-                    viewModel.bind(
-                        to: appState.cardService,
-                        user: user.user,
-                        githubService: appState.githubService
-                    )
-                    viewModel.clearSheets()
-                }
-            }
-            .environmentObject(appState)
-        }
         .sheet(isPresented: $showOrgGraph) {
             OrgGraphView()
+                .environmentObject(appState)
         }
         .sheet(isPresented: $showAIInput) {
             AIInputSheet(
@@ -187,6 +173,7 @@ struct FeedView: View {
                     await viewModel.completeDelegate(for: card, to: user, appState: appState)
                 }
             }
+            .environmentObject(appState)
         }
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
             Button("Organization") { showOrgGraph = true }
@@ -215,18 +202,13 @@ struct FeedView: View {
 
     private var topBar: some View {
         HStack(alignment: .center) {
-            Button { showUserSwitcher = true } label: {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(appState.webSocketService.isConnected ? Theme.Colors.approve : Theme.Colors.textTertiary)
-                        .frame(width: 5, height: 5)
-                    Text(appState.currentUser?.name ?? "")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                }
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(appState.webSocketService.isConnected ? Theme.Colors.approve : Theme.Colors.textTertiary)
+                    .frame(width: 5, height: 5)
+                Text(appState.currentUser?.name ?? "")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textPrimary)
             }
 
             Spacer()

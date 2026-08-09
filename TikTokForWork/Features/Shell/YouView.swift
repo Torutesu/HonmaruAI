@@ -6,7 +6,6 @@ import SwiftUI
 struct YouView: View {
     @EnvironmentObject private var appState: AppState
 
-    @State private var showUserSwitcher = false
     @State private var showOrgGraph = false
     @State private var showConnectGitHub = false
 
@@ -41,9 +40,6 @@ struct YouView: View {
 
                 group {
                     row("組織", value: "") { showOrgGraph = true }
-                    row("メンバーを切り替える", value: appState.currentUser?.name ?? "") {
-                        showUserSwitcher = true
-                    }
                 }
 
                 group {
@@ -79,13 +75,10 @@ struct YouView: View {
             .padding(.top, Theme.Spacing.lg)
             .padding(.bottom, Theme.Spacing.xxl)
         }
-        .sheet(isPresented: $showUserSwitcher) {
-            UserSwitcherSheet { user in
-                Task { await appState.switchUser(to: user.user) }
-            }
-            .environmentObject(appState)
+        .sheet(isPresented: $showOrgGraph) {
+            OrgGraphView()
+                .environmentObject(appState)
         }
-        .sheet(isPresented: $showOrgGraph) { OrgGraphView() }
         .sheet(isPresented: $showConnectGitHub) {
             ConnectGitHubSheet(context: .settings)
                 .environmentObject(appState)

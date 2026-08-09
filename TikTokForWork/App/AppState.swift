@@ -5,6 +5,7 @@ final class AppState: ObservableObject {
     @Published var currentUser: User?
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
+    @Published var organization = OrganizationGraph(nodes: [], edges: [])
 
     let cardService = DecisionCardService()
     let githubService = GitHubService()
@@ -39,53 +40,67 @@ final class AppState: ObservableObject {
     }
 
     func restoreSessionIfNeeded() async {
-        // GitHub is optional: a saved persona alone is enough to return to the feed.
-        guard SessionStore.hasSavedGitHubSession else {
-            githubService.restorePartialCredentials()
-            if let userID = SessionStore.currentUserID,
-               let user = DemoData.user(for: userID) {
-                await activateSession(as: user)
-            }
+        guard SessionStore.hasSavedGitHubSession,
+              githubService.restoreSavedSession(),
+              let connection = githubService.connection else {
             return
         }
-
-        let userID = SessionStore.currentUserID ?? AppConfig.defaultUser.id
-        let user = DemoData.user(for: userID) ?? AppConfig.defaultUser
-
-        if githubService.restoreSavedSession() {
-            do {
-                try await githubService.validateSavedSession()
-            } catch {
-                githubService.disconnect()
-            }
+        do {
+            try await githubService.validateSavedSession()
+        } catch {
+            githubService.disconnect()
+            SessionStore.clear()
+            return
         }
-
-        await activateSession(as: user)
+        await activateGitHubSession(connection: connection)
     }
 
-    func activateSession(as user: User = AppConfig.defaultUser) async {
+    static func user(from connection: GitHubConnection) -> User {
+        User(
+            id: connection.username,
+            name: connection.username,
+            role: "Member",
+            teamID: connection.repository,
+            githubUsername: connection.username
+        )
+    }
+
+    func activateGitHubSession(connection: GitHubConnection) async {
+        let user = AppState.user(from: connection)
         SessionStore.currentUserID = user.id
         cardService.setActiveUser(user.id)
-
+        let orgId = connection.repository            // "owner/repo"
         do {
-            try await webSocketService.connect(urlString: relayURL, userId: user.id)
+            try await webSocketService.connect(
+                urlString: relayURL,
+                userId: user.id,
+                orgId: orgId,
+                sessionToken: SessionStore.sessionToken
+            )
         } catch {
-            cardService.bootstrap(for: user)
+            // Relay unreachable: still let the user in; the feed will be empty.
         }
         currentUser = user
         isAuthenticated = true
+        await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId))
     }
 
-    func switchUser(to user: User) async {
-        SessionStore.currentUserID = user.id
-        cardService.setActiveUser(user.id)
-        webSocketService.disconnect()
+    private func orgOwner(_ full: String) -> String { full.split(separator: "/").first.map(String.init) ?? "" }
+    private func orgRepo(_ full: String) -> String { full.split(separator: "/").dropFirst().first.map(String.init) ?? "" }
+
+    func loadOrganization(owner: String, repo: String) async {
+        guard !owner.isEmpty, !repo.isEmpty,
+              let base = backendBaseURL,
+              let token = SessionStore.sessionToken,
+              let url = URL(string: "orgs/\(owner)/\(repo)/graph", relativeTo: base) else { return }
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
         do {
-            try await webSocketService.connect(urlString: relayURL, userId: user.id)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
+            organization = try JSONDecoder().decode(OrganizationGraph.self, from: data)
         } catch {
-            cardService.bootstrap(for: user)
         }
-        currentUser = user
     }
 
     func signOut() {
