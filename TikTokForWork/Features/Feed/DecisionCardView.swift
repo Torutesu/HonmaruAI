@@ -7,6 +7,7 @@ struct DecisionCardView: View {
     let onAction: (CardActionKind) -> Void
     let onShowDetails: () -> Void
 
+    @EnvironmentObject private var appState: AppState
     @State private var dragOffset: CGFloat = 0
     @State private var showsSource = false
 
@@ -358,12 +359,23 @@ struct DecisionCardView: View {
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .frame(maxWidth: .infinity)
                     .padding(.top, Theme.Spacing.xs)
-            } else if card.canDelete {
-                SecondaryAction(title: String(localized: "Delete"), tint: Theme.Colors.reject) {
-                    Haptics.light()
-                    onAction(.delete)
+            } else {
+                HStack(spacing: 0) {
+                    Button(String(localized: "Undo")) {
+                        Task { await appState.webSocketService.publishRollback(cardID: card.id) }
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.Colors.interactive)
+
+                    if card.canDelete {
+                        Spacer()
+                        SecondaryAction(title: String(localized: "Delete"), tint: Theme.Colors.reject) {
+                            Haptics.light()
+                            onAction(.delete)
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -391,4 +403,5 @@ struct DecisionCardView: View {
         onAction: { _ in },
         onShowDetails: {}
     )
+    .environmentObject(AppState())
 }
