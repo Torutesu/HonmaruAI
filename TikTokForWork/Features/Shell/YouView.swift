@@ -15,9 +15,9 @@ struct YouView: View {
                 header
 
                 group {
-                    row("あなたの AI", value: appState.aiService.isConfigured ? "接続済み" : "未設定")
-                    row("リレー接続", value: relayHost)
-                    row("GitHub", value: appState.githubService.connection?.repository ?? "未接続") {
+                    row(String(localized: "Your AI"), value: appState.aiService.isConfigured ? String(localized: "Connected") : String(localized: "Not set"))
+                    row(String(localized: "Relay"), value: relayHost)
+                    row(String(localized: "GitHub"), value: appState.githubService.connection?.repository ?? String(localized: "Not connected")) {
                         showConnectGitHub = true
                     }
                 }
@@ -27,19 +27,19 @@ struct YouView: View {
                 // wired to nothing, so the screen never implies it can do
                 // something it cannot.
                 group {
-                    pendingRow("プラン")
-                    pendingRow("API キー")
-                    pendingRow("コンテキスト")
+                    pendingRow(String(localized: "Plan"))
+                    pendingRow(String(localized: "API key"))
+                    pendingRow(String(localized: "Context"))
                 }
 
                 group {
-                    pendingRow("ロールバック履歴")
-                    pendingRow("通知")
-                    pendingRow("クラシック表示を既定にする")
+                    pendingRow(String(localized: "Rollback history"))
+                    pendingRow(String(localized: "Notifications"))
+                    pendingRow(String(localized: "Set classic view as default"))
                 }
 
                 group {
-                    row("組織", value: "") { showOrgGraph = true }
+                    row(String(localized: "Organization"), value: "") { showOrgGraph = true }
                 }
 
                 group {
@@ -53,10 +53,10 @@ struct YouView: View {
                     .pickerStyle(.menu)
                     .padding(.horizontal, Theme.Spacing.md)
                     .padding(.vertical, 13)
-                    row("バージョン", value: versionString)
+                    row(String(localized: "Version"), value: versionString)
                 }
 
-                Button("サインアウト") {
+                Button(String(localized: "Sign out")) {
                     appState.signOut()
                 }
                 .font(.system(size: 15, weight: .medium))
@@ -139,7 +139,7 @@ struct YouView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.Colors.textTertiary)
             Spacer()
-            Text("準備中")
+            Text("Coming soon")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .padding(.horizontal, 7)

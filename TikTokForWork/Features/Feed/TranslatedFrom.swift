@@ -20,7 +20,7 @@ struct TranslatedFrom: View {
                 HStack(spacing: 5) {
                     Image(systemName: "character.bubble")
                         .font(.system(size: 10, weight: .semibold))
-                    Text("\(displayLanguage)から翻訳")
+                    Text("Translated from \(displayLanguage)")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .tracking(0.5)
                     Image(systemName: showsOriginal ? "chevron.up" : "chevron.down")

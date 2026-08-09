@@ -57,7 +57,7 @@ enum OfflineRouter {
             cardType: type,
             title: title,
             summary: trimmed,
-            context: String(localized: "対応: 手元で作成 · 範囲: オフライン"),
+            context: String(localized: "action: drafted locally · scope: offline"),
             priority: priority,
             agentRoute: String(localized: "\(sender.name) → \(DisplayName.of(recipient))"),
             routingReason: reason,

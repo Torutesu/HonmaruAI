@@ -47,7 +47,7 @@ struct AppShell: View {
                     .background(Theme.Colors.surfaceRaised)
                     .clipShape(Circle())
             }
-            .accessibilityLabel(Text("あなた"))
+            .accessibilityLabel(Text("You"))
         }
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.sm)

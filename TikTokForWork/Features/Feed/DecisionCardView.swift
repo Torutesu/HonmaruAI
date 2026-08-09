@@ -257,7 +257,7 @@ struct DecisionCardView: View {
             onAction(.requestRevision)
         } label: {
             HStack(spacing: Theme.Spacing.sm) {
-                Text("返信または音声入力…")
+                Text("Reply…")
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textTertiary)
                 Spacer()

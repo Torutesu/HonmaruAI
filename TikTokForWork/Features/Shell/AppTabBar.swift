@@ -46,7 +46,7 @@ struct AppTabBar: View {
                 .foregroundStyle(selection == tab ? Theme.Colors.textPrimary : Theme.Colors.textTertiary)
                 .frame(width: 44, height: 44)
         }
-        .accessibilityLabel(tab == .home ? Text("ホーム") : Text("あなた"))
+        .accessibilityLabel(tab == .home ? Text("Home") : Text("You"))
     }
 
     private var composeButton: some View {
@@ -58,7 +58,7 @@ struct AppTabBar: View {
                         .foregroundStyle(Theme.Colors.textPrimary)
                 }
         }
-        .accessibilityLabel(Text("作成"))
+        .accessibilityLabel(Text("Create"))
     }
 }
 

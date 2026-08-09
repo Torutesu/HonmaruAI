@@ -29,7 +29,7 @@ struct SourceSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("閉じる") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
             }
         }
@@ -87,9 +87,9 @@ struct SourceSheet: View {
 
     private var email: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            field("差出人", "\(card.senderName) <\(handle)@example.com>")
-            field("宛先", "toru@honmaru.jp")
-            field("件名", detail ?? card.title)
+            field(String(localized: "From"), "\(card.senderName) <\(handle)@example.com>")
+            field(String(localized: "To"), "toru@honmaru.jp")
+            field(String(localized: "Subject"), detail ?? card.title)
             Text(originalText)
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.Colors.textSecondary)
@@ -100,9 +100,9 @@ struct SourceSheet: View {
 
     private var page: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            field("担当", card.senderName)
-            field("状態", card.isPending ? "未対応" : card.status.label)
-            field("更新", DateFormatting.relative(card.createdAt))
+            field(String(localized: "Assignee"), card.senderName)
+            field(String(localized: "Status"), card.isPending ? String(localized: "Pending") : card.status.label)
+            field(String(localized: "Updated"), DateFormatting.relative(card.createdAt))
             Text(originalText)
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.Colors.textSecondary)
@@ -113,8 +113,8 @@ struct SourceSheet: View {
 
     private var event: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            field("参加者", "\(card.senderName), あなた")
-            field("場所", "オンライン")
+            field(String(localized: "Participants"), "\(card.senderName), \(String(localized: "You"))")
+            field(String(localized: "Location"), String(localized: "Online"))
             Text(originalText)
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.Colors.textSecondary)
@@ -150,7 +150,7 @@ struct SourceSheet: View {
     }
 
     private var footnote: some View {
-        Text("この画面はデモ用の再現です。実際の連携では元のツールが開きます。")
+        Text("This screen is a demo reproduction. In a real integration, the original tool opens.")
             .font(Theme.TypeScale.micro)
             .foregroundStyle(Theme.Colors.textTertiary)
             .padding(.top, Theme.Spacing.md)
