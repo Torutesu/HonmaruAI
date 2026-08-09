@@ -98,13 +98,15 @@ final class AIService: ObservableObject {
         text: String,
         sender: User,
         organization: OrganizationGraph,
-        priorityOverride: CardPriority? = nil
+        priorityOverride: CardPriority? = nil,
+        readerLanguage: String
     ) async throws -> InstructionDraft {
         let routing = try await routeInstruction(
             text: text,
             sender: sender,
             organization: organization,
-            priorityOverride: priorityOverride
+            priorityOverride: priorityOverride,
+            readerLanguage: readerLanguage
         )
 
         return InstructionDraft(
@@ -127,7 +129,8 @@ final class AIService: ObservableObject {
         text: String,
         sender: User,
         organization: OrganizationGraph,
-        priorityOverride: CardPriority? = nil
+        priorityOverride: CardPriority? = nil,
+        readerLanguage: String
     ) async throws -> InstructionRouting {
         guard let backendBaseURL else {
             throw AIServiceError.notConfigured
@@ -145,7 +148,7 @@ final class AIService: ObservableObject {
                 sender: sender,
                 organization: organization,
                 priorityOverride: priorityOverride?.rawValue,
-                readerLanguage: Locale.current.language.languageCode?.identifier ?? "ja"
+                readerLanguage: readerLanguage
             )
         )
 
