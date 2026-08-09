@@ -53,3 +53,17 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at          TEXT NOT NULL,
   expires_at          TEXT
 );
+
+CREATE TABLE IF NOT EXISTS card_events (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  card_id        TEXT NOT NULL,
+  type           TEXT NOT NULL,
+  action         TEXT,
+  actor_user_id  TEXT,
+  note           TEXT,
+  snapshot       TEXT NOT NULL,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_card ON card_events (org_id, card_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_org ON card_events (org_id, created_at);
