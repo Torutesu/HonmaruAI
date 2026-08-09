@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The three destinations in the bottom chrome. Compose is not a tab — it opens
-/// capture over whatever is on screen — but it lives in the same bar, so it is
-/// modelled here to keep the layout in one place.
+/// the feed's compose flow over whatever is on screen — but it lives in the same
+/// bar, so it is modelled here to keep the layout in one place.
 enum AppTab: Hashable {
     case home
     case you

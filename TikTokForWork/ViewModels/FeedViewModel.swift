@@ -13,9 +13,6 @@ final class FeedViewModel: ObservableObject {
     @Published var delegateCard: DecisionCard?
     @Published var reviseCard: DecisionCard?
     @Published var reviewDraft: InstructionDraft?
-    /// Held between drafting and sending: the review sheet sits in between, and
-    /// the clip belongs to the card that comes out the far side.
-    private var pendingVideoURL: String?
     private var cardService: DecisionCardService?
     private var githubService: GitHubService?
     private var userID: String?
@@ -148,8 +145,7 @@ final class FeedViewModel: ObservableObject {
         delegateCard = nil
     }
 
-    func beginDraft(_ text: String, priority: CardPriority, appState: AppState, videoURL: String? = nil) {
-        pendingVideoURL = videoURL
+    func beginDraft(_ text: String, priority: CardPriority, appState: AppState) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -201,10 +197,8 @@ final class FeedViewModel: ObservableObject {
             _ = try await cardService.processRouting(
                 routing,
                 sourceText: draft.sourceText,
-                from: user,
-                videoURL: pendingVideoURL
+                from: user
             )
-            pendingVideoURL = nil
             refreshCards(from: cardService)
             Haptics.light()
         } catch {

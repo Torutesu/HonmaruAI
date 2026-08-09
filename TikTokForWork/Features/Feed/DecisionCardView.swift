@@ -41,10 +41,6 @@ struct DecisionCardView: View {
                             TranslatedFrom(language: language, original: original)
                         }
 
-                        if let videoURL = card.videoURL {
-                            CardVideoView(urlString: videoURL)
-                        }
-
                         // Blocks the agent's own facts justify, then the rest of
                         // the context as prose.
                         GeneratedBlocks(card: card)

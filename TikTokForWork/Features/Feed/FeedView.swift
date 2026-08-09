@@ -9,9 +9,6 @@ struct FeedView: View {
     /// Incremented by the shell's ＋ button. The draft chain lives here with the
     /// view model, so the shell asks for it rather than rebuilding it.
     var composeTick: Int = 0
-    /// Text dictated on the capture screen. Carries an id so two identical
-    /// utterances still register as two separate requests.
-    var captured: CaptureRequest?
 
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = FeedViewModel()
@@ -39,15 +36,6 @@ struct FeedView: View {
                                 onAction: { action in
                                     Task {
                                         await viewModel.handle(action: action, for: card, appState: appState)
-                                        // Classic has to agree with what just
-                                        // happened here, or the two surfaces
-                                        // tell different stories about the
-                                        // same decision.
-                                        appState.chatStore.recordDecision(
-                                            card,
-                                            action: action,
-                                            by: appState.currentUser?.name ?? ""
-                                        )
                                     }
                                 },
                                 onShowDetails: {
@@ -85,10 +73,6 @@ struct FeedView: View {
         }
         .onChange(of: composeTick) { _, _ in
             showAIInput = true
-        }
-        .onChange(of: captured) { _, request in
-            guard let request else { return }
-            viewModel.beginDraft(request.text, priority: .medium, appState: appState, videoURL: request.videoURL)
         }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {
