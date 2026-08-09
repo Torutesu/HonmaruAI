@@ -316,7 +316,10 @@ Expected: FAIL — the routes 404 (not implemented).
 // matters, and losing the object should degrade to a card without video rather
 // than a card that cannot load.
 
-const MAX_BYTES = 40 * 1024 * 1024;
+// Storage is the only thing R2 bills for (egress is free), so the cap exists to
+// stop one bad client filling the bucket. A 60s clip exported at 960x540 is
+// ~1-2 MB, far under this.
+const MAX_BYTES = 12 * 1024 * 1024;
 
 export async function uploadMedia(request, env, url) {
   const contentType = request.headers.get("content-type") || "video/mp4";
@@ -397,12 +400,25 @@ git commit -m "feat(worker): R2-backed media upload and playback"
 Run: `cd worker && npx wrangler r2 bucket create tiktokforwork-media`
 Expected: "Created bucket tiktokforwork-media". (If it already exists, wrangler says so — fine, continue.)
 
-- [ ] **Step 2: Deploy**
+- [ ] **Step 2: Add the 30-day expiry lifecycle rule (cost control)**
+
+Run: `cd worker && npx wrangler r2 bucket lifecycle add tiktokforwork-media --name expire-30d --expire-days 30`
+Then verify: `npx wrangler r2 bucket lifecycle list tiktokforwork-media`
+Expected: the listing shows a rule expiring objects after 30 days. This is what
+keeps storage flat instead of growing forever — a decision is acted on within
+days, and an expired clip degrades the card to text-only (the player already
+handles a missing URL).
+If the `lifecycle add` subcommand is unavailable in the installed wrangler
+version, run `npx wrangler r2 bucket lifecycle --help` to find the correct form
+(e.g. `set` with a JSON rule file) and use that; do NOT skip the rule — report
+the exact command you used.
+
+- [ ] **Step 3: Deploy**
 
 Run: `cd worker && npx wrangler deploy`
 Expected: prints a new Version ID and the bindings list now includes `MEDIA` (R2).
 
-- [ ] **Step 3: Smoke-test unauthenticated upload is rejected**
+- [ ] **Step 4: Smoke-test unauthenticated upload is rejected**
 
 Run:
 ```bash
@@ -412,14 +428,14 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST \
 ```
 Expected: `401`.
 
-- [ ] **Step 4: Smoke-test an unknown id 404s**
+- [ ] **Step 5: Smoke-test an unknown id 404s**
 
 Run: `curl -s -o /dev/null -w "%{http_code}\n" https://tiktokforwork.torubj0904.workers.dev/media/nope`
 Expected: `404`.
 
 (A full authenticated upload needs a real session token, which comes from GitHub OAuth on a device — it is covered by the device check at the end of Task 7.)
 
-- [ ] **Step 5: Commit any config drift**
+- [ ] **Step 6: Commit any config drift**
 
 ```bash
 git add worker/wrangler.toml
@@ -468,16 +484,59 @@ The restored file predates Phase 5 and contains hardcoded Japanese (`"閉じる"
 `"閉じる"`→`"Close"`, `"録音中"`→`"Recording"`, `"聞き取り中"`→`"Listening"`, `"話しかけてください…"`→`"Speak now…"`, the help line→`"Speak · edit · send, and your AI picks the recipient"`, `"録音を止める"`→`"Stop recording"`, `"録音する"`→`"Record"`.
 Then add any of these keys that are missing to `TikTokForWork/Localizable.xcstrings` with the original Japanese as the `ja` value (same JSON shape as Task 2 Step 5; `"Close"` already exists — search before adding). Validate the JSON with the same `python3 -c` command.
 
-- [ ] **Step 4: Build**
+- [ ] **Step 4: Cap the clip at 60s and compress before it leaves the phone**
+
+This is the main storage-cost lever: a raw 30s capture is 15–30 MB, a 960x540
+export is ~1–2 MB, and R2 bills stored bytes.
+
+In `TikTokForWork/Services/VideoRecorder.swift`, cap the recording. `AVCaptureMovieFileOutput`
+has a built-in limit — set it where the output is configured (read the file to
+find where the movie output is created/added):
+
+```swift
+        output.maxRecordedDuration = CMTime(seconds: 60, preferredTimescale: 600)
+```
+(`import CoreMedia` if `CMTime` is not already available.)
+
+Then add a compression step to `TikTokForWork/Services/MediaStore.swift` (it
+already owns the on-disk clip lifecycle):
+
+```swift
+    /// Re-encodes a capture at 960x540 before upload. Storage is what R2 bills
+    /// for, and a raw phone capture is ~20x larger than it needs to be for a
+    /// talking-head clip. Returns the original URL if export is unavailable.
+    static func compress(_ source: URL) async -> URL {
+        let asset = AVURLAsset(url: source)
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset960x540) else {
+            return source
+        }
+        let target = source.deletingPathExtension().appendingPathExtension("small.mp4")
+        try? FileManager.default.removeItem(at: target)
+        export.outputURL = target
+        export.outputFileType = .mp4
+        export.shouldOptimizeForNetworkUse = true
+        await export.export()
+        return export.status == .completed ? target : source
+    }
+```
+Add `import AVFoundation` to `MediaStore.swift` if it is not already imported.
+(On the deployment target, `AVAssetExportSession.export()` is the async form; if
+the compiler rejects it, use `await export.export(to:as:)` or the
+`exportAsynchronously` continuation form — whichever the SDK accepts. The
+behavior must stay: export to `target`, fall back to `source` on failure.)
+
+Task 7 Step 2 calls `MediaStore.compress(...)` before uploading.
+
+- [ ] **Step 5: Build**
 
 Run the iOS build command.
 Expected: `** BUILD SUCCEEDED **`. The restored files may reference things Phase 4C changed — most likely `CardVideoView` referencing `card.videoURL` (added in Task 6) and `CaptureView`'s send closure. If the build fails ONLY because `videoURL` does not exist yet, proceed to Task 6 and build there instead; note it in the report. Fix any other compile error here.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add TikTokForWork/Features/Shell/CaptureView.swift TikTokForWork/Features/Shell/CameraViewfinder.swift TikTokForWork/Services/VideoRecorder.swift TikTokForWork/Services/DictationService.swift TikTokForWork/Services/MediaUploader.swift TikTokForWork/Services/MediaStore.swift TikTokForWork/Features/Feed/CardVideoView.swift TikTokForWork/Models/CaptureRequest.swift TikTokForWork/Info.plist TikTokForWork/Localizable.xcstrings
-git commit -m "feat(ios): restore the capture stack (camera, dictation, media)"
+git commit -m "feat(ios): restore the capture stack, capped and compressed"
 ```
 
 ---
@@ -597,8 +656,11 @@ Add the handler (uploads first, then hands a `CaptureRequest` to the feed):
         var uploaded: String?
         if let video {
             let local = MediaStore.keep(video)
-            if let base = appState.backendBaseURL, let file = local ?? Optional(video) {
-                uploaded = try? await MediaUploader.upload(file, to: base)
+            // Compress before upload: R2 bills stored bytes, and a raw capture is
+            // ~20x larger than a 960x540 export of the same talking-head clip.
+            let toUpload = await MediaStore.compress(local ?? video)
+            if let base = appState.backendBaseURL {
+                uploaded = try? await MediaUploader.upload(toUpload, to: base)
             }
             if uploaded == nil { uploaded = local?.absoluteString }
         }

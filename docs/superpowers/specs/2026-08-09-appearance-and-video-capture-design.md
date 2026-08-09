@@ -95,6 +95,10 @@ removed cleanly, so restore then adapt):
 Adaptations:
 - **`MediaUploader`** posts to the deployed Worker `POST {backendBaseURL}/media`
   (was the localhost relay). Returns `{ url }`.
+- **Compress before upload (cost control).** `VideoRecorder` caps a clip at
+  **60 seconds**, and the clip is exported through `AVAssetExportSession` with
+  `AVAssetExportPreset960x540` before upload. A 30s clip lands around 1–2 MB
+  instead of 15–30 MB, which is what actually keeps storage inside the free tier.
 - **`DecisionCard.videoURL: String?`** is re-added (removed in 4C), threaded
   through `DecisionCardService.processRouting(..., videoURL:)` and the card
   `dictionary` encode/decode.
@@ -120,6 +124,31 @@ bucket to the Worker:
 - Wire both routes into `worker/src/index.js` before the WS-upgrade block.
 - Auth: require the `x-session-token` header (reuse `getSession`) so only
   signed-in users upload; guests can't attach video (they have no session).
+
+### Keeping the storage bill at zero
+
+R2 bills stored bytes (egress is free, unlike S3), so cost is driven by
+accumulation, not by playback. Three measures keep it inside the 10 GB free tier
+indefinitely:
+
+1. **Compress + cap on device** (above): ~1–2 MB per clip instead of 15–30 MB.
+2. **Expire after 30 days.** An R2 **lifecycle rule** deletes objects 30 days
+   after upload:
+   `npx wrangler r2 bucket lifecycle add tiktokforwork-media --name expire-30d --expire-days 30`
+   A decision is acted on within days; a month-old clip has no value, and the
+   card degrades to text-only when the object is gone (the player already handles
+   a missing/failed URL). Verify with
+   `npx wrangler r2 bucket lifecycle list tiktokforwork-media`.
+3. **Reject oversized uploads** at the Worker: `MAX_BYTES = 12 MB` → HTTP 413.
+   With a 60s cap and 960x540 export, a legitimate clip is far under this; the
+   limit exists so one bad client cannot fill the bucket.
+
+Together: ~1.5 MB/clip × 30-day retention means even 100 clips/day settles around
+4.5 GB steady-state — inside the free tier, with no egress charge for playback.
+Rejected alternatives: uploading to the user's Google Drive (needs a second OAuth,
+forces link-sharing of internal video to make it playable for the recipient, and
+Drive URLs stream poorly in AVPlayer) and GitHub release assets (repos are not a
+media store).
 
 ### Data flow
 
