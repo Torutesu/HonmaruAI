@@ -1,6 +1,7 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
-import { createSession, getSession, upsertUser, upsertMembership, upsertAgent } from "./db.js";
+import { createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember } from "./db.js";
+import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
@@ -27,6 +28,19 @@ function providerConfig(env) {
     };
   }
   return undefined; // keyword fallback
+}
+
+// Returns an error Response when the caller may not read this org's history, or
+// null when they may. History is served straight from D1, so unlike the org
+// graph — where GitHub enforces access when we call its API — nothing else would
+// stop one org reading another's.
+async function requireMember(env, request, orgId) {
+  const session = await getSession(env.DB, request.headers.get("x-session-token"));
+  if (!session) return json({ message: "invalid session" }, 401);
+  if (!(await isMember(env.DB, orgId, session.github_id))) {
+    return json({ message: "not a member of this org" }, 403);
+  }
+  return null;
 }
 
 export default {
@@ -121,6 +135,23 @@ export default {
         await upsertAgent(env.DB, orgId, c.id, `${c.login}'s AI`);
       }
       return json(graph);
+    }
+    const cardEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/cards\/([^/]+)\/events$/);
+    if (cardEventsMatch && request.method === "GET") {
+      const [, owner, repo, cardId] = cardEventsMatch;
+      const orgId = `${owner}/${repo}`;
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ events: await listCardEvents(env.DB, orgId, cardId) });
+    }
+    const orgEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/events$/);
+    if (orgEventsMatch && request.method === "GET") {
+      const [, owner, repo] = orgEventsMatch;
+      const orgId = `${owner}/${repo}`;
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
+      return json({ events: await listOrgEvents(env.DB, orgId, limit) });
     }
     if (request.headers.get("Upgrade") === "websocket") {
       const orgId = url.searchParams.get("orgId") || "core-team";

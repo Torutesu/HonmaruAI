@@ -129,3 +129,13 @@ export async function upsertAgent(db, orgId, githubId, displayName) {
     .bind(`agent-${orgId}-${githubId}`, orgId, String(githubId), displayName)
     .run();
 }
+
+// Membership is checked against the NUMERIC github id (sessions.github_id),
+// not the login that cards and events use.
+export async function isMember(db, orgId, githubId) {
+  const row = await db
+    .prepare("SELECT 1 AS ok FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(orgId, String(githubId))
+    .first();
+  return Boolean(row);
+}
