@@ -58,6 +58,12 @@ struct DecisionCardView: View {
                 }
                 .buttonStyle(.plain)
 
+                if let videoURL = card.videoURL {
+                    CardVideoView(urlString: videoURL)
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
+                }
+
                 if card.showsGitHubLink(for: linkedRepository),
                    let issueURL = card.githubIssueURL,
                    let url = URL(string: issueURL) {

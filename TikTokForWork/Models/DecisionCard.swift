@@ -85,6 +85,8 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var originalBody: String?
     /// BCP-47 tag of `originalBody`, used only to label the badge.
     var originalLanguage: String?
+    /// The uploaded video the sender recorded alongside this decision.
+    var videoURL: String?
 
     var isPending: Bool { status == .pending }
 

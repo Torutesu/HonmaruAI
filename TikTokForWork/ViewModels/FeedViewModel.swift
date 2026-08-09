@@ -18,6 +18,7 @@ final class FeedViewModel: ObservableObject {
     private var userID: String?
     private var draftTask: Task<Void, Never>?
     private var githubSyncTask: Task<Void, Never>?
+    private var pendingVideoURL: String?
 
     var currentIndex: Int {
         guard let scrollPosition,
@@ -145,7 +146,8 @@ final class FeedViewModel: ObservableObject {
         delegateCard = nil
     }
 
-    func beginDraft(_ text: String, priority: CardPriority, appState: AppState) {
+    func beginDraft(_ text: String, priority: CardPriority, appState: AppState, videoURL: String? = nil) {
+        pendingVideoURL = videoURL
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -198,8 +200,10 @@ final class FeedViewModel: ObservableObject {
             _ = try await cardService.processRouting(
                 routing,
                 sourceText: draft.sourceText,
-                from: user
+                from: user,
+                videoURL: pendingVideoURL
             )
+            pendingVideoURL = nil
             refreshCards(from: cardService)
             Haptics.light()
         } catch {
