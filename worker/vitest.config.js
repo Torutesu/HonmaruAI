@@ -8,6 +8,7 @@ export default defineWorkersConfig({
         miniflare: {
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: { DB: "test-db" },
+          r2Buckets: ["MEDIA"],
         },
       },
     },

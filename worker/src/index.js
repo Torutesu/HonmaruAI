@@ -3,6 +3,7 @@ import { toolManifest } from "./agui/tools.js";
 import { createSession, getSession, upsertUser, upsertMembership, upsertAgent } from "./db.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
+import { uploadMedia, serveMedia } from "./media.js";
 
 export { OrgRelay } from "./relay.js";
 
@@ -91,6 +92,15 @@ export default {
       const ghUser = await userRes.json();
       const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
       return json({ accessToken: data.access_token, tokenType: "bearer", sessionToken });
+    }
+    if (url.pathname === "/media" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      return uploadMedia(request, env, url);
+    }
+    const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
+    if (mediaMatch && request.method === "GET") {
+      return serveMedia(mediaMatch[1], env);
     }
     const orgGraphMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/graph$/);
     if (orgGraphMatch && request.method === "GET") {
