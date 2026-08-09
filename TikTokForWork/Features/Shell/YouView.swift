@@ -53,6 +53,16 @@ struct YouView: View {
                     .pickerStyle(.menu)
                     .padding(.horizontal, Theme.Spacing.md)
                     .padding(.vertical, 13)
+                    Picker(selection: $appState.appearance) {
+                        ForEach(AppAppearance.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    } label: {
+                        Text("Appearance")
+                    }
+                    .pickerStyle(.menu)
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, 13)
                     row(String(localized: "Version"), value: versionString)
                 }
 

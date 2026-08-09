@@ -9,6 +9,7 @@ struct TikTokForWorkApp: App {
             RootView()
                 .environmentObject(appState)
                 .environment(\.locale, appState.language.locale ?? Locale.autoupdatingCurrent)
+                .preferredColorScheme(appState.appearance.colorScheme)
         }
     }
 }

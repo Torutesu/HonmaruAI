@@ -12,6 +12,12 @@ final class AppState: ObservableObject {
         didSet { applyLanguage() }
     }
 
+    @Published var appearance: AppAppearance = {
+        AppAppearance(rawValue: UserDefaults.standard.string(forKey: "appAppearance") ?? "system") ?? .system
+    }() {
+        didSet { UserDefaults.standard.set(appearance.rawValue, forKey: "appAppearance") }
+    }
+
     private func applyLanguage() {
         UserDefaults.standard.set(language.rawValue, forKey: "appLanguage")
         if let code = language.locale?.identifier {
