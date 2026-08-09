@@ -10,6 +10,7 @@ enum SessionStore {
         static let githubUsername = "githubUsername"
         static let githubRepositoryURL = "githubRepositoryURL"
         static let currentUserID = "currentUserID"
+        static let sessionToken = "sessionToken"
     }
 
     static var githubToken: String? {
@@ -37,6 +38,11 @@ enum SessionStore {
         set { write(newValue, key: Key.currentUserID) }
     }
 
+    static var sessionToken: String? {
+        get { read(Key.sessionToken) }
+        set { write(newValue, key: Key.sessionToken) }
+    }
+
     static var hasSavedGitHubSession: Bool {
         guard let token = githubToken, !token.isEmpty,
               let repository = githubRepository, !repository.isEmpty else {
@@ -62,6 +68,7 @@ enum SessionStore {
         delete(Key.githubUsername)
         delete(Key.githubRepositoryURL)
         delete(Key.currentUserID)
+        delete(Key.sessionToken)
     }
 
     private static func read(_ key: String) -> String? {

@@ -330,6 +330,9 @@ final class GitHubService: NSObject, ObservableObject {
             throw GitHubServiceError.unauthorized
         }
 
+        if let session = json["sessionToken"] as? String, !session.isEmpty {
+            SessionStore.sessionToken = session
+        }
         return accessToken
     }
 
