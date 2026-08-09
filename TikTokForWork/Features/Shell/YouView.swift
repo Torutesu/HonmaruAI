@@ -43,13 +43,16 @@ struct YouView: View {
                 }
 
                 group {
-                    // Opens iOS Settings rather than keeping a second language
-                    // list in the app: the system setting is what actually
-                    // decides, so duplicating it here would only be able to lie.
-                    row("言語", value: currentLanguage) {
-                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                        UIApplication.shared.open(url)
+                    Picker(selection: $appState.language) {
+                        ForEach(AppLanguage.allCases) { lang in
+                            Text(lang.label).tag(lang)
+                        }
+                    } label: {
+                        Text("Language")
                     }
+                    .pickerStyle(.menu)
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, 13)
                     row("バージョン", value: versionString)
                 }
 
@@ -74,13 +77,6 @@ struct YouView: View {
                 .presentationDetents([.medium, .large])
                 .presentationBackground(Theme.Colors.surface)
         }
-    }
-
-    /// The language the app actually resolved to, not the device's preference
-    /// list — those differ whenever the app does not ship the top choice.
-    private var currentLanguage: String {
-        guard let code = Bundle.main.preferredLocalizations.first else { return "—" }
-        return Locale.current.localizedString(forLanguageCode: code)?.capitalized ?? code
     }
 
     private var versionString: String {
