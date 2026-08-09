@@ -430,6 +430,12 @@
         }
       }
     },
+    "Can't load the video" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "動画を読み込めません" } }
+      }
+    },
     "Cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -494,6 +500,12 @@
             "value": "チャンネル"
           }
         }
+      }
+    },
+    "Clear" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "消す" } }
       }
     },
     "Chasing money is yours alone": {
@@ -1255,6 +1267,12 @@
         }
       }
     },
+    "Listening" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "聞き取り中" } }
+      }
+    },
     "Loading repositories…": {
       "extractionState": "manual",
       "localizations": {
@@ -1618,6 +1636,18 @@
         }
       }
     },
+    "Record" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "録音する" } }
+      }
+    },
+    "Recording" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "録音中" } }
+      }
+    },
     "Reads intent, checks the org graph, picks who can decide.": {
       "extractionState": "manual",
       "localizations": {
@@ -1915,6 +1945,12 @@
         }
       }
     },
+    "Send" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送る" } }
+      }
+    },
     "Send decision card": {
       "extractionState": "manual",
       "localizations": {
@@ -2003,6 +2039,18 @@
         }
       }
     },
+    "Speak now…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "話しかけてください…" } }
+      }
+    },
+    "Speak · edit · send, and your AI picks the recipient" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "話す · 直せる · 送ると AI が宛先を決めます" } }
+      }
+    },
     "Skip for now — connect later from the feed": {
       "extractionState": "manual",
       "localizations": {
@@ -2067,6 +2115,12 @@
             "value": "状態"
           }
         }
+      }
+    },
+    "Stop recording" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "録音を止める" } }
       }
     },
     "Subject": {
@@ -2397,6 +2451,12 @@
             "value": "バージョン"
           }
         }
+      }
+    },
+    "Watch recording" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "録画を見る" } }
       }
     },
     "View details": {

@@ -32,5 +32,11 @@
 	     cannot install the build. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Record a short video so your teammate can see what you mean.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record what you say so your AI can turn it into a decision.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turn what you say into the instruction your AI routes.</string>
 </dict>
 </plist>
