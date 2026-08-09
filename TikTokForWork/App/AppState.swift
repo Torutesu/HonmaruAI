@@ -6,6 +6,23 @@ final class AppState: ObservableObject {
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
     @Published var organization = OrganizationGraph(nodes: [], edges: [])
+    @Published var language: AppLanguage = {
+        AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "system") ?? .system
+    }() {
+        didSet { applyLanguage() }
+    }
+
+    private func applyLanguage() {
+        UserDefaults.standard.set(language.rawValue, forKey: "appLanguage")
+        if let code = language.locale?.identifier {
+            UserDefaults.standard.set([code], forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        }
+    }
+
+    /// The reader language to send to the AI for card generation.
+    var readerLanguageCode: String { language.readerLanguageCode }
 
     let cardService = DecisionCardService()
     let githubService = GitHubService()

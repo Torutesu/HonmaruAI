@@ -8,6 +8,7 @@ struct TikTokForWorkApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(appState)
+                .environment(\.locale, appState.language.locale ?? Locale.autoupdatingCurrent)
         }
     }
 }
