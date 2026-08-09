@@ -11,6 +11,7 @@ enum SessionStore {
         static let githubRepositoryURL = "githubRepositoryURL"
         static let currentUserID = "currentUserID"
         static let sessionToken = "sessionToken"
+        static let apiKey = "apiKey"
     }
 
     static var githubToken: String? {
@@ -41,6 +42,11 @@ enum SessionStore {
     static var sessionToken: String? {
         get { read(Key.sessionToken) }
         set { write(newValue, key: Key.sessionToken) }
+    }
+
+    static var apiKey: String? {
+        get { read(Key.apiKey) }
+        set { write(newValue, key: Key.apiKey) }
     }
 
     static var hasSavedGitHubSession: Bool {

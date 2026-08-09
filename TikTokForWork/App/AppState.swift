@@ -91,6 +91,17 @@ final class AppState: ObservableObject {
         )
     }
 
+    /// What this user told their AI about how they work. Kept locally so it can
+    /// ride along with every routing request, and mirrored to the relay so it
+    /// survives a reinstall.
+    @Published var userContext: String = UserDefaults.standard.string(forKey: "userContext") ?? "" {
+        didSet { UserDefaults.standard.set(userContext, forKey: "userContext") }
+    }
+
+    func publishUserContext() async {
+        await webSocketService.publishContext(userContext)
+    }
+
     /// Whether the current session is a look-around guest (no GitHub sign-in).
     @Published private(set) var isGuest = false
 

@@ -101,6 +101,8 @@ enum OutboundEvent {
     case cardUpdated(DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
     case clearStore
+    case rollback(cardID: String)
+    case contextUpdated(text: String)
 
     var envelope: [String: Any] {
         switch self {
@@ -126,6 +128,10 @@ enum OutboundEvent {
             ]
         case .clearStore:
             return ["type": "clear_store", "payload": [:]]
+        case .rollback(let cardID):
+            return ["type": "rollback", "payload": ["cardId": cardID]]
+        case .contextUpdated(let text):
+            return ["type": "context_updated", "payload": ["context": ["text": text]]]
         }
     }
 }
@@ -218,6 +224,14 @@ final class WebSocketService: ObservableObject {
 
     func publishUpdated(_ card: DecisionCard) async {
         try? await send(.cardUpdated(card))
+    }
+
+    func publishRollback(cardID: String) async {
+        try? await send(.rollback(cardID: cardID))
+    }
+
+    func publishContext(_ text: String) async {
+        try? await send(.contextUpdated(text: text))
     }
 
     func publishDeleted(cardID: String, recipientUserID: String) async {

@@ -25,6 +25,8 @@ private struct RouteInstructionRequest: Encodable {
     /// The language the person deciding reads in. The sender's language is
     /// theirs; the card is written for whoever has to act on it.
     let readerLanguage: String
+    /// What the sender told their AI about how they work.
+    let senderContext: String?
 }
 
 private struct RouteInstructionResponse: Decodable {
@@ -99,14 +101,16 @@ final class AIService: ObservableObject {
         sender: User,
         organization: OrganizationGraph,
         priorityOverride: CardPriority? = nil,
-        readerLanguage: String
+        readerLanguage: String,
+        senderContext: String?
     ) async throws -> InstructionDraft {
         let routing = try await routeInstruction(
             text: text,
             sender: sender,
             organization: organization,
             priorityOverride: priorityOverride,
-            readerLanguage: readerLanguage
+            readerLanguage: readerLanguage,
+            senderContext: senderContext
         )
 
         return InstructionDraft(
@@ -130,7 +134,8 @@ final class AIService: ObservableObject {
         sender: User,
         organization: OrganizationGraph,
         priorityOverride: CardPriority? = nil,
-        readerLanguage: String
+        readerLanguage: String,
+        senderContext: String?
     ) async throws -> InstructionRouting {
         guard let backendBaseURL else {
             throw AIServiceError.notConfigured
@@ -142,13 +147,17 @@ final class AIService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let key = SessionStore.apiKey, !key.isEmpty {
+            request.setValue(key, forHTTPHeaderField: "x-ai-key")
+        }
         request.httpBody = try JSONEncoder().encode(
             RouteInstructionRequest(
                 text: text,
                 sender: sender,
                 organization: organization,
                 priorityOverride: priorityOverride?.rawValue,
-                readerLanguage: readerLanguage
+                readerLanguage: readerLanguage,
+                senderContext: senderContext
             )
         )
 

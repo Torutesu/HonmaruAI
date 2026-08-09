@@ -178,7 +178,8 @@ final class FeedViewModel: ObservableObject {
                 sender: user,
                 organization: appState.organization,
                 priorityOverride: priority,
-                readerLanguage: appState.readerLanguageCode
+                readerLanguage: appState.readerLanguageCode,
+                senderContext: appState.userContext
             )
         } catch {
             // An unreachable relay is not a reason to lose what you just said.
