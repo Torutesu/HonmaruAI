@@ -19,6 +19,9 @@ final class AppState: ObservableObject {
         } else {
             UserDefaults.standard.removeObject(forKey: "AppleLanguages")
         }
+        // Point Bundle.main at the chosen .lproj so the string catalog switches
+        // live — SwiftUI's \.locale does not re-resolve catalog lookups.
+        Bundle.setAppLanguage(language.locale?.identifier)
     }
 
     /// The reader language to send to the AI for card generation.
@@ -36,6 +39,9 @@ final class AppState: ObservableObject {
     }
 
     init() {
+        // didSet does not fire for the initial value, so apply the saved
+        // language before the first view renders.
+        Bundle.setAppLanguage(language.locale?.identifier)
         cardService.attach(webSocketService: webSocketService)
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
