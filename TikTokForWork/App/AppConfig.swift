@@ -23,7 +23,7 @@ enum AppConfig {
            !configured.hasPrefix("$(") {
             return configured
         }
-        return "ws://127.0.0.1:8080"
+        return "wss://tiktokforwork.torubj0904.workers.dev"
     }()
 
     static let defaultUser = DemoUser.toru.user
