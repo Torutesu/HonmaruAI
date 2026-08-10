@@ -172,7 +172,7 @@ struct FallbackPaywallView: View {
             Spacer(minLength: Theme.Spacing.lg)
 
             PrimaryButton(
-                title: subscriptions.isPurchasing ? "Purchasing…" : "Continue",
+                title: subscriptions.isPurchasing ? String(localized: "Purchasing…") : String(localized: "Continue"),
                 enabled: selectedPackage != nil && !subscriptions.isPurchasing
             ) {
                 guard let selectedPackage else { return }
@@ -184,7 +184,7 @@ struct FallbackPaywallView: View {
                 }
             }
 
-            SecondaryAction(title: subscriptions.isRestoring ? "Restoring…" : "Restore purchases") {
+            SecondaryAction(title: subscriptions.isRestoring ? String(localized: "Restoring…") : String(localized: "Restore purchases")) {
                 Task {
                     if await subscriptions.restorePurchases() {
                         Haptics.success()
@@ -217,7 +217,7 @@ struct FallbackPaywallView: View {
             .font(Theme.TypeScale.caption)
             .foregroundStyle(Theme.Colors.accent)
             Spacer()
-            SecondaryAction(title: "Restore purchases") {
+            SecondaryAction(title: String(localized: "Restore purchases")) {
                 Task { await subscriptions.restorePurchases() }
             }
             .padding(.horizontal, Theme.Spacing.screen)

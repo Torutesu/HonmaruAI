@@ -41,8 +41,8 @@ enum RevenueCatConfig {
     /// (Test Store products, or an offering that hasn't been filled in yet).
     static func planName(forProductID productID: String) -> String {
         switch productID {
-        case ProductID.yearly: "Yearly"
-        case ProductID.monthly: "Monthly"
+        case ProductID.yearly: String(localized: "Yearly")
+        case ProductID.monthly: String(localized: "Monthly")
         default: productID
         }
     }

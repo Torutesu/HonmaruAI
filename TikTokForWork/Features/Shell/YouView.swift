@@ -24,7 +24,7 @@ struct YouView: View {
                 }
 
                 group {
-                    pendingRow(String(localized: "Plan"))
+                    navRow(String(localized: "Plan")) { SubscriptionView() }
                     navRow(String(localized: "API key")) { APIKeyView() }
                     navRow(String(localized: "Context")) { ContextView() }
                     navRow(String(localized: "Connectors")) { ConnectorsView() }

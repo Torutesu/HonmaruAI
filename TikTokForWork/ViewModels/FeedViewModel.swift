@@ -13,6 +13,10 @@ final class FeedViewModel: ObservableObject {
     @Published var delegateCard: DecisionCard?
     @Published var reviseCard: DecisionCard?
     @Published var reviewDraft: InstructionDraft?
+    /// Set once when a draft comes back on the server's keyword fallback because
+    /// the free daily AI quota was spent. The feed shows a single quiet line
+    /// offering the paywall — it is not raised as a repeating alert.
+    @Published var quotaExceeded = false
     private var cardService: DecisionCardService?
     private var githubService: GitHubService?
     private var userID: String?
@@ -160,6 +164,7 @@ final class FeedViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             isDrafting = false
             if let draft {
+                if draft.quotaExceeded { quotaExceeded = true }
                 reviewDraft = draft
             }
         }

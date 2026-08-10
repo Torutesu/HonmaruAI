@@ -11,6 +11,9 @@ struct InstructionRouting {
     let routingReason: String
     let labels: [String]
     let toolCalls: [AgentToolCall]
+    /// The server routed this on the keyword fallback because the free daily AI
+    /// quota was spent. The feed uses it to offer the paywall, once.
+    var quotaExceeded: Bool = false
 }
 
 struct AgentToolCall: Identifiable, Codable, Hashable {
@@ -43,6 +46,10 @@ struct InstructionDraft: Identifiable, Codable, Hashable {
     let routingReason: String
     let labels: [String]
     let toolCalls: [AgentToolCall]
+    /// Carried from the routing response so the feed can offer the paywall once
+    /// when a draft came back on the keyword fallback. Defaults false, so an
+    /// offline draft (no server round-trip) is never treated as a quota event.
+    var quotaExceeded: Bool = false
 
     var recipientName: String {
         DisplayName.of(recipientUserID)
@@ -59,7 +66,8 @@ struct InstructionDraft: Identifiable, Codable, Hashable {
             agentRoute: agentRoute,
             routingReason: routingReason,
             labels: labels,
-            toolCalls: toolCalls
+            toolCalls: toolCalls,
+            quotaExceeded: quotaExceeded
         )
     }
 }

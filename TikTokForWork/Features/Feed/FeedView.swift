@@ -14,12 +14,14 @@ struct FeedView: View {
     var captured: CaptureRequest?
 
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var subscriptions: SubscriptionService
     @StateObject private var viewModel = FeedViewModel()
     @State private var aiPrompt = ""
     @State private var showAIInput = false
     @State private var showOrgGraph = false
     @State private var showMenu = false
     @State private var showConnectGitHub = false
+    @State private var showPaywall = false
     @State private var connectContext: ConnectGitHubSheet.Context = .settings
 
     var body: some View {
@@ -138,6 +140,10 @@ struct FeedView: View {
                 .presentationBackground(Theme.Colors.surface)
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showPaywall) {
+            ProPaywallSheet()
+                .environmentObject(subscriptions)
+        }
         .sheet(item: $viewModel.delegateCard) { card in
             DelegatePickerSheet(
                 card: card,
@@ -211,6 +217,10 @@ struct FeedView: View {
 
     private var bottomChrome: some View {
         VStack(spacing: Theme.Spacing.sm) {
+            if viewModel.quotaExceeded {
+                quotaNotice
+            }
+
             if let repo = appState.githubService.connection?.repository {
                 Text(repo)
                     .font(.system(size: 10, design: .monospaced))
@@ -239,6 +249,38 @@ struct FeedView: View {
             Theme.Colors.background
                 .ignoresSafeArea(edges: .bottom)
         )
+    }
+
+    /// A single quiet line shown after a draft came back on the keyword fallback
+    /// because the free daily AI quota ran out. Tapping it opens the paywall;
+    /// tapping the ✕ dismisses it. It is deliberately not an alert — it must not
+    /// interrupt or repeat.
+    private var quotaNotice: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            Button {
+                viewModel.quotaExceeded = false
+                showPaywall = true
+            } label: {
+                HStack(spacing: 4) {
+                    Text("You've used today's AI routing.")
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                    Text("Upgrade")
+                        .foregroundStyle(Theme.Colors.accent)
+                }
+                .font(.system(size: 11))
+                .lineLimit(1)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                viewModel.quotaExceeded = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private var emptyState: some View {
@@ -271,4 +313,5 @@ struct FeedView: View {
 #Preview {
     FeedView()
         .environmentObject(AppState())
+        .environmentObject(SubscriptionService.shared)
 }

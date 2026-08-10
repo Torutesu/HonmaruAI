@@ -270,25 +270,25 @@ final class SubscriptionService: ObservableObject {
         case .productAlreadyPurchasedError:
             return nil
         case .networkError, .offlineConnectionError:
-            return "Can't reach the App Store right now. Check your connection and try again."
+            return String(localized: "Can't reach the App Store right now. Check your connection and try again.")
         case .storeProblemError:
-            return "The App Store is having trouble. Try again in a moment."
+            return String(localized: "The App Store is having trouble. Try again in a moment.")
         case .paymentPendingError:
-            return "Your purchase is pending approval. Pro unlocks as soon as it clears."
+            return String(localized: "Your purchase is pending approval. Pro unlocks as soon as it clears.")
         case .purchaseNotAllowedError:
-            return "This device isn't allowed to make purchases. Check Screen Time restrictions."
+            return String(localized: "This device isn't allowed to make purchases. Check Screen Time restrictions.")
         case .purchaseInvalidError:
-            return "The App Store rejected that payment method. Try another one."
+            return String(localized: "The App Store rejected that payment method. Try another one.")
         case .productNotAvailableForPurchaseError:
-            return "That plan isn't available on this account right now."
+            return String(localized: "That plan isn't available on this account right now.")
         case .receiptAlreadyInUseError:
-            return "Those purchases are attached to a different account. Sign in with the Apple ID that bought them."
+            return String(localized: "Those purchases are attached to a different account. Sign in with the Apple ID that bought them.")
         case .ineligibleError:
-            return "This account isn't eligible for that offer."
+            return String(localized: "This account isn't eligible for that offer.")
         case .configurationError, .invalidAppUserIdError, .invalidCredentialsError, .invalidAppleSubscriptionKeyError:
-            return "Subscriptions aren't configured correctly for this build. Check the RevenueCat API key, entitlement, and products."
+            return String(localized: "Subscriptions aren't configured correctly for this build. Check the RevenueCat API key, entitlement, and products.")
         case .unsupportedError:
-            return "Subscriptions aren't supported on this device."
+            return String(localized: "Subscriptions aren't supported on this device.")
         default:
             return error.localizedDescription
         }
@@ -334,26 +334,26 @@ struct SubscriptionSummary {
 
     /// Short line for the status row: what happens next, not what happened.
     var renewalDescription: String {
-        guard let expirationDate else { return "Lifetime access" }
+        guard let expirationDate else { return String(localized: "Lifetime access") }
 
         let date = Self.renewalDateFormatter.string(from: expirationDate)
         if hasBillingIssue {
-            return "Billing issue — access ends \(date)"
+            return String(localized: "Billing issue — access ends \(date)")
         }
         if isTrial && willRenew {
-            return "Trial converts \(date)"
+            return String(localized: "Trial converts \(date)")
         }
-        return willRenew ? "Renews \(date)" : "Ends \(date)"
+        return willRenew ? String(localized: "Renews \(date)") : String(localized: "Ends \(date)")
     }
 
     var storeDescription: String {
         switch store {
-        case .appStore, .macAppStore: "App Store"
-        case .playStore: "Google Play"
-        case .stripe: "Stripe"
-        case .promotional: "Granted by honmaruai"
-        case .amazon: "Amazon Appstore"
-        default: "Other store"
+        case .appStore, .macAppStore: String(localized: "App Store")
+        case .playStore: String(localized: "Google Play")
+        case .stripe: String(localized: "Stripe")
+        case .promotional: String(localized: "Granted by honmaruai")
+        case .amazon: String(localized: "Amazon Appstore")
+        default: String(localized: "Other store")
         }
     }
 
@@ -373,11 +373,11 @@ enum SubscriptionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            "Subscriptions aren't ready yet. Try again in a moment."
+            String(localized: "Subscriptions aren't ready yet. Try again in a moment.")
         case .nothingToRestore:
-            "No previous purchases found for this Apple ID."
+            String(localized: "No previous purchases found for this Apple ID.")
         case .noPackagesAvailable:
-            "No plans are available right now. Check the offering in RevenueCat."
+            String(localized: "No plans are available right now. Check the offering in RevenueCat.")
         }
     }
 }

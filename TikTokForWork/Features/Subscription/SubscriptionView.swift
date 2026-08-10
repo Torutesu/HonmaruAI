@@ -71,34 +71,34 @@ struct SubscriptionView: View {
                 Circle()
                     .fill(subscriptions.isPro ? Theme.Colors.approve : Theme.Colors.textTertiary)
                     .frame(width: 6, height: 6)
-                Text(subscriptions.isPro ? "honmaruai Pro" : "Free plan")
+                Text(subscriptions.isPro ? String(localized: "honmaruai Pro") : String(localized: "Free plan"))
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Theme.Colors.textPrimary)
                 Spacer()
                 if let summary = subscriptions.summary {
-                    if summary.isTrial { LabelChip(text: "Trial") }
-                    if summary.isSandbox { LabelChip(text: "Sandbox") }
+                    if summary.isTrial { LabelChip(text: String(localized: "Trial")) }
+                    if summary.isSandbox { LabelChip(text: String(localized: "Sandbox")) }
                 }
             }
 
             if let summary = subscriptions.summary {
-                detailRow("Plan", summary.planName)
-                detailRow("Status", summary.renewalDescription)
-                detailRow("Billed via", summary.storeDescription)
+                detailRow(String(localized: "Plan"), summary.planName)
+                detailRow(String(localized: "Status"), summary.renewalDescription)
+                detailRow(String(localized: "Billed via"), summary.storeDescription)
 
                 if summary.hasBillingIssue {
-                    noticeRow("Update your payment method to keep Pro active.", tint: Theme.Colors.reject)
+                    noticeRow(String(localized: "Update your payment method to keep Pro active."), tint: Theme.Colors.reject)
                 } else if summary.cancellationDetected, !summary.willRenew {
                     noticeRow(
-                        "Auto-renew is off. Pro stays active until the end of the period.",
+                        String(localized: "Auto-renew is off. Pro stays active until the end of the period."),
                         tint: Theme.Colors.textSecondary
                     )
                 }
             } else {
-                // The daily routing count is metered server-side now, so the free-plan
-                // usage line lives with the quota message (a later task), not a
-                // client-side counter that would disagree with the Worker.
-                Text("Pro removes the daily routing cap and unlocks the org graph.")
+                // The daily routing count is metered server-side and the Worker does not
+                // expose remaining quota, so we state the policy rather than a live count —
+                // a client-side counter would drift from the server's number.
+                Text("Free plan: 3 AI-routed decisions a day, then keyword routing. Pro: unlimited AI routing and the org graph.")
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -113,17 +113,17 @@ struct SubscriptionView: View {
 
     private var proActions: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            PrimaryButton(title: "Manage subscription") {
+            PrimaryButton(title: String(localized: "Manage subscription")) {
                 showCustomerCenter = true
             }
 
             if let summary = subscriptions.summary, !summary.isAppleManaged, let url = summary.managementURL {
-                SecondaryAction(title: "Open billing portal") {
+                SecondaryAction(title: String(localized: "Open billing portal")) {
                     openURL(url)
                 }
             }
 
-            SecondaryAction(title: subscriptions.isRestoring ? "Restoring…" : "Restore purchases") {
+            SecondaryAction(title: subscriptions.isRestoring ? String(localized: "Restoring…") : String(localized: "Restore purchases")) {
                 Task { await subscriptions.restorePurchases() }
             }
         }
@@ -131,17 +131,17 @@ struct SubscriptionView: View {
 
     private var freeActions: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            PrimaryButton(title: "Upgrade to Pro") {
+            PrimaryButton(title: String(localized: "Upgrade to Pro")) {
                 showPaywall = true
             }
 
-            SecondaryAction(title: subscriptions.isRestoring ? "Restoring…" : "Restore purchases") {
+            SecondaryAction(title: subscriptions.isRestoring ? String(localized: "Restoring…") : String(localized: "Restore purchases")) {
                 Task { await subscriptions.restorePurchases() }
             }
 
             // Customer Center also covers "I already paid" support paths for people whose
             // purchase sits on another account, so keep it reachable while free.
-            SecondaryAction(title: "Get help with a purchase") {
+            SecondaryAction(title: String(localized: "Get help with a purchase")) {
                 showCustomerCenter = true
             }
         }
@@ -150,7 +150,7 @@ struct SubscriptionView: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             if let appUserID = subscriptions.appUserID {
-                Text("Account \(appUserID)")
+                Text(verbatim: "\(String(localized: "Account")) \(appUserID)")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .textSelection(.enabled)
