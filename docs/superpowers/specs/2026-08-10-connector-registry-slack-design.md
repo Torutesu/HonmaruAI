@@ -82,12 +82,38 @@ guessed. It is confirmed against the live API first — exactly as the Gmail
 contract was — and recorded in `worker/README.md`. The connector's `buildArgs()`
 is written against what that shows.
 
-## Prerequisite
+## Per-user connections — the part the Gmail build got wrong
 
-Slack must be connected in Composio, the same one-minute flow Gmail used:
-`POST /v3/auth_configs` → `POST /v3/connected_accounts/link` → the user opens the
-returned URL and authorizes. The contract is already recorded in
-`worker/README.md`.
+The shipped connector uses a single Composio identity, `COMPOSIO_USER_ID =
+honmaru-default`, set as a Worker secret. **That means every signed-in user's sync
+reads the same mailbox** — the developer's. For a demo of triage quality it was
+enough; for an app handed to other people it is a privacy defect, and it is live
+right now. Fixing it is part of A1, not a later nicety.
+
+The correct model is the one Composio is built for: **one auth config per toolkit
+per project, one connected account per user underneath it.**
+
+- The Composio `user_id` is the **numeric GitHub id** already in
+  `sessions.github_id`. No new identifier — the codebase already carries two
+  (login vs numeric id) and a third would rot.
+- `COMPOSIO_USER_ID` is **deleted**. The Worker always derives the id from the
+  caller's session, so a user can only ever reach their own connections.
+- Auth configs stay project-level and are created once per toolkit, then reused
+  (`ac_XcSzdgFl91Ds` for Gmail, `ac_qv8jozIjt29D` for Slack, already created).
+
+### In-app connect flow (now mandatory)
+
+- `POST /connectors/:connector/connect` — session-authenticated. The Worker calls
+  `POST /v3/connected_accounts/link` with `user_id` = the caller's GitHub id and
+  the toolkit's auth config, and returns `{ redirectUrl }`.
+- `GET /connectors` — what this user has connected:
+  `{ connectors: [{ id: "gmail", label: "Gmail", status: "active" | "none" }, …] }`,
+  read from Composio's connected-accounts list filtered to that `user_id`.
+- iOS gains a **Connectors** settings screen: each connector with its state and a
+  Connect button that opens `redirectUrl` in `ASWebAuthenticationSession` — the
+  same mechanism GitHub sign-in already uses — then re-checks status on return.
+
+A user who has connected nothing simply syncs nothing; the feed is unaffected.
 
 ## Out of scope
 
@@ -105,6 +131,8 @@ connector that writes. A1 is read-only and client-triggered, like Gmail.
 
 ## Success criteria
 
-Adding a third connector means writing one small module and nothing else; a
-single sync pulls from Gmail and Slack together; one source failing does not
-silence the other; and the app installed from build 28 keeps working.
+Two people can install the app, each connect their own Gmail and Slack, and each
+see cards built only from their own messages — with no shared identity anywhere
+in the path. Adding a third connector means writing one small module and nothing
+else; a single sync pulls from every connected source; one source failing does
+not silence the others; and the app installed from build 28 keeps working.
