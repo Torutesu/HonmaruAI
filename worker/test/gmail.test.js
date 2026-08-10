@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { parseMessages } from "../src/gmail.js";
+import { gmail } from "../src/connectors/gmail.js";
 
 const message = {
   messageId: "m1",
@@ -11,19 +11,19 @@ const message = {
 };
 
 test("parses the verified envelope", () => {
-  const items = parseMessages({ successful: true, data: { messages: [message] } });
+  const items = gmail.parse({ successful: true, data: { messages: [message] } });
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({ id: "m1", from: "billing@acme.com", subject: "Invoice #42 needs approval" });
   expect(items[0].snippet).toContain("approve the attached invoice");
 });
 
 test("parses the wrapped results envelope", () => {
-  const items = parseMessages({ results: [{ response: { data: { messages: [message] } } }] });
+  const items = gmail.parse({ results: [{ response: { data: { messages: [message] } } }] });
   expect(items).toHaveLength(1);
   expect(items[0].id).toBe("m1");
 });
 
 test("an empty inbox is a valid result, not an error", () => {
-  expect(parseMessages({ data: { messages: [] } })).toEqual([]);
-  expect(parseMessages({})).toEqual([]);
+  expect(gmail.parse({ data: { messages: [] } })).toEqual([]);
+  expect(gmail.parse({})).toEqual([]);
 });

@@ -9,7 +9,7 @@ import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
 import { executeTool } from "./composio.js";
-import { parseMessages } from "./gmail.js";
+import { gmail } from "./connectors/gmail.js";
 import { triageMessage } from "./triage.js";
 
 export { OrgRelay } from "./relay.js";
@@ -176,7 +176,7 @@ export default {
         return json({ message: err.message }, 502);
       }
 
-      const messages = parseMessages(payload);
+      const messages = gmail.parse(payload);
       const provider = providerConfig(env);
       let created = 0;
 
