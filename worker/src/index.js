@@ -251,6 +251,17 @@ export default {
       return json({ ok: true });
     }
 
+    if (url.pathname === "/connectors/notion/config" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      // Chosen-nothing is a normal state, not a 404: the app persists locally but
+      // must be able to recover the server's truth on a fresh install or a second
+      // device. Always return the same key the PUT accepts, null when unset, so
+      // the client reads one field and never special-cases a status code.
+      const config = await getConnectorConfig(env.DB, session.github_id, "notion");
+      return json({ databaseId: config?.databaseId ?? null });
+    }
+
     const syncMatch = url.pathname === "/connectors/sync"
       || url.pathname.match(/^\/connectors\/([^/]+)\/sync$/);
     if (syncMatch && request.method === "POST") {
