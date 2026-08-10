@@ -99,6 +99,14 @@ final class SubscriptionService: ObservableObject {
             return
         }
 
+        // Never call `Purchases.configure` when it would crash the process. A committed Test
+        // Store key crashes on launch in any Release build (the SDK's own release safeguard),
+        // so a build with no production key runs with billing unavailable rather than not
+        // starting at all. Every call site already guards on `Purchases.isConfigured`, so the
+        // rest of the app degrades cleanly: `isPro` is false and purchase/restore report
+        // "not configured".
+        guard RevenueCatConfig.isConfigurable else { return }
+
         Purchases.logLevel = RevenueCatConfig.logLevel
         Purchases.configure(
             with: Configuration.Builder(withAPIKey: RevenueCatConfig.apiKey)

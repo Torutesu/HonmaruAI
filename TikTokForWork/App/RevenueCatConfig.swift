@@ -37,6 +37,25 @@ enum RevenueCatConfig {
         #endif
     }
 
+    /// A RevenueCat **Test Store** key (`test_…`) is a development-only facility. The SDK
+    /// deliberately calls `fatalError` the moment it is configured with a Test Store key in a
+    /// Release build, to stop a test key ever reaching the App Store — see
+    /// `Configuration.checkForSimulatedStoreAPIKeyInRelease`. That is a launch crash for
+    /// every TestFlight/App Store build carrying the committed `test_…` key.
+    ///
+    /// So the app configures RevenueCat only when it is safe to: any key in DEBUG (the Test
+    /// Store is useful and does not crash there), or a real Apple key (`appl_`/`mac_`) in
+    /// release. With no production key present, billing simply stays unavailable and the app
+    /// still launches — the same stance the Worker takes when `REVENUECAT_SECRET_KEY` is
+    /// unset. Swapping in the `appl_…` key is the single switch that turns purchasing on.
+    static var isConfigurable: Bool {
+        #if DEBUG
+        return true
+        #else
+        return apiKey.hasPrefix("appl_") || apiKey.hasPrefix("mac_")
+        #endif
+    }
+
     /// Human label for a product identifier, used when the dashboard has no display title
     /// (Test Store products, or an offering that hasn't been filled in yet).
     static func planName(forProductID productID: String) -> String {
