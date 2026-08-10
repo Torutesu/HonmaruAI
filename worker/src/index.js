@@ -8,6 +8,7 @@ import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
 import { CONNECTORS, connectorById } from "./connectors/index.js";
+import { createConnectLink, listConnectedAccounts } from "./composio.js";
 import { syncAll } from "./sync.js";
 
 export { OrgRelay } from "./relay.js";
@@ -153,6 +154,48 @@ export default {
       if (denied) return denied;
       return json({ events: await listCardEvents(env.DB, orgId, cardId) });
     }
+    if (url.pathname === "/connectors" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+
+      let accounts = [];
+      try {
+        accounts = await listConnectedAccounts(env.COMPOSIO_API_KEY, String(session.github_id));
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+      const active = new Set(
+        accounts
+          .filter((a) => String(a.status).toUpperCase() === "ACTIVE")
+          .map((a) => (typeof a.toolkit === "string" ? a.toolkit : a.toolkit?.slug))
+      );
+      return json({
+        connectors: CONNECTORS.map((c) => ({
+          id: c.id, label: c.label, status: active.has(c.id) ? "active" : "none",
+        })),
+      });
+    }
+
+    const connectMatch = url.pathname.match(/^\/connectors\/([^/]+)\/connect$/);
+    if (connectMatch && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+
+      const connector = connectorById(connectMatch[1]);
+      if (!connector) return json({ message: "unknown connector" }, 404);
+
+      try {
+        const link = await createConnectLink(
+          env.COMPOSIO_API_KEY, String(session.github_id), connector.authConfigId
+        );
+        return json({ redirectUrl: link.redirect_url, connectedAccountId: link.connected_account_id });
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+    }
+
     const syncMatch = url.pathname === "/connectors/sync"
       || url.pathname.match(/^\/connectors\/([^/]+)\/sync$/);
     if (syncMatch && request.method === "POST") {
