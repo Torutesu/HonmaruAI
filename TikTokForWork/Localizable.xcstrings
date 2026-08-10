@@ -3895,13 +3895,13 @@
         }
       }
     },
-    "No databases shared with Honmaru AI yet. Share one in Notion, then reopen this screen.": {
+    "No databases shared with Honmaru AI yet. Share one in Notion, then pull to refresh.": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Honmaru AI と共有されているデータベースがまだありません。Notion で共有してから、この画面を開き直してください。"
+            "value": "Honmaru AI と共有されているデータベースがまだありません。Notion で共有してから、下に引っ張って更新してください。"
           }
         }
       }

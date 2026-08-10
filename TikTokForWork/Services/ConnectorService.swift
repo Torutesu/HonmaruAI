@@ -67,18 +67,15 @@ enum ConnectorService {
 
 extension ConnectorService {
     private struct DatabaseList: Decodable { let databases: [NotionDatabase] }
+    private struct DatabaseConfig: Decodable { let databaseId: String? }
 
-    /// UserDefaults key holding the last database this user chose. There is no GET for
-    /// the current config yet, so the picker reads this back to keep its checkmark honest
-    /// across screen reopens instead of falsely showing every row as unselected.
-    private static func chosenDatabaseDefaultsKey() -> String? {
-        guard let token = SessionStore.sessionToken else { return nil }
-        return "notion.database.\(token)"
-    }
-
-    static func chosenNotionDatabase() -> String? {
-        guard let key = chosenDatabaseDefaultsKey() else { return nil }
-        return UserDefaults.standard.string(forKey: key)
+    /// Clears any `notion.database.<token>` value written by the previous build's local
+    /// stopgap. The server is the only source of truth now, so a lingering local copy would
+    /// only be a second one waiting to drift. Cheap to run every launch.
+    static func clearLegacyNotionDatabaseDefaults() {
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("notion.database.") {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     static func notionDatabases(backendBaseURL: URL) async throws -> [NotionDatabase] {
@@ -94,6 +91,23 @@ extension ConnectorService {
         return try JSONDecoder().decode(DatabaseList.self, from: data).databases
     }
 
+    /// The user's current choice, read straight from the server so the picker's checkmark
+    /// can never drift from what the backend will actually sync. `databaseId` is always
+    /// present in the response — `null` when nothing is chosen — so there is one field to
+    /// read and no status code to branch on.
+    static func notionDatabaseConfig(backendBaseURL: URL) async throws -> String? {
+        guard let token = SessionStore.sessionToken,
+              let url = URL(string: "connectors/notion/config", relativeTo: backendBaseURL) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(DatabaseConfig.self, from: data).databaseId
+    }
+
     static func setNotionDatabase(_ id: String, backendBaseURL: URL) async throws {
         guard let token = SessionStore.sessionToken,
               let url = URL(string: "connectors/notion/config", relativeTo: backendBaseURL) else { return }
@@ -106,9 +120,6 @@ extension ConnectorService {
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
-        }
-        if let key = chosenDatabaseDefaultsKey() {
-            UserDefaults.standard.set(id, forKey: key)
         }
     }
 }

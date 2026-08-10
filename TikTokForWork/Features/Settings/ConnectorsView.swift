@@ -33,6 +33,7 @@ struct ConnectorsView: View {
             .padding(Theme.Spacing.md)
         }
         .navigationTitle(Text("Connectors"))
+        .refreshable { await load() }
         .task { await load() }
     }
 
@@ -64,7 +65,7 @@ struct ConnectorsView: View {
                         .font(Theme.TypeScale.micro)
                         .foregroundStyle(Theme.Colors.textTertiary)
                     if databases.isEmpty {
-                        Text(String(localized: "No databases shared with Honmaru AI yet. Share one in Notion, then reopen this screen."))
+                        Text(String(localized: "No databases shared with Honmaru AI yet. Share one in Notion, then pull to refresh."))
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.Colors.textSecondary)
                     } else {
@@ -101,6 +102,7 @@ struct ConnectorsView: View {
     }
 
     private func load() async {
+        ConnectorService.clearLegacyNotionDatabaseDefaults()
         guard let base = appState.backendBaseURL else { return }
         do {
             connectors = try await ConnectorService.list(backendBaseURL: base)
@@ -110,7 +112,7 @@ struct ConnectorsView: View {
         }
         if connectors.contains(where: { $0.id == "notion" && $0.isConnected }) {
             databases = (try? await ConnectorService.notionDatabases(backendBaseURL: base)) ?? []
-            chosenDatabase = ConnectorService.chosenNotionDatabase()
+            chosenDatabase = try? await ConnectorService.notionDatabaseConfig(backendBaseURL: base)
         }
     }
 
