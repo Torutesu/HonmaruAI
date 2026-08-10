@@ -138,3 +138,33 @@ Composio's documented traps, all still worth coding against: the payload is
 sometimes wrapped as `results[i].response.data.messages`; an empty `messages`
 array is a valid no-matches result, not an error; and `verbose:true` /
 `include_payload:true` can trigger 413 or truncation.
+
+### Slack (verified 2026-08-10)
+
+```
+POST /v3/tools/execute/SLACK_SEARCH_MESSAGES
+  { "user_id": "<per-user id>",
+    "arguments": { "query": "to:me after:2026-08-03", "count": 10,
+                   "sort": "timestamp", "sort_dir": "desc" } }
+```
+
+`to:me` is the modifier that means "addressed to or mentioning me" — confirmed
+working; the tool's own docs list only `in:`/`from:`/`has:`, so this was pinned by
+calling it rather than read from documentation.
+
+Response: `{ successful: true, data: { ok, query, messages: { matches: [ … ] } } }`
+— note the matches are nested under `messages.matches`, not `messages`.
+
+A match carries: `text`, `username`, `user`, `channel`, `ts`, `permalink`, `iid`,
+`team`, `score`, `attachments`.
+
+Use **`permalink`** as the dedup `external_id`: it encodes channel + timestamp and
+is stable. `iid` is a per-search result id and must not be trusted across calls.
+
+### Auth configs (project-level, reused by every user)
+
+- Gmail: `ac_XcSzdgFl91Ds`
+- Slack: `ac_qv8jozIjt29D`
+
+One auth config per toolkit; each user gets their own connected account beneath
+it, keyed by the Composio `user_id` we pass (the caller's numeric GitHub id).
