@@ -16,8 +16,8 @@ struct OnboardingSwipeDemo: View {
 
         var label: String {
             switch self {
-            case .approved: "Approved — that's the whole job"
-            case .declined: "Declined — also one swipe"
+            case .approved: String(localized: "Approved — that's the whole job")
+            case .declined: String(localized: "Declined — also one swipe")
             }
         }
 
@@ -72,8 +72,8 @@ struct OnboardingSwipeDemo: View {
             Spacer()
 
             Text(resolution == nil
-                 ? "In the real feed this records the decision — and syncs it to GitHub."
-                 : "Cards you clear move on. The next decision scrolls up.")
+                 ? String(localized: "In the real feed this records the decision — and syncs it to GitHub.")
+                 : String(localized: "Cards you clear move on. The next decision scrolls up."))
                 .font(Theme.TypeScale.micro)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .frame(maxWidth: .infinity)
@@ -145,7 +145,7 @@ struct OnboardingSwipeDemo: View {
         .allowsHitTesting(false)
     }
 
-    private func hintLabel(_ title: String, color: Color) -> some View {
+    private func hintLabel(_ title: LocalizedStringKey, color: Color) -> some View {
         Text(title)
             .font(.system(size: 15, weight: .medium))
             .foregroundStyle(color)

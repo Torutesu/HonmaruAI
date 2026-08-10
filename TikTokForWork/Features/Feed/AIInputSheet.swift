@@ -13,8 +13,8 @@ struct AIInputSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                 Text(isAIConfigured
-                     ? "Your AI drafts a decision card in the background — keep scrolling while it works."
-                     : "Offline mode — local routing with your priority setting.")
+                     ? String(localized: "Your AI drafts a decision card in the background — keep scrolling while it works.")
+                     : String(localized: "Offline mode — local routing with your priority setting."))
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textTertiary)
 
@@ -41,7 +41,7 @@ struct AIInputSheet: View {
                 PrioritySlider(priority: $priority)
 
                 PrimaryButton(
-                    title: isAIConfigured ? "Draft in background" : "Draft card",
+                    title: isAIConfigured ? String(localized: "Draft in background") : String(localized: "Draft card"),
                     enabled: !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ) {
                     submit()
@@ -125,7 +125,7 @@ struct DraftReviewSheet: View {
 
                     PrioritySlider(priority: $priority)
 
-                    PrimaryButton(title: "Send decision card") {
+                    PrimaryButton(title: String(localized: "Send decision card")) {
                         let finalDraft = InstructionDraft(
                             id: draft.id,
                             sourceText: draft.sourceText,
@@ -160,10 +160,10 @@ struct DraftReviewSheet: View {
 
     private var priorityLabel: String {
         switch priority {
-        case .low: "Low"
-        case .medium: "Medium"
-        case .high: "High"
-        case .urgent: "Urgent"
+        case .low: String(localized: "Low")
+        case .medium: String(localized: "Medium")
+        case .high: String(localized: "High")
+        case .urgent: String(localized: "Urgent")
         }
     }
 }

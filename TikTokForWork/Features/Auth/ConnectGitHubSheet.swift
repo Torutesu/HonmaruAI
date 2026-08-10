@@ -10,17 +10,17 @@ struct ConnectGitHubSheet: View {
 
         var title: String {
             switch self {
-            case .afterFirstApproval: "Decision recorded"
-            case .settings: "Sync to GitHub"
+            case .afterFirstApproval: String(localized: "Decision recorded")
+            case .settings: String(localized: "Sync to GitHub")
             }
         }
 
         var subtitle: String {
             switch self {
             case .afterFirstApproval:
-                "Connect GitHub and every approval becomes an Issue your team can track."
+                String(localized: "Connect GitHub and every approval becomes an Issue your team can track.")
             case .settings:
-                "Approvals, delegations, and revisions sync as GitHub Issues."
+                String(localized: "Approvals, delegations, and revisions sync as GitHub Issues.")
             }
         }
     }
@@ -77,7 +77,7 @@ struct ConnectGitHubSheet: View {
                 Spacer()
 
                 PrimaryButton(
-                    title: appState.githubService.isConnected ? "Done" : "Connect",
+                    title: appState.githubService.isConnected ? String(localized: "Done") : String(localized: "Connect"),
                     enabled: canConnect && !isConnecting && !isSigningInWithGitHub
                 ) {
                     connect()
@@ -176,7 +176,7 @@ struct ConnectGitHubSheet: View {
             }
 
             if appState.githubService.repositories.isEmpty {
-                Text(isRefreshingRepos ? "Loading repositories…" : "No repositories found")
+                Text(isRefreshingRepos ? String(localized: "Loading repositories…") : String(localized: "No repositories found"))
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

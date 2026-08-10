@@ -107,7 +107,7 @@ struct OnboardingView: View {
             Spacer()
             Spacer()
 
-            PrimaryButton(title: "Get started") {
+            PrimaryButton(title: String(localized: "Get started")) {
                 Haptics.light()
                 advance()
             }
@@ -154,7 +154,7 @@ struct OnboardingView: View {
 
             Spacer()
 
-            PrimaryButton(title: "Continue") {
+            PrimaryButton(title: String(localized: "Continue")) {
                 Haptics.light()
                 advance()
             }
@@ -163,7 +163,7 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func routingRow(icon: String, title: String, detail: String) -> some View {
+    private func routingRow(icon: String, title: LocalizedStringKey, detail: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: Theme.Spacing.md) {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .medium))
@@ -232,7 +232,7 @@ struct OnboardingView: View {
 
             VStack(spacing: Theme.Spacing.sm) {
                 PrimaryButton(
-                    title: "Enter",
+                    title: String(localized: "Enter"),
                     enabled: canConnectGitHub && !isConnecting && !isSigningIn
                 ) {
                     connectGitHubAndEnter()
@@ -337,7 +337,7 @@ struct OnboardingView: View {
             }
 
             if appState.githubService.repositories.isEmpty {
-                Text(isRefreshingRepos ? "Loading repositories…" : "No repositories found")
+                Text(isRefreshingRepos ? String(localized: "Loading repositories…") : String(localized: "No repositories found"))
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -425,7 +425,7 @@ struct OnboardingView: View {
 
     // MARK: - Shared
 
-    private func stepTitle(_ title: String, subtitle: String) -> some View {
+    private func stepTitle(_ title: LocalizedStringKey, subtitle: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             Text(title)
                 .font(.system(size: 28, weight: .medium))

@@ -51,7 +51,7 @@ struct CardVideoView: View {
                     Image(systemName: failed ? "exclamationmark.triangle" : "play.circle.fill")
                         .font(.system(size: 34))
                         .foregroundStyle(failed ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
-                    Text(failed ? "Can't load the video" : "Watch recording")
+                    Text(failed ? String(localized: "Can't load the video") : String(localized: "Watch recording"))
                         .font(Theme.TypeScale.caption)
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }

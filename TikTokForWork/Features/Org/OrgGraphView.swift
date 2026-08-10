@@ -42,7 +42,7 @@ struct OrgGraphView: View {
         .presentationBackground(Theme.Colors.background)
     }
 
-    private func section(_ title: String, items: [OrgNode]) -> some View {
+    private func section(_ title: LocalizedStringKey, items: [OrgNode]) -> some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             Text(title)
                 .font(.system(size: 12))

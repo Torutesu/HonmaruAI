@@ -3773,6 +3773,105 @@
           }
         }
       }
+    },
+    "Dana's AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dana の AI"
+          }
+        }
+      }
+    },
+    "Dana": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dana"
+          }
+        }
+      }
+    },
+    "Sign in with GitHub to reach your team. Your teammates are your repo's collaborators, and every approval becomes an Issue you can track.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でサインインしてチームとつながりましょう。チームメイトはリポジトリのコラボレーターで、承認はすべて追跡できる Issue になります。"
+          }
+        }
+      }
+    },
+    "Enter": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入る"
+          }
+        }
+      }
+    },
+    "Continue without signing in": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインせずに続ける"
+          }
+        }
+      }
+    },
+    "now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "たった今"
+          }
+        }
+      }
+    },
+    "Your AI drafts a decision card in the background — keep scrolling while it works.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの AI がバックグラウンドで決定カードを作成します。作成中もそのままスクロールを続けられます。"
+          }
+        }
+      }
+    },
+    "Offline mode — local routing with your priority setting.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインモード — 設定した優先度でローカルにルーティングします。"
+          }
+        }
+      }
+    },
+    "Language": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "言語"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
