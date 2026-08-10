@@ -17,6 +17,11 @@
 # Every mutating step prints what it is about to do and asks for confirmation
 # unless --yes is passed. Pass --dry-run to see the commands without running them.
 #
+# Before any upload (upload / testflight / all), a Release-build smoke launch
+# (scripts/smoke-release.sh) must pass — it catches launch crashes that only
+# happen in Release and never appear in a Debug simulator run. A failure aborts
+# the release before anything reaches App Store Connect.
+#
 # The asc CLI's own help is the source of truth for flags: `asc <command> --help`.
 
 set -euo pipefail
@@ -234,9 +239,27 @@ require_ipa() {
   printf '%s' "$ipa"
 }
 
+# A launch crash in a Release build never shows up in Debug sim runs, so gate the
+# upload on an actual Release-configuration launch. This runs before the ipa is
+# uploaded — a crash here aborts the release instead of shipping it to testers.
+# Skipped under --dry-run (it builds and boots a simulator, which is a real side
+# effect); never skipped by --yes, because it is a safety check, not a prompt.
+run_smoke_gate() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    step "Release smoke launch (skipped — dry run)"
+    info "would run: scripts/smoke-release.sh"
+    return 0
+  fi
+  step "Release smoke launch — proving the Release build starts before uploading"
+  "$REPO_ROOT/scripts/smoke-release.sh" \
+    || die "Release smoke launch failed — aborting before upload. See the log lines above."
+}
+
 cmd_upload() {
   require_asc; require_app_id
   local ipa; ipa="$(require_ipa)"
+
+  run_smoke_gate
 
   # Print what is actually inside the ipa. The build number the archive was told
   # to use is not evidence that this file carries it.
@@ -306,6 +329,8 @@ cmd_testflight() {
   require_asc; require_app_id
   local ipa; ipa="$(require_ipa)"
   local group="${TESTFLIGHT_GROUP:-Internal Testers}"
+
+  run_smoke_gate
 
   step "Publishing to TestFlight group '$group'"
   confirm "Push $(basename "$ipa") to TestFlight?"
