@@ -2,15 +2,13 @@ import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
-  isIngested, markIngested, saveCard,
 } from "./db.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
-import { executeTool } from "./composio.js";
-import { gmail } from "./connectors/gmail.js";
-import { triageMessage } from "./triage.js";
+import { CONNECTORS, connectorById } from "./connectors/index.js";
+import { syncAll } from "./sync.js";
 
 export { OrgRelay } from "./relay.js";
 
@@ -155,62 +153,33 @@ export default {
       if (denied) return denied;
       return json({ events: await listCardEvents(env.DB, orgId, cardId) });
     }
-    if (url.pathname === "/connectors/gmail/sync" && request.method === "POST") {
+    const syncMatch = url.pathname === "/connectors/sync"
+      || url.pathname.match(/^\/connectors\/([^/]+)\/sync$/);
+    if (syncMatch && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
 
       const body = await request.json();
-      const orgId = body.orgId;
-      const userId = body.userId;
-      if (!orgId || !userId) return json({ message: "orgId and userId are required" }, 400);
+      if (!body.orgId || !body.userId) return json({ message: "orgId and userId are required" }, 400);
 
-      let payload;
-      try {
-        payload = await executeTool(
-          env.COMPOSIO_API_KEY, "GMAIL_FETCH_EMAILS",
-          env.COMPOSIO_USER_ID || String(session.github_id),
-          { query: "newer_than:7d", max_results: 10, verbose: false, include_payload: false }
-        );
-      } catch (err) {
-        return json({ message: err.message }, 502);
+      // A single-connector path keeps TestFlight build 28 working; it shipped
+      // calling /connectors/gmail/sync and returns the flat shape.
+      const only = typeof syncMatch === "object" ? connectorById(syncMatch[1]) : null;
+      if (typeof syncMatch === "object" && !only) return json({ message: "unknown connector" }, 404);
+
+      const results = await syncAll(only ? [only] : CONNECTORS, {
+        env, session,
+        orgId: body.orgId, userId: body.userId,
+        readerLanguage: body.readerLanguage,
+        provider: providerConfig(env),
+      });
+
+      if (only) {
+        const r = results[0];
+        return r.error ? json({ message: r.error }, 502) : json({ scanned: r.scanned, created: r.created });
       }
-
-      const messages = gmail.parse(payload);
-      const provider = providerConfig(env);
-      let created = 0;
-
-      for (const message of messages) {
-        if (!message.id) continue;
-        if (await isIngested(env.DB, "gmail", message.id, session.github_id)) continue;
-
-        let cardId = null;
-        const triaged = provider
-          ? await triageMessage(message, { provider, readerLanguage: body.readerLanguage })
-          : null;
-
-        if (triaged) {
-          cardId = crypto.randomUUID();
-          await saveCard(env.DB, orgId, {
-            id: cardId, recipientUserID: userId, senderUserID: userId,
-            type: triaged.cardType, format: "approve",
-            title: triaged.title, summary: triaged.summary, context: triaged.context,
-            priority: triaged.priority, status: "pending",
-            createdAt: new Date().toISOString(),
-            sourceApp: "Gmail",
-            sourceDetail: `${message.from} · ${message.subject}`,
-          });
-          created += 1;
-        }
-
-        // Recorded either way: a rejected message must never be re-judged.
-        await markIngested(env.DB, {
-          connector: "gmail", externalId: message.id,
-          githubId: session.github_id, orgId, cardId,
-        });
-      }
-
-      return json({ scanned: messages.length, created });
+      return json({ results });
     }
     const orgEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/events$/);
     if (orgEventsMatch && request.method === "GET") {
