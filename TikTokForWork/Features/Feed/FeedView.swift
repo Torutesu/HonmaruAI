@@ -259,7 +259,7 @@ struct FeedView: View {
         guard let user = appState.currentUser,
               let repository = appState.githubService.connection?.repository,
               let base = appState.backendBaseURL else { return }
-        await ConnectorService.syncGmail(
+        await ConnectorService.syncAll(
             orgId: repository,
             userId: user.id,
             readerLanguage: appState.readerLanguageCode,

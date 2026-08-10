@@ -36,6 +36,7 @@
 		657DDCB6385E9FB249AA8FC2 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6296398BD566705F28FD07B2 /* Theme.swift */; };
 		6A021F0DC477FDC75CDB2B40 /* AIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */; };
 		6BC985B30F7277027E36BAD4 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B9A28AE759040145C8D6E1B /* CaptureView.swift */; };
+		7AAB8A00329D04040B50EC35 /* ConnectorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E399C621EA5CFD2FC2F12DCA /* ConnectorService.swift */; };
 		7B25EE3F560D8811A9AF8F4D /* AIInputSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C4072B436581D5A87F9542 /* AIInputSheet.swift */; };
 		800DD1DDC98CE09D13719B11 /* HistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E25C40FFC66E7F2E6B70627 /* HistoryService.swift */; };
 		883115BA58A0EC1AA8D5F308 /* CardVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9800C7B0C8EBD9F798562A /* CardVideoView.swift */; };
@@ -54,6 +55,7 @@
 		BA8DFD51160FF62D51FD6028 /* AGUIEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A20C47088BD0E9C4A863DBE /* AGUIEvent.swift */; };
 		BAAB141A7F64E597E716A38D /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A79579E123395F8C8DBED15 /* AgentModels.swift */; };
 		C13135613DBDE03107A9D13C /* YouView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D546AFB5C9B071037C5E9D9 /* YouView.swift */; };
+		C5441FBAB2065DE8FEE863BD /* ConnectorsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B33B38EE581FB742F9D87CD /* ConnectorsView.swift */; };
 		CBCE9EA9EC35BD41FF32D4D2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B02EAAD1FAC6FF8A245C1A32 /* Localizable.xcstrings */; };
 		D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF594002A7A3A2A7FA072712 /* FeedView.swift */; };
 		D50B528853838F4769A08FCD /* WebAuthContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893C6A0EF0BE688A3FF7653C /* WebAuthContextProvider.swift */; };
@@ -74,6 +76,7 @@
 		01E650A6B739E69C5B34CA22 /* DisplayName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayName.swift; sourceTree = "<group>"; };
 		050D0B7873E1D94841BB5228 /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
 		0ABD898A426994D5C516944E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		0B33B38EE581FB742F9D87CD /* ConnectorsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorsView.swift; sourceTree = "<group>"; };
 		1E59BA209DFB0247515074C8 /* APIKeyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyView.swift; sourceTree = "<group>"; };
 		25118BB93999691339E80C91 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		2E5DA40629B98A94601F06DC /* DecisionCardService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardService.swift; sourceTree = "<group>"; };
@@ -126,6 +129,7 @@
 		DB00CB1787CD8D394A541D50 /* ConnectGitHubSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectGitHubSheet.swift; sourceTree = "<group>"; };
 		DB9800C7B0C8EBD9F798562A /* CardVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardVideoView.swift; sourceTree = "<group>"; };
 		DF8750E0FA2DD54342124E00 /* CardDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDetailSheet.swift; sourceTree = "<group>"; };
+		E399C621EA5CFD2FC2F12DCA /* ConnectorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorService.swift; sourceTree = "<group>"; };
 		E7A10EBE53C8CBB5FEBB4BFF /* DelegatePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelegatePickerSheet.swift; sourceTree = "<group>"; };
 		E8DF77ED1645CDC9CBE8C83A /* ConicRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConicRing.swift; sourceTree = "<group>"; };
 		E8E494243CEA2F9FA065D51B /* GitHubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubService.swift; sourceTree = "<group>"; };
@@ -150,6 +154,7 @@
 			isa = PBXGroup;
 			children = (
 				1E59BA209DFB0247515074C8 /* APIKeyView.swift */,
+				0B33B38EE581FB742F9D87CD /* ConnectorsView.swift */,
 				41D5E4302BE3E11D598E9989 /* ContextView.swift */,
 				CD16C3A78AF733A527188E4F /* HistoryView.swift */,
 			);
@@ -260,6 +265,7 @@
 			children = (
 				9A20C47088BD0E9C4A863DBE /* AGUIEvent.swift */,
 				CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */,
+				E399C621EA5CFD2FC2F12DCA /* ConnectorService.swift */,
 				2E5DA40629B98A94601F06DC /* DecisionCardService.swift */,
 				5E72B79FFDBF1A5E40F24D03 /* DictationService.swift */,
 				E8E494243CEA2F9FA065D51B /* GitHubService.swift */,
@@ -422,6 +428,8 @@
 				61546F7DD25035887C83D192 /* Components.swift in Sources */,
 				FB7D4EDE45C17FA2EA9D3CB8 /* ConicRing.swift in Sources */,
 				9AF503FB481A7535CCBBAD27 /* ConnectGitHubSheet.swift in Sources */,
+				7AAB8A00329D04040B50EC35 /* ConnectorService.swift in Sources */,
+				C5441FBAB2065DE8FEE863BD /* ConnectorsView.swift in Sources */,
 				DE6D424948F3091EC11B262F /* ContextView.swift in Sources */,
 				064B9C99CBB1BC04CD9B7307 /* DateFormatting.swift in Sources */,
 				890DC7776BFB95161547A003 /* DecisionCard.swift in Sources */,

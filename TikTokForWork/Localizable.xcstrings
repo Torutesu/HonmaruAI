@@ -639,6 +639,28 @@
         }
       }
     },
+    "Connect the places your work arrives. Your AI reads them and shows you only what needs a decision.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仕事が届く場所を接続してください。AI が読み取り、決定が必要なものだけを表示します。"
+          }
+        }
+      }
+    },
+    "Connectors": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携"
+          }
+        }
+      }
+    },
     "Context": {
       "extractionState": "manual",
       "localizations": {
@@ -712,6 +734,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub Issue を作成しています…"
+          }
+        }
+      }
+    },
+    "Could not load your connectors.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携先を読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "Could not start the connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を開始できませんでした。"
           }
         }
       }
