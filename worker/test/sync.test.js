@@ -96,8 +96,13 @@ test("one sync runs every connector and reports each", async () => {
   });
   expect(res.status).toBe(200);
   const { results } = await res.json();
-  expect(results.map((r) => r.connector).sort()).toEqual(["gmail", "slack"]);
-  expect(results.every((r) => r.scanned === 1)).toBe(true);
+  // Notion is in the registry now but this user chose no database, so it is
+  // skipped without a Composio call (no NOTION interceptor is registered — a
+  // stray call would throw). Gmail and Slack still each scan their one item.
+  expect(results.map((r) => r.connector).sort()).toEqual(["gmail", "notion", "slack"]);
+  expect(results.find((r) => r.connector === "gmail").scanned).toBe(1);
+  expect(results.find((r) => r.connector === "slack").scanned).toBe(1);
+  expect(results.find((r) => r.connector === "notion")).toMatchObject({ scanned: 0, skipped: "not configured" });
 });
 
 test("one connector failing does not silence the other", async () => {

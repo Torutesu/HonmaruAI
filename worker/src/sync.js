@@ -1,19 +1,26 @@
 import { executeTool } from "./composio.js";
 import { triageMessage } from "./triage.js";
-import { isIngested, markIngested, saveCard } from "./db.js";
+import { isIngested, markIngested, saveCard, getConnectorConfig } from "./db.js";
 import { checkAIAllowance } from "./gate.js";
 
 // The loop is deliberately ignorant of which connector it is running: fetch,
 // skip what we have seen, ask whether it needs a decision, and record the answer
 // either way.
 export async function syncConnector(connector, { env, session, orgId, userId, readerLanguage, provider }) {
+  // Connectors that need a per-user setting (Notion needs a chosen database)
+  // sit out until it exists — no error, no half-state, and no Composio call.
+  const config = await getConnectorConfig(env.DB, session.github_id, connector.id);
+  if (connector.requiresConfig && !config) {
+    return { connector: connector.id, scanned: 0, created: 0, skipped: "not configured" };
+  }
+
   const payload = await executeTool(
     env.COMPOSIO_API_KEY,
     connector.toolSlug,
     // Always the caller's own Composio identity. A shared id here would mean
     // every user reading one person's messages.
     String(session.github_id),
-    connector.buildArgs()
+    connector.buildArgs(config)
   );
 
   const messages = connector.parse(payload);
