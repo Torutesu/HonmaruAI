@@ -27,10 +27,14 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     // Checked per message, so a sync stops creating cards the moment the day's
     // allowance runs out rather than blowing through it.
     const allowance = await checkAIAllowance(env, { githubId: String(session.github_id) });
-    const triaged = provider && allowance.allowed
+    const result = provider && allowance.allowed
       ? await triageMessage(message, { provider, readerLanguage, sourceLabel: connector.label })
-      : null;
-    if (triaged && allowance.metered) await allowance.consume();
+      : { called: false, card: null };
+    // Metered on the call, not on the card. Most mail correctly needs no
+    // decision, and charging only for the ones that produce a card would let an
+    // inbox of noise run the model for free.
+    if (result.called && allowance.metered) await allowance.consume();
+    const triaged = result.card;
 
     if (triaged) {
       cardId = crypto.randomUUID();

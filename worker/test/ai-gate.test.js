@@ -1,7 +1,7 @@
 import { env, fetchMock } from "cloudflare:test";
 import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
-import { createSession, countAIUse } from "../src/db.js";
+import { createSession, countAIUse, writeEntitlement } from "../src/db.js";
 import { FREE_DAILY_ROUTES } from "../src/gate.js";
 import worker from "../src/index.js";
 
@@ -58,4 +58,47 @@ test("a caller-supplied key skips the meter entirely", async () => {
   const card = await res.json();
   expect(card.routedBy).toBe("OpenAI");
   expect(card.quotaExceeded).toBeFalsy();
+});
+
+// These two seed the entitlement cache instead of calling freeSubscriber()
+// again: that interceptor is persisted, so a second one would sit unmatched
+// behind it and fail assertNoPendingInterceptors.
+const usedByUser700 = async () => {
+  const row = await env.DB
+    .prepare("SELECT used FROM ai_usage WHERE user_github_id = '700' AND day = ?1")
+    .bind(new Date().toISOString().slice(0, 10))
+    .first();
+  return row ? Number(row.used) : 0;
+};
+
+test("a routing call that fails does not burn the allowance", async () => {
+  await writeEntitlement(env.DB, "700", false);
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(500, "openai is down");
+
+  const res = await route({ "x-session-token": token });
+  const card = await res.json();
+  // The user still gets a card, from the keyword router.
+  expect(card.routedBy).toBe("fallback");
+  expect(card.recipientUserID).toBe("hubot");
+  expect(card.quotaExceeded).toBeFalsy();
+
+  // Our outage is not their three.
+  expect(await usedByUser700()).toBe(0);
+});
+
+test("a routing call that lands is metered once", async () => {
+  await writeEntitlement(env.DB, "700", false);
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, { choices: [{ message: { tool_calls: [{ id: "t1", type: "function", function: {
+      name: "create_decision_card",
+      arguments: JSON.stringify({ recipientUserID: "hubot", cardType: "task",
+        title: "Review the deploy", summary: "x", context: "scope: deploy",
+        priority: "medium", routingReason: "y" }) } }] } }] });
+
+  const res = await route({ "x-session-token": token });
+  expect((await res.json()).routedBy).toBe("OpenAI");
+  expect(await usedByUser700()).toBe(1);
 });

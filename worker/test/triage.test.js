@@ -16,22 +16,34 @@ test("a message that needs a decision becomes a card", async () => {
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
     .reply(200, () => reply({ needsDecision: true, cardType: "approval", title: "Approve invoice #42",
       summary: "Acme is waiting on approval for invoice #42.", context: "deadline: Friday", priority: "high" }));
-  const card = await triageMessage(message, { provider: OPENAI, readerLanguage: "en" });
+  const { called, card } = await triageMessage(message, { provider: OPENAI, readerLanguage: "en" });
+  expect(called).toBe(true);
   expect(card).not.toBeNull();
   expect(card.title).toBe("Approve invoice #42");
   expect(card.priority).toBe("high");
 });
 
-test("a message that needs nothing produces no card", async () => {
+test("a message that needs nothing produces no card, but was still paid for", async () => {
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
     .reply(200, () => reply({ needsDecision: false }));
-  expect(await triageMessage(message, { provider: OPENAI, readerLanguage: "en" })).toBeNull();
+  // The card is still null — but the model answered, so this call is billable
+  // and the meter has to see it.
+  expect(await triageMessage(message, { provider: OPENAI, readerLanguage: "en" }))
+    .toEqual({ called: true, card: null });
 });
 
 test("an unusable model reply is treated as no card, not a crash", async () => {
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
     .reply(200, () => ({ choices: [{ message: { content: "not json" } }] }));
-  expect(await triageMessage(message, { provider: OPENAI, readerLanguage: "en" })).toBeNull();
+  expect(await triageMessage(message, { provider: OPENAI, readerLanguage: "en" }))
+    .toEqual({ called: true, card: null });
+});
+
+test("a call that never landed is not billable", async () => {
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(500, "openai is down");
+  expect(await triageMessage(message, { provider: OPENAI, readerLanguage: "en" }))
+    .toEqual({ called: false, card: null });
 });
 
 test("the prompt names the source so a Slack DM is judged as one", async () => {

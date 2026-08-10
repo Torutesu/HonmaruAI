@@ -19,6 +19,14 @@ or
 
 Write title, summary and context in the reader's language, given below.`;
 
+// Two different "no card" answers used to hide behind the same null, and they
+// cost different amounts: a model that successfully answered "this needs
+// nothing" was billed, a call that never landed was not. The meter has to tell
+// them apart, so the result is discriminated — `called` is whether we paid,
+// `card` is whether anything came of it.
+const NOT_CALLED = { called: false, card: null };
+const ANSWERED_NO = { called: true, card: null };
+
 export async function triageMessage(message, { provider, readerLanguage, sourceLabel }) {
   const userPrompt = `Reader language: ${readerLanguage || "en"}
 Source: ${sourceLabel || "Inbox"}
@@ -37,27 +45,31 @@ Body preview: ${message.snippet}`;
         messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: userPrompt }],
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return NOT_CALLED;
     data = await res.json();
   } catch {
-    return null;
+    return NOT_CALLED;
   }
 
   const content = data?.choices?.[0]?.message?.content;
-  if (!content) return null;
+  if (!content) return NOT_CALLED;
   let parsed;
   try {
     parsed = JSON.parse(content);
   } catch {
-    // A model that did not answer in JSON is not a reason to invent a card.
-    return null;
+    // A model that did not answer in JSON is not a reason to invent a card —
+    // but it answered, and we were billed for the answer.
+    return ANSWERED_NO;
   }
-  if (!parsed?.needsDecision) return null;
+  if (!parsed?.needsDecision) return ANSWERED_NO;
   return {
-    cardType: parsed.cardType || "task",
-    title: parsed.title || message.subject,
-    summary: parsed.summary || "",
-    context: parsed.context || "",
-    priority: parsed.priority || "medium",
+    called: true,
+    card: {
+      cardType: parsed.cardType || "task",
+      title: parsed.title || message.subject,
+      summary: parsed.summary || "",
+      context: parsed.context || "",
+      priority: parsed.priority || "medium",
+    },
   };
 }
