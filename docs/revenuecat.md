@@ -131,7 +131,7 @@ request a refund, cancellation survey, and support contact. It's dashboard-drive
 |------|----------------|
 | `App/RevenueCatConfig.swift` | API key, entitlement ID, product IDs, log level, free quota |
 | `Services/SubscriptionService.swift` | Every `Purchases` call: configure, offerings, purchase, restore, identity, errors |
-| `Services/RoutingQuota.swift` | Free-tier daily meter that the entitlement lifts |
+| `worker/src/gate.js` | The free-tier daily meter that the entitlement lifts — **server-side**, see below |
 | `Features/Subscription/ProPaywallSheet.swift` | `PaywallView` + native fallback |
 | `Features/Subscription/SubscriptionView.swift` | Status, Customer Center, restore, `.proPaywall(isPresented:)` |
 
@@ -238,12 +238,15 @@ guessing. The two failures worth knowing up front:
 - [ ] In App Store Connect: both products in one subscription group, localized display
       names, prices in every storefront, review screenshot.
 - [ ] Add the **In-App Purchase** capability and a paid-apps agreement in place.
-- [ ] Set up [webhooks](https://www.revenuecat.com/docs/integrations/webhooks) so the relay
-      server learns about renewals and cancellations without the app running.
-- [ ] Gate anything that costs money server-side too. The client check is a UX decision;
-      the server should verify entitlements through RevenueCat's REST API or its own
-      webhook-fed store. `RoutingQuota` lives in `UserDefaults` on purpose — it's a product
-      limit, not a security boundary.
+- [x] Gate anything that costs money server-side. **Done** — the Worker asks RevenueCat
+      `GET /v1/subscribers/{app_user_id}` with the secret key and caches the answer for an
+      hour in D1 (`entitlements`), metering AI model calls per user per day in `ai_usage`.
+      The client's `isPro` is only a UX signal. Webhooks were deliberately not used: polling
+      needs no endpoint to secure and cannot miss an event. See
+      `docs/superpowers/specs/2026-08-10-subscription-design.md`.
+- [ ] Put the **public** `appl_…` key in `RevenueCatConfig.apiKey` and set the **secret** key
+      as the Worker secret `REVENUECAT_SECRET_KEY`. Until that secret exists nothing is
+      metered and everyone is free — it is the switch that turns billing on.
 - [ ] Verify restore, cancel, and refund flows in the Customer Center on a sandbox account.
 
 ## References
