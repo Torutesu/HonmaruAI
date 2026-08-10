@@ -2,13 +2,14 @@ import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
+  getConnectorConfig, setConnectorConfig,
 } from "./db.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
 import { CONNECTORS, connectorById } from "./connectors/index.js";
-import { createConnectLink, listConnectedAccounts } from "./composio.js";
+import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
 import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
 
@@ -212,6 +213,42 @@ export default {
       } catch (err) {
         return json({ message: err.message }, 502);
       }
+    }
+
+    if (url.pathname === "/connectors/notion/databases" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      try {
+        // filter_property:"object" + filter_value:"database" is what the live
+        // API needs to return only databases; a bare filter_value lets pages
+        // through (README, Notion verified 2026-08-10).
+        const payload = await executeTool(
+          env.COMPOSIO_API_KEY, "NOTION_SEARCH_NOTION_PAGE",
+          String(session.github_id),
+          { query: "", filter_value: "database", filter_property: "object" }
+        );
+        const rows = payload?.data?.results ?? payload?.data?.databases ?? [];
+        const databases = rows.map((d) => ({
+          id: d.id,
+          // A database title is a rich-text array, never a plain string.
+          title: Array.isArray(d.title)
+            ? d.title.map((t) => t.plain_text || "").join("").trim() || "Untitled"
+            : (d.title || "Untitled"),
+        }));
+        return json({ databases });
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+    }
+
+    if (url.pathname === "/connectors/notion/config" && request.method === "PUT") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json();
+      if (!body.databaseId) return json({ message: "databaseId is required" }, 400);
+      await setConnectorConfig(env.DB, session.github_id, "notion", { databaseId: body.databaseId });
+      return json({ ok: true });
     }
 
     const syncMatch = url.pathname === "/connectors/sync"

@@ -95,3 +95,11 @@ CREATE TABLE IF NOT EXISTS entitlements (
   is_pro         INTEGER NOT NULL,
   checked_at     TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS connector_config (
+  user_github_id TEXT NOT NULL,
+  connector      TEXT NOT NULL,
+  config         TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  PRIMARY KEY (user_github_id, connector)
+);

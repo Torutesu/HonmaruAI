@@ -223,3 +223,41 @@ export async function writeEntitlement(db, githubId, isPro) {
     .bind(String(githubId), isPro ? 1 : 0, new Date().toISOString())
     .run();
 }
+
+// Per-user connector settings, keyed by the NUMERIC github id like memberships
+// and sessions. Connectors that need no configuration never touch this.
+export async function getConnectorConfig(db, githubId, connector) {
+  const row = await db
+    .prepare("SELECT config FROM connector_config WHERE user_github_id = ?1 AND connector = ?2")
+    .bind(String(githubId), connector)
+    .first();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.config);
+  } catch {
+    return null;
+  }
+}
+
+export async function setConnectorConfig(db, githubId, connector, config) {
+  await db
+    .prepare(
+      `INSERT INTO connector_config (user_github_id, connector, config, updated_at)
+       VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(user_github_id, connector) DO UPDATE SET
+         config = excluded.config, updated_at = excluded.updated_at`
+    )
+    .bind(String(githubId), connector, JSON.stringify(config), new Date().toISOString())
+    .run();
+}
+
+// The relay knows a person by their github LOGIN; config is keyed by the numeric
+// id. This is the bridge — comparing the two directly would never match.
+export async function getUserByLogin(db, login) {
+  return (
+    (await db
+      .prepare("SELECT github_id, login FROM users WHERE login = ?1")
+      .bind(login)
+      .first()) || null
+  );
+}
