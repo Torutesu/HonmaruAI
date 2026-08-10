@@ -54,6 +54,8 @@ struct FeedView: View {
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $viewModel.scrollPosition)
                 .scrollIndicators(.hidden)
+                .task { await syncConnectors() }
+                .refreshable { await syncConnectors() }
             }
 
             if viewModel.isProcessing {
@@ -251,6 +253,18 @@ struct FeedView: View {
 
     private func disconnect() {
         appState.signOut()
+    }
+
+    private func syncConnectors() async {
+        guard let user = appState.currentUser,
+              let repository = appState.githubService.connection?.repository,
+              let base = appState.backendBaseURL else { return }
+        await ConnectorService.syncGmail(
+            orgId: repository,
+            userId: user.id,
+            readerLanguage: appState.readerLanguageCode,
+            backendBaseURL: base
+        )
     }
 }
 
