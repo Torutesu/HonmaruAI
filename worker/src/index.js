@@ -10,6 +10,7 @@ import { uploadMedia, serveMedia } from "./media.js";
 import { CONNECTORS, connectorById } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts } from "./composio.js";
 import { syncAll } from "./sync.js";
+import { checkAIAllowance } from "./gate.js";
 
 export { OrgRelay } from "./relay.js";
 
@@ -73,6 +74,14 @@ export default {
     if (url.pathname === "/ai/route" && request.method === "POST") {
       const body = await request.json();
       const userKey = request.headers.get("x-ai-key") || undefined;
+      // The route is usable without a session (guests), but only a session can
+      // be metered — and an unmetered guest must not spend our AI budget.
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const allowance = await checkAIAllowance(env, {
+        githubId: session ? String(session.github_id) : null,
+        userKey,
+      });
+
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
@@ -80,9 +89,12 @@ export default {
         priorityOverride: body.priorityOverride,
         readerLanguage: body.readerLanguage,
         senderContext: body.senderContext,
-        openRouter: providerConfig(env, userKey),
+        // No provider means the local keyword router — the graceful degradation.
+        openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
       });
-      return json(result);
+      if (allowance.allowed && allowance.metered) await allowance.consume();
+
+      return json(allowance.quotaExceeded ? { ...result, quotaExceeded: true } : result);
     }
     if (url.pathname === "/oauth/github/config" && request.method === "GET") {
       if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {

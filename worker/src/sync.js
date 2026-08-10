@@ -1,6 +1,7 @@
 import { executeTool } from "./composio.js";
 import { triageMessage } from "./triage.js";
 import { isIngested, markIngested, saveCard } from "./db.js";
+import { checkAIAllowance } from "./gate.js";
 
 // The loop is deliberately ignorant of which connector it is running: fetch,
 // skip what we have seen, ask whether it needs a decision, and record the answer
@@ -23,9 +24,13 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     if (await isIngested(env.DB, connector.id, message.id, session.github_id)) continue;
 
     let cardId = null;
-    const triaged = provider
+    // Checked per message, so a sync stops creating cards the moment the day's
+    // allowance runs out rather than blowing through it.
+    const allowance = await checkAIAllowance(env, { githubId: String(session.github_id) });
+    const triaged = provider && allowance.allowed
       ? await triageMessage(message, { provider, readerLanguage, sourceLabel: connector.label })
       : null;
+    if (triaged && allowance.metered) await allowance.consume();
 
     if (triaged) {
       cardId = crypto.randomUUID();
