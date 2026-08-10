@@ -8,6 +8,7 @@ import {
   getSession, getUserByGithubId,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
+import { writeDecisionToNotion } from "./notionWriter.js";
 
 export class OrgRelay {
   constructor(state, env) {
@@ -106,6 +107,22 @@ export class OrgRelay {
         note: decision?.note || decision?.replyText,
         snapshot: card,
       });
+      // A decision also lands as a row in the decider's Notion database, if they
+      // connected one. waitUntil, not await: the design's rule is that a Notion
+      // failure — or a slow Notion — must never break or stall the decision, so
+      // the broadcast below goes out immediately and the write settles after.
+      // writeDecisionToNotion never throws, so an unhandled rejection cannot
+      // escape here either.
+      if (decision?.action) {
+        this.state.waitUntil(
+          writeDecisionToNotion({
+            env: this.env,
+            orgId,
+            login: decision.actorUserID || att.userId,
+            card,
+          })
+        );
+      }
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
