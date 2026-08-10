@@ -82,3 +82,16 @@ CREATE TABLE IF NOT EXISTS ingested_items (
   created_at     TEXT NOT NULL,
   PRIMARY KEY (connector, external_id, user_github_id)
 );
+
+CREATE TABLE IF NOT EXISTS ai_usage (
+  user_github_id TEXT NOT NULL,
+  day            TEXT NOT NULL,
+  used           INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_github_id, day)
+);
+
+CREATE TABLE IF NOT EXISTS entitlements (
+  user_github_id TEXT PRIMARY KEY,
+  is_pro         INTEGER NOT NULL,
+  checked_at     TEXT NOT NULL
+);

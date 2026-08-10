@@ -183,3 +183,43 @@ export async function markIngested(db, { connector, externalId, githubId, orgId,
     .bind(connector, externalId, String(githubId), orgId, cardId || null, new Date().toISOString())
     .run();
 }
+
+// The AI meter lives here rather than on the device: the model call happens on
+// the Worker and we pay for it, so a counter the user can reset by deleting the
+// app is not a limit on our bill.
+export async function usedToday(db, githubId, day) {
+  const row = await db
+    .prepare("SELECT used FROM ai_usage WHERE user_github_id = ?1 AND day = ?2")
+    .bind(String(githubId), day)
+    .first();
+  return row ? Number(row.used) : 0;
+}
+
+export async function countAIUse(db, githubId, day) {
+  await db
+    .prepare(
+      `INSERT INTO ai_usage (user_github_id, day, used) VALUES (?1, ?2, 1)
+       ON CONFLICT(user_github_id, day) DO UPDATE SET used = used + 1`
+    )
+    .bind(String(githubId), day)
+    .run();
+}
+
+export async function readEntitlement(db, githubId) {
+  return (
+    (await db
+      .prepare("SELECT user_github_id, is_pro, checked_at FROM entitlements WHERE user_github_id = ?1")
+      .bind(String(githubId))
+      .first()) || null
+  );
+}
+
+export async function writeEntitlement(db, githubId, isPro) {
+  await db
+    .prepare(
+      `INSERT INTO entitlements (user_github_id, is_pro, checked_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT(user_github_id) DO UPDATE SET is_pro = excluded.is_pro, checked_at = excluded.checked_at`
+    )
+    .bind(String(githubId), isPro ? 1 : 0, new Date().toISOString())
+    .run();
+}
