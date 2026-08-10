@@ -75,3 +75,66 @@ URL above.
 
 Optional env: `OPENAI_MODEL`, `GITHUB_REDIRECT_URI`, `GITHUB_OAUTH_SCOPE`
 (default `repo`), `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` (dev fallback).
+
+## Composio (Gmail connector)
+
+Verified live on 2026-08-10. The Worker talks to Composio over plain HTTPS; the
+`composio` CLI is not usable from a deployed Worker (it authenticates with a
+`composio login` session, not an API key).
+
+| | |
+|---|---|
+| Base URL | `https://backend.composio.dev/api/v3` |
+| Auth header | `x-api-key` |
+| Key format | **`ak_…` (Project API key)**. Keys starting `ck_` are rejected 401 — they are not REST API keys. |
+| Secret name | `COMPOSIO_API_KEY` |
+
+**The key and the connection must live in the same Composio project.** A valid key
+pointed at a project with no connection returns 200 with zero connected accounts,
+which looks like success and behaves like failure.
+
+### Connecting an account (this is how the in-app connect flow will work)
+
+```
+POST /v3/auth_configs
+  { "toolkit": { "slug": "gmail" },
+    "auth_config": { "type": "use_composio_managed_auth" } }
+→ 201 { "auth_config": { "id": "ac_…" } }
+
+POST /v3/connected_accounts/link
+  { "user_id": "<our id for the person>", "auth_config_id": "ac_…" }
+→ 201 { "redirect_url": "https://connect.composio.dev/link/lk_…",
+        "connected_account_id": "ca_…", "expires_at": "…" }
+```
+The user opens `redirect_url`, authorizes, and the connection becomes ACTIVE under
+that `user_id`. (`initiate()` is retired for Composio-managed OAuth since
+2026-07-03; `link` is its replacement.)
+
+Current state: auth config `ac_XcSzdgFl91Ds`, connection `ca_rISpkV_xpRVj`,
+`user_id` **`honmaru-default`**, status ACTIVE. That `user_id` is what
+`COMPOSIO_USER_ID` must be set to until per-user connections exist.
+
+### Reading mail
+
+```
+POST /v3/tools/execute/GMAIL_FETCH_EMAILS
+  { "user_id": "honmaru-default",
+    "arguments": { "query": "newer_than:7d", "max_results": 10,
+                   "verbose": false, "include_payload": false } }
+```
+
+Response (verified):
+
+```
+{ "successful": true, "error": null, "log_id": "…",
+  "data": { "messages": [ … ], "nextPageToken": "…", "resultSizeEstimate": N } }
+```
+
+A message carries: `messageId`, `threadId`, `sender`, `to`, `subject`,
+`messageTimestamp`, `labelIds`, `preview: { body, subject }`, plus
+`messageText`/`payload`/`attachmentList` when verbose.
+
+Composio's documented traps, all still worth coding against: the payload is
+sometimes wrapped as `results[i].response.data.messages`; an empty `messages`
+array is a valid no-matches result, not an error; and `verbose:true` /
+`include_payload:true` can trigger 413 or truncation.
