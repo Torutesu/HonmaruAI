@@ -3872,6 +3872,39 @@
           }
         }
       }
+    },
+    "Where decisions are recorded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定の記録先"
+          }
+        }
+      }
+    },
+    "Could not save your choice.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択を保存できませんでした。"
+          }
+        }
+      }
+    },
+    "No databases shared with Honmaru AI yet. Share one in Notion, then reopen this screen.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI と共有されているデータベースがまだありません。Notion で共有してから、この画面を開き直してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

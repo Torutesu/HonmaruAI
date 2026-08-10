@@ -9,6 +9,8 @@ struct ConnectorsView: View {
     @State private var connectors: [Connector] = []
     @State private var message: String?
     @State private var busy: String?
+    @State private var databases: [NotionDatabase] = []
+    @State private var chosenDatabase: String?
     private let webAuth = WebAuthContextProvider()
 
     var body: some View {
@@ -35,23 +37,58 @@ struct ConnectorsView: View {
     }
 
     private func row(_ connector: Connector) -> some View {
-        HStack {
-            Text(connector.label)
-                .font(.system(size: 15))
-                .foregroundStyle(Theme.Colors.textPrimary)
-            Spacer()
-            if busy == connector.id {
-                ProgressView()
-            } else if connector.isConnected {
-                Text(String(localized: "Connected"))
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            } else {
-                Button(String(localized: "Connect")) {
-                    Task { await connect(connector) }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(connector.label)
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                Spacer()
+                if busy == connector.id {
+                    ProgressView()
+                } else if connector.isConnected {
+                    Text(String(localized: "Connected"))
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                } else {
+                    Button(String(localized: "Connect")) {
+                        Task { await connect(connector) }
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.Colors.interactive)
                 }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Theme.Colors.interactive)
+            }
+
+            if connector.id == "notion", connector.isConnected {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    Text(String(localized: "Where decisions are recorded"))
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                    if databases.isEmpty {
+                        Text(String(localized: "No databases shared with Honmaru AI yet. Share one in Notion, then reopen this screen."))
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    } else {
+                        ForEach(databases) { db in
+                            Button {
+                                Task { await choose(db) }
+                            } label: {
+                                HStack {
+                                    Text(db.title)
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Theme.Colors.textPrimary)
+                                    Spacer()
+                                    if chosenDatabase == db.id {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(Theme.Colors.interactive)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.top, Theme.Spacing.sm)
             }
         }
         .padding(Theme.Spacing.md)
@@ -70,6 +107,21 @@ struct ConnectorsView: View {
             message = nil
         } catch {
             message = String(localized: "Could not load your connectors.")
+        }
+        if connectors.contains(where: { $0.id == "notion" && $0.isConnected }) {
+            databases = (try? await ConnectorService.notionDatabases(backendBaseURL: base)) ?? []
+            chosenDatabase = ConnectorService.chosenNotionDatabase()
+        }
+    }
+
+    private func choose(_ db: NotionDatabase) async {
+        guard let base = appState.backendBaseURL else { return }
+        do {
+            try await ConnectorService.setNotionDatabase(db.id, backendBaseURL: base)
+            chosenDatabase = db.id
+            message = nil
+        } catch {
+            message = String(localized: "Could not save your choice.")
         }
     }
 
