@@ -120,7 +120,9 @@ final class GitHubService: NSObject, ObservableObject {
             return
         }
 
-        _ = try await requestDictionary(path: "/user")
+        let user = try await requestDictionary(path: "/user")
+        // Backfill the numeric id for installs that signed in before it was stored.
+        if let ghId = user["id"] { SessionStore.githubUserId = String(describing: ghId) }
     }
 
     func signInWithOAuth(backendBaseURL: URL) async throws {
@@ -162,6 +164,8 @@ final class GitHubService: NSObject, ObservableObject {
         guard let username = user["login"] as? String else {
             throw GitHubServiceError.unauthorized
         }
+        // The numeric GitHub id is what the Worker (and therefore RevenueCat) keys on.
+        if let ghId = user["id"] { SessionStore.githubUserId = String(describing: ghId) }
 
         let repo = try await requestDictionary(path: "/repos/\(trimmedRepo)")
         guard let fullName = repo["full_name"] as? String,

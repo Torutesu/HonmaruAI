@@ -60,6 +60,10 @@ final class AppState: ObservableObject {
     func bootstrapBackend() async {
         defer { isBootstrapping = false }
 
+        // Configure RevenueCat before restoring the session, so a restored account is
+        // re-identified to the SDK and the entitlement is known before the first screen.
+        SubscriptionService.shared.configure()
+
         guard let backendBaseURL else { return }
         aiService.configure(backendBaseURL: backendBaseURL)
         await restoreSessionIfNeeded()
@@ -136,6 +140,10 @@ final class AppState: ObservableObject {
         }
         currentUser = user
         isAuthenticated = true
+        // RevenueCat's app_user_id must match what the Worker asks about.
+        if let githubId = SessionStore.githubUserId {
+            await SubscriptionService.shared.identify(githubId)
+        }
         // Load the org in the background so entry never blocks on reachability.
         Task { await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId)) }
     }
@@ -161,6 +169,9 @@ final class AppState: ObservableObject {
     func signOut() {
         Task {
             await webSocketService.publishClearStore()
+            // Drop back to an anonymous RevenueCat id so the next account on this
+            // device does not inherit this person's entitlement.
+            await SubscriptionService.shared.signOut()
         }
         webSocketService.disconnect()
         githubService.disconnect()

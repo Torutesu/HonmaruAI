@@ -8,6 +8,7 @@ enum SessionStore {
         static let githubToken = "githubToken"
         static let githubRepository = "githubRepository"
         static let githubUsername = "githubUsername"
+        static let githubUserId = "githubUserId"
         static let githubRepositoryURL = "githubRepositoryURL"
         static let currentUserID = "currentUserID"
         static let sessionToken = "sessionToken"
@@ -27,6 +28,13 @@ enum SessionStore {
     static var githubUsername: String? {
         get { read(Key.githubUsername) }
         set { write(newValue, key: Key.githubUsername) }
+    }
+
+    /// The numeric GitHub id, kept so RevenueCat can be identified by the same value the
+    /// Worker uses to look up entitlements.
+    static var githubUserId: String? {
+        get { read(Key.githubUserId) }
+        set { write(newValue, key: Key.githubUserId) }
     }
 
     static var githubRepositoryURL: String? {
@@ -72,6 +80,7 @@ enum SessionStore {
         delete(Key.githubToken)
         delete(Key.githubRepository)
         delete(Key.githubUsername)
+        delete(Key.githubUserId)
         delete(Key.githubRepositoryURL)
         delete(Key.currentUserID)
         delete(Key.sessionToken)
