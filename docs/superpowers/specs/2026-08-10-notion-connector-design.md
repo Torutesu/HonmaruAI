@@ -82,19 +82,58 @@ Items are pulled with `NOTION_QUERY_DATABASE_WITH_FILTER` and dedup is by Notion
 page id. Each item still passes through the same triage — being in a database
 does not make something a decision, and the triage may still return nothing.
 
+### "Assigned to me" was dropped — revised 2026-08-10 after Task 1
+
+This design originally said inbound would surface rows **assigned to the user**.
+Pinning the API against the live service showed that cannot be done reliably, so
+inbound now pulls the **most recently edited rows** and lets triage decide, exactly
+like Gmail and Slack:
+
+- **There is no guaranteed assignee column.** An assignee is a `people`-type
+  property, and Notion database schemas are arbitrary — the probe database had
+  none. This is the same fact that makes the title-only write bet *work*: we cannot
+  assume any property beyond the title exists. It cuts both ways.
+- **There is no "current user".** Composio authorizes as a **bot**, so Notion has no
+  human "me" to compare against. Resolving one means listing every user and guessing
+  at the `person` entries — brittle the moment a workspace has more than one.
+
+The cost of reading a whole database is real, so the pull is **bounded to a page of
+recent rows** rather than the full table. `ingested_items` still records every row it
+scans (with `card_id` NULL when triage says no), so nothing is judged twice and an
+unbounded first sync cannot happen. Without that bound, connecting a large database
+would spend one AI call per row and exhaust the free tier immediately — see
+`docs/superpowers/specs/2026-08-10-subscription-design.md`.
+
+The consequence to accept: in a **shared** database, other people's rows are
+candidates too. Triage discards what is not a decision, but this is a weaker filter
+than "assigned to me" would have been. Letting the user nominate a `people` property
+in the picker is the natural refinement once real usage shows how many databases
+actually have one.
+
 ## GitHub Issues is untouched
 
 The existing client-side GitHub sync keeps working exactly as it does. Notion is
 an **additional** destination that applies only to users who connected it and
 chose a database. This is not a migration.
 
-## Unknown, pinned before coding
+## Unknown, pinned before coding — DONE 2026-08-10
 
-Notion's filter syntax for "assigned to me", the exact shape of a row insert, and
-how databases come back from search are **confirmed against the live API first**
-and recorded in `worker/README.md` — the same discipline that produced the Gmail
-and Slack contracts. Prerequisite: Notion connected in Composio (auth config
-`ac_qtoaZ6G__JEd` created).
+Notion's filter syntax, the exact shape of a row insert, and how databases come back
+from search were **confirmed against the live API** and recorded in
+`worker/README.md` (`### Notion (verified 2026-08-10)`) — the same discipline that
+produced the Gmail and Slack contracts. Auth config `ac_qtoaZ6G__JEd`.
+
+Three findings that would have been wrong if guessed:
+
+1. A database's title is a **rich-text array** (`title[].plain_text`), not a string.
+2. `NOTION_INSERT_ROW_DATABASE` takes properties as a **list of `{name, type, value}`**,
+   not a map keyed by property name. Page body goes in `child_blocks`.
+3. The title property is identified by **`type === "title"`**, never by its display
+   name, which is user-defined.
+
+The write path was verified by actually creating a row in a database whose schema we
+do not control, title-only — so the central bet of this design is tested, not assumed.
+The "assigned to me" filter was the finding that changed the design; see above.
 
 ## Out of scope
 
