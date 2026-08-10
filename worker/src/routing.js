@@ -649,6 +649,10 @@ async function routeInstructionWithOpenRouter({
   readerLanguage,
   senderContext,
   attempt = 0,
+  // Shared with the caller (and with this function's own retry) so it can tell
+  // "the model answered" from "the call never landed" even when both end up
+  // throwing. Only the first is billable.
+  call = { answered: false },
 }) {
   const userPrompt = buildUserPrompt({ text, sender, organization, readerLanguage, senderContext });
 
@@ -688,6 +692,9 @@ async function routeInstructionWithOpenRouter({
     const message = data?.error?.message || `${openRouter.providerName || "LLM"} request failed.`;
     throw new Error(message);
   }
+  // Past this line the provider has answered and billed us, whatever we go on
+  // to make of the answer — including rejecting it in validateRouting below.
+  call.answered = true;
 
   const message = data?.choices?.[0]?.message;
   const toolCalls = message?.tool_calls;
@@ -717,6 +724,7 @@ async function routeInstructionWithOpenRouter({
         readerLanguage,
         senderContext,
         attempt: attempt + 1,
+        call,
       });
     }
     console.warn("OpenRouter returned empty routing response; using local fallback.");
@@ -753,6 +761,11 @@ export async function routeInstruction({
   senderContext,
 }) {
   if (openRouter?.apiKey) {
+    // `aiCalled` is for the meter, not for clients: /ai/route strips it before
+    // responding, so the wire format is unchanged. routedBy cannot stand in for
+    // it — a model that answers with an invalid recipient is rejected below and
+    // reported as "fallback", but we were still billed for the answer.
+    const call = { answered: false };
     try {
       const routed = await routeInstructionWithOpenRouter({
         text,
@@ -762,19 +775,25 @@ export async function routeInstruction({
         openRouter,
         readerLanguage,
         senderContext,
+        call,
       });
-      return { ...routed, routedBy: openRouter.providerName || "llm" };
+      return { ...routed, routedBy: openRouter.providerName || "llm", aiCalled: call.answered };
     } catch (error) {
       console.warn("AI routing failed, using local fallback:", error.message);
       return {
         ...routeInstructionLocally({ text, sender, organization, priorityOverride }),
         routedBy: "fallback",
         routingError: error.message,
+        aiCalled: call.answered,
       };
     }
   }
 
-  return { ...routeInstructionLocally({ text, sender, organization, priorityOverride }), routedBy: "fallback" };
+  return {
+    ...routeInstructionLocally({ text, sender, organization, priorityOverride }),
+    routedBy: "fallback",
+    aiCalled: false,
+  };
 }
 
 export { SYSTEM_PROMPT, userNameFor };

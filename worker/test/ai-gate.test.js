@@ -99,6 +99,30 @@ test("a routing call that lands is metered once", async () => {
         priority: "medium", routingReason: "y" }) } }] } }] });
 
   const res = await route({ "x-session-token": token });
-  expect((await res.json()).routedBy).toBe("OpenAI");
+  const card = await res.json();
+  expect(card.routedBy).toBe("OpenAI");
   expect(await usedByUser700()).toBe(1);
+  // aiCalled is the meter's business, not the client's.
+  expect("aiCalled" in card).toBe(false);
+});
+
+// The path routedBy could not describe: OpenAI answered and billed us, we
+// rejected the answer because that recipient does not exist, and the user got a
+// keyword-routed card anyway. The call still has to be metered.
+test("an answer we reject is still an answer we paid for", async () => {
+  await writeEntitlement(env.DB, "700", false);
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, { choices: [{ message: { tool_calls: [{ id: "t1", type: "function", function: {
+      name: "create_decision_card",
+      arguments: JSON.stringify({ recipientUserID: "user-nobody", cardType: "task",
+        title: "Review the deploy", summary: "x", context: "scope: deploy",
+        priority: "medium", routingReason: "y" }) } }] } }] });
+
+  const res = await route({ "x-session-token": token });
+  const card = await res.json();
+  expect(card.routedBy).toBe("fallback");
+  expect(card.recipientUserID).toBe("hubot");
+  expect(await usedByUser700()).toBe(1);
+  expect("aiCalled" in card).toBe(false);
 });

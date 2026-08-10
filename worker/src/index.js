@@ -92,11 +92,13 @@ export default {
         // No provider means the local keyword router — the graceful degradation.
         openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
       });
-      // Only a model that actually answered is billable. routeInstruction names
-      // the provider in `routedBy` on success and says "fallback" when the call
-      // did not land, so a provider outage never burns someone's three.
-      const modelAnswered = allowance.allowed && result.routedBy !== "fallback";
+      // Only a model that actually answered is billable — including one whose
+      // answer we then rejected, which still comes back as routedBy "fallback".
+      // A provider outage never burns someone's three.
+      const modelAnswered = allowance.allowed && result.aiCalled === true;
       if (modelAnswered && allowance.metered) await allowance.consume();
+      // Internal to the meter. Stripped so the wire format is unchanged.
+      delete result.aiCalled;
 
       return json(allowance.quotaExceeded ? { ...result, quotaExceeded: true } : result);
     }

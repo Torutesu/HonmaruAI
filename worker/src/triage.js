@@ -51,8 +51,9 @@ Body preview: ${message.snippet}`;
     return NOT_CALLED;
   }
 
+  // A 200 carrying nothing usable is still a completion we were billed for.
   const content = data?.choices?.[0]?.message?.content;
-  if (!content) return NOT_CALLED;
+  if (!content) return ANSWERED_NO;
   let parsed;
   try {
     parsed = JSON.parse(content);

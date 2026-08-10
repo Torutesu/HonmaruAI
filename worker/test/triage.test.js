@@ -46,6 +46,13 @@ test("a call that never landed is not billable", async () => {
     .toEqual({ called: false, card: null });
 });
 
+test("a 200 carrying no content is empty but still billable", async () => {
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, () => ({ choices: [{ message: {} }] }));
+  expect(await triageMessage(message, { provider: OPENAI, readerLanguage: "en" }))
+    .toEqual({ called: true, card: null });
+});
+
 test("the prompt names the source so a Slack DM is judged as one", async () => {
   let sent;
   fetchMock.get("https://api.openai.com")

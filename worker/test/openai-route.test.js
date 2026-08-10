@@ -93,6 +93,26 @@ test("an invalid OpenAI recipient is rejected and falls back to a real member", 
   expect(res.routedBy).toBe("fallback");
   expect(res.routingError).toBeTruthy();
   expect(["octocat", "hubot"]).toContain(res.recipientUserID);
+  // The model answered and billed us; we only rejected what it said. routedBy
+  // reads "fallback" here, which is precisely why the meter cannot use it.
+  expect(res.aiCalled).toBe(true);
+});
+
+test("a call that never lands is not counted as a model call", async () => {
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(500, { error: { message: "openai is down" } });
+
+  const res = await routeInstruction({
+    text: "Please decide on the release",
+    sender: { id: "octocat", name: "octocat", role: "Admin" },
+    organization: REAL_ORG,
+    openRouter: OPENAI,
+    readerLanguage: "en",
+  });
+
+  expect(res.routedBy).toBe("fallback");
+  expect(res.aiCalled).toBe(false);
 });
 
 test("a caller-supplied key is used for routing", async () => {
