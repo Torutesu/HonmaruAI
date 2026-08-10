@@ -33,3 +33,19 @@ test("an unusable model reply is treated as no card, not a crash", async () => {
     .reply(200, () => ({ choices: [{ message: { content: "not json" } }] }));
   expect(await triageMessage(message, { provider: OPENAI, readerLanguage: "en" })).toBeNull();
 });
+
+test("the prompt names the source so a Slack DM is judged as one", async () => {
+  let sent;
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST",
+      body: (b) => { sent = JSON.parse(b); return true; } })
+    .reply(200, { choices: [{ message: { content: JSON.stringify({ needsDecision: false }) } }] });
+
+  await triageMessage(
+    { id: "s1", from: "hubot", subject: "#release", snippet: "approve?", date: "2026-08-10T00:00:00Z" },
+    { provider: OPENAI, readerLanguage: "en", sourceLabel: "Slack" }
+  );
+
+  const text = JSON.stringify(sent.messages);
+  expect(text).toContain("Slack");
+});

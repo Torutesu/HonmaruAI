@@ -2,11 +2,12 @@
 // the person who received it? Most mail does not, and answering "no" is the
 // point — a connector that turns every message into a card is a worse inbox.
 
-const SYSTEM_PROMPT = `You triage a person's incoming mail into decisions.
+const SYSTEM_PROMPT = `You triage the messages that reach a person into decisions.
 
 For the message you are given, decide whether it genuinely requires a decision or
 an action FROM THE RECIPIENT. Newsletters, receipts, notifications, automated
-reports, marketing, and FYI threads do NOT. Be strict: when in doubt, say no.
+reports, marketing, chit-chat and FYI threads do NOT. Be strict: when in doubt,
+say no.
 
 Reply with JSON only:
 {"needsDecision": false}
@@ -18,8 +19,9 @@ or
 
 Write title, summary and context in the reader's language, given below.`;
 
-export async function triageMessage(message, { provider, readerLanguage }) {
+export async function triageMessage(message, { provider, readerLanguage, sourceLabel }) {
   const userPrompt = `Reader language: ${readerLanguage || "en"}
+Source: ${sourceLabel || "Inbox"}
 From: ${message.from}
 Subject: ${message.subject}
 Received: ${message.date}
