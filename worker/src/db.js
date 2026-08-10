@@ -159,3 +159,27 @@ export async function isMember(db, orgId, githubId) {
     .first();
   return Boolean(row);
 }
+
+// A row is written for every scanned item, including ones the triage rejected
+// (card_id NULL). Without that, every sync re-reads and re-judges the same mail
+// forever, paying the model to reach the same "no".
+export async function isIngested(db, connector, externalId, githubId) {
+  const row = await db
+    .prepare(
+      "SELECT 1 AS ok FROM ingested_items WHERE connector = ?1 AND external_id = ?2 AND user_github_id = ?3"
+    )
+    .bind(connector, externalId, String(githubId))
+    .first();
+  return Boolean(row);
+}
+
+export async function markIngested(db, { connector, externalId, githubId, orgId, cardId }) {
+  await db
+    .prepare(
+      `INSERT INTO ingested_items (connector, external_id, user_github_id, org_id, card_id, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(connector, external_id, user_github_id) DO NOTHING`
+    )
+    .bind(connector, externalId, String(githubId), orgId, cardId || null, new Date().toISOString())
+    .run();
+}

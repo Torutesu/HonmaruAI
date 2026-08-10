@@ -72,3 +72,13 @@ CREATE TABLE IF NOT EXISTS card_events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_card ON card_events (org_id, card_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_org ON card_events (org_id, created_at);
+
+CREATE TABLE IF NOT EXISTS ingested_items (
+  connector      TEXT NOT NULL,
+  external_id    TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  org_id         TEXT NOT NULL,
+  card_id        TEXT,
+  created_at     TEXT NOT NULL,
+  PRIMARY KEY (connector, external_id, user_github_id)
+);

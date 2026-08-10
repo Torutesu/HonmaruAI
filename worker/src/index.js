@@ -1,10 +1,16 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
-import { createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember } from "./db.js";
+import {
+  createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
+  isIngested, markIngested, saveCard,
+} from "./db.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
+import { executeTool } from "./composio.js";
+import { parseMessages } from "./gmail.js";
+import { triageMessage } from "./triage.js";
 
 export { OrgRelay } from "./relay.js";
 
@@ -148,6 +154,63 @@ export default {
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
       return json({ events: await listCardEvents(env.DB, orgId, cardId) });
+    }
+    if (url.pathname === "/connectors/gmail/sync" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+
+      const body = await request.json();
+      const orgId = body.orgId;
+      const userId = body.userId;
+      if (!orgId || !userId) return json({ message: "orgId and userId are required" }, 400);
+
+      let payload;
+      try {
+        payload = await executeTool(
+          env.COMPOSIO_API_KEY, "GMAIL_FETCH_EMAILS",
+          env.COMPOSIO_USER_ID || String(session.github_id),
+          { query: "newer_than:7d", max_results: 10, verbose: false, include_payload: false }
+        );
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+
+      const messages = parseMessages(payload);
+      const provider = providerConfig(env);
+      let created = 0;
+
+      for (const message of messages) {
+        if (!message.id) continue;
+        if (await isIngested(env.DB, "gmail", message.id, session.github_id)) continue;
+
+        let cardId = null;
+        const triaged = provider
+          ? await triageMessage(message, { provider, readerLanguage: body.readerLanguage })
+          : null;
+
+        if (triaged) {
+          cardId = crypto.randomUUID();
+          await saveCard(env.DB, orgId, {
+            id: cardId, recipientUserID: userId, senderUserID: userId,
+            type: triaged.cardType, format: "approve",
+            title: triaged.title, summary: triaged.summary, context: triaged.context,
+            priority: triaged.priority, status: "pending",
+            createdAt: new Date().toISOString(),
+            sourceApp: "Gmail",
+            sourceDetail: `${message.from} · ${message.subject}`,
+          });
+          created += 1;
+        }
+
+        // Recorded either way: a rejected message must never be re-judged.
+        await markIngested(env.DB, {
+          connector: "gmail", externalId: message.id,
+          githubId: session.github_id, orgId, cardId,
+        });
+      }
+
+      return json({ scanned: messages.length, created });
     }
     const orgEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/events$/);
     if (orgEventsMatch && request.method === "GET") {
