@@ -79,17 +79,35 @@ Do these in order; each step depends on the previous one.
 
 ### Products
 
-**Products → New**, one per store product, identifiers matching
-`RevenueCatConfig.ProductID`:
+**Products → New**, one per store product. There are **two sets of identifiers**, and
+conflating them is the usual way this breaks:
 
-| Product ID | Duration | Notes |
-|------------|----------|-------|
-| `yearly`   | 1 year, auto-renewing | Mark as the highlighted plan on the paywall |
-| `monthly`  | 1 month, auto-renewing | |
+| Store | Yearly | Monthly |
+|-------|--------|---------|
+| RevenueCat **Test Store** | `yearly` | `monthly` |
+| **App Store** (production) | `com.honmaru.ai.pro.yearly` | `com.honmaru.ai.pro.monthly` |
 
-For production these must exist in App Store Connect first (same identifiers), in an
-auto-renewable subscription **group** — one group means users can switch between monthly
-and yearly as an upgrade/downgrade instead of stacking two subscriptions.
+App Store product IDs are unique across the *entire* App Store, so a bare `monthly` is not
+obtainable — the reverse-DNS form is the real one. `RevenueCatConfig.ProductID` holds the
+Test Store names only, and only to label a plan when the dashboard has no display title;
+nothing looks products up by those constants, so the two sets can differ safely.
+
+Live in App Store Connect (created 2026-08-10, group `Pro`, ASC app `6799302006`):
+
+| Product ID | ASC id | Duration | Price (USD base) |
+|------------|--------|----------|------------------|
+| `com.honmaru.ai.pro.monthly` | 6799858897 | 1 month, auto-renewing | $10.00 |
+| `com.honmaru.ai.pro.yearly`  | 6799859077 | 1 year, auto-renewing  | $96.00 (20% off) |
+
+Prices are equalized across all 175 territories from the USD base, availability is all
+territories with `availableInNewTerritories`, and both carry `en-US` + `ja` localizations.
+Re-price with `asc subscriptions pricing equalize --subscription-id <id> --base-price <p>
+--base-territory USA --confirm` — **not** `subscriptions setup`, which refuses to run once
+availability exists.
+
+Both products live in one auto-renewable subscription **group** — one group means users can
+switch between monthly and yearly as an upgrade/downgrade instead of stacking two
+subscriptions.
 
 ### Entitlement
 
@@ -104,10 +122,10 @@ dashboard change, not an app release.
 
 **Offerings → New** → identifier `default` → mark it **Current** → add two packages:
 
-| Package | Product |
-|---------|---------|
-| Annual (`$rc_annual`) | `yearly` |
-| Monthly (`$rc_monthly`) | `monthly` |
+| Package | Test Store product | App Store product |
+|---------|--------------------|-------------------|
+| Annual (`$rc_annual`) | `yearly` | `com.honmaru.ai.pro.yearly` |
+| Monthly (`$rc_monthly`) | `monthly` | `com.honmaru.ai.pro.monthly` |
 
 The app reads `offerings.current` first and only falls back to the `default` identifier, so
 switching prices or running an experiment is a dashboard toggle.
