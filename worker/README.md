@@ -161,10 +161,157 @@ A match carries: `text`, `username`, `user`, `channel`, `ts`, `permalink`, `iid`
 Use **`permalink`** as the dedup `external_id`: it encodes channel + timestamp and
 is stable. `iid` is a per-search result id and must not be trusted across calls.
 
+### Notion (verified 2026-08-10)
+
+Notion is the first **bidirectional** connector. Everything below was pinned by
+running the tools live via the `composio` CLI against an ACTIVE Notion
+connection — the same tool slugs and response shapes the Worker will see over
+REST. Each area is tagged with how it was confirmed.
+
+**Response nesting differs per tool.** `SEARCH`, `FETCH_DATABASE`,
+`QUERY_DATABASE_WITH_FILTER` and `INSERT_ROW_DATABASE` all return their payload
+directly under `data`. But `NOTION_LIST_USERS` nests it under
+`data.response_data` — the same `results[i].response.…` wrapping trap the Gmail
+section warns about. Parse defensively per tool.
+
+#### Listing databases — `NOTION_SEARCH_NOTION_PAGE` — verified with a real call
+
+```
+POST /v3/tools/execute/NOTION_SEARCH_NOTION_PAGE
+  { "user_id": "<per-user id>",
+    "arguments": { "query": "", "page_size": 25,
+                   "filter_value": "database", "filter_property": "object" } }
+```
+
+Response: `{ successful: true, data: { results: [ … ], has_more, next_cursor } }`.
+
+Each result is a **database object**. For the picker we need two fields:
+
+- **id** → `results[i].id` (a UUID).
+- **human-readable title** → `results[i].title` — this is a **rich-text array,
+  NOT a plain string**. The label is `results[i].title[].plain_text` joined
+  (usually one segment). Do not read it off `properties`.
+
+`filter_value:"database"` returns only databases (pages are excluded). An empty
+`results` array is a valid "nothing shared with the integration" result, not an
+error — Composio's own pitfalls list flags this. Only databases explicitly
+shared with the Notion integration appear; in this test project exactly one did.
+
+#### Reading one database's schema — `NOTION_FETCH_DATABASE` — verified with a real call
+
+```
+POST /v3/tools/execute/NOTION_FETCH_DATABASE
+  { "user_id": "<id>", "arguments": { "database_id": "<uuid>" } }
+```
+
+Response `data` carries `title` (same rich-text array as above) and
+`properties`: a **map keyed by property name**, each value
+`{ id, name, type, <type-specific config> }`.
+
+**Identifying the title property (the write target):** find the property whose
+`type === "title"`. Every database has exactly one. Its Notion `id` is the
+literal string `"title"` (not the property's display name — that name is
+user-defined, e.g. `"Name"`). Match on `type`, not on name.
+
+#### Inserting a row — `NOTION_INSERT_ROW_DATABASE` — VERIFIED by creating a real test row
+
+This confirms the design doc's central bet: **writing only the title property
+plus body content works on an arbitrary user schema.** A real row was created in
+a test database whose columns we do not control, targeting only the title.
+
+```
+POST /v3/tools/execute/NOTION_INSERT_ROW_DATABASE
+  { "user_id": "<id>",
+    "arguments": {
+      "database_id": "<uuid>",
+      "properties": [
+        { "name": "<title prop display name>", "type": "title", "value": "<card title>" }
+      ],
+      "child_blocks": [
+        { "block_property": "heading_2", "content": "Summary" },
+        { "block_property": "paragraph", "content": "…decision, who, when, source…" }
+      ]
+    } }
+```
+
+- `properties` is a **LIST of `{ name, type, value }` objects** (not a map). For
+  the title-only write, one object with `type: "title"` and `name` = the title
+  property's display name. `value` is a literal string (title/rich_text take
+  plain text; select is a single option name; multi_select is comma-separated;
+  date is ISO 8601; people wants comma-separated user UUIDs — see the tool
+  schema's `value` description for the full per-type encoding).
+- Body content is `child_blocks`: a list where each block is
+  `{ block_property, content }`. `block_property` is the block type
+  (`paragraph`, `heading_1/2/3`, `bulleted_list_item`, `quote`, `divider`, …);
+  `content` supports inline markdown (`**bold**`, `[text](url)`). This is where
+  summary / decision / actor / timestamp / source link go.
+
+Response `data` is the created **page** object: the new row's id is `data.id`
+(the same UUID a later query returns — usable as the dedup key immediately).
+
+#### Querying rows with a filter — `NOTION_QUERY_DATABASE_WITH_FILTER` — verified with a real call
+
+```
+POST /v3/tools/execute/NOTION_QUERY_DATABASE_WITH_FILTER
+  { "user_id": "<id>",
+    "arguments": {
+      "database_id": "<uuid>", "page_size": 100,
+      "filter": { "property": "<prop name>", "<filter_type>": { "<condition>": <value> } }
+    } }
+```
+
+Filter shape: `{ "property": "<name>", "<filter_type>": { "<condition>": <value> } }`
+where `filter_type` matches the property's schema type
+(`title`, `rich_text`, `select`, `status`, `date`, `people`, `checkbox`, …) and
+must be exactly one key. Compound: `{ "and": [ … ] }` / `{ "or": [ … ] }`.
+Select/status/multi_select option names are **case-sensitive** and must match
+the schema exactly. `title` as a filter key always means the built-in title
+column. (Round-tripped live: filtered on the title property and got the row back.)
+
+Response: `{ successful: true, data: { results: [ … ], has_more, next_cursor } }`.
+Each row is a **page object**:
+
+- **page id (dedup key)** → `results[i].id`. Verified equal to the `data.id`
+  returned by the insert above.
+- **title** → `results[i].properties.<titleName>.title[].plain_text` (locate
+  `<titleName>` the same way: the property whose `type === "title"`).
+- Also present: `url`, `created_time`, `last_edited_time`, `parent`.
+
+Paginate via `has_more` / `next_cursor` (pass the exact cursor string back as
+`start_cursor`; non-UUID cursors may be rejected — a documented pitfall).
+
+#### "Assigned to me" — CONCERN, contradicts the design doc's inbound assumption
+
+The design doc's inbound ("rows assigned to that user arrive as cards") assumes
+an "assigned to me" filter exists. **It is unreliable and schema-dependent —
+treat this as a finding, not a solved problem:**
+
+1. **There is no guaranteed assignee column.** "Assigned to me" requires a
+   `people`-type property, which is arbitrary per database — the test database
+   had **none**. A decisions database created by our own onboarding could add
+   one, but a database the user picks may not have it, and its name is unknown.
+   The `title`-only write bet holds precisely because assignee mapping does not.
+2. **There is no clean "who am I".** `NOTION_GET_ABOUT_USER` is a *retrieve user
+   by id* call — it **requires** a `user_id` and is not a "current user"
+   endpoint. The integration authenticates as a **bot**, so there is no built-in
+   human "me". Resolving "me" means listing users
+   (`NOTION_LIST_USERS`, nested under `data.response_data.results`), picking the
+   `type: "person"` entry, and taking its `id` — brittle when a workspace has
+   more than one person.
+
+Recommended path until real usage proves otherwise: for inbound, query the
+configured database and run **every** row through the existing triage (the
+design doc already says being in a database does not make something a decision),
+rather than pre-filtering by an assignee that may not exist. If an assignee
+filter is added later, resolve the person UUID once, confirm the target database
+actually has a `people` property, and filter with
+`{ "property": "<people prop>", "people": { "contains": "<user-uuid>" } }`.
+
 ### Auth configs (project-level, reused by every user)
 
 - Gmail: `ac_XcSzdgFl91Ds`
 - Slack: `ac_qv8jozIjt29D`
+- Notion: `ac_qtoaZ6G__JEd`
 
 One auth config per toolkit; each user gets their own connected account beneath
 it, keyed by the Composio `user_id` we pass (the caller's numeric GitHub id).
