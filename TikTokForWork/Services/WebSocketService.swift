@@ -103,6 +103,7 @@ enum OutboundEvent {
     case clearStore
     case rollback(cardID: String)
     case contextUpdated(text: String)
+    case toolResult(cardId: String, decision: Decision, toolCallId: String?)
 
     var envelope: [String: Any] {
         switch self {
@@ -132,6 +133,20 @@ enum OutboundEvent {
             return ["type": "rollback", "payload": ["cardId": cardID]]
         case .contextUpdated(let text):
             return ["type": "context_updated", "payload": ["context": ["text": text]]]
+        case .toolResult(let cardId, let decision, let toolCallId):
+            var content: [String: Any] = [
+                "cardId": cardId,
+                "action": decision.action,
+                "actorUserID": decision.actorUserID,
+                "decidedAt": ISO8601DateFormatter().string(from: decision.decidedAt)
+            ]
+            if let optionId = decision.optionId { content["optionId"] = optionId }
+            if let note = decision.note { content["note"] = note }
+            if let replyText = decision.replyText { content["replyText"] = replyText }
+
+            var payload: [String: Any] = ["content": content]
+            if let toolCallId { payload["toolCallId"] = toolCallId }
+            return ["type": "tool_result", "payload": payload]
         }
     }
 }
@@ -240,6 +255,14 @@ final class WebSocketService: ObservableObject {
 
     func publishClearStore() async {
         try? await send(.clearStore)
+    }
+
+    func publishToolResult(_ card: DecisionCard, decision: Decision, toolCallId: String?) async {
+        try? await send(.toolResult(cardId: card.id, decision: decision, toolCallId: toolCallId))
+    }
+
+    func toolCallID(for cardID: String) -> String? {
+        aguiAssembler.toolCallIDsByCard[cardID]
     }
 
     private func send(_ event: OutboundEvent) async throws {
