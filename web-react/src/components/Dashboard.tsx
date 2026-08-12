@@ -1,0 +1,214 @@
+import React, { useState, useEffect, useCallback } from 'react'
+import { WebSocketClient } from '../services/WebSocketClient'
+import { DecisionCard } from './DecisionCard'
+import type { AppState, DecisionCard as DecisionCardType } from '../types/card'
+import './Dashboard.css'
+
+interface Props {
+  userId: string
+  orgId: string
+  relayUrl: string
+}
+
+export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
+  const [state, setState] = useState<AppState>({ cardsById: {} })
+  const [isConnected, setIsConnected] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showDebugLog, setShowDebugLog] = useState(false)
+  const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
+
+  const wsClientRef = React.useRef(new WebSocketClient())
+
+  const addDebugLog = useCallback((message: string) => {
+    const now = new Date().toLocaleTimeString()
+    setDebugLog(logs => [...logs, { timestamp: now, message }])
+  }, [])
+
+  useEffect(() => {
+    const wsClient = wsClientRef.current
+
+    wsClient.onStateChange = (newState) => {
+      setState(newState)
+      addDebugLog(`State updated: ${Object.keys(newState.cardsById).length} cards`)
+    }
+
+    wsClient.onCardCreated = (card) => {
+      addDebugLog(`Card created: ${card.id}`)
+    }
+
+    wsClient.onCardUpdated = (card) => {
+      addDebugLog(`Card updated: ${card.id}`)
+    }
+
+    wsClient.onCardDeleted = (cardId) => {
+      addDebugLog(`Card deleted: ${cardId}`)
+    }
+
+    wsClient.onPresence = (userId, status) => {
+      addDebugLog(`Presence: ${userId} → ${status}`)
+    }
+
+    wsClient.onError = (message) => {
+      setError(message)
+      addDebugLog(`Error: ${message}`)
+    }
+
+    wsClient.onToolCallResult = (toolCallId, result) => {
+      addDebugLog(`Tool result: ${toolCallId}`)
+    }
+
+    const connect = async () => {
+      try {
+        await wsClient.connect(relayUrl, userId, orgId)
+        setIsConnected(true)
+        addDebugLog(`Connected to ${relayUrl}`)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        setError(`Failed to connect: ${message}`)
+        addDebugLog(`Connection failed: ${message}`)
+      }
+    }
+
+    connect()
+
+    return () => {
+      wsClient.disconnect()
+    }
+  }, [relayUrl, userId, orgId, addDebugLog])
+
+  const handleDecision = useCallback(
+    (cardId: string, action: string, options?: any) => {
+      wsClientRef.current.sendDecision(cardId, action, options)
+      addDebugLog(`Sent decision: ${cardId} → ${action}`)
+    },
+    [addDebugLog]
+  )
+
+  const handleRollback = useCallback(
+    (cardId: string) => {
+      wsClientRef.current.sendRollback(cardId)
+      addDebugLog(`Rolled back: ${cardId}`)
+    },
+    [addDebugLog]
+  )
+
+  const cards = Object.values(state.cardsById || {})
+  const pendingCards = cards.filter(c => c.status === 'pending' && c.recipientUserID === userId)
+  const decidedCards = cards.filter(c => c.status !== 'pending' || c.decision)
+
+  return (
+    <div className="dashboard">
+      <div className="dashboard-header">
+        <h1>Honmaru Decision Feed</h1>
+        <div className="status-bar">
+          <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}>
+            {isConnected ? '● Connected' : '● Disconnected'}
+          </span>
+          <span className="user-info">{userId}</span>
+          <span className="org-info">{orgId}</span>
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-banner">
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      <div className="dashboard-content">
+        <div className="main-feed">
+          <div className="section">
+            <h2 className="section-title">
+              Pending Decisions ({pendingCards.length})
+            </h2>
+            {pendingCards.length === 0 ? (
+              <div className="empty-state">
+                <p>No pending decisions. You're all caught up!</p>
+              </div>
+            ) : (
+              <div className="cards-list">
+                {pendingCards.map((card) => (
+                  <DecisionCard
+                    key={card.id}
+                    card={card}
+                    currentUserId={userId}
+                    onApprove={() => handleDecision(card.id, 'approve')}
+                    onDecline={() => handleDecision(card.id, 'decline')}
+                    onChoose={(optionId) => handleDecision(card.id, 'choose', { optionId })}
+                    onReply={(text) => handleDecision(card.id, 'reply', { replyText: text })}
+                    onAcknowledge={() => handleDecision(card.id, 'acknowledge')}
+                    onRollback={() => handleRollback(card.id)}
+                    onDelegate={() => handleDecision(card.id, 'delegate')}
+                    isPending={true}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="section">
+            <h2 className="section-title">Decided ({decidedCards.length})</h2>
+            {decidedCards.length === 0 ? (
+              <div className="empty-state">
+                <p>No decisions made yet.</p>
+              </div>
+            ) : (
+              <div className="cards-list">
+                {decidedCards.map((card) => (
+                  <DecisionCard
+                    key={card.id}
+                    card={card}
+                    currentUserId={userId}
+                    onApprove={() => {}}
+                    onDecline={() => {}}
+                    onChoose={() => {}}
+                    onReply={() => {}}
+                    onAcknowledge={() => {}}
+                    onRollback={() => handleRollback(card.id)}
+                    onDelegate={() => {}}
+                    isPending={false}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="sidebar">
+          <button
+            className="debug-toggle"
+            onClick={() => setShowDebugLog(!showDebugLog)}
+          >
+            {showDebugLog ? 'Hide' : 'Show'} Debug Log
+          </button>
+
+          {showDebugLog && (
+            <div className="debug-log">
+              <h3>Event Log</h3>
+              <div className="log-entries">
+                {debugLog.map((entry, i) => (
+                  <div key={i} className="log-entry">
+                    <span className="log-time">{entry.timestamp}</span>
+                    <span className="log-message">{entry.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="info-panel">
+            <h3>Connection Info</h3>
+            <ul>
+              <li><strong>URL:</strong> {relayUrl}</li>
+              <li><strong>User ID:</strong> {userId}</li>
+              <li><strong>Org ID:</strong> {orgId}</li>
+              <li><strong>Total Cards:</strong> {cards.length}</li>
+              <li><strong>Pending:</strong> {pendingCards.length}</li>
+              <li><strong>Decided:</strong> {decidedCards.length}</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -20,7 +20,33 @@ Last updated: 2026-08-01
 - [x] Rollback: `rollback {cardId}` → pending + `CUSTOM decision_rolled_back` (legacy gets `card_updated`)
 - [x] Reference web client (`web/index.html`) served at relay `GET /` — inbox, decisions, context editor, live event stream
 - [x] `npm test`: 10 tests (unit + 2 multi-client integration + HTTP)
-- [ ] iOS outbound `tool_result` (needs `decision` field); production web via CopilotKit
+- [x] iOS outbound `tool_result`: `DecisionCard.decision`, `WebSocketService.publishToolResult`,
+      `DecisionCardService.resolve/delegate` now send `tool_result` (not legacy `card_updated`) with
+      the `toolCallId` from the original `request_decision`
+- [x] Standalone React reference client in `web-react/` (Vite + TS, separate from `web/` so it doesn't
+      collide with the single-file demo the relay serves at `GET /`) speaking the same protocol —
+      `npm run build` type-checks clean; verified the dev server actually serves this app, not `web/index.html`
+- [ ] Production web via CopilotKit
+
+## Phase 9 — Email connector (PoC, legacy `server/` relay only)
+
+- [x] `server/connectors/email.js`: parses raw RFC822 email (`mailparser`), validates Mailgun webhook
+      HMAC signatures (forged signatures rejected, requests with no signature fields treated as local/test)
+- [x] `server/connectors/email-triage.js`: keyword-based (no LLM) classifier — decides whether an email
+      needs a decision card; explicit negative patterns (`fyi`, `no action needed`, etc.) checked first
+- [x] `server/connectors/email-handler.js`: builds a `DecisionCard`-shaped card (`id`, `recipientUserID`,
+      `sourceApp: "Email"`, `sourceDetail: <sender>`) from a parsed email
+- [x] `POST /webhooks/email` in `server/index.js`: receives the email, runs it through triage, and — if
+      it's a decision — upserts the card into the live store and broadcasts it over WebSocket
+- [x] `server/test/email.test.mjs`: unit tests (parser/triage/signature) + one integration test that spawns
+      the relay and asserts a POSTed email produces a real `card_created` broadcast
+- [ ] Real recipient routing (currently routes every email to the first user in the org's store — no `To:`
+      address lookup against org membership)
+- [ ] Actual Mailgun account wired up (signature validation is implemented and tested, but nothing has
+      received a real inbound email yet — only synthetic POSTs shaped like Mailgun's)
+- [ ] Dedup by `Message-ID` (sending the same email twice currently creates two cards)
+- [ ] Port to `worker/` (production Cloudflare backend) — this connector lives in the legacy `server/`
+      relay alongside the Gmail/Slack/Notion connectors' actual home in `worker/src/connectors/`
 
 ## Phase 7 — 3-second value + onboarding (see onboarding.md)
 
