@@ -9,6 +9,8 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
+    "mailparser": "^3.9.15",
+    "uuid": "^14.0.1",
     "ws": "^8.18.0"
   }
 }

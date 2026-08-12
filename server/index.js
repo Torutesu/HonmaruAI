@@ -18,6 +18,8 @@ import {
   applyDecision,
   applyRollback,
 } from "./agui/adapter.js";
+import { parseEmailMessage, validateMailgunSignature } from "./connectors/email.js";
+import { createEmailDecisionCard } from "./connectors/email-handler.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
@@ -349,6 +351,65 @@ const server = createServer(async (req, res) => {
       json(res, 200, routing);
     } catch (error) {
       json(res, 400, { message: error.message || "AI routing failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/webhooks/email" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+
+      // Mailgun posts form-encoded fields; our test harness posts plain
+      // JSON { raw: "<rfc822 message>" }. Accept both so curl/tests are easy.
+      let rawMessage;
+      let timestamp;
+      let token;
+      let signature;
+      const contentType = req.headers["content-type"] || "";
+      if (contentType.includes("application/json")) {
+        const body = raw ? JSON.parse(raw) : {};
+        rawMessage = body["body-mime"] || body.raw;
+        ({ timestamp, token, signature } = body);
+      } else {
+        const params = new URLSearchParams(raw);
+        rawMessage = params.get("body-mime");
+        timestamp = params.get("timestamp");
+        token = params.get("token");
+        signature = params.get("signature");
+      }
+
+      if (!rawMessage) {
+        json(res, 400, { message: "Missing email body (body-mime/raw)." });
+        return;
+      }
+
+      if (!validateMailgunSignature(timestamp, token, signature)) {
+        json(res, 401, { message: "Invalid webhook signature." });
+        return;
+      }
+
+      const parsed = await parseEmailMessage(rawMessage);
+      console.log(`Received email: "${parsed.subject}" from ${parsed.from}`);
+
+      // Respond to the webhook immediately; Mailgun retries on non-2xx and
+      // on timeout, so keep the handler fast and do the rest inline (this
+      // relay is single-request-at-a-time anyway, no queue to hand off to).
+      json(res, 200, { status: "received" });
+
+      // Recipient resolution is a stand-in for real org-membership lookup —
+      // routes every decision-worthy email to the org's first known member.
+      const store = getStore(ORG_ID);
+      const recipientUserID = Object.keys(store)[0] || "user-alice";
+
+      const card = await createEmailDecisionCard(parsed, ORG_ID, { recipientUserID });
+      if (card) {
+        upsertCard(store, card);
+        publishUpsert(ORG_ID, card, true);
+        console.log(`Card ${card.id} broadcast to ${recipientUserID}`);
+      }
+    } catch (error) {
+      console.error("/webhooks/email error:", error.message);
+      if (!res.headersSent) json(res, 400, { message: error.message || "Email webhook failed." });
     }
     return;
   }
