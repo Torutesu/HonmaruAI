@@ -106,6 +106,46 @@ test("applyDecision: approve / choose / reply / delete semantics", () => {
   assert.throws(() => applyDecision(mk(), { cardId: "nope", action: "approve" }));
 });
 
+// Regression: tool_result only carries the decision, not the whole card
+// (unlike the legacy card_updated message it replaced), so "revised" and
+// "delegate" used to silently leave the card's status at "pending" — the
+// server's ACTION_STATUS/DECISION_ACTIONS never knew about either action.
+test("applyDecision: revised / delegate set status and apply side effects tool_result carries", () => {
+  const mk = () => ({
+    alice: [{ id: "c1", recipientUserID: "alice", status: "pending", context: "original context" }],
+  });
+
+  let store = mk();
+  let r = applyDecision(store, {
+    cardId: "c1",
+    action: "revised",
+    actorUserID: "alice",
+    note: "please add error handling",
+  });
+  assert.equal(r.card.status, "revised");
+  assert.equal(r.card.revisionNote, "please add error handling");
+  assert.equal(r.card.context, "original context\nRevision: please add error handling");
+
+  store = mk();
+  r = applyDecision(store, { cardId: "c1", action: "delegate", actorUserID: "alice" });
+  assert.equal(r.card.status, "delegated");
+
+  // GitHub sync fields ride along on the decision content since tool_result
+  // doesn't carry the whole card.
+  store = mk();
+  r = applyDecision(store, {
+    cardId: "c1",
+    action: "approve",
+    actorUserID: "alice",
+    githubIssueNumber: 42,
+    githubIssueURL: "https://github.com/acme/repo/issues/42",
+    githubRepository: "acme/repo",
+  });
+  assert.equal(r.card.githubIssueNumber, 42);
+  assert.equal(r.card.githubIssueURL, "https://github.com/acme/repo/issues/42");
+  assert.equal(r.card.githubRepository, "acme/repo");
+});
+
 test("tool manifest exposes request_decision", () => {
   const manifest = toolManifest();
   assert.equal(manifest.protocol, PROTOCOL_VERSION);

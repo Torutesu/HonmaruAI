@@ -103,7 +103,7 @@ enum OutboundEvent {
     case clearStore
     case rollback(cardID: String)
     case contextUpdated(text: String)
-    case toolResult(cardId: String, decision: Decision, toolCallId: String?)
+    case toolResult(card: DecisionCard, decision: Decision, toolCallId: String?)
 
     var envelope: [String: Any] {
         switch self {
@@ -133,9 +133,9 @@ enum OutboundEvent {
             return ["type": "rollback", "payload": ["cardId": cardID]]
         case .contextUpdated(let text):
             return ["type": "context_updated", "payload": ["context": ["text": text]]]
-        case .toolResult(let cardId, let decision, let toolCallId):
+        case .toolResult(let card, let decision, let toolCallId):
             var content: [String: Any] = [
-                "cardId": cardId,
+                "cardId": card.id,
                 "action": decision.action,
                 "actorUserID": decision.actorUserID,
                 "decidedAt": ISO8601DateFormatter().string(from: decision.decidedAt)
@@ -143,6 +143,12 @@ enum OutboundEvent {
             if let optionId = decision.optionId { content["optionId"] = optionId }
             if let note = decision.note { content["note"] = note }
             if let replyText = decision.replyText { content["replyText"] = replyText }
+            // tool_result carries only the decision, not the whole card — the
+            // GitHub sync result has to ride along explicitly here or the
+            // relay's copy of the card never learns about it.
+            if let issueNumber = card.githubIssueNumber { content["githubIssueNumber"] = issueNumber }
+            if let issueURL = card.githubIssueURL { content["githubIssueURL"] = issueURL }
+            if let repository = card.githubRepository { content["githubRepository"] = repository }
 
             var payload: [String: Any] = ["content": content]
             if let toolCallId { payload["toolCallId"] = toolCallId }
@@ -258,7 +264,7 @@ final class WebSocketService: ObservableObject {
     }
 
     func publishToolResult(_ card: DecisionCard, decision: Decision, toolCallId: String?) async {
-        try? await send(.toolResult(cardId: card.id, decision: decision, toolCallId: toolCallId))
+        try? await send(.toolResult(card: card, decision: decision, toolCallId: toolCallId))
     }
 
     func toolCallID(for cardID: String) -> String? {
