@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "node:crypto";
 import { triageEmail } from "./email-triage.js";
 
 /**
@@ -28,7 +28,7 @@ async function createEmailDecisionCard(parsed, orgId, { recipientUserID } = {}) 
   const senderEmail = extractEmailAddress(parsed.from);
 
   return {
-    id: uuidv4(),
+    id: randomUUID(),
     recipientUserID,
     senderUserID: `email-${parsed.hash}`,
     type: triageResult.card_type,
