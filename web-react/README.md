@@ -44,7 +44,27 @@ npm run build
 - `src/App.tsx` — Login page, user selection, connection setup
 - `src/main.tsx` — React root
 
+## Environment Variables
+
+Copy `.env.example` to `.env.local` to override the defaults shown on the login screen:
+
+- `VITE_RELAY_URL` — default relay WebSocket URL (still editable on the login form)
+- `VITE_ORG_ID` — default organization id
+- `VITE_DEBUG` — set to `true` to have the debug event log open by default
+
 ## Testing
+
+### Automated
+
+```bash
+npm test        # vitest, watches by default; CI=true npm test runs once and exits
+npm run build   # tsc --noEmit-equivalent type check + production build
+```
+
+`src/services/WebSocketClient.test.ts` covers the AG-UI event handling directly (join payload,
+state-reference identity after STATE_SNAPSHOT/tool-call-derived updates, toolCallId linking,
+reconnect-after-unexpected-close vs. no-reconnect-after-explicit-disconnect) against a fake
+WebSocket — no relay or browser needed.
 
 ### Manual Testing with Relay
 

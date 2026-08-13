@@ -14,10 +14,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
   const [state, setState] = useState<AppState>({ cardsById: {} })
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showDebugLog, setShowDebugLog] = useState(false)
+  const [showDebugLog, setShowDebugLog] = useState(import.meta.env.VITE_DEBUG === 'true')
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
 
-  const wsClientRef = React.useRef(new WebSocketClient())
+  // Lazy init: useRef(new WebSocketClient()) would construct a fresh
+  // instance on every render (immediately discarded, but still wasteful).
+  const wsClientRef = React.useRef<WebSocketClient | null>(null)
+  if (wsClientRef.current === null) {
+    wsClientRef.current = new WebSocketClient()
+  }
 
   const addDebugLog = useCallback((message: string) => {
     const now = new Date().toLocaleTimeString()
@@ -25,44 +30,61 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
   }, [])
 
   useEffect(() => {
-    const wsClient = wsClientRef.current
+    const wsClient = wsClientRef.current!
+    // StrictMode runs this effect twice in dev (mount → cleanup → mount).
+    // The cleanup below calls disconnect() correctly, but connect() is
+    // async — without this guard, the first pass's connect() could still
+    // resolve after cleanup and set state for an effect run that already
+    // tore down.
+    let ignore = false
 
     wsClient.onStateChange = (newState) => {
+      if (ignore) return
       setState(newState)
       addDebugLog(`State updated: ${Object.keys(newState.cardsById).length} cards`)
     }
 
     wsClient.onCardCreated = (card) => {
-      addDebugLog(`Card created: ${card.id}`)
+      if (!ignore) addDebugLog(`Card created: ${card.id}`)
     }
 
     wsClient.onCardUpdated = (card) => {
-      addDebugLog(`Card updated: ${card.id}`)
+      if (!ignore) addDebugLog(`Card updated: ${card.id}`)
     }
 
     wsClient.onCardDeleted = (cardId) => {
-      addDebugLog(`Card deleted: ${cardId}`)
+      if (!ignore) addDebugLog(`Card deleted: ${cardId}`)
     }
 
     wsClient.onPresence = (userId, status) => {
-      addDebugLog(`Presence: ${userId} → ${status}`)
+      if (!ignore) addDebugLog(`Presence: ${userId} → ${status}`)
     }
 
     wsClient.onError = (message) => {
+      if (ignore) return
       setError(message)
       addDebugLog(`Error: ${message}`)
     }
 
-    wsClient.onToolCallResult = (toolCallId, result) => {
-      addDebugLog(`Tool result: ${toolCallId}`)
+    wsClient.onToolCallResult = (toolCallId) => {
+      if (!ignore) addDebugLog(`Tool result: ${toolCallId}`)
+    }
+
+    // Reflects the socket's actual open/closed state at all times (initial
+    // connect, disconnect, and every reconnect) — previously this only
+    // ever flipped to true once and never back to false, so the UI stayed
+    // on "Connected" forever after a real disconnect.
+    wsClient.onConnectionChange = (connected) => {
+      if (ignore) return
+      setIsConnected(connected)
+      addDebugLog(connected ? `Connected to ${relayUrl}` : 'Disconnected — will retry')
     }
 
     const connect = async () => {
       try {
         await wsClient.connect(relayUrl, userId, orgId)
-        setIsConnected(true)
-        addDebugLog(`Connected to ${relayUrl}`)
       } catch (err) {
+        if (ignore) return
         const message = err instanceof Error ? err.message : String(err)
         setError(`Failed to connect: ${message}`)
         addDebugLog(`Connection failed: ${message}`)
@@ -72,13 +94,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
     connect()
 
     return () => {
+      ignore = true
       wsClient.disconnect()
     }
   }, [relayUrl, userId, orgId, addDebugLog])
 
   const handleDecision = useCallback(
     (cardId: string, action: string, options?: any) => {
-      wsClientRef.current.sendDecision(cardId, action, options)
+      wsClientRef.current!.sendDecision(cardId, action, options)
       addDebugLog(`Sent decision: ${cardId} → ${action}`)
     },
     [addDebugLog]
@@ -86,7 +109,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
 
   const handleRollback = useCallback(
     (cardId: string) => {
-      wsClientRef.current.sendRollback(cardId)
+      wsClientRef.current!.sendRollback(cardId)
       addDebugLog(`Rolled back: ${cardId}`)
     },
     [addDebugLog]

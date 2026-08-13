@@ -4,8 +4,8 @@ import './App.css'
 
 function App() {
   const [userId, setUserId] = useState<string | null>(null)
-  const [orgId, setOrgId] = useState<string>('core-team')
-  const [relayUrl, setRelayUrl] = useState<string>('ws://localhost:8080')
+  const [orgId, setOrgId] = useState<string>(import.meta.env.VITE_ORG_ID || 'core-team')
+  const [relayUrl, setRelayUrl] = useState<string>(import.meta.env.VITE_RELAY_URL || 'ws://localhost:8080')
   const [isConfiguring, setIsConfiguring] = useState(true)
   const [userInput, setUserInput] = useState('')
   const [urlInput, setUrlInput] = useState(relayUrl)

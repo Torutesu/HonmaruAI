@@ -1,12 +1,22 @@
 import { applyPatch, type Operation } from 'fast-json-patch'
-import type { AnyAGUIEvent, StateSnapshot, StateDelta, ToolCallResult } from '../types/agui'
+import type { StateSnapshot, StateDelta, ToolCallResult } from '../types/agui'
 import type { AppState, DecisionCard } from '../types/card'
+
+const RECONNECT_DELAY_MS = 2000
 
 export class WebSocketClient {
   private ws: WebSocket | null = null
   private state: AppState = { cardsById: {} }
   private pendingToolCalls: Record<string, { name: string; args: string }> = {}
   private toolCallIdsByCard: Record<string, string> = {}
+
+  // Set at connect() time and used for every subsequent send/reconnect —
+  // not read from localStorage per-call, which could silently diverge from
+  // whichever user this socket actually joined as.
+  private currentUserId: string | null = null
+  private lastConnectParams: { url: string; orgId: string; sessionToken?: string } | null = null
+  private intentionalDisconnect = false
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   onStateChange?: (state: AppState) => void
   onCardCreated?: (card: DecisionCard) => void
@@ -15,6 +25,7 @@ export class WebSocketClient {
   onPresence?: (userId: string, status: string) => void
   onError?: (message: string) => void
   onToolCallResult?: (toolCallId: string, result: any) => void
+  onConnectionChange?: (isConnected: boolean) => void
 
   connect(
     url: string,
@@ -22,11 +33,16 @@ export class WebSocketClient {
     orgId: string = 'core-team',
     sessionToken?: string
   ): Promise<void> {
+    this.intentionalDisconnect = false
+    this.currentUserId = userId
+    this.lastConnectParams = { url, orgId, sessionToken }
+
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(url)
+        const ws = new WebSocket(url)
+        this.ws = ws
 
-        this.ws.onopen = () => {
+        ws.onopen = () => {
           try {
             const joinPayload = {
               type: 'join',
@@ -37,14 +53,15 @@ export class WebSocketClient {
                 ...(sessionToken && { sessionToken })
               }
             }
-            this.ws!.send(JSON.stringify(joinPayload))
+            ws.send(JSON.stringify(joinPayload))
+            this.onConnectionChange?.(true)
             resolve()
           } catch (error) {
             reject(error)
           }
         }
 
-        this.ws.onmessage = (event) => {
+        ws.onmessage = (event) => {
           try {
             const json = JSON.parse(event.data)
             this.handleEvent(json)
@@ -53,12 +70,14 @@ export class WebSocketClient {
           }
         }
 
-        this.ws.onerror = (error) => {
+        ws.onerror = (error) => {
           reject(error)
         }
 
-        this.ws.onclose = () => {
+        ws.onclose = () => {
           this.ws = null
+          this.onConnectionChange?.(false)
+          this.scheduleReconnect()
         }
       } catch (error) {
         reject(error)
@@ -66,7 +85,27 @@ export class WebSocketClient {
     })
   }
 
+  private scheduleReconnect(): void {
+    if (this.intentionalDisconnect || !this.lastConnectParams || !this.currentUserId) return
+    if (this.reconnectTimer) return // already scheduled
+
+    const { url, orgId, sessionToken } = this.lastConnectParams
+    const userId = this.currentUserId
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.connect(url, userId, orgId, sessionToken).catch(() => {
+        // onclose (fired by the failed attempt) schedules the next retry —
+        // nothing further to do here.
+      })
+    }, RECONNECT_DELAY_MS)
+  }
+
   disconnect(): void {
+    this.intentionalDisconnect = true
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     if (this.ws) {
       this.ws.close()
       this.ws = null
@@ -108,10 +147,12 @@ export class WebSocketClient {
   }
 
   private handleSnapshot(event: StateSnapshot): void {
-    if (event.snapshot?.cardsById) {
-      this.state.cardsById = event.snapshot.cardsById
-      this.onStateChange?.(this.state)
-    }
+    if (!event.snapshot?.cardsById) return
+    // New top-level object, not a mutation of the existing one — passing
+    // the same reference to a React setState call gets dropped by
+    // Object.is, so old cards would never clear (e.g. after clear_store).
+    this.state = { ...this.state, cardsById: event.snapshot.cardsById }
+    this.onStateChange?.(this.state)
   }
 
   private handleDelta(event: StateDelta): void {
@@ -119,9 +160,8 @@ export class WebSocketClient {
 
     try {
       // mutateDocument=false: returns a new object rather than mutating
-      // this.state in place. Mutating in place would leave the reference
-      // passed to React's setState unchanged, so Object.is would see no
-      // difference and the update would be silently dropped.
+      // this.state in place, for the same reference-identity reason as
+      // handleSnapshot above.
       const result = applyPatch(this.state, event.delta as Operation[], false, false)
       this.state = result.newDocument
       this.onStateChange?.(this.state)
@@ -135,7 +175,7 @@ export class WebSocketClient {
 
         switch (operation.op) {
           case 'add':
-          case 'replace':
+          case 'replace': {
             const card = this.state.cardsById[cardId]
             if (card) {
               operation.op === 'add'
@@ -143,6 +183,7 @@ export class WebSocketClient {
                 : this.onCardUpdated?.(card)
             }
             break
+          }
           case 'remove':
             this.onCardDeleted?.(cardId)
             break
@@ -184,7 +225,8 @@ export class WebSocketClient {
 
       if (card?.id) {
         this.toolCallIdsByCard[card.id] = id
-        this.state.cardsById[card.id] = card
+        // Same reference-identity concern as handleSnapshot/handleDelta.
+        this.state = { ...this.state, cardsById: { ...this.state.cardsById, [card.id]: card } }
         this.onCardCreated?.(card)
         this.onStateChange?.(this.state)
       }
@@ -223,13 +265,13 @@ export class WebSocketClient {
       note?: string
     }
   ): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.currentUserId) return
 
     const toolCallId = this.toolCallIdsByCard[cardId]
     const content = {
       cardId,
       action,
-      actorUserID: this.getCurrentUserId(),
+      actorUserID: this.currentUserId,
       decidedAt: new Date().toISOString(),
       ...options
     }
@@ -260,9 +302,5 @@ export class WebSocketClient {
 
   getCard(cardId: string): DecisionCard | null {
     return this.state.cardsById[cardId] || null
-  }
-
-  private getCurrentUserId(): string {
-    return localStorage.getItem('userId') || 'anonymous'
   }
 }
