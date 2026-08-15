@@ -316,13 +316,39 @@ struct FeedView: View {
         }
     }
 
+    /// An empty feed has three different causes and they need three different
+    /// sentences. "No decisions yet" in front of someone whose socket was
+    /// refused, or who has no network, is the app blaming the user for its own
+    /// state.
     private var emptyState: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            Text(String(localized: "No decisions yet. Tell your AI something, or wait for a teammate."))
+            Text(emptyTitle)
                 .font(Theme.TypeScale.caption)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Theme.Spacing.md)
+
+            if case .offline = appState.connectionState {
+                Button(String(localized: "Try again")) {
+                    appState.webSocketService.reconnectIfNeeded()
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.Colors.interactive)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var emptyTitle: String {
+        switch appState.connectionState {
+        case .refused(let reason):
+            reason
+        case .offline:
+            String(localized: "You are offline. Decisions will appear when you reconnect.")
+        case .connecting:
+            String(localized: "Catching up…")
+        case .connected:
+            String(localized: "No decisions yet. Tell your AI something, or wait for a teammate.")
         }
     }
 

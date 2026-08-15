@@ -65,14 +65,16 @@ final class Outbox {
 
     // MARK: - Storage
 
-    private static func decode(_ entry: Entry) -> OutboundEvent? {
+    /// Nonisolated so it can be passed to `compactMap` as a plain function.
+    /// It touches no instance state, so there is nothing for the actor to guard.
+    private nonisolated static func decode(_ entry: Entry) -> OutboundEvent? {
         guard let object = try? JSONSerialization.jsonObject(with: entry.envelope) as? [String: Any] else {
             return nil
         }
         return .raw(object)
     }
 
-    private static func supportDirectory() -> URL? {
+    private nonisolated static func supportDirectory() -> URL? {
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }

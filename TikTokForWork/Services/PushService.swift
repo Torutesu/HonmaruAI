@@ -22,8 +22,6 @@ final class PushService: NSObject, ObservableObject {
     private var deviceToken: String?
     private var didRequestThisLaunch = false
 
-    private let askedKey = "didAskForNotifications"
-
     func configure(backendBaseURL: URL?) {
         self.backendBaseURL = backendBaseURL
         UNUserNotificationCenter.current().delegate = self
@@ -47,7 +45,6 @@ final class PushService: NSObject, ObservableObject {
         guard !didRequestThisLaunch else { return }
         guard authorization == .notDetermined else { return }
         didRequestThisLaunch = true
-        UserDefaults.standard.set(true, forKey: askedKey)
 
         do {
             let granted = try await UNUserNotificationCenter.current()
@@ -125,18 +122,23 @@ extension PushService: UNUserNotificationCenterDelegate {
     /// is exactly what you want to know about.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound, .badge]
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .badge])
     }
 
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let cardID = response.notification.request.content.userInfo["cardId"] as? String
-        await MainActor.run {
+        Task { @MainActor in
             PushService.shared.pendingCardID = cardID
         }
+        // Answered immediately rather than inside the hop: the system wants to
+        // know we handled the tap, not to wait for the feed to scroll.
+        completionHandler()
     }
 }

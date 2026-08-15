@@ -350,7 +350,7 @@ final class WebSocketService: ObservableObject {
                 // — a permanent answer, not a dropped connection. Telling them
                 // apart is the difference between showing "reconnecting…" once
                 // and showing it forever.
-                if task?.closeCode == .policyViolation {
+                if task.closeCode == .policyViolation {
                     state = .refused(lastRefusal ?? String(localized: "You are not a member of this organization."))
                 } else if state == .connected || state == .connecting {
                     state = .offline

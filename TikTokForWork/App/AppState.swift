@@ -249,7 +249,13 @@ final class AppState: ObservableObject {
     /// belong to the old one and have to go. They are dropped locally only —
     /// they are still the other org's decisions, and deleting them there would
     /// take the rest of that team's pending work with them.
+    ///
+    /// The socket has to move too. It used to stay joined to the previous org,
+    /// so after a switch the feed showed the new repository's name while
+    /// receiving the old repository's decisions.
     func handleRepositoryChanged() async {
         cardService.reset()
+        guard let connection = githubService.connection else { return }
+        await activateGitHubSession(connection: connection)
     }
 }

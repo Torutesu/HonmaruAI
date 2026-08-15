@@ -106,6 +106,27 @@ struct DecisionCardView: View {
         }
         .contentShape(Rectangle())
         .simultaneousGesture(swipeGesture)
+        // VoiceOver owns horizontal swipes, so the card's primary gesture does
+        // not exist for anyone using it. The action row below is reachable, but
+        // only after paging through the whole card — these put approve and
+        // decline on the rotor, where the swipe would have been.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(accessibilitySummary))
+        .accessibilityActions {
+            if card.isPending {
+                Button(String(localized: "Approve")) {
+                    Haptics.success()
+                    onAction(.createIssue)
+                }
+                Button(String(localized: "Decline")) {
+                    Haptics.light()
+                    onAction(.reject)
+                }
+                Button(String(localized: "Request revision")) { onAction(.requestRevision) }
+                Button(String(localized: "Delegate")) { onAction(.delegate) }
+            }
+            Button(String(localized: "View details")) { onShowDetails() }
+        }
         .sheet(isPresented: $showsSource) {
             if let app = card.sourceApp {
                 SourceSheet(app: app, detail: card.sourceDetail, card: card)
@@ -216,6 +237,21 @@ struct DecisionCardView: View {
             .padding(.vertical, Theme.Spacing.sm)
             .background(color.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+    }
+
+    /// What the card is, said once, in the order a person would ask: what has to
+    /// be decided, how urgent, who it came from, and whether it is still open.
+    private var accessibilitySummary: String {
+        [
+            card.type.label,
+            card.priorityLabel,
+            card.title,
+            card.summary,
+            card.isPending ? nil : card.status.label,
+        ]
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
+        .joined(separator: ". ")
     }
 
     private var swipeGesture: some Gesture {

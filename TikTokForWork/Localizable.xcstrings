@@ -243,6 +243,17 @@
         }
       }
     },
+    "Amazon Appstore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amazon Appstore"
+          }
+        }
+      }
+    },
     "An invoice is 14 days overdue": {
       "extractionState": "manual",
       "localizations": {
@@ -250,6 +261,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "請求が14日遅延しています"
+          }
+        }
+      }
+    },
+    "App Store": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store"
           }
         }
       }
@@ -293,7 +315,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "承認する"
+            "value": "承認"
           }
         }
       }
@@ -305,6 +327,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "金曜のリリースを承認しますか？"
+          }
+        }
+      }
+    },
+    "Approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
           }
         }
       }
@@ -386,6 +419,17 @@
         }
       }
     },
+    "Auto-renew is off. Pro stays active until the end of the period.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動更新はオフです。Pro は期間終了まで有効です。"
+          }
+        }
+      }
+    },
     "Back": {
       "extractionState": "manual",
       "localizations": {
@@ -404,6 +448,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "悪い知らせはあなたから伝えた方が通ります"
+          }
+        }
+      }
+    },
+    "Billed via": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支払い方法"
+          }
+        }
+      }
+    },
+    "Billing issue — access ends %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支払いに問題があります — %@ に利用終了"
           }
         }
       }
@@ -437,6 +503,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "動画を読み込めません"
+          }
+        }
+      }
+    },
+    "Can't reach the App Store right now. Check your connection and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 App Store に接続できません。接続を確認してもう一度お試しください。"
           }
         }
       }
@@ -496,6 +573,17 @@
         }
       }
     },
+    "Catching up…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期中…"
+          }
+        }
+      }
+    },
     "Channels": {
       "extractionState": "manual",
       "localizations": {
@@ -507,17 +595,6 @@
         }
       }
     },
-    "Clear": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消す"
-          }
-        }
-      }
-    },
     "Chasing money is yours alone": {
       "extractionState": "manual",
       "localizations": {
@@ -525,6 +602,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "入金の催促はあなたにしかできません"
+          }
+        }
+      }
+    },
+    "Check your connection, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消す"
           }
         }
       }
@@ -584,6 +683,17 @@
         }
       }
     },
+    "Confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        }
+      }
+    },
     "Connect": {
       "extractionState": "manual",
       "localizations": {
@@ -628,17 +738,6 @@
         }
       }
     },
-    "Connected": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続済み"
-          }
-        }
-      }
-    },
     "Connect the places your work arrives. Your AI reads them and shows you only what needs a decision.": {
       "extractionState": "manual",
       "localizations": {
@@ -646,6 +745,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "仕事が届く場所を接続してください。AI が読み取り、決定が必要なものだけを表示します。"
+          }
+        }
+      }
+    },
+    "Connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
           }
         }
       }
@@ -683,6 +793,17 @@
         }
       }
     },
+    "Continue without signing in": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインせずに続ける"
+          }
+        }
+      }
+    },
     "Contract engineer": {
       "extractionState": "manual",
       "localizations": {
@@ -690,6 +811,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "業務委託エンジニア"
+          }
+        }
+      }
+    },
+    "Could not delete your account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除できませんでした。"
+          }
+        }
+      }
+    },
+    "Could not load your connectors.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携先を読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "Could not save your choice.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択を保存できませんでした。"
+          }
+        }
+      }
+    },
+    "Could not start the connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を開始できませんでした。"
           }
         }
       }
@@ -738,24 +903,24 @@
         }
       }
     },
-    "Could not load your connectors.": {
+    "Dana": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "連携先を読み込めませんでした。"
+            "value": "Dana"
           }
         }
       }
     },
-    "Could not start the connection.": {
+    "Dana's AI": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続を開始できませんでした。"
+            "value": "Dana の AI"
           }
         }
       }
@@ -826,6 +991,17 @@
         }
       }
     },
+    "Decided": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定"
+          }
+        }
+      }
+    },
     "Decision recorded": {
       "extractionState": "manual",
       "localizations": {
@@ -837,6 +1013,17 @@
         }
       }
     },
+    "Decisions waiting for you": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなた宛ての未決の判断"
+          }
+        }
+      }
+    },
     "Decisions will show up here": {
       "extractionState": "manual",
       "localizations": {
@@ -844,6 +1031,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "ここに決定が届きます"
+          }
+        }
+      }
+    },
+    "Decisions your teammates still have to make, with your name removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームメイトがこれから判断するもの（あなたの名前は削除されます）"
           }
         }
       }
@@ -959,6 +1157,39 @@
       }
     },
     "Delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "Delete account": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除"
+          }
+        }
+      }
+    },
+    "Delete your account": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除"
+          }
+        }
+      }
+    },
+    "Deleted": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
@@ -1112,6 +1343,17 @@
         }
       }
     },
+    "Ends %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に終了"
+          }
+        }
+      }
+    },
     "Engineer · English": {
       "extractionState": "manual",
       "localizations": {
@@ -1119,6 +1361,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "エンジニア · 英語"
+          }
+        }
+      }
+    },
+    "Enter": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入る"
           }
         }
       }
@@ -1156,6 +1409,28 @@
         }
       }
     },
+    "Free plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料プラン"
+          }
+        }
+      }
+    },
+    "Free plan: 3 AI-routed decisions a day, then keyword routing. Pro: unlimited AI routing and the org graph.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料プラン: AI ルーティングは 1 日 3 件まで、その後はキーワードルーティングになります。Pro: AI ルーティング無制限と組織グラフ。"
+          }
+        }
+      }
+    },
     "Freeze the flat design tokens?": {
       "extractionState": "manual",
       "localizations": {
@@ -1174,6 +1449,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "差出人"
+          }
+        }
+      }
+    },
+    "Get help with a purchase": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購入について問い合わせる"
           }
         }
       }
@@ -1222,6 +1508,17 @@
         }
       }
     },
+    "GitHub issues already created — delete those on GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成済みの GitHub Issue — GitHub 側で削除してください"
+          }
+        }
+      }
+    },
     "GitHub sign-in was cancelled.": {
       "extractionState": "manual",
       "localizations": {
@@ -1229,6 +1526,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub のサインインが取り消されました。"
+          }
+        }
+      }
+    },
+    "Google Play": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Play"
+          }
+        }
+      }
+    },
+    "Granted by honmaruai": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "honmaruai から付与"
           }
         }
       }
@@ -1251,6 +1570,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "採用の承認はあなたに回ります"
+          }
+        }
+      }
+    },
+    "History": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴"
+          }
+        }
+      }
+    },
+    "History request failed (%lld).": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴の取得に失敗しました (%lld)。"
           }
         }
       }
@@ -1310,6 +1651,28 @@
         }
       }
     },
+    "Language": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "言語"
+          }
+        }
+      }
+    },
+    "Lifetime access": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "買い切り"
+          }
+        }
+      }
+    },
     "Light": {
       "extractionState": "manual",
       "localizations": {
@@ -1328,6 +1691,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "聞き取り中"
+          }
+        }
+      }
+    },
+    "Live": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中"
+          }
+        }
+      }
+    },
+    "Loading plans…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランを読み込み中…"
           }
         }
       }
@@ -1376,6 +1761,17 @@
         }
       }
     },
+    "Manage subscription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションを管理"
+          }
+        }
+      }
+    },
     "Med": {
       "extractionState": "manual",
       "localizations": {
@@ -1420,6 +1816,28 @@
         }
       }
     },
+    "Monthly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "月額"
+          }
+        }
+      }
+    },
+    "No access": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセス権がありません"
+          }
+        }
+      }
+    },
     "No channels, no DMs, no inbox. Say what you need — the AIs handle who hears it, and how.": {
       "extractionState": "manual",
       "localizations": {
@@ -1427,6 +1845,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "チャンネルも DM も受信箱もありません。必要なことを言えば、誰にどう伝わるかは AI が引き受けます。"
+          }
+        }
+      }
+    },
+    "No databases shared with Honmaru AI yet. Share one in Notion, then pull to refresh.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI と共有されているデータベースがまだありません。Notion で共有してから、下に引っ張って更新してください。"
+          }
+        }
+      }
+    },
+    "No decisions yet. Tell your AI something, or wait for a teammate.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ判断はありません。AI に伝えるか、チームメイトからの依頼を待ちましょう。"
           }
         }
       }
@@ -1442,6 +1882,28 @@
         }
       }
     },
+    "No plans are available right now. Check the offering in RevenueCat.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在利用できるプランがありません。RevenueCat のオファリングを確認してください。"
+          }
+        }
+      }
+    },
+    "No previous purchases found for this Apple ID.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Apple ID で以前の購入が見つかりませんでした。"
+          }
+        }
+      }
+    },
     "No repositories found": {
       "extractionState": "manual",
       "localizations": {
@@ -1449,6 +1911,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "リポジトリが見つかりません"
+          }
+        }
+      }
+    },
+    "No response from the server.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーから応答がありません。"
           }
         }
       }
@@ -1497,6 +1970,17 @@
         }
       }
     },
+    "Nothing has happened yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ何も起きていません。"
+          }
+        }
+      }
+    },
     "Notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -1526,6 +2010,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "Off — open Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ — 設定を開く"
+          }
+        }
+      }
+    },
+    "Offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン"
+          }
+        }
+      }
+    },
+    "Offline mode — local routing with your priority setting.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインモード — 設定した優先度でローカルにルーティングします。"
+          }
+        }
+      }
+    },
+    "On": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン"
           }
         }
       }
@@ -1574,6 +2102,17 @@
         }
       }
     },
+    "Open billing portal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求ポータルを開く"
+          }
+        }
+      }
+    },
     "Organization": {
       "extractionState": "manual",
       "localizations": {
@@ -1592,6 +2131,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "元のメッセージ"
+          }
+        }
+      }
+    },
+    "Other store": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のストア"
           }
         }
       }
@@ -1662,6 +2212,17 @@
         }
       }
     },
+    "Plans aren't available right now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在プランを利用できません"
+          }
+        }
+      }
+    },
     "Priority": {
       "extractionState": "manual",
       "localizations": {
@@ -1684,6 +2245,17 @@
         }
       }
     },
+    "Purchasing…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購入中…"
+          }
+        }
+      }
+    },
     "QA passed on staging. Your AI batched 6 merged PRs into one release and checked the deploy window.": {
       "extractionState": "manual",
       "localizations": {
@@ -1691,6 +2263,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "ステージングで QA 通過。AI がマージ済みの 6 件の PR を 1 リリースにまとめ、デプロイ枠も確認済みです。"
+          }
+        }
+      }
+    },
+    "Reads intent, checks the org graph, picks who can decide.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "意図を読み、関係者を確認し、決められる人を選びます。"
+          }
+        }
+      }
+    },
+    "Reconnecting…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
           }
         }
       }
@@ -1713,17 +2307,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "録音中"
-          }
-        }
-      }
-    },
-    "Reads intent, checks the org graph, picks who can decide.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "意図を読み、関係者を確認し、決められる人を選びます。"
           }
         }
       }
@@ -1779,6 +2362,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "カードを削除しています"
+          }
+        }
+      }
+    },
+    "Renews %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に更新"
+          }
+        }
+      }
+    },
+    "Replied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信"
           }
         }
       }
@@ -1849,6 +2454,17 @@
         }
       }
     },
+    "Restore purchases": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購入を復元"
+          }
+        }
+      }
+    },
     "Restoring session…": {
       "extractionState": "manual",
       "localizations": {
@@ -1856,6 +2472,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッションを復元中…"
+          }
+        }
+      }
+    },
+    "Restoring…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元中…"
           }
         }
       }
@@ -1981,6 +2608,39 @@
         }
       }
     },
+    "Sandbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックス"
+          }
+        }
+      }
+    },
+    "Save": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "Saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存しました"
+          }
+        }
+      }
+    },
     "Scope changes are yours": {
       "extractionState": "manual",
       "localizations": {
@@ -2080,6 +2740,17 @@
         }
       }
     },
+    "Sign in before deleting your account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除するにはサインインしてください。"
+          }
+        }
+      }
+    },
     "Sign in with GitHub": {
       "extractionState": "manual",
       "localizations": {
@@ -2091,6 +2762,28 @@
         }
       }
     },
+    "Sign in with GitHub to reach your team. Your teammates are your repo's collaborators, and every approval becomes an Issue you can track.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でサインインしてチームとつながりましょう。チームメイトはリポジトリのコラボレーターで、承認はすべて追跡できる Issue になります。"
+          }
+        }
+      }
+    },
+    "Sign in with GitHub to see your team's history.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの履歴を見るには GitHub でサインインしてください。"
+          }
+        }
+      }
+    },
     "Sign out": {
       "extractionState": "manual",
       "localizations": {
@@ -2098,28 +2791,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインアウト"
-          }
-        }
-      }
-    },
-    "Speak now…": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "話しかけてください…"
-          }
-        }
-      }
-    },
-    "Speak · edit · send, and your AI picks the recipient": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "話す · 直せる · 送ると AI が宛先を決めます"
           }
         }
       }
@@ -2153,6 +2824,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "SNS AI → あなた"
+          }
+        }
+      }
+    },
+    "Speak now…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "話しかけてください…"
+          }
+        }
+      }
+    },
+    "Speak · edit · send, and your AI picks the recipient": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "話す · 直せる · 送ると AI が宛先を決めます"
           }
         }
       }
@@ -2201,6 +2894,17 @@
         }
       }
     },
+    "Stripe": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stripe"
+          }
+        }
+      }
+    },
     "Subject": {
       "extractionState": "manual",
       "localizations": {
@@ -2208,6 +2912,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "件名"
+          }
+        }
+      }
+    },
+    "Subscription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプション"
+          }
+        }
+      }
+    },
+    "Subscriptions aren't configured correctly for this build. Check the RevenueCat API key, entitlement, and products.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドではサブスクリプションが正しく設定されていません。RevenueCat の API キー、エンタイトルメント、製品を確認してください。"
+          }
+        }
+      }
+    },
+    "Subscriptions aren't ready yet. Try again in a moment.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションの準備がまだできていません。しばらくしてからお試しください。"
+          }
+        }
+      }
+    },
+    "Subscriptions aren't supported on this device.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスではサブスクリプションを利用できません。"
+          }
+        }
+      }
+    },
+    "Subscriptions renew automatically until cancelled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションはキャンセルするまで自動更新されます。"
+          }
+        }
+      }
+    },
+    "Subscriptions renew automatically until cancelled. Manage or cancel anytime in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションはキャンセルするまで自動更新されます。設定からいつでも管理・キャンセルできます。"
           }
         }
       }
@@ -2355,6 +3125,17 @@
         }
       }
     },
+    "Tell your AI how you work — what you own, what you care about, who to involve. It uses this when routing your instructions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの仕事の進め方を AI に伝えてください。担当領域、重視すること、巻き込むべき相手。指示のルーティングに使われます。"
+          }
+        }
+      }
+    },
     "Tell your AI what you need": {
       "extractionState": "manual",
       "localizations": {
@@ -2362,6 +3143,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "AI に頼みたいことを伝えてください"
+          }
+        }
+      }
+    },
+    "That plan isn't available on this account right now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのプランは現在このアカウントでは利用できません。"
+          }
+        }
+      }
+    },
+    "The App Store is having trouble. Try again in a moment.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store で問題が発生しています。しばらくしてからお試しください。"
+          }
+        }
+      }
+    },
+    "The App Store rejected that payment method. Try another one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store がその支払い方法を拒否しました。別の方法をお試しください。"
+          }
+        }
+      }
+    },
+    "The client has to agree to this": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クライアントの合意が必要です"
           }
         }
       }
@@ -2388,6 +3213,50 @@
         }
       }
     },
+    "The team's history of what was decided, with your name removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの決定履歴（あなたの名前は削除されます）"
+          }
+        }
+      }
+    },
+    "This account isn't eligible for that offer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントはそのオファーの対象外です。"
+          }
+        }
+      }
+    },
+    "This cannot be undone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "This device isn't allowed to make purchases. Check Screen Time restrictions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスでは購入が許可されていません。スクリーンタイムの制限を確認してください。"
+          }
+        }
+      }
+    },
     "This is a Decision Card. Swipe right to approve, left to decline.": {
       "extractionState": "manual",
       "localizations": {
@@ -2399,6 +3268,17 @@
         }
       }
     },
+    "This one is yours to decide": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これはあなたが判断するものです"
+          }
+        }
+      }
+    },
     "This screen is a demo reproduction. In a real integration, the original tool opens.": {
       "extractionState": "manual",
       "localizations": {
@@ -2406,6 +3286,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "この画面はデモ用の再現です。実際の連携では元のツールが開きます。"
+          }
+        }
+      }
+    },
+    "Those purchases are attached to a different account. Sign in with the Apple ID that bought them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "それらの購入は別のアカウントに紐付いています。購入した Apple ID でサインインしてください。"
           }
         }
       }
@@ -2454,6 +3345,39 @@
         }
       }
     },
+    "Trial": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トライアル"
+          }
+        }
+      }
+    },
+    "Trial converts %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にトライアルが本契約に移行"
+          }
+        }
+      }
+    },
+    "Try again": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
     "Try it": {
       "extractionState": "manual",
       "localizations": {
@@ -2461,6 +3385,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "試す"
+          }
+        }
+      }
+    },
+    "Turn on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにする"
           }
         }
       }
@@ -2476,6 +3411,39 @@
         }
       }
     },
+    "Undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消す"
+          }
+        }
+      }
+    },
+    "Undone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消し"
+          }
+        }
+      }
+    },
+    "Unlimited AI routing, the org graph, and priority delivery.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI ルーティング無制限、組織グラフ、優先配信。"
+          }
+        }
+      }
+    },
     "Update": {
       "extractionState": "manual",
       "localizations": {
@@ -2487,6 +3455,17 @@
         }
       }
     },
+    "Update your payment method to keep Pro active.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro を継続するにはお支払い方法を更新してください。"
+          }
+        }
+      }
+    },
     "Updated": {
       "extractionState": "manual",
       "localizations": {
@@ -2494,6 +3473,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新"
+          }
+        }
+      }
+    },
+    "Upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレード"
+          }
+        }
+      }
+    },
+    "Upgrade to Pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro にアップグレード"
           }
         }
       }
@@ -2520,6 +3521,17 @@
         }
       }
     },
+    "Use your own OpenAI key for routing. It stays in this device's Keychain and is sent only with your own requests — we never store it on our servers.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルーティングにご自身の OpenAI キーを使えます。キーはこの端末のキーチェーンにのみ保存され、あなたのリクエストにのみ送信されます。当方のサーバーには保存しません。"
+          }
+        }
+      }
+    },
     "Version": {
       "extractionState": "manual",
       "localizations": {
@@ -2527,17 +3539,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "バージョン"
-          }
-        }
-      }
-    },
-    "Watch recording": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "録画を見る"
           }
         }
       }
@@ -2553,6 +3554,39 @@
         }
       }
     },
+    "Visual work goes to the contractor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビジュアル関連は外注先へ"
+          }
+        }
+      }
+    },
+    "Watch recording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録画を見る"
+          }
+        }
+      }
+    },
+    "What is deleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除されるもの"
+          }
+        }
+      }
+    },
     "What should change before this becomes a GitHub issue?": {
       "extractionState": "manual",
       "localizations": {
@@ -2560,6 +3594,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub Issue にする前に、何を直しますか？"
+          }
+        }
+      }
+    },
+    "What stays": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残るもの"
+          }
+        }
+      }
+    },
+    "Where decisions are recorded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定の記録先"
           }
         }
       }
@@ -2586,6 +3642,17 @@
         }
       }
     },
+    "Yearly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "年間"
+          }
+        }
+      }
+    },
     "You": {
       "extractionState": "manual",
       "localizations": {
@@ -2604,6 +3671,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "あなたは Bob の上長です"
+          }
+        }
+      }
+    },
+    "You are not a member of this organization.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この組織のメンバーではありません。"
+          }
+        }
+      }
+    },
+    "You are not a member of this repository.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリポジトリのメンバーではありません。"
+          }
+        }
+      }
+    },
+    "You are offline. Decisions will appear when you reconnect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインです。再接続すると判断が表示されます。"
           }
         }
       }
@@ -2663,6 +3763,17 @@
         }
       }
     },
+    "You've used today's AI routing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日の AI ルーティングを使い切りました。"
+          }
+        }
+      }
+    },
     "Your AI": {
       "extractionState": "manual",
       "localizations": {
@@ -2674,6 +3785,17 @@
         }
       }
     },
+    "Your AI drafts a decision card in the background — keep scrolling while it works.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの AI がバックグラウンドで決定カードを作成します。作成中もそのままスクロールを続けられます。"
+          }
+        }
+      }
+    },
     "Your AI is triaging your decisions…": {
       "extractionState": "manual",
       "localizations": {
@@ -2681,6 +3803,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "AI が決定を仕分けしています…"
+          }
+        }
+      }
+    },
+    "Your context and connector settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたのコンテキストとコネクタ設定"
           }
         }
       }
@@ -2703,6 +3836,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "昨夜サーバーが停止していました"
+          }
+        }
+      }
+    },
+    "Your profile and sign-in": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたのプロフィールとサインイン"
+          }
+        }
+      }
+    },
+    "Your purchase is pending approval. Pro unlocks as soon as it clears.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購入は承認待ちです。承認され次第 Pro が有効になります。"
+          }
+        }
+      }
+    },
+    "Your subscription entitlement record": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションの権利情報"
           }
         }
       }
@@ -2872,6 +4038,28 @@
         }
       }
     },
+    "honmaruai Pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "honmaruai Pro"
+          }
+        }
+      }
+    },
+    "just now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "たった今"
+          }
+        }
+      }
+    },
     "metric: 4h downtime · action: tell the client or wait · deadline: today": {
       "extractionState": "manual",
       "localizations": {
@@ -2912,6 +4100,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "指標: p95 は元の水準 · 対応: PR #214 をマージ · 期限: 本日"
+          }
+        }
+      }
+    },
+    "now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "たった今"
           }
         }
       }
@@ -3033,875 +4232,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "「金曜までに認証の修正をレビューしてもらって」"
-          }
-        }
-      }
-    },
-    "History": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "履歴"
-          }
-        }
-      }
-    },
-    "Nothing has happened yet.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まだ何も起きていません。"
-          }
-        }
-      }
-    },
-    "Sign in with GitHub to see your team's history.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チームの履歴を見るには GitHub でサインインしてください。"
-          }
-        }
-      }
-    },
-    "You are not a member of this repository.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このリポジトリのメンバーではありません。"
-          }
-        }
-      }
-    },
-    "Deleted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除"
-          }
-        }
-      }
-    },
-    "Undo": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取り消す"
-          }
-        }
-      }
-    },
-    "Undone": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取り消し"
-          }
-        }
-      }
-    },
-    "Approved": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "承認"
-          }
-        }
-      }
-    },
-    "Replied": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "返信"
-          }
-        }
-      }
-    },
-    "Decided": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "決定"
-          }
-        }
-      }
-    },
-    "just now": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "たった今"
-          }
-        }
-      }
-    },
-    "Save": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存"
-          }
-        }
-      }
-    },
-    "Saved": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存しました"
-          }
-        }
-      }
-    },
-    "Tell your AI how you work — what you own, what you care about, who to involve. It uses this when routing your instructions.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "あなたの仕事の進め方を AI に伝えてください。担当領域、重視すること、巻き込むべき相手。指示のルーティングに使われます。"
-          }
-        }
-      }
-    },
-    "Use your own OpenAI key for routing. It stays in this device's Keychain and is sent only with your own requests — we never store it on our servers.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ルーティングにご自身の OpenAI キーを使えます。キーはこの端末のキーチェーンにのみ保存され、あなたのリクエストにのみ送信されます。当方のサーバーには保存しません。"
-          }
-        }
-      }
-    },
-    "History request failed (%lld).": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "履歴の取得に失敗しました (%lld)。"
-          }
-        }
-      }
-    },
-    "You've used today's AI routing.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今日の AI ルーティングを使い切りました。"
-          }
-        }
-      }
-    },
-    "Upgrade": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップグレード"
-          }
-        }
-      }
-    },
-    "Subscription": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブスクリプション"
-          }
-        }
-      }
-    },
-    "honmaruai Pro": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "honmaruai Pro"
-          }
-        }
-      }
-    },
-    "Free plan": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無料プラン"
-          }
-        }
-      }
-    },
-    "Trial": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トライアル"
-          }
-        }
-      }
-    },
-    "Sandbox": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サンドボックス"
-          }
-        }
-      }
-    },
-    "Billed via": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "支払い方法"
-          }
-        }
-      }
-    },
-    "Update your payment method to keep Pro active.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pro を継続するにはお支払い方法を更新してください。"
-          }
-        }
-      }
-    },
-    "Auto-renew is off. Pro stays active until the end of the period.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動更新はオフです。Pro は期間終了まで有効です。"
-          }
-        }
-      }
-    },
-    "Free plan: 3 AI-routed decisions a day, then keyword routing. Pro: unlimited AI routing and the org graph.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無料プラン: AI ルーティングは 1 日 3 件まで、その後はキーワードルーティングになります。Pro: AI ルーティング無制限と組織グラフ。"
-          }
-        }
-      }
-    },
-    "Manage subscription": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブスクリプションを管理"
-          }
-        }
-      }
-    },
-    "Open billing portal": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請求ポータルを開く"
-          }
-        }
-      }
-    },
-    "Restore purchases": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "購入を復元"
-          }
-        }
-      }
-    },
-    "Restoring…": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "復元中…"
-          }
-        }
-      }
-    },
-    "Upgrade to Pro": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pro にアップグレード"
-          }
-        }
-      }
-    },
-    "Get help with a purchase": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "購入について問い合わせる"
-          }
-        }
-      }
-    },
-    "Subscriptions renew automatically until cancelled.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブスクリプションはキャンセルするまで自動更新されます。"
-          }
-        }
-      }
-    },
-    "Unlimited AI routing, the org graph, and priority delivery.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AI ルーティング無制限、組織グラフ、優先配信。"
-          }
-        }
-      }
-    },
-    "Loading plans…": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プランを読み込み中…"
-          }
-        }
-      }
-    },
-    "Purchasing…": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "購入中…"
-          }
-        }
-      }
-    },
-    "Subscriptions renew automatically until cancelled. Manage or cancel anytime in Settings.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブスクリプションはキャンセルするまで自動更新されます。設定からいつでも管理・キャンセルできます。"
-          }
-        }
-      }
-    },
-    "Plans aren't available right now": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在プランを利用できません"
-          }
-        }
-      }
-    },
-    "Check your connection, then try again.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続を確認して、もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "Try again": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "もう一度試す"
-          }
-        }
-      }
-    },
-    "Yearly": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "年間"
-          }
-        }
-      }
-    },
-    "Monthly": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "月額"
-          }
-        }
-      }
-    },
-    "Lifetime access": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "買い切り"
-          }
-        }
-      }
-    },
-    "Billing issue — access ends %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "支払いに問題があります — %@ に利用終了"
-          }
-        }
-      }
-    },
-    "Trial converts %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ にトライアルが本契約に移行"
-          }
-        }
-      }
-    },
-    "Renews %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に更新"
-          }
-        }
-      }
-    },
-    "Ends %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に終了"
-          }
-        }
-      }
-    },
-    "App Store": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App Store"
-          }
-        }
-      }
-    },
-    "Google Play": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Google Play"
-          }
-        }
-      }
-    },
-    "Stripe": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stripe"
-          }
-        }
-      }
-    },
-    "Granted by honmaruai": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "honmaruai から付与"
-          }
-        }
-      }
-    },
-    "Amazon Appstore": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Amazon Appstore"
-          }
-        }
-      }
-    },
-    "Other store": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他のストア"
-          }
-        }
-      }
-    },
-    "Subscriptions aren't ready yet. Try again in a moment.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブスクリプションの準備がまだできていません。しばらくしてからお試しください。"
-          }
-        }
-      }
-    },
-    "No previous purchases found for this Apple ID.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Apple ID で以前の購入が見つかりませんでした。"
-          }
-        }
-      }
-    },
-    "No plans are available right now. Check the offering in RevenueCat.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在利用できるプランがありません。RevenueCat のオファリングを確認してください。"
-          }
-        }
-      }
-    },
-    "Can't reach the App Store right now. Check your connection and try again.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在 App Store に接続できません。接続を確認してもう一度お試しください。"
-          }
-        }
-      }
-    },
-    "The App Store is having trouble. Try again in a moment.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App Store で問題が発生しています。しばらくしてからお試しください。"
-          }
-        }
-      }
-    },
-    "Your purchase is pending approval. Pro unlocks as soon as it clears.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "購入は承認待ちです。承認され次第 Pro が有効になります。"
-          }
-        }
-      }
-    },
-    "This device isn't allowed to make purchases. Check Screen Time restrictions.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このデバイスでは購入が許可されていません。スクリーンタイムの制限を確認してください。"
-          }
-        }
-      }
-    },
-    "The App Store rejected that payment method. Try another one.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App Store がその支払い方法を拒否しました。別の方法をお試しください。"
-          }
-        }
-      }
-    },
-    "That plan isn't available on this account right now.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのプランは現在このアカウントでは利用できません。"
-          }
-        }
-      }
-    },
-    "Those purchases are attached to a different account. Sign in with the Apple ID that bought them.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "それらの購入は別のアカウントに紐付いています。購入した Apple ID でサインインしてください。"
-          }
-        }
-      }
-    },
-    "This account isn't eligible for that offer.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このアカウントはそのオファーの対象外です。"
-          }
-        }
-      }
-    },
-    "Subscriptions aren't configured correctly for this build. Check the RevenueCat API key, entitlement, and products.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このビルドではサブスクリプションが正しく設定されていません。RevenueCat の API キー、エンタイトルメント、製品を確認してください。"
-          }
-        }
-      }
-    },
-    "Subscriptions aren't supported on this device.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このデバイスではサブスクリプションを利用できません。"
-          }
-        }
-      }
-    },
-    "Dana's AI": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dana の AI"
-          }
-        }
-      }
-    },
-    "Dana": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dana"
-          }
-        }
-      }
-    },
-    "Sign in with GitHub to reach your team. Your teammates are your repo's collaborators, and every approval becomes an Issue you can track.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GitHub でサインインしてチームとつながりましょう。チームメイトはリポジトリのコラボレーターで、承認はすべて追跡できる Issue になります。"
-          }
-        }
-      }
-    },
-    "Enter": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "入る"
-          }
-        }
-      }
-    },
-    "Continue without signing in": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サインインせずに続ける"
-          }
-        }
-      }
-    },
-    "now": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "たった今"
-          }
-        }
-      }
-    },
-    "Your AI drafts a decision card in the background — keep scrolling while it works.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "あなたの AI がバックグラウンドで決定カードを作成します。作成中もそのままスクロールを続けられます。"
-          }
-        }
-      }
-    },
-    "Offline mode — local routing with your priority setting.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフラインモード — 設定した優先度でローカルにルーティングします。"
-          }
-        }
-      }
-    },
-    "Language": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "言語"
-          }
-        }
-      }
-    },
-    "Where decisions are recorded": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "決定の記録先"
-          }
-        }
-      }
-    },
-    "Could not save your choice.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択を保存できませんでした。"
-          }
-        }
-      }
-    },
-    "No databases shared with Honmaru AI yet. Share one in Notion, then pull to refresh.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Honmaru AI と共有されているデータベースがまだありません。Notion で共有してから、下に引っ張って更新してください。"
           }
         }
       }
