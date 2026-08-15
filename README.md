@@ -82,6 +82,20 @@ session refresh).
 
 ## Releasing
 
+Two buttons in **Actions**, once the credentials are handed over —
+[docs/shipping.md](docs/shipping.md):
+
+- **Deploy Worker** — runs on every push to `main` touching `worker/`. Tests,
+  migrates D1, deploys, checks `/health`. The migration runs before the deploy
+  every time, which is the whole reason it is a workflow and not a habit.
+- **TestFlight** — manual, takes a version. Smoke-launches the Release build,
+  archives, exports, uploads.
+
+The Worker goes first when both change: the app calls an endpoint an
+un-redeployed Worker does not serve.
+
+Locally, unchanged:
+
 ```bash
 ./scripts/release.sh build 1.0
 ./scripts/release.sh testflight --yes
