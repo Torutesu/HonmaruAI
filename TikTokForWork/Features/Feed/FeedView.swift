@@ -180,16 +180,43 @@ struct FeedView: View {
         )
     }
 
+    private var connectionColor: Color {
+        switch appState.connectionState {
+        case .connected: Theme.Colors.approve
+        case .connecting: Theme.Colors.interactive
+        case .refused: Theme.Colors.reject
+        case .offline: Theme.Colors.textTertiary
+        }
+    }
+
+    private var connectionLabel: String? {
+        switch appState.connectionState {
+        case .connected: nil
+        case .connecting: String(localized: "Reconnecting…")
+        case .refused: String(localized: "No access")
+        case .offline: String(localized: "Offline")
+        }
+    }
+
     private var topBar: some View {
         HStack(alignment: .center) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(appState.webSocketService.isConnected ? Theme.Colors.approve : Theme.Colors.textTertiary)
+                    .fill(connectionColor)
                     .frame(width: 5, height: 5)
                 Text(appState.currentUser?.name ?? "")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.Colors.textPrimary)
+                // The dot alone used to claim "live" whether or not the socket
+                // was, so a state that is not connected says what it is.
+                if let label = connectionLabel {
+                    Text(label)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
 
             Spacer()
 

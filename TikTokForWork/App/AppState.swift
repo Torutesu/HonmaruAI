@@ -1,8 +1,14 @@
+import Combine
 import Foundation
 
 @MainActor
 final class AppState: ObservableObject {
     @Published var currentUser: User?
+    /// Mirrored from the socket so views can observe it. `webSocketService` is a
+    /// plain property of this object, so SwiftUI never hears about its own
+    /// changes — which is why the connection dot used to be stale as often as
+    /// it was wrong.
+    @Published private(set) var connectionState: ConnectionState = .offline
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
     @Published var organization = OrganizationGraph(nodes: [], edges: [])
@@ -37,6 +43,7 @@ final class AppState: ObservableObject {
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
+    let networkMonitor = NetworkMonitor()
 
     let relayURL = AppConfig.relayURL
 
@@ -49,6 +56,11 @@ final class AppState: ObservableObject {
         // language before the first view renders.
         Bundle.setAppLanguage(language.locale?.identifier)
         cardService.attach(webSocketService: webSocketService)
+        webSocketService.$state.assign(to: &$connectionState)
+        networkMonitor.onBecameOnline = { [weak self] in
+            self?.webSocketService.reconnectIfNeeded()
+        }
+        networkMonitor.start()
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
                 await self?.handleRepositoryChanged()
@@ -128,6 +140,10 @@ final class AppState: ObservableObject {
         SessionStore.currentUserID = user.id
         cardService.setActiveUser(user.id)
         let orgId = connection.repository            // "owner/repo"
+        // The cached feed goes up before the socket is even dialled. Waiting for
+        // the relay means a blank screen on a slow network and a permanently
+        // blank one with no network at all.
+        cardService.adoptOrganization(orgId)
         do {
             try await webSocketService.connect(
                 urlString: relayURL,

@@ -75,3 +75,31 @@ targets:
         product: RevenueCat
       - package: RevenueCat
         product: RevenueCatUI
+
+  # Unit tests over the logic that decides what a user sees and what reaches
+  # their teammates. Views are deliberately out of scope — a snapshot test of a
+  # SwiftUI hierarchy breaks on every design change and catches none of the
+  # failures that matter here.
+  TikTokForWorkTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: TikTokForWorkTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.honmaru.ai.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: TikTokForWork
+
+schemes:
+  TikTokForWork:
+    build:
+      targets:
+        TikTokForWork: all
+        TikTokForWorkTests: [test]
+    test:
+      targets:
+        - TikTokForWorkTests
+    run:
+      config: Debug
