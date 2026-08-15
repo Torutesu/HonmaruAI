@@ -168,7 +168,6 @@ final class AppState: ObservableObject {
 
     func signOut() {
         Task {
-            await webSocketService.publishClearStore()
             // Drop back to an anonymous RevenueCat id so the next account on this
             // device does not inherit this person's entitlement.
             await SubscriptionService.shared.signOut()
@@ -183,10 +182,11 @@ final class AppState: ObservableObject {
         currentUser = nil
     }
 
+    /// Switching repositories switches organizations, so the cards on screen
+    /// belong to the old one and have to go. They are dropped locally only —
+    /// they are still the other org's decisions, and deleting them there would
+    /// take the rest of that team's pending work with them.
     func handleRepositoryChanged() async {
         cardService.reset()
-        if webSocketService.isConnected {
-            await webSocketService.publishClearStore()
-        }
     }
 }

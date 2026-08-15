@@ -133,6 +133,15 @@ export default {
         headers: { authorization: `Bearer ${data.access_token}`, "user-agent": "tiktokforwork" },
       });
       const ghUser = await userRes.json();
+      if (!ghUser?.id) return json({ message: "GitHub did not identify this token" }, 502);
+      // The user row used to appear only when someone loaded the org graph,
+      // which happens after the socket connects — so the relay could not name
+      // the person who had just signed in. Identity is established here, where
+      // it is first known.
+      await upsertUser(env.DB, {
+        githubId: ghUser.id, login: ghUser.login, name: ghUser.name,
+        avatarUrl: ghUser.avatar_url, locale: "en",
+      });
       const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
       return json({ accessToken: data.access_token, tokenType: "bearer", sessionToken });
     }

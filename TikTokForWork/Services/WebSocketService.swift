@@ -100,7 +100,6 @@ enum OutboundEvent {
     case cardCreated(DecisionCard)
     case cardUpdated(DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
-    case clearStore
     case rollback(cardID: String)
     case contextUpdated(text: String)
 
@@ -126,8 +125,6 @@ enum OutboundEvent {
                 "type": "card_deleted",
                 "payload": ["cardId": cardID, "recipientUserID": recipientUserID]
             ]
-        case .clearStore:
-            return ["type": "clear_store", "payload": [:]]
         case .rollback(let cardID):
             return ["type": "rollback", "payload": ["cardId": cardID]]
         case .contextUpdated(let text):
@@ -236,10 +233,6 @@ final class WebSocketService: ObservableObject {
 
     func publishDeleted(cardID: String, recipientUserID: String) async {
         try? await send(.cardDeleted(cardID: cardID, recipientUserID: recipientUserID))
-    }
-
-    func publishClearStore() async {
-        try? await send(.clearStore)
     }
 
     private func send(_ event: OutboundEvent) async throws {

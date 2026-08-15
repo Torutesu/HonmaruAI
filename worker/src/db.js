@@ -44,6 +44,21 @@ export async function saveCard(db, orgId, card) {
     .run();
 }
 
+// One card, without paying to deserialize the whole org. The relay needs this
+// to answer "who does this card belong to?" before it lets anyone change it.
+export async function getCard(db, orgId, cardId) {
+  const row = await db
+    .prepare("SELECT data FROM cards WHERE org_id = ?1 AND card_id = ?2")
+    .bind(orgId, cardId)
+    .first();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    return null;
+  }
+}
+
 export async function removeCard(db, orgId, cardId) {
   await db
     .prepare("DELETE FROM cards WHERE org_id = ?1 AND card_id = ?2")

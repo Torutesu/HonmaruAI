@@ -53,43 +53,40 @@ final class DecisionCardService: ObservableObject {
 
     func syncGitHubStatus(githubService: GitHubService) async {
         guard githubService.isConnected else { return }
+        // Only our own cards. The store holds the whole org so a second device
+        // can stay in sync passively, but a card belongs to the person who has
+        // to decide it — republishing someone else's is a write the relay is
+        // right to refuse, and reconciling their issue was never our job.
+        guard let userID = activeUserID, var userCards = cardsByUser[userID] else { return }
 
         var changed = false
-        for (userID, var userCards) in cardsByUser {
-            var userChanged = false
+        for index in userCards.indices {
+            guard let issueNumber = userCards[index].githubIssueNumber else { continue }
+            guard userCards[index].githubRepository == githubService.linkedRepository else { continue }
 
-            for index in userCards.indices {
-                guard let issueNumber = userCards[index].githubIssueNumber else { continue }
-                guard userCards[index].githubRepository == githubService.linkedRepository else { continue }
-
-                let status = userCards[index].status
-                guard status == .approved || status == .completed || status == .delegated else {
-                    continue
-                }
-
-                do {
-                    let issueState = try await githubService.issueState(number: issueNumber)
-                    if issueState == "closed", status != .completed {
-                        userCards[index].status = .completed
-                        userChanged = true
-                        await webSocketService?.publishUpdated(userCards[index])
-                    } else if issueState == "open", status == .completed {
-                        userCards[index].status = .approved
-                        userChanged = true
-                        await webSocketService?.publishUpdated(userCards[index])
-                    }
-                } catch {
-                    continue
-                }
+            let status = userCards[index].status
+            guard status == .approved || status == .completed || status == .delegated else {
+                continue
             }
 
-            if userChanged {
-                cardsByUser[userID] = userCards
-                changed = true
+            do {
+                let issueState = try await githubService.issueState(number: issueNumber)
+                if issueState == "closed", status != .completed {
+                    userCards[index].status = .completed
+                    changed = true
+                    await webSocketService?.publishUpdated(userCards[index])
+                } else if issueState == "open", status == .completed {
+                    userCards[index].status = .approved
+                    changed = true
+                    await webSocketService?.publishUpdated(userCards[index])
+                }
+            } catch {
+                continue
             }
         }
 
         if changed {
+            cardsByUser[userID] = userCards
             onCardsUpdated?()
         }
     }

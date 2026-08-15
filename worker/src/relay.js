@@ -1,14 +1,15 @@
 import {
-  joinEvents, upsertEvents, removeEvents, clearEvents,
+  joinEvents, upsertEvents, removeEvents,
   presenceEvents, contextEvents, applyDecision, applyRollback,
 } from "./agui/adapter.js";
 import { toolCallResult, runError } from "./agui/events.js";
 import {
-  loadStore, saveCard, removeCard, clearCards, loadContexts, saveContext,
-  getSession, getUserByGithubId,
+  loadStore, saveCard, removeCard, loadContexts, saveContext,
+  getSession, getCard,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
+import { authorizeOrgAccess } from "./membership.js";
 
 export class OrgRelay {
   constructor(state, env) {
@@ -43,6 +44,20 @@ export class OrgRelay {
     }
   }
 
+  /// Refuse a socket, in whichever dialect it was speaking.
+  ///
+  /// The close code is 1008 (policy violation) rather than a silent drop so the
+  /// client can tell "you are not allowed in" apart from "the network died" and
+  /// stop retrying a connection that will never be accepted.
+  refuse(ws, agui, message) {
+    try {
+      ws.send(JSON.stringify(agui ? runError(message) : { type: "error", payload: { message } }));
+    } catch {}
+    try {
+      ws.close(1008, message);
+    } catch {}
+  }
+
   /// Recording history must never break the mutation it records.
   async log(orgId, event) {
     try {
@@ -59,18 +74,29 @@ export class OrgRelay {
     try { msg = JSON.parse(raw); } catch { return; }
     const { type, payload = {} } = msg;
 
+    // Everything except `join` requires a socket that has already proved who it
+    // is. Checking inside each handler would eventually miss one; checking here
+    // means a new message type is authenticated by default.
+    if (type !== "join" && !att.authed) {
+      return this.refuse(ws, att.agui, "Join with a valid session before sending anything.");
+    }
+
     try {
     if (type === "join") {
-      let userId = payload.userId;
-      if (payload.sessionToken) {
-        const session = await getSession(this.db, payload.sessionToken);
-        if (session) {
-          const user = await getUserByGithubId(this.db, session.github_id);
-          userId = user?.login || session.github_id; // real identity wins
-        }
-      }
       const agui = payload.protocol === "agui/1";
-      ws.serializeAttachment({ orgId, userId, agui });
+      // Identity is never taken from the client. `payload.userId` is read only
+      // to be discarded: whoever you say you are, you act as the login on your
+      // session, in the org that session can prove it belongs to.
+      const session = payload.sessionToken ? await getSession(this.db, payload.sessionToken) : null;
+      if (!session) {
+        return this.refuse(ws, agui, "Sign in to join this organization.");
+      }
+      const access = await authorizeOrgAccess(this.env, session, orgId);
+      if (!access.ok) {
+        return this.refuse(ws, agui, "You are not a member of this organization.");
+      }
+      const userId = access.login;
+      ws.serializeAttachment({ orgId, userId, githubId: String(session.github_id), agui, authed: true });
       const store = await loadStore(this.db, orgId);
       const contexts = await loadContexts(this.db, orgId);
       if (agui) {
@@ -85,13 +111,31 @@ export class OrgRelay {
 
     if (type === "tool_result") {
       const content = typeof payload.content === "string" ? JSON.parse(payload.content) : payload.content;
-      await this.applyAndPublish(orgId, content, payload.toolCallId);
+      await this.applyAndPublish(orgId, { ...content, actorUserID: att.userId }, payload.toolCallId, att.userId);
       return;
     }
 
     if (type === "card_created" || type === "card_updated") {
       if (!payload.card?.id) return;
       const card = payload.card;
+      const existing = await getCard(this.db, orgId, card.id);
+      if (type === "card_created") {
+        // You may route a decision to anyone in the org, but only ever as
+        // yourself. This is the line that makes a forged sender impossible
+        // rather than merely impolite.
+        card.senderUserID = att.userId;
+      } else {
+        // A card belongs to whoever has to decide it. Only they may change it,
+        // and rewriting the field must not be a way to hand it off — delegation
+        // is a new card, not a moved one.
+        const owner = existing?.recipientUserID ?? card.recipientUserID;
+        if (owner !== att.userId) {
+          ws.send(JSON.stringify(runError("Only the recipient can update this decision.")));
+          return;
+        }
+        card.recipientUserID = owner;
+        if (card.decision?.action) card.decision.actorUserID = att.userId;
+      }
       await saveCard(this.db, orgId, card);
       // The iOS client decides locally and republishes the whole card, so a
       // card_updated that carries a decision IS a decision — recording it as a
@@ -131,8 +175,11 @@ export class OrgRelay {
 
     if (type === "card_deleted") {
       if (!payload.cardId) return;
-      const store = await loadStore(this.db, orgId);
-      const doomed = Object.values(store).flat().find((item) => item.id === payload.cardId);
+      const doomed = await getCard(this.db, orgId, payload.cardId);
+      if (doomed && doomed.recipientUserID !== att.userId) {
+        ws.send(JSON.stringify(runError("Only the recipient can delete this decision.")));
+        return;
+      }
       await removeCard(this.db, orgId, payload.cardId);
       if (doomed) {
         await this.log(orgId, {
@@ -144,7 +191,8 @@ export class OrgRelay {
     }
 
     if (type === "context_updated") {
-      const userId = payload.userId || att.userId;
+      // Your context, never someone else's — a claimed userId is ignored.
+      const userId = att.userId;
       const existing = await loadContexts(this.db, orgId);
       const isNew = !(userId in existing);
       await saveContext(this.db, orgId, userId, payload.context);
@@ -153,6 +201,11 @@ export class OrgRelay {
     }
 
     if (type === "rollback") {
+      const target = await getCard(this.db, orgId, payload.cardId);
+      if (target && target.recipientUserID !== att.userId) {
+        ws.send(JSON.stringify(runError("Only the recipient can undo this decision.")));
+        return;
+      }
       const store = await loadStore(this.db, orgId);
       const before = JSON.parse(JSON.stringify(
         Object.values(store).flat().find((item) => item.id === payload.cardId) || null
@@ -172,9 +225,12 @@ export class OrgRelay {
       return;
     }
 
+    // `clear_store` used to run DELETE FROM cards for the whole org, and the app
+    // sent it on every sign-out — one person leaving erased every pending
+    // decision the team had. Deleting the message type outright would crash the
+    // TestFlight builds that still send it, so it stays and does nothing.
+    // Clearing local state is a client concern and always was.
     if (type === "clear_store") {
-      await clearCards(this.db, orgId);
-      for (const ev of clearEvents()) this.broadcast(orgId, ev);
       return;
     }
     } catch (err) {
@@ -182,8 +238,14 @@ export class OrgRelay {
     }
   }
 
-  async applyAndPublish(orgId, content, toolCallId) {
+  async applyAndPublish(orgId, content, toolCallId, actorUserId) {
     const store = await loadStore(this.db, orgId);
+    if (actorUserId && content?.cardId) {
+      const target = await getCard(this.db, orgId, content.cardId);
+      if (target && target.recipientUserID !== actorUserId) {
+        throw new Error("Only the recipient can decide this card.");
+      }
+    }
     const out = applyDecision(store, content);
     if (out.removed) {
       await removeCard(this.db, orgId, out.card.id);
