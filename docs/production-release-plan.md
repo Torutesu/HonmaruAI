@@ -3,13 +3,16 @@
 What stands between the app that exists today and one that can be handed to a
 paying stranger.
 
-> **Status, 2026-08-15.** Stages 1–6 are done and on
-> `claude/production-release-plan-ssw2x1`: every P0, plus push notifications,
-> offline persistence, the outbox, scheduled sync, the test target, CI and
-> structured logging. The Worker suite went from 106 tests to 147. What remains
-> is the P2 list at the bottom. Each item below keeps its full write-up —
-> the reasoning is what makes a fix reviewable a year later — with the ones
-> that shipped marked **Done**.
+> **Status, 2026-08-15.** All seven stages are done, on
+> `claude/production-release-plan-ssw2x1` (PR #4): every P0 and P1, and the P2
+> polish list. The Worker suite went from 106 tests to 152, and the iOS target
+> — which did not exist — covers the outbox, the cache and card state. Each
+> item below keeps its full write-up; the reasoning is what makes a fix
+> reviewable a year later.
+>
+> One item shipped as a compromise rather than a fix, and is flagged as such:
+> **P2-1**, where the feed's one-card-per-page gesture and unbounded Dynamic
+> Type cannot both be satisfied without rebuilding the gesture.
 
 The product works: 106 Worker tests pass, the core loop (instruct → route →
 decide → sync to GitHub) is real, and TestFlight internal builds ship. What
@@ -334,15 +337,32 @@ Client-side, typed errors with recovery copy and a retry affordance.
 
 # P2 — polish
 
-| # | Item | Why |
-|---|------|-----|
-| P2-1 | VoiceOver labels + Dynamic Type audit on the card and action row | The feed is one big custom gesture surface; today it is unusable with VoiceOver |
-| P2-2 | Pending badge on the tab bar | The count already exists in `FeedViewModel.pendingCount` |
-| P2-3 | Card SLA — "waiting 3 days" chip and a nudge back to the sender | Decisions rot silently |
-| P2-4 | Search + filter over history | `HistoryView` lists, it does not find |
-| P2-5 | Empty and error states drawn as designed screens, not blank feeds | Guest mode currently shows nothing at all |
-| P2-6 | Localization sweep — every new string in `Localizable.xcstrings` in ja | Half the audience |
-| P2-7 | Session token rotation + refresh before 30-day expiry | Silent sign-out on day 31 |
+| # | Item | Outcome |
+|---|------|---------|
+| P2-1 | VoiceOver + Dynamic Type on the card | **Done, partly as a compromise.** Approve, decline, revise and delegate are rotor actions — VoiceOver owns horizontal swipes, so the product's primary gesture did not exist for anyone using it. Dynamic Type is *clamped* at `accessibility1`: one card fills one page and cannot scroll, so past that size the action row left the screen with no way back. Nesting a scroll view inside the paging one fights the gesture the feed is built on. The clamp is only tolerable because the rotor actions work at every size, including the clamped ones. The real fix is a card layout that scrolls within its page, and it is a redesign, not a patch. |
+| P2-2 | Pending badge on the tab bar | **Done.** The count now has one owner (`DecisionCardService.pendingCount`) feeding both the tab and the app icon — it was computed in the feed view model, and a count computed twice is a count that eventually disagrees with itself. |
+| P2-3 | Card SLA | **Done as a chip, not a nudge.** A pending card shows "Waiting 3d" from day two and turns red at five. The nudge-back-to-sender half was dropped on purpose: you only see cards routed *to* you, so there is no screen on which to nudge someone. That needs a sent-items view, which is a feature, not polish. |
+| P2-4 | Search + filter over history | **Done.** Searchable over title, actor and note; filtered by all/decided/created/undone, because "did that get approved?" is the question people actually arrive with. "Nothing matches that" is distinct from "nothing has happened" — the difference between the query being wrong and the product being empty. |
+| P2-5 | Empty and error states | **Done.** Three causes, three sentences. "No decisions yet. Tell your AI something" in front of someone whose socket was refused was the app blaming the user for its own state. |
+| P2-6 | Localization sweep | **Done.** Every string added across this branch has ja, along with four that had been sitting untranslated next to translated ones. A check script over `String(localized:)` reports zero gaps. |
+| P2-7 | Session refresh before the 30-day expiry | **Done.** Use extends the window, past halfway only — someone who opened the app every morning was still signed out on day 31, with no warning and nothing to distinguish it from a bug. Absence is what should expire a session; time alone should not. Failing to extend is explicitly not failing to authenticate. |
+
+## Known compromises
+
+Worth stating plainly rather than leaving to be discovered:
+
+- **Dynamic Type is clamped on the feed card** (P2-1 above). Sizes above
+  `accessibility1` are refused rather than rendered badly. VoiceOver users are
+  unaffected; someone who reads with large text and does not use VoiceOver gets
+  smaller text than they asked for.
+- **The SLA chip has no nudge** (P2-3 above) — nowhere to put it until a
+  sent-items view exists.
+- **Membership means write access.** A read-only collaborator on a private
+  repository cannot join. `GET /repos` cannot tell them from a stranger reading
+  a public repository, and treating `pull` as membership would make every public
+  repository a joinable organization.
+- **Audit history survives account deletion**, anonymized. Disclosed in the
+  privacy policy, because an undisclosed retention is the worse answer.
 
 ---
 

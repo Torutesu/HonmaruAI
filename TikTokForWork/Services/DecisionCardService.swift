@@ -20,6 +20,13 @@ final class DecisionCardService: ObservableObject {
     private var orgID: String?
     private var persistTask: Task<Void, Never>?
 
+    /// How many decisions are waiting on the person using this device.
+    ///
+    /// Counted here rather than in the feed view model because two places need
+    /// it — the tab bar and the app icon — and a count computed twice is a count
+    /// that eventually disagrees with itself.
+    @Published private(set) var pendingCount = 0
+
     var onCardsUpdated: (() -> Void)?
 
     func attach(webSocketService: WebSocketService) {
@@ -73,6 +80,11 @@ final class DecisionCardService: ObservableObject {
     /// code path has to remember to do.
     private func changed() {
         persist()
+        let pending = activeUserID.map { cardsByUser[$0, default: []].filter(\.isPending).count } ?? 0
+        if pending != pendingCount {
+            pendingCount = pending
+            PushService.shared.setBadge(pending)
+        }
         onCardsUpdated?()
     }
 

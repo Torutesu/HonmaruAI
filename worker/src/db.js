@@ -106,6 +106,11 @@ export async function createSession(db, githubId, accessToken) {
   return token;
 }
 
+// Half the window. Past this point an active session is extended; before it,
+// nothing is written — the alternative is an UPDATE on every request for a
+// deadline that is still weeks away.
+const SESSION_SLIDE_AFTER_DAYS = 15;
+
 export async function getSession(db, token) {
   if (!token) return null;
   const row = await db
@@ -115,9 +120,29 @@ export async function getSession(db, token) {
     .bind(token)
     .first();
   if (!row) return null;
+  const now = new Date();
   // A NULL expiry is a session minted before expiry existed — still valid, so
   // shipping this does not sign out the people currently testing.
-  if (row.expires_at && row.expires_at <= new Date().toISOString()) return null;
+  if (row.expires_at && row.expires_at <= now.toISOString()) return null;
+
+  // Use keeps you signed in. A fixed 30 days meant someone who opened the app
+  // every morning was still signed out on day 31, with no warning and no way to
+  // tell it from a bug. Absence is what should expire a session, not time.
+  const remainingMs = row.expires_at ? Date.parse(row.expires_at) - now.getTime() : 0;
+  if (!row.expires_at || remainingMs < SESSION_SLIDE_AFTER_DAYS * 24 * 60 * 60 * 1000) {
+    const extended = new Date(now.getTime() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      await db
+        .prepare("UPDATE sessions SET expires_at = ?1 WHERE token = ?2")
+        .bind(extended, token)
+        .run();
+      row.expires_at = extended;
+    } catch (err) {
+      // Failing to extend is not failing to authenticate. The session is still
+      // valid right now, which is the question that was asked.
+      console.error("session slide failed", err?.message || err);
+    }
+  }
   return row;
 }
 

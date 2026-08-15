@@ -30,12 +30,16 @@ struct DecisionCardView: View {
                             .foregroundStyle(Theme.Colors.textPrimary)
                             .lineSpacing(2)
                             .multilineTextAlignment(.leading)
+                            // A long title at a large text size otherwise
+                            // pushes everything below it off the page.
+                            .minimumScaleFactor(0.8)
 
                         Text(card.summary)
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .lineSpacing(5)
                             .multilineTextAlignment(.leading)
+                            .minimumScaleFactor(0.85)
 
                         if let original = card.originalBody,
                            let language = card.originalLanguage {
@@ -105,6 +109,17 @@ struct DecisionCardView: View {
             .offset(x: dragOffset)
         }
         .contentShape(Rectangle())
+        // One card fills one page and cannot scroll — that is the whole feed
+        // gesture. At the accessibility text sizes the content grew past the
+        // page and took the action row with it, off-screen, with no way to
+        // reach it. Nesting a scroll view inside a paging one to fix that
+        // fights the gesture the product is built on, so the text is allowed to
+        // grow to the largest size the layout survives and stops there.
+        //
+        // This is a compromise, and it is only tolerable because the actions do
+        // not depend on it: the rotor actions below reach approve, decline,
+        // revise and delegate at any size, including the ones clamped here.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .simultaneousGesture(swipeGesture)
         // VoiceOver owns horizontal swipes, so the card's primary gesture does
         // not exist for anyone using it. The action row below is reachable, but
@@ -139,6 +154,25 @@ struct DecisionCardView: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             HStack(alignment: .center, spacing: Theme.Spacing.sm) {
                 KindTag(type: card.type)
+
+                // How long this has sat. A card looks identical on day six and
+                // day one, which is how decisions rot without anyone deciding
+                // to let them.
+                if let days = card.waitingDays {
+                    HStack(spacing: 5) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 9, weight: .medium))
+                        Text("Waiting \(days)d")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .tracking(0.5)
+                    }
+                    .foregroundStyle(card.isStale ? Theme.Colors.reject : Theme.Colors.textTertiary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background((card.isStale ? Theme.Colors.reject : Theme.Colors.textTertiary).opacity(0.10))
+                    .clipShape(Capsule())
+                    .accessibilityLabel(Text("Waiting \(days) days"))
+                }
 
                 Spacer(minLength: Theme.Spacing.sm)
 

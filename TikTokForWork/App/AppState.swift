@@ -9,6 +9,9 @@ final class AppState: ObservableObject {
     /// changes — which is why the connection dot used to be stale as often as
     /// it was wrong.
     @Published private(set) var connectionState: ConnectionState = .offline
+    /// Mirrored for the same reason as `connectionState`: `cardService` is a
+    /// plain property, so SwiftUI never hears it change.
+    @Published private(set) var pendingCount = 0
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
     @Published var organization = OrganizationGraph(nodes: [], edges: [])
@@ -57,6 +60,7 @@ final class AppState: ObservableObject {
         Bundle.setAppLanguage(language.locale?.identifier)
         cardService.attach(webSocketService: webSocketService)
         webSocketService.$state.assign(to: &$connectionState)
+        cardService.$pendingCount.assign(to: &$pendingCount)
         networkMonitor.onBecameOnline = { [weak self] in
             self?.webSocketService.reconnectIfNeeded()
         }

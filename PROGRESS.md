@@ -9,8 +9,8 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 147 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
-- **iOS suite:** `TikTokForWorkTests` — outbox and cache logic
+- **Worker suite:** 152 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **CI:** `.github/workflows/ci.yml` — Worker on every push, iOS on pull requests
 - **Deployed:** `https://tiktokforwork.torubj0904.workers.dev`
 - **Ships as:** Honmaru AI, `com.honmaru.ai`
@@ -46,15 +46,23 @@ The list of what is still missing, and why each item matters, is
 - [x] Outbox: a decision made offline is delivered on reconnect, in order
 - [x] One structured log line per request, with an id echoed to the client
 
+### Polish
+- [x] VoiceOver rotor actions on the card; approve and decline no longer need a swipe
+- [x] "Waiting 3d" on a pending card, red at five days
+- [x] Search and filter over history
+- [x] Pending badge on the tab bar, from the same count as the app icon
+- [x] Sessions extend with use, so an active user is never signed out
+
 ## Still open
 
-Tracked in full in [the plan](docs/production-release-plan.md#p2--polish).
-
-- [ ] Card SLA — "waiting 3 days" and a nudge back to the sender
-- [ ] Search and filter over history
-- [ ] Session token refresh before the 30-day expiry
-- [ ] Pending badge on the tab bar
 - [ ] First App Store submission (TestFlight internal works today)
+- [ ] A sent-items view — without one there is nowhere to nudge someone whose
+      decision is overdue, which is why the SLA work shipped as a chip only
+- [ ] A card layout that scrolls within its page, so Dynamic Type does not have
+      to be clamped at `accessibility1`
+
+Both of the last two, and the other compromises made here, are written up under
+[Known compromises](docs/production-release-plan.md#known-compromises).
 
 ## Before the first App Store submission
 

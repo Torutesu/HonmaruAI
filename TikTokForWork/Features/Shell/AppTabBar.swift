@@ -16,10 +16,14 @@ struct AppTabBar: View {
     /// The way in without a camera, on a long press. Nil leaves the ＋ doing
     /// one thing.
     var onComposeText: (() -> Void)?
+    /// Decisions waiting on you. The count already existed and was already on
+    /// the app icon; not having it on the tab meant leaving Home was the only
+    /// way to stop knowing.
+    var pendingCount: Int = 0
 
     var body: some View {
         HStack {
-            tabButton(.home, systemImage: "house")
+            tabButton(.home, systemImage: "house", badge: pendingCount)
             Spacer()
             composeButton
             Spacer()
@@ -40,7 +44,7 @@ struct AppTabBar: View {
         }
     }
 
-    private func tabButton(_ tab: AppTab, systemImage: String) -> some View {
+    private func tabButton(_ tab: AppTab, systemImage: String, badge: Int = 0) -> some View {
         Button {
             selection = tab
         } label: {
@@ -48,8 +52,26 @@ struct AppTabBar: View {
                 .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(selection == tab ? Theme.Colors.textPrimary : Theme.Colors.textTertiary)
                 .frame(width: 44, height: 44)
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 { badgeView(badge) }
+                }
         }
         .accessibilityLabel(tab == .home ? Text("Home") : Text("You"))
+        .accessibilityValue(badge > 0 ? Text("\(badge) waiting") : Text(""))
+    }
+
+    /// Violet, because the design system reserves it for badges and AI markers.
+    /// Capped at 99+: past that the number has stopped being information.
+    private func badgeView(_ count: Int) -> some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, count > 9 ? 5 : 0)
+            .frame(minWidth: 16, minHeight: 16)
+            .background(Theme.Colors.accent)
+            .clipShape(Capsule())
+            .offset(x: -2, y: 4)
+            .accessibilityHidden(true)
     }
 
     private var composeButton: some View {

@@ -28,16 +28,21 @@ struct AppShell: View {
             if tab == .home { homeTopBar }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            AppTabBar(selection: $tab) {
-                // The ＋ records; the transcript is editable before it is sent.
-                tab = .home
-                showCapture = true
-            } onComposeText: {
-                // Long press is the way in for someone who cannot talk right
-                // now — same draft chain, no camera.
-                tab = .home
-                composeTick += 1
-            }
+            AppTabBar(
+                selection: $tab,
+                onCompose: {
+                    // The ＋ records; the transcript is editable before it is sent.
+                    tab = .home
+                    showCapture = true
+                },
+                onComposeText: {
+                    // Long press is the way in for someone who cannot talk right
+                    // now — same draft chain, no camera.
+                    tab = .home
+                    composeTick += 1
+                },
+                pendingCount: appState.pendingCount
+            )
         }
         .fullScreenCover(isPresented: $showCapture) {
             CaptureView { text, video in

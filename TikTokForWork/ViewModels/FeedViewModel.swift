@@ -283,9 +283,6 @@ final class FeedViewModel: ObservableObject {
         let previousCount = cards.count
         let updated = service.cards(for: userID)
         cards = updated
-        // The icon badge is the pending count, kept in step here so it cannot
-        // drift from what the feed actually shows.
-        PushService.shared.setBadge(updated.filter(\.isPending).count)
 
         if updated.isEmpty {
             scrollPosition = nil

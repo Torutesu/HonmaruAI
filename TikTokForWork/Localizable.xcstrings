@@ -1,6 +1,17 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%lld waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件が未決"
+          }
+        }
+      }
+    },
     "A lead went quiet for ten days": {
       "extractionState": "manual",
       "localizations": {
@@ -239,6 +250,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alice の AI → あなたの AI"
+          }
+        }
+      }
+    },
+    "All": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて"
           }
         }
       }
@@ -997,7 +1019,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "決定"
+            "value": "決裁済み"
           }
         }
       }
@@ -1981,6 +2003,17 @@
         }
       }
     },
+    "Nothing matches that.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該当するものはありません。"
+          }
+        }
+      }
+    },
     "Notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -2648,6 +2681,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "範囲の変更はあなたの判断です"
+          }
+        }
+      }
+    },
+    "Search decisions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決裁を検索"
           }
         }
       }
@@ -3561,6 +3605,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "ビジュアル関連は外注先へ"
+          }
+        }
+      }
+    },
+    "Waiting %lld days": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld日間待機中"
+          }
+        }
+      }
+    },
+    "Waiting %lldd": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld日待機"
           }
         }
       }
