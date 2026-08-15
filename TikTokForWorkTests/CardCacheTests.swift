@@ -5,14 +5,13 @@ import XCTest
 /// non-obvious rule — a cache belongs to exactly one organization — is the one
 /// that would otherwise show a user another team's decisions after a repository
 /// switch.
-@MainActor
+///
+/// Isolation per method, for the reason given in OutboxTests.
 final class CardCacheTests: XCTestCase {
-    override func setUp() async throws {
+    @MainActor
+    private func clean() {
         CardCache.clear()
-    }
-
-    override func tearDown() async throws {
-        CardCache.clear()
+        addTeardownBlock { @MainActor in CardCache.clear() }
     }
 
     private func card(_ id: String) -> DecisionCard {
@@ -30,16 +29,22 @@ final class CardCacheTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testARoundTripKeepsTheFeed() {
+        clean()
         CardCache.save(orgID: "acme/app", cardsByUser: ["alice": [card("c-1"), card("c-2")]])
 
         let loaded = CardCache.load(orgID: "acme/app")
         XCTAssertEqual(loaded["alice"]?.count, 2)
         XCTAssertEqual(loaded["alice"]?.first?.title, "Approve the budget")
+        // Dates round-trip through ISO 8601 on both sides. A mismatch here shows
+        // up as a feed sorted into nonsense, not as an error.
         XCTAssertEqual(loaded["alice"]?.first?.createdAt, Date(timeIntervalSince1970: 1_760_000_000))
     }
 
+    @MainActor
     func testAnotherOrganizationsCacheIsNotOurs() {
+        clean()
         CardCache.save(orgID: "acme/app", cardsByUser: ["alice": [card("c-1")]])
 
         // Switching repositories switches organizations. Showing the previous
@@ -47,7 +52,19 @@ final class CardCacheTests: XCTestCase {
         XCTAssertTrue(CardCache.load(orgID: "other/repo").isEmpty)
     }
 
+    @MainActor
     func testNoCacheIsAnEmptyFeed() {
+        clean()
+        XCTAssertTrue(CardCache.load(orgID: "acme/app").isEmpty)
+    }
+
+    @MainActor
+    func testClearingLeavesNothingBehind() {
+        clean()
+        CardCache.save(orgID: "acme/app", cardsByUser: ["alice": [card("c-1")]])
+        CardCache.clear()
+        // Sign-out clears this. A cache that survived would show the next person
+        // on the device the previous account's decisions.
         XCTAssertTrue(CardCache.load(orgID: "acme/app").isEmpty)
     }
 }

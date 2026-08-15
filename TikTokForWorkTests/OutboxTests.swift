@@ -4,20 +4,18 @@ import XCTest
 /// The outbox exists because of the worst failure this product had: a decision
 /// made with no network vanished, silently, while showing success. These tests
 /// are the record that it cannot happen again.
-@MainActor
+///
+/// Isolation is per test method rather than on the class: `XCTestCase.setUp()`
+/// is not main-actor isolated, and overriding it from a `@MainActor` class means
+/// arguing with the compiler about actor inheritance for no benefit. Each test
+/// makes its own queue instead — which it wants anyway, since the queue is on
+/// disk and a shared file would make these depend on order.
 final class OutboxTests: XCTestCase {
-    private var outbox: Outbox!
-    private var filename: String!
-
-    override func setUp() async throws {
-        // A file per test: the queue is on disk on purpose, so sharing one
-        // between tests would make them depend on order.
-        filename = "outbox-test-\(UUID().uuidString).json"
-        outbox = Outbox(filename: filename)
-    }
-
-    override func tearDown() async throws {
-        outbox.clear()
+    @MainActor
+    private func makeOutbox() -> Outbox {
+        let outbox = Outbox(filename: "outbox-test-\(UUID().uuidString).json")
+        addTeardownBlock { @MainActor in outbox.clear() }
+        return outbox
     }
 
     private func card(_ id: String, recipient: String = "bob") -> DecisionCard {
@@ -31,11 +29,13 @@ final class OutboxTests: XCTestCase {
             context: "",
             status: .pending,
             priority: .high,
-            createdAt: .now
+            createdAt: Date(timeIntervalSince1970: 1_760_000_000)
         )
     }
 
+    @MainActor
     func testQueuedEventsComeBackInOrder() {
+        let outbox = makeOutbox()
         outbox.append(.cardCreated(card("c-1")))
         outbox.append(.cardUpdated(card("c-2")))
         outbox.append(.rollback(cardID: "c-2"))
@@ -43,12 +43,16 @@ final class OutboxTests: XCTestCase {
         let drained = outbox.drain()
         XCTAssertEqual(drained.count, 3)
         // A decision followed by a rollback is not the same story told backwards.
-        XCTAssertEqual(drained.map { $0.envelope["type"] as? String },
-                       ["card_created", "card_updated", "rollback"])
+        XCTAssertEqual(
+            drained.map { $0.envelope["type"] as? String },
+            ["card_created", "card_updated", "rollback"]
+        )
         XCTAssertEqual(outbox.count, 0)
     }
 
+    @MainActor
     func testAnUndeliverableEventGoesBackToTheFront() {
+        let outbox = makeOutbox()
         outbox.append(.cardCreated(card("c-1")))
         var drained = outbox.drain()
         let first = drained.removeFirst()
@@ -58,7 +62,11 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(outbox.drain().first?.envelope["type"] as? String, "card_created")
     }
 
+    @MainActor
     func testTheQueueSurvivesTheProcess() {
+        let filename = "outbox-persist-\(UUID().uuidString).json"
+        let outbox = Outbox(filename: filename)
+        addTeardownBlock { @MainActor in Outbox(filename: filename).clear() }
         outbox.append(.cardUpdated(card("c-survives")))
 
         // The failure the outbox exists for is "no network", and the next thing
@@ -71,7 +79,9 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(card?["id"] as? String, "c-survives")
     }
 
+    @MainActor
     func testTheQueueIsBounded() {
+        let outbox = makeOutbox()
         for index in 0..<250 {
             outbox.append(.cardUpdated(card("c-\(index)")))
         }
@@ -85,5 +95,17 @@ final class OutboxTests: XCTestCase {
         }
         XCTAssertEqual(ids.first, "c-50")
         XCTAssertEqual(ids.last, "c-249")
+    }
+
+    @MainActor
+    func testASessionTokenNeverReachesTheDisk() {
+        // `join` carries the session token, and it is the one message that must
+        // never be queued. It cannot reach the outbox today — a failed join
+        // schedules a reconnect instead — and this is the guard on that staying
+        // true if the send path is ever refactored.
+        let outbox = makeOutbox()
+        outbox.append(.cardCreated(card("c-1")))
+        let serialized = outbox.drain().map { String(describing: $0.envelope) }.joined()
+        XCTAssertFalse(serialized.contains("sessionToken"))
     }
 }

@@ -4,6 +4,9 @@ import XCTest
 /// A decision nobody makes is the failure this product exists to replace, and it
 /// is silent by construction — the card looks identical on day six and day one.
 /// The waiting count is what breaks that silence, so its edges are pinned here.
+///
+/// No actor annotation: `DecisionCard` is a plain value type and none of this
+/// touches shared state.
 final class DecisionCardTests: XCTestCase {
     private func card(
         daysAgo: Int,
