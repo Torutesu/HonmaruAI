@@ -347,4 +347,5 @@ struct FeedView: View {
     FeedView()
         .environmentObject(AppState())
         .environmentObject(SubscriptionService.shared)
+        .environmentObject(PushService.shared)
 }

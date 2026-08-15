@@ -9,6 +9,7 @@ import { enforce } from "./ratelimit.js";
 import { deleteAccount } from "./account.js";
 import { isConfigured } from "./apns.js";
 import { runScheduledSync } from "./scheduled.js";
+import { logJSON, routeLabel, safe } from "./log.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -66,8 +67,36 @@ export default {
     ctx.waitUntil(runScheduledSync(env));
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
+    // Every response carries the id its log line was written under, so a user
+    // reporting "it failed" hands over something that finds the line.
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
     const url = new URL(request.url);
+    const route = routeLabel(request.method, url.pathname);
+    try {
+      const response = await handle(request, env, url);
+      logJSON({ requestId, route, status: response.status, ms: Date.now() - startedAt });
+      // A 101 carries the client end of the socket pair on a property, not in
+      // the body. Rebuilding it to add a header would hand back a response with
+      // no socket attached — every realtime connection, silently dead.
+      if (response.status === 101 || response.webSocket) return response;
+      const headers = new Headers(response.headers);
+      headers.set("x-request-id", requestId);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    } catch (err) {
+      // An unhandled throw used to become a raw Workers 500 with a stack trace
+      // in it. A malformed JSON body was enough.
+      logJSON({ requestId, route, status: 500, ms: Date.now() - startedAt, error: safe(err?.message) });
+      return new Response(
+        JSON.stringify({ message: "Something went wrong on our side.", requestId }),
+        { status: 500, headers: { "content-type": "application/json", "x-request-id": requestId } }
+      );
+    }
+  },
+};
+
+async function handle(request, env, url) {
     if (url.pathname === "/health" && request.method === "GET") {
       return json({
         ok: true,
@@ -378,8 +407,7 @@ export default {
       return stub.fetch(request);
     }
     return new Response("not found", { status: 404 });
-  },
-};
+}
 
 export function json(body, status = 200) {
   return new Response(JSON.stringify(body), {

@@ -18,14 +18,50 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | GET | `/agui/tools` | AG-UI tool manifest |
 | POST | `/ai/route` | Instruction → intent, recipient, Decision Card (OpenAI, keyword fallback) |
 | GET | `/oauth/github/config` | Client id + scope + redirect for the app |
-| POST | `/oauth/github/token` | OAuth `code` → GitHub token (server-side) + app session |
+| GET | `/oauth/github/state` | Mint a single-use, 10-minute nonce for the authorize URL |
+| POST | `/oauth/github/token` | OAuth `code` + `state` → GitHub token (server-side) + app session |
+| POST | `/devices` | Register an APNs token (auth: `x-session-token`) |
+| DELETE | `/devices` | Forget one, on sign-out |
+| DELETE | `/account` | Erase the caller's account (auth: `x-session-token`) |
 | GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1 |
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
 
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,
-`card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`,
-`clear_store`. A `join` may carry `sessionToken`; when present the relay binds the
-connection to the session's real GitHub login instead of the (spoofable) `userId`.
+`card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`.
+
+### The relay's access rules
+
+The socket holds every decision an organization has made, so none of these are
+negotiable:
+
+- **`join` requires `sessionToken`.** No token, or a token whose session cannot
+  prove write access to `orgId`, and the relay sends an error and closes with
+  1008. There is no anonymous read.
+- **Identity is never taken from the client.** `payload.userId` is read only to
+  be discarded; you act as the login on your session.
+- **Membership** is a `memberships` row, or — when there is none yet, because
+  the client connects before it loads the org graph — GitHub asked directly.
+  Write access is what counts: a public repository hands `pull` to the entire
+  internet, and `GET /repos` cannot tell a read-only collaborator from a
+  stranger.
+- **A created card is stamped with the sender the session proves.** You may
+  route to anyone in the org, only ever as yourself.
+- **Only the recipient** can decide, delete or undo a card, and a decision is
+  attributed to whoever made it. Delegation is a new card, not a moved one.
+- **`clear_store` does nothing.** It used to run `DELETE FROM cards` for the
+  whole org, and the app sent it on every sign-out. It survives as a no-op so
+  builds that still send it do not fail.
+
+Rate limits (fixed windows in D1, keyed by session where there is one and by IP
+where there is not; fails open): `/ai/route` 30/5min, `/oauth/github/token`
+10/5min, `/connectors/*/sync` 6/5min, `/media` 20/hour.
+
+### Scheduled
+
+`crons = ["*/15 * * * *"]` syncs connectors for users who have a session, an org
+and a configured connector, pushes anything new, and sweeps expired nonces and
+stale rate-limit rows. Metered by the same per-message allowance a manual sync
+uses.
 
 ### Phase 2 status (real identity & org)
 

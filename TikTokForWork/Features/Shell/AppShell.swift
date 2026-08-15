@@ -91,4 +91,6 @@ struct AppShell: View {
 #Preview {
     AppShell()
         .environmentObject(AppState())
+        .environmentObject(SubscriptionService.shared)
+        .environmentObject(PushService.shared)
 }

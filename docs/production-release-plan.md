@@ -3,6 +3,14 @@
 What stands between the app that exists today and one that can be handed to a
 paying stranger.
 
+> **Status, 2026-08-15.** Stages 1–6 are done and on
+> `claude/production-release-plan-ssw2x1`: every P0, plus push notifications,
+> offline persistence, the outbox, scheduled sync, the test target, CI and
+> structured logging. The Worker suite went from 106 tests to 147. What remains
+> is the P2 list at the bottom. Each item below keeps its full write-up —
+> the reasoning is what makes a fix reviewable a year later — with the ones
+> that shipped marked **Done**.
+
 The product works: 106 Worker tests pass, the core loop (instruct → route →
 decide → sync to GitHub) is real, and TestFlight internal builds ship. What
 follows is not a feature wishlist. Every item is either something that is
@@ -26,7 +34,7 @@ know it worked.
 
 # P0 — release blockers
 
-## P0-1 · The realtime relay has no authentication at all
+## P0-1 · The realtime relay has no authentication at all  ·  **Done**
 
 **Defect.** `OrgRelay.fetch` (`worker/src/relay.js:20`) accepts any WebSocket
 upgrade. `orgId` comes from a query string. The `join` handler
@@ -71,7 +79,7 @@ attached as its *own* login. Existing relay tests still pass with tokens added.
 
 ---
 
-## P0-2 · `clear_store` deletes an entire organization's data, and the app calls it on sign-out
+## P0-2 · `clear_store` deletes an entire organization's data, and the app calls it on sign-out  ·  **Done**
 
 **Defect.** `clear_store` (`worker/src/relay.js:175`) runs
 `DELETE FROM cards WHERE org_id = ?`. iOS calls it from `AppState.signOut()`
@@ -94,7 +102,7 @@ leaves the store intact. Signing out and back in shows the same cards.
 
 ---
 
-## P0-3 · OAuth has no `state` parameter
+## P0-3 · OAuth has no `state` parameter  ·  **Done**
 
 **Defect.** `requestAuthorizationCode` (`TikTokForWork/Services/GitHubService.swift:266`)
 builds the authorize URL with `client_id`, `redirect_uri`, `scope` and nothing
@@ -126,7 +134,7 @@ code anyone POSTs.
 
 ---
 
-## P0-4 · No rate limiting anywhere
+## P0-4 · No rate limiting anywhere  ·  **Done**
 
 **Defect.** `/ai/route`, `/oauth/github/token`, `/connectors/sync` and `/media`
 accept unlimited requests. The AI meter (`worker/src/gate.js`) only engages when
@@ -157,7 +165,7 @@ the product down.
 
 ---
 
-## P0-5 · No account deletion
+## P0-5 · No account deletion  ·  **Done**
 
 **Defect.** There is no way to delete an account or its data, from the app or
 the API.
@@ -184,7 +192,7 @@ gone, and a fresh sign-in starts empty.
 
 ---
 
-## P0-6 · No privacy manifest, no privacy policy
+## P0-6 · No privacy manifest, no privacy policy  ·  **Done**
 
 **Defect.** No `PrivacyInfo.xcprivacy` in the bundle. No privacy policy URL.
 
@@ -203,7 +211,7 @@ content — both linked to identity, neither used for tracking). Write
 
 ---
 
-## P0-7 · The client never reconnects
+## P0-7 · The client never reconnects  ·  **Done**
 
 **Defect.** `WebSocketService.connect` sets `intentionalDisconnect = false`,
 then immediately calls `disconnect(intentional: true)` to tear down any previous
@@ -232,7 +240,7 @@ product this is the defect.
 
 # P1 — the product's promise
 
-## P1-1 · No push notifications
+## P1-1 · No push notifications  ·  **Done**
 
 A decision feed nobody is told about is a to-do list you have to remember to
 open. The entire pitch — "open the app and the decision is already there" —
@@ -258,7 +266,7 @@ deep-link a tap to the card.
 `TikTokForWork/TikTokForWorkApp.swift`, `project.yml` (aps-environment
 entitlement), `worker/test/apns.test.js` (new).
 
-## P1-2 · Nothing survives a cold launch
+## P1-2 · Nothing survives a cold launch  ·  **Done**
 
 `DecisionCardService` holds cards in a dictionary in memory. Launch the app on
 the subway and the feed is blank until the socket connects — which, on a plane,
@@ -272,7 +280,7 @@ than wipes" rule extends to this.
 **Files.** `TikTokForWork/Services/CardCache.swift` (new),
 `TikTokForWork/Services/DecisionCardService.swift`.
 
-## P1-3 · Decisions made offline are silently thrown away
+## P1-3 · Decisions made offline are silently thrown away  ·  **Done**
 
 `publishUpdated` and friends are `try?` (`WebSocketService.swift:221-243`). With
 no socket, `send` throws, the error is discarded, and the decision exists only on
@@ -285,7 +293,7 @@ idempotent against the relay's upsert.
 **Files.** `TikTokForWork/Services/Outbox.swift` (new),
 `TikTokForWork/Services/WebSocketService.swift`.
 
-## P1-4 · Connectors only sync when the app is open
+## P1-4 · Connectors only sync when the app is open  ·  **Done**
 
 `/connectors/sync` is pull-only, triggered by the client. "Your AI triaged three
 decisions overnight" cannot happen if the AI only runs while you are watching.
@@ -298,7 +306,7 @@ one.
 **Files.** `worker/src/scheduled.js` (new), `worker/src/index.js`,
 `worker/wrangler.toml`, `worker/test/scheduled.test.js` (new).
 
-## P1-5 · No iOS tests, no CI
+## P1-5 · No iOS tests, no CI  ·  **Done**
 
 There is no test target in `project.yml`. Nothing runs on push.
 
@@ -311,7 +319,7 @@ Actions workflow running the Worker suite on every push, and `xcodegen` +
 **Files.** `.github/workflows/ci.yml` (new), `project.yml`,
 `TikTokForWorkTests/*` (new).
 
-## P1-6 · Errors are invisible on the server, alerts on the client
+## P1-6 · Errors are invisible on the server, alerts on the client  ·  **Done**
 
 No structured logging, no request ids, no way to answer "why did this user's
 routing fail at 3pm". Client-side, every failure is an alert with a raw
@@ -342,15 +350,15 @@ Client-side, typed errors with recovery copy and a retry affordance.
 
 Dependencies, not preference. Each stage lands as its own commit with tests.
 
-| Stage | Contents | Rationale |
-|-------|----------|-----------|
-| **1** | P0-1, P0-2 | The relay is the whole product's trust boundary. Nothing else matters if it is open. |
-| **2** | P0-3, P0-4 | Close the remaining externally reachable holes. |
-| **3** | P0-5, P0-6 | Both are hard App Store gates and both are self-contained. |
-| **4** | P0-7, P1-2, P1-3 | The client's reliability story: reconnect, persist, never lose a decision. |
-| **5** | P1-1, P1-4 | Push and cron together — one delivers what the other produces. |
-| **6** | P1-5, P1-6 | Now that behaviour is settled, lock it down and make it observable. |
-| **7** | P2 | Polish, in the order above. |
+| Stage | Contents | Rationale | |
+|-------|----------|-----------|---|
+| **1** | P0-1, P0-2 | The relay is the whole product's trust boundary. Nothing else matters if it is open.  ✅ |
+| **2** | P0-3, P0-4 | Close the remaining externally reachable holes.  ✅ |
+| **3** | P0-5, P0-6 | Both are hard App Store gates and both are self-contained.  ✅ |
+| **4** | P0-7, P1-2, P1-3 | The client's reliability story: reconnect, persist, never lose a decision.  ✅ |
+| **5** | P1-1, P1-4 | Push and cron together — one delivers what the other produces.  ✅ |
+| **6** | P1-5, P1-6 | Now that behaviour is settled, lock it down and make it observable.  ✅ |
+| **7** | P2 | Polish, in the order above.  — |
 
 ---
 
