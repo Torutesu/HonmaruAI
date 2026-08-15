@@ -182,6 +182,42 @@ final class AppState: ObservableObject {
         currentUser = nil
     }
 
+    enum AccountError: LocalizedError {
+        case notSignedIn
+        case server(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .notSignedIn: String(localized: "Sign in before deleting your account.")
+            case .server(let message): message
+            }
+        }
+    }
+
+    /// Erase the account on the server, then leave. Signing out locally first
+    /// would throw away the session token the request needs, and signing out
+    /// only locally would leave the account alive on a server the user believes
+    /// they have left.
+    func deleteAccount() async throws {
+        guard let base = backendBaseURL, let token = SessionStore.sessionToken else {
+            throw AccountError.notSignedIn
+        }
+        var request = URLRequest(url: base.appending(path: "account"))
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 20
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AccountError.server(String(localized: "No response from the server."))
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["message"] as? String
+            throw AccountError.server(message ?? String(localized: "Could not delete your account."))
+        }
+        signOut()
+    }
+
     /// Switching repositories switches organizations, so the cards on screen
     /// belong to the old one and have to go. They are dropped locally only —
     /// they are still the other org's decisions, and deleting them there would

@@ -27,6 +27,13 @@ targets:
     platform: iOS
     sources:
       - path: TikTokForWork
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # Named on its own so it lands in Resources. xcodegen has no build phase
+      # for an extension it does not recognise, and a privacy manifest that is
+      # not copied into the bundle fails review exactly as if it were absent.
+      - path: TikTokForWork/PrivacyInfo.xcprivacy
+        buildPhase: resources
     # RELAY_SCHEME / RELAY_HOST live here rather than in `settings` below,
     # because target settings outrank an xcconfig and would make
     # Config/Local.xcconfig (written by scripts/device.sh) have no effect.

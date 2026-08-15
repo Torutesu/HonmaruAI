@@ -3,8 +3,10 @@ import { toolManifest } from "./agui/tools.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
+  getUserByGithubId,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
+import { deleteAccount } from "./account.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -171,6 +173,13 @@ export default {
     const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
     if (mediaMatch && request.method === "GET") {
       return serveMedia(mediaMatch[1], env);
+    }
+    if (url.pathname === "/account" && request.method === "DELETE") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      await deleteAccount(env.DB, session.github_id, user?.login || null);
+      return json({ ok: true });
     }
     const orgGraphMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/graph$/);
     if (orgGraphMatch && request.method === "GET") {

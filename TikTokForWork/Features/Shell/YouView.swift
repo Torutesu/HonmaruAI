@@ -69,6 +69,21 @@ struct YouView: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.Colors.reject)
                 .padding(.top, Theme.Spacing.sm)
+
+                // Apple requires account deletion to be reachable in the app for
+                // anything that lets you create an account (Guideline 5.1.1(v)).
+                // A guest has no account to delete, so the row is not offered.
+                if !appState.isGuest {
+                    NavigationLink {
+                        DeleteAccountView().environmentObject(appState)
+                    } label: {
+                        Text("Delete account")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, Theme.Spacing.xs)
+                }
             }
             .padding(.horizontal, Theme.Spacing.md)
             .padding(.top, Theme.Spacing.lg)
