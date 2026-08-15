@@ -162,7 +162,32 @@ struct YouView: View {
     /// iOS never shows the prompt twice, so once it has been refused the only
     /// honest thing an in-app toggle can do is open Settings. Pretending
     /// otherwise produces a switch that flips back on its own.
+    @ViewBuilder
     private var notificationsRow: some View {
+        if !PushService.isEnabledInThisBuild {
+            // A control that asks for a permission this build cannot use would
+            // spend the one prompt iOS gives us on nothing. Say so instead.
+            HStack {
+                Text("Notifications")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                Spacer()
+                Text("Coming soon")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, 13)
+        } else {
+            liveNotificationsRow
+        }
+    }
+
+    private var liveNotificationsRow: some View {
         Button {
             switch push.authorization {
             case .notDetermined:

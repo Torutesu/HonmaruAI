@@ -1,5 +1,17 @@
 # Push notifications
 
+> **Switched off in the shipping build.** `PushService.isEnabledInThisBuild` is
+> `false`. Everything below is built, tested and deployed on the server side —
+> it is the *client* that is not asking for permission or registering, because
+> `aps-environment` has to be in the provisioning profile and "HonmaruAI
+> AppStore" was issued before push existed. An archive carrying that entitlement
+> fails to sign. Turning it on is the four steps under
+> [Setup](#setup) plus flipping that constant; all four have to land together.
+>
+> The constant exists rather than a runtime check because **iOS grants exactly
+> one notification prompt, ever**. Asking in a build that cannot deliver is how
+> you end up permanently unable to notify someone who would have said yes.
+
 A decision feed nobody is told about is a to-do list you have to remember to
 open. The pitch — *open the app and the decision is already there* — assumes the
 user knows to open it.
@@ -50,7 +62,27 @@ and opens Settings instead.
 
 ## Setup
 
-### 1. The APNs key
+### 1. The App ID and the profile
+
+The entitlement has to be in the provisioning profile before it can be in the
+app. In the Apple Developer portal, enable **Push Notifications** on the App ID
+`com.honmaru.ai`, then reissue the profile:
+
+```bash
+asc profiles delete --id "$OLD_PROFILE_ID"
+asc profiles create --name "HonmaruAI AppStore" --profile-type IOS_APP_STORE \
+  --bundle "$BUNDLE_ID" --certificate "$CERT_ID"
+asc profiles download --id "$PROFILE_ID" \
+  --output ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
+```
+
+Then restore `TikTokForWork/HonmaruAI.entitlements` with `aps-environment` set
+to `development` — Apple rewrites it to production when it re-signs for
+distribution, and hardcoding `production` breaks local builds — point
+`project.yml` at it under the target's `entitlements:` key, and add it to the
+sources `excludes` so it is not also compiled as a resource.
+
+### 2. The APNs key
 
 App Store Connect → **Users and Access** → **Integrations** → **Keys** →
 create a key with **Apple Push Notifications service (APNs)** enabled.
@@ -60,7 +92,7 @@ have it in a year.
 
 Note the **Key ID** (10 characters) and your **Team ID**.
 
-### 2. Worker secrets
+### 3. Worker secrets
 
 ```bash
 cd worker
@@ -80,7 +112,7 @@ when you paste a key into a terminal.
 errors, no failed decisions, just no notifications. `GET /health` reports
 `push: true` once they are all set.
 
-### 3. Environments
+### 4. Environments
 
 `APNS_ENVIRONMENT` decides which Apple host the Worker talks to, and the *app*
 tells the server which kind of token it registered:
@@ -98,13 +130,18 @@ The entitlement (`TikTokForWork/HonmaruAI.entitlements`) says `development` on
 purpose. Apple rewrites it to production when it re-signs for distribution, and
 hardcoding `production` breaks local builds.
 
-### 4. Migrate D1
+### 5. Migrate D1
 
 ```bash
 npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql
 ```
 
 Adds `device_tokens`. Registration 500s without it.
+
+### 6. Flip the constant
+
+`PushService.isEnabledInThisBuild = true`. Until this is set, the app never asks
+for permission and never registers, whatever the server is configured with.
 
 ---
 
@@ -127,6 +164,8 @@ change.
 
 | Symptom | Cause |
 |---------|-------|
+| The app never asks for permission | `PushService.isEnabledInThisBuild` is still false |
+| `Provisioning profile … doesn't include the aps-environment entitlement` | Step 1 was skipped, or the reissued profile was not downloaded |
 | `/health` says `push: false` | One of the four secrets is missing |
 | Works in Xcode, silent on TestFlight | `APNS_ENVIRONMENT` still `sandbox` |
 | `BadDeviceToken` in the logs | Environment mismatch, either direction |

@@ -30,7 +30,9 @@ The list of what is still missing, and why each item matters, is
 - [x] Video capture attached to a card, stored in R2
 - [x] Dictation, English/Japanese, light and dark
 - [x] RevenueCat subscriptions, metered server-side (off until `REVENUECAT_SECRET_KEY` exists)
-- [x] Push notifications, and a cron that syncs connectors every 15 minutes
+- [x] A cron that syncs connectors every 15 minutes
+- [~] Push notifications — built and tested end to end, switched off in the client
+      (`PushService.isEnabledInThisBuild`) until the App ID carries `aps-environment`
 
 ### Access and safety
 - [x] Relay requires a session with write access to the repository; identity comes off the session
@@ -55,6 +57,8 @@ The list of what is still missing, and why each item matters, is
 
 ## Still open
 
+- [ ] Turn push on: App ID capability, reissued profile, APNs secrets, and the
+      constant — [docs/push-notifications.md](docs/push-notifications.md)
 - [ ] First App Store submission (TestFlight internal works today)
 - [ ] A sent-items view — without one there is nowhere to nudge someone whose
       decision is overdue, which is why the SLA work shipped as a chip only

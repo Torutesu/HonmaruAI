@@ -25,13 +25,14 @@ targets:
   TikTokForWork:
     type: application
     platform: iOS
-    entitlements:
-      path: TikTokForWork/HonmaruAI.entitlements
+    # No entitlements file on purpose. Adding `aps-environment` requires the
+    # provisioning profile to carry it, and "HonmaruAI AppStore" was issued
+    # before push existed — an archive would fail to sign. Turning push on is a
+    # four-part change; PushService.isEnabledInThisBuild lists all of it.
     sources:
       - path: TikTokForWork
         excludes:
           - PrivacyInfo.xcprivacy
-          - HonmaruAI.entitlements
       # Named on its own so it lands in Resources. xcodegen has no build phase
       # for an extension it does not recognise, and a privacy manifest that is
       # not copied into the bundle fails review exactly as if it were absent.

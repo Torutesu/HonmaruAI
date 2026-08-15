@@ -16,7 +16,7 @@ Ships as **Honmaru AI** (`com.honmaru.ai`) on TestFlight.
 | Identity | GitHub OAuth. A repository's collaborators are the org graph |
 | Connectors | Gmail, Slack, Notion via [Composio](https://composio.dev), authorized **per user** |
 | Billing | RevenueCat, metered server-side (currently off — see below) |
-| Push | APNs direct from the Worker, ES256 provider token signed with Web Crypto |
+| Push | APNs direct from the Worker, ES256 provider token signed with Web Crypto — server-side ready, client switched off until the App ID carries the entitlement ([docs](docs/push-notifications.md)) |
 
 Deployed backend: `https://tiktokforwork.torubj0904.workers.dev`
 
