@@ -1,11 +1,14 @@
-import { SELF, env, fetchMock } from "cloudflare:test";
+import { env, fetchMock } from "cloudflare:test";
 import { beforeAll, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
+import { open, collect, joined, message, until } from "./helpers.js";
 
 // The relay is the product's trust boundary: it holds every decision the
 // organization has made and every one it has yet to make. Until this file
 // existed, an upgrade request and a JSON blob were the whole of the access
 // control — `wscat` against a known repository name read the lot.
+
+const ORG = "acme/app";
 
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
@@ -13,49 +16,32 @@ beforeAll(async () => {
   await upsertUser(env.DB, { githubId: "2001", login: "alice", name: "Alice", avatarUrl: null, locale: "en" });
   await upsertUser(env.DB, { githubId: "2002", login: "bob", name: "Bob", avatarUrl: null, locale: "en" });
   await upsertUser(env.DB, { githubId: "2003", login: "mallory", name: "Mallory", avatarUrl: null, locale: "en" });
-  await upsertMembership(env.DB, "acme/app", "2001", "Admin");
-  await upsertMembership(env.DB, "acme/app", "2002", "Engineer");
+  await upsertMembership(env.DB, ORG, "2001", "Admin");
+  await upsertMembership(env.DB, ORG, "2002", "Engineer");
   // Mallory has a perfectly valid session. She is simply not in this org.
   globalThis.__alice = await createSession(env.DB, "2001", "gho_alice");
   globalThis.__bob = await createSession(env.DB, "2002", "gho_bob");
   globalThis.__mallory = await createSession(env.DB, "2003", "gho_mallory");
 });
 
-function open(orgId = "acme/app") {
-  return SELF.fetch(`https://example.com/?orgId=${orgId}`, { headers: { Upgrade: "websocket" } })
-    .then((res) => {
-      const ws = res.webSocket;
-      ws.accept();
-      return ws;
-    });
-}
+const asAlice = () => joined(ORG, globalThis.__alice);
 
-function collect(ws) {
-  const messages = [];
-  ws.addEventListener("message", (e) => messages.push(JSON.parse(e.data)));
-  return messages;
-}
-
-const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
-
-async function joinedAlice(orgId = "acme/app") {
-  const ws = await open(orgId);
+/// A socket that tried to join and was turned away. Returns the refusal.
+async function refused(payload) {
+  const ws = await open(ORG);
   const messages = collect(ws);
-  ws.send(JSON.stringify({ type: "join", payload: { sessionToken: globalThis.__alice, protocol: "agui/1" } }));
-  await settle(40);
-  return { ws, messages };
+  ws.send(JSON.stringify({ type: "join", payload: { protocol: "agui/1", ...payload } }));
+  const refusal = await message(messages, (m) => m.type === "RUN_ERROR" || m.type === "error");
+  const closed = await until(async () => ws.readyState !== WebSocket.OPEN);
+  return { ws, messages, refusal, closed };
 }
 
 test("a join without a session token is refused and the socket is closed", async () => {
-  const ws = await open();
-  const messages = collect(ws);
+  const { messages, refusal, closed } = await refused({ userId: "alice" });
 
-  ws.send(JSON.stringify({ type: "join", payload: { userId: "alice", protocol: "agui/1" } }));
-  await settle();
-
-  expect(messages.find((m) => m.type === "RUN_ERROR")).toBeTruthy();
+  expect(refusal).toBeTruthy();
   expect(messages.find((m) => m.type === "STATE_SNAPSHOT")).toBeUndefined();
-  expect(ws.readyState).not.toBe(WebSocket.OPEN);
+  expect(closed).toBe(true);
 });
 
 test("a valid session for an org you do not belong to is refused", async () => {
@@ -66,14 +52,11 @@ test("a valid session for an org you do not belong to is refused", async () => {
     .intercept({ path: "/repos/acme/app", method: "GET" })
     .reply(404, { message: "Not Found" });
 
-  const ws = await open();
-  const messages = collect(ws);
-  ws.send(JSON.stringify({ type: "join", payload: { sessionToken: globalThis.__mallory, protocol: "agui/1" } }));
-  await settle();
+  const { messages, refusal, closed } = await refused({ sessionToken: globalThis.__mallory });
 
-  expect(messages.find((m) => m.type === "RUN_ERROR")).toBeTruthy();
+  expect(refusal).toBeTruthy();
   expect(messages.find((m) => m.type === "STATE_SNAPSHOT")).toBeUndefined();
-  expect(ws.readyState).not.toBe(WebSocket.OPEN);
+  expect(closed).toBe(true);
   fetchMock.assertNoPendingInterceptors();
   fetchMock.deactivate();
 });
@@ -91,13 +74,10 @@ test("write access GitHub confirms grants membership without a row up front", as
   await upsertUser(env.DB, { githubId: "2004", login: "newhire", name: "New Hire", avatarUrl: null, locale: "en" });
   const token = await createSession(env.DB, "2004", "gho_new");
 
-  const ws = await open();
-  const messages = collect(ws);
-  ws.send(JSON.stringify({ type: "join", payload: { sessionToken: token, protocol: "agui/1" } }));
-  await settle();
-
-  expect(messages.find((m) => m.type === "STATE_SNAPSHOT")).toBeTruthy();
-  expect(await isMember(env.DB, "acme/app", "2004")).toBe(true);
+  // `joined` throws unless the snapshot arrives, so reaching the next line is
+  // the assertion that the join was accepted.
+  await joined(ORG, token);
+  expect(await isMember(env.DB, ORG, "2004")).toBe(true);
   fetchMock.assertNoPendingInterceptors();
   fetchMock.deactivate();
 });
@@ -114,19 +94,15 @@ test("read-only access is not membership", async () => {
   await upsertUser(env.DB, { githubId: "2005", login: "stranger", name: null, avatarUrl: null, locale: "en" });
   const token = await createSession(env.DB, "2005", "gho_stranger");
 
-  const ws = await open();
-  const messages = collect(ws);
-  ws.send(JSON.stringify({ type: "join", payload: { sessionToken: token, protocol: "agui/1" } }));
-  await settle();
-
+  const { messages, closed } = await refused({ sessionToken: token });
   expect(messages.find((m) => m.type === "STATE_SNAPSHOT")).toBeUndefined();
-  expect(ws.readyState).not.toBe(WebSocket.OPEN);
+  expect(closed).toBe(true);
   fetchMock.assertNoPendingInterceptors();
   fetchMock.deactivate();
 });
 
 test("a socket that never joined cannot write", async () => {
-  const ws = await open();
+  const ws = await open(ORG);
   const messages = collect(ws);
 
   ws.send(JSON.stringify({ type: "card_created", payload: { card: {
@@ -134,40 +110,37 @@ test("a socket that never joined cannot write", async () => {
     status: "pending", title: "Wire the money", priority: "urgent",
     createdAt: "2026-08-11T00:00:00Z",
   } } }));
-  await settle();
 
   // No dialect was ever negotiated — the socket never said `agui/1` — so the
   // refusal comes back in the legacy shape it would understand.
-  expect(messages.find((m) => m.type === "error")).toBeTruthy();
-  expect(ws.readyState).not.toBe(WebSocket.OPEN);
-  const row = await env.DB.prepare("SELECT card_id FROM cards WHERE card_id = 'c-injected'").first();
-  expect(row).toBeNull();
+  expect(await message(messages, (m) => m.type === "error")).toBeTruthy();
+  expect(await until(async () => ws.readyState !== WebSocket.OPEN)).toBe(true);
+  expect(await env.DB.prepare("SELECT card_id FROM cards WHERE card_id = 'c-injected'").first()).toBeNull();
 });
 
 test("a created card is stamped with the sender the session proves, not the one it claims", async () => {
-  const { ws } = await joinedAlice();
+  const { ws } = await asAlice();
+  const { getCard } = await import("../src/db.js");
 
   ws.send(JSON.stringify({ type: "card_created", payload: { card: {
     id: "c-forge", recipientUserID: "bob", senderUserID: "ceo",
     status: "pending", title: "Approve the budget", priority: "high",
     createdAt: "2026-08-11T00:00:00Z",
   } } }));
-  await settle();
 
-  const { getCard } = await import("../src/db.js");
-  const stored = await getCard(env.DB, "acme/app", "c-forge");
+  const stored = await until(async () => getCard(env.DB, ORG, "c-forge"));
   expect(stored.senderUserID).toBe("alice");
 });
 
 test("only the recipient may decide, delete or undo a card", async () => {
   const { saveCard, getCard } = await import("../src/db.js");
-  await saveCard(env.DB, "acme/app", {
+  await saveCard(env.DB, ORG, {
     id: "c-bobs", recipientUserID: "bob", senderUserID: "alice",
     status: "pending", title: "Ship the release", priority: "high",
     createdAt: "2026-08-11T00:00:00Z",
   });
 
-  const { ws, messages } = await joinedAlice();
+  const { ws, messages } = await asAlice();
 
   // Alice decides Bob's card.
   ws.send(JSON.stringify({ type: "card_updated", payload: { card: {
@@ -176,70 +149,82 @@ test("only the recipient may decide, delete or undo a card", async () => {
     createdAt: "2026-08-11T00:00:00Z",
     decision: { action: "approve", actorUserID: "bob", decidedAt: "2026-08-11T01:00:00Z" },
   } } }));
-  await settle();
-  expect(messages.some((m) => m.type === "RUN_ERROR")).toBe(true);
-  expect((await getCard(env.DB, "acme/app", "c-bobs")).status).toBe("pending");
+  expect(await message(messages, (m) => m.type === "RUN_ERROR")).toBeTruthy();
+  expect((await getCard(env.DB, ORG, "c-bobs")).status).toBe("pending");
 
   // ...and deletes it.
   ws.send(JSON.stringify({ type: "card_deleted", payload: { cardId: "c-bobs" } }));
-  await settle();
-  expect(await getCard(env.DB, "acme/app", "c-bobs")).toBeTruthy();
+  expect(await message(messages, (m) => m.type === "RUN_ERROR")).toBeTruthy();
+  expect(await getCard(env.DB, ORG, "c-bobs")).toBeTruthy();
 
   // ...and submits a decision through the AG-UI tool path.
   ws.send(JSON.stringify({ type: "tool_result", payload: {
     toolCallId: "t-x", content: { cardId: "c-bobs", action: "approve", actorUserID: "bob" },
   } }));
-  await settle();
-  expect((await getCard(env.DB, "acme/app", "c-bobs")).status).toBe("pending");
+  expect(await message(messages, (m) => m.type === "RUN_ERROR")).toBeTruthy();
+  expect((await getCard(env.DB, ORG, "c-bobs")).status).toBe("pending");
 });
 
 test("a decision is attributed to the session that made it", async () => {
   const { saveCard, getCard } = await import("../src/db.js");
-  await saveCard(env.DB, "acme/app", {
+  await saveCard(env.DB, ORG, {
     id: "c-alices", recipientUserID: "alice", senderUserID: "bob",
     status: "pending", title: "Sign the contract", priority: "high",
     createdAt: "2026-08-11T00:00:00Z",
   });
 
-  const { ws } = await joinedAlice();
+  const { ws } = await asAlice();
   ws.send(JSON.stringify({ type: "card_updated", payload: { card: {
     id: "c-alices", recipientUserID: "alice", senderUserID: "bob",
     status: "approved", title: "Sign the contract", priority: "high",
     createdAt: "2026-08-11T00:00:00Z",
     decision: { action: "approve", actorUserID: "bob", decidedAt: "2026-08-11T01:00:00Z" },
   } } }));
-  await settle();
 
-  const stored = await getCard(env.DB, "acme/app", "c-alices");
-  expect(stored.status).toBe("approved");
+  const stored = await until(async () => {
+    const card = await getCard(env.DB, ORG, "c-alices");
+    return card?.status === "approved" ? card : null;
+  });
   expect(stored.decision.actorUserID).toBe("alice");
 });
 
 test("clear_store no longer empties the organization", async () => {
   const { saveCard } = await import("../src/db.js");
-  await saveCard(env.DB, "acme/app", {
+  await saveCard(env.DB, ORG, {
     id: "c-survivor", recipientUserID: "alice", senderUserID: "bob",
     status: "pending", title: "Still here", priority: "low",
     createdAt: "2026-08-11T00:00:00Z",
   });
 
-  const { ws } = await joinedAlice();
+  const { ws } = await asAlice();
   ws.send(JSON.stringify({ type: "clear_store", payload: {} }));
-  await settle();
 
-  const row = await env.DB.prepare("SELECT card_id FROM cards WHERE card_id = 'c-survivor'").first();
-  expect(row).toBeTruthy();
+  // Nothing is broadcast in response, so there is no event to wait for. A card
+  // created after it and observed to land proves the message was processed —
+  // and that the store it would have emptied is intact.
+  ws.send(JSON.stringify({ type: "card_created", payload: { card: {
+    id: "c-after-clear", recipientUserID: "alice", senderUserID: "alice",
+    status: "pending", title: "After", priority: "low",
+    createdAt: "2026-08-11T00:00:00Z",
+  } } }));
+  const { getCard } = await import("../src/db.js");
+  expect(await until(async () => getCard(env.DB, ORG, "c-after-clear"))).toBeTruthy();
+
+  expect(await env.DB.prepare("SELECT card_id FROM cards WHERE card_id = 'c-survivor'").first()).toBeTruthy();
 });
 
 test("context belongs to the session that published it", async () => {
-  const { ws } = await joinedAlice();
+  const { ws } = await asAlice();
+  const { loadContexts } = await import("../src/db.js");
+
   ws.send(JSON.stringify({ type: "context_updated", payload: {
     userId: "bob", context: { text: "I approve everything" },
   } }));
-  await settle();
 
-  const { loadContexts } = await import("../src/db.js");
-  const contexts = await loadContexts(env.DB, "acme/app");
+  const contexts = await until(async () => {
+    const all = await loadContexts(env.DB, ORG);
+    return all.alice ? all : null;
+  });
   expect(contexts.alice).toEqual({ text: "I approve everything" });
   expect(contexts.bob).toBeUndefined();
 });
