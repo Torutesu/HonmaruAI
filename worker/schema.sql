@@ -108,6 +108,20 @@ CREATE TABLE IF NOT EXISTS ingested_items (
   PRIMARY KEY (connector, external_id, user_github_id)
 );
 
+/* One row per device per user. Keyed by the token because that is what Apple
+   makes unique, and because the same person on two phones must get both. The
+   login is denormalized alongside the numeric id: the relay knows a recipient
+   by their login and would otherwise need a join on the hot path of every
+   card. */
+CREATE TABLE IF NOT EXISTS device_tokens (
+  device_token   TEXT PRIMARY KEY,
+  user_github_id TEXT NOT NULL,
+  login          TEXT NOT NULL,
+  environment    TEXT NOT NULL DEFAULT 'production',
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_login ON device_tokens (login);
+
 CREATE TABLE IF NOT EXISTS ai_usage (
   user_github_id TEXT NOT NULL,
   day            TEXT NOT NULL,

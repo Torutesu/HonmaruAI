@@ -25,10 +25,13 @@ targets:
   TikTokForWork:
     type: application
     platform: iOS
+    entitlements:
+      path: TikTokForWork/HonmaruAI.entitlements
     sources:
       - path: TikTokForWork
         excludes:
           - PrivacyInfo.xcprivacy
+          - HonmaruAI.entitlements
       # Named on its own so it lands in Resources. xcodegen has no build phase
       # for an extension it does not recognise, and a privacy manifest that is
       # not copied into the bundle fails review exactly as if it were absent.

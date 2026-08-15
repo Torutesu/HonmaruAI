@@ -15,6 +15,7 @@ struct FeedView: View {
 
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var subscriptions: SubscriptionService
+    @EnvironmentObject private var push: PushService
     @StateObject private var viewModel = FeedViewModel()
     @State private var aiPrompt = ""
     @State private var showAIInput = false
@@ -80,6 +81,11 @@ struct FeedView: View {
         }
         .onChange(of: composeTick) { _, _ in
             showAIInput = true
+        }
+        .onChange(of: push.pendingCardID) { _, cardID in
+            guard let cardID else { return }
+            viewModel.focus(cardID: cardID)
+            push.pendingCardID = nil
         }
         .onChange(of: captured) { _, request in
             guard let request else { return }

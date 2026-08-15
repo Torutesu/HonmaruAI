@@ -254,6 +254,11 @@ final class FeedViewModel: ObservableObject {
             // bookkeeping. Awaiting it here made every approval wait on the
             // network, which is exactly the moment the app should feel instant.
             Task { await syncGitHub() }
+            // iOS grants exactly one notification prompt, ever. This is the
+            // moment it is worth spending: a decision has just been cleared, so
+            // "we will tell you when the next one lands" means something. Asking
+            // on the first cold screen is how an app earns a permanent refusal.
+            Task { await PushService.shared.requestAuthorizationIfEarned() }
         } catch {
             errorMessage = error.localizedDescription
             Haptics.light()
@@ -263,11 +268,24 @@ final class FeedViewModel: ObservableObject {
     }
 
 
+    /// Scroll to the card a notification was about. Called when a tap arrives —
+    /// landing on the top of the feed after tapping a specific decision is the
+    /// notification failing to do the one thing it promised.
+    func focus(cardID: String) {
+        guard cards.contains(where: { $0.id == cardID }) else { return }
+        withAnimation(.easeOut(duration: 0.25)) {
+            scrollPosition = cardID
+        }
+    }
+
     private func refreshCards(from service: DecisionCardService) {
         guard let userID else { return }
         let previousCount = cards.count
         let updated = service.cards(for: userID)
         cards = updated
+        // The icon badge is the pending count, kept in step here so it cannot
+        // drift from what the feed actually shows.
+        PushService.shared.setBadge(updated.filter(\.isPending).count)
 
         if updated.isEmpty {
             scrollPosition = nil

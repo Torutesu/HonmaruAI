@@ -295,6 +295,35 @@ export async function setConnectorConfig(db, githubId, connector, config) {
     .run();
 }
 
+export async function registerDevice(db, { deviceToken, githubId, login, environment }) {
+  await db
+    .prepare(
+      `INSERT INTO device_tokens (device_token, user_github_id, login, environment, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(device_token) DO UPDATE SET
+         user_github_id = excluded.user_github_id,
+         login = excluded.login,
+         environment = excluded.environment,
+         updated_at = excluded.updated_at`
+    )
+    .bind(deviceToken, String(githubId), login, environment || "production", new Date().toISOString())
+    .run();
+}
+
+// By login, because that is the name a card carries its recipient under.
+export async function devicesForLogin(db, login) {
+  if (!login) return [];
+  const { results } = await db
+    .prepare("SELECT device_token, environment FROM device_tokens WHERE login = ?1")
+    .bind(login)
+    .all();
+  return results || [];
+}
+
+export async function removeDevice(db, deviceToken) {
+  await db.prepare("DELETE FROM device_tokens WHERE device_token = ?1").bind(deviceToken).run();
+}
+
 // The relay knows a person by their github LOGIN; config is keyed by the numeric
 // id. This is the bridge — comparing the two directly would never match.
 export async function getUserByLogin(db, login) {

@@ -78,6 +78,7 @@ final class AppState: ObservableObject {
 
         guard let backendBaseURL else { return }
         aiService.configure(backendBaseURL: backendBaseURL)
+        PushService.shared.configure(backendBaseURL: backendBaseURL)
         await restoreSessionIfNeeded()
     }
 
@@ -160,6 +161,10 @@ final class AppState: ObservableObject {
         if let githubId = SessionStore.githubUserId {
             await SubscriptionService.shared.identify(githubId)
         }
+        // The device token is bound to a person on the server. Re-binding it on
+        // sign-in is what stops a phone that changed hands from receiving the
+        // previous account's decisions.
+        PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
         // Load the org in the background so entry never blocks on reachability.
         Task { await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId)) }
     }
@@ -183,11 +188,17 @@ final class AppState: ObservableObject {
     }
 
     func signOut() {
+        let sessionToken = SessionStore.sessionToken
         Task {
             // Drop back to an anonymous RevenueCat id so the next account on this
             // device does not inherit this person's entitlement.
             await SubscriptionService.shared.signOut()
+            // Unregister while the token is still valid — afterwards the server
+            // has no way to know which device to forget, and this phone keeps
+            // buzzing about someone else's decisions.
+            await PushService.shared.unregister(sessionToken: sessionToken)
         }
+        PushService.shared.setBadge(0)
         webSocketService.disconnect()
         githubService.disconnect()
         cardService.reset()

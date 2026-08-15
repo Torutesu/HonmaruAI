@@ -3,10 +3,12 @@ import { toolManifest } from "./agui/tools.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
-  getUserByGithubId,
+  getUserByGithubId, registerDevice, removeDevice,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { deleteAccount } from "./account.js";
+import { isConfigured } from "./apns.js";
+import { runScheduledSync } from "./scheduled.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -57,6 +59,13 @@ async function requireMember(env, request, orgId) {
 }
 
 export default {
+  // Every 15 minutes, so a decision that arrived in someone's inbox is already
+  // a card by the time they look. Nothing here bypasses the free-tier meter:
+  // the sync loop checks the same allowance a manual sync does.
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(runScheduledSync(env));
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") {
@@ -70,6 +79,7 @@ export default {
           : env.OPENROUTER_API_KEY
             ? env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free"
             : "fallback",
+        push: isConfigured(env),
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {
@@ -173,6 +183,30 @@ export default {
     const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
     if (mediaMatch && request.method === "GET") {
       return serveMedia(mediaMatch[1], env);
+    }
+    // Registered after the user grants permission, and re-registered on every
+    // launch — APNs reissues tokens, and a stale one is a silent no-op.
+    if (url.pathname === "/devices" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json();
+      if (!body.deviceToken) return json({ message: "deviceToken is required" }, 400);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user?.login) return json({ message: "unknown user" }, 409);
+      await registerDevice(env.DB, {
+        deviceToken: body.deviceToken,
+        githubId: session.github_id,
+        login: user.login,
+        environment: body.environment,
+      });
+      return json({ ok: true });
+    }
+    if (url.pathname === "/devices" && request.method === "DELETE") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json();
+      if (body.deviceToken) await removeDevice(env.DB, body.deviceToken);
+      return json({ ok: true });
     }
     if (url.pathname === "/account" && request.method === "DELETE") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));

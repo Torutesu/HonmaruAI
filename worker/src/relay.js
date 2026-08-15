@@ -10,6 +10,7 @@ import {
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
+import { notifyCard } from "./push.js";
 
 export class OrgRelay {
   constructor(state, env) {
@@ -56,6 +57,26 @@ export class OrgRelay {
     try {
       ws.close(1008, message);
     } catch {}
+  }
+
+  /// How many decisions are waiting on someone — the number that belongs on
+  /// their app icon. Counted in SQL rather than by loading the org's cards,
+  /// because this runs on the path of every card.
+  async pendingCountFor(orgId, login) {
+    if (!login) return undefined;
+    try {
+      const row = await this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1 AND recipient_user_id = ?2 AND status = 'pending'"
+        )
+        .bind(orgId, login)
+        .first();
+      return Number(row?.n ?? 0);
+    } catch {
+      // A badge we cannot count is a badge we do not set. Leaving the icon as
+      // it was beats putting a wrong number on it.
+      return undefined;
+    }
   }
 
   /// Recording history must never break the mutation it records.
@@ -167,6 +188,20 @@ export class OrgRelay {
           })
         );
       }
+      // Whoever now has to act hears about it on their phone. Same rule as the
+      // Notion write and for the same reason: deferred, never awaited, and
+      // never able to break the decision it is reporting.
+      this.state.waitUntil(
+        notifyCard(this.env, {
+          card,
+          kind: decision?.action ? "decided" : "created",
+          excludeLogin: att.userId,
+          badge: await this.pendingCountFor(
+            orgId,
+            decision?.action ? card.senderUserID : card.recipientUserID
+          ),
+        })
+      );
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
