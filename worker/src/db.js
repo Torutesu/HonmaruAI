@@ -121,6 +121,35 @@ export async function getSession(db, token) {
   return row;
 }
 
+const OAUTH_STATE_MINUTES = 10;
+
+export async function createOAuthState(db) {
+  const state = crypto.randomUUID();
+  const now = new Date();
+  await db
+    .prepare("INSERT INTO oauth_states (state, created_at, expires_at) VALUES (?1, ?2, ?3)")
+    .bind(
+      state,
+      now.toISOString(),
+      new Date(now.getTime() + OAUTH_STATE_MINUTES * 60 * 1000).toISOString()
+    )
+    .run();
+  return state;
+}
+
+// Delete first, then judge what came back. Checking for the row and deleting it
+// afterwards leaves a window where two callbacks can both find it — and the
+// whole point of a nonce is that it is spent exactly once.
+export async function consumeOAuthState(db, state) {
+  if (!state) return false;
+  const row = await db
+    .prepare("DELETE FROM oauth_states WHERE state = ?1 RETURNING expires_at")
+    .bind(state)
+    .first();
+  if (!row) return false;
+  return row.expires_at > new Date().toISOString();
+}
+
 export async function upsertUser(db, { githubId, login, name, avatarUrl, locale }) {
   await db
     .prepare(

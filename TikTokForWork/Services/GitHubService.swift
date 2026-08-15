@@ -127,8 +127,14 @@ final class GitHubService: NSObject, ObservableObject {
 
     func signInWithOAuth(backendBaseURL: URL) async throws {
         let config = try await fetchOAuthConfig(backendBaseURL: backendBaseURL)
-        let code = try await requestAuthorizationCode(config: config)
-        let accessToken = try await exchangeCode(code, backendBaseURL: backendBaseURL)
+        // The nonce is issued by the server, put on the authorize URL, checked
+        // on the way back, and spent at the exchange. `tiktokforwork://` is a
+        // custom scheme, which iOS awards to any app that claims it — without
+        // this, another app can hand us its own code and end up owning the
+        // session we mint.
+        let state = try await requestOAuthState(backendBaseURL: backendBaseURL)
+        let code = try await requestAuthorizationCode(config: config, state: state)
+        let accessToken = try await exchangeCode(code, state: state, backendBaseURL: backendBaseURL)
         token = accessToken
         repositories = try await fetchRepositories()
         lastError = nil
@@ -263,12 +269,31 @@ final class GitHubService: NSObject, ObservableObject {
         return try JSONDecoder().decode(GitHubOAuthConfig.self, from: data)
     }
 
-    private func requestAuthorizationCode(config: GitHubOAuthConfig) async throws -> String {
+    private func requestOAuthState(backendBaseURL: URL) async throws -> String {
+        let url = backendBaseURL.appending(path: "oauth/github/state")
+        var stateRequest = URLRequest(url: url)
+        stateRequest.timeoutInterval = 12
+        let (data, response) = try await URLSession.shared.data(for: stateRequest)
+        guard let http = response as? HTTPURLResponse else {
+            throw GitHubServiceError.api(statusCode: 0, message: "No response from relay server.")
+        }
+        guard (200...299).contains(http.statusCode),
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let state = json["state"] as? String,
+              !state.isEmpty else {
+            let message = parseMessage(from: data) ?? "Could not start GitHub sign-in."
+            throw GitHubServiceError.api(statusCode: http.statusCode, message: message)
+        }
+        return state
+    }
+
+    private func requestAuthorizationCode(config: GitHubOAuthConfig, state: String) async throws -> String {
         var components = URLComponents(string: "https://github.com/login/oauth/authorize")
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: config.clientId),
             URLQueryItem(name: "redirect_uri", value: config.redirectUri),
-            URLQueryItem(name: "scope", value: config.scope)
+            URLQueryItem(name: "scope", value: config.scope),
+            URLQueryItem(name: "state", value: state)
         ]
 
         guard let authURL = components?.url else {
@@ -295,7 +320,11 @@ final class GitHubService: NSObject, ObservableObject {
                     let callbackURL,
                     let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
                     let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
-                    !code.isEmpty
+                    !code.isEmpty,
+                    // A callback carrying someone else's nonce is someone else's
+                    // sign-in. Refuse it here rather than letting the server be
+                    // the only thing standing between us and their account.
+                    components.queryItems?.first(where: { $0.name == "state" })?.value == state
                 else {
                     continuation.resume(throwing: GitHubServiceError.unauthorized)
                     return
@@ -311,13 +340,13 @@ final class GitHubService: NSObject, ObservableObject {
         }
     }
 
-    private func exchangeCode(_ code: String, backendBaseURL: URL) async throws -> String {
+    private func exchangeCode(_ code: String, state: String, backendBaseURL: URL) async throws -> String {
         let url = backendBaseURL.appending(path: "oauth/github/token")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code, "state": state])
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {

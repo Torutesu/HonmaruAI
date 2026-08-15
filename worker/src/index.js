@@ -2,8 +2,9 @@ import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
-  getConnectorConfig, setConnectorConfig,
+  getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
 } from "./db.js";
+import { enforce } from "./ratelimit.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -73,6 +74,8 @@ export default {
       return json(toolManifest());
     }
     if (url.pathname === "/ai/route" && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
       const body = await request.json();
       const userKey = request.headers.get("x-ai-key") || undefined;
       // The route is usable without a session (guests), but only a session can
@@ -113,8 +116,21 @@ export default {
         scope: env.GITHUB_OAUTH_SCOPE || "repo",
       });
     }
+    // Minted here, spent on the callback. The client puts it on the authorize
+    // URL as `state` and refuses a callback that comes back with a different
+    // one; we refuse a code that arrives without a nonce we issued.
+    if (url.pathname === "/oauth/github/state" && request.method === "GET") {
+      const limited = await enforce(env, request, "oauth/state");
+      if (limited) return limited;
+      return json({ state: await createOAuthState(env.DB) });
+    }
     if (url.pathname === "/oauth/github/token" && request.method === "POST") {
-      const { code } = await request.json();
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const { code, state } = await request.json();
+      if (!(await consumeOAuthState(env.DB, state))) {
+        return json({ message: "This sign-in has expired. Try again." }, 400);
+      }
       const ghRes = await fetch("https://github.com/login/oauth/access_token", {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
@@ -148,6 +164,8 @@ export default {
     if (url.pathname === "/media" && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
+      const limited = await enforce(env, request, "media");
+      if (limited) return limited;
       return uploadMedia(request, env, url);
     }
     const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
@@ -277,6 +295,8 @@ export default {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      const limited = await enforce(env, request, "connectors/sync");
+      if (limited) return limited;
 
       const body = await request.json();
       if (!body.orgId || !body.userId) return json({ message: "orgId and userId are required" }, 400);

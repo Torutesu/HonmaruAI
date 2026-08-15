@@ -18,10 +18,13 @@ test("/oauth/github/token exchanges a code and mints a session", async () => {
     .reply(200, { access_token: "gho_test", token_type: "bearer" });
   fetchMock.get("https://api.github.com").intercept({ path: "/user" })
     .reply(200, { id: 42, login: "octocat" });
+  // The exchange is only willing to spend a nonce it issued (oauth-state.test.js).
+  const stateRes = await SELF.fetch("https://example.com/oauth/github/state");
+  const { state } = await stateRes.json();
   const res = await SELF.fetch("https://example.com/oauth/github/token", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code: "abc" }),
+    body: JSON.stringify({ code: "abc", state }),
   });
   expect(res.status).toBe(200);
   const body = await res.json();
