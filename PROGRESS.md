@@ -1,79 +1,65 @@
-# Progress Checklist
+# Progress
 
-Last updated: 2026-08-01
+Last updated: 2026-08-15
 
-## Overall
+## Where this is
 
-- Current phase: Phase 7 — 3-second value + onboarding rework done
-- Core flow working: yes
-- GitHub sync working: yes (OAuth + Issues API, now contextual/optional)
-- Realtime sync working: yes (localhost WebSocket relay, optional for single simulator)
-- AI routing: OpenRouter via relay server with keyword fallback
+The product works end to end on real infrastructure: instruct → route → decide →
+sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
+Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
+on (`server/`, kept only as the reference client's host).
 
-## Phase 8 — AG-UI protocol adoption (see docs/agui-protocol.md)
+- **Worker suite:** 147 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **iOS suite:** `TikTokForWorkTests` — outbox and cache logic
+- **CI:** `.github/workflows/ci.yml` — Worker on every push, iOS on pull requests
+- **Deployed:** `https://tiktokforwork.torubj0904.workers.dev`
+- **Ships as:** Honmaru AI, `com.honmaru.ai`
 
-- [x] `request_decision` / `submit_decision` schemas (`server/agui/tools.js`, `GET /agui/tools`)
-- [x] Relay speaks AG-UI events behind `join {protocol: "agui/1"}`; legacy dialect intact
-- [x] `npm test` in `server/`: 8 tests incl. dual-dialect integration
-- [x] iOS inbound decoder (`AGUIEventAssembler`) + `WebSocketService` joins as `agui/1` with legacy fallback
-- [x] Context sync: `context_updated` → `STATE_DELTA /context/{userId}`; in snapshots for late joiners
-- [x] Rollback: `rollback {cardId}` → pending + `CUSTOM decision_rolled_back` (legacy gets `card_updated`)
-- [x] Reference web client (`web/index.html`) served at relay `GET /` — inbox, decisions, context editor, live event stream
-- [x] `npm test`: 10 tests (unit + 2 multi-client integration + HTTP)
-- [ ] iOS outbound `tool_result` (needs `decision` field); production web via CopilotKit
+The list of what is still missing, and why each item matters, is
+[docs/production-release-plan.md](docs/production-release-plan.md).
 
-## Phase 7 — 3-second value + onboarding (see onboarding.md)
+## Done
 
-- [x] Five-screen guided onboarding: welcome → how it works → interactive swipe demo → GitHub sign-in (skippable) → persona
-- [x] Auth wall removed: GitHub moved to step 4 of onboarding, after value is shown
-- [x] Seeded first-session feed per persona, staggered arrival + triage note
-- [x] Local-first approve/delegate (works without GitHub)
-- [x] Contextual GitHub connect sheet (post-first-approval, chip, menu)
-- [x] Session restore without GitHub; sign-out resets first-run flags
-- [x] Empty relay snapshot merges with local seeds instead of wiping
+### Product
+- [x] Vertical decision feed, swipe to approve/decline, delegate, revise, undo
+- [x] Instruction → Decision Card via OpenAI, keyword router as the always-available fallback
+- [x] Real org graph from GitHub repository collaborators
+- [x] Decisions sync to GitHub Issues, and back (closed issue → completed card)
+- [x] Gmail, Slack and Notion inbound via Composio, authorized per user
+- [x] Decisions written out to the decider's chosen Notion database
+- [x] Video capture attached to a card, stored in R2
+- [x] Dictation, English/Japanese, light and dark
+- [x] RevenueCat subscriptions, metered server-side (off until `REVENUECAT_SECRET_KEY` exists)
+- [x] Push notifications, and a cron that syncs connectors every 15 minutes
 
-## GitHub OAuth
+### Access and safety
+- [x] Relay requires a session with write access to the repository; identity comes off the session
+- [x] Only the recipient can decide, delete or undo a card
+- [x] OAuth `state`, single-use and expiring
+- [x] Rate limits on routing, token exchange, sync and uploads
+- [x] Account deletion, in the app
+- [x] `PrivacyInfo.xcprivacy` and a published privacy policy
 
-- [x] ASWebAuthenticationSession in iOS
-- [x] `tiktokforwork://oauth/callback` URL scheme
-- [x] Localhost `/oauth/github/config` + `/oauth/github/token`
-- [x] Client secret stays on server only
-- [x] Repository picker after OAuth
-- [x] PAT flow removed
+### Reliability
+- [x] Auto-reconnect with backoff, on foreground and on regaining a network
+- [x] Cards cached per organization, so a cold launch is not a blank feed
+- [x] Outbox: a decision made offline is delivered on reconnect, in order
+- [x] One structured log line per request, with an id echoed to the client
 
-## Phase 5 — Realtime
+## Still open
 
-- [x] WebSocket relay server (`server/`)
-- [x] WebSocketService client
-- [x] Cross-client card sync
-- [x] Snapshot on join
-- [x] Local fallback if relay unavailable
+Tracked in full in [the plan](docs/production-release-plan.md#p2--polish).
 
-## Phase 6 — Polish + Ship
+- [ ] Card SLA — "waiting 3 days" and a nudge back to the sender
+- [ ] Search and filter over history
+- [ ] Session token refresh before the 30-day expiry
+- [ ] Pending badge on the tab bar
+- [ ] First App Store submission (TestFlight internal works today)
 
-- [x] Clean flat design
-- [x] Org graph UI
-- [x] Agent route on cards
-- [x] AIService (OpenRouter via relay)
-- [ ] TestFlight or installable build
+## Before the first App Store submission
 
-## Demo script
-
-1. (Optional for realtime/GitHub) `cd server && cp .env.example .env` → add credentials → `npm start`
-2. iOS → onboarding: pitch → routing → swipe the demo card → **Sign in with GitHub** (or skip) → **Continue as Alice** → seeded decisions stream in → swipe right to approve
-3. If GitHub was skipped: after first approval → **Connect GitHub** sheet → OAuth → pick repo
-4. Second simulator as Bob (same relay URL)
-5. Alice → Message your AI → instruction
-6. Bob sees card (green dot = connected)
-7. Bob approves → GitHub Issue → Alice gets result
-
-## Mocked vs Real
-
-| Area | Status | Notes |
-|------|--------|-------|
-| AI routing | Real + fallback | OpenRouter if `OPENROUTER_API_KEY` set |
-| Multi-user | Real | localhost WebSocket |
-| Org graph | Real UI | Demo org data |
-| GitHub auth | Real OAuth | Token exchange on localhost |
-| GitHub sync | Real | Issues create/update |
-| Backend host | localhost only | `127.0.0.1:8080` |
+Run through the checklist at the end of
+[docs/production-release-plan.md](docs/production-release-plan.md#release-checklist).
+The one that used to top this list — `AppConfig.relayURL` pointing at
+`ws://127.0.0.1:8080` — is long gone; the app ships pointing at the deployed
+Worker.

@@ -248,10 +248,25 @@ commands. Two habits worth keeping:
 ## Before the first App Store submission
 
 TestFlight *internal* testing skips Beta App Review, so `build` + `testflight`
-works today. App Store review does not — see the blocker list in
-[PROGRESS.md](../PROGRESS.md#app-store-submission-blockers). The big one is that
-`AppConfig.relayURL` still points at `ws://127.0.0.1:8080`, which does not exist
-on a reviewer's device.
+works today. App Store review does not: run the checklist at the end of
+[production-release-plan.md](production-release-plan.md#release-checklist)
+first. Three of those items fail the submission rather than the build, so they
+are easy to miss —
+
+- a reachable **privacy policy URL** set in App Store Connect
+  ([privacy-policy.md](privacy-policy.md) is the text);
+- `PrivacyInfo.xcprivacy` actually inside the built `.ipa` — check with
+  `unzip -l build/*.ipa | grep xcprivacy`, because a manifest that xcodegen put
+  in the wrong build phase fails review exactly as if it were absent;
+- **account deletion** reachable in the app (Guideline 5.1.1(v)) — it is under
+  **You → Delete account**.
+
+D1 also has to be migrated before a build that expects the new tables reaches
+anyone:
+
+```bash
+cd worker && npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql
+```
 
 The CLI's own help is authoritative for flags, and it moves faster than this doc:
 
