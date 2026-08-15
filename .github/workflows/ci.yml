@@ -37,8 +37,11 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Install xcodegen
-        run: brew install xcodegen
+      - name: Install tooling
+        # xcbeautify is not preinstalled on every runner image, and with
+        # `pipefail` set a missing one fails the step in a way that looks like a
+        # build error.
+        run: brew install xcodegen xcbeautify
       - name: Generate the project
         run: xcodegen generate
       - name: Test

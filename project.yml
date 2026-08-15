@@ -101,8 +101,19 @@ schemes:
       targets:
         TikTokForWork: all
         TikTokForWorkTests: [test]
+    # Configs are named rather than left to the default, because
+    # scripts/release.sh drives `xcodebuild archive` through this scheme and an
+    # archive that silently picked Debug would ship an unsigned, un-optimised
+    # build that still says BUILD SUCCEEDED.
     test:
+      config: Debug
       targets:
         - TikTokForWorkTests
     run:
       config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

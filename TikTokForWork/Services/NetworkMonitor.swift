@@ -33,7 +33,7 @@ final class NetworkMonitor: ObservableObject {
         monitor.start(queue: queue)
     }
 
-    deinit {
+    func stop() {
         monitor.cancel()
     }
 }

@@ -41,12 +41,33 @@ enum MediaStore {
         let target = source.deletingPathExtension().appendingPathExtension("small.mp4")
         try? FileManager.default.removeItem(at: target)
         export.shouldOptimizeForNetworkUse = true
-        do {
-            try await export.export(to: target, as: .mp4)
-            return target
-        } catch {
-            return source
+
+        // `export(to:as:)` arrived in iOS 18 and this call was unguarded, so
+        // the app did not build against an SDK new enough to see it — which is
+        // every current Xcode. The deployment target is 17: an iPhone on iOS 17
+        // would have found no such method at runtime.
+        if #available(iOS 18, *) {
+            do {
+                try await export.export(to: target, as: .mp4)
+                return target
+            } catch {
+                return source
+            }
         }
+
+        // iOS 17 keeps the older path. A continuation rather than the bridged
+        // async spelling, because that bridge is exactly the kind of thing that
+        // changes between SDKs — and this branch exists precisely to be immune
+        // to that.
+        export.outputURL = target
+        export.outputFileType = .mp4
+        await withCheckedContinuation { continuation in
+            export.exportAsynchronously { continuation.resume() }
+        }
+        // Status, not the absence of an error: a cancelled export reports
+        // `.cancelled` with nothing thrown, and the original file is the right
+        // answer for that as much as for a failure.
+        return export.status == .completed ? target : source
     }
 
     /// Resolves what a card stored back into something playable.
