@@ -72,10 +72,6 @@ export function removeEvents(cardId) {
   return [stateDelta([{ op: "remove", path: pointer(cardId) }])];
 }
 
-export function clearEvents() {
-  return [stateSnapshot({ cardsById: {} })];
-}
-
 export function presenceEvents(userId, status) {
   return [custom("presence", { userId, status })];
 }

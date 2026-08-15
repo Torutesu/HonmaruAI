@@ -3,6 +3,12 @@ main = "src/index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+[triggers]
+# Connectors used to sync only while the app was open — the one moment you do
+# not need it. Fifteen minutes is the compromise between "already there when you
+# look" and a model bill that scales with idle installs.
+crons = ["*/15 * * * *"]
+
 [[durable_objects.bindings]]
 name = "ORG_RELAY"
 class_name = "OrgRelay"

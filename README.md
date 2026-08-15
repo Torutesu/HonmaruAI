@@ -16,6 +16,7 @@ Ships as **Honmaru AI** (`com.honmaru.ai`) on TestFlight.
 | Identity | GitHub OAuth. A repository's collaborators are the org graph |
 | Connectors | Gmail, Slack, Notion via [Composio](https://composio.dev), authorized **per user** |
 | Billing | RevenueCat, metered server-side (currently off — see below) |
+| Push | APNs direct from the Worker, ES256 provider token signed with Web Crypto — server-side ready, client switched off until the App ID carries the entitlement ([docs](docs/push-notifications.md)) |
 
 Deployed backend: `https://tiktokforwork.torubj0904.workers.dev`
 
@@ -43,7 +44,7 @@ sign-in (skippable). Rationale in [onboarding.md](onboarding.md).
 ```bash
 cd worker
 npm install
-npm test        # 106 tests, real workerd via @cloudflare/vitest-pool-workers
+npm test        # 147 tests, real workerd via @cloudflare/vitest-pool-workers
 npx wrangler dev
 ```
 
@@ -53,12 +54,47 @@ than inferred from documentation. Read it before touching a connector.
 
 Secrets live only as Worker secrets (`npx wrangler secret put …`), never in the repo:
 `OPENAI_API_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `COMPOSIO_API_KEY`,
-`REVENUECAT_SECRET_KEY`.
+`REVENUECAT_SECRET_KEY`, and the four APNs ones
+(`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_PRIVATE_KEY`) —
+see [docs/push-notifications.md](docs/push-notifications.md).
+
+## Access
+
+The relay is the trust boundary: it holds every decision the organization has
+made. A socket must `join` with a session token, that session must have write
+access to the repository, and the login it acts as comes off the session — a
+claimed `userId` is read only to be discarded. Only the recipient of a card can
+decide, delete or undo it. The rules, and what each one prevents, are in
+[worker/README.md](worker/README.md#the-relays-access-rules).
+
+Account deletion is in the app, under **You → Delete account**, and the two
+things it deliberately keeps are in [docs/privacy-policy.md](docs/privacy-policy.md).
 
 Use `npx -y wrangler@4` for D1 and deploys — the pinned wrangler 3 fails `d1 execute --remote`
 with a misleading 7403 "account is not authorized" that is a stale-client bug, not an auth problem.
 
+## What is still missing
+
+[docs/production-release-plan.md](docs/production-release-plan.md) is the
+working list: what is broken, what it costs, and the order to fix it in. P0 and
+most of P1 are done; the remainder is polish (accessibility, SLA chips, search,
+session refresh).
+
 ## Releasing
+
+Two buttons in **Actions**, once the credentials are handed over —
+[docs/shipping.md](docs/shipping.md):
+
+- **Deploy Worker** — runs on every push to `main` touching `worker/`. Tests,
+  migrates D1, deploys, checks `/health`. The migration runs before the deploy
+  every time, which is the whole reason it is a workflow and not a habit.
+- **TestFlight** — manual, takes a version. Smoke-launches the Release build,
+  archives, exports, uploads.
+
+The Worker goes first when both change: the app calls an endpoint an
+un-redeployed Worker does not serve.
+
+Locally, unchanged:
 
 ```bash
 ./scripts/release.sh build 1.0

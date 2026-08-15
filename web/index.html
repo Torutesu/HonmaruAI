@@ -81,12 +81,8 @@
   <b>TikTok for Work — Web</b>
   <span style="font-size:11px;color:var(--ink3)">AG-UI reference client</span>
   <span class="spacer"></span>
-  <select id="userSel">
-    <option value="user-alice">Alice</option>
-    <option value="user-bob">Bob</option>
-    <option value="user-carol">Carol</option>
-    <option value="user-dana">Dana</option>
-  </select>
+  <input id="orgInput" placeholder="owner/repo" style="width:150px">
+  <input id="tokenInput" type="password" placeholder="session token" style="width:170px">
   <button class="primary" id="connectBtn">Connect</button>
   <span class="status" id="connStatus"><span class="dot"></span><span id="connText">Offline</span></span>
 </header>
@@ -123,16 +119,17 @@
 
 const PROTOCOL = 'agui/1';
 let ws = null;
-let me = 'user-alice';
+let me = null;   // the relay names you; it is never claimed here
 let state = { cardsById: {}, context: {} };
 let toolCallByCard = {};
 let pendingCalls = {};
 let online = new Set();
 
 const $ = id => document.getElementById(id);
-const wsURL = () => {
+const wsURL = (org) => {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  return location.host ? `${proto}://${location.host}` : 'ws://127.0.0.1:8080';
+  const host = location.host || '127.0.0.1:8080';
+  return `${proto}://${host}/?orgId=${encodeURIComponent(org)}`;
 };
 
 /* ---------- tiny JSON Patch (add/replace/remove on object paths) ---------- */
@@ -155,6 +152,16 @@ function applyPatch(target, ops) {
 function onEvent(ev) {
   logEvent(ev);
   switch (ev.type) {
+    // The relay opens the run addressed to whoever the session turned out to
+    // be. That is how this client learns its own name.
+    case 'RUN_STARTED':
+      me = ev.threadId;
+      $('connText').textContent = `Synced as ${me}`;
+      renderAll();
+      break;
+    case 'RUN_ERROR':
+      $('connText').textContent = ev.message || 'Refused';
+      break;
     case 'STATE_SNAPSHOT':
       state = { cardsById: {}, context: {}, ...ev.snapshot };
       renderAll(); loadCtx();
@@ -199,7 +206,9 @@ function sendMsg(type, payload) {
 function decide(cardId, content) {
   sendMsg('tool_result', {
     toolCallId: toolCallByCard[cardId] || null,
-    content: { cardId, actorUserID: me, decidedAt: new Date().toISOString(), ...content },
+    // actorUserID is not sent: the relay stamps the decision with the session
+    // that made it, and would overwrite anything claimed here.
+    content: { cardId, decidedAt: new Date().toISOString(), ...content },
   });
 }
 function rollback(cardId) { sendMsg('rollback', { cardId }); }
@@ -286,12 +295,18 @@ function logEvent(ev) {
 /* ---------- connection ---------- */
 function connect() {
   if (ws) { ws.onclose = null; ws.close(); }
-  me = $('userSel').value;
-  ws = new WebSocket(wsURL());
+  const token = $('tokenInput').value.trim();
+  const org = $('orgInput').value.trim();
+  if (!token || !org) { $('connText').textContent = 'Needs an org and a session token'; return; }
+  localStorage.setItem('agui.org', org);
+  localStorage.setItem('agui.token', token);
+  ws = new WebSocket(wsURL(org));
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'join', payload: { userId: me, orgId: 'core-team', protocol: PROTOCOL } }));
+    // Identity is not sent. The relay reads it off the session and tells us who
+    // we are in RUN_STARTED — claiming a userId here would only be ignored.
+    ws.send(JSON.stringify({ type: 'join', payload: { sessionToken: token, protocol: PROTOCOL } }));
     $('connStatus').classList.add('on');
-    $('connText').textContent = `Synced as ${me.replace('user-', '')}`;
+    $('connText').textContent = 'Connected';
   };
   ws.onmessage = raw => { try { onEvent(JSON.parse(raw.data)); } catch { /* ignore */ } };
   ws.onclose = () => {
@@ -302,7 +317,8 @@ function connect() {
 }
 
 $('connectBtn').addEventListener('click', connect);
-$('userSel').addEventListener('change', connect);
+$('orgInput').value = localStorage.getItem('agui.org') || '';
+$('tokenInput').value = localStorage.getItem('agui.token') || '';
 $('ctxSave').addEventListener('click', () => {
   sendMsg('context_updated', { context: { md: $('ctxText').value } });
 });

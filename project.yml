@@ -25,8 +25,19 @@ targets:
   TikTokForWork:
     type: application
     platform: iOS
+    # No entitlements file on purpose. Adding `aps-environment` requires the
+    # provisioning profile to carry it, and "HonmaruAI AppStore" was issued
+    # before push existed — an archive would fail to sign. Turning push on is a
+    # four-part change; PushService.isEnabledInThisBuild lists all of it.
     sources:
       - path: TikTokForWork
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # Named on its own so it lands in Resources. xcodegen has no build phase
+      # for an extension it does not recognise, and a privacy manifest that is
+      # not copied into the bundle fails review exactly as if it were absent.
+      - path: TikTokForWork/PrivacyInfo.xcprivacy
+        buildPhase: resources
     # RELAY_SCHEME / RELAY_HOST live here rather than in `settings` below,
     # because target settings outrank an xcconfig and would make
     # Config/Local.xcconfig (written by scripts/device.sh) have no effect.
@@ -68,3 +79,42 @@ targets:
         product: RevenueCat
       - package: RevenueCat
         product: RevenueCatUI
+
+  # Unit tests over the logic that decides what a user sees and what reaches
+  # their teammates. Views are deliberately out of scope — a snapshot test of a
+  # SwiftUI hierarchy breaks on every design change and catches none of the
+  # failures that matter here.
+  TikTokForWorkTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: TikTokForWorkTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.honmaru.ai.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: TikTokForWork
+
+schemes:
+  TikTokForWork:
+    build:
+      targets:
+        TikTokForWork: all
+        TikTokForWorkTests: [test]
+    # Configs are named rather than left to the default, because
+    # scripts/release.sh drives `xcodebuild archive` through this scheme and an
+    # archive that silently picked Debug would ship an unsigned, un-optimised
+    # build that still says BUILD SUCCEEDED.
+    test:
+      config: Debug
+      targets:
+        - TikTokForWorkTests
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

@@ -59,6 +59,31 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at          TEXT
 );
 
+/* One row per authorization attempt, deleted the moment it is redeemed. The
+   redirect is a custom URL scheme, which iOS hands to any app that claims it,
+   so an unguarded callback lets another app feed us a code and bind the session
+   to its own account. The nonce is what makes the code ours.
+
+   Block comments, not `--`: the tests load this file with newlines flattened to
+   spaces, and a line comment would swallow the rest of the schema. */
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state       TEXT PRIMARY KEY,
+  created_at  TEXT NOT NULL,
+  expires_at  TEXT NOT NULL
+);
+
+/* Fixed-window counters. Keyed by session token where there is one and by IP
+   where there is not, so a signed-in user's budget follows them across networks
+   and an anonymous one cannot be reset by reconnecting. */
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket      TEXT NOT NULL,
+  subject     TEXT NOT NULL,
+  window_start INTEGER NOT NULL,
+  count       INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket, subject, window_start)
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits (window_start);
+
 CREATE TABLE IF NOT EXISTS card_events (
   id             TEXT PRIMARY KEY,
   org_id         TEXT NOT NULL,
@@ -82,6 +107,20 @@ CREATE TABLE IF NOT EXISTS ingested_items (
   created_at     TEXT NOT NULL,
   PRIMARY KEY (connector, external_id, user_github_id)
 );
+
+/* One row per device per user. Keyed by the token because that is what Apple
+   makes unique, and because the same person on two phones must get both. The
+   login is denormalized alongside the numeric id: the relay knows a recipient
+   by their login and would otherwise need a join on the hot path of every
+   card. */
+CREATE TABLE IF NOT EXISTS device_tokens (
+  device_token   TEXT PRIMARY KEY,
+  user_github_id TEXT NOT NULL,
+  login          TEXT NOT NULL,
+  environment    TEXT NOT NULL DEFAULT 'production',
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_login ON device_tokens (login);
 
 CREATE TABLE IF NOT EXISTS ai_usage (
   user_github_id TEXT NOT NULL,

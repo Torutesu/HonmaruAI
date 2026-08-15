@@ -115,12 +115,47 @@ reissued, and an account may hold only three distribution certificates.
 
 ## 2. Ship a TestFlight build
 
-This is the unchecked item in `PROGRESS.md`.
+### The backend goes first, and the order is not optional
+
+The app and the Worker are one product with a version skew problem, and it cuts
+both ways:
+
+- **App before Worker.** The current app calls `GET /oauth/github/state`, which
+  a Worker that has not been redeployed does not serve. Sign-in dies outright.
+- **Worker before app.** A build already on testers' phones posts to
+  `/oauth/github/token` with no `state`, which the redeployed Worker refuses
+  with 400. *Fresh* sign-in on the old build breaks.
+
+Nobody already signed in is affected either way — session tokens keep working,
+and a session now extends every time it is used. So the second is the survivable
+one, and the window closes the moment testers update.
+
+```bash
+cd worker
+# Idempotent: every statement is CREATE … IF NOT EXISTS. Safe to re-run.
+npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql
+npx wrangler deploy
+cd ..
+```
+
+Then upload without pausing in between, and tell testers to take the update.
+
+### The upload
 
 ```bash
 scripts/release.sh build 1.0.0      # xcodegen -> archive -> export ipa
 scripts/release.sh testflight       # upload, wait for processing, assign group
 ```
+
+`build` runs `xcodegen generate` first, so a stale `.xcodeproj` is never what
+gets archived.
+
+> **Push notifications are switched off in the client.** `aps-environment` has
+> to be in the provisioning profile, and "HonmaruAI AppStore" was issued before
+> push existed — an archive carrying that entitlement fails to sign. The server
+> side is deployed and idle. Turning it on is
+> [docs/push-notifications.md](push-notifications.md), and it needs a reissued
+> profile, so it is its own release rather than something to bolt onto this one.
 
 The build number comes from `asc builds next-build-number`, so it never collides
 with an already-uploaded build. Version and build number are passed to
@@ -248,10 +283,25 @@ commands. Two habits worth keeping:
 ## Before the first App Store submission
 
 TestFlight *internal* testing skips Beta App Review, so `build` + `testflight`
-works today. App Store review does not — see the blocker list in
-[PROGRESS.md](../PROGRESS.md#app-store-submission-blockers). The big one is that
-`AppConfig.relayURL` still points at `ws://127.0.0.1:8080`, which does not exist
-on a reviewer's device.
+works today. App Store review does not: run the checklist at the end of
+[production-release-plan.md](production-release-plan.md#release-checklist)
+first. Three of those items fail the submission rather than the build, so they
+are easy to miss —
+
+- a reachable **privacy policy URL** set in App Store Connect
+  ([privacy-policy.md](privacy-policy.md) is the text);
+- `PrivacyInfo.xcprivacy` actually inside the built `.ipa` — check with
+  `unzip -l build/*.ipa | grep xcprivacy`, because a manifest that xcodegen put
+  in the wrong build phase fails review exactly as if it were absent;
+- **account deletion** reachable in the app (Guideline 5.1.1(v)) — it is under
+  **You → Delete account**.
+
+D1 also has to be migrated before a build that expects the new tables reaches
+anyone:
+
+```bash
+cd worker && npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql
+```
 
 The CLI's own help is authoritative for flags, and it moves faster than this doc:
 

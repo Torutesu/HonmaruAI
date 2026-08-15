@@ -1,0 +1,92 @@
+name: Deploy Worker
+
+# The backend deploys itself. Doing it by hand means remembering to migrate D1
+# before deploying — and the one time that is forgotten, every sign-in fails
+# against tables that do not exist yet.
+#
+# Needs two repository secrets, once:
+#   CLOUDFLARE_API_TOKEN   — an API token with "Edit Cloudflare Workers" plus
+#                            D1:Edit on the account
+#   CLOUDFLARE_ACCOUNT_ID  — from the Cloudflare dashboard URL
+#
+# Without them the job stops with an explanation instead of failing in the
+# middle of a deploy.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+    inputs:
+      migrate_only:
+        description: "Run the D1 migration but do not deploy"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrate and deploy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Check credentials
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in repository secrets."
+            echo "Settings → Secrets and variables → Actions → New repository secret."
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # Deploying code whose tests fail is how a broken relay reaches everyone at
+      # once. The suite runs against real workerd, so this is not a formality.
+      - name: Test
+        run: npm test
+
+      # Every statement is CREATE … IF NOT EXISTS, so this is safe to run on
+      # every deploy and safe to re-run after a failure.
+      #
+      # wrangler@4 explicitly: the pinned wrangler 3 fails `d1 execute --remote`
+      # with a 7403 "account is not authorized" that is a stale-client bug, not
+      # an auth problem, and reads exactly like a broken token.
+      - name: Migrate D1
+        run: npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql --yes
+
+      - name: Deploy
+        if: ${{ !inputs.migrate_only }}
+        run: npx -y wrangler@4 deploy
+
+      - name: Verify
+        if: ${{ !inputs.migrate_only }}
+        run: |
+          # A deploy that reports success but serves a broken build is worth ten
+          # seconds to rule out.
+          for attempt in 1 2 3 4 5; do
+            body="$(curl -fsS https://tiktokforwork.torubj0904.workers.dev/health || true)"
+            if [ -n "$body" ]; then
+              echo "$body"
+              echo "$body" | grep -q '"ok":true' && exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::/health did not report ok after the deploy."
+          exit 1

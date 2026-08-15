@@ -15,6 +15,7 @@ struct FeedView: View {
 
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var subscriptions: SubscriptionService
+    @EnvironmentObject private var push: PushService
     @StateObject private var viewModel = FeedViewModel()
     @State private var aiPrompt = ""
     @State private var showAIInput = false
@@ -80,6 +81,11 @@ struct FeedView: View {
         }
         .onChange(of: composeTick) { _, _ in
             showAIInput = true
+        }
+        .onChange(of: push.pendingCardID) { _, cardID in
+            guard let cardID else { return }
+            viewModel.focus(cardID: cardID)
+            push.pendingCardID = nil
         }
         .onChange(of: captured) { _, request in
             guard let request else { return }
@@ -180,16 +186,43 @@ struct FeedView: View {
         )
     }
 
+    private var connectionColor: Color {
+        switch appState.connectionState {
+        case .connected: Theme.Colors.approve
+        case .connecting: Theme.Colors.interactive
+        case .refused: Theme.Colors.reject
+        case .offline: Theme.Colors.textTertiary
+        }
+    }
+
+    private var connectionLabel: String? {
+        switch appState.connectionState {
+        case .connected: nil
+        case .connecting: String(localized: "Reconnecting…")
+        case .refused: String(localized: "No access")
+        case .offline: String(localized: "Offline")
+        }
+    }
+
     private var topBar: some View {
         HStack(alignment: .center) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(appState.webSocketService.isConnected ? Theme.Colors.approve : Theme.Colors.textTertiary)
+                    .fill(connectionColor)
                     .frame(width: 5, height: 5)
                 Text(appState.currentUser?.name ?? "")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.Colors.textPrimary)
+                // The dot alone used to claim "live" whether or not the socket
+                // was, so a state that is not connected says what it is.
+                if let label = connectionLabel {
+                    Text(label)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
 
             Spacer()
 
@@ -283,13 +316,39 @@ struct FeedView: View {
         }
     }
 
+    /// An empty feed has three different causes and they need three different
+    /// sentences. "No decisions yet" in front of someone whose socket was
+    /// refused, or who has no network, is the app blaming the user for its own
+    /// state.
     private var emptyState: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            Text(String(localized: "No decisions yet. Tell your AI something, or wait for a teammate."))
+            Text(emptyTitle)
                 .font(Theme.TypeScale.caption)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Theme.Spacing.md)
+
+            if case .offline = appState.connectionState {
+                Button(String(localized: "Try again")) {
+                    appState.webSocketService.reconnectIfNeeded()
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.Colors.interactive)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var emptyTitle: String {
+        switch appState.connectionState {
+        case .refused(let reason):
+            reason
+        case .offline:
+            String(localized: "You are offline. Decisions will appear when you reconnect.")
+        case .connecting:
+            String(localized: "Catching up…")
+        case .connected:
+            String(localized: "No decisions yet. Tell your AI something, or wait for a teammate.")
         }
     }
 
@@ -314,4 +373,5 @@ struct FeedView: View {
     FeedView()
         .environmentObject(AppState())
         .environmentObject(SubscriptionService.shared)
+        .environmentObject(PushService.shared)
 }

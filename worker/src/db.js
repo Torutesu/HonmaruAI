@@ -44,6 +44,21 @@ export async function saveCard(db, orgId, card) {
     .run();
 }
 
+// One card, without paying to deserialize the whole org. The relay needs this
+// to answer "who does this card belong to?" before it lets anyone change it.
+export async function getCard(db, orgId, cardId) {
+  const row = await db
+    .prepare("SELECT data FROM cards WHERE org_id = ?1 AND card_id = ?2")
+    .bind(orgId, cardId)
+    .first();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    return null;
+  }
+}
+
 export async function removeCard(db, orgId, cardId) {
   await db
     .prepare("DELETE FROM cards WHERE org_id = ?1 AND card_id = ?2")
@@ -91,6 +106,11 @@ export async function createSession(db, githubId, accessToken) {
   return token;
 }
 
+// Half the window. Past this point an active session is extended; before it,
+// nothing is written — the alternative is an UPDATE on every request for a
+// deadline that is still weeks away.
+const SESSION_SLIDE_AFTER_DAYS = 15;
+
 export async function getSession(db, token) {
   if (!token) return null;
   const row = await db
@@ -100,10 +120,59 @@ export async function getSession(db, token) {
     .bind(token)
     .first();
   if (!row) return null;
+  const now = new Date();
   // A NULL expiry is a session minted before expiry existed — still valid, so
   // shipping this does not sign out the people currently testing.
-  if (row.expires_at && row.expires_at <= new Date().toISOString()) return null;
+  if (row.expires_at && row.expires_at <= now.toISOString()) return null;
+
+  // Use keeps you signed in. A fixed 30 days meant someone who opened the app
+  // every morning was still signed out on day 31, with no warning and no way to
+  // tell it from a bug. Absence is what should expire a session, not time.
+  const remainingMs = row.expires_at ? Date.parse(row.expires_at) - now.getTime() : 0;
+  if (!row.expires_at || remainingMs < SESSION_SLIDE_AFTER_DAYS * 24 * 60 * 60 * 1000) {
+    const extended = new Date(now.getTime() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      await db
+        .prepare("UPDATE sessions SET expires_at = ?1 WHERE token = ?2")
+        .bind(extended, token)
+        .run();
+      row.expires_at = extended;
+    } catch (err) {
+      // Failing to extend is not failing to authenticate. The session is still
+      // valid right now, which is the question that was asked.
+      console.error("session slide failed", err?.message || err);
+    }
+  }
   return row;
+}
+
+const OAUTH_STATE_MINUTES = 10;
+
+export async function createOAuthState(db) {
+  const state = crypto.randomUUID();
+  const now = new Date();
+  await db
+    .prepare("INSERT INTO oauth_states (state, created_at, expires_at) VALUES (?1, ?2, ?3)")
+    .bind(
+      state,
+      now.toISOString(),
+      new Date(now.getTime() + OAUTH_STATE_MINUTES * 60 * 1000).toISOString()
+    )
+    .run();
+  return state;
+}
+
+// Delete first, then judge what came back. Checking for the row and deleting it
+// afterwards leaves a window where two callbacks can both find it — and the
+// whole point of a nonce is that it is spent exactly once.
+export async function consumeOAuthState(db, state) {
+  if (!state) return false;
+  const row = await db
+    .prepare("DELETE FROM oauth_states WHERE state = ?1 RETURNING expires_at")
+    .bind(state)
+    .first();
+  if (!row) return false;
+  return row.expires_at > new Date().toISOString();
 }
 
 export async function upsertUser(db, { githubId, login, name, avatarUrl, locale }) {
@@ -249,6 +318,35 @@ export async function setConnectorConfig(db, githubId, connector, config) {
     )
     .bind(String(githubId), connector, JSON.stringify(config), new Date().toISOString())
     .run();
+}
+
+export async function registerDevice(db, { deviceToken, githubId, login, environment }) {
+  await db
+    .prepare(
+      `INSERT INTO device_tokens (device_token, user_github_id, login, environment, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(device_token) DO UPDATE SET
+         user_github_id = excluded.user_github_id,
+         login = excluded.login,
+         environment = excluded.environment,
+         updated_at = excluded.updated_at`
+    )
+    .bind(deviceToken, String(githubId), login, environment || "production", new Date().toISOString())
+    .run();
+}
+
+// By login, because that is the name a card carries its recipient under.
+export async function devicesForLogin(db, login) {
+  if (!login) return [];
+  const { results } = await db
+    .prepare("SELECT device_token, environment FROM device_tokens WHERE login = ?1")
+    .bind(login)
+    .all();
+  return results || [];
+}
+
+export async function removeDevice(db, deviceToken) {
+  await db.prepare("DELETE FROM device_tokens WHERE device_token = ?1").bind(deviceToken).run();
 }
 
 // The relay knows a person by their github LOGIN; config is keyed by the numeric

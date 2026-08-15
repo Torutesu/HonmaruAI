@@ -90,6 +90,22 @@ struct DecisionCard: Identifiable, Codable, Hashable {
 
     var isPending: Bool { status == .pending }
 
+    /// Whole days this has been waiting on someone, or nil while it is still
+    /// today's problem.
+    ///
+    /// A decision nobody makes is the failure mode this product replaces, and it
+    /// is silent by construction: the card just sits there looking the same on
+    /// day six as it did on day one. One day is not late — a card that arrived
+    /// this morning should not wear a warning — so the count starts at two.
+    var waitingDays: Int? {
+        guard isPending else { return nil }
+        let days = Calendar.current.dateComponents([.day], from: createdAt, to: .now).day ?? 0
+        return days >= 2 ? days : nil
+    }
+
+    /// Waiting long enough that the delay is now the story, not the decision.
+    var isStale: Bool { (waitingDays ?? 0) >= 5 }
+
     var canDelete: Bool { status == .rejected }
 
     var priorityLabel: String {

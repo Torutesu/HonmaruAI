@@ -17,6 +17,15 @@ final class DecisionCardService: ObservableObject {
     private var cardsByUser: [String: [DecisionCard]] = [:]
     private weak var webSocketService: WebSocketService?
     private var activeUserID: String?
+    private var orgID: String?
+    private var persistTask: Task<Void, Never>?
+
+    /// How many decisions are waiting on the person using this device.
+    ///
+    /// Counted here rather than in the feed view model because two places need
+    /// it — the tab bar and the app icon — and a count computed twice is a count
+    /// that eventually disagrees with itself.
+    @Published private(set) var pendingCount = 0
 
     var onCardsUpdated: (() -> Void)?
 
@@ -31,14 +40,27 @@ final class DecisionCardService: ObservableObject {
         activeUserID = userID
     }
 
+    /// Adopt an organization and show whatever we last knew of it, before the
+    /// socket has said anything. This is the difference between launching into
+    /// your feed and launching into a blank screen.
+    func adoptOrganization(_ orgID: String) {
+        self.orgID = orgID
+        cardsByUser = CardCache.load(orgID: orgID)
+        changed()
+    }
+
     func applySnapshot(_ incoming: [String: [DecisionCard]]) {
+        // An empty snapshot is not the same as "there is nothing". It is what a
+        // relay sends before anything has been published, and adopting it would
+        // wipe a cache that is currently the only copy of the user's feed.
+        if incoming.isEmpty, !cardsByUser.isEmpty { return }
         cardsByUser = incoming
-        onCardsUpdated?()
+        changed()
     }
 
     func bootstrap(for user: User) {
         activeUserID = user.id
-        onCardsUpdated?()
+        changed()
     }
 
     /// No-op: demo seeding is disabled. The feed starts empty and fills only
@@ -48,49 +70,74 @@ final class DecisionCardService: ObservableObject {
 
     func reset() {
         cardsByUser = [:]
+        orgID = nil
+        persistTask?.cancel()
+        CardCache.clear()
+        changed()
+    }
+
+    /// Every mutation goes through here, so caching is not something a new
+    /// code path has to remember to do.
+    private func changed() {
+        persist()
+        let pending = activeUserID.map { cardsByUser[$0, default: []].filter(\.isPending).count } ?? 0
+        if pending != pendingCount {
+            pendingCount = pending
+            PushService.shared.setBadge(pending)
+        }
         onCardsUpdated?()
+    }
+
+    /// Debounced: a snapshot arriving as a burst of upserts would otherwise
+    /// rewrite the whole file once per card.
+    private func persist() {
+        guard let orgID else { return }
+        persistTask?.cancel()
+        let snapshot = cardsByUser
+        persistTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, self != nil else { return }
+            CardCache.save(orgID: orgID, cardsByUser: snapshot)
+        }
     }
 
     func syncGitHubStatus(githubService: GitHubService) async {
         guard githubService.isConnected else { return }
+        // Only our own cards. The store holds the whole org so a second device
+        // can stay in sync passively, but a card belongs to the person who has
+        // to decide it — republishing someone else's is a write the relay is
+        // right to refuse, and reconciling their issue was never our job.
+        guard let userID = activeUserID, var userCards = cardsByUser[userID] else { return }
 
-        var changed = false
-        for (userID, var userCards) in cardsByUser {
-            var userChanged = false
+        var didChange = false
+        for index in userCards.indices {
+            guard let issueNumber = userCards[index].githubIssueNumber else { continue }
+            guard userCards[index].githubRepository == githubService.linkedRepository else { continue }
 
-            for index in userCards.indices {
-                guard let issueNumber = userCards[index].githubIssueNumber else { continue }
-                guard userCards[index].githubRepository == githubService.linkedRepository else { continue }
-
-                let status = userCards[index].status
-                guard status == .approved || status == .completed || status == .delegated else {
-                    continue
-                }
-
-                do {
-                    let issueState = try await githubService.issueState(number: issueNumber)
-                    if issueState == "closed", status != .completed {
-                        userCards[index].status = .completed
-                        userChanged = true
-                        await webSocketService?.publishUpdated(userCards[index])
-                    } else if issueState == "open", status == .completed {
-                        userCards[index].status = .approved
-                        userChanged = true
-                        await webSocketService?.publishUpdated(userCards[index])
-                    }
-                } catch {
-                    continue
-                }
+            let status = userCards[index].status
+            guard status == .approved || status == .completed || status == .delegated else {
+                continue
             }
 
-            if userChanged {
-                cardsByUser[userID] = userCards
-                changed = true
+            do {
+                let issueState = try await githubService.issueState(number: issueNumber)
+                if issueState == "closed", status != .completed {
+                    userCards[index].status = .completed
+                    didChange = true
+                    await webSocketService?.publishUpdated(userCards[index])
+                } else if issueState == "open", status == .completed {
+                    userCards[index].status = .approved
+                    didChange = true
+                    await webSocketService?.publishUpdated(userCards[index])
+                }
+            } catch {
+                continue
             }
         }
 
-        if changed {
-            onCardsUpdated?()
+        if didChange {
+            cardsByUser[userID] = userCards
+            changed()
         }
     }
 
@@ -172,7 +219,7 @@ final class DecisionCardService: ObservableObject {
 
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
-        onCardsUpdated?()
+        changed()
         return card
     }
 
@@ -250,7 +297,7 @@ final class DecisionCardService: ObservableObject {
 
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
-        onCardsUpdated?()
+        changed()
         return card
     }
 
@@ -268,7 +315,7 @@ final class DecisionCardService: ObservableObject {
         userCards.remove(at: index)
         cardsByUser[actorUserID] = userCards
         await webSocketService?.publishDeleted(cardID: cardID, recipientUserID: actorUserID)
-        onCardsUpdated?()
+        changed()
     }
 
     @discardableResult
@@ -300,7 +347,7 @@ final class DecisionCardService: ObservableObject {
 
         append(card, for: routing.recipientID)
         await webSocketService?.publishCreated(card)
-        onCardsUpdated?()
+        changed()
         return card
     }
 
@@ -327,7 +374,7 @@ final class DecisionCardService: ObservableObject {
             cards.insert(card, at: 0)
         }
         cardsByUser[card.recipientUserID] = cards
-        onCardsUpdated?()
+        changed()
     }
 
     private func append(_ card: DecisionCard, for userID: String) {
@@ -340,6 +387,6 @@ final class DecisionCardService: ObservableObject {
         var cards = cardsByUser[userID, default: []]
         cards.removeAll { $0.id == cardID }
         cardsByUser[userID] = cards
-        onCardsUpdated?()
+        changed()
     }
 }

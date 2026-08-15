@@ -20,7 +20,6 @@ struct RootView: View {
             }
         }
         .appBackground()
-        .preferredColorScheme(.light)
         .animation(.easeOut(duration: 0.2), value: appState.isAuthenticated)
         .animation(.easeOut(duration: 0.2), value: appState.isBootstrapping)
     }

@@ -1,8 +1,17 @@
+import Combine
 import Foundation
 
 @MainActor
 final class AppState: ObservableObject {
     @Published var currentUser: User?
+    /// Mirrored from the socket so views can observe it. `webSocketService` is a
+    /// plain property of this object, so SwiftUI never hears about its own
+    /// changes — which is why the connection dot used to be stale as often as
+    /// it was wrong.
+    @Published private(set) var connectionState: ConnectionState = .offline
+    /// Mirrored for the same reason as `connectionState`: `cardService` is a
+    /// plain property, so SwiftUI never hears it change.
+    @Published private(set) var pendingCount = 0
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
     @Published var organization = OrganizationGraph(nodes: [], edges: [])
@@ -37,6 +46,7 @@ final class AppState: ObservableObject {
     let githubService = GitHubService()
     let webSocketService = WebSocketService()
     let aiService = AIService()
+    let networkMonitor = NetworkMonitor()
 
     let relayURL = AppConfig.relayURL
 
@@ -49,6 +59,12 @@ final class AppState: ObservableObject {
         // language before the first view renders.
         Bundle.setAppLanguage(language.locale?.identifier)
         cardService.attach(webSocketService: webSocketService)
+        webSocketService.$state.assign(to: &$connectionState)
+        cardService.$pendingCount.assign(to: &$pendingCount)
+        networkMonitor.onBecameOnline = { [weak self] in
+            self?.webSocketService.reconnectIfNeeded()
+        }
+        networkMonitor.start()
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
                 await self?.handleRepositoryChanged()
@@ -66,6 +82,7 @@ final class AppState: ObservableObject {
 
         guard let backendBaseURL else { return }
         aiService.configure(backendBaseURL: backendBaseURL)
+        PushService.shared.configure(backendBaseURL: backendBaseURL)
         await restoreSessionIfNeeded()
     }
 
@@ -128,6 +145,10 @@ final class AppState: ObservableObject {
         SessionStore.currentUserID = user.id
         cardService.setActiveUser(user.id)
         let orgId = connection.repository            // "owner/repo"
+        // The cached feed goes up before the socket is even dialled. Waiting for
+        // the relay means a blank screen on a slow network and a permanently
+        // blank one with no network at all.
+        cardService.adoptOrganization(orgId)
         do {
             try await webSocketService.connect(
                 urlString: relayURL,
@@ -144,6 +165,10 @@ final class AppState: ObservableObject {
         if let githubId = SessionStore.githubUserId {
             await SubscriptionService.shared.identify(githubId)
         }
+        // The device token is bound to a person on the server. Re-binding it on
+        // sign-in is what stops a phone that changed hands from receiving the
+        // previous account's decisions.
+        PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
         // Load the org in the background so entry never blocks on reachability.
         Task { await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId)) }
     }
@@ -167,12 +192,17 @@ final class AppState: ObservableObject {
     }
 
     func signOut() {
+        let sessionToken = SessionStore.sessionToken
         Task {
-            await webSocketService.publishClearStore()
             // Drop back to an anonymous RevenueCat id so the next account on this
             // device does not inherit this person's entitlement.
             await SubscriptionService.shared.signOut()
+            // Unregister while the token is still valid — afterwards the server
+            // has no way to know which device to forget, and this phone keeps
+            // buzzing about someone else's decisions.
+            await PushService.shared.unregister(sessionToken: sessionToken)
         }
+        PushService.shared.setBadge(0)
         webSocketService.disconnect()
         githubService.disconnect()
         cardService.reset()
@@ -183,10 +213,53 @@ final class AppState: ObservableObject {
         currentUser = nil
     }
 
+    enum AccountError: LocalizedError {
+        case notSignedIn
+        case server(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .notSignedIn: String(localized: "Sign in before deleting your account.")
+            case .server(let message): message
+            }
+        }
+    }
+
+    /// Erase the account on the server, then leave. Signing out locally first
+    /// would throw away the session token the request needs, and signing out
+    /// only locally would leave the account alive on a server the user believes
+    /// they have left.
+    func deleteAccount() async throws {
+        guard let base = backendBaseURL, let token = SessionStore.sessionToken else {
+            throw AccountError.notSignedIn
+        }
+        var request = URLRequest(url: base.appending(path: "account"))
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 20
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AccountError.server(String(localized: "No response from the server."))
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["message"] as? String
+            throw AccountError.server(message ?? String(localized: "Could not delete your account."))
+        }
+        signOut()
+    }
+
+    /// Switching repositories switches organizations, so the cards on screen
+    /// belong to the old one and have to go. They are dropped locally only —
+    /// they are still the other org's decisions, and deleting them there would
+    /// take the rest of that team's pending work with them.
+    ///
+    /// The socket has to move too. It used to stay joined to the previous org,
+    /// so after a switch the feed showed the new repository's name while
+    /// receiving the old repository's decisions.
     func handleRepositoryChanged() async {
         cardService.reset()
-        if webSocketService.isConnected {
-            await webSocketService.publishClearStore()
-        }
+        guard let connection = githubService.connection else { return }
+        await activateGitHubSession(connection: connection)
     }
 }

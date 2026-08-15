@@ -1,10 +1,13 @@
 import SwiftUI
+import UIKit
+import UserNotifications
 
 /// A6 — iOS inset-grouped settings on white cards, radius 16, hairline
 /// separators. This is where the account actions live now; they used to hide
 /// behind an ellipsis menu on the feed.
 struct YouView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var push: PushService
 
     @State private var showOrgGraph = false
     @State private var showConnectGitHub = false
@@ -32,7 +35,7 @@ struct YouView: View {
 
                 group {
                     navRow(String(localized: "History")) { HistoryView() }
-                    pendingRow(String(localized: "Notifications"))
+                    notificationsRow
                 }
 
                 group {
@@ -69,6 +72,21 @@ struct YouView: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.Colors.reject)
                 .padding(.top, Theme.Spacing.sm)
+
+                // Apple requires account deletion to be reachable in the app for
+                // anything that lets you create an account (Guideline 5.1.1(v)).
+                // A guest has no account to delete, so the row is not offered.
+                if !appState.isGuest {
+                    NavigationLink {
+                        DeleteAccountView().environmentObject(appState)
+                    } label: {
+                        Text("Delete account")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, Theme.Spacing.xs)
+                }
             }
             .padding(.horizontal, Theme.Spacing.md)
             .padding(.top, Theme.Spacing.lg)
@@ -139,24 +157,71 @@ struct YouView: View {
             }
     }
 
-    /// A row from the design that has no feature behind it yet. Dimmed, inert,
-    /// and labelled — the alternative is a control that silently does nothing.
-    private func pendingRow(_ title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 15))
-                .foregroundStyle(Theme.Colors.textTertiary)
-            Spacer()
-            Text("Coming soon")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Theme.Colors.surfaceRaised)
-                .clipShape(Capsule())
+    /// Notifications, and the way back from a "Don't Allow".
+    ///
+    /// iOS never shows the prompt twice, so once it has been refused the only
+    /// honest thing an in-app toggle can do is open Settings. Pretending
+    /// otherwise produces a switch that flips back on its own.
+    @ViewBuilder
+    private var notificationsRow: some View {
+        if !PushService.isEnabledInThisBuild {
+            // A control that asks for a permission this build cannot use would
+            // spend the one prompt iOS gives us on nothing. Say so instead.
+            HStack {
+                Text("Notifications")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                Spacer()
+                Text("Coming soon")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, 13)
+        } else {
+            liveNotificationsRow
         }
-        .padding(.horizontal, Theme.Spacing.md)
-        .padding(.vertical, 13)
+    }
+
+    private var liveNotificationsRow: some View {
+        Button {
+            switch push.authorization {
+            case .notDetermined:
+                Task { await push.requestAuthorizationIfEarned() }
+            default:
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+        } label: {
+            HStack {
+                Text("Notifications")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                Spacer()
+                Text(notificationStatusLabel)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, 13)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var notificationStatusLabel: String {
+        switch push.authorization {
+        case .authorized, .provisional, .ephemeral: String(localized: "On")
+        case .denied: String(localized: "Off — open Settings")
+        default: String(localized: "Turn on")
+        }
     }
 
     /// A row that pushes a real screen, styled like `row(_:value:)`.
@@ -211,4 +276,5 @@ struct YouView: View {
 #Preview {
     YouView()
         .environmentObject(AppState())
+        .environmentObject(PushService.shared)
 }

@@ -2,8 +2,14 @@ import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
-  getConnectorConfig, setConnectorConfig,
+  getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
+  getUserByGithubId, registerDevice, removeDevice,
 } from "./db.js";
+import { enforce } from "./ratelimit.js";
+import { deleteAccount } from "./account.js";
+import { isConfigured } from "./apns.js";
+import { runScheduledSync } from "./scheduled.js";
+import { logJSON, routeLabel, safe } from "./log.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -54,8 +60,43 @@ async function requireMember(env, request, orgId) {
 }
 
 export default {
-  async fetch(request, env) {
+  // Every 15 minutes, so a decision that arrived in someone's inbox is already
+  // a card by the time they look. Nothing here bypasses the free-tier meter:
+  // the sync loop checks the same allowance a manual sync does.
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(runScheduledSync(env));
+  },
+
+  async fetch(request, env, ctx) {
+    // Every response carries the id its log line was written under, so a user
+    // reporting "it failed" hands over something that finds the line.
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
     const url = new URL(request.url);
+    const route = routeLabel(request.method, url.pathname);
+    try {
+      const response = await handle(request, env, url);
+      logJSON({ requestId, route, status: response.status, ms: Date.now() - startedAt });
+      // A 101 carries the client end of the socket pair on a property, not in
+      // the body. Rebuilding it to add a header would hand back a response with
+      // no socket attached — every realtime connection, silently dead.
+      if (response.status === 101 || response.webSocket) return response;
+      const headers = new Headers(response.headers);
+      headers.set("x-request-id", requestId);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    } catch (err) {
+      // An unhandled throw used to become a raw Workers 500 with a stack trace
+      // in it. A malformed JSON body was enough.
+      logJSON({ requestId, route, status: 500, ms: Date.now() - startedAt, error: safe(err?.message) });
+      return new Response(
+        JSON.stringify({ message: "Something went wrong on our side.", requestId }),
+        { status: 500, headers: { "content-type": "application/json", "x-request-id": requestId } }
+      );
+    }
+  },
+};
+
+async function handle(request, env, url) {
     if (url.pathname === "/health" && request.method === "GET") {
       return json({
         ok: true,
@@ -67,12 +108,15 @@ export default {
           : env.OPENROUTER_API_KEY
             ? env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free"
             : "fallback",
+        push: isConfigured(env),
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {
       return json(toolManifest());
     }
     if (url.pathname === "/ai/route" && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
       const body = await request.json();
       const userKey = request.headers.get("x-ai-key") || undefined;
       // The route is usable without a session (guests), but only a session can
@@ -113,8 +157,21 @@ export default {
         scope: env.GITHUB_OAUTH_SCOPE || "repo",
       });
     }
+    // Minted here, spent on the callback. The client puts it on the authorize
+    // URL as `state` and refuses a callback that comes back with a different
+    // one; we refuse a code that arrives without a nonce we issued.
+    if (url.pathname === "/oauth/github/state" && request.method === "GET") {
+      const limited = await enforce(env, request, "oauth/state");
+      if (limited) return limited;
+      return json({ state: await createOAuthState(env.DB) });
+    }
     if (url.pathname === "/oauth/github/token" && request.method === "POST") {
-      const { code } = await request.json();
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const { code, state } = await request.json();
+      if (!(await consumeOAuthState(env.DB, state))) {
+        return json({ message: "This sign-in has expired. Try again." }, 400);
+      }
       const ghRes = await fetch("https://github.com/login/oauth/access_token", {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
@@ -133,17 +190,59 @@ export default {
         headers: { authorization: `Bearer ${data.access_token}`, "user-agent": "tiktokforwork" },
       });
       const ghUser = await userRes.json();
+      if (!ghUser?.id) return json({ message: "GitHub did not identify this token" }, 502);
+      // The user row used to appear only when someone loaded the org graph,
+      // which happens after the socket connects — so the relay could not name
+      // the person who had just signed in. Identity is established here, where
+      // it is first known.
+      await upsertUser(env.DB, {
+        githubId: ghUser.id, login: ghUser.login, name: ghUser.name,
+        avatarUrl: ghUser.avatar_url, locale: "en",
+      });
       const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
       return json({ accessToken: data.access_token, tokenType: "bearer", sessionToken });
     }
     if (url.pathname === "/media" && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
+      const limited = await enforce(env, request, "media");
+      if (limited) return limited;
       return uploadMedia(request, env, url);
     }
     const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
     if (mediaMatch && request.method === "GET") {
       return serveMedia(mediaMatch[1], env);
+    }
+    // Registered after the user grants permission, and re-registered on every
+    // launch — APNs reissues tokens, and a stale one is a silent no-op.
+    if (url.pathname === "/devices" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json();
+      if (!body.deviceToken) return json({ message: "deviceToken is required" }, 400);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user?.login) return json({ message: "unknown user" }, 409);
+      await registerDevice(env.DB, {
+        deviceToken: body.deviceToken,
+        githubId: session.github_id,
+        login: user.login,
+        environment: body.environment,
+      });
+      return json({ ok: true });
+    }
+    if (url.pathname === "/devices" && request.method === "DELETE") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json();
+      if (body.deviceToken) await removeDevice(env.DB, body.deviceToken);
+      return json({ ok: true });
+    }
+    if (url.pathname === "/account" && request.method === "DELETE") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      await deleteAccount(env.DB, session.github_id, user?.login || null);
+      return json({ ok: true });
     }
     const orgGraphMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/graph$/);
     if (orgGraphMatch && request.method === "GET") {
@@ -268,6 +367,8 @@ export default {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      const limited = await enforce(env, request, "connectors/sync");
+      if (limited) return limited;
 
       const body = await request.json();
       if (!body.orgId || !body.userId) return json({ message: "orgId and userId are required" }, 400);
@@ -306,8 +407,7 @@ export default {
       return stub.fetch(request);
     }
     return new Response("not found", { status: 404 });
-  },
-};
+}
 
 export function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
