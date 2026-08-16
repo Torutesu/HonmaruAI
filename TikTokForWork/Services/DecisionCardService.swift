@@ -187,9 +187,21 @@ final class DecisionCardService: ObservableObject {
             card.githubRepository = githubService.linkedRepository
         }
 
+        let decision = Decision(
+            action: actionToString(action),
+            optionId: nil,
+            note: revisionNote,
+            replyText: nil,
+            actorUserID: actorUserID,
+            decidedAt: .now
+        )
+
+        card.decision = decision
         userCards[index] = card
         cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishUpdated(card)
+
+        let toolCallId = webSocketService?.toolCallID(for: cardID)
+        await webSocketService?.publishToolResult(card, decision: decision, toolCallId: toolCallId)
 
         let statusLabel: String = {
             switch card.status {
@@ -250,9 +262,21 @@ final class DecisionCardService: ObservableObject {
             card.githubRepository = githubService.linkedRepository
         }
 
+        let decision = Decision(
+            action: "delegate",
+            optionId: nil,
+            note: nil,
+            replyText: nil,
+            actorUserID: actorUserID,
+            decidedAt: .now
+        )
+
+        card.decision = decision
         userCards[index] = card
         cardsByUser[actorUserID] = userCards
-        await webSocketService?.publishUpdated(card)
+
+        let toolCallId = webSocketService?.toolCallID(for: cardID)
+        await webSocketService?.publishToolResult(card, decision: decision, toolCallId: toolCallId)
 
         let actorName = DisplayName.of(actorUserID, in: organization)
         let recipientName = DisplayName.of(recipientUserID, in: organization)
@@ -388,5 +412,16 @@ final class DecisionCardService: ObservableObject {
         cards.removeAll { $0.id == cardID }
         cardsByUser[userID] = cards
         changed()
+    }
+
+    private func actionToString(_ action: CardActionKind) -> String {
+        switch action {
+        case .createIssue: "approve"
+        case .reject: "decline"
+        case .requestRevision: "revised"
+        case .delegate: "delegate"
+        case .delete: "delete"
+        case .viewDetails: "acknowledge"
+        }
     }
 }

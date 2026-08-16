@@ -102,6 +102,7 @@ enum OutboundEvent {
     case cardDeleted(cardID: String, recipientUserID: String)
     case rollback(cardID: String)
     case contextUpdated(text: String)
+    case toolResult(card: DecisionCard, decision: Decision, toolCallId: String?)
     /// An envelope replayed from the outbox. It was built by one of the cases
     /// above before it was written to disk, so it is re-sent verbatim rather
     /// than reconstructed — a queue that has to understand its own payloads
@@ -136,6 +137,26 @@ enum OutboundEvent {
             return ["type": "rollback", "payload": ["cardId": cardID]]
         case .contextUpdated(let text):
             return ["type": "context_updated", "payload": ["context": ["text": text]]]
+        case .toolResult(let card, let decision, let toolCallId):
+            var content: [String: Any] = [
+                "cardId": card.id,
+                "action": decision.action,
+                "actorUserID": decision.actorUserID,
+                "decidedAt": ISO8601DateFormatter().string(from: decision.decidedAt)
+            ]
+            if let optionId = decision.optionId { content["optionId"] = optionId }
+            if let note = decision.note { content["note"] = note }
+            if let replyText = decision.replyText { content["replyText"] = replyText }
+            // tool_result carries only the decision, not the whole card — the
+            // GitHub sync result has to ride along explicitly here or the
+            // relay's copy of the card never learns about it.
+            if let issueNumber = card.githubIssueNumber { content["githubIssueNumber"] = issueNumber }
+            if let issueURL = card.githubIssueURL { content["githubIssueURL"] = issueURL }
+            if let repository = card.githubRepository { content["githubRepository"] = repository }
+
+            var payload: [String: Any] = ["content": content]
+            if let toolCallId { payload["toolCallId"] = toolCallId }
+            return ["type": "tool_result", "payload": payload]
         }
     }
 }
@@ -322,6 +343,19 @@ final class WebSocketService: ObservableObject {
                 break
             }
         }
+    }
+
+    /// Goes through `publish`, not `send`, for the same reason every other
+    /// mutation does: a decision made with no socket has to wait in the outbox
+    /// rather than disappear. This is the one message where losing it is worst
+    /// — the person saw their approval land and the teammate waiting on it
+    /// never hears.
+    func publishToolResult(_ card: DecisionCard, decision: Decision, toolCallId: String?) async {
+        await publish(.toolResult(card: card, decision: decision, toolCallId: toolCallId))
+    }
+
+    func toolCallID(for cardID: String) -> String? {
+        aguiAssembler.toolCallIDsByCard[cardID]
     }
 
     private func send(_ event: OutboundEvent) async throws {

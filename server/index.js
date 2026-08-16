@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
+import Busboy from "busboy";
 import { routeInstruction } from "./agentTools.js";
 import { uploadMedia, serveMedia } from "./media.js";
 import { toolManifest, PROTOCOL_VERSION } from "./agui/tools.js";
@@ -18,6 +19,9 @@ import {
   applyDecision,
   applyRollback,
 } from "./agui/adapter.js";
+import { parseEmailMessage, validateMailgunSignature } from "./connectors/email.js";
+import { createEmailDecisionCard } from "./connectors/email-handler.js";
+import { wasAlreadyIngested, markIngested } from "./connectors/email-dedup.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
@@ -38,6 +42,10 @@ function loadEnv(path) {
 }
 
 const PORT = Number(process.env.PORT || 8080);
+// Plain-text/HTML emails without attachments (attachments arrive as
+// multipart, handled separately and unbounded by this constant beyond
+// busboy's own per-field limit).
+const EMAIL_WEBHOOK_MAX_BODY_BYTES = 5 * 1024 * 1024;
 const ORG_ID = "core-team";
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || "";
@@ -88,6 +96,12 @@ const orgStores = new Map([[ORG_ID, structuredClone(initialCards)]]);
 /** Per-user curated context ("profile.md" behind the UI). */
 /** @type {Map<string, Record<string, object>>} */
 const orgContexts = new Map();
+
+// The email webhook responds 200 before doing the actual work (Mailgun
+// retries on non-2xx/timeout, so the response has to be fast), which means
+// failures during that work can't be surfaced as an HTTP status — this is
+// the only visibility into them short of scraping logs.
+const emailWebhookStats = { received: 0, cardsCreated: 0, errors: 0, lastError: null };
 
 function getContexts(orgId) {
   if (!orgContexts.has(orgId)) {
@@ -182,12 +196,58 @@ function removeCard(store, cardId, recipientUserID) {
   store[recipientUserID] = cards.filter((item) => item.id !== cardId);
 }
 
-function readBody(req) {
+function readBody(req, { maxBytes = 1024 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
+    const tooLarge = () => Object.assign(new Error(`Request body exceeds ${maxBytes} bytes`), { statusCode: 413 });
+
+    // Fast path: a well-formed Content-Length lets us reject before reading
+    // any body bytes at all.
+    const contentLength = Number(req.headers["content-length"]);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      req.resume(); // drain so the socket isn't left stalled mid-request
+      reject(tooLarge());
+      return;
+    }
+
     const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    let size = 0;
+    let rejected = false;
+    req.on("data", (chunk) => {
+      if (rejected) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        // Reject but keep consuming (not req.destroy()) — killing the
+        // socket here means the response below never reaches the client,
+        // which surfaces as a raw connection-reset instead of a clean 413.
+        rejected = true;
+        reject(tooLarge());
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (!rejected) resolve(Buffer.concat(chunks).toString("utf8"));
+    });
     req.on("error", reject);
+  });
+}
+
+// Real Mailgun webhooks with attachments arrive as multipart/form-data, not
+// urlencoded or JSON. Parsed straight from the request stream (not through
+// readBody) so binary attachment parts never round-trip through a utf8
+// string — they're drained and discarded here since only the text fields
+// (body-mime/timestamp/token/signature) are needed.
+function readMultipartFields(req, { maxFieldBytes = 20 * 1024 * 1024 } = {}) {
+  return new Promise((resolve, reject) => {
+    const busboy = Busboy({ headers: req.headers, limits: { fieldSize: maxFieldBytes } });
+    const fields = {};
+    busboy.on("field", (name, value) => {
+      fields[name] = value;
+    });
+    busboy.on("file", (_name, stream) => stream.resume());
+    busboy.on("error", reject);
+    busboy.on("finish", () => resolve(fields));
+    req.pipe(busboy);
   });
 }
 
@@ -277,6 +337,7 @@ const server = createServer(async (req, res) => {
       // has to reflect the provider actually configured, not just OpenRouter.
       aiRouting: Boolean(llmConfig()),
       aiModel: llmConfig()?.model || OPENROUTER_MODEL,
+      emailWebhook: emailWebhookStats,
     });
     return;
   }
@@ -349,6 +410,90 @@ const server = createServer(async (req, res) => {
       json(res, 200, routing);
     } catch (error) {
       json(res, 400, { message: error.message || "AI routing failed." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/webhooks/email" && req.method === "POST") {
+    try {
+      const contentType = req.headers["content-type"] || "";
+
+      // Mailgun posts multipart/form-data when the email has attachments,
+      // urlencoded otherwise; our test harness posts plain JSON
+      // { raw: "<rfc822 message>" }. All three are accepted.
+      let rawMessage;
+      let timestamp;
+      let token;
+      let signature;
+      if (contentType.includes("multipart/form-data")) {
+        const fields = await readMultipartFields(req);
+        rawMessage = fields["body-mime"];
+        ({ timestamp, token, signature } = fields);
+      } else {
+        const raw = await readBody(req, { maxBytes: EMAIL_WEBHOOK_MAX_BODY_BYTES });
+        if (contentType.includes("application/json")) {
+          const body = raw ? JSON.parse(raw) : {};
+          rawMessage = body["body-mime"] || body.raw;
+          ({ timestamp, token, signature } = body);
+        } else {
+          const params = new URLSearchParams(raw);
+          rawMessage = params.get("body-mime");
+          timestamp = params.get("timestamp");
+          token = params.get("token");
+          signature = params.get("signature");
+        }
+      }
+
+      if (!rawMessage) {
+        json(res, 400, { message: "Missing email body (body-mime/raw)." });
+        return;
+      }
+
+      if (!validateMailgunSignature(timestamp, token, signature)) {
+        json(res, 401, { message: "Invalid webhook signature." });
+        return;
+      }
+
+      const parsed = await parseEmailMessage(rawMessage);
+      console.log(`Received email: "${parsed.subject}" from ${parsed.from}`);
+      emailWebhookStats.received += 1;
+
+      if (wasAlreadyIngested(ORG_ID, parsed.hash)) {
+        console.log(`Duplicate email (already ingested), skipping: ${parsed.messageId}`);
+        json(res, 200, { status: "duplicate" });
+        return;
+      }
+      markIngested(ORG_ID, parsed.hash);
+
+      // Respond to the webhook immediately; Mailgun retries on non-2xx and
+      // on timeout, so keep the handler fast and do the rest inline (this
+      // relay is single-request-at-a-time anyway, no queue to hand off to).
+      // Failures past this point can't become an HTTP status any more —
+      // they're counted in emailWebhookStats (see GET /health) since that's
+      // the only visibility available without a retry queue.
+      json(res, 200, { status: "received" });
+
+      // Recipient resolution is a stand-in for real org-membership/To:
+      // lookup — every decision-worthy email routes to either the
+      // configured default or the org's first known member.
+      const store = getStore(ORG_ID);
+      const recipientUserID =
+        process.env.EMAIL_DEFAULT_RECIPIENT_USER_ID || Object.keys(store)[0] || "user-alice";
+
+      const card = await createEmailDecisionCard(parsed, ORG_ID, { recipientUserID });
+      if (card) {
+        upsertCard(store, card);
+        publishUpsert(ORG_ID, card, true);
+        emailWebhookStats.cardsCreated += 1;
+        console.log(`Card ${card.id} broadcast to ${recipientUserID}`);
+      }
+    } catch (error) {
+      emailWebhookStats.errors += 1;
+      emailWebhookStats.lastError = { message: error.message, at: new Date().toISOString() };
+      console.error("/webhooks/email error:", error.message);
+      if (!res.headersSent) {
+        json(res, error.statusCode || 400, { message: error.message || "Email webhook failed." });
+      }
     }
     return;
   }

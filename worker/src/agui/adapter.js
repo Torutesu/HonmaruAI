@@ -123,6 +123,19 @@ export function applyDecision(store, content) {
     actorUserID: content.actorUserID,
     decidedAt: content.decidedAt || new Date().toISOString(),
   };
+
+  // tool_result carries the decision, not the whole card, so anything the
+  // client changed on its copy before deciding — the revision note it wrote,
+  // the GitHub issue it opened — has to be re-applied here or it never
+  // reaches the store and no other device ever sees it.
+  if (action === "revised" && content.note) {
+    found.revisionNote = content.note;
+    found.context = [found.context, `Revision: ${content.note}`].filter(Boolean).join("\n");
+  }
+  if (content.githubIssueNumber !== undefined) found.githubIssueNumber = content.githubIssueNumber;
+  if (content.githubIssueURL !== undefined) found.githubIssueURL = content.githubIssueURL;
+  if (content.githubRepository !== undefined) found.githubRepository = content.githubRepository;
+
   return { card: found, removed: false };
 }
 

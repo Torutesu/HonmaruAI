@@ -127,6 +127,19 @@ export function applyDecision(store, content) {
     actorUserID: content.actorUserID,
     decidedAt: content.decidedAt || new Date().toISOString(),
   };
+
+  // tool_result carries only the decision, not the whole card, so anything
+  // the client mutated locally before deciding (revision note/context, the
+  // GitHub sync result) has to be re-applied here explicitly or it never
+  // reaches the relay's copy of the card.
+  if (action === "revised" && content.note) {
+    found.revisionNote = content.note;
+    found.context = [found.context, `Revision: ${content.note}`].filter(Boolean).join("\n");
+  }
+  if (content.githubIssueNumber !== undefined) found.githubIssueNumber = content.githubIssueNumber;
+  if (content.githubIssueURL !== undefined) found.githubIssueURL = content.githubIssueURL;
+  if (content.githubRepository !== undefined) found.githubRepository = content.githubRepository;
+
   return { card: found, removed: false };
 }
 

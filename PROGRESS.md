@@ -29,6 +29,11 @@ The list of what is still missing, and why each item matters, is
 - [x] Decisions written out to the decider's chosen Notion database
 - [x] Video capture attached to a card, stored in R2
 - [x] Dictation, English/Japanese, light and dark
+- [x] Decisions go out as AG-UI `tool_result` carrying the `toolCallId` of the
+      `request_decision` that asked for them, so an answer can be matched to the
+      question that prompted it rather than arriving as a bare card update
+- [x] A React/TypeScript reference client (`web-react/`) speaking the same AG-UI
+      protocol as the app, next to the single-file demo the relay serves at `GET /`
 - [x] RevenueCat subscriptions, metered server-side (off until `REVENUECAT_SECRET_KEY` exists)
 - [x] A cron that syncs connectors every 15 minutes
 - [~] Push notifications — built and tested end to end, switched off in the client
@@ -64,6 +69,16 @@ The list of what is still missing, and why each item matters, is
       decision is overdue, which is why the SLA work shipped as a chip only
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have
       to be clamped at `accessibility1`
+- [ ] Email as an inbound connector. A PoC lives in `server/connectors/` — a
+      Mailgun webhook is verified (HMAC, ±15 min freshness, single-use token,
+      fails closed), parsed, triaged by keyword, deduplicated by `Message-ID`
+      and broadcast as a decision card, with 28 tests. None of it is on the
+      production path: no Mailgun account is wired up, so no real email has ever
+      reached it; the recipient is a stand-in rather than a lookup of the `To:`
+      address against org membership; triage is keyword-only where the other
+      connectors use a model; and it has not been ported to `worker/`, where
+      Gmail, Slack and Notion actually live. The longer it sits in `server/`,
+      the further the two backends drift.
 
 Both of the last two, and the other compromises made here, are written up under
 [Known compromises](docs/production-release-plan.md#known-compromises).

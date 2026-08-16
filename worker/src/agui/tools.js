@@ -17,6 +17,8 @@ export const DECISION_ACTIONS = [
   "later",
   "delete",
   "mute",
+  "revised",
+  "delegate",
 ];
 
 export const CARD_SCHEMA = {
@@ -133,10 +135,17 @@ export const SUBMIT_DECISION_SCHEMA = {
     cardId: { type: "string" },
     action: { type: "string", enum: DECISION_ACTIONS },
     optionId: { type: "string" },   // required when action === "choose"
-    note: { type: "string" },       // optional note on approve/decline
+    note: { type: "string" },       // optional note on approve/decline; the revision comment when action === "revised"
     replyText: { type: "string" },  // required when action === "reply"
     actorUserID: { type: "string" },
     decidedAt: { type: "string", format: "date-time" },
+    // Set by the client after it syncs the decision to GitHub. tool_result
+    // deliberately carries the decision rather than the whole card, so
+    // anything the client learned while deciding has to ride along here or
+    // the relay's copy never hears about it.
+    githubIssueNumber: { type: "integer" },
+    githubIssueURL: { type: "string" },
+    githubRepository: { type: "string" },
   },
 };
 
@@ -148,6 +157,8 @@ export const ACTION_STATUS = {
   choose: "approved",
   reply: "completed",
   acknowledge: "completed",
+  revised: "revised",
+  delegate: "delegated",
 };
 
 export function toolManifest() {
