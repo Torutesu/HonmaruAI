@@ -104,3 +104,39 @@ test("a bad submit sends RUN_ERROR to the sender without closing the socket", as
   expect(err.message).toContain("does-not-exist");
   expect(a.readyState).toBe(WebSocket.OPEN);
 });
+
+// The app used to announce a decision by republishing the whole card
+// (`card_updated`); it now answers the `request_decision` tool call instead.
+// The Notion write hung off the old path only, so making that switch without
+// this would have quietly stopped writing decisions to the database people
+// deliberately connected — with nothing failing to show for it.
+test("a decision sent as tool_result is written to Notion, same as card_updated", async () => {
+  const { saveCard } = await import("../src/db.js");
+  await saveCard(env.DB, "notion-org", {
+    id: "c-toolresult", recipientUserID: "realdev", senderUserID: "watcher",
+    status: "pending", title: "Approve the rollout", priority: "high",
+    createdAt: "2026-08-10T00:00:00Z",
+  });
+
+  fetchMock.activate();
+  let notionCalled = false;
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.includes("NOTION_INSERT_ROW_DATABASE"), method: "POST",
+      body: () => { notionCalled = true; return true; } })
+    .reply(200, { successful: true, data: { id: "page-toolresult-1" } });
+
+  const { ws: a } = await joined("notion-org", globalThis.__tokenA);   // realdev, who configured Notion
+
+  a.send(JSON.stringify({ type: "tool_result", payload: {
+    toolCallId: "tc-1",
+    content: { cardId: "c-toolresult", action: "approve", actorUserID: "realdev", decidedAt: "2026-08-10T02:00:00Z" },
+  } }));
+
+  const eventRow = await until(async () =>
+    env.DB.prepare("SELECT type, action FROM card_events WHERE org_id='notion-org' AND card_id='c-toolresult'").first()
+  );
+  expect(eventRow).toMatchObject({ type: "decided", action: "approve" });
+
+  expect(await until(() => notionCalled)).toBe(true);
+  expect(await untilNoThrow(() => fetchMock.assertNoPendingInterceptors())).toBe(true);
+});

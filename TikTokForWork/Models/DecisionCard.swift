@@ -54,6 +54,15 @@ enum CardActionKind {
     case delete
 }
 
+struct Decision: Codable, Hashable {
+    let action: String
+    let optionId: String?
+    let note: String?
+    let replyText: String?
+    let actorUserID: String
+    let decidedAt: Date
+}
+
 struct DecisionCard: Identifiable, Codable, Hashable {
     let id: String
     let recipientUserID: String
@@ -87,6 +96,8 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var originalLanguage: String?
     /// The uploaded video the sender recorded alongside this decision.
     var videoURL: String?
+    /// The decision made on this card (if decided). Present only after the card has been actioned.
+    var decision: Decision?
 
     var isPending: Bool { status == .pending }
 

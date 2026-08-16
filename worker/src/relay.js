@@ -296,6 +296,29 @@ export class OrgRelay {
         actorUserId: content.actorUserID, note: content.note || content.replyText,
         snapshot: out.card,
       });
+      // A decision is a decision whichever message carried it. These two used
+      // to hang off `card_updated` only, because that was the one way the app
+      // announced a decision; now that it answers the `request_decision` tool
+      // call instead, they have to happen here too or connecting a Notion
+      // database — and being told your decision landed — would quietly stop
+      // working. Same rule as over there: deferred, never awaited, and never
+      // able to break the decision it is reporting.
+      this.state.waitUntil(
+        writeDecisionToNotion({
+          env: this.env,
+          orgId,
+          login: out.card.decision?.actorUserID || actorUserId,
+          card: out.card,
+        })
+      );
+      this.state.waitUntil(
+        notifyCard(this.env, {
+          card: out.card,
+          kind: "decided",
+          excludeLogin: actorUserId,
+          badge: await this.pendingCountFor(orgId, out.card.senderUserID),
+        })
+      );
       const { forEveryone } = upsertEvents(out.card, { isNew: false });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
     }
