@@ -70,6 +70,25 @@ export async function clearCards(db, orgId) {
   await db.prepare("DELETE FROM cards WHERE org_id = ?1").bind(orgId).run();
 }
 
+/// Cards that landed on someone since a moment, newest first.
+///
+/// Used after a connector sync to find what it produced, by both callers: the
+/// cron loop that notifies, and the HTTP route that announces. Reading them
+/// back beats threading them out through syncAll, which reports counts and
+/// would otherwise have to carry a payload only these two need.
+export async function cardsCreatedSince(db, orgId, login, since) {
+  const { results } = await db
+    .prepare(
+      `SELECT data FROM cards
+       WHERE org_id = ?1 AND recipient_user_id = ?2 AND created_at >= ?3 AND status = 'pending'`
+    )
+    .bind(orgId, login, since)
+    .all();
+  return (results || [])
+    .map((row) => { try { return JSON.parse(row.data); } catch { return null; } })
+    .filter(Boolean);
+}
+
 export async function loadContexts(db, orgId) {
   const { results } = await db
     .prepare("SELECT user_id, data FROM contexts WHERE org_id = ?1")
@@ -206,6 +225,33 @@ export async function upsertMembership(db, orgId, githubId, role) {
     )
     .bind(orgId, String(githubId), role, new Date().toISOString())
     .run();
+}
+
+/// Remove everyone from an org except the github ids given.
+///
+/// Membership was only ever written, never withdrawn, so being removed from a
+/// repository did not remove anyone from the organization it backs: the
+/// relay's fast path trusts this table, and a session slides forward every
+/// time it is used. Someone who left kept reading the team's decisions for as
+/// long as they kept the app open.
+///
+/// `keep` empty is treated as "we learned nothing", not "nobody is a member".
+/// GitHub answering with an empty list — or not answering — must not empty an
+/// organization.
+export async function retainMemberships(db, orgId, keep) {
+  const ids = [...new Set((keep || []).map(String))].filter(Boolean);
+  if (!ids.length) return { removed: 0 };
+  const holes = ids.map((_, i) => `?${i + 2}`).join(", ");
+  const { meta } = await db
+    .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes})`)
+    .bind(orgId, ...ids)
+    .run();
+  // Agents belong to the person, so they go the same way.
+  await db
+    .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes})`)
+    .bind(orgId, ...ids)
+    .run();
+  return { removed: meta?.changes ?? 0 };
 }
 
 export async function upsertAgent(db, orgId, githubId, displayName) {

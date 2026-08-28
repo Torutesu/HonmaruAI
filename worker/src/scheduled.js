@@ -2,6 +2,8 @@ import { CONNECTORS } from "./connectors/index.js";
 import { syncAll } from "./sync.js";
 import { notifyCard } from "./push.js";
 import { sweepRateLimits } from "./ratelimit.js";
+import { cardsCreatedSince } from "./db.js";
+import { announceCards } from "./announce.js";
 
 // "Your AI triaged three decisions overnight" cannot be true if the AI only
 // runs while you are looking at it. Until this existed, a connector sync
@@ -55,27 +57,6 @@ function providerConfig(env) {
   return undefined;
 }
 
-/// Cards created by this run, so the people they landed on can be told. Read
-/// after the sync rather than returned by it: syncAll reports counts, and
-/// threading cards back through it would make every caller carry a payload only
-/// this one needs.
-async function cardsCreatedSince(db, orgId, login, since) {
-  const { results } = await db
-    .prepare(
-      `SELECT data FROM cards
-       WHERE org_id = ?1 AND recipient_user_id = ?2 AND created_at >= ?3 AND status = 'pending'`
-    )
-    .bind(orgId, login, since)
-    .all();
-  return (results || []).map((row) => {
-    try {
-      return JSON.parse(row.data);
-    } catch {
-      return null;
-    }
-  }).filter(Boolean);
-}
-
 export async function runScheduledSync(env) {
   const provider = providerConfig(env);
   const rows = await candidates(env.DB);
@@ -105,6 +86,9 @@ export async function runScheduledSync(env) {
       created += newCards;
 
       const fresh = await cardsCreatedSince(env.DB, row.org_id, row.login, startedAt);
+      // Anyone with the app open sees these now. Without it the push below
+      // announced a decision that was not yet in the feed it points at.
+      await announceCards(env, row.org_id, fresh);
       // One notification for the batch, not one per card: waking someone four
       // times because their inbox was busy is how notifications get turned off.
       if (fresh.length) {

@@ -7,7 +7,12 @@ import { createSession, upsertMembership, upsertUser } from "../src/db.js";
 // The connector's keys are Worker secrets, and secrets set on the shared test
 // env do not reach the Worker isolate. The handler is called directly with an
 // env that carries them, which is the same code path SELF.fetch would take.
-const CONNECTED = { ...env, COMPOSIO_API_KEY: "ak_test", OPENAI_API_KEY: "sk-test" };
+const CONNECTED = { ...env,
+  // These call worker.fetch directly with a hand-made env, which the harness's
+  // isolated storage cannot follow into a Durable Object. Leaving the relay
+  // binding out makes the post-sync announce a no-op; that it actually reaches
+  // open sockets is covered in relay.test.js, through the real harness.
+  ORG_RELAY: undefined, COMPOSIO_API_KEY: "ak_test", OPENAI_API_KEY: "sk-test" };
 const SELF = { fetch: (url, init) => worker.fetch(new Request(url, init), CONNECTED) };
 
 let token;

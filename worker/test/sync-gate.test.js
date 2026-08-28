@@ -12,6 +12,11 @@ import { FREE_DAILY_ROUTES } from "../src/gate.js";
 // metering on at all.
 const METERED = {
   ...env,
+  // These call worker.fetch directly with a hand-made env, which the harness's
+  // isolated storage cannot follow into a Durable Object. Leaving the relay
+  // binding out makes the post-sync announce a no-op; that it actually reaches
+  // open sockets is covered in relay.test.js, through the real harness.
+  ORG_RELAY: undefined,
   COMPOSIO_API_KEY: "ak_test",
   OPENAI_API_KEY: "sk-test",
   REVENUECAT_SECRET_KEY: "sk-rc",

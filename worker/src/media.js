@@ -7,20 +7,73 @@
 
 // Storage is the only thing R2 bills for (egress is free), so the cap exists to
 // stop one bad client filling the bucket. A 60s clip exported at 960x540 is
-// ~1-2 MB, far under this.
+// ~1-2 MB, far under this. Enforced on the bytes received, not on the length
+// the client claims — see `readCapped` below.
 const MAX_BYTES = 12 * 1024 * 1024;
+
+// Built per call, not once at module scope: a Response carries a body stream,
+// and a shared one cannot be handed out twice.
+function tooLarge() {
+  return new Response(
+    JSON.stringify({ message: `Video is larger than ${MAX_BYTES} bytes.` }),
+    { status: 413, headers: { "content-type": "application/json" } }
+  );
+}
+
+/// Read the body, refusing to hold more than the cap.
+///
+/// `content-length` is a claim, not a measurement: a client that omits the
+/// header sends `Number(null)` — zero — straight past a check written against
+/// it, and then streams whatever it likes into the bucket. The header is still
+/// worth reading, because rejecting before a byte is transferred is cheaper
+/// than rejecting after; it just cannot be the only thing standing between an
+/// upload and R2.
+///
+/// Buffered rather than piped because R2 will not take a stream of unknown
+/// length, and the length is exactly what is in question here. Memory is
+/// bounded by the cap plus one chunk, which is the point.
+async function readCapped(body, maxBytes) {
+  const reader = body.getReader();
+  const chunks = [];
+  let seen = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    seen += value.byteLength;
+    if (seen > maxBytes) {
+      // Stop pulling. Draining the rest would mean paying to receive bytes we
+      // have already decided to refuse.
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(seen);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return out;
+}
 
 export async function uploadMedia(request, env, url) {
   const contentType = request.headers.get("content-type") || "video/mp4";
-  const length = Number(request.headers.get("content-length") || 0);
-  if (length > MAX_BYTES) {
-    return new Response(JSON.stringify({ message: `Video is larger than ${MAX_BYTES} bytes.` }), {
-      status: 413,
+  const claimed = Number(request.headers.get("content-length") || 0);
+  // Cheap rejection for an honest client that is simply too big.
+  if (claimed > MAX_BYTES) return tooLarge();
+  if (!request.body) {
+    return new Response(JSON.stringify({ message: "No video in the request." }), {
+      status: 400,
       headers: { "content-type": "application/json" },
     });
   }
+
+  const bytes = await readCapped(request.body, MAX_BYTES);
+  if (!bytes) return tooLarge();
+
   const id = crypto.randomUUID();
-  await env.MEDIA.put(id, request.body, { httpMetadata: { contentType } });
+  await env.MEDIA.put(id, bytes, { httpMetadata: { contentType } });
   return new Response(JSON.stringify({ id, url: `${url.origin}/media/${id}` }), {
     status: 200,
     headers: { "content-type": "application/json" },

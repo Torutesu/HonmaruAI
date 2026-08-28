@@ -3,9 +3,10 @@ import { toolManifest } from "./agui/tools.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
-  getUserByGithubId, registerDevice, removeDevice,
+  getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
+import { announceCards } from "./announce.js";
 import { deleteAccount } from "./account.js";
 import { isConfigured } from "./apns.js";
 import { runScheduledSync } from "./scheduled.js";
@@ -262,6 +263,13 @@ async function handle(request, env, url) {
         await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
         await upsertAgent(env.DB, orgId, c.id, `${c.login}'s AI`);
       }
+      // GitHub has just told us who the collaborators are. Anyone in the table
+      // who is not on that list is not one any more — and until this line, that
+      // never became false anywhere: the relay trusts this table, so being
+      // removed from the repository did not remove you from the organization.
+      // This is the moment we have the authoritative answer, so it is the
+      // moment to act on it.
+      await retainMemberships(env.DB, orgId, collaborators.map((c) => c.id));
       return json(graph);
     }
     const cardEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/cards\/([^/]+)\/events$/);
@@ -392,12 +400,17 @@ async function handle(request, env, url) {
       const only = typeof syncMatch === "object" ? connectorById(syncMatch[1]) : null;
       if (typeof syncMatch === "object" && !only) return json({ message: "unknown connector" }, 404);
 
+      const startedAt = new Date().toISOString();
       const results = await syncAll(only ? [only] : CONNECTORS, {
         env, session,
         orgId: body.orgId, userId: me.login,
         readerLanguage: body.readerLanguage,
         provider: providerConfig(env),
       });
+      // The sync wrote to D1; the sockets live in the Durable Object and heard
+      // nothing about it. Announcing here is what puts a card someone just
+      // pulled in front of them, instead of on their next reconnect.
+      await announceCards(env, body.orgId, await cardsCreatedSince(env.DB, body.orgId, me.login, startedAt));
 
       if (only) {
         const r = results[0];

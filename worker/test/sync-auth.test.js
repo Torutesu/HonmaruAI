@@ -7,7 +7,12 @@ import { createSession, upsertMembership, upsertUser } from "../src/db.js";
 // Who may sync, and on whose behalf. Kept apart from sync.test.js because that
 // file's fetch mocks are accounted per test, and these two care about the
 // answer before any connector is ever reached.
-const CONNECTED = { ...env, COMPOSIO_API_KEY: "ak_test", OPENAI_API_KEY: "sk-test" };
+const CONNECTED = { ...env,
+  // These call worker.fetch directly with a hand-made env, which the harness's
+  // isolated storage cannot follow into a Durable Object. Leaving the relay
+  // binding out makes the post-sync announce a no-op; that it actually reaches
+  // open sockets is covered in relay.test.js, through the real harness.
+  ORG_RELAY: undefined, COMPOSIO_API_KEY: "ak_test", OPENAI_API_KEY: "sk-test" };
 const SELF = { fetch: (url, init) => worker.fetch(new Request(url, init), CONNECTED) };
 
 let token;

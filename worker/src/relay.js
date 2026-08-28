@@ -11,6 +11,7 @@ import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { notifyCard } from "./push.js";
+import { ANNOUNCE_PATH } from "./announce.js";
 
 export class OrgRelay {
   constructor(state, env) {
@@ -22,6 +23,29 @@ export class OrgRelay {
   async fetch(request) {
     const url = new URL(request.url);
     const orgId = url.searchParams.get("orgId") || "core-team";
+
+    // Cards written outside this object — a connector sync, which runs in the
+    // Worker and writes straight to D1 — are announced through here so they
+    // reach open sockets now rather than on the next reconnect.
+    //
+    // Only the binding can reach this: the public handler forwards to the stub
+    // only for `Upgrade: websocket`. The check is repeated rather than assumed,
+    // because that is one edit away from not being true.
+    if (url.pathname === ANNOUNCE_PATH && request.headers.get("Upgrade") !== "websocket") {
+      if (request.method !== "POST") return new Response("not found", { status: 404 });
+      let cards = [];
+      try { ({ cards = [] } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
+      for (const card of cards) {
+        if (!card?.id) continue;
+        const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
+        for (const ev of forEveryone) this.broadcast(orgId, ev);
+        for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      }
+      return new Response(JSON.stringify({ announced: cards.length }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server); // hibernation API
