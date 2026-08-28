@@ -29,6 +29,26 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # The reference relay imports the Worker's AG-UI layer rather than keeping its
+  # own copy, so a change over there can break it. Nothing ran these tests
+  # before, which is how the two copies drifted far enough for a fix to land in
+  # the one nobody runs.
+  relay:
+    name: Reference relay
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test
+
   # macOS minutes are expensive, so this runs on pull requests only. Pushing to
   # a branch gets the Worker suite; asking to merge gets the whole thing.
   ios:
