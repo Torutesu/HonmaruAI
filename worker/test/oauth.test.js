@@ -28,6 +28,11 @@ test("/oauth/github/token exchanges a code and mints a session", async () => {
   });
   expect(res.status).toBe(200);
   const body = await res.json();
-  expect(body.accessToken).toBe("gho_test");
+  // The GitHub token is not handed back. It carries `repo` scope — every
+  // repository this person can reach, code included — and the app's six calls
+  // all go through /github now. A session cannot be replayed against
+  // api.github.com; an access token can.
+  expect(body.accessToken).toBeUndefined();
   expect(typeof body.sessionToken).toBe("string");
+  expect(body.login).toBe("octocat");
 });

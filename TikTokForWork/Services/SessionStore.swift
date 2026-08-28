@@ -5,7 +5,6 @@ enum SessionStore {
     private static let service = "com.tangle.tiktokforwork.session"
 
     private enum Key {
-        static let githubToken = "githubToken"
         static let githubRepository = "githubRepository"
         static let githubUsername = "githubUsername"
         static let githubUserId = "githubUserId"
@@ -13,11 +12,6 @@ enum SessionStore {
         static let currentUserID = "currentUserID"
         static let sessionToken = "sessionToken"
         static let apiKey = "apiKey"
-    }
-
-    static var githubToken: String? {
-        get { read(Key.githubToken) }
-        set { write(newValue, key: Key.githubToken) }
     }
 
     static var githubRepository: String? {
@@ -57,27 +51,26 @@ enum SessionStore {
         set { write(newValue, key: Key.apiKey) }
     }
 
+    /// A GitHub access token is never stored, because it is never received.
+    /// It carries `repo` scope — every repository the person can reach, code
+    /// included — and the app opens issues. It stays on the relay, which
+    /// forwards the handful of calls this app makes and refuses the rest.
+    /// What is kept here is the relay session.
     static var hasSavedGitHubSession: Bool {
-        guard let token = githubToken, !token.isEmpty,
+        guard let session = sessionToken, !session.isEmpty,
               let repository = githubRepository, !repository.isEmpty else {
             return false
         }
         return true
     }
 
-    static func saveGitHubConnection(_ connection: GitHubConnection, token: String, repository: String) {
-        githubToken = token
+    static func saveGitHubConnection(_ connection: GitHubConnection, repository: String) {
         githubRepository = repository
         githubUsername = connection.username
         githubRepositoryURL = connection.repositoryURL
     }
 
-    static func saveGitHubToken(_ token: String) {
-        githubToken = token
-    }
-
     static func clear() {
-        delete(Key.githubToken)
         delete(Key.githubRepository)
         delete(Key.githubUsername)
         delete(Key.githubUserId)

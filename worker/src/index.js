@@ -11,6 +11,7 @@ import { announceCards } from "./announce.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, githubIdFromAddress, inboundAddressFor } from "./connectors/email.js";
 import { triageMessage } from "./triage.js";
 import { notifyCard } from "./push.js";
+import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount } from "./account.js";
 import { isConfigured } from "./apns.js";
 import { runScheduledSync } from "./scheduled.js";
@@ -205,7 +206,11 @@ async function handle(request, env, url) {
         avatarUrl: ghUser.avatar_url, locale: "en",
       });
       const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
-      return json({ accessToken: data.access_token, tokenType: "bearer", sessionToken });
+      // The GitHub token is not handed back. It carries `repo` scope — every
+      // repository this person can reach, code included — and the app does six
+      // things with it, all of which now go through /github. A session cannot
+      // be replayed against api.github.com; an access token can.
+      return json({ tokenType: "bearer", sessionToken, login: ghUser.login });
     }
     if (url.pathname === "/media" && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -431,6 +436,17 @@ async function handle(request, env, url) {
       const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
       return json({ events: await listOrgEvents(env.DB, orgId, limit) });
     }
+    // GitHub, reached through us. The app used to hold the access token and
+    // call GitHub directly; it now holds a session and calls this, which
+    // forwards exactly the six things the app does and nothing else.
+    if (url.pathname === "/github" || url.pathname.startsWith("/github/")) {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const limited = await enforce(env, request, "github");
+      if (limited) return limited;
+      return proxyGitHub(request, env, url, session);
+    }
+
     // Mail arrives here rather than being fetched. Everything after arrival is
     // the same path Gmail and Slack take: triage, a card, an announcement to
     // whoever has the app open, and a notification to whoever does not.

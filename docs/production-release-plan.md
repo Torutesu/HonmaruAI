@@ -351,6 +351,15 @@ Client-side, typed errors with recovery copy and a retry affordance.
 
 Worth stating plainly rather than leaving to be discovered:
 
+- **The OAuth scope is still `repo`.** The token no longer reaches the device —
+  the app calls `/github`, which forwards only what it uses — but what we ask
+  GitHub for is unchanged, because OAuth Apps have no issues-only scope: issues
+  live under `repo` for private repositories and `public_repo` for public ones.
+  Narrowing it means becoming a GitHub App, where `issues:write` plus
+  `metadata:read` is expressible. That is an authentication migration — install
+  flow, token refresh, and re-authentication for everyone already signed in —
+  not a change of one string.
+
 - **Dynamic Type is clamped on the feed card** (P2-1 above). Sizes above
   `accessibility1` are refused rather than rendered badly. VoiceOver users are
   unaffected; someone who reads with large text and does not use VoiceOver gets

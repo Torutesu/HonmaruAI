@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 185 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 190 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **CI:** `.github/workflows/ci.yml` — Worker and the reference relay on every
   push, iOS on pull requests
@@ -47,6 +47,10 @@ The list of what is still missing, and why each item matters, is
 - [x] Relay requires a session with write access to the repository; identity comes off the session
 - [x] Only the recipient can decide, delete or undo a card
 - [x] OAuth `state`, single-use and expiring
+- [x] The GitHub access token never leaves the server. The app holds a relay
+      session and calls `/github`, which forwards the six calls it actually
+      makes and refuses everything else — so a stolen session opens issues, it
+      does not read the person's source
 - [x] Rate limits on routing, token exchange, sync and uploads
 - [x] Account deletion, in the app
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
