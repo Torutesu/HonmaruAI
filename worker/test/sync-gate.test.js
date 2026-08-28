@@ -2,7 +2,7 @@ import { env, fetchMock } from "cloudflare:test";
 import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { createSession, upsertMembership, countAIUse, writeEntitlement } from "../src/db.js";
+import { createSession, upsertMembership, upsertUser, countAIUse, writeEntitlement } from "../src/db.js";
 import { FREE_DAILY_ROUTES } from "../src/gate.js";
 
 // A separate file from sync.test.js on purpose: that file's last block leaves a
@@ -21,6 +21,7 @@ let token;
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   token = await createSession(env.DB, "800", "gho_sync_gate");
+  await upsertUser(env.DB, { githubId: "800", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });
   await upsertMembership(env.DB, "acme/web", "800", "Engineer");
 });
 beforeEach(() => fetchMock.activate());

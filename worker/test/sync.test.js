@@ -2,7 +2,7 @@ import { env, fetchMock } from "cloudflare:test";
 import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { createSession, upsertMembership } from "../src/db.js";
+import { createSession, upsertMembership, upsertUser } from "../src/db.js";
 
 // The connector's keys are Worker secrets, and secrets set on the shared test
 // env do not reach the Worker isolate. The handler is called directly with an
@@ -14,6 +14,7 @@ let token;
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   token = await createSession(env.DB, "700", "gho_sync");
+  await upsertUser(env.DB, { githubId: "700", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });
   await upsertMembership(env.DB, "acme/web", "700", "Engineer");
 });
 beforeEach(() => fetchMock.activate());
@@ -188,3 +189,4 @@ test("sync requires a session", async () => {
   });
   expect(res.status).toBe(401);
 });
+

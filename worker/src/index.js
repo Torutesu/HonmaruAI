@@ -371,7 +371,21 @@ async function handle(request, env, url) {
       if (limited) return limited;
 
       const body = await request.json();
-      if (!body.orgId || !body.userId) return json({ message: "orgId and userId are required" }, 400);
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+
+      // Membership is checked here for the same reason the relay checks it on
+      // join: this route writes cards into an organization. Without it, any
+      // valid session could name any org — and the recipient login came
+      // straight off the request body, so it could name any person too. That
+      // is card injection into a team you do not belong to, over plain HTTP,
+      // around the whole trust boundary the socket enforces.
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+
+      // Whose cards these are is decided by the session, never by the caller.
+      // `body.userId` is still read by older builds' payloads; it is ignored.
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      if (!me?.login) return json({ message: "unknown user" }, 409);
 
       // A single-connector path keeps TestFlight build 28 working; it shipped
       // calling /connectors/gmail/sync and returns the flat shape.
@@ -380,7 +394,7 @@ async function handle(request, env, url) {
 
       const results = await syncAll(only ? [only] : CONNECTORS, {
         env, session,
-        orgId: body.orgId, userId: body.userId,
+        orgId: body.orgId, userId: me.login,
         readerLanguage: body.readerLanguage,
         provider: providerConfig(env),
       });

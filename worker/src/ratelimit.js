@@ -21,15 +21,42 @@ export const LIMITS = {
   "oauth/state": { max: 30, windowSeconds: 300 },
 };
 
-/// Who this request counts against.
+/// Who this request counts against, given a token already known to be real.
 ///
 /// A session token first: a signed-in person keeps one budget as they move
 /// between wifi and cellular, and cannot buy a fresh one by changing networks.
 /// Otherwise the connecting IP, which is all an anonymous caller has.
-export function subjectOf(request) {
-  const token = request.headers.get("x-session-token");
-  if (token) return `s:${token}`;
+///
+/// `verifiedToken` must be a token that was found in `sessions`. An
+/// unverified one is worse than no token at all: the header is attacker
+/// controlled, so keying the bucket on it lets a caller mint a fresh
+/// allowance per request just by sending a different random string — which
+/// is every budget here, gone, for anyone who notices.
+export function subjectFor(request, verifiedToken) {
+  if (verifiedToken) return `s:${verifiedToken}`;
   return `i:${request.headers.get("CF-Connecting-IP") || "unknown"}`;
+}
+
+/// Is this token a session that exists?
+///
+/// Deliberately not `getSession`: that slides the expiry, and the limiter runs
+/// before we have decided whether the caller may do anything at all. This asks
+/// the narrower question — "may this token name a budget?" — and an expired
+/// session answers no, falling back to the IP.
+async function verifySessionToken(env, token) {
+  if (!token) return null;
+  try {
+    const row = await env.DB
+      .prepare("SELECT token FROM sessions WHERE token = ?1 AND (expires_at IS NULL OR expires_at > ?2)")
+      .bind(token, new Date().toISOString())
+      .first();
+    return row ? token : null;
+  } catch {
+    // Same rule as the limiter itself: an outage must not become an outage for
+    // the product. Unverified means "count this against the IP", never "let it
+    // name its own bucket".
+    return null;
+  }
 }
 
 /// Returns null when the caller may proceed, or a 429 Response when they may not.
@@ -37,7 +64,8 @@ export async function enforce(env, request, bucket) {
   const limit = LIMITS[bucket];
   if (!limit) return null;
 
-  const subject = subjectOf(request);
+  const verified = await verifySessionToken(env, request.headers.get("x-session-token"));
+  const subject = subjectFor(request, verified);
   const now = Math.floor(Date.now() / 1000);
   const windowStart = now - (now % limit.windowSeconds);
 

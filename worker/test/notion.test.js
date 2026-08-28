@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { notion } from "../src/connectors/notion.js";
-import { createSession, upsertMembership, setConnectorConfig } from "../src/db.js";
+import { createSession, upsertMembership, setConnectorConfig, upsertUser } from "../src/db.js";
 
 const row = {
   id: "page-1",
@@ -51,6 +51,7 @@ let token;
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   token = await createSession(env.DB, "900", "gho_notion_sync");
+  await upsertUser(env.DB, { githubId: "900", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });
   await upsertMembership(env.DB, "acme/web", "900", "Engineer");
 });
 beforeEach(() => fetchMock.activate());
