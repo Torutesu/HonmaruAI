@@ -9,8 +9,6 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "busboy": "^1.6.0",
-    "mailparser": "^3.9.15",
     "ws": "^8.18.0"
   },
   "engines": {

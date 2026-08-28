@@ -19,6 +19,10 @@ export const LIMITS = {
   media: { max: 20, windowSeconds: 3600 },
   // Minting a nonce is cheap, but not free, and it writes a row.
   "oauth/state": { max: 30, windowSeconds: 300 },
+  // Anyone can post here — that is what a webhook is. Every accepted message
+  // costs a model call, so the ceiling is what stops a flood of forged posts
+  // becoming a bill. Counted per IP, since a webhook carries no session.
+  "webhooks/email": { max: 120, windowSeconds: 300 },
 };
 
 /// Who this request counts against, given a token already known to be real.
@@ -107,10 +111,9 @@ export async function sweepRateLimits(env) {
   const cutoff = Math.floor(Date.now() / 1000) - 3600;
   try {
     await env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?1").bind(cutoff).run();
-    await env.DB
-      .prepare("DELETE FROM oauth_states WHERE expires_at < ?1")
-      .bind(new Date().toISOString())
-      .run();
+    const now = new Date().toISOString();
+    await env.DB.prepare("DELETE FROM oauth_states WHERE expires_at < ?1").bind(now).run();
+    await env.DB.prepare("DELETE FROM webhook_nonces WHERE expires_at < ?1").bind(now).run();
   } catch (err) {
     console.error("rate limit sweep failed", err?.message || err);
   }

@@ -142,3 +142,11 @@ CREATE TABLE IF NOT EXISTS connector_config (
   updated_at     TEXT NOT NULL,
   PRIMARY KEY (user_github_id, connector)
 );
+
+/* Mailgun signs `timestamp + token`, never the body, so a signature that was
+   valid once stays valid for anything you care to attach to it. Spending the
+   token is what stops that. Rows are swept with the rate-limit windows. */
+CREATE TABLE IF NOT EXISTS webhook_nonces (
+  token      TEXT PRIMARY KEY,
+  expires_at TEXT NOT NULL
+);

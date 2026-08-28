@@ -4,9 +4,13 @@ import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
+  isIngested, markIngested, saveCard,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
+import { verifyMailgunWebhook, parseMailgunWebhook, githubIdFromAddress, inboundAddressFor } from "./connectors/email.js";
+import { triageMessage } from "./triage.js";
+import { notifyCard } from "./push.js";
 import { deleteAccount } from "./account.js";
 import { isConfigured } from "./apns.js";
 import { runScheduledSync } from "./scheduled.js";
@@ -427,6 +431,100 @@ async function handle(request, env, url) {
       const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
       return json({ events: await listOrgEvents(env.DB, orgId, limit) });
     }
+    // Mail arrives here rather than being fetched. Everything after arrival is
+    // the same path Gmail and Slack take: triage, a card, an announcement to
+    // whoever has the app open, and a notification to whoever does not.
+    if (url.pathname === "/webhooks/email" && request.method === "POST") {
+      const limited = await enforce(env, request, "webhooks/email");
+      if (limited) return limited;
+
+      let fields;
+      try {
+        const type = request.headers.get("content-type") || "";
+        fields = type.includes("application/json")
+          ? new Map(Object.entries(await request.json()))
+          : await request.formData();
+      } catch {
+        return json({ message: "Unreadable webhook body." }, 400);
+      }
+      const read = (n) => (fields.get ? fields.get(n) : undefined);
+
+      if (!(await verifyMailgunWebhook(env, {
+        timestamp: read("timestamp"), token: read("token"), signature: read("signature"),
+      }))) {
+        return json({ message: "Invalid webhook signature." }, 401);
+      }
+
+      const message = parseMailgunWebhook(fields);
+      if (!message) return json({ message: "No message in the webhook." }, 400);
+
+      // The address names its owner. No owner, nothing to do — answered 200
+      // because Mailgun retries a non-2xx, and retrying will not make the
+      // address resolve.
+      const githubId = githubIdFromAddress(message.recipient);
+      if (!githubId) return json({ status: "unroutable" });
+      const user = await getUserByGithubId(env.DB, githubId);
+      if (!user?.login) return json({ status: "unknown recipient" });
+
+      const orgRow = await env.DB
+        .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 LIMIT 1")
+        .bind(String(githubId)).first();
+      if (!orgRow?.org_id) return json({ status: "no organization" });
+      const orgId = orgRow.org_id;
+
+      // A redelivered webhook is the same mail, not a second decision.
+      if (await isIngested(env.DB, "email", message.id, githubId)) {
+        return json({ status: "duplicate" });
+      }
+
+      const allowance = await checkAIAllowance(env, { githubId: String(githubId) });
+      const provider = allowance.allowed ? providerConfig(env) : undefined;
+      const result = provider
+        ? await triageMessage(message, { provider, readerLanguage: user.locale || "en", sourceLabel: "Email" })
+        : { called: false, card: null };
+      if (result.called && allowance.metered) await allowance.consume();
+
+      let cardId = null;
+      if (result.card) {
+        cardId = crypto.randomUUID();
+        const card = {
+          id: cardId,
+          recipientUserID: user.login,
+          senderUserID: user.login,
+          type: result.card.cardType,
+          format: "approve",
+          title: result.card.title,
+          summary: result.card.summary,
+          context: result.card.context,
+          priority: result.card.priority,
+          status: "pending",
+          createdAt: new Date().toISOString(),
+          sourceApp: "Email",
+          sourceDetail: `${message.from} · ${message.subject}`,
+        };
+        await saveCard(env.DB, orgId, card);
+        await announceCards(env, orgId, [card]);
+        // notifyCard never throws, and this handler has no ctx to defer with.
+        await notifyCard(env, { card, kind: "created", excludeLogin: null });
+      }
+
+      await markIngested(env.DB, {
+        connector: "email", externalId: message.id, githubId, orgId, cardId,
+      });
+      return json({ status: cardId ? "card created" : "no decision needed" });
+    }
+
+    // Where to send mail so it reaches you. The address names its owner, which
+    // is what makes routing an inbound message possible at all.
+    if (url.pathname === "/connectors/email/address" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const address = inboundAddressFor(env, session.github_id);
+      return address
+        ? json({ address })
+        : json({ message: "Inbound email is not configured on this deployment." }, 503);
+    }
+
     if (request.headers.get("Upgrade") === "websocket") {
       const orgId = url.searchParams.get("orgId") || "core-team";
       const id = env.ORG_RELAY.idFromName(orgId);
