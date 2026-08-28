@@ -69,10 +69,6 @@ The list of what is still missing, and why each item matters, is
 - [ ] Turn push on: App ID capability, reissued profile, APNs secrets, and the
       constant — [docs/push-notifications.md](docs/push-notifications.md)
 - [ ] First App Store submission (TestFlight internal works today)
-- [ ] A sent-items view — without one there is nowhere to nudge someone whose
-      decision is overdue, which is why the SLA work shipped as a chip only
-- [ ] A card layout that scrolls within its page, so Dynamic Type does not have
-      to be clamped at `accessibility1`
 - [ ] Point a Mailgun domain at the inbound webhook. Email is a connector on
       the Worker now — `POST /webhooks/email`, signature verified (HMAC over
       timestamp+token, ±15 min, single-use nonce in D1, fails closed), routed
@@ -82,6 +78,11 @@ The list of what is still missing, and why each item matters, is
       synthetic posts shaped like Mailgun's. Needs `MAILGUN_WEBHOOK_SIGNING_KEY`
       and `INBOUND_EMAIL_DOMAIN` as Worker secrets, and the app has nowhere yet
       to show a person their address (`GET /connectors/email/address` returns it)
+- [ ] A sent-items view — without one there is nowhere to nudge someone whose
+      decision is overdue, which is why the SLA work shipped as a chip only
+- [ ] A card layout that scrolls within its page, so Dynamic Type does not have
+      to be clamped at `accessibility1`
+
 
 Both of the last two, and the other compromises made here, are written up under
 [Known compromises](docs/production-release-plan.md#known-compromises).
