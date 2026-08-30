@@ -143,11 +143,17 @@ final class AGUIEventAssembler {
             .replacingOccurrences(of: "~0", with: "~")
     }
 
+    /// A card we cannot read is skipped rather than allowed to take the whole
+    /// snapshot down with it — but skipped silently is a decision that never
+    /// arrives and that nobody is told about, so it is at least written down.
     private func decodeCard(_ value: Any) -> DecisionCard? {
-        guard let dictionary = value as? [String: Any],
-              let data = try? JSONSerialization.data(withJSONObject: dictionary) else {
+        guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
+        do {
+            return try decoder.decode(DecisionCard.self, from: data)
+        } catch {
+            let id = (value as? [String: Any])?["id"] as? String ?? "unknown"
+            print("AGUIEventAssembler: dropped card \(id) — \(error)")
             return nil
         }
-        return try? decoder.decode(DecisionCard.self, from: data)
     }
 }

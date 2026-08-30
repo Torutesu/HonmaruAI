@@ -49,6 +49,27 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # The React reference client. Kept alongside the single-file demo the relay
+  # serves at GET / — that one is for poking at the protocol by hand, this one
+  # is the worked example of a real client — and built here so neither rots
+  # unnoticed.
+  web:
+    name: Reference web client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web-react/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx vitest run
+
   # macOS minutes are expensive, so this runs on pull requests only. Pushing to
   # a branch gets the Worker suite; asking to merge gets the whole thing.
   ios:

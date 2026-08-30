@@ -49,7 +49,11 @@ export async function authorizeOrgAccess(env, session, orgId) {
   } catch {
     return { ok: false, login: null };
   }
-  if (!(permissions.push || permissions.admin || permissions.maintain || permissions.triage)) {
+  // Write access, as the comment above says. `triage` is not write access —
+  // GitHub grants it for managing issues and pull requests without any push
+  // permission at all — so accepting it made the stated rule and the code
+  // disagree, and the code was the more generous of the two.
+  if (!(permissions.push || permissions.admin || permissions.maintain)) {
     return { ok: false, login: null };
   }
 

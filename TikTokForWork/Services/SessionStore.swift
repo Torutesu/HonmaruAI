@@ -105,7 +105,13 @@ enum SessionStore {
             kSecValueData as String: Data(value.utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        SecItemAdd(query as CFDictionary, nil)
+        // A dropped return value here meant a failed write looked exactly like a
+        // successful one: the token was simply not there next launch, and the
+        // person was signed out for no reason anyone could see.
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            print("SessionStore: could not store \(key) (OSStatus \(status))")
+        }
     }
 
     private static func delete(_ key: String) {

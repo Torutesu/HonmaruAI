@@ -13,10 +13,17 @@ enum AppConfig {
     ///      `RELAY_HOST` build settings — what `scripts/device.sh` writes
     ///   3. loopback, for the simulator
     static let relayURL: String = {
+        // Debug builds only. This reads UserDefaults, which a launch argument
+        // writes — and so can anything else with access to the app's defaults,
+        // including a configuration profile. A shipped build that lets its
+        // backend be repointed from outside is a way to hand someone else every
+        // decision the app makes.
+        #if DEBUG
         if let override = UserDefaults.standard.string(forKey: "RelayURL"),
            !override.isEmpty {
             return override
         }
+        #endif
         if let configured = Bundle.main.object(forInfoDictionaryKey: "RelayURL") as? String,
            !configured.isEmpty,
            // An unexpanded "$(…)" means the build setting was never set.

@@ -366,6 +366,11 @@ Worth stating plainly rather than leaving to be discovered:
   smaller text than they asked for.
 - **The SLA chip has no nudge** (P2-3 above) — nowhere to put it until a
   sent-items view exists.
+- **`triage` is not membership.** GitHub grants it for managing issues without
+  any push permission, and it used to be accepted here — so the stated rule
+  ("write access is what makes someone a member") and the code disagreed, with
+  the code the more generous of the two. They agree now, which means a
+  triage-only collaborator who could previously join no longer can.
 - **Membership means write access.** A read-only collaborator on a private
   repository cannot join. `GET /repos` cannot tell them from a stranger reading
   a public repository, and treating `pull` as membership would make every public
