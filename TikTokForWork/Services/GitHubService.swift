@@ -64,6 +64,8 @@ final class GitHubService: NSObject, ObservableObject {
 
     var onRepositoryChanged: (() -> Void)?
 
+    /// The relay session, not a GitHub token. GitHub credentials never reach
+    /// the device — see `request(path:method:body:)`.
     private var token: String?
     private var repository = ""
     private var authSession: ASWebAuthenticationSession?
@@ -85,17 +87,17 @@ final class GitHubService: NSObject, ObservableObject {
     }
 
     func restorePartialCredentials() {
-        guard let savedToken = SessionStore.githubToken, !savedToken.isEmpty else { return }
-        token = savedToken
+        guard let savedSession = SessionStore.sessionToken, !savedSession.isEmpty else { return }
+        token = savedSession
     }
 
     func restoreSavedSession() -> Bool {
-        guard let savedToken = SessionStore.githubToken, !savedToken.isEmpty,
+        guard let savedSession = SessionStore.sessionToken, !savedSession.isEmpty,
               let savedRepository = SessionStore.githubRepository, !savedRepository.isEmpty else {
             return false
         }
 
-        token = savedToken
+        token = savedSession
         repository = savedRepository
 
         if let username = SessionStore.githubUsername,
@@ -134,11 +136,10 @@ final class GitHubService: NSObject, ObservableObject {
         // session we mint.
         let state = try await requestOAuthState(backendBaseURL: backendBaseURL)
         let code = try await requestAuthorizationCode(config: config, state: state)
-        let accessToken = try await exchangeCode(code, state: state, backendBaseURL: backendBaseURL)
-        token = accessToken
+        let sessionToken = try await exchangeCode(code, state: state, backendBaseURL: backendBaseURL)
+        token = sessionToken
         repositories = try await fetchRepositories()
         lastError = nil
-        SessionStore.saveGitHubToken(accessToken)
     }
 
     @discardableResult
@@ -185,7 +186,7 @@ final class GitHubService: NSObject, ObservableObject {
             repositoryURL: htmlURL
         )
         self.connection = connection
-        SessionStore.saveGitHubConnection(connection, token: token, repository: trimmedRepo)
+        SessionStore.saveGitHubConnection(connection, repository: trimmedRepo)
 
         if !previousRepo.isEmpty, previousRepo != trimmedRepo {
             onRepositoryChanged?()
@@ -360,16 +361,17 @@ final class GitHubService: NSObject, ObservableObject {
 
         guard
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let accessToken = json["accessToken"] as? String,
-            !accessToken.isEmpty
+            let session = json["sessionToken"] as? String,
+            !session.isEmpty
         else {
             throw GitHubServiceError.unauthorized
         }
 
-        if let session = json["sessionToken"] as? String, !session.isEmpty {
-            SessionStore.sessionToken = session
+        SessionStore.sessionToken = session
+        if let login = json["login"] as? String, !login.isEmpty {
+            SessionStore.githubUsername = login
         }
-        return accessToken
+        return session
     }
 
     private func fetchRepositories() async throws -> [GitHubRepository] {
@@ -425,17 +427,27 @@ final class GitHubService: NSObject, ObservableObject {
         method: String = "GET",
         body: [String: Any]? = nil
     ) async throws -> Any {
+        // GitHub is reached through the relay, not directly. The access token
+        // it would take carries `repo` scope — every repository this person can
+        // reach, code included — and this app opens issues. It stays on the
+        // server, which forwards exactly the calls below and refuses the rest.
         guard let token else { throw GitHubServiceError.missingCredentials }
-        guard let url = URL(string: "https://api.github.com\(path)") else {
+        guard let base = BackendURL.httpBase(from: AppConfig.relayURL) else {
+            throw GitHubServiceError.invalidRepository
+        }
+        // Built by hand rather than with `appending(path:)`: some of these
+        // paths carry a query string, and that would percent-encode the "?".
+        let root = base.absoluteString.hasSuffix("/")
+            ? String(base.absoluteString.dropLast())
+            : base.absoluteString
+        guard let url = URL(string: "\(root)/github\(path)") else {
             throw GitHubServiceError.invalidRepository
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
-        request.setValue("TikTokForWork-iOS/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -2,18 +2,24 @@ import { env, fetchMock } from "cloudflare:test";
 import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { createSession, upsertMembership } from "../src/db.js";
+import { createSession, upsertMembership, upsertUser } from "../src/db.js";
 
 // The connector's keys are Worker secrets, and secrets set on the shared test
 // env do not reach the Worker isolate. The handler is called directly with an
 // env that carries them, which is the same code path SELF.fetch would take.
-const CONNECTED = { ...env, COMPOSIO_API_KEY: "ak_test", OPENAI_API_KEY: "sk-test" };
+const CONNECTED = { ...env,
+  // These call worker.fetch directly with a hand-made env, which the harness's
+  // isolated storage cannot follow into a Durable Object. Leaving the relay
+  // binding out makes the post-sync announce a no-op; that it actually reaches
+  // open sockets is covered in relay.test.js, through the real harness.
+  ORG_RELAY: undefined, COMPOSIO_API_KEY: "ak_test", OPENAI_API_KEY: "sk-test" };
 const SELF = { fetch: (url, init) => worker.fetch(new Request(url, init), CONNECTED) };
 
 let token;
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   token = await createSession(env.DB, "700", "gho_sync");
+  await upsertUser(env.DB, { githubId: "700", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });
   await upsertMembership(env.DB, "acme/web", "700", "Engineer");
 });
 beforeEach(() => fetchMock.activate());
@@ -188,3 +194,4 @@ test("sync requires a session", async () => {
   });
   expect(res.status).toBe(401);
 });
+

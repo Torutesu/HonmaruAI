@@ -27,7 +27,7 @@ test("the entitlement cache round-trips with its timestamp", async () => {
 
 import { fetchMock } from "cloudflare:test";
 import { beforeEach, afterEach } from "vitest";
-import { checkAIAllowance, FREE_DAILY_ROUTES } from "../src/gate.js";
+import { checkAIAllowance, FREE_DAILY_ROUTES, UNBILLED_DAILY_ROUTES } from "../src/gate.js";
 
 beforeEach(() => fetchMock.activate());
 afterEach(() => fetchMock.assertNoPendingInterceptors());
@@ -37,9 +37,31 @@ test("a caller-supplied key is never metered", async () => {
   expect(decision).toMatchObject({ allowed: true, metered: false });
 });
 
-test("with no billing configured nothing is metered", async () => {
+// With no billing there is no paywall to enforce, so a signed-in caller is not
+// held to the three-a-day free tier. They are still counted: "nothing to sell
+// them" is not "spend as much of our model budget as you like".
+test("with no billing configured a signed-in caller is allowed, and still counted", async () => {
   const decision = await checkAIAllowance({ ...env }, { githubId: "601" });
-  expect(decision).toMatchObject({ allowed: true, metered: false });
+  expect(decision).toMatchObject({ allowed: true, quotaExceeded: false });
+  expect(decision.metered).toBe(true);
+});
+
+// This is the hole this ordering exists to close: with billing off, an
+// anonymous caller used to be handed the model key with nothing counting the
+// calls — an unauthenticated route that spends money, on the public internet.
+test("with no billing configured an anonymous caller is still refused", async () => {
+  const decision = await checkAIAllowance({ ...env }, { githubId: null });
+  expect(decision.allowed).toBe(false);
+});
+
+test("with no billing configured the unbilled ceiling still applies", async () => {
+  const e = { ...env };
+  for (let i = 0; i < UNBILLED_DAILY_ROUTES; i += 1) {
+    const d = await checkAIAllowance(e, { githubId: "603" });
+    expect(d.allowed).toBe(true);
+    await d.consume();
+  }
+  expect((await checkAIAllowance(e, { githubId: "603" })).allowed).toBe(false);
 });
 
 test("a free user is allowed up to the limit and degraded after it", async () => {

@@ -1,4 +1,4 @@
-import { env, fetchMock } from "cloudflare:test";
+import { SELF, env, fetchMock } from "cloudflare:test";
 import { beforeAll, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { joined, message, messageContaining, until, untilNoThrow } from "./helpers.js";
@@ -139,4 +139,16 @@ test("a decision sent as tool_result is written to Notion, same as card_updated"
 
   expect(await until(() => notionCalled)).toBe(true);
   expect(await untilNoThrow(() => fetchMock.assertNoPendingInterceptors())).toBe(true);
+});
+
+// The public handler forwards to the stub only for `Upgrade: websocket`, so the
+// announce path is not reachable from the internet. Pinned because
+// "unreachable" is a property of code someone can change.
+test("the announce path is not reachable over HTTP", async () => {
+  const res = await SELF.fetch("https://example.com/internal/announce?orgId=core-team", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ cards: [{ id: "c-injected", recipientUserID: "watcher", status: "pending" }] }),
+  });
+  expect(res.status).toBe(404);
 });

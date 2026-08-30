@@ -9,9 +9,10 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 152 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 190 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
-- **CI:** `.github/workflows/ci.yml` — Worker on every push, iOS on pull requests
+- **CI:** `.github/workflows/ci.yml` — Worker and the reference relay on every
+  push, iOS on pull requests
 - **Deployed:** `https://tiktokforwork.torubj0904.workers.dev`
 - **Ships as:** Honmaru AI, `com.honmaru.ai`
 
@@ -34,6 +35,9 @@ The list of what is still missing, and why each item matters, is
       question that prompted it rather than arriving as a bare card update
 - [x] A React/TypeScript reference client (`web-react/`) speaking the same AG-UI
       protocol as the app, next to the single-file demo the relay serves at `GET /`
+- [x] One AG-UI implementation, in `worker/src/agui/`. `server/agui/` re-exports
+      it rather than keeping the near-identical copy it used to — the copies had
+      already drifted far enough for a fix to land in the backend nobody runs
 - [x] RevenueCat subscriptions, metered server-side (off until `REVENUECAT_SECRET_KEY` exists)
 - [x] A cron that syncs connectors every 15 minutes
 - [~] Push notifications — built and tested end to end, switched off in the client
@@ -43,6 +47,10 @@ The list of what is still missing, and why each item matters, is
 - [x] Relay requires a session with write access to the repository; identity comes off the session
 - [x] Only the recipient can decide, delete or undo a card
 - [x] OAuth `state`, single-use and expiring
+- [x] The GitHub access token never leaves the server. The app holds a relay
+      session and calls `/github`, which forwards the six calls it actually
+      makes and refuses everything else — so a stolen session opens issues, it
+      does not read the person's source
 - [x] Rate limits on routing, token exchange, sync and uploads
 - [x] Account deletion, in the app
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
@@ -65,20 +73,20 @@ The list of what is still missing, and why each item matters, is
 - [ ] Turn push on: App ID capability, reissued profile, APNs secrets, and the
       constant — [docs/push-notifications.md](docs/push-notifications.md)
 - [ ] First App Store submission (TestFlight internal works today)
+- [ ] Point a Mailgun domain at the inbound webhook. Email is a connector on
+      the Worker now — `POST /webhooks/email`, signature verified (HMAC over
+      timestamp+token, ±15 min, single-use nonce in D1, fails closed), routed
+      by an address that names its owner (`u-<github id>@<domain>`), then the
+      same triage, card, announcement and notification as Gmail and Slack. What
+      is missing is the account: no real message has ever reached it, only
+      synthetic posts shaped like Mailgun's. Needs `MAILGUN_WEBHOOK_SIGNING_KEY`
+      and `INBOUND_EMAIL_DOMAIN` as Worker secrets, and the app has nowhere yet
+      to show a person their address (`GET /connectors/email/address` returns it)
 - [ ] A sent-items view — without one there is nowhere to nudge someone whose
       decision is overdue, which is why the SLA work shipped as a chip only
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have
       to be clamped at `accessibility1`
-- [ ] Email as an inbound connector. A PoC lives in `server/connectors/` — a
-      Mailgun webhook is verified (HMAC, ±15 min freshness, single-use token,
-      fails closed), parsed, triaged by keyword, deduplicated by `Message-ID`
-      and broadcast as a decision card, with 28 tests. None of it is on the
-      production path: no Mailgun account is wired up, so no real email has ever
-      reached it; the recipient is a stand-in rather than a lookup of the `To:`
-      address against org membership; triage is keyword-only where the other
-      connectors use a model; and it has not been ported to `worker/`, where
-      Gmail, Slack and Notion actually live. The longer it sits in `server/`,
-      the further the two backends drift.
+
 
 Both of the last two, and the other compromises made here, are written up under
 [Known compromises](docs/production-release-plan.md#known-compromises).

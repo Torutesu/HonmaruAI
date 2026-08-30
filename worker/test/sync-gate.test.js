@@ -2,7 +2,7 @@ import { env, fetchMock } from "cloudflare:test";
 import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { createSession, upsertMembership, countAIUse, writeEntitlement } from "../src/db.js";
+import { createSession, upsertMembership, upsertUser, countAIUse, writeEntitlement } from "../src/db.js";
 import { FREE_DAILY_ROUTES } from "../src/gate.js";
 
 // A separate file from sync.test.js on purpose: that file's last block leaves a
@@ -12,6 +12,11 @@ import { FREE_DAILY_ROUTES } from "../src/gate.js";
 // metering on at all.
 const METERED = {
   ...env,
+  // These call worker.fetch directly with a hand-made env, which the harness's
+  // isolated storage cannot follow into a Durable Object. Leaving the relay
+  // binding out makes the post-sync announce a no-op; that it actually reaches
+  // open sockets is covered in relay.test.js, through the real harness.
+  ORG_RELAY: undefined,
   COMPOSIO_API_KEY: "ak_test",
   OPENAI_API_KEY: "sk-test",
   REVENUECAT_SECRET_KEY: "sk-rc",
@@ -21,6 +26,7 @@ let token;
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   token = await createSession(env.DB, "800", "gho_sync_gate");
+  await upsertUser(env.DB, { githubId: "800", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });
   await upsertMembership(env.DB, "acme/web", "800", "Engineer");
 });
 beforeEach(() => fetchMock.activate());
