@@ -9,10 +9,10 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 190 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 197 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
-- **CI:** `.github/workflows/ci.yml` — Worker and the reference relay on every
-  push, iOS on pull requests
+- **CI:** `.github/workflows/ci.yml` — Worker, the reference relay and the
+  reference web client on every push, iOS on pull requests
 - **Deployed:** `https://tiktokforwork.torubj0904.workers.dev`
 - **Ships as:** Honmaru AI, `com.honmaru.ai`
 
@@ -51,7 +51,8 @@ The list of what is still missing, and why each item matters, is
       session and calls `/github`, which forwards the six calls it actually
       makes and refuses everything else — so a stolen session opens issues, it
       does not read the person's source
-- [x] Rate limits on routing, token exchange, sync and uploads
+- [x] Rate limits on routing, token exchange, sync and uploads, and on how fast
+      one socket may talk
 - [x] Account deletion, in the app
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
 

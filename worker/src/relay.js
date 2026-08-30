@@ -12,6 +12,15 @@ import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { notifyCard } from "./push.js";
 import { ANNOUNCE_PATH } from "./announce.js";
+import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
+
+// One socket's allowance. Well above anything the app does — it sends a message
+// per decision, not per frame — and far below what a loop can produce.
+const MESSAGE_BUDGET = 120;
+const MESSAGE_WINDOW_MS = 10_000;
+// No message this product sends is near this; a JSON.parse of something much
+// larger is a cost paid before anything has been checked.
+const MAX_MESSAGE_BYTES = 256 * 1024;
 
 export class OrgRelay {
   constructor(state, env) {
@@ -112,9 +121,39 @@ export class OrgRelay {
     }
   }
 
+  /// A budget for one socket's traffic.
+  ///
+  /// Everything below this line is authenticated, which was doing all the work:
+  /// a member could hold a socket open and write as fast as it could send, and
+  /// `context_updated` puts whatever it is given into D1. Being allowed in is
+  /// not the same as being allowed to do it a thousand times a second.
+  ///
+  /// In memory, so it is lost when the object hibernates. That fails toward
+  /// letting someone through after an idle gap, which is the right way for a
+  /// limiter to be wrong.
+  overBudget(userId) {
+    const now = Date.now();
+    const window = this.messageWindow ||= new Map();
+    const seen = window.get(userId);
+    if (!seen || now - seen.since > MESSAGE_WINDOW_MS) {
+      window.set(userId, { since: now, count: 1 });
+      return false;
+    }
+    seen.count += 1;
+    return seen.count > MESSAGE_BUDGET;
+  }
+
   async webSocketMessage(ws, raw) {
     const att = ws.deserializeAttachment() || {};
     const orgId = att.orgId || "core-team";
+
+    // Checked on the raw frame, before parsing: a 5 MB string is expensive to
+    // JSON.parse and there is no message this product sends that is anywhere
+    // near it.
+    if (typeof raw === "string" && raw.length > MAX_MESSAGE_BYTES) {
+      return this.refuse(ws, att.agui, "That message is too large.");
+    }
+
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     const { type, payload = {} } = msg;
@@ -124,6 +163,13 @@ export class OrgRelay {
     // means a new message type is authenticated by default.
     if (type !== "join" && !att.authed) {
       return this.refuse(ws, att.agui, "Join with a valid session before sending anything.");
+    }
+    if (type !== "join" && this.overBudget(att.userId)) {
+      // Told, not closed: a burst is far more often a client bug than an
+      // attack, and dropping the socket turns a recoverable moment into a
+      // reconnect loop.
+      try { ws.send(JSON.stringify(runError("Too many messages. Slow down."))); } catch {}
+      return;
     }
 
     try {
@@ -140,16 +186,23 @@ export class OrgRelay {
       if (!access.ok) {
         return this.refuse(ws, agui, "You are not a member of this organization.");
       }
+      // The legacy dialect is refused rather than half-served. A client that
+      // joined without `agui/1` used to get a snapshot and then silence: every
+      // broadcast below this line is an AG-UI event, so its feed froze at the
+      // moment it connected and looked, from the inside, exactly like a quiet
+      // team. Saying "update the app" is the honest version of that.
+      if (!agui) {
+        return this.refuse(ws, false, "This version is too old to connect. Please update the app.");
+      }
+
       const userId = access.login;
       ws.serializeAttachment({ orgId, userId, githubId: String(session.github_id), agui, authed: true });
       const store = await loadStore(this.db, orgId);
       const contexts = await loadContexts(this.db, orgId);
-      if (agui) {
-        for (const ev of joinEvents(userId, store, contexts)) ws.send(JSON.stringify(ev));
-      } else {
-        ws.send(JSON.stringify({ type: "snapshot", payload: { cardsByUser: store } }));
-      }
-      this.broadcast(orgId, { type: "presence", payload: { userId, status: "online" } }, ws);
+      for (const ev of joinEvents(userId, store, contexts)) ws.send(JSON.stringify(ev));
+      // Once, not twice. Presence went out in both dialects to every socket
+      // regardless of which one it spoke, so every client received it as a
+      // CUSTOM event and again as a legacy message.
       for (const ev of presenceEvents(userId, "online")) this.broadcast(orgId, ev, ws);
       return;
     }
@@ -163,6 +216,15 @@ export class OrgRelay {
     if (type === "card_created" || type === "card_updated") {
       if (!payload.card?.id) return;
       const card = payload.card;
+      // The schema was served and never enforced, so this took whatever JSON
+      // arrived. Every member gets every card in their join snapshot, which is
+      // what makes an unbounded field everyone's problem rather than one
+      // client's.
+      const invalid = validateIncomingCard(card);
+      if (invalid) {
+        ws.send(JSON.stringify(runError(invalid)));
+        return;
+      }
       const existing = await getCard(this.db, orgId, card.id);
       if (type === "card_created") {
         // You may route a decision to anyone in the org, but only ever as
@@ -252,6 +314,14 @@ export class OrgRelay {
     if (type === "context_updated") {
       // Your context, never someone else's — a claimed userId is ignored.
       const userId = att.userId;
+      if (typeof payload.context !== "object" || payload.context === null) {
+        ws.send(JSON.stringify(runError("A context object is required.")));
+        return;
+      }
+      if (JSON.stringify(payload.context).length > MAX_CONTEXT_BYTES) {
+        ws.send(JSON.stringify(runError("That context is too large.")));
+        return;
+      }
       const existing = await loadContexts(this.db, orgId);
       const isNew = !(userId in existing);
       await saveContext(this.db, orgId, userId, payload.context);
