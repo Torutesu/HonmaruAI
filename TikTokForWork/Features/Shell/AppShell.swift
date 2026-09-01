@@ -73,8 +73,23 @@ struct AppShell: View {
     }
 
     private var homeTopBar: some View {
-        HStack {
+        HStack(spacing: Theme.Spacing.sm) {
+            // Connection status — matches FeedView.topBar which is hidden in shell mode.
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(connectionColor)
+                    .frame(width: 5, height: 5)
+                if let label = connectionLabel {
+                    Text(label)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
+
             Spacer()
+
             Button {
                 tab = .you
             } label: {
@@ -90,6 +105,24 @@ struct AppShell: View {
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.sm)
         .background(Theme.Colors.background.ignoresSafeArea(edges: .top))
+    }
+
+    private var connectionColor: Color {
+        switch appState.connectionState {
+        case .connected: Theme.Colors.approve
+        case .connecting: Theme.Colors.interactive
+        case .refused: Theme.Colors.reject
+        case .offline: Theme.Colors.textTertiary
+        }
+    }
+
+    private var connectionLabel: String? {
+        switch appState.connectionState {
+        case .connected: nil
+        case .connecting: String(localized: "Reconnecting…")
+        case .refused: String(localized: "No access")
+        case .offline: String(localized: "Offline")
+        }
     }
 }
 

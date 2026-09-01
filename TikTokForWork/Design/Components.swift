@@ -29,7 +29,7 @@ struct PrimaryButton: View {
                 .frame(height: 48)
                 .background(enabled ? Theme.Colors.textPrimary : Theme.Colors.surfaceRaised)
                 .foregroundStyle(enabled ? Theme.Colors.background : Theme.Colors.textTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                .clipShape(Capsule())
         }
         .disabled(!enabled)
     }
@@ -54,7 +54,7 @@ struct GitHubPrimaryButton: View {
             .frame(height: 48)
             .background(enabled ? Theme.Colors.issueGreen : Theme.Colors.surfaceRaised)
             .foregroundStyle(enabled ? Color.white : Theme.Colors.textTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+            .clipShape(Capsule())
         }
         .disabled(!enabled)
     }
@@ -94,7 +94,7 @@ struct ComposeBar: View {
             .padding(.horizontal, Theme.Spacing.md)
             .frame(height: 48)
             .background(Theme.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
         }
     }
 }

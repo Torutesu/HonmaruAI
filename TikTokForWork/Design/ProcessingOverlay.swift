@@ -37,10 +37,10 @@ struct DraftingBanner: View {
         }
         .padding(.horizontal, Theme.Spacing.screen)
         .padding(.vertical, Theme.Spacing.sm)
-        .background(Theme.Colors.surfaceRaised.opacity(0.95))
+        .background(.regularMaterial)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Theme.Colors.textTertiary.opacity(0.2))
+                .fill(Theme.Colors.border)
                 .frame(height: 0.5)
         }
         .transition(.move(edge: .top).combined(with: .opacity))

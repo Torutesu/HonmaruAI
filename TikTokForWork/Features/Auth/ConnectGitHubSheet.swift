@@ -123,7 +123,7 @@ struct ConnectGitHubSheet: View {
             .frame(height: 48)
             .background(Theme.Colors.surfaceRaised)
             .foregroundStyle(Theme.Colors.textPrimary)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+            .clipShape(Capsule())
         }
         .disabled(isSigningInWithGitHub)
     }

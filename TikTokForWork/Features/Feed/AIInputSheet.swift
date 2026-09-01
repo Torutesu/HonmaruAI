@@ -36,7 +36,7 @@ struct AIInputSheet: View {
                 }
                 .padding(Theme.Spacing.md)
                 .background(Theme.Colors.surfaceRaised)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
 
                 PrioritySlider(priority: $priority)
 
