@@ -10,8 +10,6 @@ struct AppShell: View {
 
     @State private var tab: AppTab = .home
     @State private var composeTick = 0
-    @State private var showCapture = false
-    @State private var captured: CaptureRequest?
 
     var body: some View {
         ZStack {
@@ -19,7 +17,7 @@ struct AppShell: View {
 
             switch tab {
             case .home:
-                FeedView(showsChrome: false, composeTick: composeTick, captured: captured)
+                FeedView(showsChrome: false, composeTick: composeTick)
             case .you:
                 YouView()
             }
@@ -31,45 +29,12 @@ struct AppShell: View {
             AppTabBar(
                 selection: $tab,
                 onCompose: {
-                    // The ＋ records; the transcript is editable before it is sent.
-                    tab = .home
-                    showCapture = true
-                },
-                onComposeText: {
-                    // Long press is the way in for someone who cannot talk right
-                    // now — same draft chain, no camera.
                     tab = .home
                     composeTick += 1
                 },
                 pendingCount: appState.pendingCount
             )
         }
-        .fullScreenCover(isPresented: $showCapture) {
-            CaptureView { text, video in
-                showCapture = false
-                Task { await handleCapture(text: text, video: video) }
-            }
-            .environmentObject(appState)
-        }
-    }
-
-    /// Keeps the clip locally first, so a failed upload still plays back, then
-    /// compresses and uploads it when a backend is configured. The decision
-    /// routes on its text either way.
-    private func handleCapture(text: String, video: URL?) async {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        var uploaded: String?
-        if let video {
-            let local = MediaStore.keep(video)
-            // Compress before upload: R2 bills stored bytes, and a raw capture is
-            // ~20x larger than a 960x540 export of the same talking-head clip.
-            let toUpload = await MediaStore.compress(local ?? video)
-            if let base = appState.backendBaseURL {
-                uploaded = try? await MediaUploader.upload(toUpload, to: base)
-            }
-            if uploaded == nil { uploaded = local?.absoluteString }
-        }
-        captured = CaptureRequest(text: text, videoURL: uploaded)
     }
 
     private var homeTopBar: some View {

@@ -9,9 +9,6 @@ struct FeedView: View {
     /// Incremented by the shell's ＋ button. The draft chain lives here with the
     /// view model, so the shell asks for it rather than rebuilding it.
     var composeTick: Int = 0
-    /// What the capture screen came back with. Arrives already uploaded, so the
-    /// draft chain starts the moment it is set.
-    var captured: CaptureRequest?
 
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var subscriptions: SubscriptionService
@@ -86,10 +83,6 @@ struct FeedView: View {
             guard let cardID else { return }
             viewModel.focus(cardID: cardID)
             push.pendingCardID = nil
-        }
-        .onChange(of: captured) { _, request in
-            guard let request else { return }
-            viewModel.beginDraft(request.text, priority: .medium, appState: appState, videoURL: request.videoURL)
         }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {
@@ -365,9 +358,9 @@ struct FeedView: View {
     private var emptySubtitle: String {
         switch appState.connectionState {
         case .refused(let reason): reason
-        case .offline: "Decisions will appear when you reconnect."
-        case .connecting: "Syncing with your team…"
-        case .connected: "Tell your AI something, or wait for a teammate."
+        case .offline: String(localized: "Decisions will appear when you reconnect.")
+        case .connecting: String(localized: "Syncing with your team…")
+        case .connected: String(localized: "Tell your AI something, or wait for a teammate.")
         }
     }
 

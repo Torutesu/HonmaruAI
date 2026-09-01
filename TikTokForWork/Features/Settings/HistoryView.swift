@@ -120,30 +120,37 @@ struct HistoryView: View {
     }
 
     private func row(_ event: CardEvent) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(event.headline)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                Spacer()
-                Text(RelativeTime.since(event.createdAt))
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            Text(event.snapshot?.title ?? event.cardId)
-                .font(Theme.TypeScale.caption)
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .lineLimit(2)
-            if let note = event.note, !note.isEmpty {
-                Text(note)
-                    .font(Theme.TypeScale.micro)
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+            Circle()
+                .fill(eventColor(for: event.type))
+                .frame(width: 8, height: 8)
+                .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(event.headline)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                    Spacer()
+                    Text(RelativeTime.since(event.createdAt))
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+                Text(event.snapshot?.title ?? event.cardId)
+                    .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .lineLimit(2)
-            }
-            if let actor = event.actorUserId {
-                Text(actor)
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary)
+                if let note = event.note, !note.isEmpty {
+                    Text(note)
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .lineLimit(2)
+                }
+                if let actor = event.actorUserId {
+                    Text(actor)
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
             }
         }
         .padding(Theme.Spacing.md)
@@ -155,6 +162,15 @@ struct HistoryView: View {
                 .strokeBorder(Theme.Colors.border, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func eventColor(for type: String) -> Color {
+        switch type {
+        case "decided": Theme.Colors.approve
+        case "created": Theme.Colors.interactive
+        case "rolled_back": Theme.Colors.textTertiary
+        default: Theme.Colors.accent
+        }
     }
 
     private func load() async {

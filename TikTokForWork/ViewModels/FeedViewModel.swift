@@ -71,6 +71,7 @@ final class FeedViewModel: ObservableObject {
         reviewDraft = nil
         draftTask?.cancel()
         isDrafting = false
+        pendingVideoURL = nil
     }
 
     func handle(action: CardActionKind, for card: DecisionCard, appState: AppState) async {
