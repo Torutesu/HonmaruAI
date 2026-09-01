@@ -18,9 +18,9 @@ struct ContextView: View {
                 .padding(Theme.Spacing.sm)
                 .frame(minHeight: 220)
                 .background(Theme.Colors.surface)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
                 .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Radius.image)
+                    RoundedRectangle(cornerRadius: Theme.Radius.input)
                         .strokeBorder(Theme.Colors.border, lineWidth: 1)
                 }
 

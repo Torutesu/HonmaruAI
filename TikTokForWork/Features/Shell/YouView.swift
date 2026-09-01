@@ -11,6 +11,7 @@ struct YouView: View {
 
     @State private var showOrgGraph = false
     @State private var showConnectGitHub = false
+    @State private var showSignOutConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -58,7 +59,7 @@ struct YouView: View {
                     }
                     .pickerStyle(.menu)
                     .padding(.horizontal, Theme.Spacing.md)
-                    .padding(.vertical, 13)
+                    .padding(.vertical, 12)
                     rowSeparator
                     Picker(selection: $appState.appearance) {
                         ForEach(AppAppearance.allCases) { mode in
@@ -69,16 +70,22 @@ struct YouView: View {
                     }
                     .pickerStyle(.menu)
                     .padding(.horizontal, Theme.Spacing.md)
-                    .padding(.vertical, 13)
+                    .padding(.vertical, 12)
                     rowSeparator
                     row(String(localized: "Version"), value: versionString)
                 }
 
                 Button(String(localized: "Sign out")) {
-                    appState.signOut()
+                    showSignOutConfirmation = true
                 }
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.Colors.reject)
+                .confirmationDialog(String(localized: "Sign out?"), isPresented: $showSignOutConfirmation, titleVisibility: .visible) {
+                    Button(String(localized: "Sign out"), role: .destructive) { appState.signOut() }
+                    Button(String(localized: "Cancel"), role: .cancel) {}
+                } message: {
+                    Text("You'll need to sign in again to receive decisions.")
+                }
                 .padding(.top, Theme.Spacing.sm)
 
                 // Apple requires account deletion to be reachable in the app for

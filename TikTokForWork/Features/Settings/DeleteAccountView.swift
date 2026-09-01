@@ -54,7 +54,7 @@ struct DeleteAccountView: View {
                         .padding(.horizontal, Theme.Spacing.md)
                         .padding(.vertical, 12)
                         .background(Theme.Colors.surfaceRaised)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
                         .accessibilityLabel(Text("Confirmation"))
                 }
 

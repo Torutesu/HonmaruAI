@@ -145,7 +145,11 @@ struct ConnectGitHubSheet: View {
         }
         .padding(Theme.Spacing.md)
         .background(Theme.Colors.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.Colors.border, lineWidth: 1)
+        }
     }
 
     private var repositoryPicker: some View {
@@ -182,7 +186,11 @@ struct ConnectGitHubSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Theme.Spacing.md)
                     .background(Theme.Colors.surfaceRaised)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Radius.input)
+                            .strokeBorder(Theme.Colors.border, lineWidth: 1)
+                    }
             } else {
                 Picker("Repository", selection: $selectedRepository) {
                     Text("Select").tag(Optional<GitHubRepository>.none)
@@ -195,7 +203,11 @@ struct ConnectGitHubSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Theme.Spacing.md)
                 .background(Theme.Colors.surfaceRaised)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Radius.input)
+                        .strokeBorder(Theme.Colors.border, lineWidth: 1)
+                }
             }
         }
     }

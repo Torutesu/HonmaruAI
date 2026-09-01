@@ -18,9 +18,9 @@ struct APIKeyView: View {
                 .font(Theme.TypeScale.body)
                 .padding(Theme.Spacing.sm)
                 .background(Theme.Colors.surface)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
                 .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Radius.image)
+                    RoundedRectangle(cornerRadius: Theme.Radius.input)
                         .strokeBorder(Theme.Colors.border, lineWidth: 1)
                 }
 
@@ -37,7 +37,7 @@ struct APIKeyView: View {
                     saved = false
                 }
                 .font(.system(size: 15))
-                .foregroundStyle(Theme.Colors.reject)
+                .foregroundStyle(Theme.Colors.textSecondary)
 
                 Spacer()
 

@@ -322,12 +322,23 @@ struct FeedView: View {
     /// refused, or who has no network, is the app blaming the user for its own
     /// state.
     private var emptyState: some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            Text(emptyTitle)
-                .font(Theme.TypeScale.caption)
+        VStack(spacing: Theme.Spacing.md) {
+            Image(systemName: emptyIcon)
+                .font(.system(size: 32, weight: .light))
                 .foregroundStyle(Theme.Colors.textTertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, Theme.Spacing.md)
+
+            VStack(spacing: Theme.Spacing.xs) {
+                Text(emptyTitle)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+
+                Text(emptySubtitle)
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, Theme.Spacing.xl)
 
             if case .offline = appState.connectionState {
                 Button(String(localized: "Try again")) {
@@ -335,21 +346,37 @@ struct FeedView: View {
                 }
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Theme.Colors.interactive)
+                .padding(.top, Theme.Spacing.xs)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
+    }
+
+    private var emptyIcon: String {
+        switch appState.connectionState {
+        case .offline: "wifi.slash"
+        case .connecting: "antenna.radiowaves.left.and.right"
+        case .refused: "exclamationmark.triangle"
+        case .connected: "tray"
+        }
+    }
+
+    private var emptySubtitle: String {
+        switch appState.connectionState {
+        case .refused(let reason): reason
+        case .offline: "Decisions will appear when you reconnect."
+        case .connecting: "Syncing with your team…"
+        case .connected: "Tell your AI something, or wait for a teammate."
+        }
     }
 
     private var emptyTitle: String {
         switch appState.connectionState {
-        case .refused(let reason):
-            reason
-        case .offline:
-            String(localized: "You are offline. Decisions will appear when you reconnect.")
-        case .connecting:
-            String(localized: "Catching up…")
-        case .connected:
-            String(localized: "No decisions yet. Tell your AI something, or wait for a teammate.")
+        case .refused: String(localized: "Can't connect")
+        case .offline: String(localized: "You're offline")
+        case .connecting: String(localized: "Catching up…")
+        case .connected: String(localized: "All clear")
         }
     }
 

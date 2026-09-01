@@ -49,7 +49,7 @@ struct AppTabBar: View {
             selection = tab
         } label: {
             Image(systemName: selection == tab ? "\(systemImage).fill" : systemImage)
-                .font(.system(size: 20, weight: .regular))
+                .font(.system(size: 20, weight: selection == tab ? .semibold : .regular))
                 .foregroundStyle(selection == tab ? Theme.Colors.textPrimary : Theme.Colors.textTertiary)
                 .frame(width: 44, height: 44)
                 .overlay(alignment: .topTrailing) {

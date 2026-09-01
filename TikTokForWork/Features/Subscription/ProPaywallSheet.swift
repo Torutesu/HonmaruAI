@@ -105,7 +105,8 @@ struct FallbackPaywallView: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Theme.Colors.textTertiary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
             }
 
@@ -160,7 +161,7 @@ struct FallbackPaywallView: View {
             .background(Theme.Colors.surfaceRaised)
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.md)
-                    .strokeBorder(isSelected ? Theme.Colors.accent : .clear, lineWidth: 1)
+                    .strokeBorder(isSelected ? Theme.Colors.accent : Theme.Colors.border, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
         }

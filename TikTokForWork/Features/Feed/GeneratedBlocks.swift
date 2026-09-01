@@ -81,7 +81,7 @@ struct GeneratedBlocks: View {
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
                     .overlay {
                         RoundedRectangle(cornerRadius: Theme.Radius.card)
-                            .strokeBorder(Theme.Colors.interactive.opacity(0.5), lineWidth: 1)
+                            .strokeBorder(Theme.Colors.interactive, lineWidth: 1)
                     }
             }
         }

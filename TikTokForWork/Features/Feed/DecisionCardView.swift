@@ -270,7 +270,7 @@ struct DecisionCardView: View {
             .padding(.horizontal, Theme.Spacing.md)
             .padding(.vertical, Theme.Spacing.sm)
             .background(color.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            .clipShape(Capsule())
     }
 
     /// What the card is, said once, in the order a person would ask: what has to

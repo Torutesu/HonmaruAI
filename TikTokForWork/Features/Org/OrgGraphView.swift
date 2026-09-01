@@ -55,7 +55,12 @@ struct OrgGraphView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 10)
                     .padding(.horizontal, Theme.Spacing.md)
-                    .background(Theme.Colors.surfaceRaised)
+                    .background(Theme.Colors.background)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Radius.card)
+                            .strokeBorder(Theme.Colors.border, lineWidth: 1)
+                    }
             }
         }
     }

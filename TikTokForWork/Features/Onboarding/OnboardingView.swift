@@ -89,19 +89,20 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer()
 
-            AppLogo(size: 64)
-                .padding(.bottom, Theme.Spacing.lg)
+            AppLogo(size: 80)
+                .padding(.bottom, Theme.Spacing.xl)
 
             Text("Decisions,\nnot messages")
-                .font(.system(size: 36, weight: .medium))
+                .font(.system(size: 44, weight: .semibold))
                 .foregroundStyle(Theme.Colors.textPrimary)
-                .lineSpacing(2)
+                .lineSpacing(4)
+                .tracking(-0.5)
                 .padding(.bottom, Theme.Spacing.md)
 
             Text("A work feed where nothing needs reading twice. Your AI turns your team's asks, approvals, and tasks into cards you clear in seconds.")
-                .font(Theme.TypeScale.body)
+                .font(.system(size: 16))
                 .foregroundStyle(Theme.Colors.textSecondary)
-                .lineSpacing(5)
+                .lineSpacing(6)
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
@@ -165,31 +166,42 @@ struct OnboardingView: View {
 
     private func routingRow(icon: String, title: LocalizedStringKey, detail: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: Theme.Spacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(icon == "sparkle" ? Theme.Colors.accent : Theme.Colors.textSecondary)
-                .frame(width: 20, height: 20)
+            ZStack {
+                Circle()
+                    .fill(icon == "sparkle" ? Theme.Colors.accent.opacity(0.10) : Theme.Colors.surfaceRaised)
+                    .frame(width: 32, height: 32)
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(icon == "sparkle" ? Theme.Colors.accent : Theme.Colors.textSecondary)
+            }
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.Colors.textPrimary)
                 Text(detail)
                     .font(Theme.TypeScale.caption)
-                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
         .padding(Theme.Spacing.md)
-        .background(Theme.Colors.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .background(Theme.Colors.background)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.Colors.border, lineWidth: 1)
+        }
     }
 
     private var routingArrow: some View {
         Image(systemName: "arrow.down")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 10, weight: .medium))
             .foregroundStyle(Theme.Colors.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 40)
     }
 
     // MARK: - 3. Try it
@@ -306,7 +318,11 @@ struct OnboardingView: View {
         }
         .padding(Theme.Spacing.md)
         .background(Theme.Colors.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.Colors.border, lineWidth: 1)
+        }
     }
 
     private var repositoryPicker: some View {
@@ -343,7 +359,11 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Theme.Spacing.md)
                     .background(Theme.Colors.surfaceRaised)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Radius.input)
+                            .strokeBorder(Theme.Colors.border, lineWidth: 1)
+                    }
             } else {
                 Picker("Repository", selection: $selectedRepository) {
                     Text("Select").tag(Optional<GitHubRepository>.none)
@@ -356,7 +376,11 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Theme.Spacing.md)
                 .background(Theme.Colors.surfaceRaised)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Radius.input)
+                        .strokeBorder(Theme.Colors.border, lineWidth: 1)
+                }
             }
         }
     }
