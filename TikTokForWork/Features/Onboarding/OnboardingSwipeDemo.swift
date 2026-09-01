@@ -85,16 +85,26 @@ struct OnboardingSwipeDemo: View {
 
     private var demoCard: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
-                Text("Approval")
-                    .font(Theme.TypeScale.label)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                Text("·")
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                Text("Urgent")
-                    .font(Theme.TypeScale.label)
-                    .foregroundStyle(Theme.Colors.reject)
+            HStack(alignment: .center, spacing: Theme.Spacing.sm) {
+                Text("APPROVAL")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundStyle(Theme.Colors.approve)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Theme.Colors.approve.opacity(0.10))
+                    .clipShape(Capsule())
+
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(Theme.Colors.reject)
+                        .frame(width: 5, height: 5)
+                    Text("URGENT")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .tracking(0.7)
+                        .foregroundStyle(Theme.Colors.reject)
+                }
+
                 Spacer()
                 Text("now")
                     .font(Theme.TypeScale.micro)
@@ -111,24 +121,29 @@ struct OnboardingSwipeDemo: View {
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: Theme.Spacing.sm) {
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(Theme.Colors.accent)
-                    .frame(width: 2)
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.accent)
                 Text("Dana's AI → Your AI · You hold release approval")
-                    .font(Theme.TypeScale.micro)
+                    .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textPrimary)
             }
             .padding(.horizontal, Theme.Spacing.md)
             .padding(.vertical, Theme.Spacing.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.Colors.background)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
+            .background(Theme.Colors.accent.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
         }
         .padding(Theme.Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.Colors.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .background(Theme.Colors.background)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.Colors.border, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
     }
 
     private var swipeHints: some View {

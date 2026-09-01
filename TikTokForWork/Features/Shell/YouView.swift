@@ -20,7 +20,9 @@ struct YouView: View {
 
                 group {
                     row(String(localized: "Your AI"), value: appState.aiService.isConfigured ? String(localized: "Connected") : String(localized: "Not set"))
+                    rowSeparator
                     row(String(localized: "Relay"), value: relayHost)
+                    rowSeparator
                     row(String(localized: "GitHub"), value: appState.githubService.connection?.repository ?? String(localized: "Not connected")) {
                         showConnectGitHub = true
                     }
@@ -28,13 +30,17 @@ struct YouView: View {
 
                 group {
                     navRow(String(localized: "Plan")) { SubscriptionView() }
+                    rowSeparator
                     navRow(String(localized: "API key")) { APIKeyView() }
+                    rowSeparator
                     navRow(String(localized: "Context")) { ContextView() }
+                    rowSeparator
                     navRow(String(localized: "Connectors")) { ConnectorsView() }
                 }
 
                 group {
                     navRow(String(localized: "History")) { HistoryView() }
+                    rowSeparator
                     notificationsRow
                 }
 
@@ -53,6 +59,7 @@ struct YouView: View {
                     .pickerStyle(.menu)
                     .padding(.horizontal, Theme.Spacing.md)
                     .padding(.vertical, 13)
+                    rowSeparator
                     Picker(selection: $appState.appearance) {
                         ForEach(AppAppearance.allCases) { mode in
                             Text(mode.label).tag(mode)
@@ -63,6 +70,7 @@ struct YouView: View {
                     .pickerStyle(.menu)
                     .padding(.horizontal, Theme.Spacing.md)
                     .padding(.vertical, 13)
+                    rowSeparator
                     row(String(localized: "Version"), value: versionString)
                 }
 
@@ -155,6 +163,13 @@ struct YouView: View {
                 RoundedRectangle(cornerRadius: Theme.Radius.image)
                     .strokeBorder(Theme.Colors.border, lineWidth: 1)
             }
+    }
+
+    private var rowSeparator: some View {
+        Rectangle()
+            .fill(Theme.Colors.border)
+            .frame(height: 0.5)
+            .padding(.leading, Theme.Spacing.md)
     }
 
     /// Notifications, and the way back from a "Don't Allow".
