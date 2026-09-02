@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { DecisionCard } from './DecisionCard'
+import { CreateDecision } from './CreateDecision'
 import type { AppState, DecisionCard as DecisionCardType } from '../types/card'
 import './Dashboard.css'
 
@@ -104,7 +105,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     },
     [addDebugLog]
   )
-
+// /ai/route is an HTTP call; the relay URL is a WebSocket URL. Convert
+  // ws://host -> http://host and wss://host -> https://host.
+  const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
+  
+  
   const cards = Object.values(state.cardsById || {})
   const pendingCards = cards.filter(c => c.status === 'pending' && c.recipientUserID === userId)
   const decidedCards = cards.filter(c => c.status !== 'pending' || c.decision)
@@ -128,8 +133,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         </div>
       )}
 
-      <div className="dashboard-content">
+            <div className="dashboard-content">
         <div className="main-feed">
+       <CreateDecision
+            relayHttpUrl={relayHttpUrl}
+            orgId={orgId}
+            userId={userId}
+            sessionToken={sessionToken}
+            onSendCard={(card) => wsClientRef.current!.sendCardCreated(card)}
+            onLog={(msg) => addDebugLog(msg)}
+          />
+
           <div className="section">
             <h2 className="section-title">
               Pending Decisions ({pendingCards.length})

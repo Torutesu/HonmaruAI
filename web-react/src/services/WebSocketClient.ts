@@ -292,12 +292,22 @@ export class WebSocketClient {
     }))
   }
 
-  sendRollback(cardId: string): void {
+    sendRollback(cardId: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
 
     this.ws.send(JSON.stringify({
       type: 'rollback',
       payload: { cardId }
+    }))
+  }
+
+  // Send a newly created card into the org feed. The relay stamps the sender
+  // from the session, persists it, and broadcasts it to every member.
+  sendCardCreated(card: any): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    this.ws.send(JSON.stringify({
+      type: 'card_created',
+      payload: { card }
     }))
   }
 

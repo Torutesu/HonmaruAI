@@ -16,6 +16,8 @@ function App() {
     const savedRelayUrl = localStorage.getItem('relayUrl')
     const savedToken = localStorage.getItem('sessionToken')
     if (savedToken) setSessionToken(savedToken)
+    const savedOrg = localStorage.getItem('orgId')
+    if (savedOrg) setOrgId(savedOrg)
 
     if (savedUserId) {
       setUserId(savedUserId)
@@ -44,6 +46,7 @@ function App() {
     localStorage.setItem('userId', newUserId)
     localStorage.setItem('relayUrl', urlInput)
     localStorage.setItem('sessionToken', sessionToken.trim())
+    localStorage.setItem('orgId', orgId.trim())
   }
 
   const handleLogout = () => {
