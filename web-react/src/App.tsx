@@ -9,10 +9,13 @@ function App() {
   const [isConfiguring, setIsConfiguring] = useState(true)
   const [userInput, setUserInput] = useState('')
   const [urlInput, setUrlInput] = useState(relayUrl)
+  const [sessionToken, setSessionToken] = useState<string>('')
 
   useEffect(() => {
     const savedUserId = localStorage.getItem('userId')
     const savedRelayUrl = localStorage.getItem('relayUrl')
+    const savedToken = localStorage.getItem('sessionToken')
+    if (savedToken) setSessionToken(savedToken)
 
     if (savedUserId) {
       setUserId(savedUserId)
@@ -40,12 +43,14 @@ function App() {
 
     localStorage.setItem('userId', newUserId)
     localStorage.setItem('relayUrl', urlInput)
+    localStorage.setItem('sessionToken', sessionToken.trim())
   }
 
   const handleLogout = () => {
     setUserId(null)
     setIsConfiguring(true)
     localStorage.removeItem('userId')
+    localStorage.removeItem('sessionToken')
   }
 
   if (isConfiguring || !userId) {
@@ -53,11 +58,11 @@ function App() {
       <div className="login-page">
         <div className="login-container">
           <h1>Honmaru AI</h1>
-          <p className="subtitle">Web Client (Phase 8 Reference)</p>
+          <p className="subtitle">Web Client</p>
 
           <form onSubmit={handleConnect}>
             <div className="form-group">
-              <label htmlFor="user-id">User ID (e.g., alice, bob):</label>
+              <label htmlFor="user-id">User ID:</label>
               <input
                 id="user-id"
                 type="text"
@@ -75,7 +80,7 @@ function App() {
                 type="text"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="ws://localhost:8080"
+                placeholder="ws://localhost:8787"
               />
             </div>
 
@@ -90,29 +95,21 @@ function App() {
               />
             </div>
 
+            <div className="form-group">
+              <label htmlFor="session-token">Session Token:</label>
+              <input
+                id="session-token"
+                type="text"
+                value={sessionToken}
+                onChange={(e) => setSessionToken(e.target.value)}
+                placeholder="Paste your session token"
+              />
+            </div>
+
             <button type="submit" className="connect-button">
               Connect
             </button>
           </form>
-
-          <div className="login-info">
-            <h3>Test Users</h3>
-            <p>Try connecting as:</p>
-            <ul>
-              <li><code>alice</code></li>
-              <li><code>bob</code></li>
-              <li><code>charlie</code></li>
-            </ul>
-
-            <h3>Instructions</h3>
-            <ol>
-              <li>Start the relay: <code>cd server && npm start</code></li>
-              <li>Enter a user ID (e.g., alice)</li>
-              <li>Click Connect</li>
-              <li>Open another browser tab, connect as a different user (e.g., bob)</li>
-              <li>Send decisions between users</li>
-            </ol>
-          </div>
         </div>
       </div>
     )
@@ -120,7 +117,7 @@ function App() {
 
   return (
     <div className="app">
-      <Dashboard userId={userId} orgId={orgId} relayUrl={relayUrl} />
+      <Dashboard userId={userId} orgId={orgId} relayUrl={relayUrl} sessionToken={sessionToken} />
       <button className="logout-button" onClick={handleLogout}>
         Logout
       </button>

@@ -39,7 +39,12 @@ export class WebSocketClient {
 
     return new Promise((resolve, reject) => {
       try {
-        const ws = new WebSocket(url)
+        // The relay reads orgId from the URL query string, not the join
+        // payload. Without it the server falls back to the "core-team" demo
+        // org and rejects everyone else as "not a member".
+        const wsUrl = new URL(url)
+        wsUrl.searchParams.set('orgId', orgId)
+        const ws = new WebSocket(wsUrl.toString())
         this.ws = ws
 
         ws.onopen = () => {

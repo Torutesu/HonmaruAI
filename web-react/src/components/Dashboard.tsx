@@ -8,17 +8,16 @@ interface Props {
   userId: string
   orgId: string
   relayUrl: string
+  sessionToken: string
 }
 
-export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
+export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken }) => {
   const [state, setState] = useState<AppState>({ cardsById: {} })
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDebugLog, setShowDebugLog] = useState(import.meta.env.VITE_DEBUG === 'true')
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
 
-  // Lazy init: useRef(new WebSocketClient()) would construct a fresh
-  // instance on every render (immediately discarded, but still wasteful).
   const wsClientRef = React.useRef<WebSocketClient | null>(null)
   if (wsClientRef.current === null) {
     wsClientRef.current = new WebSocketClient()
@@ -31,11 +30,6 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
 
   useEffect(() => {
     const wsClient = wsClientRef.current!
-    // StrictMode runs this effect twice in dev (mount → cleanup → mount).
-    // The cleanup below calls disconnect() correctly, but connect() is
-    // async — without this guard, the first pass's connect() could still
-    // resolve after cleanup and set state for an effect run that already
-    // tore down.
     let ignore = false
 
     wsClient.onStateChange = (newState) => {
@@ -70,10 +64,6 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
       if (!ignore) addDebugLog(`Tool result: ${toolCallId}`)
     }
 
-    // Reflects the socket's actual open/closed state at all times (initial
-    // connect, disconnect, and every reconnect) — previously this only
-    // ever flipped to true once and never back to false, so the UI stayed
-    // on "Connected" forever after a real disconnect.
     wsClient.onConnectionChange = (connected) => {
       if (ignore) return
       setIsConnected(connected)
@@ -82,7 +72,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
 
     const connect = async () => {
       try {
-        await wsClient.connect(relayUrl, userId, orgId)
+        await wsClient.connect(relayUrl, userId, orgId, sessionToken)
       } catch (err) {
         if (ignore) return
         const message = err instanceof Error ? err.message : String(err)
@@ -97,7 +87,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
       ignore = true
       wsClient.disconnect()
     }
-  }, [relayUrl, userId, orgId, addDebugLog])
+  }, [relayUrl, userId, orgId, sessionToken, addDebugLog])
 
   const handleDecision = useCallback(
     (cardId: string, action: string, options?: any) => {
