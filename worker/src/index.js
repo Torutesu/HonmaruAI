@@ -103,6 +103,19 @@ export default {
 };
 
 async function handle(request, env, url) {
+    // Browsers send a preflight OPTIONS before a cross-origin POST with custom
+    // headers. Answer it with the CORS headers and no body.
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": "*",
+          "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+          "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+        },
+      });
+    }
+
     if (url.pathname === "/health" && request.method === "GET") {
       return json({
         ok: true,
@@ -553,6 +566,13 @@ async function handle(request, env, url) {
 export function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      // Allow browser clients (the web app) to call this API. Native apps are
+      // not subject to CORS, so this was never needed until the web client.
+      "access-control-allow-origin": "*",
+      "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+      "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+    },
   });
-}
+} 
