@@ -326,6 +326,13 @@ function userNameFor(userID) {
   if (userID === "user-tanaka") return "田中";
   if (userID === "user-yui") return "結衣";
   if (userID === "user-alex") return "Alex";
+  // Email users have ids like "email:kinjal@test.com". Show the part before
+  // the @, capitalized, instead of the raw id — "Kinjal" rather than
+  // "email:kinjal@test.com".
+  if (userID.startsWith("email:")) {
+    const local = userID.slice("email:".length).split("@")[0];
+    return local.charAt(0).toUpperCase() + local.slice(1);
+  }
   return userID;
 }
 
