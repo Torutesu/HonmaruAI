@@ -2,7 +2,8 @@ import { applyPatch, type Operation } from 'fast-json-patch'
 import type { StateSnapshot, StateDelta, ToolCallResult } from '../types/agui'
 import type { AppState, DecisionCard } from '../types/card'
 
-const RECONNECT_DELAY_MS = 2000
+const RECONNECT_MIN_MS = 2000
+const RECONNECT_MAX_MS = 30000
 
 export class WebSocketClient {
   private ws: WebSocket | null = null
@@ -16,7 +17,10 @@ export class WebSocketClient {
   private currentUserId: string | null = null
   private lastConnectParams: { url: string; orgId: string; sessionToken?: string } | null = null
   private intentionalDisconnect = false
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  // Grows on each failed retry (2s → 4s → 8s … capped) so a server that is
+  // down is not hammered every 2s, and resets to the minimum on a success.
+  private reconnectDelay = RECONNECT_MIN_MS
 
   onStateChange?: (state: AppState) => void
   onCardCreated?: (card: DecisionCard) => void
@@ -96,13 +100,16 @@ export class WebSocketClient {
 
     const { url, orgId, sessionToken } = this.lastConnectParams
     const userId = this.currentUserId
+        const delay = this.reconnectDelay
+    // Next attempt waits longer, up to the cap.
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS)
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.connect(url, userId, orgId, sessionToken).catch(() => {
         // onclose (fired by the failed attempt) schedules the next retry —
         // nothing further to do here.
       })
-    }, RECONNECT_DELAY_MS)
+    }, delay)
   }
 
   disconnect(): void {
@@ -151,8 +158,11 @@ export class WebSocketClient {
     }
   }
 
-  private handleSnapshot(event: StateSnapshot): void {
+   private handleSnapshot(event: StateSnapshot): void {
     if (!event.snapshot?.cardsById) return
+    // A successful join resets the backoff, so the next disconnect retries
+    // quickly rather than inheriting a long delay from an earlier outage.
+    this.reconnectDelay = RECONNECT_MIN_MS
     // New top-level object, not a mutation of the existing one — passing
     // the same reference to a React setState call gets dropped by
     // Object.is, so old cards would never clear (e.g. after clear_store).
