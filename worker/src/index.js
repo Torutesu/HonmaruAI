@@ -1,5 +1,6 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
+import { signup, login } from "./auth.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
@@ -114,6 +115,24 @@ async function handle(request, env, url) {
           "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
         },
       });
+    }
+
+        if (url.pathname === "/auth/signup" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const body = await request.json().catch(() => ({}));
+      const result = await signup(env, body);
+      if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    if (url.pathname === "/auth/login" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const body = await request.json().catch(() => ({}));
+      const result = await login(env, body);
+      if (result.error) return json({ message: result.error }, 401);
+      return json(result);
     }
 
     if (url.pathname === "/health" && request.method === "GET") {

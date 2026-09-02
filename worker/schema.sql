@@ -4,8 +4,15 @@ CREATE TABLE IF NOT EXISTS users (
   name          TEXT,
   avatar_url    TEXT,
   locale        TEXT DEFAULT 'en',
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  -- Email/password auth. NULL for GitHub users; set for email sign-ups.
+  -- (github_id is just the primary user id; email users get an "email:" id.)
+  email         TEXT,
+  password_hash TEXT,
+  password_salt TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 CREATE TABLE IF NOT EXISTS orgs (
   id            TEXT PRIMARY KEY,
