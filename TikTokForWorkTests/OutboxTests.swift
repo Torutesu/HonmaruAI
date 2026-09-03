@@ -108,4 +108,14 @@ final class OutboxTests: XCTestCase {
         let serialized = outbox.drain().map { String(describing: $0.envelope) }.joined()
         XCTAssertFalse(serialized.contains("sessionToken"))
     }
+
+    func testScopedFilenamesCannotCollideAcrossUsersOrOrganizations() {
+        let aliceAcme = Outbox.filename(userID: "alice", orgID: "acme/app")
+        let aliceOther = Outbox.filename(userID: "alice", orgID: "other/repo")
+        let bobAcme = Outbox.filename(userID: "bob", orgID: "acme/app")
+
+        XCTAssertNotEqual(aliceAcme, aliceOther)
+        XCTAssertNotEqual(aliceAcme, bobAcme)
+        XCTAssertFalse(aliceAcme.contains("/"))
+    }
 }

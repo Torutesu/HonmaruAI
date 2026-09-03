@@ -76,6 +76,17 @@ final class DecisionCardService: ObservableObject {
         changed()
     }
 
+    /// Leaves the current organization without deleting its offline mirror.
+    /// Repository switching calls this; sign-out intentionally uses `reset()`
+    /// so the next person using the device cannot read the previous account's
+    /// cached work.
+    func leaveOrganization() {
+        cardsByUser = [:]
+        orgID = nil
+        persistTask?.cancel()
+        changed()
+    }
+
     /// Every mutation goes through here, so caching is not something a new
     /// code path has to remember to do.
     private func changed() {

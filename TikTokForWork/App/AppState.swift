@@ -258,7 +258,7 @@ final class AppState: ObservableObject {
     /// so after a switch the feed showed the new repository's name while
     /// receiving the old repository's decisions.
     func handleRepositoryChanged() async {
-        cardService.reset()
+        cardService.leaveOrganization()
         guard let connection = githubService.connection else { return }
         await activateGitHubSession(connection: connection)
     }

@@ -18,6 +18,7 @@ import Foundation
 @MainActor
 final class Outbox {
     private var pending: [Entry] = []
+    let filename: String
     private let fileURL: URL?
     private let limit = 200
 
@@ -27,8 +28,18 @@ final class Outbox {
     }
 
     init(filename: String = "outbox.json") {
+        self.filename = filename
         fileURL = Outbox.supportDirectory()?.appendingPathComponent(filename)
         load()
+    }
+
+    /// Offline work belongs to an authenticated person *and* their selected
+    /// repository. A generic device-wide queue could replay Alice's pending
+    /// card into Bob's organization after an account or repository switch.
+    static func filename(userID: String, orgID: String) -> String {
+        let user = encodedFileComponent(userID)
+        let organization = encodedFileComponent(orgID)
+        return "outbox-\(user)-\(organization).json"
     }
 
     var count: Int { pending.count }
@@ -81,6 +92,14 @@ final class Outbox {
         let directory = base.appendingPathComponent("Honmaru", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    private nonisolated static func encodedFileComponent(_ value: String) -> String {
+        Data(value.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 
     private func load() {

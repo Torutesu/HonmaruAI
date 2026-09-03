@@ -193,9 +193,8 @@ final class WebSocketService: ObservableObject {
     private var lastSessionToken: String?
     private var lastRefusal: String?
     private let session = URLSession(configuration: .default)
-    // Lazy so its main-actor initializer runs on first use rather than in a
-    // stored-property default.
-    private lazy var outbox = Outbox()
+    /// Kept per authenticated user and organization; see `configureOutbox`.
+    private var outbox: Outbox?
 
     /// cardID → recipientUserID, maintained from snapshots and upserts so
     /// AG-UI remove patches (which carry only the card id) can be routed.
@@ -228,6 +227,7 @@ final class WebSocketService: ObservableObject {
         lastUserID = userId
         lastOrgID = orgId
         lastSessionToken = sessionToken
+        configureOutbox(userID: userId, orgID: orgId)
 
         // Tear the previous socket down as intentional so its receive loop does
         // not schedule a reconnect for a connection we are replacing — and then
@@ -328,11 +328,12 @@ final class WebSocketService: ObservableObject {
         do {
             try await send(event)
         } catch {
-            outbox.append(event)
+            outbox?.append(event)
         }
     }
 
     private func flushOutbox() async {
+        guard let outbox else { return }
         for event in outbox.drain() {
             do {
                 try await send(event)
@@ -343,6 +344,12 @@ final class WebSocketService: ObservableObject {
                 break
             }
         }
+    }
+
+    private func configureOutbox(userID: String, orgID: String) {
+        let filename = Outbox.filename(userID: userID, orgID: orgID)
+        if outbox?.filename == filename { return }
+        outbox = Outbox(filename: filename)
     }
 
     /// Goes through `publish`, not `send`, for the same reason every other

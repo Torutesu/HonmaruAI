@@ -23,9 +23,18 @@ enum CardCache {
         return directory.appendingPathComponent(filename)
     }
 
-    /// Cards are cached per organization. Reading another org's cache after a
-    /// repository switch would show decisions that are not this team's.
-    private struct Envelope: Codable {
+    /// The current format retains a separate feed for every organization this
+    /// account has opened. This lets a person switch repositories and come back
+    /// offline without ever showing one team's cards in another team's feed.
+    private struct Store: Codable {
+        let version: Int
+        var cardsByOrganization: [String: [String: [DecisionCard]]]
+    }
+
+    /// The format shipped before multi-org caching. Keep it private and decode
+    /// it only as a migration path, so an app update does not turn a useful
+    /// offline feed into a blank one.
+    private struct LegacyEnvelope: Codable {
         let orgID: String
         let cardsByUser: [String: [DecisionCard]]
     }
@@ -34,16 +43,32 @@ enum CardCache {
         guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [:] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let envelope = try? decoder.decode(Envelope.self, from: data),
-              envelope.orgID == orgID else { return [:] }
-        return envelope.cardsByUser
+        if let store = try? decoder.decode(Store.self, from: data) {
+            return store.cardsByOrganization[orgID, default: [:]]
+        }
+        if let legacy = try? decoder.decode(LegacyEnvelope.self, from: data), legacy.orgID == orgID {
+            return legacy.cardsByUser
+        }
+        return [:]
     }
 
     static func save(orgID: String, cardsByUser: [String: [DecisionCard]]) {
         guard let fileURL else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var organizations: [String: [String: [DecisionCard]]] = [:]
+        if let data = try? Data(contentsOf: fileURL),
+           let store = try? decoder.decode(Store.self, from: data) {
+            organizations = store.cardsByOrganization
+        } else if let data = try? Data(contentsOf: fileURL),
+                  let legacy = try? decoder.decode(LegacyEnvelope.self, from: data) {
+            organizations[legacy.orgID] = legacy.cardsByUser
+        }
+        organizations[orgID] = cardsByUser
+
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(Envelope(orgID: orgID, cardsByUser: cardsByUser)) else { return }
+        guard let data = try? encoder.encode(Store(version: 2, cardsByOrganization: organizations)) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 

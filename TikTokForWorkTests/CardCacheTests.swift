@@ -1,10 +1,9 @@
 import XCTest
 @testable import TikTokForWork
 
-/// The cache is what stands between a cold launch and a blank feed. Its one
-/// non-obvious rule — a cache belongs to exactly one organization — is the one
-/// that would otherwise show a user another team's decisions after a repository
-/// switch.
+/// The cache is what stands between a cold launch and a blank feed. Each
+/// organization has an isolated entry, so switching repositories cannot show
+/// another team's work and returning offline can still restore the right feed.
 ///
 /// Isolation per method, for the reason given in OutboxTests.
 final class CardCacheTests: XCTestCase {
@@ -43,13 +42,13 @@ final class CardCacheTests: XCTestCase {
     }
 
     @MainActor
-    func testAnotherOrganizationsCacheIsNotOurs() {
+    func testOrganizationsAreIsolated() {
         clean()
         CardCache.save(orgID: "acme/app", cardsByUser: ["alice": [card("c-1")]])
+        CardCache.save(orgID: "other/repo", cardsByUser: ["bob": [card("c-2")]])
 
-        // Switching repositories switches organizations. Showing the previous
-        // one's decisions would be showing another team's work.
-        XCTAssertTrue(CardCache.load(orgID: "other/repo").isEmpty)
+        XCTAssertEqual(CardCache.load(orgID: "acme/app")["alice"]?.map(\.id), ["c-1"])
+        XCTAssertEqual(CardCache.load(orgID: "other/repo")["bob"]?.map(\.id), ["c-2"])
     }
 
     @MainActor
