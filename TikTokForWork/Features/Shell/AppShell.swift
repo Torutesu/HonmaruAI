@@ -12,6 +12,8 @@ struct AppShell: View {
     @State private var composeTick = 0
     @State private var showCapture = false
     @State private var captured: CaptureRequest?
+    @State private var feedCardCount = 0
+    @State private var feedCardIndex = 0
 
     var body: some View {
         ZStack {
@@ -19,7 +21,13 @@ struct AppShell: View {
 
             switch tab {
             case .home:
-                FeedView(showsChrome: false, composeTick: composeTick, captured: captured)
+                FeedView(
+                    showsChrome: false,
+                    composeTick: composeTick,
+                    captured: captured,
+                    cardCount: $feedCardCount,
+                    currentCardIndex: $feedCardIndex
+                )
             case .you:
                 YouView()
             }
@@ -73,34 +81,40 @@ struct AppShell: View {
     }
 
     private var homeTopBar: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            // Connection status — matches FeedView.topBar which is hidden in shell mode.
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(connectionColor)
-                    .frame(width: 5, height: 5)
-                if let label = connectionLabel {
-                    Text(label)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Colors.textTertiary)
+        ZStack(alignment: .center) {
+            HStack(spacing: Theme.Spacing.sm) {
+                // Connection status — matches FeedView.topBar which is hidden in shell mode.
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(connectionColor)
+                        .frame(width: 5, height: 5)
+                    if let label = connectionLabel {
+                        Text(label)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                    }
                 }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
 
-            Spacer()
+                Spacer()
 
-            Button {
-                tab = .you
-            } label: {
-                Text(String(appState.currentUser?.name.prefix(1) ?? "?"))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .frame(width: 28, height: 28)
-                    .background(Theme.Colors.surfaceRaised)
-                    .clipShape(Circle())
+                Button {
+                    tab = .you
+                } label: {
+                    Text(String(appState.currentUser?.name.prefix(1) ?? "?"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(Theme.Colors.surfaceRaised)
+                        .clipShape(Circle())
+                }
+                .accessibilityLabel(Text("You"))
             }
-            .accessibilityLabel(Text("You"))
+
+            if feedCardCount > 1 {
+                PageDots(count: feedCardCount, index: feedCardIndex)
+            }
         }
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.sm)

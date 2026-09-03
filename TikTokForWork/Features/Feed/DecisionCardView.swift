@@ -353,15 +353,6 @@ struct DecisionCardView: View {
         .buttonStyle(.plain)
     }
 
-    private var priorityLabel: String {
-        switch card.priority {
-        case .urgent: "Urgent"
-        case .high: "High"
-        case .medium: "Medium"
-        case .low: "Low"
-        }
-    }
-
     /// The priority stripe from docs/design-system.md: urgent pink, high blue,
     /// everything quieter than that a neutral cloud.
     private var priorityColor: Color {

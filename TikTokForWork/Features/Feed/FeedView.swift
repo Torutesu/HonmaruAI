@@ -12,6 +12,10 @@ struct FeedView: View {
     /// What the capture screen came back with. Arrives already uploaded, so the
     /// draft chain starts the moment it is set.
     var captured: CaptureRequest?
+    /// Exposed so the embedding shell can display page dots without owning the
+    /// view model. Ignored when showsChrome is true (topBar renders them itself).
+    var cardCount: Binding<Int> = .constant(0)
+    var currentCardIndex: Binding<Int> = .constant(0)
 
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var subscriptions: SubscriptionService
@@ -57,7 +61,6 @@ struct FeedView: View {
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $viewModel.scrollPosition)
                 .scrollIndicators(.hidden)
-                .task { await syncConnectors() }
                 .refreshable { await syncConnectors() }
             }
 
@@ -91,8 +94,13 @@ struct FeedView: View {
             guard let request else { return }
             viewModel.beginDraft(request.text, priority: .medium, appState: appState, videoURL: request.videoURL)
         }
+        .task { await syncConnectors() }
+        .onChange(of: viewModel.cards.count) { _, count in cardCount.wrappedValue = count }
+        .onChange(of: viewModel.currentIndex) { _, index in currentCardIndex.wrappedValue = index }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {
+            cardCount.wrappedValue = viewModel.cards.count
+            currentCardIndex.wrappedValue = viewModel.currentIndex
             guard let user = appState.currentUser else { return }
             viewModel.bind(
                 to: appState.cardService,
@@ -324,7 +332,7 @@ struct FeedView: View {
     private var emptyState: some View {
         VStack(spacing: Theme.Spacing.sm) {
             Text(emptyTitle)
-                .font(Theme.TypeScale.caption)
+                .font(Theme.TypeScale.body)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Theme.Spacing.md)

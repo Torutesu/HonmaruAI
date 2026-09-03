@@ -31,18 +31,25 @@ struct DelegatePickerSheet: View {
                 }
 
                 Section("Send to") {
-                    ForEach(candidates, id: \.id) { user in
-                        Button {
-                            onPick(user)
-                            dismiss()
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(user.name)
-                                    .font(Theme.TypeScale.body)
-                                    .foregroundStyle(Theme.Colors.textPrimary)
-                                Text(user.role)
-                                    .font(Theme.TypeScale.caption)
-                                    .foregroundStyle(Theme.Colors.textTertiary)
+                    if candidates.isEmpty {
+                        Text("No teammates available. Connect GitHub to load your organization.")
+                            .font(Theme.TypeScale.caption)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                            .padding(.vertical, Theme.Spacing.sm)
+                    } else {
+                        ForEach(candidates, id: \.id) { user in
+                            Button {
+                                onPick(user)
+                                dismiss()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(user.name)
+                                        .font(Theme.TypeScale.body)
+                                        .foregroundStyle(Theme.Colors.textPrimary)
+                                    Text(user.role)
+                                        .font(Theme.TypeScale.caption)
+                                        .foregroundStyle(Theme.Colors.textTertiary)
+                                }
                             }
                         }
                     }
