@@ -85,8 +85,8 @@ The list of what is still missing, and why each item matters, is
       to show a person their address (`GET /connectors/email/address` returns it)
 - [ ] A sent-items view — without one there is nowhere to nudge someone whose
       decision is overdue, which is why the SLA work shipped as a chip only
-- [ ] A card layout that scrolls within its page, so Dynamic Type does not have
-      to be clamped at `accessibility1`
+- [x] A card layout that scrolls within its page at accessibility text sizes,
+      so Dynamic Type is never clamped
 
 
 Both of the last two, and the other compromises made here, are written up under

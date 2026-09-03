@@ -10,9 +10,9 @@ paying stranger.
 > item below keeps its full write-up; the reasoning is what makes a fix
 > reviewable a year later.
 >
-> One item shipped as a compromise rather than a fix, and is flagged as such:
-> **P2-1**, where the feed's one-card-per-page gesture and unbounded Dynamic
-> Type cannot both be satisfied without rebuilding the gesture.
+> P2-1 was originally shipped as a compromise. The card now switches to an
+> inner vertical scroll view at accessibility text sizes, keeping every action
+> reachable without changing the standard one-card swipe feed.
 
 The product works: 106 Worker tests pass, the core loop (instruct → route →
 decide → sync to GitHub) is real, and TestFlight internal builds ship. What
@@ -339,7 +339,7 @@ Client-side, typed errors with recovery copy and a retry affordance.
 
 | # | Item | Outcome |
 |---|------|---------|
-| P2-1 | VoiceOver + Dynamic Type on the card | **Done, partly as a compromise.** Approve, decline, revise and delegate are rotor actions — VoiceOver owns horizontal swipes, so the product's primary gesture did not exist for anyone using it. Dynamic Type is *clamped* at `accessibility1`: one card fills one page and cannot scroll, so past that size the action row left the screen with no way back. Nesting a scroll view inside the paging one fights the gesture the feed is built on. The clamp is only tolerable because the rotor actions work at every size, including the clamped ones. The real fix is a card layout that scrolls within its page, and it is a redesign, not a patch. |
+| P2-1 | VoiceOver + Dynamic Type on the card | **Done.** Approve, decline, revise and delegate are rotor actions — VoiceOver owns horizontal swipes, so the product's primary gesture does not exist for anyone using it. At accessibility text sizes the card becomes vertically scrollable inside its page, so all content and actions remain reachable; standard sizes retain the one-card swipe feed. |
 | P2-2 | Pending badge on the tab bar | **Done.** The count now has one owner (`DecisionCardService.pendingCount`) feeding both the tab and the app icon — it was computed in the feed view model, and a count computed twice is a count that eventually disagrees with itself. |
 | P2-3 | Card SLA | **Done as a chip, not a nudge.** A pending card shows "Waiting 3d" from day two and turns red at five. The nudge-back-to-sender half was dropped on purpose: you only see cards routed *to* you, so there is no screen on which to nudge someone. That needs a sent-items view, which is a feature, not polish. |
 | P2-4 | Search + filter over history | **Done.** Searchable over title, actor and note; filtered by all/decided/created/undone, because "did that get approved?" is the question people actually arrive with. "Nothing matches that" is distinct from "nothing has happened" — the difference between the query being wrong and the product being empty. |
@@ -360,10 +360,6 @@ Worth stating plainly rather than leaving to be discovered:
   flow, token refresh, and re-authentication for everyone already signed in —
   not a change of one string.
 
-- **Dynamic Type is clamped on the feed card** (P2-1 above). Sizes above
-  `accessibility1` are refused rather than rendered badly. VoiceOver users are
-  unaffected; someone who reads with large text and does not use VoiceOver gets
-  smaller text than they asked for.
 - **The SLA chip has no nudge** (P2-3 above) — nowhere to put it until a
   sent-items view exists.
 - **`triage` is not membership.** GitHub grants it for managing issues without

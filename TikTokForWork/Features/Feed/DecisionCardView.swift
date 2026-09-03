@@ -8,6 +8,7 @@ struct DecisionCardView: View {
     let onShowDetails: () -> Void
 
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var dragOffset: CGFloat = 0
     @State private var showsSource = false
 
@@ -19,9 +20,63 @@ struct DecisionCardView: View {
 
             swipeHintLayer
 
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                    .padding(.bottom, Theme.Spacing.lg)
+            cardContent
+                .padding(.horizontal, Theme.Spacing.screen)
+                .padding(.top, Theme.Spacing.md)
+                .padding(.bottom, Theme.Spacing.md)
+                .offset(x: dragOffset)
+        }
+        .contentShape(Rectangle())
+        .simultaneousGesture(swipeGesture)
+        // VoiceOver owns horizontal swipes, so the card's primary gesture does
+        // not exist for anyone using it. The action row below is reachable, but
+        // only after paging through the whole card — these put approve and
+        // decline on the rotor, where the swipe would have been.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(accessibilitySummary))
+        .accessibilityActions {
+            if card.isPending {
+                Button(String(localized: "Approve")) {
+                    Haptics.success()
+                    onAction(.createIssue)
+                }
+                Button(String(localized: "Decline")) {
+                    Haptics.light()
+                    onAction(.reject)
+                }
+                Button(String(localized: "Request revision")) { onAction(.requestRevision) }
+                Button(String(localized: "Delegate")) { onAction(.delegate) }
+            }
+            Button(String(localized: "View details")) { onShowDetails() }
+        }
+        .sheet(isPresented: $showsSource) {
+            if let app = card.sourceApp {
+                SourceSheet(app: app, detail: card.sourceDetail, card: card)
+                    .presentationDetents([.medium, .large])
+            }
+        }
+    }
+
+    /// A page-sized feed card and unrestricted Dynamic Type conflict: at the
+    /// largest sizes the action row used to fall below the viewport. Standard
+    /// sizes retain the fast, full-page swipe experience; accessibility sizes
+    /// gain an inner vertical scroll view so every control remains reachable.
+    @ViewBuilder
+    private var cardContent: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollView(.vertical) {
+                cardBody
+            }
+            .scrollIndicators(.automatic)
+        } else {
+            cardBody
+        }
+    }
+
+    private var cardBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.bottom, Theme.Spacing.lg)
 
                 Button(action: onShowDetails) {
                     VStack(alignment: .leading, spacing: Theme.Spacing.md) {
@@ -30,16 +85,12 @@ struct DecisionCardView: View {
                             .foregroundStyle(Theme.Colors.textPrimary)
                             .lineSpacing(2)
                             .multilineTextAlignment(.leading)
-                            // A long title at a large text size otherwise
-                            // pushes everything below it off the page.
-                            .minimumScaleFactor(0.8)
 
                         Text(card.summary)
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .lineSpacing(5)
                             .multilineTextAlignment(.leading)
-                            .minimumScaleFactor(0.85)
 
                         if let original = card.originalBody,
                            let language = card.originalLanguage {
@@ -103,51 +154,6 @@ struct DecisionCardView: View {
                         .padding(.top, Theme.Spacing.sm)
                 }
             }
-            .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.top, Theme.Spacing.md)
-            .padding(.bottom, Theme.Spacing.md)
-            .offset(x: dragOffset)
-        }
-        .contentShape(Rectangle())
-        // One card fills one page and cannot scroll — that is the whole feed
-        // gesture. At the accessibility text sizes the content grew past the
-        // page and took the action row with it, off-screen, with no way to
-        // reach it. Nesting a scroll view inside a paging one to fix that
-        // fights the gesture the product is built on, so the text is allowed to
-        // grow to the largest size the layout survives and stops there.
-        //
-        // This is a compromise, and it is only tolerable because the actions do
-        // not depend on it: the rotor actions below reach approve, decline,
-        // revise and delegate at any size, including the ones clamped here.
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .simultaneousGesture(swipeGesture)
-        // VoiceOver owns horizontal swipes, so the card's primary gesture does
-        // not exist for anyone using it. The action row below is reachable, but
-        // only after paging through the whole card — these put approve and
-        // decline on the rotor, where the swipe would have been.
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(accessibilitySummary))
-        .accessibilityActions {
-            if card.isPending {
-                Button(String(localized: "Approve")) {
-                    Haptics.success()
-                    onAction(.createIssue)
-                }
-                Button(String(localized: "Decline")) {
-                    Haptics.light()
-                    onAction(.reject)
-                }
-                Button(String(localized: "Request revision")) { onAction(.requestRevision) }
-                Button(String(localized: "Delegate")) { onAction(.delegate) }
-            }
-            Button(String(localized: "View details")) { onShowDetails() }
-        }
-        .sheet(isPresented: $showsSource) {
-            if let app = card.sourceApp {
-                SourceSheet(app: app, detail: card.sourceDetail, card: card)
-                    .presentationDetents([.medium, .large])
-            }
-        }
     }
 
     private var header: some View {
