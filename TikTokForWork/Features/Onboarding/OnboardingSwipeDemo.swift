@@ -174,11 +174,19 @@ struct OnboardingSwipeDemo: View {
         DragGesture(minimumDistance: 10, coordinateSpace: .local)
             .onChanged { value in
                 guard resolution == nil else { return }
-                dragOffset = value.translation.width
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) else { return }
+                dragOffset = horizontal
             }
             .onEnded { value in
                 guard resolution == nil else { return }
                 let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) else {
+                    withAnimation(.easeOut(duration: 0.18)) { dragOffset = 0 }
+                    return
+                }
 
                 if horizontal > swipeThreshold {
                     resolve(.approved, direction: 1)

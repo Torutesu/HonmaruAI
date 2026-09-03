@@ -139,7 +139,9 @@ final class FeedViewModel: ObservableObject {
                 githubService: appState.githubService
             )
             Haptics.success()
-            refreshCards(from: cardService)
+            withAnimation(.easeOut(duration: 0.2)) {
+                refreshCards(from: cardService)
+            }
             advanceIfNeeded()
         } catch {
             errorMessage = error.localizedDescription
@@ -211,7 +213,7 @@ final class FeedViewModel: ObservableObject {
             )
             pendingVideoURL = nil
             refreshCards(from: cardService)
-            Haptics.light()
+            Haptics.success()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -248,7 +250,9 @@ final class FeedViewModel: ObservableObject {
                 githubService: appState.githubService
             )
             Haptics.success()
-            refreshCards(from: cardService)
+            withAnimation(.easeOut(duration: 0.2)) {
+                refreshCards(from: cardService)
+            }
             advanceIfNeeded()
             // Deciding is a local state change; reconciling with GitHub is
             // bookkeeping. Awaiting it here made every approval wait on the

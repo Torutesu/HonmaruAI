@@ -141,7 +141,7 @@ struct HistoryView: View {
                     .lineLimit(2)
             }
             if let actor = event.actorUserId {
-                Text(actor)
+                Text(DisplayName.of(actor, in: appState.organization))
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
             }

@@ -85,7 +85,7 @@ struct ComposeBar: View {
             HStack(spacing: 10) {
                 Image(systemName: "sparkle")
                     .font(.system(size: 14))
-                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .foregroundStyle(Theme.Colors.accent)
                 Text(placeholder)
                     .font(Theme.TypeScale.body)
                     .foregroundStyle(Theme.Colors.textTertiary)
@@ -156,8 +156,8 @@ struct PrioritySlider: View {
     private func priorityColor(for level: CardPriority) -> Color {
         switch level {
         case .low: Theme.Colors.textTertiary
-        case .medium: Theme.Colors.accent
-        case .high: Color(hex: 0xFBBF24)
+        case .medium: Color(hex: 0xD4D4D4)
+        case .high: Theme.Colors.interactive
         case .urgent: Theme.Colors.reject
         }
     }

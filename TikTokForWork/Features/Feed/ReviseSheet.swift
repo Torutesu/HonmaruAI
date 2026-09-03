@@ -15,13 +15,13 @@ struct ReviseSheet: View {
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
 
-                Text("What should change before this becomes a GitHub issue?")
+                Text("What should change before this decision is sent?")
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textTertiary)
 
                 ZStack(alignment: .topLeading) {
                     if note.isEmpty {
-                        Text("e.g. split into two issues, add acceptance criteria…")
+                        Text("e.g. split into two tasks, add acceptance criteria…")
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textTertiary)
                             .padding(.horizontal, 4)
