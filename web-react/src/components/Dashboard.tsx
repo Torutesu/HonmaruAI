@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
+import { InviteTeammate } from './InviteTeammate'
 import type { AppState, DecisionCard as DecisionCardType } from '../types/card'
 import './Dashboard.css'
 
@@ -222,8 +223,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               </div>
             </div>
           )}
-
-          <div className="info-panel">
+            <InviteTeammate
+            relayHttpUrl={relayHttpUrl}
+            orgId={orgId}
+            sessionToken={sessionToken}
+          />
+      <div className="info-panel">
             <h3>Connection Info</h3>
             <ul>
               <li><strong>URL:</strong> {relayUrl}</li>

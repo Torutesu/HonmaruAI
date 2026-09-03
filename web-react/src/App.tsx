@@ -25,6 +25,7 @@ function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+    const [inviteCode, setInviteCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,10 +60,11 @@ function App() {
     setError(null)
     try {
       const path = mode === 'signup' ? '/auth/signup' : '/auth/login'
-      const body: any = { email: email.trim(), password }
+            const body: any = { email: email.trim(), password }
       if (mode === 'signup') {
         body.name = name.trim()
         body.orgId = orgId.trim() || 'web-team'
+        if (inviteCode.trim()) body.inviteCode = inviteCode.trim()
       }
       const res = await fetch(`${httpBase(host)}${path}`, {
         method: 'POST',
@@ -125,6 +127,15 @@ function App() {
                 <label htmlFor="org">Team:</label>
                 <input id="org" type="text" value={orgId}
                   onChange={(e) => setOrgId(e.target.value)} placeholder="web-team" />
+              </div>
+            )}
+
+                        {mode === 'signup' && (
+              <div className="form-group">
+                <label htmlFor="invite">Invite code (optional):</label>
+                <input id="invite" type="text" value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  placeholder="Paste a code to join a team" />
               </div>
             )}
 

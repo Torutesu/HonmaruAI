@@ -28,6 +28,17 @@ CREATE TABLE IF NOT EXISTS memberships (
   PRIMARY KEY (org_id, user_github_id)
 );
 
+/* Team invite codes. A member creates a code for their org; anyone who
+   redeems it joins that org. Kept simple: a code is reusable until deleted.
+   Block comment (not --) so the test loader that flattens newlines is happy. */
+CREATE TABLE IF NOT EXISTS invites (
+  code           TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  created_by     TEXT NOT NULL,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_invites_org ON invites (org_id);
+
 CREATE TABLE IF NOT EXISTS agents (
   id                TEXT PRIMARY KEY,
   org_id            TEXT NOT NULL,

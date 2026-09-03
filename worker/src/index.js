@@ -1,6 +1,6 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
-import { signup, login } from "./auth.js";
+import { signup, login, createInvite, acceptInvite } from "./auth.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
@@ -132,6 +132,24 @@ async function handle(request, env, url) {
       const body = await request.json().catch(() => ({}));
       const result = await login(env, body);
       if (result.error) return json({ message: result.error }, 401);
+      return json(result);
+    }
+
+           if (url.pathname === "/invites/create" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id });
+      if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    if (url.pathname === "/invites/accept" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await acceptInvite(env, { code: body.code, userId: session.github_id });
+      if (result.error) return json({ message: result.error }, 400);
       return json(result);
     }
 

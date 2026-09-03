@@ -40,7 +40,7 @@ function validEmail(email) {
 
 // Create an account: hash the password, store the user, put them in a default
 // org, and return a session token the client can use immediately.
-export async function signup(env, { email, password, name, orgId }) {
+export async function signup(env, { email, password, name, orgId, inviteCode }) {
   if (!validEmail(email)) return { error: "Please enter a valid email." };
   if (typeof password !== "string" || password.length < 8) {
     return { error: "Password must be at least 8 characters." };
@@ -66,7 +66,17 @@ export async function signup(env, { email, password, name, orgId }) {
     .bind(normalizedEmail, hash, salt, userId)
     .run();
 
-  const org = orgId?.trim() || "web-team";
+   // If they signed up with an invite code, join that team instead of creating
+  // their own. Otherwise fall back to the org they typed (or a default).
+  let org = orgId?.trim() || "web-team";
+  if (inviteCode?.trim()) {
+    const invite = await env.DB
+      .prepare("SELECT org_id FROM invites WHERE code = ?1")
+      .bind(inviteCode.trim())
+      .first();
+    if (!invite) return { error: "That invite code is not valid." };
+    org = invite.org_id;
+  }
   await upsertMembership(env.DB, org, userId, "member");
 
   const token = await createSession(env.DB, userId, "email-auth");
@@ -90,4 +100,30 @@ export async function login(env, { email, password }) {
 
   const token = await createSession(env.DB, row.github_id, "email-auth");
   return { token, userId: row.github_id, login: row.login };
+}
+
+
+// Create a reusable invite code for an org. Any current member can make one.
+export async function createInvite(env, { orgId, createdBy }) {
+  if (!orgId) return { error: "Missing team." };
+  // Short, readable code: "web-team-a1b2c3"
+  const suffix = toHex(crypto.getRandomValues(new Uint8Array(3)));
+  const code = `${orgId.replace(/[^a-z0-9]/gi, "-")}-${suffix}`;
+  await env.DB
+    .prepare("INSERT INTO invites (code, org_id, created_by, created_at) VALUES (?1, ?2, ?3, ?4)")
+    .bind(code, orgId, createdBy, new Date().toISOString())
+    .run();
+  return { code, orgId };
+}
+
+// Redeem an invite code: look it up, add the user to that org.
+export async function acceptInvite(env, { code, userId }) {
+  if (!code || !userId) return { error: "Missing code." };
+  const row = await env.DB
+    .prepare("SELECT org_id FROM invites WHERE code = ?1")
+    .bind(code.trim())
+    .first();
+  if (!row) return { error: "That invite code is not valid." };
+  await upsertMembership(env.DB, row.org_id, userId, "member");
+  return { orgId: row.org_id };
 }
