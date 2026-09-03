@@ -76,7 +76,7 @@ function App() {
         setError(data.message || 'Something went wrong.')
         return
       }
-      finishAuth(data.token, data.userId, data.orgId || orgId)
+            finishAuth(data.token, data.login || data.userId, data.orgId || orgId)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

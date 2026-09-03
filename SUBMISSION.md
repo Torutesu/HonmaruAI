@@ -40,6 +40,18 @@ Type an instruction → it gets routed into a Decision Card → it shows up in t
 feed → approve / decline / acknowledge → it's recorded. The whole core
 experience, working on the web.
 
+**3. Team invites**
+A member creates a shareable invite code; anyone who signs up with it joins that
+team. Before this, teams could only be joined by hand-editing the database — so
+now a real team can onboard itself.
+
+**4. Real routing to the right teammate**
+Instructions like "ask Newbie to review this" now actually route to Newbie and
+land in their feed in real time. The backend builds the team from real
+memberships (so it can't be faked by the client) and matches the named person.
+This is the core promise of the product — tell your AI, it reaches the right
+person — working between real people in a browser.
+
 ## Problems I found and fixed along the way
 
 I found these by actually running the product, not just reading code:

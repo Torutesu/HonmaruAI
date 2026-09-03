@@ -413,7 +413,8 @@ export async function getUserByLogin(db, login) {
 export async function listOrgNodes(db, orgId) {
   const rows = await db
     .prepare(
-      `SELECT m.user_github_id AS id, m.role AS role,
+      `SELECT COALESCE(u.login, m.user_github_id) AS id,
+              m.role AS role,
               COALESCE(u.name, u.login, m.user_github_id) AS name
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id

@@ -111,9 +111,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
   
   
-  const cards = Object.values(state.cardsById || {})
+    const cards = Object.values(state.cardsById || {})
+  // To me, still waiting on my decision.
   const pendingCards = cards.filter(c => c.status === 'pending' && c.recipientUserID === userId)
-  const decidedCards = cards.filter(c => c.status !== 'pending' || c.decision)
+  // Decisions I was the recipient of and have already acted on.
+  const decidedCards = cards.filter(c => c.recipientUserID === userId && (c.status !== 'pending' || c.decision))
+  // Things I sent to someone else — so I can see if they're still waiting.
+  const sentCards = cards.filter(c => c.senderUserID === userId && c.recipientUserID !== userId)
 
   return (
     <div className="dashboard">
@@ -169,6 +173,42 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
                     onDelegate={() => handleDecision(card.id, 'delegate')}
                     isPending={true}
                   />
+                ))}
+              </div>
+            )}
+          </div>
+
+                    <div className="section">
+            <h2 className="section-title">Sent by you ({sentCards.length})</h2>
+            {sentCards.length === 0 ? (
+              <div className="empty-state">
+                <p>You haven't sent any decisions yet.</p>
+              </div>
+            ) : (
+              <div className="cards-list">
+                {sentCards.map((card) => (
+                  <div key={card.id} className="sent-card">
+                    <div className="sent-card-head">
+                      <strong>{card.title}</strong>
+                      <span className={`sent-status ${card.status === 'pending' ? 'waiting' : 'done'}`}>
+                        {card.status === 'pending'
+                          ? `Waiting on ${card.recipientUserID.replace(/^email:/, '').split('@')[0]}`
+                          : `${card.decision?.action || 'decided'}`}
+                      </span>
+                    </div>
+                    <p className="sent-summary">{card.summary}</p>
+                    {card.status === 'pending' && (
+                      <button
+                        className="nudge-button"
+                        onClick={() => {
+                          handleDecision(card.id, 'nudge')
+                          addDebugLog(`Nudged: ${card.title}`)
+                        }}
+                      >
+                        Nudge
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
