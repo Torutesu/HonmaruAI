@@ -213,6 +213,20 @@ export class OrgRelay {
       return;
     }
 
+        if (type === "nudge") {
+      // A nudge re-alerts the recipient of a still-pending card. Only the
+      // sender may nudge, and it changes nothing about the card's decision —
+      // it just pushes the card to the recipient again so it resurfaces.
+      const card = await getCard(this.db, orgId, payload.cardId);
+      if (!card) return;
+      if (card.senderUserID !== att.userId) return; // only the sender can nudge
+      if (card.decision?.action) return;            // already decided, nothing to nudge
+      for (const ev of upsertEvents(card, { isNew: false })) {
+        this.sendTo(orgId, card.recipientUserID, ev);
+      }
+      return;
+    }
+
     if (type === "card_created" || type === "card_updated") {
       if (!payload.card?.id) return;
       const card = payload.card;

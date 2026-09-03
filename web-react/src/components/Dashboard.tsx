@@ -106,6 +106,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     },
     [addDebugLog]
   )
+
+    const handleNudge = useCallback(
+    (cardId: string) => {
+      wsClientRef.current!.sendNudge(cardId)
+      addDebugLog(`Nudged: ${cardId}`)
+    },
+    [addDebugLog]
+  )
 // /ai/route is an HTTP call; the relay URL is a WebSocket URL. Convert
   // ws://host -> http://host and wss://host -> https://host.
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
@@ -200,10 +208,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
                     {card.status === 'pending' && (
                       <button
                         className="nudge-button"
-                        onClick={() => {
-                          handleDecision(card.id, 'nudge')
-                          addDebugLog(`Nudged: ${card.title}`)
-                        }}
+                        onClick={() => handleNudge(card.id)}
                       >
                         Nudge
                       </button>

@@ -321,6 +321,16 @@ export class WebSocketClient {
     }))
   }
 
+  
+  // Re-alert the recipient of a card you sent that is still pending.
+  sendNudge(cardId: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    this.ws.send(JSON.stringify({
+      type: 'nudge',
+      payload: { cardId }
+    }))
+  }
+
   getState(): AppState {
     return this.state
   }
