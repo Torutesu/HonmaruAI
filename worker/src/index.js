@@ -2,7 +2,7 @@ import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import { signup, login, createInvite, acceptInvite } from "./auth.js";
 import {
-  createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
+  createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
@@ -183,10 +183,22 @@ async function handle(request, env, url) {
         userKey,
       });
 
+            // Build the org from real memberships when we can, so routing sees the
+      // whole team (and cannot be spoofed by the client). Fall back to whatever
+      // the client sent only when there is no session/org to look up.
+      let organization = body.organization;
+      const routeOrgId = body.organization?.orgId || body.orgId;
+      if (session && routeOrgId) {
+        const nodes = await listOrgNodes(env.DB, routeOrgId);
+        if (nodes.length) {
+          organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
+        }
+      }
+
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
-        organization: body.organization,
+        organization,
         priorityOverride: body.priorityOverride,
         readerLanguage: body.readerLanguage,
         senderContext: body.senderContext,

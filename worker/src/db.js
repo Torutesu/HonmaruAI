@@ -405,3 +405,25 @@ export async function getUserByLogin(db, login) {
       .first()) || null
   );
 }
+
+
+// List an org's members with their display names, for routing. Joins to users
+// so the router can match instructions like "ask Newbie to ..." to a real
+// person, and returns them in the org-graph "nodes" shape the router expects.
+export async function listOrgNodes(db, orgId) {
+  const rows = await db
+    .prepare(
+      `SELECT m.user_github_id AS id, m.role AS role,
+              COALESCE(u.name, u.login, m.user_github_id) AS name
+         FROM memberships m
+         LEFT JOIN users u ON u.github_id = m.user_github_id
+        WHERE m.org_id = ?1`
+    )
+    .bind(orgId)
+    .all();
+  return (rows?.results || []).map((r) => ({
+    id: r.id,
+    kind: "person",
+    label: `${r.name} · ${r.role || "member"}`,
+  }));
+}
