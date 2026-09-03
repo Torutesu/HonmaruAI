@@ -139,7 +139,7 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const body = await request.json().catch(() => ({}));
-      const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id });
+      const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role });
       if (result.error) return json({ message: result.error }, 400);
       return json(result);
     }

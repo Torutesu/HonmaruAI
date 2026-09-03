@@ -35,8 +35,10 @@ CREATE TABLE IF NOT EXISTS invites (
   code           TEXT PRIMARY KEY,
   org_id         TEXT NOT NULL,
   created_by     TEXT NOT NULL,
+  role           TEXT NOT NULL DEFAULT 'member',
   created_at     TEXT NOT NULL
 );
+
 CREATE INDEX IF NOT EXISTS idx_invites_org ON invites (org_id);
 
 CREATE TABLE IF NOT EXISTS agents (

@@ -8,6 +8,39 @@ export function memberIdsOf(organization) {
     .filter((n) => n.kind === "person")
     .map((n) => n.id);
 }
+// Pull { id, name, role } out of the org nodes. The label is "Name · role".
+function membersWithRoles(organization) {
+  return (organization?.nodes || [])
+    .filter((n) => n.kind === "person")
+    .map((n) => {
+      const [name, role] = String(n.label || "").split(" · ");
+      return { id: n.id, name: (name || n.id).trim(), role: (role || "member").trim().toLowerCase() };
+    });
+}
+
+// Route by a role word in the instruction to a real teammate who holds that
+// role. "ask the designer to review" -> the person whose role is "designer".
+// Uses the actual team, so it works for any org instead of hardcoded demo ids.
+function matchRealRole(text, senderID, organization) {
+  const lower = String(text || "").toLowerCase();
+  const members = membersWithRoles(organization);
+  // Common role words people actually type, mapped to role names.
+  const roleWords = {
+    designer: ["designer", "design", "デザイナー"],
+    engineer: ["engineer", "developer", "dev", "エンジニア"],
+    admin: ["admin", "owner", "lead", "manager"],
+    triager: ["triager", "triage"],
+    maintainer: ["maintainer"],
+  };
+  for (const [role, words] of Object.entries(roleWords)) {
+    if (!words.some((w) => lower.includes(w))) continue;
+    const person = members.find((m) => m.role === role && m.id !== senderID);
+    if (person) {
+      return { recipientUserID: person.id, routingReason: `Routed to the ${role}`, forceOverride: false };
+    }
+  }
+  return null;
+}
 
 // Display name for a user id: prefer the org node label ("<name> · <role>"),
 // then the demo map, then the raw id.
@@ -111,6 +144,9 @@ export function resolveRecipientTarget(text, senderID, organization) {
       };
     }
   }
+    // Prefer routing to a real teammate by their actual role in this org.
+  const realRole = matchRealRole(text, senderID, organization);
+  if (realRole) return realRole;
 
   const team = matchTeamRoute(text, senderID, organization);
   if (team) {

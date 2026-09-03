@@ -69,16 +69,17 @@ export async function signup(env, { email, password, name, orgId, inviteCode }) 
    // If they signed up with an invite code, join that team instead of creating
   // their own. Otherwise fall back to the org they typed (or a default).
   let org = orgId?.trim() || "web-team";
+    let joinRole = "member";
   if (inviteCode?.trim()) {
     const invite = await env.DB
-      .prepare("SELECT org_id FROM invites WHERE code = ?1")
+      .prepare("SELECT org_id, role FROM invites WHERE code = ?1")
       .bind(inviteCode.trim())
       .first();
     if (!invite) return { error: "That invite code is not valid." };
     org = invite.org_id;
+    joinRole = invite.role || "member";
   }
-  await upsertMembership(env.DB, org, userId, "member");
-
+  await upsertMembership(env.DB, org, userId, joinRole);
   const token = await createSession(env.DB, userId, "email-auth");
   return { token, userId, login, orgId: org };
 }
@@ -104,26 +105,26 @@ export async function login(env, { email, password }) {
 
 
 // Create a reusable invite code for an org. Any current member can make one.
-export async function createInvite(env, { orgId, createdBy }) {
+export async function createInvite(env, { orgId, createdBy, role }) {
   if (!orgId) return { error: "Missing team." };
-  // Short, readable code: "web-team-a1b2c3"
   const suffix = toHex(crypto.getRandomValues(new Uint8Array(3)));
   const code = `${orgId.replace(/[^a-z0-9]/gi, "-")}-${suffix}`;
+  const inviteRole = (role || "member").trim().toLowerCase();
   await env.DB
-    .prepare("INSERT INTO invites (code, org_id, created_by, created_at) VALUES (?1, ?2, ?3, ?4)")
-    .bind(code, orgId, createdBy, new Date().toISOString())
+    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
+    .bind(code, orgId, createdBy, inviteRole, new Date().toISOString())
     .run();
-  return { code, orgId };
+  return { code, orgId, role: inviteRole };
 }
 
 // Redeem an invite code: look it up, add the user to that org.
 export async function acceptInvite(env, { code, userId }) {
   if (!code || !userId) return { error: "Missing code." };
   const row = await env.DB
-    .prepare("SELECT org_id FROM invites WHERE code = ?1")
+    .prepare("SELECT org_id, role FROM invites WHERE code = ?1")
     .bind(code.trim())
     .first();
   if (!row) return { error: "That invite code is not valid." };
-  await upsertMembership(env.DB, row.org_id, userId, "member");
+  await upsertMembership(env.DB, row.org_id, userId, row.role || "member");
   return { orgId: row.org_id };
 }
