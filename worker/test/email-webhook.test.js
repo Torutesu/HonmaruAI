@@ -147,11 +147,18 @@ test("the inbound address names its owner", () => {
   expect(githubIdFromAddress("support@in.honmaru.ai")).toBeNull();
 });
 
-test("unsigned traffic is allowed only when explicitly opted in", async () => {
-  const off = await verifyMailgunWebhook({ ...CONFIGURED }, {});
-  const on = await verifyMailgunWebhook({ ...CONFIGURED, ALLOW_UNSIGNED_EMAIL_WEBHOOK: "1" }, {});
-  expect(off).toBe(false);
-  expect(on).toBe(true);
+// The escape hatch exists so the handler can be exercised locally. The one way
+// it could do real harm is by being left on somewhere that receives real mail —
+// where, by definition, the signing key is set.
+test("unsigned traffic is refused outright by a deployment that has a signing key", async () => {
+  const optedIn = { ...CONFIGURED, ALLOW_UNSIGNED_EMAIL_WEBHOOK: "1" };
+  expect(await verifyMailgunWebhook(optedIn, {})).toBe(false);
+});
+
+test("and is allowed on a deployment that has none, when asked for", async () => {
+  const local = { ...CONFIGURED, MAILGUN_WEBHOOK_SIGNING_KEY: undefined };
+  expect(await verifyMailgunWebhook(local, {})).toBe(false);
+  expect(await verifyMailgunWebhook({ ...local, ALLOW_UNSIGNED_EMAIL_WEBHOOK: "1" }, {})).toBe(true);
 });
 
 test("GET /connectors/email/address tells a signed-in user where to send mail", async () => {
@@ -161,4 +168,76 @@ test("GET /connectors/email/address tells a signed-in user where to send mail", 
   });
   expect(res.status).toBe(200);
   expect((await res.json()).address).toBe("u-4242@in.honmaru.ai");
+});
+
+
+// A stranger with an address is not a colleague with a session. The inbound
+// address is guessable — `u-<github id>` at a known domain, and the id is
+// public — so until this happened, anyone could put an approval card at the
+// front of someone's feed, with a title and a priority of their choosing, and a
+// push notification to match.
+test("an unvouched-for sender gets an update to read, never an approval", async () => {
+  triageReply({
+    needsDecision: true, cardType: "approval", title: "Wire the payment today",
+    summary: "Urgent.", context: "", priority: "urgent",
+  });
+
+  await post({ sender: "stranger@example.net", "Message-Id": "<stranger-1@x>" });
+
+  const card = JSON.parse(
+    (await env.DB
+      .prepare("SELECT data FROM cards WHERE org_id='acme/web' ORDER BY created_at DESC LIMIT 1")
+      .first()).data
+  );
+  expect(card.type).toBe("notification");
+  expect(card.priority).toBe("low");
+  expect(card.sourceDetail).toContain("Unverified sender");
+});
+
+test("and once they are vouched for, their mail can ask for a decision", async () => {
+  await env.DB
+    .prepare(
+      `INSERT INTO email_senders (user_github_id, address, trusted, first_seen_at, last_seen_at)
+       VALUES ('4242', 'billing@acme.com', 1, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')
+       ON CONFLICT(user_github_id, address) DO UPDATE SET trusted = 1`
+    )
+    .run();
+  triageReply({
+    needsDecision: true, cardType: "approval", title: "Approve invoice 43",
+    summary: "Billing is waiting.", context: "", priority: "high",
+  });
+
+  await post({ "Message-Id": "<trusted-1@acme.com>" });
+
+  const card = JSON.parse(
+    (await env.DB
+      .prepare("SELECT data FROM cards WHERE org_id='acme/web' ORDER BY created_at DESC LIMIT 1")
+      .first()).data
+  );
+  expect(card.type).toBe("approval");
+  expect(card.priority).toBe("high");
+  expect(card.sourceDetail).not.toContain("Unverified");
+});
+
+// Without a ceiling the address is a way to fill someone's feed and spend
+// their AI allowance doing it.
+test("one person's inbound address has a daily ceiling", async () => {
+  const { MAX_EMAILS_PER_DAY } = await import("../src/connectors/email.js");
+  const today = new Date().toISOString();
+  const rows = [];
+  for (let i = 0; i < MAX_EMAILS_PER_DAY; i += 1) {
+    rows.push(
+      env.DB
+        .prepare(
+          `INSERT INTO ingested_items (connector, external_id, user_github_id, org_id, card_id, created_at)
+           VALUES ('email', ?1, '4242', 'acme/web', NULL, ?2)`
+        )
+        .bind(`flood-${i}`, today)
+    );
+  }
+  await env.DB.batch(rows);
+
+  // No interceptor: the model must never be called for a message over the line.
+  const res = await post({ "Message-Id": "<over-the-line@x>" });
+  expect((await res.json()).status).toBe("daily limit reached");
 });

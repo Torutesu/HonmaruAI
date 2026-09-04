@@ -10,7 +10,10 @@ import {
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
-import { verifyMailgunWebhook, parseMailgunWebhook, githubIdFromAddress, inboundAddressFor } from "./connectors/email.js";
+import {
+  verifyMailgunWebhook, parseMailgunWebhook, githubIdFromAddress, inboundAddressFor,
+  noteSender, withinDailyEmailLimit,
+} from "./connectors/email.js";
 import { triageMessage } from "./triage.js";
 import { notifyCard } from "./push.js";
 import { proxyGitHub } from "./githubProxy.js";
@@ -661,6 +664,18 @@ async function handle(request, env, url) {
         return json({ status: "duplicate" });
       }
 
+      // The inbound address is guessable — `u-<github id>` at a known domain,
+      // and the id is public — so without a ceiling it is a way to fill
+      // somebody's feed and spend their AI allowance doing it.
+      if (!(await withinDailyEmailLimit(env.DB, githubId))) {
+        return json({ status: "daily limit reached" });
+      }
+
+      // A stranger with an address is not a colleague with a session. Until
+      // this person has vouched for the address, its mail can be something to
+      // read and never something asking to be approved.
+      const sender = await noteSender(env.DB, githubId, message.from);
+
       const allowance = await checkAIAllowance(env, { githubId: String(githubId) });
       const provider = allowance.allowed ? providerConfig(env) : undefined;
       const result = provider
@@ -675,16 +690,21 @@ async function handle(request, env, url) {
           id: cardId,
           recipientUserID: user.login,
           senderUserID: user.login,
-          type: result.card.cardType,
-          format: "approve",
+          // An untrusted sender gets an update, at the lowest priority, whatever
+          // the model made of their message — the model is reading the
+          // stranger's own words about how urgent they are.
+          type: sender.trusted ? result.card.cardType : "notification",
+          format: sender.trusted ? "approve" : "fyi",
           title: result.card.title,
           summary: result.card.summary,
           context: result.card.context,
-          priority: result.card.priority,
+          priority: sender.trusted ? result.card.priority : "low",
           status: "pending",
           createdAt: new Date().toISOString(),
           sourceApp: "Email",
-          sourceDetail: `${message.from} · ${message.subject}`,
+          sourceDetail: sender.trusted
+            ? `${message.from} · ${message.subject}`
+            : `Unverified sender · ${message.from} · ${message.subject}`,
         };
         await saveCard(env.DB, orgId, card);
         await announceCards(env, orgId, [card]);

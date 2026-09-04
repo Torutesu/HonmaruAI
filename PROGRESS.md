@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 217 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 268 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **CI:** `.github/workflows/ci.yml` — Worker, the reference relay and the
   reference web client on every push, iOS on pull requests
@@ -94,11 +94,16 @@ verified against the code, and the plan it drives — is
       the Worker now — `POST /webhooks/email`, signature verified (HMAC over
       timestamp+token, ±15 min, single-use nonce in D1, fails closed), routed
       by an address that names its owner (`u-<github id>@<domain>`), then the
-      same triage, card, announcement and notification as Gmail and Slack. What
-      is missing is the account: no real message has ever reached it, only
+      same triage, card, announcement and notification as Gmail and Slack.
+      A stranger with an address is not a colleague with a session, so mail
+      from an address the recipient has not vouched for arrives as an update to
+      read at the lowest priority, never as something asking to be approved,
+      and one person's address turns at most 20 messages a day into anything.
+      What is missing is the account: no real message has ever reached it, only
       synthetic posts shaped like Mailgun's. Needs `MAILGUN_WEBHOOK_SIGNING_KEY`
-      and `INBOUND_EMAIL_DOMAIN` as Worker secrets, and the app has nowhere yet
-      to show a person their address (`GET /connectors/email/address` returns it)
+      and `INBOUND_EMAIL_DOMAIN` as Worker secrets, the app has nowhere yet
+      to show a person their address (`GET /connectors/email/address` returns
+      it), and nothing in the app yet marks a sender trusted
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have
       to be clamped at `accessibility1`
 

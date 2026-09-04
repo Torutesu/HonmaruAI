@@ -19,6 +19,14 @@ const MAX_SKEW_SECONDS = 15 * 60;
 /// anyone who knew the URL could put an approval card in someone's feed.
 export async function verifyMailgunWebhook(env, { timestamp, token, signature }) {
   if (!timestamp && !token && !signature) {
+    // Never in a deployment that has a signing key. The escape hatch exists so
+    // the handler can be exercised locally, and the one way it could do real
+    // harm is by being left on somewhere that receives real mail — where, by
+    // definition, the key is set.
+    if (env.MAILGUN_WEBHOOK_SIGNING_KEY) {
+      console.error("refusing an unsigned email webhook: this deployment has a signing key");
+      return false;
+    }
     return env.ALLOW_UNSIGNED_EMAIL_WEBHOOK === "1";
   }
   // A partial signature is never valid; there is nothing to make sense of.
@@ -126,4 +134,54 @@ export function githubIdFromAddress(recipient) {
 export function inboundAddressFor(env, githubId) {
   const domain = env.INBOUND_EMAIL_DOMAIN;
   return domain ? `u-${githubId}@${domain}` : null;
+}
+
+
+/// How many messages one person's inbound address will turn into anything in a
+/// day.
+///
+/// The address is guessable — it is `u-<github id>` at a known domain, and the
+/// github id is public — so without a ceiling it is a way to fill somebody's
+/// feed, and to spend their AI allowance doing it. Twenty is far above what a
+/// person receives at an address they hand out deliberately.
+export const MAX_EMAILS_PER_DAY = 20;
+
+/// Record that this address has written to this person, and say whether they
+/// have vouched for it.
+///
+/// The first message from anyone is from a stranger, and a stranger must not be
+/// able to put an approval in front of someone — with a title, a priority and a
+/// push notification of their choosing. So mail from an address that has not
+/// been trusted arrives as an update to read. The row is written either way, so
+/// there is something to trust later.
+export async function noteSender(db, githubId, address) {
+  const now = new Date().toISOString();
+  const clean = String(address || "").toLowerCase().trim().slice(0, 320);
+  if (!clean) return { trusted: false, address: clean };
+  await db
+    .prepare(
+      `INSERT INTO email_senders (user_github_id, address, trusted, first_seen_at, last_seen_at)
+       VALUES (?1, ?2, 0, ?3, ?3)
+       ON CONFLICT(user_github_id, address) DO UPDATE SET last_seen_at = excluded.last_seen_at`
+    )
+    .bind(String(githubId), clean, now)
+    .run();
+  const row = await db
+    .prepare("SELECT trusted FROM email_senders WHERE user_github_id = ?1 AND address = ?2")
+    .bind(String(githubId), clean)
+    .first();
+  return { trusted: Boolean(row?.trusted), address: clean };
+}
+
+/// Today's count for one recipient, and whether they have room for one more.
+export async function withinDailyEmailLimit(db, githubId) {
+  const day = new Date().toISOString().slice(0, 10);
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM ingested_items
+        WHERE connector = 'email' AND user_github_id = ?1 AND created_at >= ?2`
+    )
+    .bind(String(githubId), `${day}T00:00:00.000Z`)
+    .first();
+  return Number(row?.n || 0) < MAX_EMAILS_PER_DAY;
 }
