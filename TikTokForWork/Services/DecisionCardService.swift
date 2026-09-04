@@ -111,11 +111,6 @@ final class DecisionCardService: ObservableObject {
         changed()
     }
 
-    /// No-op: demo seeding is disabled. The feed starts empty and fills only
-    /// from real relay events. Method retained so call sites that have not yet
-    /// been removed still compile.
-    func seedDemoFeedIfNeeded() {}
-
     func reset() {
         cardsByUser = [:]
         orgID = nil

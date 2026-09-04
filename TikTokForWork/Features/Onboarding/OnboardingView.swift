@@ -46,7 +46,7 @@ struct OnboardingView: View {
             .id(step)
         }
         .appBackground()
-        .animation(.easeOut(duration: 0.25), value: step)
+        .animation(Motion.ease(0.25), value: step)
     }
 
     // MARK: - Chrome

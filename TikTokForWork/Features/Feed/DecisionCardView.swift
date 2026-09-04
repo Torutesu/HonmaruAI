@@ -328,7 +328,7 @@ struct DecisionCardView: View {
     }
 
     private func resetDrag() {
-        withAnimation(.easeOut(duration: 0.18)) {
+        withAnimation(Motion.ease(0.18)) {
             dragOffset = 0
         }
     }

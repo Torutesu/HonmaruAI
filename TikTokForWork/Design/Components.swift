@@ -10,9 +10,12 @@ struct PageDots: View {
                 Capsule()
                     .fill(i == index ? Theme.Colors.textPrimary : Theme.Colors.textTertiary.opacity(0.45))
                     .frame(width: i == index ? 16 : 5, height: 5)
-                    .animation(.easeOut(duration: 0.2), value: index)
+                    .animation(Motion.ease(0.2), value: index)
             }
         }
+        // Position in the feed, said better by the card itself: VoiceOver read
+        // these as a run of unlabelled images between the header and the card.
+        .accessibilityHidden(true)
     }
 }
 
@@ -119,7 +122,7 @@ struct PrioritySlider: View {
             HStack(spacing: Theme.Spacing.sm) {
                 ForEach(levels, id: \.self) { level in
                     Button {
-                        withAnimation(.easeOut(duration: 0.15)) {
+                        withAnimation(Motion.ease(0.15)) {
                             priority = level
                         }
                         Haptics.light()

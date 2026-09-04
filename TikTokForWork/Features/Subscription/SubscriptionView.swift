@@ -40,7 +40,9 @@ struct SubscriptionView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        // No forced dark. Every colour on this screen comes from Theme, which
+        // already has both, so pinning it dark only meant that one screen
+        // ignored a person's choice — and read as a different app.
         .task { await subscriptions.refresh() }
         // The Customer Center is a full self-service flow — cancel, change plan, request a
         // refund, run a cancellation survey — all configured in the RevenueCat dashboard.
@@ -187,29 +189,5 @@ struct SubscriptionView: View {
             get: { subscriptions.errorMessage != nil },
             set: { if !$0 { subscriptions.clearError() } }
         )
-    }
-}
-
-// MARK: - Reusable entry points
-
-extension View {
-    /// Presents the RevenueCat paywall as a sheet.
-    func proPaywall(isPresented: Binding<Bool>) -> some View {
-        sheet(isPresented: isPresented) {
-            ProPaywallSheet()
-        }
-    }
-}
-
-/// Small "PRO" marker for chrome that should reflect entitlement state.
-struct ProBadge: View {
-    var body: some View {
-        Text("PRO")
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(Theme.Colors.background)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(Theme.Colors.approve)
-            .clipShape(Capsule())
     }
 }

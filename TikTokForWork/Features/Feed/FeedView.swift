@@ -1,11 +1,6 @@
 import SwiftUI
 
 struct FeedView: View {
-    /// When embedded in `AppShell` the surrounding chrome — the segmented
-    /// control, the avatar, the tab bar — belongs to the shell, and this view
-    /// draws only the cards. Standalone it draws its own, which is what the
-    /// preview and any direct presentation still rely on.
-    var showsChrome: Bool = true
     /// Incremented by the shell's ＋ button. The draft chain lives here with the
     /// view model, so the shell asks for it rather than rebuilding it.
     var composeTick: Int = 0
@@ -13,7 +8,7 @@ struct FeedView: View {
     /// draft chain starts the moment it is set.
     var captured: CaptureRequest?
     /// Exposed so the embedding shell can display page dots without owning the
-    /// view model. Ignored when showsChrome is true (topBar renders them itself).
+    /// view model.
     var cardCount: Binding<Int> = .constant(0)
     var currentCardIndex: Binding<Int> = .constant(0)
 
@@ -46,6 +41,7 @@ struct FeedView: View {
                                 onAction: { action in
                                     Task {
                                         await viewModel.handle(action: action, for: card, appState: appState)
+                                        offerGitHubAfterFirstDecision(action)
                                     }
                                 },
                                 onShowDetails: {
@@ -76,12 +72,6 @@ struct FeedView: View {
             }
 
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if showsChrome { topBar }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if showsChrome { bottomChrome }
-        }
         .onChange(of: composeTick) { _, _ in
             showAIInput = true
         }
@@ -97,7 +87,7 @@ struct FeedView: View {
         .task { await syncConnectors() }
         .onChange(of: viewModel.cards.count) { _, count in cardCount.wrappedValue = count }
         .onChange(of: viewModel.currentIndex) { _, index in currentCardIndex.wrappedValue = index }
-        .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
+        .animation(Motion.ease(0.2), value: viewModel.isDrafting)
         .onAppear {
             cardCount.wrappedValue = viewModel.cards.count
             currentCardIndex.wrappedValue = viewModel.currentIndex
@@ -224,86 +214,6 @@ struct FeedView: View {
         }
     }
 
-    private var topBar: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(connectionColor)
-                    .frame(width: 5, height: 5)
-                Text(appState.currentUser?.name ?? "")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                // The dot alone used to claim "live" whether or not the socket
-                // was, so a state that is not connected says what it is.
-                if let label = connectionLabel {
-                    Text(label)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
-
-            Spacer()
-
-            if viewModel.cards.count > 1 {
-                PageDots(count: viewModel.cards.count, index: viewModel.currentIndex)
-            }
-
-            Spacer()
-
-            Button { showMenu = true } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-        }
-        .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.top, Theme.Spacing.sm)
-        .padding(.bottom, Theme.Spacing.md)
-        .background(
-            Theme.Colors.background
-                .ignoresSafeArea(edges: .top)
-        )
-    }
-
-    private var bottomChrome: some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            if viewModel.quotaExceeded {
-                quotaNotice
-            }
-
-            if let repo = appState.githubService.connection?.repository {
-                Text(repo)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .lineLimit(1)
-            } else {
-                Button {
-                    connectContext = .settings
-                    showConnectGitHub = true
-                } label: {
-                    Text("Local mode · Connect GitHub")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                        .lineLimit(1)
-                }
-            }
-
-            ComposeBar(placeholder: "Tell your AI") {
-                showAIInput = true
-            }
-        }
-        .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.top, Theme.Spacing.sm)
-        .padding(.bottom, Theme.Spacing.md)
-        .background(
-            Theme.Colors.background
-                .ignoresSafeArea(edges: .bottom)
-        )
-    }
 
     /// A single quiet line shown after a draft came back on the keyword fallback
     /// because the free daily AI quota ran out. Tapping it opens the paywall;
@@ -376,6 +286,22 @@ struct FeedView: View {
         case .connected:
             return String(localized: "No decisions yet. Tell your AI something, or wait for a teammate.")
         }
+    }
+
+    /// The one moment where connecting GitHub means something concrete.
+    ///
+    /// Someone trying the app on their own has just made a decision that went
+    /// nowhere but their own phone, which is exactly when "this could have been
+    /// an Issue your team can see" is an answer rather than an interruption.
+    /// Once, ever — the flag has existed since the first build and nothing has
+    /// ever set it, so this prompt was written and never shown.
+    private func offerGitHubAfterFirstDecision(_ action: CardActionKind) {
+        guard appState.isGuest, action == .createIssue else { return }
+        let key = FirstRunFlags.promptedGitHubConnect
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        connectContext = .afterFirstApproval
+        showConnectGitHub = true
     }
 
     private func disconnect() {

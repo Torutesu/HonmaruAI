@@ -6,7 +6,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.tangle.tiktokforwork.oauth</string>
+			<string>com.honmaru.ai.oauth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>tiktokforwork</string>

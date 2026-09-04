@@ -48,7 +48,7 @@ final class FeedViewModel: ObservableObject {
 
         service.onCardsUpdated = { [weak self] in
             guard let self, let cardService = self.cardService else { return }
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(Motion.ease(0.2)) {
                 self.refreshCards(from: cardService)
             }
         }
@@ -124,7 +124,7 @@ final class FeedViewModel: ObservableObject {
         do {
             try await cardService.applyEdit(cardID: card.id, actorUserID: userID, priority: priority)
             Haptics.light()
-            withAnimation(.easeOut(duration: 0.2)) { refreshCards(from: cardService) }
+            withAnimation(Motion.ease(0.2)) { refreshCards(from: cardService) }
             if let updated = cards.first(where: { $0.id == card.id }) { detailCard = updated }
         } catch {
             errorMessage = error.localizedDescription
@@ -158,7 +158,7 @@ final class FeedViewModel: ObservableObject {
                 priority: refined.cardPriority
             )
             Haptics.success()
-            withAnimation(.easeOut(duration: 0.2)) { refreshCards(from: cardService) }
+            withAnimation(Motion.ease(0.2)) { refreshCards(from: cardService) }
             if let updated = cards.first(where: { $0.id == card.id }) { detailCard = updated }
         } catch {
             errorMessage = error.localizedDescription
@@ -210,7 +210,7 @@ final class FeedViewModel: ObservableObject {
                 githubService: appState.githubService
             )
             Haptics.success()
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(Motion.ease(0.2)) {
                 refreshCards(from: cardService)
             }
             advanceIfNeeded()
@@ -331,7 +331,7 @@ final class FeedViewModel: ObservableObject {
                 githubService: appState.githubService
             )
             Haptics.success()
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(Motion.ease(0.2)) {
                 refreshCards(from: cardService)
             }
             advanceIfNeeded()
@@ -361,7 +361,7 @@ final class FeedViewModel: ObservableObject {
     /// notification failing to do the one thing it promised.
     func focus(cardID: String) {
         guard cards.contains(where: { $0.id == cardID }) else { return }
-        withAnimation(.easeOut(duration: 0.25)) {
+        withAnimation(Motion.ease(0.25)) {
             scrollPosition = cardID
         }
     }
@@ -388,7 +388,7 @@ final class FeedViewModel: ObservableObject {
     private func advanceIfNeeded() {
         let index = currentIndex
         if index < cards.count - 1 {
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(Motion.ease(0.25)) {
                 scrollPosition = cards[index + 1].id
             }
         }

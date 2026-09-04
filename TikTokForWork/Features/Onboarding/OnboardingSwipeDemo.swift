@@ -80,7 +80,7 @@ struct OnboardingSwipeDemo: View {
                 .padding(.bottom, Theme.Spacing.xl + Theme.Spacing.xl)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.easeOut(duration: 0.2), value: resolution != nil)
+        .animation(Motion.ease(0.2), value: resolution != nil)
     }
 
     private var demoCard: some View {
@@ -184,7 +184,7 @@ struct OnboardingSwipeDemo: View {
                 let horizontal = value.translation.width
                 let vertical = value.translation.height
                 guard abs(horizontal) > abs(vertical) else {
-                    withAnimation(.easeOut(duration: 0.18)) { dragOffset = 0 }
+                    withAnimation(Motion.ease(0.18)) { dragOffset = 0 }
                     return
                 }
 
@@ -193,7 +193,7 @@ struct OnboardingSwipeDemo: View {
                 } else if horizontal < -swipeThreshold {
                     resolve(.declined, direction: -1)
                 } else {
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    withAnimation(Motion.ease(0.18)) {
                         dragOffset = 0
                     }
                 }
@@ -202,10 +202,10 @@ struct OnboardingSwipeDemo: View {
 
     private func resolve(_ outcome: Resolution, direction: CGFloat) {
         Haptics.success()
-        withAnimation(.easeOut(duration: 0.25)) {
+        withAnimation(Motion.ease(0.25)) {
             dragOffset = direction * 600
         }
-        withAnimation(.easeOut(duration: 0.2).delay(0.15)) {
+        withAnimation(Motion.ease(0.2, delay: 0.15)) {
             resolution = outcome
         }
 

@@ -20,8 +20,8 @@ struct RootView: View {
             }
         }
         .appBackground()
-        .animation(.easeOut(duration: 0.2), value: appState.isAuthenticated)
-        .animation(.easeOut(duration: 0.2), value: appState.isBootstrapping)
+        .animation(Motion.ease(0.2), value: appState.isAuthenticated)
+        .animation(Motion.ease(0.2), value: appState.isBootstrapping)
     }
 }
 

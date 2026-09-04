@@ -33,7 +33,6 @@ struct AppShell: View {
             // second GitHub poll that view model owns — so every visit to Home
             // started another timer that the previous one never stopped.
             FeedView(
-                showsChrome: false,
                 composeTick: composeTick,
                 captured: captured,
                 cardCount: $feedCardCount,
@@ -128,9 +127,8 @@ struct AppShell: View {
         VStack(spacing: Theme.Spacing.xs) {
             ZStack(alignment: .center) {
                 HStack(spacing: Theme.Spacing.sm) {
-                    // Connection status — matches FeedView.topBar which is hidden in shell mode.
-                    // There is no socket when you are on your own, so a dot here
-                    // would be reporting on nothing.
+                    // Connection status. There is no socket when you are on
+                    // your own, so a dot here would be reporting on nothing.
                     HStack(spacing: 5) {
                         if !appState.isGuest {
                             Circle()
@@ -262,7 +260,7 @@ struct HomeSectionPicker: View {
         Button {
             guard section != value else { return }
             Haptics.light()
-            withAnimation(.easeOut(duration: 0.15)) { section = value }
+            withAnimation(Motion.ease(0.15)) { section = value }
         } label: {
             HStack(spacing: 4) {
                 Text(title)

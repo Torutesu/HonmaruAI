@@ -18,7 +18,11 @@ enum Theme {
         static let surfaceRaised = dyn(0xEEEEEE, 0x242428)
         static let textPrimary = dyn(0x202020, 0xEDEDED)
         static let textSecondary = dyn(0x646464, 0xA0A0A8)
-        static let textTertiary = dyn(0x838383, 0x6E6E76)
+        // Used at 11 and 12 point, where WCAG counts it as normal text and asks
+        // for 4.5:1. It was 3.8:1 in light and 3.7:1 in dark — the timestamps,
+        // the waiting counter and the source line were all below the line. This
+        // is 4.5:1 and 5.1:1, and still clearly lighter than textSecondary.
+        static let textTertiary = dyn(0x767676, 0x82828A)
         static let accent = dyn(0x6647F0, 0x8A6EFF)
         static let interactive = dyn(0x0091FF, 0x3AA9FF)
         static let approve = dyn(0x00C07A, 0x2BD69A)
@@ -28,12 +32,19 @@ enum Theme {
         static let ctaFill = dyn(0x202020, 0xEDEDED)
     }
 
+    /// Typography, tied to the reader's text size.
+    ///
+    /// These were `Font.system(size:)`, which in SwiftUI is a fixed point size
+    /// and does not respond to Dynamic Type at all — so a person who had turned
+    /// their text up got the same 11pt caption as everyone else, everywhere in
+    /// the app. Naming the text style instead scales them, and at the default
+    /// setting the sizes are within a point or two of what they were.
     enum TypeScale {
-        static let title = Font.system(size: 26, weight: .medium, design: .default)
-        static let body = Font.system(size: 17, weight: .regular)
-        static let caption = Font.system(size: 13, weight: .regular)
-        static let label = Font.system(size: 12, weight: .regular)
-        static let micro = Font.system(size: 11, weight: .regular)
+        static let title = Font.system(.title, design: .default, weight: .medium)
+        static let body = Font.system(.body, weight: .regular)
+        static let caption = Font.system(.footnote, weight: .regular)
+        static let label = Font.system(.caption, weight: .regular)
+        static let micro = Font.system(.caption2, weight: .regular)
     }
 
     enum Spacing {

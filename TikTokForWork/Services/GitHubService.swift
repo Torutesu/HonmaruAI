@@ -86,11 +86,6 @@ final class GitHubService: NSObject, ObservableObject {
         SessionStore.clear()
     }
 
-    func restorePartialCredentials() {
-        guard let savedSession = SessionStore.sessionToken, !savedSession.isEmpty else { return }
-        token = savedSession
-    }
-
     func restoreSavedSession() -> Bool {
         guard let savedSession = SessionStore.sessionToken, !savedSession.isEmpty,
               let savedRepository = SessionStore.githubRepository, !savedRepository.isEmpty else {

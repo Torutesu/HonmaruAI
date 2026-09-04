@@ -35,7 +35,11 @@ enum AppConfig {
 }
 
 /// UserDefaults keys that gate one-time first-run moments.
+///
+/// `seededFeed` gated demo seeding, which is gone. `promptedGitHubConnect` was
+/// cleared on sign-out and set nowhere, so nothing was ever gated by it; it
+/// stays only so a value written by an older build is cleared when the account
+/// on this phone changes.
 enum FirstRunFlags {
-    static let seededFeed = "didSeedDemoFeed"
     static let promptedGitHubConnect = "didPromptGitHubConnect"
 }

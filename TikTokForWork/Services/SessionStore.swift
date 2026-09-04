@@ -2,6 +2,10 @@ import Foundation
 import Security
 
 enum SessionStore {
+    // Do not rename. This is the Keychain service the saved session lives
+    // under, so changing it orphans the entry on every phone that already has
+    // one and signs everybody out with no explanation. The prefix is from an
+    // earlier name for the app; it is a lookup key, not a brand.
     private static let service = "com.tangle.tiktokforwork.session"
 
     private enum Key {

@@ -43,6 +43,9 @@ struct SenderAvatar: View {
             .frame(width: diameter, height: diameter)
             .background(Theme.Colors.surfaceRaised)
             .clipShape(Circle())
+            // The sender's initials, next to the sender's name. Read aloud it
+            // was "D K, Dana Kim" every time.
+            .accessibilityHidden(true)
     }
 
     private var initials: String {

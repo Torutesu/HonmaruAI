@@ -46,7 +46,7 @@ struct TranslatedFrom: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: showsOriginal)
+        .animation(Motion.ease(0.15), value: showsOriginal)
     }
 
     private var displayLanguage: String {
