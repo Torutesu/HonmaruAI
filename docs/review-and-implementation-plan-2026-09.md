@@ -344,16 +344,23 @@ PRD のコアフロー「A → B の AI → B の決定 → A に反映 → GitH
 
 | ID | タスク | 受け入れ条件 |
 |---|---|---|
-| 4-1 | push 有効化: App ID に `aps-environment`、`HonmaruAI.entitlements` 追加、プロファイル再発行、Worker secrets 4 + `APNS_ENVIRONMENT`、`isEnabledInThisBuild = true`。**Workers からの APNs は HTTP/2 必須のため、有効化前に実機で 1 通届くことを確認** | 実機に通知が届き、タップでカードに遷移 |
-| 4-2 | `testflight.yml` の初回実行と修正: `asc` の入手方法（Homebrew tap か GitHub release）、`ASC_APP_ID` シークレット追加、ビルド番号を App Store Connect の最新 +1 から取得、`group` 入力の適用、`altool` → `asc publish` または `xcrun notarytool` 系に | Actions からのアップロードが TestFlight に載る |
-| 4-3 | `setup.sh` の既定スキーム `HonmaruAI` → `TikTokForWork`、`release.sh:79` の `.asc.env.example` を実在させる | ローカル `release.sh build` が動く |
-| 4-4 | App Store 提出物: プライバシーポリシーを GitHub Pages か Worker の `/privacy` で公開、`metadata/` `screenshots/`、`asc review doctor` のブロッカー消化、本番 RevenueCat `appl_` キー（または課金機能を 1.0 から外す判断） | `review doctor` クリーン |
-| 4-5 | レガシー削除: `server/`、`web-react/`、`server/data/`、`scripts/device.sh`、`Local.xcconfig` 機構、`Info.plist` の `NSAllowsLocalNetworking`。`web/index.html` は `worker/` 配下に移して Worker がサーブするか削除。`server/test/agui.test.mjs` の有用ケースは `worker/test` に移植。CI から 2 ジョブ削除 | README の「Legacy」節と CI が一致する |
-| 4-6 | docs の同期: テスト数、onboarding 4 画面、`agui-protocol.md` のパスと進捗、secrets 一覧（`APNS_TOPIC` / `APNS_ENVIRONMENT` / Mailgun 2 件）、存在しないファイル参照 8 件、`worker/README.md` のルート表に `/connectors/*` `/github/**` `/webhooks/email` `/media` `/events` を追加、Notion の `name: "title"` の記述矛盾を live 検証で確定 | 各 doc の主張がコードで裏付けられる |
-| 4-7 | メールアドレスの表示（`GET /connectors/email/address`）を Connectors 画面に追加、Mailgun ドメイン設定 | 実メールでカードが 1 枚作られる |
-| 4-8 | ローカライズの取りこぼし: `Text(String)` 経路を `Text(LocalizedStringKey)` / `String(localized:)` に統一、未登録 15 件をカタログへ、`InfoPlist.xcstrings` を追加、`DateFormatting` / 音声認識 / 更新日のロケールを `AppLanguage` から取る。応答・委譲カードの本文は reader language でリレー側生成（1-8）に寄せる | ja 設定で英語が残る画面がゼロ。`Text("…")` 以外で文字列リテラルを描画する箇所を検出する lint（Phase 5） |
-| 4-9 | iOS の残骸整理: `FeedView` の `showsChrome` 分岐（約 130 行）、`FirstRunFlags`、`seedDemoFeedIfNeeded`、`restorePartialCredentials`、`ConnectGitHubSheet.Context.afterFirstApproval`（使うなら 1-2 の Sent ビューから呼ぶ）、`ProBadge` / `proPaywall`、`SourceSheet` の偽ヘッダ、`TranslatedFrom`（2-3 で本物のデータを流すまで非表示）、`com.tangle.*` 識別子、`NSAllowsLocalNetworking`。`OnboardingView.githubStep` と `ConnectGitHubSheet` の共通化 | 到達不能コードがない。`SWIFT_VERSION` を 5.10 に |
-| 4-10 | Dynamic Type とアクセシビリティ: `Theme.TypeScale` を text style + `@ScaledMetric` に、Reduce Motion で `withAnimation` を無効化、`SubscriptionView` の `.preferredColorScheme(.dark)` 削除、`textTertiary` の 10〜11pt 用途をコントラスト AA 以上に、`PageDots` / `SenderAvatar` を VoiceOver から隠す。カードは 1 ページ内スクロール可能なレイアウトに（docs の既知妥協 P2-1 の本解） | 最大サイズでアクション行が届く。Accessibility Inspector で警告ゼロ |
+| 4-1 ⏸ | push 有効化: App ID に `aps-environment`、`HonmaruAI.entitlements` 追加、プロファイル再発行、Worker secrets 4 + `APNS_ENVIRONMENT`、`isEnabledInThisBuild = true`。**Workers からの APNs は HTTP/2 必須のため、有効化前に実機で 1 通届くことを確認** | 実機に通知が届き、タップでカードに遷移 |
+| 4-2 ⏸ | `testflight.yml` の初回実行と修正: `asc` の入手方法（Homebrew tap か GitHub release）、`ASC_APP_ID` シークレット追加、ビルド番号を App Store Connect の最新 +1 から取得、`group` 入力の適用、`altool` → `asc publish` または `xcrun notarytool` 系に | Actions からのアップロードが TestFlight に載る |
+| 4-3 ✅ | `setup.sh` の既定スキーム `HonmaruAI` → `TikTokForWork`、`release.sh:79` の `.asc.env.example` を実在させる | ローカル `release.sh build` が動く |
+| 4-4 ⏸ | App Store 提出物: プライバシーポリシーを GitHub Pages か Worker の `/privacy` で公開、`metadata/` `screenshots/`、`asc review doctor` のブロッカー消化、本番 RevenueCat `appl_` キー（または課金機能を 1.0 から外す判断） | `review doctor` クリーン |
+| 4-5 ◐ | レガシー削除: `server/`、`web-react/`、`server/data/`、`scripts/device.sh`、`Local.xcconfig` 機構、`Info.plist` の `NSAllowsLocalNetworking`。`web/index.html` は `worker/` 配下に移して Worker がサーブするか削除。`server/test/agui.test.mjs` の有用ケースは `worker/test` に移植。CI から 2 ジョブ削除 | README の「Legacy」節と CI が一致する |
+| 4-6 ✅ | docs の同期: テスト数、onboarding 4 画面、`agui-protocol.md` のパスと進捗、secrets 一覧（`APNS_TOPIC` / `APNS_ENVIRONMENT` / Mailgun 2 件）、存在しないファイル参照 8 件、`worker/README.md` のルート表に `/connectors/*` `/github/**` `/webhooks/email` `/media` `/events` を追加、Notion の `name: "title"` の記述矛盾を live 検証で確定 | 各 doc の主張がコードで裏付けられる |
+| 4-7 ◐ | メールアドレスの表示（`GET /connectors/email/address`）を Connectors 画面に追加、Mailgun ドメイン設定 | 実メールでカードが 1 枚作られる |
+| 4-8 ✅ | ローカライズの取りこぼし: `Text(String)` 経路を `Text(LocalizedStringKey)` / `String(localized:)` に統一、未登録 15 件をカタログへ、`InfoPlist.xcstrings` を追加、`DateFormatting` / 音声認識 / 更新日のロケールを `AppLanguage` から取る。応答・委譲カードの本文は reader language でリレー側生成（1-8）に寄せる | ja 設定で英語が残る画面がゼロ。`Text("…")` 以外で文字列リテラルを描画する箇所を検出する lint（Phase 5） |
+| 4-9 ✅ | iOS の残骸整理: `FeedView` の `showsChrome` 分岐（約 130 行）、`FirstRunFlags`、`seedDemoFeedIfNeeded`、`restorePartialCredentials`、`ConnectGitHubSheet.Context.afterFirstApproval`（使うなら 1-2 の Sent ビューから呼ぶ）、`ProBadge` / `proPaywall`、`SourceSheet` の偽ヘッダ、`TranslatedFrom`（2-3 で本物のデータを流すまで非表示）、`com.tangle.*` 識別子、`NSAllowsLocalNetworking`。`OnboardingView.githubStep` と `ConnectGitHubSheet` の共通化 | 到達不能コードがない。`SWIFT_VERSION` を 5.10 に |
+| 4-10 ◐ | Dynamic Type とアクセシビリティ: `Theme.TypeScale` を text style + `@ScaledMetric` に、Reduce Motion で `withAnimation` を無効化、`SubscriptionView` の `.preferredColorScheme(.dark)` 削除、`textTertiary` の 10〜11pt 用途をコントラスト AA 以上に、`PageDots` / `SenderAvatar` を VoiceOver から隠す。カードは 1 ページ内スクロール可能なレイアウトに（docs の既知妥協 P2-1 の本解） | 最大サイズでアクション行が届く。Accessibility Inspector で警告ゼロ |
+
+**Phase 4 の実装メモ（2026-09-04）**
+
+- 4-1 / 4-2 / 4-4 ⏸: Apple の資格情報が要る。この環境からは実行できないので手つかず
+- 4-5 ◐: `scripts/device.sh`、`server/data/*.json`、`NSAllowsLocalNetworking`、`Config/Local.xcconfig` 機構は削除。**`server/` と `web-react/` は残した** — PROGRESS.md が成果物として掲げているものを、判断を仰がずに消すのは範囲外。CI の 2 ジョブも残っている
+- 4-7 ◐: `GET /connectors/email/address` を Connectors 画面に表示（コピー付き、未設定デプロイでは非表示）。Mailgun ドメインの設定は外部作業
+- 4-10 ◐: 型スケールが Dynamic Type に追従、Reduce Motion 対応、`textTertiary` のコントラストを AA に、`preferredColorScheme(.dark)` の撤去、装飾要素を VoiceOver から除外。**カードのページ内スクロールは未着手** — ページング用ジェスチャと衝突するため、ここでの検証手段がない状態で触るのは危険と判断。ロータ操作は全サイズで届くので実害はない
 
 ### Phase 5 — 品質基盤（2〜3 日、他フェーズと並行可）
 
@@ -361,6 +368,15 @@ PRD のコアフロー「A → B の AI → B の決定 → A に反映 → GitH
 - **iOS**: `WebSocketService` / `GitHubService` / `DecisionCardService` にプロトコルを切りフェイク注入できるようにする。追加テスト = `DecisionCardService.resolve / delegate / acknowledge`、`AGUIEventAssembler`（スナップショット・delta add/replace/remove・RFC 6901・チャンク再結合・壊れたカードのスキップ・`/context/` の処理）、`OutboundEvent.envelope` と `SUBMIT_DECISION_SCHEMA` の契約テスト、`DecisionCard` の Worker フィクスチャデコード、`WebSocketService` のバックオフ上限・refused・connect-while-connected・アウトボックス順序、`OfflineRouter`、`FeedViewModel.refreshCards` のスクロール位置維持、`ContextInsights.parse`、`SessionStore` 往復。SwiftLint / SwiftFormat。`print` → `os.Logger`。`Text(String)` でカタログキーを描画している箇所を検出する lint スクリプト
 - **CI**: push 時に iOS を `build-for-testing` だけ走らせ、PR で `test`。Release 構成のビルド検証を PR に追加。`PrivacyInfo.xcprivacy` がバンドルに入ることの検証。dependabot。`xcodebuild` の simulator 名を `simctl` から解決
 - **AI 評価**: `worker/test/routing-eval.test.js` に 20 件の日英指示 × 期待受信者 / cardType のゴールデンセット（モデル応答は fetchMock で固定し、プロンプト変更で壊れたことを検知）
+
+**Phase 5 の実装メモ（2026-09-04）**
+
+- ✅ AI 評価: `worker/test/routing-eval.test.js`（22 件）。書いた時点でフォールバックルータのバグを 4 件検出（「〜したと伝えて」が task 判定、句動詞の分離、"another pass"、障害の緊急度）
+- ✅ Worker の ESLint（`eslint-plugin-promise`）と CI 組み込み。`/webhooks/email` が `ctx.waitUntil` を使わず await していた件を検出
+- ✅ ローカライズ lint（`scripts/check-localization.mjs`）と CI 組み込み
+- ✅ iOS を push で `build-for-testing`、PR で `test`。simulator 名は `simctl` から解決
+- ✅ 追加テスト: `AGUIEventAssembler`（context patch・RFC 6901・RUN_ERROR・未知イベント・remove の契約）、`DecisionCard` の欠落フィールド/未知 enum デコード、`Outbox.unsentCards/unsentDeletions`、`ContextInsights.parse`、`OfflineRouter`
+- ⏸ 未着手: `WebSocketService` / `GitHubService` / `DecisionCardService` のプロトコル化とフェイク注入、SwiftLint / SwiftFormat、`print` → `os.Logger`、`tsc --checkJs`、dependabot
 
 ### 全体スケジュール（目安）
 
