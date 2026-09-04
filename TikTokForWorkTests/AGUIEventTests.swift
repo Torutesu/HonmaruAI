@@ -153,4 +153,87 @@ final class AGUIEventTests: XCTestCase {
         }
         XCTAssertEqual(byUser.values.flatMap { $0 }.map(\.id), ["c-good"])
     }
+
+    // Shared context is the other half of a STATE_DELTA. A patch under
+    // /context/<login> is somebody rewriting what their AI knows about them,
+    // and reading it as a card patch would have thrown it away.
+    @MainActor
+    func testAContextPatchIsAContextChangeAndNotACard() {
+        let a = assembler()
+        let events = a.handle([
+            "type": "STATE_DELTA",
+            "delta": [["op": "replace", "path": "/context/octocat", "value": ["text": "runs billing"]]],
+        ])
+        guard case .context(let userID, let text)? = events.first else {
+            return XCTFail("expected a context event, got \(events)")
+        }
+        XCTAssertEqual(userID, "octocat")
+        XCTAssertEqual(text, "runs billing")
+    }
+
+    // A login with a slash or a tilde in it is escaped on the wire per RFC 6901.
+    // Unescaping the card pointer was handled; the context pointer was not.
+    @MainActor
+    func testAnEscapedContextPointerIsUnescapedToo() {
+        let a = assembler()
+        let events = a.handle([
+            "type": "STATE_DELTA",
+            "delta": [["op": "replace", "path": "/context/acme~1team", "value": ["text": "shared"]]],
+        ])
+        guard case .context(let userID, _)? = events.first else {
+            return XCTFail("expected a context event, got \(events)")
+        }
+        XCTAssertEqual(userID, "acme/team")
+    }
+
+    // The relay refuses things — a forged sender, an id already taken, a
+    // decision that changed under you. Every one of those arrives here, and a
+    // dropped RUN_ERROR is a failure the person never hears about.
+    @MainActor
+    func testARunErrorBecomesSomethingTheAppCanShow() {
+        let a = assembler()
+        let events = a.handle(["type": "RUN_ERROR", "message": "A decision with that id already exists."])
+        guard case .error(let message)? = events.first else {
+            return XCTFail("expected an error event, got \(events)")
+        }
+        XCTAssertEqual(message, "A decision with that id already exists.")
+    }
+
+    // Anything else the relay grows later. Ignoring it is right; crashing or
+    // inventing an event is not.
+    @MainActor
+    func testAnEventThisBuildDoesNotKnowIsIgnored() {
+        let a = assembler()
+        XCTAssertTrue(a.handle(["type": "SOMETHING_NEW", "payload": ["x": 1]]).isEmpty)
+        XCTAssertTrue(a.handle(["nothing": "useful"]).isEmpty)
+    }
+
+    // A remove patch carries only the id. The assembler reports that and leaves
+    // the recipient blank on purpose — the socket layer tracks who each card
+    // belonged to, because it is the thing that saw the snapshot. Filling it in
+    // here from a guess would be worse than leaving it to the layer that knows.
+    @MainActor
+    func testARemoveReportsTheIdAndLeavesTheOwnerToTheSocket() {
+        let a = assembler()
+        let events = a.handle([
+            "type": "STATE_DELTA",
+            "delta": [["op": "remove", "path": "/cardsById/c-1"]],
+        ])
+        guard case .cardDeleted(let cardID, let recipient)? = events.first else {
+            return XCTFail("expected a deletion, got \(events)")
+        }
+        XCTAssertEqual(cardID, "c-1")
+        XCTAssertEqual(recipient, "")
+    }
+
+    // The value is an object, not a string. Reading it as a string would drop
+    // every context change silently.
+    @MainActor
+    func testAContextPatchWithNoTextIsIgnoredRatherThanReadAsEmpty() {
+        let a = assembler()
+        XCTAssertTrue(a.handle([
+            "type": "STATE_DELTA",
+            "delta": [["op": "replace", "path": "/context/octocat", "value": "a bare string"]],
+        ]).isEmpty)
+    }
 }
