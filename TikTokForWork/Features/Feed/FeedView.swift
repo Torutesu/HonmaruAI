@@ -109,6 +109,7 @@ struct FeedView: View {
             )
             Task { await viewModel.syncGitHub() }
         }
+        .onDisappear { viewModel.unbind() }
         .sheet(isPresented: $showOrgGraph) {
             OrgGraphView()
                 .environmentObject(appState)
@@ -126,7 +127,7 @@ struct FeedView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $viewModel.reviewDraft) { draft in
-            DraftReviewSheet(draft: draft) { finalDraft in
+            DraftReviewSheet(draft: draft, recipients: appState.organization.people) { finalDraft in
                 Task {
                     await viewModel.sendDraft(finalDraft, appState: appState)
                     aiPrompt = ""

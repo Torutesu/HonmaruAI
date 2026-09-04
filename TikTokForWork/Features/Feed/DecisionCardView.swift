@@ -98,7 +98,7 @@ struct DecisionCardView: View {
                 // A3 replies to a card in free text. It opens the revision flow,
                 // which is what a reply means here: the card goes back to the
                 // sender with what you said attached.
-                if card.isPending {
+                if card.needsDecision {
                     replyComposer
                         .padding(.top, Theme.Spacing.sm)
                 }
@@ -128,7 +128,7 @@ struct DecisionCardView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(accessibilitySummary))
         .accessibilityActions {
-            if card.isPending {
+            if card.needsDecision {
                 Button(String(localized: "Approve")) {
                     Haptics.success()
                     onAction(.createIssue)
@@ -139,6 +139,11 @@ struct DecisionCardView: View {
                 }
                 Button(String(localized: "Request revision")) { onAction(.requestRevision) }
                 Button(String(localized: "Delegate")) { onAction(.delegate) }
+            } else if card.isPending {
+                Button(String(localized: "Got it")) {
+                    Haptics.light()
+                    onAction(.acknowledge)
+                }
             }
             Button(String(localized: "View details")) { onShowDetails() }
         }
@@ -291,14 +296,14 @@ struct DecisionCardView: View {
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 20, coordinateSpace: .local)
             .onChanged { value in
-                guard card.isPending else { return }
+                guard card.needsDecision else { return }
                 let horizontal = value.translation.width
                 let vertical = value.translation.height
                 guard abs(horizontal) > abs(vertical) else { return }
                 dragOffset = horizontal
             }
             .onEnded { value in
-                guard card.isPending else {
+                guard card.needsDecision else {
                     resetDrag()
                     return
                 }
@@ -372,7 +377,25 @@ struct DecisionCardView: View {
 
     private var actionBlock: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            if card.isPending {
+            // An update is read, not decided. It used to arrive wearing the
+            // whole decision row — Approve, Decline, Revise, Delegate — so
+            // "Grace approved your budget" could be approved, which told Grace,
+            // who could approve that. With GitHub connected, approving the
+            // notification opened an issue about it.
+            if card.isPending && !card.isDecision {
+                Button {
+                    Haptics.light()
+                    onAction(.acknowledge)
+                } label: {
+                    Text("Got it")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(Theme.Colors.ctaFill)
+                        .foregroundStyle(Color.white)
+                        .clipShape(Capsule())
+                }
+            } else if card.isPending {
                 if isGitHubConnected {
                     GitHubPrimaryButton(title: String(localized: "Create issue"), enabled: true) {
                         Haptics.light()
@@ -422,11 +445,14 @@ struct DecisionCardView: View {
                     .padding(.top, Theme.Spacing.xs)
             } else {
                 HStack(spacing: 0) {
-                    Button(String(localized: "Undo")) {
-                        Task { await appState.webSocketService.publishRollback(cardID: card.id) }
+                    // There is nothing to undo about having read something.
+                    if card.isDecision {
+                        Button(String(localized: "Undo")) {
+                            Task { await appState.webSocketService.publishRollback(cardID: card.id) }
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.Colors.interactive)
                     }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Theme.Colors.interactive)
 
                     if card.canDelete {
                         Spacer()

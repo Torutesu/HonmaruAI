@@ -77,6 +77,10 @@ enum SessionStore {
         delete(Key.githubRepositoryURL)
         delete(Key.currentUserID)
         delete(Key.sessionToken)
+        // Someone's own model key is theirs. It used to survive a sign-out, so
+        // on a shared device the next person's routing was billed to the last
+        // person's account.
+        delete(Key.apiKey)
     }
 
     private static func read(_ key: String) -> String? {

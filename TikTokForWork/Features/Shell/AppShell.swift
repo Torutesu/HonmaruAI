@@ -19,16 +19,22 @@ struct AppShell: View {
         ZStack {
             Theme.Colors.background.ignoresSafeArea()
 
-            switch tab {
-            case .home:
-                FeedView(
-                    showsChrome: false,
-                    composeTick: composeTick,
-                    captured: captured,
-                    cardCount: $feedCardCount,
-                    currentCardIndex: $feedCardIndex
-                )
-            case .you:
+            // The feed is kept alive rather than rebuilt on every tab switch.
+            // A `switch` here destroyed it — and its view model, and the 30
+            // second GitHub poll that view model owns — so every visit to Home
+            // started another timer that the previous one never stopped.
+            FeedView(
+                showsChrome: false,
+                composeTick: composeTick,
+                captured: captured,
+                cardCount: $feedCardCount,
+                currentCardIndex: $feedCardIndex
+            )
+            .opacity(tab == .home ? 1 : 0)
+            .allowsHitTesting(tab == .home)
+            .accessibilityHidden(tab != .home)
+
+            if tab == .you {
                 YouView()
             }
         }

@@ -166,6 +166,17 @@ enum OutboundEvent {
 /// `refused` is its own state and not a flavour of `offline`: the relay closes
 /// with 1008 when a session cannot join an organization, and retrying that
 /// forever would be a battery drain that never succeeds.
+enum RelayError: LocalizedError {
+    /// The relay answered the join with a reason and closed the socket.
+    case refused(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .refused(let message): message
+        }
+    }
+}
+
 enum ConnectionState: Equatable {
     case offline
     case connecting
@@ -187,6 +198,11 @@ final class WebSocketService: ObservableObject {
     private var reconnectTask: Task<Void, Never>?
     private var intentionalDisconnect = false
     private var reconnectAttempt = 0
+    /// Which connection attempt is current. A receive loop belonging to a socket
+    /// we have already replaced must not touch state or schedule anything.
+    private var connectionGeneration = 0
+    private var joinContinuation: CheckedContinuation<Void, Error>?
+    private var joinTimeout: Task<Void, Never>?
     private var lastURLString: String?
     private var lastUserID: String?
     private var lastOrgID = "core-team"
@@ -236,6 +252,8 @@ final class WebSocketService: ObservableObject {
         // left it true forever and killed auto-reconnect after the first call.
         disconnect(intentional: true)
         intentionalDisconnect = false
+        connectionGeneration &+= 1
+        let generation = connectionGeneration
         state = .connecting
 
         guard let url = URL(string: urlString) else {
@@ -250,20 +268,67 @@ final class WebSocketService: ObservableObject {
         self.task = task
         task.resume()
 
+        // The loop is handed its own socket. It used to read `self.task` on
+        // every iteration, so after a reconnect the *previous* loop was reading
+        // frames off the *new* socket.
         receiveLoopTask = Task { [weak self] in
-            await self?.receiveLoop()
+            await self?.receiveLoop(generation: generation, task: task)
         }
 
         do {
             try await send(.join(userId: userId, orgId: orgId, sessionToken: sessionToken))
+            try await awaitJoinAcknowledgement()
         } catch {
-            state = .offline
-            scheduleReconnect()
+            guard generation == connectionGeneration else { throw error }
+            if case RelayError.refused(let message) = error {
+                // The relay says why before it closes. That is a permanent
+                // answer for this session and this organization, so it becomes
+                // the state directly — retrying it is a battery drain with a
+                // known result, and waiting for the close to say the same thing
+                // would let one reconnect through first.
+                state = .refused(message)
+            } else {
+                if case .refused = state {} else { state = .offline }
+                scheduleReconnect()
+            }
             throw error
         }
+        guard generation == connectionGeneration else { return }
         reconnectAttempt = 0
         state = .connected
         await flushOutbox()
+    }
+
+    /// Wait for the relay to say the join was accepted.
+    ///
+    /// `.connected` used to be set the moment the join frame was *written*, and
+    /// the outbox was flushed on that. But the relay authenticates a join
+    /// against its database and, on a first connection, against GitHub — and it
+    /// refuses anything arriving on a socket that has not finished joining by
+    /// closing it with 1008. So a queued decision could land inside that window,
+    /// close the socket, and be read here as "this session may never join this
+    /// organization", which stops every further attempt. The decisions it was
+    /// carrying had already been drained from the queue.
+    ///
+    /// The acknowledgement is the state snapshot: the relay sends it once the
+    /// session is resolved and the org authorized.
+    private func awaitJoinAcknowledgement() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            joinContinuation = continuation
+            joinTimeout = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(20))
+                guard !Task.isCancelled else { return }
+                self?.completeJoin(.failure(URLError(.timedOut)))
+            }
+        }
+    }
+
+    private func completeJoin(_ result: Result<Void, Error>) {
+        guard let continuation = joinContinuation else { return }
+        joinContinuation = nil
+        joinTimeout?.cancel()
+        joinTimeout = nil
+        continuation.resume(with: result)
     }
 
     /// Intentional by default, because every caller outside this file means
@@ -271,6 +336,7 @@ final class WebSocketService: ObservableObject {
     /// through here; the receive loop notices it and schedules a reconnect.
     func disconnect(intentional: Bool = true) {
         intentionalDisconnect = intentional
+        completeJoin(.failure(CancellationError()))
         reconnectTask?.cancel()
         reconnectTask = nil
         receiveLoopTask?.cancel()
@@ -325,11 +391,29 @@ final class WebSocketService: ObservableObject {
     /// that fails now waits in the outbox and goes out in order on reconnect —
     /// the relay upserts by card id, so a re-delivery is harmless.
     private func publish(_ event: OutboundEvent) async {
+        // Only a socket that has finished joining may carry anything else. The
+        // relay closes one that speaks too early, and from here that close is
+        // indistinguishable from being refused — so a decision sent during the
+        // join handshake used to cost the whole connection.
+        guard state == .connected else {
+            outbox.append(event)
+            return
+        }
         do {
             try await send(event)
         } catch {
             outbox.append(event)
         }
+    }
+
+    /// Forget anything still queued.
+    ///
+    /// Called on sign-out. The queue holds the previous account's decisions and
+    /// the relay stamps whoever is connected *now* as their sender, so replaying
+    /// them after a second person signs in publishes one person's work as
+    /// another's.
+    func discardQueuedWork() {
+        outbox.clear()
     }
 
     private func flushOutbox() async {
@@ -365,8 +449,8 @@ final class WebSocketService: ObservableObject {
         try await task.send(.string(text))
     }
 
-    private func receiveLoop() async {
-        while !Task.isCancelled, let task {
+    private func receiveLoop(generation: Int, task: URLSessionWebSocketTask) async {
+        while !Task.isCancelled {
             do {
                 let message = try await task.receive()
                 switch message {
@@ -380,6 +464,14 @@ final class WebSocketService: ObservableObject {
                     break
                 }
             } catch {
+                // A loop belonging to a socket we have already replaced says
+                // nothing about the current one. `connect` tears the old socket
+                // down and starts the new one immediately, so this catch runs
+                // *during* the new connection: it used to set `.offline` and
+                // queue a reconnect that fired after the new socket was up and
+                // replaced it, and then again, and again.
+                guard generation == connectionGeneration else { return }
+                completeJoin(.failure(error))
                 // 1008 is the relay refusing this session for this organization
                 // — a permanent answer, not a dropped connection. Telling them
                 // apart is the difference between showing "reconnecting…" once
@@ -451,7 +543,14 @@ final class WebSocketService: ObservableObject {
 
         // The relay explains a refusal before it closes, so hold the last
         // explanation to show instead of a generic one when the close lands.
-        if case .error(let message) = event { lastRefusal = message }
+        if case .error(let message) = event {
+            lastRefusal = message
+            completeJoin(.failure(RelayError.refused(message)))
+        }
+
+        // The snapshot is the relay's acknowledgement: it is sent once the
+        // session has been resolved and the organization authorized.
+        if case .snapshot = event { completeJoin(.success(())) }
 
         if case .presence(let userId, let status) = event {
             if status == "online" {

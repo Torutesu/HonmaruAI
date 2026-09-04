@@ -2,19 +2,19 @@ import Foundation
 
 /// Routes an instruction without the relay.
 ///
-/// The relay does this better, with an LLM and the whole org graph. This exists
+/// The relay does this better, with a model and the whole org graph. This exists
 /// so a dead network costs you quality rather than the ability to file anything
 /// at all — which matters most in exactly the situation where you cannot fix it,
 /// like standing in front of someone with a phone in your hand.
+///
+/// It does not guess who the card is for. It used to: two keyword tables sent
+/// anything mentioning a logo to `user-yui`, and anything mentioning a delivery
+/// to `user-tanaka` — colleagues who existed in a demo and in no real
+/// organization. The relay stored those cards, nobody could ever decide them,
+/// and the sender was told they had been routed. Offline, the honest answer is
+/// that the card is yours until you say otherwise, and the review sheet is
+/// where you say so.
 enum OfflineRouter {
-    /// Keyword tables mirroring the relay's, kept deliberately small. Anything
-    /// this cannot place goes to the owner, which in a one-person business is
-    /// the right answer far more often than it is wrong.
-    private static let designWords = ["ロゴ", "バナー", "デザイン", "画像", "ヒーロー",
-                                      "logo", "banner", "design", "mockup", "figma"]
-    private static let clientWords = ["納品", "検収", "先方", "クライアント", "承認依頼",
-                                      "client", "delivery", "sign-off"]
-
     static func draft(
         text: String,
         sender: User,
@@ -22,18 +22,8 @@ enum OfflineRouter {
     ) -> InstructionDraft {
         let lower = text.lowercased()
 
-        let recipient: String
-        let reason: String
-        if designWords.contains(where: { lower.contains($0.lowercased()) }) {
-            recipient = "user-yui"
-            reason = String(localized: "Visual work goes to the contractor")
-        } else if clientWords.contains(where: { lower.contains($0.lowercased()) }) {
-            recipient = "user-tanaka"
-            reason = String(localized: "The client has to agree to this")
-        } else {
-            recipient = sender.id
-            reason = String(localized: "This one is yours to decide")
-        }
+        let recipient = sender.id
+        let reason = String(localized: "Drafted offline · choose who this is for")
 
         let type: CardType
         if lower.contains("承認") || lower.contains("approve") {

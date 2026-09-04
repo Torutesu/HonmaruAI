@@ -9,14 +9,7 @@ struct DelegatePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var candidates: [User] {
-        appState.organization.nodes
-            .filter { $0.kind == .person && $0.id != currentUserID }
-            .map { node in
-                let parts = node.label.split(separator: "·", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                let name = parts.first ?? node.label
-                let role = parts.count > 1 ? parts[1] : "Member"
-                return User(id: node.id, name: name, role: role, teamID: nil, githubUsername: node.id)
-            }
+        appState.organization.people.filter { $0.id != currentUserID }
     }
 
     var body: some View {

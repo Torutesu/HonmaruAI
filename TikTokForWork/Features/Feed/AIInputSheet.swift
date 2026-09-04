@@ -73,15 +73,26 @@ struct AIInputSheet: View {
 
 struct DraftReviewSheet: View {
     let draft: InstructionDraft
+    /// Everyone this card could go to. Empty when the organization has not
+    /// loaded — offline, or a sign-in that has not reached GitHub yet — in which
+    /// case the draft stays addressed to you rather than to someone invented.
+    var recipients: [User] = []
     let onSend: (InstructionDraft) -> Void
 
     @State private var priority: CardPriority
+    @State private var recipientUserID: String
     @Environment(\.dismiss) private var dismiss
 
-    init(draft: InstructionDraft, onSend: @escaping (InstructionDraft) -> Void) {
+    init(draft: InstructionDraft, recipients: [User] = [], onSend: @escaping (InstructionDraft) -> Void) {
         self.draft = draft
+        self.recipients = recipients
         self.onSend = onSend
         _priority = State(initialValue: draft.priority)
+        _recipientUserID = State(initialValue: draft.recipientUserID)
+    }
+
+    private var recipientName: String {
+        recipients.first { $0.id == recipientUserID }?.name ?? recipientUserID
     }
 
     var body: some View {
@@ -103,9 +114,7 @@ struct DraftReviewSheet: View {
                         Text(draft.title)
                             .font(Theme.TypeScale.title)
                             .foregroundStyle(Theme.Colors.textPrimary)
-                        Text("→ \(draft.recipientName)")
-                            .font(Theme.TypeScale.caption)
-                            .foregroundStyle(Theme.Colors.accent)
+                        recipientRow
                         Text(draft.summary)
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textSecondary)
@@ -129,7 +138,7 @@ struct DraftReviewSheet: View {
                         let finalDraft = InstructionDraft(
                             id: draft.id,
                             sourceText: draft.sourceText,
-                            recipientUserID: draft.recipientUserID,
+                            recipientUserID: recipientUserID,
                             cardType: draft.cardType,
                             title: draft.title,
                             summary: draft.summary,
@@ -155,6 +164,45 @@ struct DraftReviewSheet: View {
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }
             }
+        }
+    }
+
+    /// Who the card is for, and the one place to change it.
+    ///
+    /// The AI's answer is a proposal, and the review sheet is where a proposal
+    /// gets accepted. It matters most when there was no AI: a draft written
+    /// offline is addressed to you until you say otherwise, and this is where
+    /// you say so.
+    @ViewBuilder
+    private var recipientRow: some View {
+        if recipients.count > 1 {
+            Menu {
+                ForEach(recipients, id: \.id) { user in
+                    Button {
+                        recipientUserID = user.id
+                    } label: {
+                        if user.id == recipientUserID {
+                            Label(user.name, systemImage: "checkmark")
+                        } else {
+                            Text(user.name)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text("→ \(recipientName)")
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.accent)
+            }
+            .accessibilityLabel(Text("Recipient"))
+            .accessibilityValue(Text(recipientName))
+        } else {
+            Text("→ \(recipientName)")
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.accent)
         }
     }
 

@@ -23,6 +23,17 @@
         }
       }
     },
+    "A pending decision cannot be deleted. Decline it first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未決の判断は削除できません。先に却下してください。"
+          }
+        }
+      }
+    },
     "A work feed where nothing needs reading twice. Your AI turns your team's asks, approvals, and tasks into cards you clear in seconds.": {
       "extractionState": "manual",
       "localizations": {
@@ -914,17 +925,6 @@
         }
       }
     },
-    "Creating GitHub issue…": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GitHub Issue を作成しています…"
-          }
-        }
-      }
-    },
     "Dana": {
       "extractionState": "manual",
       "localizations": {
@@ -1343,6 +1343,17 @@
         }
       }
     },
+    "Drafted offline · choose who this is for": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインで作成 · 宛先を選んでください"
+          }
+        }
+      }
+    },
     "Drafting decision card…": {
       "extractionState": "manual",
       "localizations": {
@@ -1559,6 +1570,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Google Play"
+          }
+        }
+      }
+    },
+    "Got it": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認しました"
           }
         }
       }
@@ -1812,6 +1834,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "中"
+          }
+        }
+      }
+    },
+    "Member": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバー"
           }
         }
       }
@@ -2113,17 +2146,6 @@
         }
       }
     },
-    "Only declined cards can be deleted.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除できるのは却下したカードだけです。"
-          }
-        }
-      }
-    },
     "Only you can decide to chase": {
       "extractionState": "manual",
       "localizations": {
@@ -2307,6 +2329,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "意図を読み、関係者を確認し、決められる人を選びます。"
+          }
+        }
+      }
+    },
+    "Recipient": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宛先"
           }
         }
       }
@@ -3224,17 +3257,6 @@
         }
       }
     },
-    "The client has to agree to this": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クライアントの合意が必要です"
-          }
-        }
-      }
-    },
     "The design system is yours": {
       "extractionState": "manual",
       "localizations": {
@@ -3594,17 +3616,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "詳細を見る"
-          }
-        }
-      }
-    },
-    "Visual work goes to the contractor": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ビジュアル関連は外注先へ"
           }
         }
       }

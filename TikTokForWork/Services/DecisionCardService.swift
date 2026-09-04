@@ -80,7 +80,9 @@ final class DecisionCardService: ObservableObject {
     /// code path has to remember to do.
     private func changed() {
         persist()
-        let pending = activeUserID.map { cardsByUser[$0, default: []].filter(\.isPending).count } ?? 0
+        // Decisions only. An update someone sent you to read is not a thing
+        // anyone is waiting on, and counting it made the badge mean "unread".
+        let pending = activeUserID.map { cardsByUser[$0, default: []].filter(\.needsDecision).count } ?? 0
         if pending != pendingCount {
             pendingCount = pending
             PushService.shared.setBadge(pending)
@@ -103,11 +105,20 @@ final class DecisionCardService: ObservableObject {
 
     func syncGitHubStatus(githubService: GitHubService) async {
         guard githubService.isConnected else { return }
+        guard let userID = activeUserID else { return }
+
+        // Decisions that were made while GitHub was out of reach. The decision
+        // itself was recorded and delivered at the time; this is the issue
+        // catching up with it.
+        for card in cardsByUser[userID, default: []] where card.githubSyncPending == true {
+            await syncDecisionToGitHub(cardID: card.id, ownerUserID: userID, githubService: githubService)
+        }
+
         // Only our own cards. The store holds the whole org so a second device
         // can stay in sync passively, but a card belongs to the person who has
         // to decide it — republishing someone else's is a write the relay is
         // right to refuse, and reconciling their issue was never our job.
-        guard let userID = activeUserID, var userCards = cardsByUser[userID] else { return }
+        guard var userCards = cardsByUser[userID] else { return }
 
         var didChange = false
         for index in userCards.indices {
@@ -165,26 +176,14 @@ final class DecisionCardService: ObservableObject {
         case .createIssue: card.status = .approved
         case .reject: card.status = .rejected
         case .requestRevision: card.status = .revised
-        case .delegate:
-            return card
-        case .delete:
-            return card
-        case .viewDetails:
+        case .acknowledge: card.status = .completed
+        case .delegate, .delete, .viewDetails:
             return card
         }
 
         if let revisionNote, !revisionNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             card.revisionNote = revisionNote.trimmingCharacters(in: .whitespacesAndNewlines)
             card.context = [card.context, "Revision: \(card.revisionNote!)"].filter { !$0.isEmpty }.joined(separator: "\n")
-        }
-
-        // GitHub is optional: without a connection the decision is still
-        // recorded locally and can sync later once a repository is linked.
-        if githubService.isConnected, action == .createIssue || card.githubIssueNumber != nil {
-            let synced = try await githubService.syncDecision(card)
-            card.githubIssueNumber = synced.number
-            card.githubIssueURL = synced.url
-            card.githubRepository = githubService.linkedRepository
         }
 
         let decision = Decision(
@@ -195,13 +194,31 @@ final class DecisionCardService: ObservableObject {
             actorUserID: actorUserID,
             decidedAt: .now
         )
-
         card.decision = decision
+
+        // The decision is recorded and delivered before GitHub hears about it.
+        // It used to be the other way round: `syncDecision` was awaited first,
+        // and it throws, so approving with no network threw *before* the
+        // decision existed — the person saw an error, the teammate waiting on
+        // it heard nothing, and the outbox built for exactly this moment was
+        // never reached. Deciding is the product; the issue is bookkeeping.
+        let wantsGitHub = githubService.isConnected
+            && card.isDecision
+            && (action == .createIssue || card.githubIssueNumber != nil)
+        card.githubSyncPending = wantsGitHub ? true : nil
         userCards[index] = card
         cardsByUser[actorUserID] = userCards
 
         let toolCallId = webSocketService?.toolCallID(for: cardID)
         await webSocketService?.publishToolResult(card, decision: decision, toolCallId: toolCallId)
+
+        // An update is read, not decided, so there is nobody to report it to.
+        // Reporting it produced a fresh pending card for the person who had
+        // just decided — which they could approve, which reported it back.
+        guard card.isDecision else {
+            changed()
+            return card
+        }
 
         let statusLabel: String = {
             switch card.status {
@@ -232,7 +249,41 @@ final class DecisionCardService: ObservableObject {
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
         changed()
-        return card
+
+        if wantsGitHub {
+            await syncDecisionToGitHub(cardID: cardID, ownerUserID: actorUserID, githubService: githubService)
+        }
+        return cardsByUser[actorUserID]?.first { $0.id == cardID } ?? card
+    }
+
+    /// Tell GitHub about a decision that has already been made.
+    ///
+    /// Never throws. The decision stands whether or not the issue does, and a
+    /// card whose sync failed keeps `githubSyncPending` so the next sweep tries
+    /// again — which is what makes an approval on a train reach GitHub when the
+    /// train comes out of the tunnel.
+    private func syncDecisionToGitHub(
+        cardID: String,
+        ownerUserID: String,
+        githubService: GitHubService
+    ) async {
+        guard githubService.isConnected,
+              var cards = cardsByUser[ownerUserID],
+              let index = cards.firstIndex(where: { $0.id == cardID }) else { return }
+        do {
+            let synced = try await githubService.syncDecision(cards[index])
+            cards[index].githubIssueNumber = synced.number
+            cards[index].githubIssueURL = synced.url
+            cards[index].githubRepository = githubService.linkedRepository
+            cards[index].githubSyncPending = nil
+            cardsByUser[ownerUserID] = cards
+            await webSocketService?.publishUpdated(cards[index])
+            changed()
+        } catch {
+            // Still pending, and still recorded. Nothing here is worth
+            // interrupting someone over: they made the decision, and they will
+            // not be asked to make it again.
+        }
     }
 
     @discardableResult
@@ -255,12 +306,6 @@ final class DecisionCardService: ObservableObject {
         }
 
         card.status = .delegated
-        if githubService.isConnected {
-            let synced = try await githubService.syncDecision(card)
-            card.githubIssueNumber = synced.number
-            card.githubIssueURL = synced.url
-            card.githubRepository = githubService.linkedRepository
-        }
 
         let decision = Decision(
             action: "delegate",
@@ -272,6 +317,10 @@ final class DecisionCardService: ObservableObject {
         )
 
         card.decision = decision
+        // Handing work on is a decision, and it is made here — not once GitHub
+        // has agreed. Same rule as `resolve`.
+        let wantsGitHub = githubService.isConnected
+        card.githubSyncPending = wantsGitHub ? true : nil
         userCards[index] = card
         cardsByUser[actorUserID] = userCards
 
@@ -322,7 +371,11 @@ final class DecisionCardService: ObservableObject {
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
         changed()
-        return card
+
+        if wantsGitHub {
+            await syncDecisionToGitHub(cardID: cardID, ownerUserID: actorUserID, githubService: githubService)
+        }
+        return cardsByUser[actorUserID]?.first { $0.id == cardID } ?? card
     }
 
     func delete(cardID: String, actorUserID: String) async throws {
@@ -333,7 +386,9 @@ final class DecisionCardService: ObservableObject {
 
         let card = userCards[index]
         guard card.canDelete else {
-            throw CardServiceError.githubSyncFailed(String(localized: "Only declined cards can be deleted."))
+            throw CardServiceError.githubSyncFailed(
+                String(localized: "A pending decision cannot be deleted. Decline it first.")
+            )
         }
 
         userCards.remove(at: index)
@@ -421,7 +476,7 @@ final class DecisionCardService: ObservableObject {
         case .requestRevision: "revised"
         case .delegate: "delegate"
         case .delete: "delete"
-        case .viewDetails: "acknowledge"
+        case .acknowledge, .viewDetails: "acknowledge"
         }
     }
 }

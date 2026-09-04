@@ -10,13 +10,14 @@ import XCTest
 final class DecisionCardTests: XCTestCase {
     private func card(
         daysAgo: Int,
-        status: CardStatus = .pending
+        status: CardStatus = .pending,
+        type: CardType = .approval
     ) -> DecisionCard {
         DecisionCard(
             id: UUID().uuidString,
             recipientUserID: "alice",
             senderUserID: "bob",
-            type: .approval,
+            type: type,
             title: "Approve the budget",
             summary: "Q3 marketing",
             context: "",
@@ -58,6 +59,38 @@ final class DecisionCardTests: XCTestCase {
         XCTAssertTrue(card(daysAgo: 0, status: .rejected).canDelete)
         XCTAssertFalse(card(daysAgo: 0, status: .pending).canDelete)
         XCTAssertFalse(card(daysAgo: 0, status: .approved).canDelete)
+    }
+
+    func testAnUpdateIsNotADecision() {
+        // "Grace approved your budget" used to arrive pending, wearing the whole
+        // decision row: it could be approved, which told Grace, who could
+        // approve that. Two people could approve each other's approvals until
+        // one of them stopped.
+        let update = card(daysAgo: 0, type: .notification)
+        XCTAssertTrue(update.isPending)
+        XCTAssertFalse(update.isDecision)
+        XCTAssertFalse(update.needsDecision)
+
+        let decision = card(daysAgo: 0, type: .approval)
+        XCTAssertTrue(decision.isDecision)
+        XCTAssertTrue(decision.needsDecision)
+    }
+
+    func testAnUpdateNeverWearsAWaitingChip() {
+        // Nobody is waiting on you to read something, so counting the days is
+        // an accusation the card cannot back up.
+        XCTAssertNil(card(daysAgo: 9, type: .notification).waitingDays)
+        XCTAssertFalse(card(daysAgo: 30, type: .notification).isStale)
+        XCTAssertEqual(card(daysAgo: 9, type: .approval).waitingDays, 9)
+    }
+
+    func testAReadUpdateCanBeClearedAway() {
+        // An update you have read is finished with, and leaving it in the feed
+        // forever is how a feed stops being a list of what is left.
+        XCTAssertTrue(card(daysAgo: 0, status: .completed, type: .notification).canDelete)
+        // ...but not before it is read, and never a decision someone made.
+        XCTAssertFalse(card(daysAgo: 0, status: .pending, type: .notification).canDelete)
+        XCTAssertFalse(card(daysAgo: 0, status: .approved, type: .approval).canDelete)
     }
 
     func testAGitHubLinkIsOnlyShownForTheRepositoryItBelongsTo() {

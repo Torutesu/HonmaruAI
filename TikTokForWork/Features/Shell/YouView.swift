@@ -29,8 +29,16 @@ struct YouView: View {
                 }
 
                 group {
-                    navRow(String(localized: "Plan")) { SubscriptionView() }
-                    rowSeparator
+                    // Billing ships switched off: without a production
+                    // RevenueCat key the SDK is never configured, so this row
+                    // led to "Plans aren't available right now" and a Restore
+                    // button that reported the same. Offering a purchase that
+                    // cannot happen is a review rejection and, before that, a
+                    // small lie.
+                    if SubscriptionService.shared.isConfigured {
+                        navRow(String(localized: "Plan")) { SubscriptionView() }
+                        rowSeparator
+                    }
                     navRow(String(localized: "API key")) { APIKeyView() }
                     rowSeparator
                     navRow(String(localized: "Context")) { ContextView() }

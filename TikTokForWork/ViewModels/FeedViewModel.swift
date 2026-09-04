@@ -32,8 +32,10 @@ final class FeedViewModel: ObservableObject {
         return index
     }
 
+    /// Decisions waiting on this person. An update they were sent to read is
+    /// not one — see `DecisionCard.needsDecision`.
     var pendingCount: Int {
-        cards.filter(\.isPending).count
+        cards.filter(\.needsDecision).count
     }
 
     func bind(to service: DecisionCardService, user: User, githubService: GitHubService) {
@@ -62,6 +64,23 @@ final class FeedViewModel: ObservableObject {
         guard let cardService, let githubService else { return }
         await cardService.syncGitHubStatus(githubService: githubService)
         refreshCards(from: cardService)
+    }
+
+    /// Stop the background work this view model owns.
+    ///
+    /// The polling loop outlives the view otherwise, and the shell used to
+    /// rebuild the view — and its view model — on every visit to Home, so each
+    /// visit left another timer running against the relay.
+    ///
+    /// The subscription to the card store is deliberately left alone: a
+    /// full-screen cover takes the feed off screen without the session ending,
+    /// and dropping live updates for the length of a video capture would mean
+    /// coming back to a feed that had quietly stopped moving.
+    func unbind() {
+        githubSyncTask?.cancel()
+        githubSyncTask = nil
+        draftTask?.cancel()
+        draftTask = nil
     }
 
     func clearSheets() {
@@ -230,14 +249,20 @@ final class FeedViewModel: ObservableObject {
     ) async {
         guard let cardService, let userID else { return }
 
-        let isGitHubConnected = appState.githubService.isConnected
-
-        isProcessing = true
-        processingMessage = switch action {
-        case .createIssue: isGitHubConnected ? String(localized: "Creating GitHub issue…") : String(localized: "Approving")
-        case .reject: String(localized: "Declining")
-        case .requestRevision: String(localized: "Sending revision")
-        default: String(localized: "Syncing")
+        // Reading an update is instant and local. A full-screen overlay for it
+        // would be the app making a moment out of a tap.
+        let showsOverlay = action != .acknowledge
+        if showsOverlay {
+            // No longer "Creating GitHub issue…": the decision is recorded and
+            // delivered first, and the issue follows it. What the person is
+            // waiting on here is their own decision landing, not GitHub's.
+            isProcessing = true
+            processingMessage = switch action {
+            case .createIssue: String(localized: "Approving")
+            case .reject: String(localized: "Declining")
+            case .requestRevision: String(localized: "Sending revision")
+            default: String(localized: "Syncing")
+            }
         }
         errorMessage = nil
 
@@ -262,13 +287,16 @@ final class FeedViewModel: ObservableObject {
             // moment it is worth spending: a decision has just been cleared, so
             // "we will tell you when the next one lands" means something. Asking
             // on the first cold screen is how an app earns a permanent refusal.
-            Task { await PushService.shared.requestAuthorizationIfEarned() }
+            // Clearing an update is not that moment.
+            if showsOverlay {
+                Task { await PushService.shared.requestAuthorizationIfEarned() }
+            }
         } catch {
             errorMessage = error.localizedDescription
             Haptics.light()
         }
 
-        isProcessing = false
+        if showsOverlay { isProcessing = false }
     }
 
 

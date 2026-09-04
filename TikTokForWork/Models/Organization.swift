@@ -31,6 +31,26 @@ struct OrganizationGraph: Codable {
     var nodes: [OrgNode]
     var edges: [OrgEdge]
 
+    /// The people in this organization, as users a card can be addressed to.
+    ///
+    /// A person node's label carries "<name> · <role>". This is the one place
+    /// that takes it apart — the delegate picker and the draft review sheet had
+    /// a copy each, and a card can only be sent to someone who is really here.
+    var people: [User] {
+        nodes.filter { $0.kind == .person }.map { node in
+            let parts = node.label
+                .split(separator: "·", maxSplits: 1)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            return User(
+                id: node.id,
+                name: parts.first ?? node.label,
+                role: parts.count > 1 ? parts[1] : String(localized: "Member"),
+                teamID: nil,
+                githubUsername: node.id
+            )
+        }
+    }
+
     func manager(of userID: String) -> OrgNode? {
         guard let edge = edges.first(where: { $0.toID == userID && $0.kind == .manages }) else {
             return nil

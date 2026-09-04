@@ -52,6 +52,9 @@ enum CardActionKind {
     case delegate
     case viewDetails
     case delete
+    /// "I have read this." The answer to an update, which is not a decision and
+    /// must not be treated as one — see `DecisionCard.isDecision`.
+    case acknowledge
 }
 
 struct Decision: Codable, Hashable {
@@ -98,8 +101,25 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var videoURL: String?
     /// The decision made on this card (if decided). Present only after the card has been actioned.
     var decision: Decision?
+    /// The decision is recorded, but GitHub has not heard about it yet. Set when
+    /// a sync fails — offline, rate-limited, GitHub down — and cleared when it
+    /// lands. Approving used to wait on GitHub before the decision existed at
+    /// all, so a decision made on a train was not made.
+    var githubSyncPending: Bool?
 
     var isPending: Bool { status == .pending }
+
+    /// Whether this card asks its recipient to decide something.
+    ///
+    /// An update — "Grace approved your budget" — is not a decision. It used to
+    /// arrive as one: pending, with Approve, Decline, Revise and Delegate under
+    /// it, counted on the badge, and approving it created a GitHub issue and a
+    /// fresh update back to the person who had just decided. Two people could
+    /// approve each other's approvals indefinitely.
+    var isDecision: Bool { type != .notification }
+
+    /// Someone is waiting on this. What the badge and the tab count mean.
+    var needsDecision: Bool { isPending && isDecision }
 
     /// Whole days this has been waiting on someone, or nil while it is still
     /// today's problem.
@@ -109,7 +129,7 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     /// day six as it did on day one. One day is not late — a card that arrived
     /// this morning should not wear a warning — so the count starts at two.
     var waitingDays: Int? {
-        guard isPending else { return nil }
+        guard needsDecision else { return nil }
         let days = Calendar.current.dateComponents([.day], from: createdAt, to: .now).day ?? 0
         return days >= 2 ? days : nil
     }
@@ -117,7 +137,10 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     /// Waiting long enough that the delay is now the story, not the decision.
     var isStale: Bool { (waitingDays ?? 0) >= 5 }
 
-    var canDelete: Bool { status == .rejected }
+    /// A card you can clear away: one you declined, or an update you have read.
+    /// Never a pending decision — deleting that drops work someone is waiting
+    /// on — and never an approved one, which is a record.
+    var canDelete: Bool { status == .rejected || (!isDecision && !isPending) }
 
     var priorityLabel: String {
         switch priority {

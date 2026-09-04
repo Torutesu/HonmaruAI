@@ -94,10 +94,18 @@ final class AppState: ObservableObject {
         }
         do {
             try await githubService.validateSavedSession()
-        } catch {
+        } catch GitHubServiceError.unauthorized {
+            // The server says this session is not ours any more — expired,
+            // revoked, or the account deleted. That is the one answer worth
+            // signing someone out for.
             githubService.disconnect()
             SessionStore.clear()
             return
+        } catch {
+            // Anything else is the network, not the session. Treating a timeout
+            // as a sign-out meant launching in a tunnel dropped you back to
+            // onboarding — and the cache and the outbox, which exist for
+            // exactly this moment, were never reached.
         }
         await activateGitHubSession(connection: connection)
     }
@@ -204,6 +212,10 @@ final class AppState: ObservableObject {
         }
         PushService.shared.setBadge(0)
         webSocketService.disconnect()
+        // Whatever is still queued belongs to the account that is leaving. The
+        // relay stamps whoever is connected as a card's sender, so replaying it
+        // under the next person publishes one person's work as another's.
+        webSocketService.discardQueuedWork()
         githubService.disconnect()
         cardService.reset()
         SessionStore.clear()
