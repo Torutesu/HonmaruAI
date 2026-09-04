@@ -17,7 +17,7 @@ final class ContextInsightsTests: XCTestCase {
     func testMiddleDotSeparatedClaimsBecomeSeparateFacts() {
         let insights = ContextInsights.parse("amount: ¥240,000 · deadline: Friday · scope: production")
         XCTAssertEqual(insights.count, 3)
-        XCTAssertEqual(insights.map(\.label), ["Amount", "Deadline", "Scope"])
+        XCTAssertEqual(insights.compactMap(\.label), ["Amount", "Deadline", "Scope"])
         XCTAssertEqual(insights.map(\.value), ["¥240,000", "Friday", "production"])
     }
 
