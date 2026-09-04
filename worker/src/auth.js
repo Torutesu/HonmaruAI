@@ -6,6 +6,9 @@ import { createSession, upsertUser, upsertMembership } from "./db.js";
 
 const ENC = new TextEncoder();
 
+// How long an invite stays redeemable.
+const INVITE_TTL_DAYS = 7;
+
 function toHex(buffer) {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -40,7 +43,7 @@ function validEmail(email) {
 
 // Create an account: hash the password, store the user, put them in a default
 // org, and return a session token the client can use immediately.
-export async function signup(env, { email, password, name, orgId, inviteCode }) {
+export async function signup(env, { email, password, name, inviteCode }) {
   if (!validEmail(email)) return { error: "Please enter a valid email." };
   if (typeof password !== "string" || password.length < 8) {
     return { error: "Password must be at least 8 characters." };
@@ -70,8 +73,6 @@ export async function signup(env, { email, password, name, orgId, inviteCode }) 
     .bind(normalizedEmail, hash, salt, userId)
     .run();
 
-   // If they signed up with an invite code, join that team instead of creating
-  // their own. Otherwise fall back to the org they typed (or a default).
   // A caller-supplied orgId is not authorization. Signup may only place a user
   // in an org a valid invite names, or in a fresh org of their own. Trusting
   // body.orgId let anyone write a membership row for a private org, and
@@ -80,10 +81,11 @@ export async function signup(env, { email, password, name, orgId, inviteCode }) 
   let joinRole = "member";
   if (inviteCode?.trim()) {
     const invite = await env.DB
-      .prepare("SELECT org_id, role FROM invites WHERE code = ?1")
+      .prepare("SELECT org_id, role, expires_at FROM invites WHERE code = ?1")
       .bind(inviteCode.trim())
       .first();
-    if (!invite) return { error: "That invite code is not valid." };
+    const expired = invite?.expires_at && new Date(invite.expires_at) < new Date();
+    if (!invite || expired) return { error: "That invite code is not valid." };
     org = invite.org_id;
     joinRole = invite.role || "member";
   } else {
@@ -119,27 +121,38 @@ export async function login(env, { email, password }) {
 // Create a reusable invite code for an org. Any current member can make one.
 export async function createInvite(env, { orgId, createdBy, role }) {
   if (!orgId) return { error: "Missing team." };
-  const suffix = toHex(crypto.getRandomValues(new Uint8Array(3)));
-  const code = `${orgId.replace(/[^a-z0-9]/gi, "-")}-${suffix}`;
+  // 16 bytes, and the org is not in the code. Three bytes with the org name as
+  // a known prefix is 16.7M guesses against an endpoint that grants membership
+  // — a weekend of traffic. The code carries no hint of what it opens.
+  const code = toHex(crypto.getRandomValues(new Uint8Array(16)));
   // Only known roles. An unvalidated role let a caller mint themselves "admin".
   const ALLOWED_ROLES = ["member", "designer", "engineer", "triager", "admin"];
   const requested = String(role || "member").trim().toLowerCase();
   const inviteRole = ALLOWED_ROLES.includes(requested) ? requested : "member";
+  // Invites expire. A code that works forever is a permanent unaudited way in,
+  // and the only way to close it would be deleting the row by hand.
+  const now = new Date();
+  const expires = new Date(now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
   await env.DB
-    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
-    .bind(code, orgId, createdBy, inviteRole, new Date().toISOString())
+    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString())
     .run();
-  return { code, orgId, role: inviteRole };
+  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString() };
 }
 
 // Redeem an invite code: look it up, add the user to that org.
 export async function acceptInvite(env, { code, userId }) {
   if (!code || !userId) return { error: "Missing code." };
   const row = await env.DB
-    .prepare("SELECT org_id, role FROM invites WHERE code = ?1")
+    .prepare("SELECT org_id, role, expires_at FROM invites WHERE code = ?1")
     .bind(code.trim())
     .first();
+  // One message for "no such code" and "expired": distinguishing them tells a
+  // guesser which of their guesses was once real.
   if (!row) return { error: "That invite code is not valid." };
+  if (row.expires_at && new Date(row.expires_at) < new Date()) {
+    return { error: "That invite code is not valid." };
+  }
   await upsertMembership(env.DB, row.org_id, userId, row.role || "member");
   return { orgId: row.org_id };
 }

@@ -136,6 +136,10 @@ async function handle(request, env, url) {
     }
 
            if (url.pathname === "/invites/create" && request.method === "POST") {
+      // Redeeming or minting a code grants org membership, so both are guessable
+      // surfaces and both get the same budget as the other credential routes.
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const body = await request.json().catch(() => ({}));
@@ -151,6 +155,10 @@ async function handle(request, env, url) {
     }
 
     if (url.pathname === "/invites/accept" && request.method === "POST") {
+      // Redeeming or minting a code grants org membership, so both are guessable
+      // surfaces and both get the same budget as the other credential routes.
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const body = await request.json().catch(() => ({}));

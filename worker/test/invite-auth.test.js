@@ -53,3 +53,45 @@ test("an unknown role falls back to member rather than being honoured", async ()
   const body = await res.json();
   expect(body.role).toBe("member");
 });
+
+test("an invite code carries no hint of the org it opens", async () => {
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code } = await res.json();
+  // The org used to be the code's prefix, which turned a 3-byte random suffix
+  // into the whole of the secret.
+  expect(code).not.toContain("victim");
+  expect(code).not.toContain("private");
+  // 16 bytes of hex. Enough that guessing is not a strategy.
+  expect(code).toMatch(/^[0-9a-f]{32}$/);
+});
+
+test("an expired invite is refused", async () => {
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code } = await res.json();
+
+  // Backdate it past its own expiry.
+  await env.DB.prepare("UPDATE invites SET expires_at = ?1 WHERE code = ?2")
+    .bind(new Date(Date.now() - 1000).toISOString(), code)
+    .run();
+
+  const { acceptInvite } = await import("../src/auth.js");
+  const { isMember } = await import("../src/db.js");
+  const result = await acceptInvite(env, { code, userId: "7002" });
+
+  expect(result.error).toBeTruthy();
+  expect(await isMember(env.DB, VICTIM_ORG, "7002")).toBe(false);
+});
+
+test("signup will not redeem an expired invite either", async () => {
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code } = await res.json();
+  await env.DB.prepare("UPDATE invites SET expires_at = ?1 WHERE code = ?2")
+    .bind(new Date(Date.now() - 1000).toISOString(), code)
+    .run();
+
+  const { signup } = await import("../src/auth.js");
+  const result = await signup(env, {
+    email: "late@example.com", password: "password123", name: "Late", inviteCode: code,
+  });
+  expect(result.error).toBeTruthy();
+});

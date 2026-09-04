@@ -16,6 +16,12 @@ ALTER TABLE users ADD COLUMN email TEXT;
 ALTER TABLE users ADD COLUMN password_hash TEXT;
 ALTER TABLE users ADD COLUMN password_salt TEXT;
 
+/* invites is created by schema.sql, so on a database that has never seen this
+   feature the CREATE there covers it. On one that already has the table from
+   an earlier deploy, only an ALTER adds the column — and the same
+   duplicate-column tolerance applies. */
+ALTER TABLE invites ADD COLUMN expires_at TEXT;
+
 /* Must come after the ALTER above: indexing a column that does not exist is
    the exact failure this file is here to prevent. */
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
