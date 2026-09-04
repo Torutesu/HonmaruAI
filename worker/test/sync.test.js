@@ -195,3 +195,23 @@ test("sync requires a session", async () => {
   expect(res.status).toBe(401);
 });
 
+
+// These used to be two awaits. A failure between them left a card with no
+// ingest row, so the next sync judged the same message again and made a second
+// card for it — the person saw one email as two decisions.
+test("a card and the record that its source was handled are written together", async () => {
+  const { saveCardAndMarkIngested, isIngested, getCard } = await import("../src/db.js");
+  await saveCardAndMarkIngested(
+    env.DB,
+    "acme/web",
+    {
+      id: "c-batched", recipientUserID: "octocat", senderUserID: "octocat",
+      type: "approval", title: "Approve it", summary: "", context: "",
+      status: "pending", priority: "medium", createdAt: "2026-09-01T00:00:00Z",
+    },
+    { connector: "gmail", externalId: "msg-batched", githubId: "4242", orgId: "acme/web", cardId: "c-batched" }
+  );
+
+  expect((await getCard(env.DB, "acme/web", "c-batched")).title).toBe("Approve it");
+  expect(await isIngested(env.DB, "gmail", "msg-batched", "4242")).toBe(true);
+});

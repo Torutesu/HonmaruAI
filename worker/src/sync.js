@@ -1,6 +1,6 @@
 import { executeTool } from "./composio.js";
 import { triageMessage } from "./triage.js";
-import { isIngested, markIngested, saveCard, getConnectorConfig } from "./db.js";
+import { isIngested, markIngested, saveCardAndMarkIngested, getConnectorConfig } from "./db.js";
 import { checkAIAllowance } from "./gate.js";
 
 // The loop is deliberately ignorant of which connector it is running: fetch,
@@ -43,9 +43,18 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     if (result.called && allowance.metered) await allowance.consume();
     const triaged = result.card;
 
+    const ingest = {
+      connector: connector.id, externalId: message.id,
+      githubId: session.github_id, orgId, cardId: null,
+    };
+
     if (triaged) {
       cardId = crypto.randomUUID();
-      await saveCard(env.DB, orgId, {
+      ingest.cardId = cardId;
+      // Together, not one then the other: a failure between them left a card
+      // with no ingest row, so the next sync judged the same message again and
+      // made a second card for it.
+      await saveCardAndMarkIngested(env.DB, orgId, {
         id: cardId,
         recipientUserID: userId,
         senderUserID: userId,
@@ -59,15 +68,12 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
         createdAt: new Date().toISOString(),
         sourceApp: connector.label,
         sourceDetail: `${message.from} · ${message.subject}`,
-      });
+      }, ingest);
       created += 1;
+    } else {
+      // Recorded even when rejected, so the model never re-judges the same item.
+      await markIngested(env.DB, ingest);
     }
-
-    // Recorded even when rejected, so the model never re-judges the same item.
-    await markIngested(env.DB, {
-      connector: connector.id, externalId: message.id,
-      githubId: session.github_id, orgId, cardId,
-    });
   }
 
   return { connector: connector.id, scanned: messages.length, created };

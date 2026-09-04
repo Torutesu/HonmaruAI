@@ -69,7 +69,13 @@ export async function saveCard(db, orgId, card, expectedVersion = null) {
     if (!result?.meta?.changes) throw new CardConflictError();
     return;
   }
-  await db
+  await cardUpsert(db, orgId, card).run();
+}
+
+/// The plain upsert, as a statement, so it can also go into a batch.
+function cardUpsert(db, orgId, card) {
+  const now = new Date().toISOString();
+  return db
     .prepare(
       `INSERT INTO cards (org_id, card_id, recipient_user_id, sender_user_id, created_at, data,
                           status, priority, decided_at, updated_at)
@@ -94,8 +100,7 @@ export async function saveCard(db, orgId, card, expectedVersion = null) {
       card.priority || null,
       card.decision?.decidedAt || null,
       now
-    )
-    .run();
+    );
 }
 
 // One card, without paying to deserialize the whole org. The relay needs this
@@ -312,6 +317,55 @@ export async function upsertUser(db, { githubId, login, name, avatarUrl, locale 
     .run();
 }
 
+/// Everyone in one organization, in one round trip.
+///
+/// The org-graph route did an upsert of the user and an upsert of the
+/// membership per collaborator, awaited one after another. On a fifty-person
+/// repository that is a hundred sequential round trips to D1 inside one
+/// request, and it runs every time anyone opens the org screen.
+///
+/// The login-release update stays per user: it is the rare case, and it has to
+/// happen before the insert that would otherwise collide with it.
+export async function upsertMembers(db, orgId, members) {
+  if (!members.length) return;
+  const now = new Date().toISOString();
+  for (const m of members) {
+    if (!m.login) continue;
+    await db
+      .prepare(
+        "UPDATE users SET login = login || '+stale-' || github_id WHERE login = ?1 AND github_id != ?2"
+      )
+      .bind(m.login, String(m.githubId))
+      .run();
+  }
+  const statements = [];
+  for (const m of members) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO users (github_id, login, name, avatar_url, locale, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+           ON CONFLICT(github_id) DO UPDATE SET
+             login = excluded.login, name = excluded.name,
+             avatar_url = excluded.avatar_url, locale = excluded.locale`
+        )
+        .bind(String(m.githubId), m.login, m.name || null, m.avatarUrl || null, m.locale || "en", now),
+      db
+        .prepare(
+          `INSERT INTO memberships (org_id, user_github_id, role, created_at)
+           VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(org_id, user_github_id) DO UPDATE SET role = excluded.role`
+        )
+        .bind(orgId, String(m.githubId), m.role || "member", now)
+    );
+  }
+  // In chunks: a batch is one round trip, but an unbounded one is a single
+  // statement list the size of the repository.
+  for (let i = 0; i < statements.length; i += 50) {
+    await db.batch(statements.slice(i, i + 50));
+  }
+}
+
 export async function getUserByGithubId(db, githubId) {
   return (
     (await db
@@ -478,6 +532,25 @@ export async function hasNotionRowForCard(db, githubId, cardId) {
     .bind(String(githubId), cardId)
     .first();
   return Boolean(row);
+}
+
+/// Store a card and record that its source item has been dealt with, together.
+///
+/// These were two awaits. A failure between them left a card with no ingest
+/// row, and the next sync judged the same message again and made a second card
+/// for it — the person saw the same decision twice, from one email.
+export async function saveCardAndMarkIngested(db, orgId, card, ingest) {
+  await db.batch([cardUpsert(db, orgId, card), ingestUpsert(db, ingest)]);
+}
+
+function ingestUpsert(db, { connector, externalId, githubId, orgId, cardId }) {
+  return db
+    .prepare(
+      `INSERT INTO ingested_items (connector, external_id, user_github_id, org_id, card_id, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(connector, external_id, user_github_id) DO NOTHING`
+    )
+    .bind(connector, externalId, String(githubId), orgId, cardId || null, new Date().toISOString());
 }
 
 export async function markIngested(db, { connector, externalId, githubId, orgId, cardId }) {

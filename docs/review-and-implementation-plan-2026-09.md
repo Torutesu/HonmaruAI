@@ -315,21 +315,30 @@ PRD のコアフロー「A → B の AI → B の決定 → A に反映 → GitH
 
 | ID | タスク | 受け入れ条件 |
 |---|---|---|
-| 3-1 | cron の候補を Composio 接続アカウント（`/connectors` の ACTIVE）または `connector_links` テーブルに変更。カーソル（`last_synced_at` 昇順）で 50 人ずつ回す。並列 5 | Gmail のみのユーザーが 15 分以内に同期される。100 ユーザーでも全員が 1 時間以内に回る |
-| 3-2 | `POST /logout`（セッション削除 + デバイス削除）と失効セッションの掃除を cron に追加 | サインアウト後のトークンが 401 |
-| 3-3 | GitHub トークンの AES-GCM 暗号化（Worker secret 由来の鍵、`apns.js` と同じ WebCrypto） | D1 に平文トークンが無い。既存行のマイグレーション |
-| 3-4 | アカウント削除の完全化: `cards.data` / `card_events.snapshot` の JSON 内匿名化、GitHub grant 失効（`DELETE /applications/{client_id}/grant`）、Composio 接続削除、R2 参照の削除 | 削除後に他メンバーのフィード・履歴にログイン名が出ない。テストは JSON を検証 |
-| 3-5 | D1 を `wrangler d1 migrations` に移行（`0001_init.sql` = 現 schema、以後は番号付き）。`deploy-worker.yml` を `migrations apply` に | `ALTER TABLE` を含む変更が CI で本番に適用される |
-| 3-6 | 不足 index の追加、`orgs` / `agents` の削除または利用、`users.login` に UNIQUE | 主要クエリが index を使う |
-| 3-7 | `/media`: `video/*` のみ受理、`X-Content-Type-Options: nosniff`、`GET` にセッション必須（または署名付き URL 24h） | HTML アップロードが 415。未認証 GET が 401 |
-| 3-8 | メール webhook の信頼モデル: 受信者ごとの日次上限（例 20 通）、既知送信者（過去にやり取りのある From または連絡先許可リスト）以外は `format: fyi` の低優先度で「未確認の送信者」表示。`ALLOW_UNSIGNED_EMAIL_WEBHOOK` は本番 env で拒否 | 見知らぬ送信者が承認カードを作れない |
-| 3-9 | `saveCard`+`markIngested` を `db.batch`、`/orgs/graph` の upsert を batch、`join` の再送拒否、`DELETE /devices` の所有者スコープ、残り経路のレート制限 | 各テスト追加 |
-| 3-10 | lost update 対策: `cards.version` を追加し `saveCard` を `WHERE version = ?` の CAS に。衝突時は再読込して再適用 | 2 ソケット同時決定のテスト |
-| 3-11 | DO のログにリクエスト ID・org・userId・message type を付ける。`/health` で D1 `SELECT 1` | `wrangler tail` で WS 経路の失敗が追える |
-| 3-12 | `wrangler` を 4 系に統一（devDependency とデプロイ） | テストと本番が同一ランタイム |
-| 3-13 | iOS: `applySnapshot` を「サーバーが空を返したら空」に戻し、代わりにアウトボックス中のローカル変更をスナップショット適用後に再適用 | 空になった組織のカードが消える。オフライン決定が一瞬も消えない |
-| 3-14 | iOS: `DecisionCard` の `summary` / `context` / `type` / `status` を任意にしてデコード失敗で捨てない。`format` / `options` / `drafts` / `source` をモデル化（Phase 1-1 と共有） | Worker のフィクスチャ 5 種をデコードできるテスト |
-| 3-15 | iOS: `ConnectorsView` の `ASWebAuthenticationSession` を保持、`CaptureView` の dismiss を録画ファイナライズ後に、アップロード失敗時は `file://` をカードに載せず再試行キューへ | 各手動確認 + 可能な範囲でテスト |
+| 3-1 ✅ | cron の候補を Composio 接続アカウント（`/connectors` の ACTIVE）または `connector_links` テーブルに変更。カーソル（`last_synced_at` 昇順）で 50 人ずつ回す。並列 5 | Gmail のみのユーザーが 15 分以内に同期される。100 ユーザーでも全員が 1 時間以内に回る |
+| 3-2 ✅ | `POST /logout`（セッション削除 + デバイス削除）と失効セッションの掃除を cron に追加 | サインアウト後のトークンが 401 |
+| 3-3 ✅ | GitHub トークンの AES-GCM 暗号化（Worker secret 由来の鍵、`apns.js` と同じ WebCrypto） | D1 に平文トークンが無い。既存行のマイグレーション |
+| 3-4 ◐ | アカウント削除の完全化: `cards.data` / `card_events.snapshot` の JSON 内匿名化、GitHub grant 失効（`DELETE /applications/{client_id}/grant`）、Composio 接続削除、R2 参照の削除 | 削除後に他メンバーのフィード・履歴にログイン名が出ない。テストは JSON を検証 |
+| 3-5 ✅ | D1 を `wrangler d1 migrations` に移行（`0001_init.sql` = 現 schema、以後は番号付き）。`deploy-worker.yml` を `migrations apply` に | `ALTER TABLE` を含む変更が CI で本番に適用される |
+| 3-6 ✅ | 不足 index の追加、`orgs` / `agents` の削除または利用、`users.login` に UNIQUE | 主要クエリが index を使う |
+| 3-7 ✅ | `/media`: `video/*` のみ受理、`X-Content-Type-Options: nosniff`、`GET` にセッション必須（または署名付き URL 24h） | HTML アップロードが 415。未認証 GET が 401 |
+| 3-8 ✅ | メール webhook の信頼モデル: 受信者ごとの日次上限（例 20 通）、既知送信者（過去にやり取りのある From または連絡先許可リスト）以外は `format: fyi` の低優先度で「未確認の送信者」表示。`ALLOW_UNSIGNED_EMAIL_WEBHOOK` は本番 env で拒否 | 見知らぬ送信者が承認カードを作れない |
+| 3-9 ✅ | `saveCard`+`markIngested` を `db.batch`、`/orgs/graph` の upsert を batch、`join` の再送拒否、`DELETE /devices` の所有者スコープ、残り経路のレート制限 | 各テスト追加 |
+| 3-10 ✅ | lost update 対策: `cards.version` を追加し `saveCard` を `WHERE version = ?` の CAS に。衝突時は再読込して再適用 | 2 ソケット同時決定のテスト |
+| 3-11 ✅ | DO のログにリクエスト ID・org・userId・message type を付ける。`/health` で D1 `SELECT 1` | `wrangler tail` で WS 経路の失敗が追える |
+| 3-12 ✅ | `wrangler` を 4 系に統一（devDependency とデプロイ） | テストと本番が同一ランタイム |
+| 3-13 ✅ | iOS: `applySnapshot` を「サーバーが空を返したら空」に戻し、代わりにアウトボックス中のローカル変更をスナップショット適用後に再適用 | 空になった組織のカードが消える。オフライン決定が一瞬も消えない |
+| 3-14 ◐ | iOS: `DecisionCard` の `summary` / `context` / `type` / `status` を任意にしてデコード失敗で捨てない。`format` / `options` / `drafts` / `source` をモデル化（Phase 1-1 と共有） | Worker のフィクスチャ 5 種をデコードできるテスト |
+| 3-15 ✅ | iOS: `ConnectorsView` の `ASWebAuthenticationSession` を保持、`CaptureView` の dismiss を録画ファイナライズ後に、アップロード失敗時は `file://` をカードに載せず再試行キューへ | 各手動確認 + 可能な範囲でテスト |
+
+**Phase 3 の実装メモ（2026-09-04）**
+
+- 3-3: `secretbox.js`（AES-GCM、鍵は `TOKEN_ENCRYPTION_KEY` から SHA-256）。`v1.` 接頭辞の無い値は暗号化以前の行として扱い、`getSession` が読んだ瞬間に封じ直す。バックフィル不要。鍵未設定なら平文のまま動作し、isolate ごとに 1 回エラーログ
+- 3-4 ◐: `cards.data` / `card_events.snapshot` の JSON 内匿名化、`org_profiles.manager_login` のクリア、`device_tokens` の login 削除まで完了。**GitHub grant 失効と Composio 接続削除は未実装**（外部 API への破壊的呼び出しで、失敗時の再試行設計が要る）
+- 3-5: `migrations/0001..0004`。`schema.sql` は `npm run schema:build` で生成し、`schema:check` が CI で乖離を落とす。0001 は全て `IF NOT EXISTS` なので手作業で作った本番 DB に対しても no-op
+- 3-6: `orgs` / `agents` は DROP（`agents` は書かれるだけで一度も読まれていなかった）。`users.login` の UNIQUE は、衝突する古い行の login を `+stale-<id>` に退避してから貼る
+- 3-8: 信頼していない送信者は `notification` / `low` / 「Unverified sender」表示。信頼マークを付ける UI はまだ無く、PROGRESS.md に明記
+- 3-14 ◐: `summary` / `context` / `type` / `status` の欠落と未知の enum 値に耐えるデコーダを追加。`options` / `drafts` は Worker のどこからも出力されないためモデル化せず
 
 ### Phase 4 — リリース工程と整理（3〜4 日 + Apple 待ち）
 

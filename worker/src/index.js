@@ -1,10 +1,10 @@
 import { routeInstruction, memberIdsOf } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import {
-  createSession, getSession, upsertUser, upsertMembership, isMember,
+  createSession, getSession, upsertUser, upsertMembership, upsertMembers, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
-  isIngested, markIngested, saveCard,
+  isIngested, markIngested, saveCard, saveCardAndMarkIngested,
   getOrgProfiles, getOrgProfile, setOrgProfile, isMemberLogin,
   linkConnector, deleteSession,
 } from "./db.js";
@@ -364,6 +364,11 @@ async function handle(request, env, url) {
       const [, owner, repo] = orgGraphMatch;
       const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
+      // This calls GitHub on the caller's behalf, so it belongs in the same
+      // budget as `/github` — it was the one route that reached api.github.com
+      // with nothing counting it.
+      const limitedGraph = await enforce(env, request, "github");
+      if (limitedGraph) return limitedGraph;
       const orgId = `${owner}/${repo}`;
       let collaborators;
       try {
@@ -382,10 +387,10 @@ async function handle(request, env, url) {
       // about them. Routing reads the result.
       const profiles = await getOrgProfiles(env.DB, orgId);
       const graph = buildOrgGraph(members, { owner, repo, profiles });
-      for (const c of members) {
-        await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url, locale: "en" });
-        await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
-      }
+      await upsertMembers(env.DB, orgId, members.map((c) => ({
+        githubId: c.id, login: c.login, name: c.login,
+        avatarUrl: c.avatar_url, locale: "en", role: roleName(c.permissions),
+      })));
       // GitHub has just told us who the collaborators are. Anyone in the table
       // who is not on that list is not one any more — and until this line, that
       // never became false anywhere: the relay trusts this table, so being
@@ -706,15 +711,20 @@ async function handle(request, env, url) {
             ? `${message.from} · ${message.subject}`
             : `Unverified sender · ${message.from} · ${message.subject}`,
         };
-        await saveCard(env.DB, orgId, card);
+        // Together, not one then the other: a failure between them left a card
+        // with no ingest row, so a redelivery of the same mail made a second
+        // card for it.
+        await saveCardAndMarkIngested(env.DB, orgId, card, {
+          connector: "email", externalId: message.id, githubId, orgId, cardId,
+        });
         await announceCards(env, orgId, [card]);
         // notifyCard never throws, and this handler has no ctx to defer with.
         await notifyCard(env, { card, kind: "created", excludeLogin: null });
+      } else {
+        await markIngested(env.DB, {
+          connector: "email", externalId: message.id, githubId, orgId, cardId: null,
+        });
       }
-
-      await markIngested(env.DB, {
-        connector: "email", externalId: message.id, githubId, orgId, cardId,
-      });
       return json({ status: cardId ? "card created" : "no decision needed" });
     }
 
