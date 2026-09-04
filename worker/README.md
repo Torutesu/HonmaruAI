@@ -146,7 +146,8 @@ npm run dev       # local wrangler dev
 
 ```bash
 npx wrangler deploy
-npx wrangler d1 execute tiktokforwork --remote --file=./schema.sql   # apply schema
+npx wrangler d1 migrations apply tiktokforwork --remote              # apply migrations
+npm run schema:build                                                # after adding one
 npx wrangler secret put OPENAI_API_KEY        # set / rotate
 npx wrangler secret put GITHUB_CLIENT_ID
 npx wrangler secret put GITHUB_CLIENT_SECRET

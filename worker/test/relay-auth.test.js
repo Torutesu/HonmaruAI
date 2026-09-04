@@ -228,3 +228,22 @@ test("context belongs to the session that published it", async () => {
   expect(contexts.alice).toEqual({ text: "I approve everything" });
   expect(contexts.bob).toBeUndefined();
 });
+
+// A join re-reads the whole store out of D1 and puts a presence event in front
+// of every other member. Looping on it turned one message into a database read
+// and an organization-wide broadcast.
+test("joining twice on one socket is refused", async () => {
+  const { ws, messages } = await asAlice();
+  ws.send(JSON.stringify({
+    type: "join",
+    payload: { protocol: "agui/1", sessionToken: globalThis.__alice },
+  }));
+
+  const error = await message(messages, (m) => m.type === "RUN_ERROR");
+  expect(error).toBeTruthy();
+  // Still connected: this is a refusal, not a disconnection.
+  expect(ws.readyState).toBe(WebSocket.OPEN);
+  // And exactly one snapshot, from the join that worked.
+  expect(messages.filter((m) => m.type === "STATE_SNAPSHOT").length).toBe(1);
+  ws.close();
+});

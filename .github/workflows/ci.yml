@@ -27,6 +27,9 @@ jobs:
           cache: npm
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
+      # schema.sql is generated from migrations/. Edited directly, a change
+      # lands in the tests and never in production.
+      - run: npm run schema:check
       - run: npm test
 
   # The reference relay imports the Worker's AG-UI layer rather than keeping its

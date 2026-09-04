@@ -235,7 +235,25 @@ export async function consumeOAuthState(db, state) {
   return row.expires_at > new Date().toISOString();
 }
 
+/// One login, one account.
+///
+/// `device_tokens` is keyed by login and a card names its recipient by login,
+/// so two rows claiming the same one is a card delivered to the wrong person's
+/// phone. A duplicate can only arise where a login was given up on GitHub and
+/// taken by someone else while our row for the old owner still stood — that row
+/// is stale by definition, so the name is taken back from it rather than
+/// refusing the sign-in of the person who now holds it. The old account keeps
+/// its history under a name that cannot collide, and its owner's next sign-in
+/// writes the right login back.
 export async function upsertUser(db, { githubId, login, name, avatarUrl, locale }) {
+  if (login) {
+    await db
+      .prepare(
+        "UPDATE users SET login = login || '+stale-' || github_id WHERE login = ?1 AND github_id != ?2"
+      )
+      .bind(login, String(githubId))
+      .run();
+  }
   await db
     .prepare(
       `INSERT INTO users (github_id, login, name, avatar_url, locale, created_at)
@@ -306,11 +324,6 @@ export async function retainMemberships(db, orgId, keep, { authoritative = false
       .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id IN (${holes})`)
       .bind(orgId, ...chunk)
       .run();
-    // Agents belong to the person, so they go the same way.
-    await db
-      .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id IN (${holes})`)
-      .bind(orgId, ...chunk)
-      .run();
   }
   return { removed: gone.length };
 }
@@ -358,17 +371,6 @@ export async function setOrgProfile(db, orgId, githubId, { title, responsibiliti
       title || null, responsibilities || null, managerLogin || null,
       new Date().toISOString()
     )
-    .run();
-}
-
-export async function upsertAgent(db, orgId, githubId, displayName) {
-  await db
-    .prepare(
-      `INSERT INTO agents (id, org_id, user_github_id, display_name)
-       VALUES (?1, ?2, ?3, ?4)
-       ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name`
-    )
-    .bind(`agent-${orgId}-${githubId}`, orgId, String(githubId), displayName)
     .run();
 }
 
@@ -569,8 +571,22 @@ export async function devicesForLogin(db, login) {
   return results || [];
 }
 
-export async function removeDevice(db, deviceToken) {
-  await db.prepare("DELETE FROM device_tokens WHERE device_token = ?1").bind(deviceToken).run();
+/// Forget one device.
+///
+/// Scoped to its owner when one is given, which every caller that has a session
+/// does. Unscoped, the endpoint behind this let any signed-in person delete any
+/// device row they could name the token of — a way to switch off someone else's
+/// notifications with no trace, on a value that is not a secret and travels
+/// through APNs and every log the client writes.
+export async function removeDevice(db, deviceToken, githubId = null) {
+  if (githubId == null) {
+    await db.prepare("DELETE FROM device_tokens WHERE device_token = ?1").bind(deviceToken).run();
+    return;
+  }
+  await db
+    .prepare("DELETE FROM device_tokens WHERE device_token = ?1 AND user_github_id = ?2")
+    .bind(deviceToken, String(githubId))
+    .run();
 }
 
 // The relay knows a person by their github LOGIN; config is keyed by the numeric

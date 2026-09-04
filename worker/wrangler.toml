@@ -21,6 +21,11 @@ new_sqlite_classes = ["OrgRelay"]
 binding = "DB"
 database_name = "tiktokforwork"
 database_id = "08d78a7f-45eb-4837-8393-4f7c92bf39cb"
+# Numbered files, applied in order and recorded, so a change that is not a
+# CREATE — an index, a dropped table, an ALTER — reaches production the same way
+# every other change does. `schema.sql` is generated from this directory and is
+# what the test suite loads; `npm run schema:check` fails if the two drift.
+migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "MEDIA"

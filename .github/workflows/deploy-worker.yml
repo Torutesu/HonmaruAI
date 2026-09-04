@@ -62,14 +62,22 @@ jobs:
       - name: Test
         run: npm test
 
-      # Every statement is CREATE … IF NOT EXISTS, so this is safe to run on
-      # every deploy and safe to re-run after a failure.
+      # schema.sql is generated from migrations/. If someone edited it directly,
+      # the change would be in the tests and never in production.
+      - name: Check schema is in sync with migrations
+        run: npm run schema:check
+
+      # Numbered migrations, applied in order and recorded, so a change that is
+      # not a CREATE — an index, a dropped table — reaches production too. The
+      # first migration is the original schema and is all CREATE … IF NOT
+      # EXISTS, so applying it to the database that was built by hand is a
+      # no-op rather than a conflict.
       #
-      # wrangler@4 explicitly: the pinned wrangler 3 fails `d1 execute --remote`
-      # with a 7403 "account is not authorized" that is a stale-client bug, not
-      # an auth problem, and reads exactly like a broken token.
+      # wrangler@4 explicitly: the pinned wrangler 3 fails `d1` commands with a
+      # 7403 "account is not authorized" that is a stale-client bug, not an auth
+      # problem, and reads exactly like a broken token.
       - name: Migrate D1
-        run: npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql --yes
+        run: npx -y wrangler@4 d1 migrations apply tiktokforwork --remote
 
       - name: Deploy
         if: ${{ !inputs.migrate_only }}

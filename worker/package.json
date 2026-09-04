@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest run"
+    "test": "vitest run",
+    "schema:build": "node scripts/build-schema.mjs",
+    "schema:check": "node scripts/build-schema.mjs --check"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.5.0",

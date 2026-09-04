@@ -1,7 +1,7 @@
 import { routeInstruction, memberIdsOf } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import {
-  createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
+  createSession, getSession, upsertUser, upsertMembership, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
@@ -313,7 +313,10 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json();
-      if (body.deviceToken) await removeDevice(env.DB, body.deviceToken);
+      // Only your own. The device token is not a secret — it goes to APNs, it
+      // sits in the client's logs — so unscoped this was a way to silence
+      // anyone whose token you had seen.
+      if (body.deviceToken) await removeDevice(env.DB, body.deviceToken, session.github_id);
       return json({ ok: true });
     }
     // Leaving, now rather than in thirty days.
@@ -329,7 +332,7 @@ async function handle(request, env, url) {
       // outcome the caller wanted.
       if (session) {
         const body = await request.json().catch(() => null);
-        if (body?.deviceToken) await removeDevice(env.DB, body.deviceToken);
+        if (body?.deviceToken) await removeDevice(env.DB, body.deviceToken, session.github_id);
         await deleteSession(env.DB, token);
       }
       return json({ ok: true });
@@ -368,7 +371,6 @@ async function handle(request, env, url) {
       for (const c of members) {
         await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url, locale: "en" });
         await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
-        await upsertAgent(env.DB, orgId, c.id, `${c.login}'s AI`);
       }
       // GitHub has just told us who the collaborators are. Anyone in the table
       // who is not on that list is not one any more — and until this line, that

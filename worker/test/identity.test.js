@@ -3,7 +3,7 @@ import { beforeAll, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import {
   createSession, getSession, upsertUser, getUserByGithubId,
-  upsertMembership, upsertAgent,
+  upsertMembership,
 } from "../src/db.js";
 
 beforeAll(async () => {
@@ -49,18 +49,26 @@ test("expired sessions are rejected, legacy and fresh ones are not", async () =>
   expect((await getSession(env.DB, fresh)).github_id).toBe("903");
 });
 
-test("upsertMembership and upsertAgent are idempotent", async () => {
+test("upsertMembership is idempotent", async () => {
   await upsertMembership(env.DB, "acme/web", "7", "Admin");
   await upsertMembership(env.DB, "acme/web", "7", "Engineer"); // update role
-  await upsertAgent(env.DB, "acme/web", "7", "octocat's AI");
-  await upsertAgent(env.DB, "acme/web", "7", "octocat's AI"); // no duplicate
   const { results: mem } = await env.DB.prepare(
     "SELECT role FROM memberships WHERE org_id=?1 AND user_github_id=?2"
   ).bind("acme/web", "7").all();
   expect(mem).toHaveLength(1);
   expect(mem[0].role).toBe("Engineer");
-  const { results: ag } = await env.DB.prepare(
-    "SELECT id FROM agents WHERE org_id=?1 AND user_github_id=?2"
-  ).bind("acme/web", "7").all();
-  expect(ag).toHaveLength(1);
+});
+
+// device_tokens is keyed by login and a card names its recipient by login, so
+// two rows claiming one login is a card delivered to the wrong phone.
+test("a login freed on GitHub and taken by someone else does not collide", async () => {
+  await upsertUser(env.DB, { githubId: "9101", login: "drifter", name: "One", avatarUrl: null, locale: "en" });
+  // Someone else now holds the name. The old row is stale by definition.
+  await upsertUser(env.DB, { githubId: "9102", login: "drifter", name: "Two", avatarUrl: null, locale: "en" });
+
+  const holder = await env.DB.prepare("SELECT github_id FROM users WHERE login = 'drifter'").first();
+  expect(holder.github_id).toBe("9102");
+  // And the old account is still there, under a name that cannot collide.
+  const old = await env.DB.prepare("SELECT login FROM users WHERE github_id = '9101'").first();
+  expect(old.login).toBe("drifter+stale-9101");
 });

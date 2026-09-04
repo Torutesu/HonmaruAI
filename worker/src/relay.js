@@ -315,6 +315,16 @@ export class OrgRelay {
     try {
     if (type === "join") {
       const agui = payload.protocol === "agui/1";
+      // Once per socket. A join re-reads the whole store out of D1 and puts a
+      // presence event in front of every other member, so a client looping on
+      // it was an amplifier: one message in, a database read and an
+      // organization-wide broadcast out. Re-joining also swapped the identity
+      // on an open socket, which is a needless thing for it to be able to do —
+      // reconnecting is what changing account looks like.
+      if (att?.authed) {
+        ws.send(JSON.stringify(runError("Already joined.")));
+        return;
+      }
       // Identity is never taken from the client. `payload.userId` is read only
       // to be discarded: whoever you say you are, you act as the login on your
       // session, in the org that session can prove it belongs to.

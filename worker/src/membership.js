@@ -1,4 +1,4 @@
-import { isMember, upsertUser, upsertMembership, upsertAgent, getUserByGithubId } from "./db.js";
+import { isMember, upsertUser, upsertMembership, getUserByGithubId } from "./db.js";
 import { roleName } from "./org.js";
 
 const GH = "https://api.github.com";
@@ -82,6 +82,5 @@ export async function authorizeOrgAccess(env, session, orgId) {
 
   await upsertUser(env.DB, { githubId: session.github_id, login, name, avatarUrl, locale: known?.locale || "en" });
   await upsertMembership(env.DB, orgId, session.github_id, roleName(permissions));
-  await upsertAgent(env.DB, orgId, session.github_id, `${login}'s AI`);
   return { ok: true, login };
 }

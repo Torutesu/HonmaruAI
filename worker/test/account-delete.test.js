@@ -7,14 +7,13 @@ beforeAll(async () => {
 });
 
 async function seedAlice() {
-  const { createSession, upsertUser, upsertMembership, upsertAgent, saveCard, saveContext, setConnectorConfig, markIngested, countAIUse, writeEntitlement } =
+  const { createSession, upsertUser, upsertMembership, saveCard, saveContext, setConnectorConfig, markIngested, countAIUse, writeEntitlement } =
     await import("../src/db.js");
   const { appendCardEvent } = await import("../src/events.js");
 
   await upsertUser(env.DB, { githubId: "9001", login: "alice", name: "Alice", avatarUrl: null, locale: "en" });
   await upsertUser(env.DB, { githubId: "9002", login: "bob", name: "Bob", avatarUrl: null, locale: "en" });
   await upsertMembership(env.DB, "acme/app", "9001", "Admin");
-  await upsertAgent(env.DB, "acme/app", "9001", "alice's AI");
   await setConnectorConfig(env.DB, "9001", "notion", { databaseId: "db-1" });
   await writeEntitlement(env.DB, "9001", true);
   await countAIUse(env.DB, "9001", "2026-08-15");
@@ -51,7 +50,6 @@ test("deleting an account takes the account with it", async () => {
   await gone("SELECT github_id FROM users WHERE github_id = ?1", "9001");
   await gone("SELECT token FROM sessions WHERE github_id = ?1", "9001");
   await gone("SELECT org_id FROM memberships WHERE user_github_id = ?1", "9001");
-  await gone("SELECT id FROM agents WHERE user_github_id = ?1", "9001");
   await gone("SELECT connector FROM connector_config WHERE user_github_id = ?1", "9001");
   await gone("SELECT user_github_id FROM entitlements WHERE user_github_id = ?1", "9001");
   await gone("SELECT day FROM ai_usage WHERE user_github_id = ?1", "9001");
