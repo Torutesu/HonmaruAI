@@ -132,14 +132,17 @@ final class DecisionCardService: ObservableObject {
 
             do {
                 let issueState = try await githubService.issueState(number: issueNumber)
+                // Reported as bookkeeping, not as a decision. Sent as a whole
+                // card it carried the decision with it, so the relay treated
+                // every one of these as someone deciding all over again.
                 if issueState == "closed", status != .completed {
                     userCards[index].status = .completed
                     didChange = true
-                    await webSocketService?.publishUpdated(userCards[index])
+                    await webSocketService?.publishSynced(cardID: userCards[index].id, status: .completed)
                 } else if issueState == "open", status == .completed {
                     userCards[index].status = .approved
                     didChange = true
-                    await webSocketService?.publishUpdated(userCards[index])
+                    await webSocketService?.publishSynced(cardID: userCards[index].id, status: .approved)
                 }
             } catch {
                 continue
@@ -277,7 +280,12 @@ final class DecisionCardService: ObservableObject {
             cards[index].githubRepository = githubService.linkedRepository
             cards[index].githubSyncPending = nil
             cardsByUser[ownerUserID] = cards
-            await webSocketService?.publishUpdated(cards[index])
+            await webSocketService?.publishSynced(
+                cardID: cardID,
+                issueNumber: synced.number,
+                issueURL: synced.url,
+                repository: githubService.linkedRepository
+            )
             changed()
         } catch {
             // Still pending, and still recorded. Nothing here is worth

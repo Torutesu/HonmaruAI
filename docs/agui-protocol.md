@@ -40,6 +40,7 @@ Patch paths never depend on array order.
 | join | `snapshot` | `RUN_STARTED` + `STATE_SNAPSHOT` |
 | new card | `card_created` | `STATE_DELTA` (add) to all; recipient also gets `TOOL_CALL_START/ARGS/END` (`request_decision`, args streamed in chunks) |
 | card updated | `card_updated` | `STATE_DELTA` (replace) |
+| a decided card's GitHub issue opens, closes, or first appears | `card_synced` | `STATE_DELTA` (replace) |
 | card removed | `card_deleted` | `STATE_DELTA` (remove) |
 | store cleared | `snapshot {}` | `STATE_SNAPSHOT {}` |
 | presence | `presence` | `CUSTOM {name:"presence"}` |
@@ -49,6 +50,14 @@ Separating **state sync** (patches, to everyone) from **the ask** (tool call,
 to the recipient only) is what makes multi-device free: a second device stays
 in sync passively; only the device(s) of the decision owner get an actionable
 tool call.
+
+`card_synced` exists for the same reason, one level down: bookkeeping about a
+decision is not a decision. It carries `{cardId, status?, githubIssueNumber?,
+githubIssueURL?, githubRepository?}` and nothing else, so the relay can apply it
+without treating it as an answer — no Notion row, no notification, and a
+`synced` line in the history rather than a `decided` one. The app watches its own
+issues every thirty seconds, and sending those observations as whole cards meant
+each one arrived carrying the decision again.
 
 ## Protocol negotiation
 

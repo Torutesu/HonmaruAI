@@ -12,7 +12,7 @@ import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { notifyCard } from "./push.js";
 import { ANNOUNCE_PATH } from "./announce.js";
-import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
+import { validateIncomingCard, CARD_STATUSES, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 
 // One socket's allowance. Well above anything the app does — it sends a message
 // per decision, not per frame — and far below what a loop can produce.
@@ -369,6 +369,52 @@ export class OrgRelay {
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      return;
+    }
+
+    // What happened to a decision *after* it was made: the GitHub issue it
+    // produced, or that issue being opened or closed again.
+    //
+    // The app watches its own issues and reports what it sees. That used to
+    // arrive as `card_updated` carrying the whole card, decision included — so
+    // the relay read every report as a fresh decision and, each time, wrote
+    // another row into the decider's Notion database, sent another push to the
+    // person who asked, and left another "decided" line in the history. Closing
+    // an issue on GitHub was enough to do it.
+    //
+    // This message says only what changed, and the decision is not part of it.
+    if (type === "card_synced") {
+      const { cardId, status, githubIssueNumber, githubIssueURL, githubRepository } = payload;
+      if (!cardId) return;
+      const target = await getCard(this.db, orgId, cardId);
+      if (!target) return;
+      if (target.recipientUserID !== att.userId) {
+        ws.send(JSON.stringify(runError("Only the recipient can update this decision.")));
+        return;
+      }
+
+      const card = { ...target };
+      if (status !== undefined) {
+        if (!CARD_STATUSES.has(status)) {
+          ws.send(JSON.stringify(runError(`Unknown status: ${status}`)));
+          return;
+        }
+        card.status = status;
+      }
+      if (githubIssueNumber !== undefined) card.githubIssueNumber = githubIssueNumber;
+      if (githubIssueURL !== undefined) card.githubIssueURL = githubIssueURL;
+      if (githubRepository !== undefined) card.githubRepository = githubRepository;
+      if (JSON.stringify(card) === JSON.stringify(target)) return;
+
+      await saveCard(this.db, orgId, card);
+      // Recorded as what it is. The history distinguishes "hubot decided this"
+      // from "the issue behind it closed", which is the difference between a
+      // person acting and a system catching up.
+      await this.log(orgId, {
+        cardId, type: "synced", actorUserId: att.userId, snapshot: card,
+      });
+      const { forEveryone } = upsertEvents(card, { isNew: false });
+      for (const ev of forEveryone) this.broadcast(orgId, ev);
       return;
     }
 

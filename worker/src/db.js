@@ -328,6 +328,23 @@ export async function isIngested(db, connector, externalId, githubId) {
   return Boolean(row);
 }
 
+/// Has this decision already been written out to someone's Notion database?
+///
+/// The insert records the page it created under `card_id`, so this is the same
+/// table inbound dedups against, asked backwards. Without it every republish of
+/// a decided card added another row saying the same thing — and the app
+/// republishes one every time the GitHub issue behind a decision changes state.
+export async function hasNotionRowForCard(db, githubId, cardId) {
+  if (!cardId) return false;
+  const row = await db
+    .prepare(
+      "SELECT 1 AS ok FROM ingested_items WHERE connector = 'notion' AND user_github_id = ?1 AND card_id = ?2"
+    )
+    .bind(String(githubId), cardId)
+    .first();
+  return Boolean(row);
+}
+
 export async function markIngested(db, { connector, externalId, githubId, orgId, cardId }) {
   await db
     .prepare(

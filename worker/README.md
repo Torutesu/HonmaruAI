@@ -27,7 +27,16 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
 
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,
-`card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`.
+`card_created`, `card_updated`, `card_synced`, `card_deleted`, `context_updated`,
+`rollback`.
+
+`card_synced` is what happened to a decision *after* it was made — the GitHub
+issue it opened, or that issue being opened or closed again. It carries only
+`{cardId, status?, githubIssueNumber?, githubIssueURL?, githubRepository?}`, and
+never the decision. Reported as a `card_updated` it used to be read as a fresh
+decision, so every time the app noticed an issue close it wrote another row into
+the decider's Notion database, sent another push to the person who asked, and
+left another "decided" line in the history.
 
 ### The relay's access rules
 

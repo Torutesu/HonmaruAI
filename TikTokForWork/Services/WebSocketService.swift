@@ -101,6 +101,15 @@ enum OutboundEvent {
     case cardUpdated(DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
     case rollback(cardID: String)
+    /// Bookkeeping about a decision that has already been made: the GitHub
+    /// issue it produced, or that issue being opened or closed again.
+    ///
+    /// Deliberately not a `card_updated`. That carries the whole card, decision
+    /// included, so the relay read every one of these as a fresh decision —
+    /// another row in the decider's Notion database, another notification to
+    /// the person who asked, another "decided" line in the history. Closing an
+    /// issue on GitHub was enough to do it.
+    case cardSynced(cardID: String, status: CardStatus?, issueNumber: Int?, issueURL: String?, repository: String?)
     case contextUpdated(text: String)
     case toolResult(card: DecisionCard, decision: Decision, toolCallId: String?)
     /// An envelope replayed from the outbox. It was built by one of the cases
@@ -135,6 +144,13 @@ enum OutboundEvent {
             ]
         case .rollback(let cardID):
             return ["type": "rollback", "payload": ["cardId": cardID]]
+        case .cardSynced(let cardID, let status, let issueNumber, let issueURL, let repository):
+            var payload: [String: Any] = ["cardId": cardID]
+            if let status { payload["status"] = status.rawValue }
+            if let issueNumber { payload["githubIssueNumber"] = issueNumber }
+            if let issueURL { payload["githubIssueURL"] = issueURL }
+            if let repository { payload["githubRepository"] = repository }
+            return ["type": "card_synced", "payload": payload]
         case .contextUpdated(let text):
             return ["type": "context_updated", "payload": ["context": ["text": text]]]
         case .toolResult(let card, let decision, let toolCallId):
@@ -367,12 +383,24 @@ final class WebSocketService: ObservableObject {
         await publish(.cardCreated(card))
     }
 
-    func publishUpdated(_ card: DecisionCard) async {
-        await publish(.cardUpdated(card))
-    }
-
     func publishRollback(cardID: String) async {
         await publish(.rollback(cardID: cardID))
+    }
+
+    /// Report what happened to a decision after it was made — the issue it
+    /// opened, or that issue changing state — without re-announcing the
+    /// decision itself.
+    func publishSynced(
+        cardID: String,
+        status: CardStatus? = nil,
+        issueNumber: Int? = nil,
+        issueURL: String? = nil,
+        repository: String? = nil
+    ) async {
+        await publish(.cardSynced(
+            cardID: cardID, status: status,
+            issueNumber: issueNumber, issueURL: issueURL, repository: repository
+        ))
     }
 
     func publishContext(_ text: String) async {

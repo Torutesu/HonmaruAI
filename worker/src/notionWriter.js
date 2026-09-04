@@ -1,5 +1,5 @@
 import { executeTool } from "./composio.js";
-import { getConnectorConfig, getUserByLogin, markIngested } from "./db.js";
+import { getConnectorConfig, getUserByLogin, markIngested, hasNotionRowForCard } from "./db.js";
 
 // A decision becomes one row. Notion databases have arbitrary schemas, so the
 // only property this touches is the title — every database has exactly one, and
@@ -26,6 +26,10 @@ export async function writeDecisionToNotion({ env, orgId, login, card }) {
     if (!user) return false;
     const config = await getConnectorConfig(env.DB, user.github_id, "notion");
     if (!config?.databaseId) return false;
+    // A decision is one row. It used to be one row per announcement of that
+    // decision, and the app announces a decided card again whenever its GitHub
+    // issue opens or closes.
+    if (await hasNotionRowForCard(env.DB, user.github_id, card.id)) return false;
 
     const payload = await executeTool(
       env.COMPOSIO_API_KEY, "NOTION_INSERT_ROW_DATABASE", String(user.github_id),
