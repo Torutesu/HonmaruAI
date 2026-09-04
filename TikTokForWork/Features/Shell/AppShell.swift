@@ -18,6 +18,7 @@ struct AppShell: View {
     @State private var captured: CaptureRequest?
     @State private var feedCardCount = 0
     @State private var feedCardIndex = 0
+    @State private var showConnectGitHub = false
 
     var body: some View {
         ZStack {
@@ -68,6 +69,13 @@ struct AppShell: View {
                 pendingCount: appState.pendingCount
             )
         }
+        .sheet(isPresented: $showConnectGitHub) {
+            ConnectGitHubSheet(context: .settings)
+                .environmentObject(appState)
+                .presentationDetents([.medium, .large])
+                .presentationBackground(Theme.Colors.surface)
+                .presentationDragIndicator(.visible)
+        }
         .fullScreenCover(isPresented: $showCapture) {
             CaptureView { text, video in
                 showCapture = false
@@ -103,14 +111,18 @@ struct AppShell: View {
             ZStack(alignment: .center) {
                 HStack(spacing: Theme.Spacing.sm) {
                     // Connection status — matches FeedView.topBar which is hidden in shell mode.
+                    // There is no socket when you are on your own, so a dot here
+                    // would be reporting on nothing.
                     HStack(spacing: 5) {
-                        Circle()
-                            .fill(connectionColor)
-                            .frame(width: 5, height: 5)
-                        if let label = connectionLabel {
-                            Text(label)
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.Colors.textTertiary)
+                        if !appState.isGuest {
+                            Circle()
+                                .fill(connectionColor)
+                                .frame(width: 5, height: 5)
+                            if let label = connectionLabel {
+                                Text(label)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.Colors.textTertiary)
+                            }
                         }
                     }
                     .accessibilityElement(children: .combine)
@@ -131,7 +143,14 @@ struct AppShell: View {
                     .accessibilityLabel(Text("You"))
                 }
 
-                HomeSectionPicker(section: $section, stuckSentCount: appState.stuckSentCount)
+                if appState.isGuest {
+                    // Someone trying it on their own has no Sent list to switch
+                    // to — there is nobody to have sent anything to — so the
+                    // segmented control would be a control with one option.
+                    localModeChip
+                } else {
+                    HomeSectionPicker(section: $section, stuckSentCount: appState.stuckSentCount)
+                }
             }
 
             // Position in the stack, which only means anything in the feed.
@@ -142,6 +161,31 @@ struct AppShell: View {
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.sm)
         .background(Theme.Colors.background.ignoresSafeArea(edges: .top))
+    }
+
+    /// The way out of the one-person version, said where someone is looking.
+    ///
+    /// This existed, in a branch of the feed the shell never renders, so
+    /// nobody had ever seen it.
+    private var localModeChip: some View {
+        Button {
+            showConnectGitHub = true
+        } label: {
+            HStack(spacing: 5) {
+                Text("On your own")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                Text("Connect GitHub")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Colors.interactive)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(Theme.Colors.surfaceRaised)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("On your own. Connect GitHub to work with your team."))
     }
 
     private var connectionColor: Color {

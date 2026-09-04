@@ -361,15 +361,20 @@ struct FeedView: View {
     }
 
     private var emptyTitle: String {
+        // On your own there is no socket, so the connection states below would
+        // all say the wrong thing — "you are offline" to someone who is not.
+        if appState.isGuest {
+            return String(localized: "Tell your AI what you need. It comes back as a card you can clear.")
+        }
         switch appState.connectionState {
         case .refused(let reason):
-            reason
+            return reason
         case .offline:
-            String(localized: "You are offline. Decisions will appear when you reconnect.")
+            return String(localized: "You are offline. Decisions will appear when you reconnect.")
         case .connecting:
-            String(localized: "Catching up…")
+            return String(localized: "Catching up…")
         case .connected:
-            String(localized: "No decisions yet. Tell your AI something, or wait for a teammate.")
+            return String(localized: "No decisions yet. Tell your AI something, or wait for a teammate.")
         }
     }
 

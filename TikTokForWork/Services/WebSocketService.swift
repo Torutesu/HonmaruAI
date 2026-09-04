@@ -243,6 +243,12 @@ final class WebSocketService: ObservableObject {
     private var joinContinuation: CheckedContinuation<Void, Error>?
     private var joinTimeout: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    /// A session with nobody to talk to: someone trying the app on their own,
+    /// before they have signed in. There is no relay to reach and nothing worth
+    /// queueing for it, because there is nobody at the other end to deliver to.
+    /// Without this the outbox filled up with a guest's cards and published
+    /// them, as the next person, the moment anyone signed in on that device.
+    private var isLocalOnly = false
     private var lastURLString: String?
     private var lastUserID: String?
     private var lastOrgID = "core-team"
@@ -291,6 +297,7 @@ final class WebSocketService: ObservableObject {
         // back. Setting it before the teardown, which is what used to happen,
         // left it true forever and killed auto-reconnect after the first call.
         disconnect(intentional: true)
+        isLocalOnly = false
         intentionalDisconnect = false
         connectionGeneration &+= 1
         let generation = connectionGeneration
@@ -483,6 +490,7 @@ final class WebSocketService: ObservableObject {
         // relay closes one that speaks too early, and from here that close is
         // indistinguishable from being refused — so a decision sent during the
         // join handshake used to cost the whole connection.
+        guard !isLocalOnly else { return }
         guard state == .connected else {
             outbox.append(event)
             return
@@ -492,6 +500,13 @@ final class WebSocketService: ObservableObject {
         } catch {
             outbox.append(event)
         }
+    }
+
+    /// Work on your own, with no relay and no queue.
+    func enterLocalOnlyMode() {
+        disconnect(intentional: true)
+        outbox.clear()
+        isLocalOnly = true
     }
 
     /// Forget anything still queued.

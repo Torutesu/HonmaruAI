@@ -25,7 +25,8 @@ verified against the code, and the plan it drives — is
 ## Done
 
 ### Product
-- [x] Vertical decision feed, swipe to approve/decline, delegate, revise, undo
+- [x] Vertical decision feed, swipe to approve/decline, delegate, revise, undo,
+      change the priority, and ask your own AI to rework the card in front of you
 - [x] Instruction → Decision Card via OpenAI, keyword router as the always-available fallback
 - [x] Real org graph from GitHub repository collaborators, with what people
       have said they are responsible for and who they report to layered on top
@@ -37,6 +38,9 @@ verified against the code, and the plan it drives — is
 - [x] Decisions written out to the decider's chosen Notion database
 - [x] Video capture attached to a card, stored in R2
 - [x] Dictation, English/Japanese, light and dark
+- [x] "Continue without signing in" is a one-person organization that actually
+      works: drafted on the device, addressed to you, decided by you, and never
+      published anywhere
 - [x] Decisions go out as AG-UI `tool_result` carrying the `toolCallId` of the
       `request_decision` that asked for them, so an answer can be matched to the
       question that prompted it rather than arriving as a bare card update

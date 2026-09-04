@@ -246,7 +246,11 @@ final class FeedViewModel: ObservableObject {
     func draftInstruction(_ text: String, priority: CardPriority, appState: AppState) async -> InstructionDraft? {
         guard let user = appState.currentUser else { return nil }
 
-        guard appState.aiService.hasRelay else {
+        // On your own there is no organization to route across, and the server
+        // says so rather than inventing a recipient — so there is no point in
+        // the round trip. The local draft is addressed to you, which is the
+        // truth when you are the only person here.
+        guard appState.aiService.hasRelay, !appState.isGuest else {
             return OfflineRouter.draft(text: text, sender: user, priority: priority)
         }
 

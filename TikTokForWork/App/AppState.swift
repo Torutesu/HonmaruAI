@@ -152,20 +152,42 @@ final class AppState: ObservableObject {
     /// Whether the current session is a look-around guest (no GitHub sign-in).
     @Published private(set) var isGuest = false
 
-    /// Enter without signing in, to look around. There is no org and no relay
-    /// connection — the feed is empty and AI routing has no teammates — but the
-    /// UI is fully explorable, and the user can sign in later from the account
-    /// screen to get the real thing.
+    /// Try it on your own, before signing in.
+    ///
+    /// A one-person organization: you are the sender and the recipient, cards
+    /// are drafted on the device and live only there, and nothing reaches the
+    /// relay. That is the honest version of "look around" — and it is the whole
+    /// loop, instruct → card → decide, which is what someone is here to see.
+    ///
+    /// It used to be a dead end. There was no org, so routing had nobody to
+    /// route to and handed the card to a colleague from a demo who does not
+    /// exist; the card was stored against them and the guest's feed stayed
+    /// empty, with nothing said about where their instruction had gone.
     func activateGuestSession() {
         isGuest = true
         organization = OrganizationGraph(nodes: [], edges: [])
-        let guest = User(id: "guest", name: "Guest", role: "Guest", teamID: nil, githubUsername: nil)
+        let guest = User(
+            id: "you",
+            name: String(localized: "You"),
+            role: String(localized: "Trying it out"),
+            teamID: nil,
+            githubUsername: nil
+        )
+        webSocketService.enterLocalOnlyMode()
+        cardService.reset()
         cardService.setActiveUser(guest.id)
         currentUser = guest
         isAuthenticated = true
     }
 
     func activateGitHubSession(connection: GitHubConnection) async {
+        // Anything drafted while trying it out belongs to that trial, not to
+        // the account now signing in — and the relay stamps whoever is
+        // connected as a card's sender.
+        if isGuest {
+            cardService.reset()
+            webSocketService.discardQueuedWork()
+        }
         isGuest = false
         let user = AppState.user(from: connection)
         SessionStore.currentUserID = user.id

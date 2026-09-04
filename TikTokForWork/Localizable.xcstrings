@@ -2366,6 +2366,28 @@
         }
       }
     },
+    "On your own": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ひとりで利用中"
+          }
+        }
+      }
+    },
+    "On your own. Connect GitHub to work with your team.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ひとりで利用中。GitHub を接続するとチームで使えます。"
+          }
+        }
+      }
+    },
     "One more iOS engineer for Q3?": {
       "extractionState": "manual",
       "localizations": {
@@ -3587,6 +3609,17 @@
         }
       }
     },
+    "Tell your AI what you need. It comes back as a card you can clear.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要なことを AI に伝えてください。カードになって戻ってきます。"
+          }
+        }
+      }
+    },
     "That plan isn't available on this account right now.": {
       "extractionState": "manual",
       "localizations": {
@@ -3814,6 +3847,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "試す"
+          }
+        }
+      }
+    },
+    "Trying it out": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お試し中"
           }
         }
       }
