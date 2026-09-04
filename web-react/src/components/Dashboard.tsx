@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { DecisionCard } from './DecisionCard'
+import { CreateDecision } from './CreateDecision'
+import { InviteTeammate } from './InviteTeammate'
+import { requestNotificationPermission, notifyNewDecision, setTabBadge } from '../utils/notifications'
 import type { AppState, DecisionCard as DecisionCardType } from '../types/card'
 import './Dashboard.css'
 
@@ -8,9 +11,10 @@ interface Props {
   userId: string
   orgId: string
   relayUrl: string
+  sessionToken: string
 }
 
-export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
+export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken }) => {
   const [state, setState] = useState<AppState>({ cardsById: {} })
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -23,7 +27,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
   if (wsClientRef.current === null) {
     wsClientRef.current = new WebSocketClient()
   }
-
+  // Keep the browser tab title showing the pending count.
+  useEffect(() => {
+    const cards = Object.values(state.cardsById || {})
+    const pending = cards.filter(c => c.status === 'pending' && c.recipientUserID === userId)
+    setTabBadge(pending.length)
+    return () => setTabBadge(0)
+  }, [state, userId])
   const addDebugLog = useCallback((message: string) => {
     const now = new Date().toLocaleTimeString()
     setDebugLog(logs => [...logs, { timestamp: now, message }])
@@ -37,6 +47,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
     // resolve after cleanup and set state for an effect run that already
     // tore down.
     let ignore = false
+    requestNotificationPermission()
 
     wsClient.onStateChange = (newState) => {
       if (ignore) return
@@ -45,7 +56,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
     }
 
     wsClient.onCardCreated = (card) => {
-      if (!ignore) addDebugLog(`Card created: ${card.id}`)
+      if (ignore) return
+      addDebugLog(`Card created: ${card.id}`)
+      // Notify me only if this decision is for me and I'm not already looking.
+      if (card.recipientUserID === userId && card.status === 'pending') {
+        const from = card.senderUserID || 'a teammate'
+        notifyNewDecision(card.title || 'A decision is waiting', from)
+      }
     }
 
     wsClient.onCardUpdated = (card) => {
@@ -82,7 +99,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
 
     const connect = async () => {
       try {
-        await wsClient.connect(relayUrl, userId, orgId)
+        await wsClient.connect(relayUrl, userId, orgId, sessionToken)
       } catch (err) {
         if (ignore) return
         const message = err instanceof Error ? err.message : String(err)
@@ -97,7 +114,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
       ignore = true
       wsClient.disconnect()
     }
-  }, [relayUrl, userId, orgId, addDebugLog])
+  }, [relayUrl, userId, orgId, sessionToken, addDebugLog])
 
   const handleDecision = useCallback(
     (cardId: string, action: string, options?: any) => {
@@ -115,9 +132,25 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
     [addDebugLog]
   )
 
-  const cards = Object.values(state.cardsById || {})
+    const handleNudge = useCallback(
+    (cardId: string) => {
+      wsClientRef.current!.sendNudge(cardId)
+      addDebugLog(`Nudged: ${cardId}`)
+    },
+    [addDebugLog]
+  )
+// /ai/route is an HTTP call; the relay URL is a WebSocket URL. Convert
+  // ws://host -> http://host and wss://host -> https://host.
+  const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
+  
+  
+    const cards = Object.values(state.cardsById || {})
+  // To me, still waiting on my decision.
   const pendingCards = cards.filter(c => c.status === 'pending' && c.recipientUserID === userId)
-  const decidedCards = cards.filter(c => c.status !== 'pending' || c.decision)
+  // Decisions I was the recipient of and have already acted on.
+  const decidedCards = cards.filter(c => c.recipientUserID === userId && (c.status !== 'pending' || c.decision))
+  // Things I sent to someone else — so I can see if they're still waiting.
+  const sentCards = cards.filter(c => c.senderUserID === userId && c.recipientUserID !== userId)
 
   return (
     <div className="dashboard">
@@ -138,8 +171,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
         </div>
       )}
 
-      <div className="dashboard-content">
+            <div className="dashboard-content">
         <div className="main-feed">
+       <CreateDecision
+            relayHttpUrl={relayHttpUrl}
+            orgId={orgId}
+            userId={userId}
+            sessionToken={sessionToken}
+            onSendCard={(card) => wsClientRef.current!.sendCardCreated(card)}
+            onLog={(msg) => addDebugLog(msg)}
+          />
+
           <div className="section">
             <h2 className="section-title">
               Pending Decisions ({pendingCards.length})
@@ -164,6 +206,39 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
                     onDelegate={() => handleDecision(card.id, 'delegate')}
                     isPending={true}
                   />
+                ))}
+              </div>
+            )}
+          </div>
+
+                    <div className="section">
+            <h2 className="section-title">Sent by you ({sentCards.length})</h2>
+            {sentCards.length === 0 ? (
+              <div className="empty-state">
+                <p>You haven't sent any decisions yet.</p>
+              </div>
+            ) : (
+              <div className="cards-list">
+                {sentCards.map((card) => (
+                  <div key={card.id} className="sent-card">
+                    <div className="sent-card-head">
+                      <strong>{card.title}</strong>
+                      <span className={`sent-status ${card.status === 'pending' ? 'waiting' : 'done'}`}>
+                        {card.status === 'pending'
+                          ? `Waiting on ${card.recipientUserID.replace(/^email:/, '').split('@')[0]}`
+                          : `${card.decision?.action || 'decided'}`}
+                      </span>
+                    </div>
+                    <p className="sent-summary">{card.summary}</p>
+                    {card.status === 'pending' && (
+                      <button
+                        className="nudge-button"
+                        onClick={() => handleNudge(card.id)}
+                      >
+                        Nudge
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
@@ -218,8 +293,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl }) => {
               </div>
             </div>
           )}
-
-          <div className="info-panel">
+            <InviteTeammate
+            relayHttpUrl={relayHttpUrl}
+            orgId={orgId}
+            sessionToken={sessionToken}
+          />
+      <div className="info-panel">
             <h3>Connection Info</h3>
             <ul>
               <li><strong>URL:</strong> {relayUrl}</li>

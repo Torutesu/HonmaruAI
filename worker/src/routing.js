@@ -8,6 +8,53 @@ export function memberIdsOf(organization) {
     .filter((n) => n.kind === "person")
     .map((n) => n.id);
 }
+// Pull { id, name, role } out of the org nodes. The label is "Name · role".
+function membersWithRoles(organization) {
+  return (organization?.nodes || [])
+    .filter((n) => n.kind === "person")
+    .map((n) => ({
+      id: n.id,
+      // Prefer the role carried on the node. The label is display text and
+      // splitting it back apart breaks on any name containing " · ".
+      role: String(n.role || (String(n.label || "").split(" · ")[1] || "member")).trim().toLowerCase(),
+    }));
+}
+
+// Route by a role word in the instruction to a real teammate who holds that
+// role. "ask the designer to review" -> the person whose role is "designer".
+// Uses the actual team, so it works for any org instead of hardcoded demo ids.
+function matchRealRole(text, senderID, organization) {
+  const lower = String(text || "").toLowerCase();
+  const members = membersWithRoles(organization);
+  // Whole words only: includes("dev") also fires on "deviation" and "device",
+  // and includes("lead") on "leading".
+  // \b is defined over ASCII word characters, so \bデザイナー\b can never match:
+  // neither デ nor ー is a \w, so there is no boundary to find. Word boundaries
+  // are what stop "dev" firing on "deviation"; that problem only exists for
+  // terms written in a script that has them. Japanese terms are unambiguous
+  // enough that substring matching is correct for them.
+  const isAscii = (word) => /^[\x00-\x7F]+$/.test(word);
+  const says = (word) =>
+    isAscii(word) ? new RegExp(`\\b${word}\\b`, "i").test(lower) : lower.includes(word.toLowerCase());
+  // "manager" and "lead" are deliberately absent: escalation is handled by the
+  // manages edge below, which knows who a specific person reports to, and this
+  // rule would shadow it with whoever happens to hold the admin role.
+  const roleWords = {
+    designer: ["designer", "design", "デザイナー"],
+    engineer: ["engineer", "developer", "エンジニア"],
+    admin: ["admin", "owner"],
+    triager: ["triager", "triage"],
+    maintainer: ["maintainer"],
+  };
+  for (const [role, words] of Object.entries(roleWords)) {
+    if (!words.some(says)) continue;
+    const person = members.find((m) => m.role === role && m.id !== senderID);
+    if (person) {
+      return { recipientUserID: person.id, routingReason: `Routed to the ${role}`, forceOverride: false };
+    }
+  }
+  return null;
+}
 
 // Display name for a user id: prefer the org node label ("<name> · <role>"),
 // then the demo map, then the raw id.
@@ -111,8 +158,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
       };
     }
   }
-
-  const team = matchTeamRoute(text, senderID, organization);
+    const team = matchTeamRoute(text, senderID, organization);
   if (team) {
     return {
       recipientUserID: team.userID,
@@ -142,6 +188,11 @@ export function resolveRecipientTarget(text, senderID, organization) {
       };
     }
   }
+
+  // Below the manager rules above: "escalate to my manager" must reach the
+  // sender's actual manager, not whoever holds the admin role.
+  const realRole = matchRealRole(text, senderID, organization);
+  if (realRole) return realRole;
 
   const managerEdge = organization?.edges?.find(
     (item) => item.toID === senderID && item.kind === "manages"
@@ -326,6 +377,13 @@ function userNameFor(userID) {
   if (userID === "user-tanaka") return "田中";
   if (userID === "user-yui") return "結衣";
   if (userID === "user-alex") return "Alex";
+  // Email users have ids like "email:kinjal@test.com". Show the part before
+  // the @, capitalized, instead of the raw id — "Kinjal" rather than
+  // "email:kinjal@test.com".
+  if (userID.startsWith("email:")) {
+    const local = userID.slice("email:".length).split("@")[0];
+    return local.charAt(0).toUpperCase() + local.slice(1);
+  }
   return userID;
 }
 

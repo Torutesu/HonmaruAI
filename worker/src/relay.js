@@ -213,6 +213,22 @@ export class OrgRelay {
       return;
     }
 
+    if (type === "nudge") {
+      // A nudge re-raises a decision the recipient has not answered. Only the
+      // sender may nudge, and it changes no decision state — it re-sends the
+      // card so it resurfaces. upsertEvents returns { forEveryone, forRecipient };
+      // forRecipient is the part that re-raises the prompt and is only
+      // populated when isNew.
+      const card = await getCard(this.db, orgId, payload.cardId);
+      if (!card) return;
+      if (card.senderUserID !== att.userId) return;
+      if (card.decision?.action) return;
+      const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
+      for (const ev of forEveryone) this.sendTo(orgId, card.recipientUserID, ev);
+      for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      return;
+    }
+
     if (type === "card_created" || type === "card_updated") {
       if (!payload.card?.id) return;
       const card = payload.card;

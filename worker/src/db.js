@@ -242,13 +242,23 @@ export async function retainMemberships(db, orgId, keep) {
   const ids = [...new Set((keep || []).map(String))].filter(Boolean);
   if (!ids.length) return { removed: 0 };
   const holes = ids.map((_, i) => `?${i + 2}`).join(", ");
+  // GitHub is authoritative only for the members it issued. A collaborator list
+  // says nothing about someone who joined by invite, so pruning against it
+  // would evict every email member the moment anyone opened the org graph —
+  // a removal nobody performed, as a side effect of a read. Those ids are
+  // namespaced ("email:..."), so restricting the delete to numeric GitHub ids
+  // keeps the authority where it belongs.
+  // Entirely digits, not merely starting with one: GLOB '[0-9]*' would also
+  // match a future id scheme that happened to begin with a digit, and the
+  // whole point here is to delete only what GitHub issued.
+  const githubOnly = "AND user_github_id NOT GLOB '*[^0-9]*'";
   const { meta } = await db
-    .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes})`)
+    .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
     .run();
   // Agents belong to the person, so they go the same way.
   await db
-    .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes})`)
+    .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
     .run();
   return { removed: meta?.changes ?? 0 };
@@ -404,4 +414,30 @@ export async function getUserByLogin(db, login) {
       .bind(login)
       .first()) || null
   );
+}
+
+
+// List an org's members with their display names, for routing. Joins to users
+// so the router can match instructions like "ask Newbie to ..." to a real
+// person, and returns them in the org-graph "nodes" shape the router expects.
+export async function listOrgNodes(db, orgId) {
+  const rows = await db
+    .prepare(
+      `SELECT COALESCE(u.login, m.user_github_id) AS id,
+              m.role AS role,
+              COALESCE(u.name, u.login, m.user_github_id) AS name
+         FROM memberships m
+         LEFT JOIN users u ON u.github_id = m.user_github_id
+        WHERE m.org_id = ?1`
+    )
+    .bind(orgId)
+    .all();
+  // role is carried on the node, not parsed back out of the label: a display
+  // string is a formatting decision and breaks on any name containing " · ".
+  return (rows?.results || []).map((r) => ({
+    id: r.id,
+    kind: "person",
+    role: (r.role || "member").toLowerCase(),
+    label: `${r.name} · ${r.role || "member"}`,
+  }));
 }

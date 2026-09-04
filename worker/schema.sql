@@ -4,8 +4,28 @@ CREATE TABLE IF NOT EXISTS users (
   name          TEXT,
   avatar_url    TEXT,
   locale        TEXT DEFAULT 'en',
-  created_at    TEXT NOT NULL
+    created_at    TEXT NOT NULL,
+  /* Email/password auth. NULL for GitHub users; set for email sign-ups.
+     github_id is just the primary user id; email users get an "email:" id. */
+  email         TEXT,
+  password_hash TEXT,
+  password_salt TEXT
 );
+
+
+/* login exists on every version of this table, so its index is safe here.
+   The email index is not: on a database predating those columns this file is
+   a no-op for them, and indexing a column that does not exist yet fails the
+   whole step. It lives in migrations.sql, after the ALTER that adds it. */
+/* IF NOT EXISTS skips a same-named index; it does not tolerate duplicate rows.
+   schema.sql is replayed on every deploy with no error tolerance, so a single
+   pre-existing duplicate would fail this statement and every deploy after it,
+   until someone repaired the data by hand. Move any loser out of the way first:
+   the cost of the collision is total and permanent, the insurance is one line. */
+UPDATE users SET login = login || '+stale-' || github_id
+ WHERE rowid NOT IN (SELECT MAX(rowid) FROM users GROUP BY login);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login ON users(login);
 
 CREATE TABLE IF NOT EXISTS orgs (
   id            TEXT PRIMARY KEY,
@@ -20,6 +40,24 @@ CREATE TABLE IF NOT EXISTS memberships (
   created_at        TEXT NOT NULL,
   PRIMARY KEY (org_id, user_github_id)
 );
+
+/* Team invite codes. A member creates a code for their org; anyone who
+   redeems it joins that org. Kept simple: a code is reusable until deleted.
+   Block comment (not --) so the test loader that flattens newlines is happy. */
+CREATE TABLE IF NOT EXISTS invites (
+  code           TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  created_by     TEXT NOT NULL,
+  role           TEXT NOT NULL DEFAULT 'member',
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT,
+  /* A code is a bearer credential: whoever holds it joins. The TTL bounds how
+     long a leaked one lasts, the cap bounds how many strangers it admits. */
+  max_uses       INTEGER NOT NULL DEFAULT 1,
+  uses           INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_invites_org ON invites (org_id);
 
 CREATE TABLE IF NOT EXISTS agents (
   id                TEXT PRIMARY KEY,

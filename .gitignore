@@ -21,3 +21,8 @@ Config/Local.xcconfig
 
 # Uploaded clips: runtime data, not source.
 server/data/
+
+# Local dev scaffolding (not for production)
+worker/.wrangler/
+worker/seed-dev.sql
+worker/test-join.mjs

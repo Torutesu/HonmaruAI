@@ -1,7 +1,8 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
+import { signup, login, createInvite, acceptInvite, isGitHubSession } from "./auth.js";
 import {
-  createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
+  createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
@@ -103,6 +104,69 @@ export default {
 };
 
 async function handle(request, env, url) {
+    // Browsers send a preflight OPTIONS before a cross-origin POST with custom
+    // headers. Answer it with the CORS headers and no body.
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": "*",
+          "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+          "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+        },
+      });
+    }
+
+        if (url.pathname === "/auth/signup" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const body = await request.json().catch(() => ({}));
+      const result = await signup(env, body);
+      if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    if (url.pathname === "/auth/login" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const body = await request.json().catch(() => ({}));
+      const result = await login(env, body);
+      if (result.error) return json({ message: result.error }, 401);
+      return json(result);
+    }
+
+           if (url.pathname === "/invites/create" && request.method === "POST") {
+      // Redeeming or minting a code grants org membership, so both are guessable
+      // surfaces and both get the same budget as the other credential routes.
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      // A session proves who you are, not that you belong to the org you name.
+      // Without this check any signed-in account could mint a code — at any
+      // role — into a private org, and redeeming it writes the membership row.
+      if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
+        return json({ message: "You are not a member of this organization." }, 403);
+      }
+      const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: body.uses });
+      if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    if (url.pathname === "/invites/accept" && request.method === "POST") {
+      // Redeeming or minting a code grants org membership, so both are guessable
+      // surfaces and both get the same budget as the other credential routes.
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await acceptInvite(env, { code: body.code, userId: session.github_id });
+      if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
     if (url.pathname === "/health" && request.method === "GET") {
       return json({
         ok: true,
@@ -133,10 +197,22 @@ async function handle(request, env, url) {
         userKey,
       });
 
+            // Build the org from real memberships when we can, so routing sees the
+      // whole team (and cannot be spoofed by the client). Fall back to whatever
+      // the client sent only when there is no session/org to look up.
+      let organization = body.organization;
+      const routeOrgId = body.organization?.orgId || body.orgId;
+      if (session && routeOrgId) {
+        const nodes = await listOrgNodes(env.DB, routeOrgId);
+        if (nodes.length) {
+          organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
+        }
+      }
+
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
-        organization: body.organization,
+        organization,
         priorityOverride: body.priorityOverride,
         readerLanguage: body.readerLanguage,
         senderContext: body.senderContext,
@@ -260,6 +336,15 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       const orgId = `${owner}/${repo}`;
+      // An email account has no GitHub token, so this call would return a 401
+      // and we would hand back GitHub's wording for a problem that is ours to
+      // explain. The limitation is real — a repo-backed org's membership comes
+      // from GitHub — so say that, at the point where we still know why.
+      if (!isGitHubSession(session)) {
+        return json({
+          message: "This organization's members come from a GitHub repository. Sign in with GitHub to view them.",
+        }, 400);
+      }
       let collaborators;
       try {
         collaborators = await fetchCollaborators(session.github_access_token, owner, repo);
@@ -553,6 +638,13 @@ async function handle(request, env, url) {
 export function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      // Allow browser clients (the web app) to call this API. Native apps are
+      // not subject to CORS, so this was never needed until the web client.
+      "access-control-allow-origin": "*",
+      "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+      "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+    },
   });
-}
+} 

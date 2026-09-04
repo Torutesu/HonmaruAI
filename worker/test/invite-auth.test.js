@@ -1,0 +1,195 @@
+import { env } from "cloudflare:test";
+import { beforeAll, expect, test } from "vitest";
+import schemaSql from "../schema.sql?raw";
+import worker from "../src/index.js";
+
+// Minting an invite is granting access: redeeming the code writes a membership
+// row, and authorizeOrgAccess treats that row as proof. So the mint itself has
+// to be gated on the caller already belonging to the org.
+
+const VICTIM_ORG = "victim/private-repo";
+let outsiderToken;
+let ownerToken;
+
+beforeAll(async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
+
+  await upsertUser(env.DB, { githubId: "7001", login: "owner", name: "Owner", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, VICTIM_ORG, "7001", "admin");
+  ownerToken = await createSession(env.DB, "7001", "gho_owner");
+
+  // A real account, correctly signed in, that belongs to no org at all.
+  await upsertUser(env.DB, { githubId: "7002", login: "outsider", name: "Outsider", avatarUrl: null, locale: "en" });
+  outsiderToken = await createSession(env.DB, "7002", "gho_outsider");
+});
+
+function createInviteReq(token, body) {
+  return new Request("https://example.com/invites/create", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-session-token": token },
+    body: JSON.stringify(body),
+  });
+}
+
+test("a non-member cannot mint an invite to an org", async () => {
+  const res = await worker.fetch(createInviteReq(outsiderToken, { orgId: VICTIM_ORG, role: "admin" }), env);
+  expect(res.status).toBe(403);
+  const body = await res.json();
+  expect(body.code).toBeUndefined();
+});
+
+test("a member can mint an invite to their own org", async () => {
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.code).toBeTruthy();
+  expect(body.orgId).toBe(VICTIM_ORG);
+});
+
+test("an unknown role is refused rather than quietly downgraded", async () => {
+  // Substituting a different role than the one asked for is worse than saying
+  // no: the inviter hands out a code believing it grants something it doesn't.
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG, role: "superuser" }), env);
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.code).toBeUndefined();
+});
+
+test("a member cannot mint an invite above their own role", async () => {
+  const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "7003", login: "plainmember", name: "Plain", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, VICTIM_ORG, "7003", "member");
+  const memberToken = await createSession(env.DB, "7003", "gho_member");
+
+  // Membership was enough to mint an admin code and redeem it, which promoted
+  // the caller in two calls.
+  const res = await worker.fetch(createInviteReq(memberToken, { orgId: VICTIM_ORG, role: "admin" }), env);
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.code).toBeUndefined();
+});
+
+test("redeeming a lesser invite does not demote an existing member", async () => {
+  const { upsertMembership, isMember } = await import("../src/db.js");
+  const { acceptInvite } = await import("../src/auth.js");
+
+  await upsertMembership(env.DB, VICTIM_ORG, "7001", "admin");
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG, role: "member" }), env);
+  const { code } = await res.json();
+
+  await acceptInvite(env, { code, userId: "7001" });
+  const row = await env.DB
+    .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(VICTIM_ORG, "7001").first();
+  expect(row.role).toBe("admin");
+  expect(await isMember(env.DB, VICTIM_ORG, "7001")).toBe(true);
+});
+
+test("an invite code carries no hint of the org it opens", async () => {
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code } = await res.json();
+  // The org used to be the code's prefix, which turned a 3-byte random suffix
+  // into the whole of the secret.
+  expect(code).not.toContain("victim");
+  expect(code).not.toContain("private");
+  // 16 bytes of hex. Enough that guessing is not a strategy.
+  expect(code).toMatch(/^[0-9a-f]{32}$/);
+});
+
+test("an expired invite is refused", async () => {
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code } = await res.json();
+
+  // Backdate it past its own expiry.
+  await env.DB.prepare("UPDATE invites SET expires_at = ?1 WHERE code = ?2")
+    .bind(new Date(Date.now() - 1000).toISOString(), code)
+    .run();
+
+  const { acceptInvite } = await import("../src/auth.js");
+  const { isMember } = await import("../src/db.js");
+  const result = await acceptInvite(env, { code, userId: "7002" });
+
+  expect(result.error).toBeTruthy();
+  expect(await isMember(env.DB, VICTIM_ORG, "7002")).toBe(false);
+});
+
+test("signup will not redeem an expired invite either", async () => {
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code } = await res.json();
+  await env.DB.prepare("UPDATE invites SET expires_at = ?1 WHERE code = ?2")
+    .bind(new Date(Date.now() - 1000).toISOString(), code)
+    .run();
+
+  const { signup } = await import("../src/auth.js");
+  const result = await signup(env, {
+    email: "late@example.com", password: "password123", name: "Late", inviteCode: code,
+  });
+  expect(result.error).toBeTruthy();
+});
+
+test("a code is spent after its permitted number of uses", async () => {
+  const { acceptInvite } = await import("../src/auth.js");
+  const { upsertUser } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "7101", login: "first", name: "First", avatarUrl: null, locale: "en" });
+  await upsertUser(env.DB, { githubId: "7102", login: "second", name: "Second", avatarUrl: null, locale: "en" });
+
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code, maxUses } = await res.json();
+  // One by default: a leaked link should admit one stranger, not a stream.
+  expect(maxUses).toBe(1);
+
+  expect((await acceptInvite(env, { code, userId: "7101" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "7102" })).error).toBeTruthy();
+});
+
+test("a code can be issued for several people when asked", async () => {
+  const { acceptInvite } = await import("../src/auth.js");
+  const { upsertUser } = await import("../src/db.js");
+  for (const id of ["7201", "7202", "7203"]) {
+    await upsertUser(env.DB, { githubId: id, login: `u${id}`, name: id, avatarUrl: null, locale: "en" });
+  }
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG, uses: 2 }), env);
+  const { code, maxUses } = await res.json();
+  expect(maxUses).toBe(2);
+
+  expect((await acceptInvite(env, { code, userId: "7201" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "7202" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "7203" })).error).toBeTruthy();
+});
+
+// A redemption that grants nothing should cost nothing. Spending the use first
+// meant the inviter testing their own link burned it, and the person it was
+// actually for was then told the code was not valid.
+test("an already-member redemption does not spend the code", async () => {
+  const { createInvite, acceptInvite } = await import("../src/auth.js");
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "8100", login: "already", name: "Already", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, VICTIM_ORG, "8100", "member");
+
+  const { code } = await createInvite(env, { orgId: VICTIM_ORG, createdBy: "7001", role: "member" });
+  expect((await acceptInvite(env, { code, userId: "8100" })).error).toBeUndefined();
+
+  // Still good for the person it was for.
+  expect((await acceptInvite(env, { code, userId: "8101" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "8102" })).error).toBeTruthy();
+});
+
+// roleName() hands out "Maintainer" for GitHub's maintain permission, so a
+// person can hold a role the invite ladder did not know existed.
+test("maintainer is a role the ladder knows, in both directions", async () => {
+  const { createInvite } = await import("../src/auth.js");
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "8200", login: "keeper", name: "Keeper", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, VICTIM_ORG, "8200", "Maintainer");
+
+  // An admin can invite one.
+  expect((await createInvite(env, { orgId: VICTIM_ORG, createdBy: "7001", role: "maintainer" })).error)
+    .toBeUndefined();
+  // And holding it outranks a triager rather than tying with a plain member.
+  expect((await createInvite(env, { orgId: VICTIM_ORG, createdBy: "8200", role: "triager" })).error)
+    .toBeUndefined();
+  // But still not an admin.
+  expect((await createInvite(env, { orgId: VICTIM_ORG, createdBy: "8200", role: "admin" })).error)
+    .toBeTruthy();
+});
