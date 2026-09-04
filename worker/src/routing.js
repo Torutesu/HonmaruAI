@@ -12,10 +12,12 @@ export function memberIdsOf(organization) {
 function membersWithRoles(organization) {
   return (organization?.nodes || [])
     .filter((n) => n.kind === "person")
-    .map((n) => {
-      const [name, role] = String(n.label || "").split(" · ");
-      return { id: n.id, name: (name || n.id).trim(), role: (role || "member").trim().toLowerCase() };
-    });
+    .map((n) => ({
+      id: n.id,
+      // Prefer the role carried on the node. The label is display text and
+      // splitting it back apart breaks on any name containing " · ".
+      role: String(n.role || (String(n.label || "").split(" · ")[1] || "member")).trim().toLowerCase(),
+    }));
 }
 
 // Route by a role word in the instruction to a real teammate who holds that
@@ -24,16 +26,21 @@ function membersWithRoles(organization) {
 function matchRealRole(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
   const members = membersWithRoles(organization);
-  // Common role words people actually type, mapped to role names.
+  // Whole words only: includes("dev") also fires on "deviation" and "device",
+  // and includes("lead") on "leading".
+  const says = (word) => new RegExp(`\\b${word}\\b`, "i").test(lower);
+  // "manager" and "lead" are deliberately absent: escalation is handled by the
+  // manages edge below, which knows who a specific person reports to, and this
+  // rule would shadow it with whoever happens to hold the admin role.
   const roleWords = {
     designer: ["designer", "design", "デザイナー"],
-    engineer: ["engineer", "developer", "dev", "エンジニア"],
-    admin: ["admin", "owner", "lead", "manager"],
+    engineer: ["engineer", "developer", "エンジニア"],
+    admin: ["admin", "owner"],
     triager: ["triager", "triage"],
     maintainer: ["maintainer"],
   };
   for (const [role, words] of Object.entries(roleWords)) {
-    if (!words.some((w) => lower.includes(w))) continue;
+    if (!words.some(says)) continue;
     const person = members.find((m) => m.role === role && m.id !== senderID);
     if (person) {
       return { recipientUserID: person.id, routingReason: `Routed to the ${role}`, forceOverride: false };
@@ -144,11 +151,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
       };
     }
   }
-    // Prefer routing to a real teammate by their actual role in this org.
-  const realRole = matchRealRole(text, senderID, organization);
-  if (realRole) return realRole;
-
-  const team = matchTeamRoute(text, senderID, organization);
+    const team = matchTeamRoute(text, senderID, organization);
   if (team) {
     return {
       recipientUserID: team.userID,
@@ -178,6 +181,11 @@ export function resolveRecipientTarget(text, senderID, organization) {
       };
     }
   }
+
+  // Below the manager rules above: "escalate to my manager" must reach the
+  // sender's actual manager, not whoever holds the admin role.
+  const realRole = matchRealRole(text, senderID, organization);
+  if (realRole) return realRole;
 
   const managerEdge = organization?.edges?.find(
     (item) => item.toID === senderID && item.kind === "manages"

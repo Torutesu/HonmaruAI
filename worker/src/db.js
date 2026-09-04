@@ -422,9 +422,12 @@ export async function listOrgNodes(db, orgId) {
     )
     .bind(orgId)
     .all();
+  // role is carried on the node, not parsed back out of the label: a display
+  // string is a formatting decision and breaks on any name containing " · ".
   return (rows?.results || []).map((r) => ({
     id: r.id,
     kind: "person",
+    role: (r.role || "member").toLowerCase(),
     label: `${r.name} · ${r.role || "member"}`,
   }));
 }
