@@ -80,6 +80,11 @@ working list: what is broken, what it costs, and the order to fix it in. P0 and
 most of P1 are done; the remainder is polish (accessibility, SLA chips, search,
 session refresh).
 
+[docs/review-and-implementation-plan-2026-09.md](docs/review-and-implementation-plan-2026-09.md)
+(Japanese) is the September 2026 full review: every finding across the Worker,
+the app, the AI routing, docs and CI, verified against the code, and the phased
+plan from the P0 fixes to the first App Store submission.
+
 ## Releasing
 
 Two buttons in **Actions**, once the credentials are handed over —
