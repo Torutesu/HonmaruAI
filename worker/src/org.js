@@ -34,25 +34,53 @@ export function membersOf(collaborators = []) {
   return collaborators.filter((c) => canWrite(c?.permissions));
 }
 
-export function buildOrgGraph(collaborators, { owner, repo }) {
+/// The organization, as far as anyone can tell from GitHub plus what people
+/// have said about themselves.
+///
+/// GitHub supplies the membership and the permissions; it has no idea who runs
+/// design or who owns the client relationship, and until profiles existed
+/// neither did we. A person's *role* was their push permission with the word
+/// changed, the `manages` edge the router looks for was never once emitted, and
+/// `canApprove` was decided by whether GitHub called you an admin.
+///
+/// `profiles` is keyed by numeric github id: a title, what they are responsible
+/// for, and who their manager is. All optional — an org that has filled none of
+/// it in gets exactly what it got before.
+export function buildOrgGraph(collaborators, { owner, repo, profiles = {} }) {
   const teamId = `team-${repo}`;
   const teamLabel = `${owner}/${repo}`;
+  const members = new Set(collaborators.map((c) => c.login));
   const users = [];
   const nodes = [{ id: teamId, kind: "team", label: teamLabel }];
   const edges = [];
 
   for (const c of collaborators) {
-    const role = roleName(c.permissions);
+    const profile = profiles[String(c.id)] || {};
+    // What they say they do, falling back to what GitHub lets them do.
+    const role = profile.title?.trim() || roleName(c.permissions);
     users.push({
       id: c.login, name: c.login, role,
       teamID: teamId, githubUsername: c.login, language: "en",
     });
-    nodes.push({ id: c.login, kind: "person", label: `${c.login} · ${role}` });
+    nodes.push({
+      id: c.login,
+      kind: "person",
+      label: `${c.login} · ${role}`,
+      // What routing is meant to read: "billing and vendor contracts", not
+      // "has push access".
+      ...(profile.responsibilities?.trim() ? { detail: profile.responsibilities.trim() } : {}),
+    });
     nodes.push({ id: `agent-${c.login}`, kind: "agent", label: `${c.login}'s AI` });
     edges.push({ id: `e-mem-${c.login}`, fromID: c.login, toID: teamId, kind: "memberOf" });
     edges.push({ id: `e-agent-${c.login}`, fromID: `agent-${c.login}`, toID: c.login, kind: "assignedTo" });
     if (isApprover(c.permissions)) {
       edges.push({ id: `e-appr-${c.login}`, fromID: c.login, toID: teamId, kind: "canApprove" });
+    }
+    // fromID is the manager, toID the person reporting to them — the direction
+    // the router and the app both already read.
+    const manager = profile.manager_login?.trim();
+    if (manager && manager !== c.login && members.has(manager)) {
+      edges.push({ id: `e-mgr-${c.login}`, fromID: manager, toID: c.login, kind: "manages" });
     }
   }
   return { users, nodes, edges };

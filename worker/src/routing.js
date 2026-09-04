@@ -228,7 +228,10 @@ Routing (critical):
 - A person named in the instruction → that person.
 - Something that needs sign-off or approval → a member with a canApprove edge.
 - An escalation → the sender's manager (a "manages" edge pointing at the sender).
-- Otherwise pick the member whose role best fits the instruction.`;
+- Otherwise match the instruction against what each member is "responsible for",
+  and pick the one whose responsibilities cover it. Their role title is the
+  weaker signal; the responsibilities line is the one written by the person
+  doing the job.`;
 
 export function buildUserPrompt({ text, sender, organization, readerLanguage, senderContext }) {
   const orgContext = organizationContext(organization);
@@ -245,7 +248,13 @@ ${orgContext}`;
 
 function organizationContext(organization) {
   const nodes = (organization?.nodes || [])
-    .map((node) => `- ${node.id}: ${node.label} (${node.kind})`)
+    .map((node) => {
+      const line = `- ${node.id}: ${node.label} (${node.kind})`;
+      // What this person is actually responsible for, when they have said.
+      // Without it "pick the member whose role best fits" was asking the model
+      // to choose between "Admin" and "Engineer".
+      return node.detail ? `${line}\n    responsible for: ${node.detail}` : line;
+    })
     .join("\n");
   const edges = (organization?.edges || [])
     .map((edge) => {
@@ -374,7 +383,42 @@ function isEchoOfInput(summary, input) {
   return false;
 }
 
-function summarizeInstruction(text, { sender, cardType, recipientUserID, organization }) {
+/// The words the fallback writes when there is no model to write them.
+///
+/// Two languages, because the card is written for whoever has to read it and
+/// the fallback used to write English at everyone. Deliberately small: this is
+/// the degraded path, and a card headed "判断が必要です" with the instruction
+/// underneath is more use than an English template.
+const FALLBACK_COPY = {
+  en: {
+    approval: () => "Approval needed",
+    revision: () => "Revision requested",
+    task: (cleaned) => cleaned.split(" ").slice(0, 6).join(" ").slice(0, 48) || "New task",
+    delegation: (_, name) => `Task for ${name}`,
+    notification: (_, name) => `Update for ${name}`,
+    fallbackTitle: "Decision needed",
+    emptySummary: "Decision requested.",
+    context: (from, to) => `From ${from} · decision routed to ${to}`,
+  },
+  ja: {
+    approval: () => "承認が必要です",
+    revision: () => "修正の依頼",
+    task: (cleaned) => cleaned.slice(0, 24) || "新しいタスク",
+    delegation: (_, name) => `${name} への依頼`,
+    notification: (_, name) => `${name} への連絡`,
+    fallbackTitle: "判断が必要です",
+    emptySummary: "判断を依頼しました。",
+    context: (from, to) => `${from} より · ${to} が判断`,
+  },
+};
+
+function copyFor(readerLanguage) {
+  return String(readerLanguage || "en").toLowerCase().startsWith("ja")
+    ? FALLBACK_COPY.ja
+    : FALLBACK_COPY.en;
+}
+
+function summarizeInstruction(text, { sender, cardType, recipientUserID, organization, readerLanguage }) {
   let cleaned = String(text || "").trim();
   // "Ask hubot to ..." is addressed to the AI, not to the reader: the card says
   // who it is for in its own right. The name stripped here is the recipient's
@@ -401,21 +445,14 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID, organiz
     cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
 
-  const titles = {
-    approval: "Approval needed",
-    delegation: `Task for ${recipientName}`,
-    revision: "Revision requested",
-    task: cleaned.split(" ").slice(0, 6).join(" ").slice(0, 48) || "New task",
-    notification: `Update for ${recipientName}`,
-  };
-
+  const copy = copyFor(readerLanguage);
   const summary =
     cleaned.length > 180 ? `${cleaned.slice(0, 177).trim()}…` : cleaned;
 
   return {
-    title: titles[cardType] || "Decision needed",
-    summary: summary || "Decision requested.",
-    context: `From ${sender.name} · decision routed to ${recipientName}`,
+    title: copy[cardType]?.(cleaned, recipientName) || copy.fallbackTitle,
+    summary: summary || copy.emptySummary,
+    context: copy.context(sender.name, recipientName),
   };
 }
 
@@ -442,7 +479,7 @@ function applyRoutingGuard(routing, sender, originalText, organization = null) {
   };
 }
 
-function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null) {
+function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null, readerLanguage = "en") {
   const members = memberIdsOf(organization);
   // An empty org has no valid recipient, so there is nothing to validate
   // against. It is refused before the model is called; reaching here means a
@@ -458,25 +495,36 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
   ]);
   const allowedPriorities = new Set(["low", "medium", "high", "urgent"]);
 
-  const recipientUserID = routingJSON.recipientUserID;
-  const cardType = routingJSON.cardType;
   let title = routingJSON.title;
   let summary = routingJSON.summary;
   let context = routingJSON.context;
-  const priority = routingJSON.priority;
-
-  if (!allowedRecipients.has(recipientUserID)) {
-    throw new Error("AI picked an invalid recipient.");
-  }
-  if (!allowedTypes.has(cardType)) {
-    throw new Error("AI returned an invalid card type.");
-  }
-  if (!allowedPriorities.has(priority)) {
-    throw new Error("AI returned an invalid priority.");
-  }
+  // Nothing usable. Everything below this line is a repairable answer.
   if (!title || !summary || !context) {
     throw new Error("AI returned incomplete routing fields.");
   }
+
+  const corrections = [];
+  // A card the model wrote well and addressed to nobody. Throwing the whole
+  // answer away for one bad enum value cost the title, the summary and the
+  // context it had just written — and the keyword router then wrote worse
+  // ones. The address is the part that was wrong, so the address is the part
+  // that is corrected. (This is also why `strict: true` is not set on the
+  // tool: a validator that repairs beats a schema that refuses, and strict
+  // mode is not supported evenly across the providers this can run on.)
+  let recipientUserID = routingJSON.recipientUserID;
+  if (!allowedRecipients.has(recipientUserID)) {
+    recipientUserID = resolveRecipientTarget(originalText, sender.id, organization).recipientUserID;
+    corrections.push({
+      name: "route_correction",
+      label: "Recipient corrected",
+      detail: displayNameOf(organization, recipientUserID),
+    });
+  }
+  // Out of range falls back to the least alarming value there is, rather than
+  // to whatever the model asked for. An instruction that talks the model into
+  // "urgent" every time is an instruction that has chosen its own priority.
+  const cardType = allowedTypes.has(routingJSON.cardType) ? routingJSON.cardType : "task";
+  const priority = allowedPriorities.has(routingJSON.priority) ? routingJSON.priority : "medium";
 
   if (isEchoOfInput(summary, originalText) || isEchoOfInput(title, originalText)) {
     const rewritten = summarizeInstruction(originalText, {
@@ -484,6 +532,7 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       cardType,
       recipientUserID,
       organization,
+      readerLanguage,
     });
     title = rewritten.title;
     summary = rewritten.summary;
@@ -507,7 +556,7 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       agentRoute,
       routingReason,
       labels: routingJSON.labels || [],
-      toolCalls,
+      toolCalls: [...toolCalls, ...corrections],
     },
     sender,
     originalText,
@@ -515,40 +564,65 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
   );
 }
 
+/// What the instruction is asking for, in either language.
+///
+/// The fallback read English and nothing else, so every Japanese instruction
+/// became a "notification" — a card with no action on it — and every one of
+/// them came out marked "high", because that was the default for anything the
+/// English word list did not recognize.
+const TYPE_WORDS = [
+  ["approval", ["approve", "approval", "sign off", "sign-off", "承認", "決裁", "許可", "承認依頼"]],
+  ["delegation", ["delegate", "assign", "hand over", "依頼", "お願い", "担当", "任せ"]],
+  ["revision", ["revise", "revision", "feedback", "rework", "修正", "差し戻", "見直", "再検討"]],
+  ["task", ["task", "fix", "build", "implement", "ship", "タスク", "対応", "実装", "作業"]],
+];
+
+const URGENT_WORDS = ["urgent", "asap", "immediately", "至急", "大至急", "緊急", "今すぐ"];
+const SOON_WORDS = ["today", "tonight", "deadline", "by friday", "eod", "今日", "本日", "期限", "締切"];
+
+function inferCardType(text) {
+  const lower = String(text || "").toLowerCase();
+  for (const [type, words] of TYPE_WORDS) {
+    if (words.some((word) => lower.includes(word))) return type;
+  }
+  return "notification";
+}
+
+function inferPriority(text) {
+  const lower = String(text || "").toLowerCase();
+  if (URGENT_WORDS.some((word) => lower.includes(word))) return "urgent";
+  if (SOON_WORDS.some((word) => lower.includes(word))) return "high";
+  // Not "high". Everything the word list missed used to come out high, which is
+  // the same as nothing being high.
+  return "medium";
+}
+
 export function routeInstructionLocally({
   text,
   sender,
   organization,
   priorityOverride,
+  readerLanguage,
 }) {
-  const lower = String(text || "").toLowerCase();
   const { recipientUserID, namedInInstruction, routingReason } = resolveRecipient(
     text,
     sender.id,
     organization
   );
 
-  let cardType = "notification";
-  if (lower.includes("approve") || lower.includes("approval")) cardType = "approval";
-  else if (lower.includes("delegate") || lower.includes("assign")) cardType = "delegation";
-  else if (lower.includes("revise") || lower.includes("feedback")) cardType = "revision";
-  else if (lower.includes("task") || lower.includes("fix") || lower.includes("build")) {
-    cardType = "task";
-  }
-
+  const cardType = inferCardType(text);
   const rewritten = summarizeInstruction(text, {
     sender,
     cardType,
     recipientUserID,
     organization,
+    readerLanguage,
   });
   const recipientName = displayNameOf(organization, recipientUserID);
   const priority =
     priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)
       ? priorityOverride
-      : lower.includes("urgent")
-        ? "urgent"
-        : "high";
+      : inferPriority(text);
 
   return validateRouting(
     {
@@ -577,7 +651,8 @@ export function routeInstructionLocally({
         detail: `${recipientName} · ${cardType}`,
       },
     ],
-    organization
+    organization,
+    readerLanguage
   );
 }
 
@@ -626,7 +701,10 @@ async function routeInstructionWithOpenRouter({
     body: JSON.stringify({
       model: openRouter.model,
       temperature: 0.2,
-      max_tokens: 512,
+      // 512 was tight for a Japanese card with four context segments: the
+      // arguments were cut mid-JSON, `JSON.parse` threw, and a perfectly good
+      // answer became a keyword-router card.
+      max_tokens: 1024,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
@@ -648,8 +726,14 @@ async function routeInstructionWithOpenRouter({
   // to make of the answer — including rejecting it in validateRouting below.
   call.answered = true;
 
-  const message = data?.choices?.[0]?.message;
+  const choice = data?.choices?.[0];
+  const message = choice?.message;
   const toolCalls = message?.tool_calls;
+  if (choice?.finish_reason === "length") {
+    // Whatever is here is half a JSON document. Say so, rather than letting
+    // the parse throw into a generic "AI routing failed".
+    console.warn("model answer was cut short; using the local fallback");
+  }
 
   if (toolCalls?.length) {
     const { card, toolCalls: steps } = materializeFromToolCalls(toolCalls, sender.name, organization);
@@ -661,7 +745,7 @@ async function routeInstructionWithOpenRouter({
         detail: priorityOverride,
       });
     }
-    return validateRouting(card, sender, text, steps, organization);
+    return validateRouting(card, sender, text, steps, organization, readerLanguage);
   }
 
   const content = message?.content;
@@ -680,7 +764,7 @@ async function routeInstructionWithOpenRouter({
       });
     }
     console.warn("OpenRouter returned empty routing response; using local fallback.");
-    return routeInstructionLocally({ text, sender, organization, priorityOverride });
+    return routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage });
   }
 
   const routingJSON = parseRoutingJSON(content);
@@ -695,7 +779,8 @@ async function routeInstructionWithOpenRouter({
         detail: `${displayNameOf(organization, routingJSON.recipientUserID)} · ${routingJSON.cardType}`,
       },
     ],
-    organization
+    organization,
+    readerLanguage
   );
   if (priorityOverride) {
     validated.priority = priorityOverride;
@@ -733,7 +818,7 @@ export async function routeInstruction({
     } catch (error) {
       console.warn("AI routing failed, using local fallback:", error.message);
       return {
-        ...routeInstructionLocally({ text, sender, organization, priorityOverride }),
+        ...routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage }),
         routedBy: "fallback",
         routingError: error.message,
         aiCalled: call.answered,
@@ -742,7 +827,7 @@ export async function routeInstruction({
   }
 
   return {
-    ...routeInstructionLocally({ text, sender, organization, priorityOverride }),
+    ...routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage }),
     routedBy: "fallback",
     aiCalled: false,
   };

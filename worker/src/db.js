@@ -287,6 +287,52 @@ export async function retainMemberships(db, orgId, keep, { authoritative = false
   return { removed: gone.length };
 }
 
+/// Everyone's profile in one org, keyed by numeric github id.
+///
+/// Read on the org-graph path, which already loads every collaborator, so this
+/// is one more query rather than one per person.
+export async function getOrgProfiles(db, orgId) {
+  const { results } = await db
+    .prepare(
+      "SELECT user_github_id, title, responsibilities, manager_login FROM org_profiles WHERE org_id = ?1"
+    )
+    .bind(orgId)
+    .all();
+  const profiles = {};
+  for (const row of results || []) profiles[String(row.user_github_id)] = row;
+  return profiles;
+}
+
+export async function getOrgProfile(db, orgId, githubId) {
+  return (
+    (await db
+      .prepare(
+        "SELECT user_github_id, title, responsibilities, manager_login FROM org_profiles WHERE org_id = ?1 AND user_github_id = ?2"
+      )
+      .bind(orgId, String(githubId))
+      .first()) || null
+  );
+}
+
+export async function setOrgProfile(db, orgId, githubId, { title, responsibilities, managerLogin }) {
+  await db
+    .prepare(
+      `INSERT INTO org_profiles (org_id, user_github_id, title, responsibilities, manager_login, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(org_id, user_github_id) DO UPDATE SET
+         title = excluded.title,
+         responsibilities = excluded.responsibilities,
+         manager_login = excluded.manager_login,
+         updated_at = excluded.updated_at`
+    )
+    .bind(
+      orgId, String(githubId),
+      title || null, responsibilities || null, managerLogin || null,
+      new Date().toISOString()
+    )
+    .run();
+}
+
 export async function upsertAgent(db, orgId, githubId, displayName) {
   await db
     .prepare(

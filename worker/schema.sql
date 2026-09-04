@@ -150,3 +150,23 @@ CREATE TABLE IF NOT EXISTS webhook_nonces (
   token      TEXT PRIMARY KEY,
   expires_at TEXT NOT NULL
 );
+
+/* What a person actually does here, as opposed to what GitHub lets them push.
+
+   The org graph was the repository's permission list with the words changed:
+   Admin, Maintainer, Engineer, Member. Nobody's responsibility — design,
+   billing, the client relationship — was represented anywhere, so "route this
+   to whoever it belongs to" had nothing to route by, and the manager edge the
+   router looks for was never once emitted.
+
+   Written by the person it describes. You know your own job, and a claim about
+   who your manager is only makes sense in that direction. */
+CREATE TABLE IF NOT EXISTS org_profiles (
+  org_id            TEXT NOT NULL,
+  user_github_id    TEXT NOT NULL,
+  title             TEXT,
+  responsibilities  TEXT,
+  manager_login     TEXT,
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (org_id, user_github_id)
+);

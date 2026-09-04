@@ -221,6 +221,17 @@
         }
       }
     },
+    "Add": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        }
+      }
+    },
     "Add decision analytics to the feed": {
       "extractionState": "manual",
       "localizations": {
@@ -606,6 +617,28 @@
         }
       }
     },
+    "Brand, the marketing site, vendor contracts…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランド、マーケサイト、取引先契約…"
+          }
+        }
+      }
+    },
+    "Can approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認権限"
+          }
+        }
+      }
+    },
     "Can't load the video": {
       "extractionState": "manual",
       "localizations": {
@@ -947,6 +980,17 @@
         }
       }
     },
+    "Could not load your profile.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィールを読み込めませんでした。"
+          }
+        }
+      }
+    },
     "Could not save your choice.": {
       "extractionState": "manual",
       "localizations": {
@@ -954,6 +998,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "選択を保存できませんでした。"
+          }
+        }
+      }
+    },
+    "Could not save your profile.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィールを保存できませんでした。"
           }
         }
       }
@@ -1376,6 +1431,17 @@
         }
       }
     },
+    "Design, Finance, Engineering…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デザイン、経理、開発…"
+          }
+        }
+      }
+    },
     "Dictation is unavailable on this device.": {
       "extractionState": "manual",
       "localizations": {
@@ -1471,6 +1537,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "一人ひとりに専属の AI がつき、自分が決めるべきことだけが届きます。切り替えはいつでもできます。"
+          }
+        }
+      }
+    },
+    "Edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集"
           }
         }
       }
@@ -2047,6 +2124,17 @@
         }
       }
     },
+    "No organization yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織がまだありません"
+          }
+        }
+      }
+    },
     "No plans are available right now. Check the offering in RevenueCat.": {
       "extractionState": "manual",
       "localizations": {
@@ -2087,6 +2175,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "サーバーから応答がありません。"
+          }
+        }
+      }
+    },
+    "Nobody": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
           }
         }
       }
@@ -2619,6 +2718,28 @@
         }
       }
     },
+    "Reports to": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上長"
+          }
+        }
+      }
+    },
+    "Reports to %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上長: %@"
+          }
+        }
+      }
+    },
     "Repository": {
       "extractionState": "manual",
       "localizations": {
@@ -3000,6 +3121,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub でサインイン"
+          }
+        }
+      }
+    },
+    "Sign in with GitHub and pick a repository. Its collaborators are your team.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でサインインしてリポジトリを選んでください。その協力者がチームになります。"
+          }
+        }
+      }
+    },
+    "Sign in with GitHub to edit your profile.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィールを編集するには GitHub でサインインしてください。"
           }
         }
       }
@@ -3774,6 +3917,17 @@
         }
       }
     },
+    "Used when something needs escalating rather than deciding.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断ではなくエスカレーションが必要なときに使われます。"
+          }
+        }
+      }
+    },
     "Version": {
       "extractionState": "manual",
       "localizations": {
@@ -3891,6 +4045,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "残るもの"
+          }
+        }
+      }
+    },
+    "What you are responsible for": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "責任範囲"
+          }
+        }
+      }
+    },
+    "What you do": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "担当"
           }
         }
       }
@@ -4016,6 +4192,17 @@
         }
       }
     },
+    "You in this team": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチームでのあなた"
+          }
+        }
+      }
+    },
     "You own the iOS client": {
       "extractionState": "manual",
       "localizations": {
@@ -4093,6 +4280,17 @@
         }
       }
     },
+    "Your AI routes by what people are responsible for. Say what you own here, and decisions about it will find you.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI は「誰が何を担当しているか」で配信先を決めます。ここに担当を書けば、関係する判断があなたに届きます。"
+          }
+        }
+      }
+    },
     "Your context and connector settings": {
       "extractionState": "manual",
       "localizations": {
@@ -4148,6 +4346,17 @@
         }
       }
     },
+    "Your role": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの役割"
+          }
+        }
+      }
+    },
     "Your subscription entitlement record": {
       "extractionState": "manual",
       "localizations": {
@@ -4155,6 +4364,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "サブスクリプションの権利情報"
+          }
+        }
+      }
+    },
+    "Your teammates' AIs read this to decide what belongs to you. Plain words work best.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームメイトの AI がこれを読んで「あなたの領分か」を判断します。平易な言葉が最も効きます。"
           }
         }
       }

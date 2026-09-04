@@ -106,23 +106,32 @@ test("a routing call that lands is metered once", async () => {
   expect("aiCalled" in card).toBe(false);
 });
 
-// The path routedBy could not describe: OpenAI answered and billed us, we
-// rejected the answer because that recipient does not exist, and the user got a
-// keyword-routed card anyway. The call still has to be metered.
-test("an answer we reject is still an answer we paid for", async () => {
+// An answer with one thing wrong with it is repaired, and paid for either way.
+test("a card addressed to nobody is readdressed, not thrown away", async () => {
   await writeEntitlement(env.DB, "700", false);
   fetchMock.get("https://api.openai.com")
     .intercept({ path: "/v1/chat/completions", method: "POST" })
     .reply(200, { choices: [{ message: { tool_calls: [{ id: "t1", type: "function", function: {
       name: "create_decision_card",
       arguments: JSON.stringify({ recipientUserID: "user-nobody", cardType: "task",
-        title: "Review the deploy", summary: "x", context: "scope: deploy",
-        priority: "medium", routingReason: "y" }) } }] } }] });
+        title: "Review the deploy", summary: "The deploy needs a second pair of eyes.",
+        context: "scope: deploy", priority: "medium", routingReason: "y" }) } }] } }] });
 
   const res = await route({ "x-session-token": token });
   const card = await res.json();
-  expect(card.routedBy).toBe("fallback");
+
+  // The address was the part that was wrong, so the address is the part that
+  // changed. Discarding the whole answer cost the title, the summary and the
+  // context the model had just written, and the keyword router wrote worse
+  // ones in their place.
   expect(card.recipientUserID).toBe("hubot");
+  expect(card.title).toBe("Review the deploy");
+  expect(card.summary).toBe("The deploy needs a second pair of eyes.");
+  expect(card.routedBy).toBe("OpenAI");
+  // The correction is on the record rather than silent.
+  expect(card.toolCalls.some((c) => c.name === "route_correction")).toBe(true);
+
+  // Billed, as it always was: the model answered.
   expect(await usedByUser700()).toBe(1);
   expect("aiCalled" in card).toBe(false);
 });

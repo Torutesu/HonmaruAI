@@ -18,6 +18,13 @@ struct OrgNode: Identifiable, Codable, Hashable {
     let id: String
     let kind: OrgNodeKind
     var label: String
+    /// What this person is responsible for, in their own words.
+    ///
+    /// The graph used to be the repository's permission list with the words
+    /// changed — Admin, Maintainer, Engineer — so "route this to whoever it
+    /// belongs to" had nothing to route by. This is the line that says
+    /// "budgets and vendor contracts", and it goes to the model with the rest.
+    var detail: String?
 }
 
 struct OrgEdge: Identifiable, Codable, Hashable {
@@ -61,6 +68,23 @@ struct OrganizationGraph: Codable {
     func approvalProjects(for userID: String) -> [OrgNode] {
         edges
             .filter { $0.fromID == userID && $0.kind == .canApprove }
+            .compactMap { edge in nodes.first { $0.id == edge.toID } }
+    }
+
+    /// What this person is responsible for, if they have said.
+    func detail(of userID: String) -> String? {
+        nodes.first { $0.id == userID && $0.kind == .person }?.detail
+    }
+
+    /// Whether this person can sign things off for the team.
+    func canApprove(_ userID: String) -> Bool {
+        edges.contains { $0.fromID == userID && $0.kind == .canApprove }
+    }
+
+    /// Who reports to this person.
+    func reports(to userID: String) -> [OrgNode] {
+        edges
+            .filter { $0.fromID == userID && $0.kind == .manages }
             .compactMap { edge in nodes.first { $0.id == edge.toID } }
     }
 

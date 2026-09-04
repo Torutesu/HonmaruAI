@@ -23,7 +23,8 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | POST | `/devices` | Register an APNs token (auth: `x-session-token`) |
 | DELETE | `/devices` | Forget one, on sign-out |
 | DELETE | `/account` | Erase the caller's account (auth: `x-session-token`) |
-| GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1 |
+| GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1, and layers on what people have said about themselves |
+| GET/PUT | `/orgs/:owner/:repo/profile` | Your own title, responsibilities and manager in this org (auth + membership). You write your own — routing reads the result |
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
 
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,
@@ -48,6 +49,11 @@ negotiable:
   1008. There is no anonymous read.
 - **Identity is never taken from the client.** `payload.userId` is read only to
   be discarded; you act as the login on your session.
+- **A profile is your own to write.** `PUT /orgs/:owner/:repo/profile` sets
+  your title, what you are responsible for, and who you report to. Nobody else
+  can write yours: you know your own job, and "X manages me" is a claim that
+  only makes sense from your side. A manager who is not a member is refused —
+  an edge pointing outside the organization would route escalations nowhere.
 - **Membership** is a `memberships` row, or — when there is none yet, because
   the client connects before it loads the org graph — GitHub asked directly.
   Write access is what counts: a public repository hands `pull` to the entire

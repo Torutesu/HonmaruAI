@@ -77,7 +77,7 @@ test("OpenAI path routes to a real member and sends the dynamic enum", async () 
   expect(enumIds).toEqual(["octocat", "hubot"]);
 });
 
-test("an invalid OpenAI recipient is rejected and falls back to a real member", async () => {
+test("an invalid recipient is corrected, and the card the model wrote survives", async () => {
   fetchMock.get("https://api.openai.com")
     .intercept({ path: "/v1/chat/completions", method: "POST" })
     .reply(200, toolCallReply("user-alex")); // not in REAL_ORG
@@ -90,12 +90,42 @@ test("an invalid OpenAI recipient is rejected and falls back to a real member", 
     readerLanguage: "en",
   });
 
-  expect(res.routedBy).toBe("fallback");
-  expect(res.routingError).toBeTruthy();
   expect(["octocat", "hubot"]).toContain(res.recipientUserID);
-  // The model answered and billed us; we only rejected what it said. routedBy
-  // reads "fallback" here, which is precisely why the meter cannot use it.
+  expect(res.title).toBe("Review the deploy");
+  expect(res.summary).toBe("Someone needs to review the deploy.");
+  expect(res.routedBy).toBe("OpenAI");
+  expect(res.toolCalls.some((c) => c.name === "route_correction")).toBe(true);
+  // It answered, and it billed us, whatever we made of the answer.
   expect(res.aiCalled).toBe(true);
+});
+
+test("the fallback writes the card in the reader's language", async () => {
+  // Every Japanese instruction used to come back as a "notification" — a card
+  // with no action on it — headed with an English template, and marked high,
+  // because "high" was the default for anything the English word list missed.
+  const ja = await routeInstruction({
+    text: "至急、リリースの承認をお願いします",
+    sender: { id: "octocat", name: "octocat", role: "Admin" },
+    organization: REAL_ORG,
+    readerLanguage: "ja",
+  });
+
+  expect(ja.routedBy).toBe("fallback");
+  expect(ja.cardType).toBe("approval");
+  expect(ja.priority).toBe("urgent");
+  expect(ja.title).toBe("承認が必要です");
+  expect(ja.context).toContain("判断");
+
+  const en = await routeInstruction({
+    text: "Please approve the release",
+    sender: { id: "octocat", name: "octocat", role: "Admin" },
+    organization: REAL_ORG,
+    readerLanguage: "en",
+  });
+  expect(en.cardType).toBe("approval");
+  expect(en.title).toBe("Approval needed");
+  // Nothing marked urgent, and nothing marked high just for existing.
+  expect(en.priority).toBe("medium");
 });
 
 test("a call that never lands is not counted as a model call", async () => {

@@ -5,6 +5,7 @@ import {
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
+  getOrgProfiles, getOrgProfile, setOrgProfile, isMemberLogin,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
@@ -303,7 +304,10 @@ async function handle(request, env, url) {
       // handed them the relay anyway, through a table the socket trusts
       // without re-asking.
       const members = membersOf(collaborators);
-      const graph = buildOrgGraph(members, { owner, repo });
+      // What people have said about themselves, layered over what GitHub knows
+      // about them. Routing reads the result.
+      const profiles = await getOrgProfiles(env.DB, orgId);
+      const graph = buildOrgGraph(members, { owner, repo, profiles });
       for (const c of members) {
         await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url, locale: "en" });
         await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
@@ -321,6 +325,50 @@ async function handle(request, env, url) {
       });
       return json(graph);
     }
+    // Your own place in the organization: what you do, what you are
+    // responsible for, and who you report to. You write your own — you know
+    // your job, and "X manages me" is a claim that only makes sense from here.
+    const profileMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/profile$/);
+    if (profileMatch) {
+      const orgId = `${profileMatch[1]}/${profileMatch[2]}`;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+
+      if (request.method === "GET") {
+        const profile = await getOrgProfile(env.DB, orgId, session.github_id);
+        return json({
+          title: profile?.title ?? null,
+          responsibilities: profile?.responsibilities ?? null,
+          managerLogin: profile?.manager_login ?? null,
+        });
+      }
+      if (request.method === "PUT") {
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body !== "object") return json({ message: "The request could not be read." }, 400);
+        const text = (value, max) => {
+          if (value === null || value === undefined || value === "") return null;
+          if (typeof value !== "string") return undefined;
+          const trimmed = value.trim();
+          return trimmed.length > max ? undefined : trimmed || null;
+        };
+        const title = text(body.title, 80);
+        const responsibilities = text(body.responsibilities, 500);
+        const managerLogin = text(body.managerLogin, 128);
+        if (title === undefined || responsibilities === undefined || managerLogin === undefined) {
+          return json({ message: "That is longer than this field allows." }, 400);
+        }
+        // A manager who is not in the organization is not a manager here, and
+        // a manages edge pointing outside it would route decisions nowhere.
+        if (managerLogin && !(await isMemberLogin(env.DB, orgId, managerLogin))) {
+          return json({ message: "That person is not in this organization." }, 400);
+        }
+        await setOrgProfile(env.DB, orgId, session.github_id, { title, responsibilities, managerLogin });
+        return json({ ok: true });
+      }
+    }
+
     const cardEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/cards\/([^/]+)\/events$/);
     if (cardEventsMatch && request.method === "GET") {
       const [, owner, repo, cardId] = cardEventsMatch;
