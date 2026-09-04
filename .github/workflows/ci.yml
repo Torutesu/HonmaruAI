@@ -91,9 +91,15 @@ jobs:
 
   # macOS minutes are expensive, so this runs on pull requests only. Pushing to
   # a branch gets the Worker suite; asking to merge gets the whole thing.
+  # Compiles on every push, tests on pull requests.
+  #
+  # It used to be pull requests only, which meant a branch could take twenty
+  # commits of Swift without one of them ever being compiled — and the first
+  # thing to notice was a pull request going red on something introduced
+  # fifteen commits earlier. Building is a couple of minutes; running the
+  # simulator is the expensive half, and that still waits for the pull request.
   ios:
     name: iOS
-    if: github.event_name == 'pull_request'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -104,13 +110,51 @@ jobs:
         run: brew install xcodegen xcbeautify
       - name: Generate the project
         run: xcodegen generate
+
+      # No device name: a generic simulator destination compiles everything,
+      # including the test target, without depending on which iPhone the runner
+      # image happens to ship this month.
+      - name: Build
+        if: github.event_name != 'pull_request'
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project TikTokForWork.xcodeproj \
+            -scheme TikTokForWork \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify
+
+      # Resolved rather than pinned: a hard-coded "iPhone 16" fails the day the
+      # runner image moves on, and reads as a broken test rather than a missing
+      # simulator.
+      # Resolved rather than pinned: a hard-coded "iPhone 16" fails the day the
+      # runner image moves on, and reads as a broken test rather than a missing
+      # simulator.
+      - name: Pick a simulator
+        if: github.event_name == 'pull_request'
+        id: sim
+        run: |
+          name="$(xcrun simctl list devices available \
+            | grep -oE 'iPhone [0-9][A-Za-z0-9 ]*' \
+            | sed 's/ *$//' | sort -V | tail -1)"
+          if [ -z "$name" ]; then
+            echo "::error::No iPhone simulator available on this runner."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "Using $name"
+
       - name: Test
+        if: github.event_name == 'pull_request'
         run: |
           set -o pipefail
           xcodebuild test \
             -project TikTokForWork.xcodeproj \
             -scheme TikTokForWork \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.name }},OS=latest" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify
