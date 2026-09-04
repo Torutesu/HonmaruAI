@@ -5,7 +5,8 @@ import {
 import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, loadContexts, saveContext,
-  getSession, getCard, isMemberLogin, getUserByLogin, getOrgProfile,
+  getSession, getCard, getCardWithVersion, CardConflictError,
+  isMemberLogin, getUserByLogin, getOrgProfile,
 } from "./db.js";
 import { renderCardForRecipient } from "./render.js";
 import { providerConfig } from "./provider.js";
@@ -229,7 +230,7 @@ export class OrgRelay {
       // Re-read: the rewrite took a model call, and in that time the person may
       // have answered. Rewriting a card someone has already decided changes the
       // terms of a question that has been answered.
-      const latest = await getCard(this.db, orgId, card.id);
+      const { card: latest, version } = await getCardWithVersion(this.db, orgId, card.id);
       if (!latest || latest.status !== "pending" || latest.decision) return;
 
       const updated = { ...latest, ...result.card };
@@ -244,10 +245,15 @@ export class OrgRelay {
         updated.originalLanguage = senderLanguage;
       }
 
-      await saveCard(this.db, orgId, updated);
+      // Conditional on that read. Between the check above and this line the
+      // recipient may have answered — the window is small and the consequence
+      // is not: a rewrite of the question landing on top of the answer.
+      // Losing the rewrite is the right way to lose that race.
+      await saveCard(this.db, orgId, updated, version);
       const { forEveryone } = upsertEvents(updated, { isNew: false });
       for (const ev of forEveryone) this.sendToParties(orgId, updated, ev);
     } catch (err) {
+      if (err instanceof CardConflictError) return;
       console.error("recipient render failed", err?.message || err);
     }
   }
@@ -375,7 +381,7 @@ export class OrgRelay {
         ws.send(JSON.stringify(runError(invalid)));
         return;
       }
-      const existing = await getCard(this.db, orgId, incoming.id);
+      const { card: existing, version } = await getCardWithVersion(this.db, orgId, incoming.id);
       let card;
       if (type === "card_created") {
         if (existing) {
@@ -433,7 +439,20 @@ export class OrgRelay {
         card = mergeRecipientEdit(existing, incoming);
         if (card.decision?.action) card.decision = { ...card.decision, actorUserID: att.userId };
       }
-      await saveCard(this.db, orgId, card);
+      try {
+        // A change is conditional on the card still being the one that was
+        // read; a create has nothing to race with. Two devices belonging to
+        // the same person used to be able to decide the same card at once,
+        // and the second write erased the first with no error anywhere.
+        await saveCard(this.db, orgId, card, type === "card_updated" ? version : null);
+      } catch (err) {
+        if (!(err instanceof CardConflictError)) throw err;
+        // Somebody got there first. Say so rather than reporting a success
+        // that has already been overwritten — the client re-reads on the
+        // patch it is about to receive from the write that won.
+        ws.send(JSON.stringify(runError("That decision changed while you were deciding. Try again.")));
+        return;
+      }
       // The iOS client decides locally and republishes the whole card, so a
       // card_updated that carries a decision IS a decision — recording it as a
       // bland "updated" would make the history useless.

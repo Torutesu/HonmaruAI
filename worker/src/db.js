@@ -28,8 +28,47 @@ export async function loadStore(db, orgId, login) {
   return store;
 }
 
-export async function saveCard(db, orgId, card) {
+/// A write refused because the card moved under it.
+export class CardConflictError extends Error {
+  constructor() {
+    super("card version conflict");
+    this.name = "CardConflictError";
+  }
+}
+
+/// Write a card.
+///
+/// With `expectedVersion`, the write only lands if the row is still the one
+/// that was read — otherwise it throws `CardConflictError` and the caller reads
+/// again. Every write here is a read, a merge in JavaScript and a write back,
+/// with awaits on D1 in between, and a Durable Object releases its input gate
+/// across an external storage await: without this, two writes racing on one
+/// card ended with the second silently erasing the first.
+///
+/// Without it, the plain upsert as before — for the paths that create a card
+/// rather than change one, where there is nothing yet to race with.
+export async function saveCard(db, orgId, card, expectedVersion = null) {
   const now = new Date().toISOString();
+  if (expectedVersion != null) {
+    // An UPDATE, not an upsert: a card that has been deleted in the meantime
+    // must not be resurrected by the write that was meant to change it.
+    const result = await db
+      .prepare(
+        `UPDATE cards SET
+           recipient_user_id = ?3, sender_user_id = ?4, data = ?5,
+           status = ?6, priority = ?7, decided_at = ?8, updated_at = ?9,
+           version = version + 1
+         WHERE org_id = ?1 AND card_id = ?2 AND version = ?10`
+      )
+      .bind(
+        orgId, card.id, card.recipientUserID, card.senderUserID || null,
+        JSON.stringify(card), card.status || null, card.priority || null,
+        card.decision?.decidedAt || null, now, expectedVersion
+      )
+      .run();
+    if (!result?.meta?.changes) throw new CardConflictError();
+    return;
+  }
   await db
     .prepare(
       `INSERT INTO cards (org_id, card_id, recipient_user_id, sender_user_id, created_at, data,
@@ -62,15 +101,22 @@ export async function saveCard(db, orgId, card) {
 // One card, without paying to deserialize the whole org. The relay needs this
 // to answer "who does this card belong to?" before it lets anyone change it.
 export async function getCard(db, orgId, cardId) {
+  return (await getCardWithVersion(db, orgId, cardId)).card;
+}
+
+/// The card and the version it was read at, for a caller that is about to
+/// change it. Pass the version back to `saveCard` and the write is refused if
+/// anything else got there first.
+export async function getCardWithVersion(db, orgId, cardId) {
   const row = await db
-    .prepare("SELECT data FROM cards WHERE org_id = ?1 AND card_id = ?2")
+    .prepare("SELECT data, version FROM cards WHERE org_id = ?1 AND card_id = ?2")
     .bind(orgId, cardId)
     .first();
-  if (!row) return null;
+  if (!row) return { card: null, version: null };
   try {
-    return JSON.parse(row.data);
+    return { card: JSON.parse(row.data), version: row.version ?? 0 };
   } catch {
-    return null;
+    return { card: null, version: null };
   }
 }
 
