@@ -9,6 +9,10 @@ struct AppShell: View {
     @EnvironmentObject private var appState: AppState
 
     @State private var tab: AppTab = .home
+    /// Which half of your own work is on screen. Both halves are yours: the
+    /// decisions waiting on you, and the ones you are waiting on. Only the first
+    /// existed, so everything you sent vanished the moment you sent it.
+    @State private var section: HomeSection = .inbox
     @State private var composeTick = 0
     @State private var showCapture = false
     @State private var captured: CaptureRequest?
@@ -30,9 +34,13 @@ struct AppShell: View {
                 cardCount: $feedCardCount,
                 currentCardIndex: $feedCardIndex
             )
-            .opacity(tab == .home ? 1 : 0)
-            .allowsHitTesting(tab == .home)
-            .accessibilityHidden(tab != .home)
+            .opacity(showsInbox ? 1 : 0)
+            .allowsHitTesting(showsInbox)
+            .accessibilityHidden(!showsInbox)
+
+            if tab == .home, section == .sent {
+                SentView()
+            }
 
             if tab == .you {
                 YouView()
@@ -47,12 +55,14 @@ struct AppShell: View {
                 onCompose: {
                     // The ＋ records; the transcript is editable before it is sent.
                     tab = .home
+                    section = .inbox
                     showCapture = true
                 },
                 onComposeText: {
                     // Long press is the way in for someone who cannot talk right
                     // now — same draft chain, no camera.
                     tab = .home
+                    section = .inbox
                     composeTick += 1
                 },
                 pendingCount: appState.pendingCount
@@ -86,39 +96,46 @@ struct AppShell: View {
         captured = CaptureRequest(text: text, videoURL: uploaded)
     }
 
+    private var showsInbox: Bool { tab == .home && section == .inbox }
+
     private var homeTopBar: some View {
-        ZStack(alignment: .center) {
-            HStack(spacing: Theme.Spacing.sm) {
-                // Connection status — matches FeedView.topBar which is hidden in shell mode.
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(connectionColor)
-                        .frame(width: 5, height: 5)
-                    if let label = connectionLabel {
-                        Text(label)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Colors.textTertiary)
+        VStack(spacing: Theme.Spacing.xs) {
+            ZStack(alignment: .center) {
+                HStack(spacing: Theme.Spacing.sm) {
+                    // Connection status — matches FeedView.topBar which is hidden in shell mode.
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(connectionColor)
+                            .frame(width: 5, height: 5)
+                        if let label = connectionLabel {
+                            Text(label)
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                        }
                     }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
 
-                Spacer()
+                    Spacer()
 
-                Button {
-                    tab = .you
-                } label: {
-                    Text(String(appState.currentUser?.name.prefix(1) ?? "?"))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(Theme.Colors.surfaceRaised)
-                        .clipShape(Circle())
+                    Button {
+                        tab = .you
+                    } label: {
+                        Text(String(appState.currentUser?.name.prefix(1) ?? "?"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .background(Theme.Colors.surfaceRaised)
+                            .clipShape(Circle())
+                    }
+                    .accessibilityLabel(Text("You"))
                 }
-                .accessibilityLabel(Text("You"))
+
+                HomeSectionPicker(section: $section, stuckSentCount: appState.stuckSentCount)
             }
 
-            if feedCardCount > 1 {
+            // Position in the stack, which only means anything in the feed.
+            if showsInbox, feedCardCount > 1 {
                 PageDots(count: feedCardCount, index: feedCardIndex)
             }
         }
@@ -151,4 +168,60 @@ struct AppShell: View {
         .environmentObject(AppState())
         .environmentObject(SubscriptionService.shared)
         .environmentObject(PushService.shared)
+}
+
+/// The two halves of your own work.
+enum HomeSection: Hashable {
+    case inbox
+    case sent
+}
+
+/// A two-up segmented control: `#eeeeee` track, white raised pill for the
+/// selection, per the design system.
+///
+/// The dot on Sent is the only signal on this screen that something needs you
+/// rather than the other way round — a request of yours that has gone quiet.
+/// Without it, "Sent" is a tab nobody has a reason to open.
+struct HomeSectionPicker: View {
+    @Binding var section: HomeSection
+    var stuckSentCount: Int = 0
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment(.inbox, title: String(localized: "Inbox"))
+            segment(.sent, title: String(localized: "Sent"), showsDot: stuckSentCount > 0)
+        }
+        .padding(2)
+        .background(Theme.Colors.surfaceRaised)
+        .clipShape(Capsule())
+    }
+
+    private func segment(_ value: HomeSection, title: String, showsDot: Bool = false) -> some View {
+        Button {
+            guard section != value else { return }
+            Haptics.light()
+            withAnimation(.easeOut(duration: 0.15)) { section = value }
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                if showsDot {
+                    Circle()
+                        .fill(Theme.Colors.accent)
+                        .frame(width: 5, height: 5)
+                }
+            }
+            .foregroundStyle(section == value ? Theme.Colors.textPrimary : Theme.Colors.textTertiary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
+            .background {
+                if section == value {
+                    Capsule().fill(Theme.Colors.background)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(section == value ? [.isSelected] : [])
+        .accessibilityValue(showsDot ? Text("\(stuckSentCount) waiting on someone else") : Text(""))
+    }
 }

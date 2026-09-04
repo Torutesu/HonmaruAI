@@ -1,6 +1,28 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%@ is still waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がまだ待っています"
+          }
+        }
+      }
+    },
+    "%@ is still waiting, %lld days on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が %lld 日待っています"
+          }
+        }
+      }
+    },
     "%lld waiting": {
       "extractionState": "manual",
       "localizations": {
@@ -8,6 +30,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld件が未決"
+          }
+        }
+      }
+    },
+    "%lld waiting on someone else": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の人待ちが %lld 件"
           }
         }
       }
@@ -30,6 +63,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "未決の判断は削除できません。先に却下してください。"
+          }
+        }
+      }
+    },
+    "A reminder about a decision you have open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未決の判断についての催促です"
           }
         }
       }
@@ -1662,6 +1706,17 @@
         }
       }
     },
+    "Inbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信"
+          }
+        }
+      }
+    },
     "Issue created": {
       "extractionState": "manual",
       "localizations": {
@@ -2047,6 +2102,17 @@
         }
       }
     },
+    "Nothing sent yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ何も送っていません"
+          }
+        }
+      }
+    },
     "Notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -2421,6 +2487,28 @@
         }
       }
     },
+    "Remind them": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "催促する"
+          }
+        }
+      }
+    },
+    "Reminder sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "催促しました"
+          }
+        }
+      }
+    },
     "Removing card": {
       "extractionState": "manual",
       "localizations": {
@@ -2791,6 +2879,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "修正を送っています"
+          }
+        }
+      }
+    },
+    "Sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信済み"
           }
         }
       }
@@ -3224,6 +3323,17 @@
         }
       }
     },
+    "Tell your AI what you need, and it will show up here until someone answers.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI に必要なことを伝えると、誰かが答えるまでここに残ります。"
+          }
+        }
+      }
+    },
     "That plan isn't available on this account right now.": {
       "extractionState": "manual",
       "localizations": {
@@ -3616,6 +3726,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "詳細を見る"
+          }
+        }
+      }
+    },
+    "View on GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub で開く"
+          }
+        }
+      }
+    },
+    "WAITING": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
+    "WAITING %lldD": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機 %lld日"
           }
         }
       }

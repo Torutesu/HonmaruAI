@@ -27,6 +27,21 @@ final class DecisionCardService: ObservableObject {
     /// that eventually disagrees with itself.
     @Published private(set) var pendingCount = 0
 
+    /// How many of the decisions you asked for have gone quiet.
+    ///
+    /// Owned here for the same reason `pendingCount` is: two screens want it,
+    /// and a count computed twice is a count that eventually disagrees with
+    /// itself.
+    @Published private(set) var stuckSentCount = 0
+
+    /// Bumped on every change to the store.
+    ///
+    /// A view that shows a *derived* list — the sent list is computed, not
+    /// stored — has nothing else to watch: the published counts only move when
+    /// their own number changes, and someone else approving your request moves
+    /// neither. `onCardsUpdated` is a single closure and already has an owner.
+    @Published private(set) var changeCount = 0
+
     var onCardsUpdated: (() -> Void)?
 
     func attach(webSocketService: WebSocketService) {
@@ -87,6 +102,9 @@ final class DecisionCardService: ObservableObject {
             pendingCount = pending
             PushService.shared.setBadge(pending)
         }
+        let stuck = activeUserID.map { sentCards(by: $0).filter(\.isStale).count } ?? 0
+        if stuck != stuckSentCount { stuckSentCount = stuck }
+        changeCount &+= 1
         onCardsUpdated?()
     }
 
@@ -157,6 +175,66 @@ final class DecisionCardService: ObservableObject {
 
     func cards(for userID: String) -> [DecisionCard] {
         cardsByUser[userID, default: []].sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// What you have asked other people for, newest first.
+    ///
+    /// Half the product was missing without this. You could send a decision and
+    /// then never see it again: the answer came back as a one-line update in
+    /// your feed, which scrolls, and there was nowhere to look up whether the
+    /// thing you asked for last Tuesday ever happened — or to do anything about
+    /// it if it had not.
+    ///
+    /// The store is keyed by recipient, so this reads across it. The relay now
+    /// gives each device the cards it is party to, which is exactly these plus
+    /// your own feed.
+    func sentCards(by userID: String) -> [DecisionCard] {
+        cardsByUser.values
+            .flatMap { $0 }
+            .filter { $0.senderUserID == userID && $0.recipientUserID != userID }
+            // A reminder is a copy of a question already on this list.
+            .filter { $0.isDecision }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Ask again, without asking twice.
+    ///
+    /// The SLA chip has said "Waiting 5d" since it was built and there was
+    /// nothing to do about it — you only see cards routed *to* you, so there was
+    /// no screen on which to nudge anyone. It lands as an update rather than a
+    /// second decision: the original card is still the one to answer, and two
+    /// cards asking the same question is how a feed stops being a list of what
+    /// is left.
+    @discardableResult
+    func nudge(cardID: String, from actorUserID: String, organization: OrganizationGraph) async throws -> DecisionCard {
+        guard let original = cardsByUser.values.flatMap({ $0 })
+            .first(where: { $0.id == cardID && $0.senderUserID == actorUserID }) else {
+            throw CardServiceError.cardNotFound
+        }
+        guard original.isPending else { return original }
+
+        let senderName = DisplayName.of(actorUserID, in: organization)
+        let days = original.waitingDays
+        let reminder = DecisionCard(
+            id: UUID().uuidString,
+            recipientUserID: original.recipientUserID,
+            senderUserID: actorUserID,
+            type: .notification,
+            title: original.title,
+            summary: days.map { String(localized: "\(senderName) is still waiting, \($0) days on") }
+                ?? String(localized: "\(senderName) is still waiting"),
+            context: original.summary,
+            status: .pending,
+            priority: original.priority,
+            createdAt: .now,
+            agentRoute: original.agentRoute,
+            routingReason: String(localized: "A reminder about a decision you have open")
+        )
+
+        append(reminder, for: reminder.recipientUserID)
+        await webSocketService?.publishCreated(reminder)
+        changed()
+        return reminder
     }
 
     @discardableResult

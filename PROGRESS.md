@@ -66,6 +66,8 @@ The list of what is still missing, and why each item matters, is
 - [x] VoiceOver rotor actions on the card; approve and decline no longer need a swipe
 - [x] "Waiting 3d" on a pending card, red at five days
 - [x] Search and filter over history
+- [x] Sent: every request you have made, its state, and a way to chase it
+- [x] A card reaches the people it names, not everyone in the organization
 - [x] Pending badge on the tab bar, from the same count as the app icon
 - [x] Sessions extend with use, so an active user is never signed out
 
@@ -83,14 +85,18 @@ The list of what is still missing, and why each item matters, is
       synthetic posts shaped like Mailgun's. Needs `MAILGUN_WEBHOOK_SIGNING_KEY`
       and `INBOUND_EMAIL_DOMAIN` as Worker secrets, and the app has nowhere yet
       to show a person their address (`GET /connectors/email/address` returns it)
-- [ ] A sent-items view — without one there is nowhere to nudge someone whose
-      decision is overdue, which is why the SLA work shipped as a chip only
+- [x] A sent-items view. Home has **Inbox** and **Sent**: what is waiting on
+      you, and what you are waiting on. A request that has gone quiet for five
+      days can be nudged from there, which is the half of the SLA work that had
+      nowhere to live
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have
       to be clamped at `accessibility1`
 
 
-Both of the last two, and the other compromises made here, are written up under
-[Known compromises](docs/production-release-plan.md#known-compromises).
+The remaining compromises are written up under
+[Known compromises](docs/production-release-plan.md#known-compromises), and the
+full review that produced the current work is
+[docs/review-and-implementation-plan-2026-09.md](docs/review-and-implementation-plan-2026-09.md).
 
 ## Before the first App Store submission
 

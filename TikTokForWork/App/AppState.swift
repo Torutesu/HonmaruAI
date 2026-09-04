@@ -12,6 +12,8 @@ final class AppState: ObservableObject {
     /// Mirrored for the same reason as `connectionState`: `cardService` is a
     /// plain property, so SwiftUI never hears it change.
     @Published private(set) var pendingCount = 0
+    /// Requests of yours that have gone quiet. Mirrored for the same reason.
+    @Published private(set) var stuckSentCount = 0
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
     @Published var organization = OrganizationGraph(nodes: [], edges: [])
@@ -61,6 +63,7 @@ final class AppState: ObservableObject {
         cardService.attach(webSocketService: webSocketService)
         webSocketService.$state.assign(to: &$connectionState)
         cardService.$pendingCount.assign(to: &$pendingCount)
+        cardService.$stuckSentCount.assign(to: &$stuckSentCount)
         networkMonitor.onBecameOnline = { [weak self] in
             self?.webSocketService.reconnectIfNeeded()
         }
