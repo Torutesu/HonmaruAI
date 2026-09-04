@@ -127,3 +127,33 @@ test("signup will not redeem an expired invite either", async () => {
   });
   expect(result.error).toBeTruthy();
 });
+
+test("a code is spent after its permitted number of uses", async () => {
+  const { acceptInvite } = await import("../src/auth.js");
+  const { upsertUser } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "7101", login: "first", name: "First", avatarUrl: null, locale: "en" });
+  await upsertUser(env.DB, { githubId: "7102", login: "second", name: "Second", avatarUrl: null, locale: "en" });
+
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code, maxUses } = await res.json();
+  // One by default: a leaked link should admit one stranger, not a stream.
+  expect(maxUses).toBe(1);
+
+  expect((await acceptInvite(env, { code, userId: "7101" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "7102" })).error).toBeTruthy();
+});
+
+test("a code can be issued for several people when asked", async () => {
+  const { acceptInvite } = await import("../src/auth.js");
+  const { upsertUser } = await import("../src/db.js");
+  for (const id of ["7201", "7202", "7203"]) {
+    await upsertUser(env.DB, { githubId: id, login: `u${id}`, name: id, avatarUrl: null, locale: "en" });
+  }
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG, uses: 2 }), env);
+  const { code, maxUses } = await res.json();
+  expect(maxUses).toBe(2);
+
+  expect((await acceptInvite(env, { code, userId: "7201" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "7202" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "7203" })).error).toBeTruthy();
+});

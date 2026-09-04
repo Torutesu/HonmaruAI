@@ -50,7 +50,11 @@ CREATE TABLE IF NOT EXISTS invites (
   created_by     TEXT NOT NULL,
   role           TEXT NOT NULL DEFAULT 'member',
   created_at     TEXT NOT NULL,
-  expires_at     TEXT
+  expires_at     TEXT,
+  /* A code is a bearer credential: whoever holds it joins. The TTL bounds how
+     long a leaked one lasts, the cap bounds how many strangers it admits. */
+  max_uses       INTEGER NOT NULL DEFAULT 1,
+  uses           INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_invites_org ON invites (org_id);

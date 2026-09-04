@@ -9,6 +9,17 @@ const ENC = new TextEncoder();
 // How long an invite stays redeemable.
 const INVITE_TTL_DAYS = 7;
 
+// Sessions carry a GitHub access token. An email account has none, so it gets
+// this marker in that column instead. Anything that would spend the token has
+// to ask first — sending this string to GitHub buys a 401 and an error message
+// written for someone else's problem.
+export const EMAIL_AUTH_TOKEN = "email-auth";
+
+export function isGitHubSession(session) {
+  const token = session?.github_access_token;
+  return Boolean(token) && token !== EMAIL_AUTH_TOKEN;
+}
+
 // Ordered so an invite can be compared against the inviter's own standing.
 // Everything outside this map is not a role.
 const ROLE_RANK = new Map([
@@ -91,12 +102,8 @@ export async function signup(env, { email, password, name, inviteCode }) {
   let org;
   let joinRole = "member";
   if (inviteCode?.trim()) {
-    const invite = await env.DB
-      .prepare("SELECT org_id, role, expires_at FROM invites WHERE code = ?1")
-      .bind(inviteCode.trim())
-      .first();
-    const expired = invite?.expires_at && new Date(invite.expires_at) < new Date();
-    if (!invite || expired) return { error: "That invite code is not valid." };
+    const invite = await claimInvite(env.DB, inviteCode.trim());
+    if (!invite) return { error: "That invite code is not valid." };
     org = invite.org_id;
     joinRole = invite.role || "member";
   } else {
@@ -107,7 +114,7 @@ export async function signup(env, { email, password, name, inviteCode }) {
     joinRole = "admin";
   }
   await upsertMembership(env.DB, org, userId, joinRole);
-  const token = await createSession(env.DB, userId, "email-auth");
+  const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
   return { token, userId, login, orgId: org };
 }
 
@@ -126,13 +133,33 @@ export async function login(env, { email, password }) {
   const attempt = await hashPassword(password, row.password_salt);
   if (!safeEqual(attempt, row.password_hash)) return { error: "Invalid email or password." };
 
-  const token = await createSession(env.DB, row.github_id, "email-auth");
+  const token = await createSession(env.DB, row.github_id, EMAIL_AUTH_TOKEN);
   return { token, userId: row.github_id, login: row.login };
 }
 
 
 // Create a reusable invite code for an org. Any current member can make one.
-export async function createInvite(env, { orgId, createdBy, role }) {
+
+// Spend one use of a code, atomically. Checking the count and then writing it
+// lets two concurrent redemptions both see room on a single-use code; making
+// the condition part of the UPDATE lets the database decide who got there
+// first. Returns the invite when the use was granted, null when it was not.
+async function claimInvite(db, code) {
+  const row = await db
+    .prepare("SELECT org_id, role, expires_at, max_uses, uses FROM invites WHERE code = ?1")
+    .bind(code)
+    .first();
+  if (!row) return null;
+  if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
+  const { meta } = await db
+    .prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?1 AND uses < max_uses")
+    .bind(code)
+    .run();
+  if (!meta?.changes) return null;
+  return row;
+}
+
+export async function createInvite(env, { orgId, createdBy, role, uses }) {
   if (!orgId) return { error: "Missing team." };
   // 16 bytes, and the org is not in the code. Three bytes with the org name as
   // a known prefix is 16.7M guesses against an endpoint that grants membership
@@ -155,28 +182,26 @@ export async function createInvite(env, { orgId, createdBy, role }) {
   const inviteRole = requested;
   // Invites expire. A code that works forever is a permanent unaudited way in,
   // and the only way to close it would be deleting the row by hand.
+  // One by default: an invite is normally "join my team", sent to one person.
+  // Unlimited was the old behaviour and is the wrong default for something
+  // whoever holds it can spend.
+  const maxUses = Math.min(Math.max(parseInt(uses, 10) || 1, 1), 50);
   const now = new Date();
   const expires = new Date(now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
   await env.DB
-    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
-    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString())
+    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses)
     .run();
-  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString() };
+  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses };
 }
 
 // Redeem an invite code: look it up, add the user to that org.
 export async function acceptInvite(env, { code, userId }) {
   if (!code || !userId) return { error: "Missing code." };
-  const row = await env.DB
-    .prepare("SELECT org_id, role, expires_at FROM invites WHERE code = ?1")
-    .bind(code.trim())
-    .first();
-  // One message for "no such code" and "expired": distinguishing them tells a
+  // One message for unknown, expired and spent: distinguishing them tells a
   // guesser which of their guesses was once real.
+  const row = await claimInvite(env.DB, code.trim());
   if (!row) return { error: "That invite code is not valid." };
-  if (row.expires_at && new Date(row.expires_at) < new Date()) {
-    return { error: "That invite code is not valid." };
-  }
   // upsertMembership assigns the role outright, so redeeming a member link for
   // an org you already administer used to demote you. An invite can add you,
   // and can raise you, but must never take standing away.

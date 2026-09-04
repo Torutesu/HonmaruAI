@@ -1,6 +1,6 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
-import { signup, login, createInvite, acceptInvite } from "./auth.js";
+import { signup, login, createInvite, acceptInvite, isGitHubSession } from "./auth.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
@@ -149,7 +149,7 @@ async function handle(request, env, url) {
       if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
         return json({ message: "You are not a member of this organization." }, 403);
       }
-      const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role });
+      const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: body.uses });
       if (result.error) return json({ message: result.error }, 400);
       return json(result);
     }
@@ -336,6 +336,15 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       const orgId = `${owner}/${repo}`;
+      // An email account has no GitHub token, so this call would return a 401
+      // and we would hand back GitHub's wording for a problem that is ours to
+      // explain. The limitation is real — a repo-backed org's membership comes
+      // from GitHub — so say that, at the point where we still know why.
+      if (!isGitHubSession(session)) {
+        return json({
+          message: "This organization's members come from a GitHub repository. Sign in with GitHub to view them.",
+        }, 400);
+      }
       let collaborators;
       try {
         collaborators = await fetchCollaborators(session.github_access_token, owner, repo);
