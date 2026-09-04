@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login ON users(login);
+
 CREATE TABLE IF NOT EXISTS orgs (
   id            TEXT PRIMARY KEY,
   name          TEXT NOT NULL,

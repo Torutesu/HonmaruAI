@@ -77,3 +77,14 @@ test("two emails with the same local part get different identities", async () =>
 
   expect(a.login).not.toBe(b.login);
 });
+
+test("two users cannot share a relay identity", async () => {
+  const { upsertUser } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "8001", login: "taken", name: "First", avatarUrl: null, locale: "en" });
+
+  // A second, different user claiming the same login must be rejected by the
+  // database, not merely avoided by how signup happens to derive the value.
+  await expect(
+    upsertUser(env.DB, { githubId: "8002", login: "taken", name: "Second", avatarUrl: null, locale: "en" })
+  ).rejects.toThrow();
+});

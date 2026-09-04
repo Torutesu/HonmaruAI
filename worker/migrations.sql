@@ -25,3 +25,9 @@ ALTER TABLE invites ADD COLUMN expires_at TEXT;
 /* Must come after the ALTER above: indexing a column that does not exist is
    the exact failure this file is here to prevent. */
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+/* login is the relay's wire identity: sendTo() matches a socket on exactly
+   this string, so two users sharing one is two people answering to the same
+   address. Derivation makes it unique today; the constraint is what keeps it
+   that way when the next sign-in path is added. */
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login ON users(login);
