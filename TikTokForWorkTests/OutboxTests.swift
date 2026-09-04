@@ -108,4 +108,46 @@ final class OutboxTests: XCTestCase {
         let serialized = outbox.drain().map { String(describing: $0.envelope) }.joined()
         XCTAssertFalse(serialized.contains("sessionToken"))
     }
+
+    // A join snapshot is the server's whole truth. The app used to refuse an
+    // empty one so an offline decision would survive it, which meant a device
+    // whose organization had cleared its cards kept showing them forever. These
+    // are what makes taking the snapshot at face value safe.
+    @MainActor
+    func testTheQueueCanNameTheCardsTheRelayHasNotSeen() {
+        let outbox = makeOutbox()
+        outbox.append(.cardCreated(card("c-1")))
+        outbox.append(.cardUpdated(card("c-2", recipient: "carol")))
+        outbox.append(.contextUpdated(text: "not a card"))
+
+        let unsent = outbox.unsentCards()
+        XCTAssertEqual(unsent.map(\.id), ["c-1", "c-2"])
+        XCTAssertEqual(unsent.last?.recipientUserID, "carol")
+        // Reading the queue must not consume it: these still have to be sent.
+        XCTAssertEqual(outbox.count, 3)
+    }
+
+    @MainActor
+    func testADeletionThatHasNotBeenSentIsNamedToo() {
+        let outbox = makeOutbox()
+        outbox.append(.cardDeleted(cardID: "c-9", recipientUserID: "bob"))
+        outbox.append(.cardCreated(card("c-1")))
+
+        XCTAssertEqual(outbox.unsentDeletions(), ["c-9"])
+        XCTAssertEqual(outbox.unsentCards().map(\.id), ["c-1"])
+    }
+
+    // Dates go out ISO 8601 and have to come back the same.
+    @MainActor
+    func testACardSurvivesTheRoundTripThroughTheQueue() {
+        let outbox = makeOutbox()
+        let original = card("c-round")
+        outbox.append(.cardCreated(original))
+
+        let back = outbox.unsentCards().first
+        XCTAssertEqual(back?.id, original.id)
+        XCTAssertEqual(back?.title, original.title)
+        XCTAssertEqual(back?.priority, original.priority)
+        XCTAssertEqual(back?.createdAt.timeIntervalSince1970, original.createdAt.timeIntervalSince1970, accuracy: 1)
+    }
 }

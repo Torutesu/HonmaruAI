@@ -519,6 +519,13 @@ final class WebSocketService: ObservableObject {
         outbox.clear()
     }
 
+    /// Local changes the relay has not seen. The card store re-applies these on
+    /// top of a join snapshot, which is what lets it take the snapshot at face
+    /// value rather than refusing an empty one.
+    func unsentWork() -> (cards: [DecisionCard], deletions: Set<String>) {
+        (outbox.unsentCards(), outbox.unsentDeletions())
+    }
+
     private func flushOutbox() async {
         for event in outbox.drain() {
             do {
@@ -715,7 +722,9 @@ private extension JSONEncoder {
     }()
 }
 
-private extension ISO8601DateFormatter {
+// Internal, not private: the outbox decodes the same cards back out of its
+// queue and has to read the same two spellings of a timestamp.
+extension ISO8601DateFormatter {
     static let standard: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]

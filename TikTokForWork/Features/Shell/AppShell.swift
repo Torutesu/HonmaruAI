@@ -19,6 +19,10 @@ struct AppShell: View {
     @State private var feedCardCount = 0
     @State private var feedCardIndex = 0
     @State private var showConnectGitHub = false
+    /// The recording could not be uploaded, so the card went without it. Said
+    /// out loud, because a clip that quietly does not arrive looks exactly like
+    /// one that did.
+    @State private var videoUploadFailed = false
 
     var body: some View {
         ZStack {
@@ -83,6 +87,11 @@ struct AppShell: View {
             }
             .environmentObject(appState)
         }
+        .alert("Your recording did not upload", isPresented: $videoUploadFailed) {
+            Button("OK", role: .cancel) { videoUploadFailed = false }
+        } message: {
+            Text("The decision was sent without it. The clip is still on this phone.")
+        }
     }
 
     /// Keeps the clip locally first, so a failed upload still plays back, then
@@ -96,10 +105,19 @@ struct AppShell: View {
             // Compress before upload: R2 bills stored bytes, and a raw capture is
             // ~20x larger than a 960x540 export of the same talking-head clip.
             let toUpload = await MediaStore.compress(local ?? video)
-            if let base = appState.backendBaseURL {
-                uploaded = try? await MediaUploader.upload(toUpload, to: base)
+            if let base = appState.backendBaseURL, !appState.isGuest {
+                uploaded = await MediaUploader.uploadWithRetries(toUpload, to: base)
+            } else if appState.isGuest {
+                // Nobody else is going to watch this one, so the local file is
+                // the right answer rather than a poor stand-in for an upload.
+                uploaded = local?.absoluteString
             }
-            if uploaded == nil { uploaded = local?.absoluteString }
+            // A failed upload leaves the card without a video. It used to get
+            // the local path instead — a URL inside this phone's sandbox, on a
+            // card that goes to somebody else's phone, where it resolves to
+            // nothing. The clip is still kept on the device; what is not kept
+            // is the card's claim to a recording nobody can watch.
+            videoUploadFailed = video != nil && uploaded == nil && !appState.isGuest
         }
         captured = CaptureRequest(text: text, videoURL: uploaded)
     }

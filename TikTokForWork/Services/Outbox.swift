@@ -63,6 +63,57 @@ final class Outbox {
         persist()
     }
 
+    /// The cards in the queue that the relay has not seen yet, oldest first.
+    ///
+    /// A join snapshot is the server's whole truth, and adopting it used to
+    /// mean discarding a decision made offline seconds earlier — so the app
+    /// refused any empty snapshot instead, which left a device showing cards
+    /// its organization had deleted. These are what makes taking the snapshot
+    /// safe: the local changes still in flight, re-applied on top of it, so the
+    /// feed is the server's answer plus your own unsent work and nothing else.
+    func unsentCards() -> [DecisionCard] {
+        pending.compactMap { entry -> DecisionCard? in
+            guard let object = try? JSONSerialization.jsonObject(with: entry.envelope) as? [String: Any],
+                  let type = object["type"] as? String,
+                  type == "card_created" || type == "card_updated",
+                  let payload = object["payload"] as? [String: Any],
+                  let card = payload["card"]
+            else { return nil }
+            guard let data = try? JSONSerialization.data(withJSONObject: card) else { return nil }
+            return try? Outbox.cardDecoder.decode(DecisionCard.self, from: data)
+        }
+    }
+
+    /// Cards deleted locally whose deletion has not reached the relay. Without
+    /// these a snapshot would put a deleted card back on screen.
+    func unsentDeletions() -> Set<String> {
+        var ids: Set<String> = []
+        for entry in pending {
+            guard let object = try? JSONSerialization.jsonObject(with: entry.envelope) as? [String: Any],
+                  object["type"] as? String == "card_deleted",
+                  let payload = object["payload"] as? [String: Any],
+                  let id = payload["cardId"] as? String
+            else { continue }
+            ids.insert(id)
+        }
+        return ids
+    }
+
+    /// Matches how cards are written into the queue: ISO 8601, fractional
+    /// seconds or not.
+    private nonisolated static let cardDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            for formatter in [ISO8601DateFormatter.fractional, ISO8601DateFormatter.standard] {
+                if let date = formatter.date(from: value) { return date }
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(value)")
+        }
+        return decoder
+    }()
+
     // MARK: - Storage
 
     /// Nonisolated so it can be passed to `compactMap` as a plain function.

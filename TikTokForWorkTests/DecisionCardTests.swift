@@ -106,4 +106,38 @@ final class DecisionCardTests: XCTestCase {
         XCTAssertFalse(linked.showsGitHubLink(for: "other/repo"))
         XCTAssertFalse(linked.showsGitHubLink(for: ""))
     }
+
+    // The relay requires two fields on a card: an id and a recipient. Everything
+    // else it accepts as absent — a connector-ingested item with no summary, a
+    // card from the reference web client with no explicit status, a value in an
+    // enum this build has never heard of. Each of those used to make the whole
+    // card fail to decode, and a card that fails to decode is a decision that
+    // never appears on anyone's phone.
+    func testACardMissingEverythingOptionalStillDecodes() throws {
+        let json = Data(#"{"id":"c-1","recipientUserID":"bob"}"#.utf8)
+        let card = try JSONDecoder().decode(DecisionCard.self, from: json)
+
+        XCTAssertEqual(card.id, "c-1")
+        XCTAssertEqual(card.recipientUserID, "bob")
+        XCTAssertEqual(card.summary, "")
+        XCTAssertEqual(card.status, .pending)
+        XCTAssertEqual(card.priority, .medium)
+        XCTAssertEqual(card.type, .task)
+    }
+
+    func testAnUnknownStatusIsShownAsTheNearestThingRatherThanDroppingTheCard() throws {
+        let json = Data(#"{"id":"c-2","recipientUserID":"bob","status":"escalated","priority":"critical","type":"poll"}"#.utf8)
+        let card = try JSONDecoder().decode(DecisionCard.self, from: json)
+
+        XCTAssertEqual(card.id, "c-2")
+        XCTAssertEqual(card.status, .pending)
+        XCTAssertEqual(card.priority, .medium)
+        XCTAssertEqual(card.type, .task)
+    }
+
+    func testACardWithNoIdIsStillRefused() {
+        let json = Data(#"{"recipientUserID":"bob","title":"Ship it"}"#.utf8)
+        // Not a card. The relay will not store one either.
+        XCTAssertThrowsError(try JSONDecoder().decode(DecisionCard.self, from: json))
+    }
 }

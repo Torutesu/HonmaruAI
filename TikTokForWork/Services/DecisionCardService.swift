@@ -64,13 +64,46 @@ final class DecisionCardService: ObservableObject {
         changed()
     }
 
+    /// The relay's answer becomes the feed, plus whatever of yours has not
+    /// reached it yet.
+    ///
+    /// The snapshot used to be refused whenever it was empty and the cache was
+    /// not, because adopting it would throw away a decision made offline
+    /// seconds earlier. That guarded the right thing the wrong way round: a
+    /// device whose organization had genuinely cleared its cards kept showing
+    /// them forever, and every card the relay had deleted came back on the next
+    /// launch. An empty snapshot from a relay that has just authorized you is
+    /// an answer, not an absence.
+    ///
+    /// So the snapshot is taken as it comes, and the outbox — the local changes
+    /// still waiting to be sent — is re-applied on top. Nothing of yours is
+    /// lost, and nothing of theirs is ignored.
     func applySnapshot(_ incoming: [String: [DecisionCard]]) {
-        // An empty snapshot is not the same as "there is nothing". It is what a
-        // relay sends before anything has been published, and adopting it would
-        // wipe a cache that is currently the only copy of the user's feed.
-        if incoming.isEmpty, !cardsByUser.isEmpty { return }
         cardsByUser = incoming
+        let unsent = webSocketService?.unsentWork()
+        for card in unsent?.cards ?? [] { upsertLocally(card) }
+        for id in unsent?.deletions ?? [] { removeLocally(cardID: id) }
         changed()
+    }
+
+    /// Place a card into the store without publishing it. Used only to put the
+    /// outbox back on top of a snapshot: these have already been queued for the
+    /// relay, and sending them again from here would be a second copy of the
+    /// same change.
+    private func upsertLocally(_ card: DecisionCard) {
+        var cards = cardsByUser[card.recipientUserID, default: []]
+        if let index = cards.firstIndex(where: { $0.id == card.id }) {
+            cards[index] = card
+        } else {
+            cards.insert(card, at: 0)
+        }
+        cardsByUser[card.recipientUserID] = cards
+    }
+
+    private func removeLocally(cardID: String) {
+        for (user, cards) in cardsByUser where cards.contains(where: { $0.id == cardID }) {
+            cardsByUser[user] = cards.filter { $0.id != cardID }
+        }
     }
 
     func bootstrap(for user: User) {

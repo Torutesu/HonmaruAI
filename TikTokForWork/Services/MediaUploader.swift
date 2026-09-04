@@ -32,4 +32,27 @@ enum MediaUploader {
 
         return try JSONDecoder().decode(Response.self, from: data).url
     }
+
+    /// The same upload, given a few chances.
+    ///
+    /// A recording is a minute of someone's time and there is no second take,
+    /// so a phone that dropped to one bar mid-upload is worth waiting out. Four
+    /// attempts, backing off, and then nil — never a local `file://` path
+    /// dressed up as the card's video, which is what used to happen: the
+    /// recipient's phone cannot resolve a path inside the sender's sandbox, so
+    /// the card claimed a recording that only one person in the world could
+    /// watch.
+    static func uploadWithRetries(_ file: URL, to backendBaseURL: URL) async -> String? {
+        var delay: UInt64 = 1_000_000_000
+        for attempt in 1...4 {
+            do {
+                return try await upload(file, to: backendBaseURL)
+            } catch {
+                guard attempt < 4 else { return nil }
+                try? await Task.sleep(nanoseconds: delay)
+                delay *= 2
+            }
+        }
+        return nil
+    }
 }

@@ -178,3 +178,52 @@ struct DecisionCard: Identifiable, Codable, Hashable {
         return githubIssueURL.contains("github.com/\(repository)/")
     }
 }
+
+/// Decoding a card the way the relay stores one.
+///
+/// In an extension, not the struct body: an initializer written inside a struct
+/// suppresses the memberwise one, and every place in the app that builds a card
+/// uses it.
+extension DecisionCard {
+    /// Swift's synthesized decoder requires every non-optional field. The relay
+    /// requires two — an id and a recipient — and accepts the rest as absent: a
+    /// connector-ingested item with no summary, a card from the reference web
+    /// client with no explicit status, a value in an enum this build has never
+    /// heard of. Each of those made the whole card fail to decode, and a card
+    /// that fails to decode is a decision that never appears on anyone's phone.
+    /// Better an empty summary than a missing decision.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try c.decode(String.self, forKey: .id),
+            recipientUserID: try c.decode(String.self, forKey: .recipientUserID),
+            senderUserID: (try? c.decodeIfPresent(String.self, forKey: .senderUserID)) ?? "",
+            originSenderUserID: (try? c.decodeIfPresent(String.self, forKey: .originSenderUserID)),
+            // A value this build does not know is shown as the nearest thing it
+            // does. `decodeIfPresent` throws on an unrecognised raw value, so
+            // these go through `try?` rather than trusting it to return nil.
+            type: (try? c.decodeIfPresent(CardType.self, forKey: .type)) ?? .task,
+            title: (try? c.decodeIfPresent(String.self, forKey: .title)) ?? "",
+            summary: (try? c.decodeIfPresent(String.self, forKey: .summary)) ?? "",
+            context: (try? c.decodeIfPresent(String.self, forKey: .context)) ?? "",
+            status: (try? c.decodeIfPresent(CardStatus.self, forKey: .status)) ?? .pending,
+            priority: (try? c.decodeIfPresent(CardPriority.self, forKey: .priority)) ?? .medium,
+            createdAt: (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date(),
+            githubIssueNumber: (try? c.decodeIfPresent(Int.self, forKey: .githubIssueNumber)),
+            githubIssueURL: (try? c.decodeIfPresent(String.self, forKey: .githubIssueURL)),
+            githubRepository: (try? c.decodeIfPresent(String.self, forKey: .githubRepository)),
+            agentRoute: (try? c.decodeIfPresent(String.self, forKey: .agentRoute)),
+            routingReason: (try? c.decodeIfPresent(String.self, forKey: .routingReason)),
+            sourceInstruction: (try? c.decodeIfPresent(String.self, forKey: .sourceInstruction)),
+            labels: (try? c.decodeIfPresent([String].self, forKey: .labels)),
+            revisionNote: (try? c.decodeIfPresent(String.self, forKey: .revisionNote)),
+            sourceApp: (try? c.decodeIfPresent(String.self, forKey: .sourceApp)),
+            sourceDetail: (try? c.decodeIfPresent(String.self, forKey: .sourceDetail)),
+            originalBody: (try? c.decodeIfPresent(String.self, forKey: .originalBody)),
+            originalLanguage: (try? c.decodeIfPresent(String.self, forKey: .originalLanguage)),
+            videoURL: (try? c.decodeIfPresent(String.self, forKey: .videoURL)),
+            decision: (try? c.decodeIfPresent(Decision.self, forKey: .decision)),
+            githubSyncPending: (try? c.decodeIfPresent(Bool.self, forKey: .githubSyncPending))
+        )
+    }
+}

@@ -12,6 +12,12 @@ struct ConnectorsView: View {
     @State private var databases: [NotionDatabase] = []
     @State private var chosenDatabase: String?
     private let webAuth = WebAuthContextProvider()
+    /// The authorization session has to be held while it is on screen. As a
+    /// local inside `authorize` it went out of scope the moment `start()`
+    /// returned, and a deallocated session takes its callback with it — the
+    /// continuation below then never resumes and the connect button spins
+    /// forever.
+    @State private var authSession: ASWebAuthenticationSession?
 
     var body: some View {
         ScrollView {
@@ -145,14 +151,27 @@ struct ConnectorsView: View {
     /// the real answer comes from re-reading the status afterwards.
     private func authorize(_ url: URL) async throws -> Bool {
         try await withCheckedThrowingContinuation { continuation in
+            var resumed = false
             let session = ASWebAuthenticationSession(
                 url: url, callbackURLScheme: "tiktokforwork"
             ) { _, _ in
+                // Cancelling is not an error here: whether the connection was
+                // made is decided by re-reading the status, not by what the
+                // browser handed back.
+                guard !resumed else { return }
+                resumed = true
                 continuation.resume(returning: true)
             }
             session.presentationContextProvider = webAuth
             session.prefersEphemeralWebBrowserSession = false
-            session.start()
+            authSession = session
+            // A session that refuses to start never calls back, and a
+            // continuation nobody resumes is a spinner that never stops.
+            if !session.start(), !resumed {
+                resumed = true
+                authSession = nil
+                continuation.resume(returning: false)
+            }
         }
     }
 }
