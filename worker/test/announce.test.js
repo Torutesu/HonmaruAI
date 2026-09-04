@@ -79,12 +79,12 @@ test("the relay pushes an announced card to the sockets already open", async () 
   ));
   expect(res.status).toBe(200);
 
-  // Everyone in the org sees the state change; only the person who has to
-  // decide is asked to.
+  // The person the card is for sees the state change and is asked to decide.
   expect(watcher.sent.some((m) => m.includes("STATE_DELTA") && m.includes("c-from-sync"))).toBe(true);
-  expect(bystander.sent.some((m) => m.includes("STATE_DELTA"))).toBe(true);
-  expect(bystander.sent.some((m) => m.includes("TOOL_CALL_START"))).toBe(false);
   expect(watcher.sent.some((m) => m.includes("TOOL_CALL_START"))).toBe(true);
-  // A different organization hears nothing.
+  // The colleague on the next desk hears nothing at all. This card came out of
+  // someone's inbox, and its title is whatever the sender wrote there.
+  expect(bystander.sent).toHaveLength(0);
+  // A different organization hears nothing either.
   expect(otherOrg.sent).toHaveLength(0);
 });

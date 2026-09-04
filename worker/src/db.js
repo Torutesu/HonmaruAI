@@ -1,10 +1,23 @@
 // Loads the legacy store shape { [recipientUserID]: card[] } for one org,
 // so the copied adapter.js functions can operate on it unchanged.
-export async function loadStore(db, orgId) {
-  const { results } = await db
-    .prepare("SELECT data FROM cards WHERE org_id = ?1")
-    .bind(orgId)
-    .all();
+//
+/// With a `login`, only the cards that person is party to: the ones addressed
+/// to them and the ones they sent. Without one, the whole organization.
+///
+/// The socket always passes a login. It did not used to, and the join snapshot
+/// was therefore every decision the organization had ever made, handed to every
+/// member's device — salaries, contracts, client escalations — with the app
+/// filtering by recipient on the way in. Filtering on the client is not access
+/// control; it is a request that the client please not look.
+export async function loadStore(db, orgId, login) {
+  const statement = login
+    ? db
+        .prepare(
+          "SELECT data FROM cards WHERE org_id = ?1 AND (recipient_user_id = ?2 OR sender_user_id = ?2)"
+        )
+        .bind(orgId, login)
+    : db.prepare("SELECT data FROM cards WHERE org_id = ?1").bind(orgId);
+  const { results } = await statement.all();
   const store = {};
   for (const row of results) {
     const card = JSON.parse(row.data);

@@ -75,7 +75,7 @@ export class OrgRelay {
       for (const card of cards) {
         if (!card?.id) continue;
         const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
-        for (const ev of forEveryone) this.broadcast(orgId, ev);
+        for (const ev of forEveryone) this.sendToParties(orgId, card, ev);
         for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
       }
       return new Response(JSON.stringify({ announced: cards.length }), {
@@ -110,6 +110,26 @@ export class OrgRelay {
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
       if (att?.orgId === orgId && ws !== exclude) OrgRelay.deliver(ws, text);
+    }
+  }
+
+  /// Deliver a card event to the people it concerns.
+  ///
+  /// A decision names two people: whoever asked and whoever has to answer.
+  /// Everything about a card used to go to every socket in the organization,
+  /// with the app filtering by recipient on the way in — so a card that named a
+  /// salary, a contract or a client sat in the cache of every phone on the
+  /// team, and any of them could read it straight out of the join snapshot.
+  ///
+  /// Presence and shared context still go to everyone: they are about the room,
+  /// not about a decision.
+  sendToParties(orgId, card, obj) {
+    const parties = new Set([card?.recipientUserID, card?.senderUserID].filter(Boolean));
+    if (!parties.size) return this.broadcast(orgId, obj);
+    const text = typeof obj === "string" ? obj : JSON.stringify(obj);
+    for (const ws of this.state.getWebSockets()) {
+      const att = ws.deserializeAttachment();
+      if (att?.orgId === orgId && parties.has(att.userId)) OrgRelay.deliver(ws, text);
     }
   }
 
@@ -240,7 +260,7 @@ export class OrgRelay {
 
       const userId = access.login;
       ws.serializeAttachment({ orgId, userId, githubId: String(session.github_id), agui, authed: true });
-      const store = await loadStore(this.db, orgId);
+      const store = await loadStore(this.db, orgId, userId);
       const contexts = await loadContexts(this.db, orgId);
       for (const ev of joinEvents(userId, store, contexts)) ws.send(JSON.stringify(ev));
       // Once, not twice. Presence went out in both dialects to every socket
@@ -286,7 +306,7 @@ export class OrgRelay {
             return;
           }
           const { forEveryone } = upsertEvents(existing, { isNew: false });
-          for (const ev of forEveryone) this.broadcast(orgId, ev);
+          for (const ev of forEveryone) this.sendToParties(orgId, existing, ev);
           return;
         }
         // You may route a decision to anyone in the org, but only ever as
@@ -367,7 +387,7 @@ export class OrgRelay {
         })
       );
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
-      for (const ev of forEveryone) this.broadcast(orgId, ev);
+      for (const ev of forEveryone) this.sendToParties(orgId, card, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
       return;
     }
@@ -414,7 +434,7 @@ export class OrgRelay {
         cardId, type: "synced", actorUserId: att.userId, snapshot: card,
       });
       const { forEveryone } = upsertEvents(card, { isNew: false });
-      for (const ev of forEveryone) this.broadcast(orgId, ev);
+      for (const ev of forEveryone) this.sendToParties(orgId, card, ev);
       return;
     }
 
@@ -431,7 +451,9 @@ export class OrgRelay {
           cardId: doomed.id, type: "deleted", actorUserId: att.userId, snapshot: doomed,
         });
       }
-      for (const ev of removeEvents(payload.cardId)) this.broadcast(orgId, ev);
+      // A removal carries an id and nothing else, so it is safe to tell the
+      // room when we no longer know whose card it was.
+      for (const ev of removeEvents(payload.cardId)) this.sendToParties(orgId, doomed, ev);
       return;
     }
 
@@ -459,7 +481,7 @@ export class OrgRelay {
         ws.send(JSON.stringify(runError("Only the recipient can undo this decision.")));
         return;
       }
-      const store = await loadStore(this.db, orgId);
+      const store = await loadStore(this.db, orgId, att.userId);
       const before = JSON.parse(JSON.stringify(
         Object.values(store).flat().find((item) => item.id === payload.cardId) || null
       ));
@@ -472,9 +494,9 @@ export class OrgRelay {
         actorUserId: att.userId,
         snapshot: before || card,
       });
-      this.broadcast(orgId, notice);
+      this.sendToParties(orgId, card, notice);
       const { forEveryone } = upsertEvents(card, { isNew: false });
-      for (const ev of forEveryone) this.broadcast(orgId, ev);
+      for (const ev of forEveryone) this.sendToParties(orgId, card, ev);
       return;
     }
 
@@ -492,7 +514,7 @@ export class OrgRelay {
   }
 
   async applyAndPublish(orgId, content, toolCallId, actorUserId) {
-    const store = await loadStore(this.db, orgId);
+    const store = await loadStore(this.db, orgId, actorUserId);
     if (actorUserId && content?.cardId) {
       const target = await getCard(this.db, orgId, content.cardId);
       if (target && target.recipientUserID !== actorUserId) {
@@ -506,7 +528,7 @@ export class OrgRelay {
         cardId: out.card.id, type: "deleted", action: content.action,
         actorUserId: content.actorUserID, note: content.note, snapshot: out.card,
       });
-      for (const ev of removeEvents(out.card.id)) this.broadcast(orgId, ev);
+      for (const ev of removeEvents(out.card.id)) this.sendToParties(orgId, out.card, ev);
     } else if (!out.unchanged) {
       await saveCard(this.db, orgId, out.card);
       await this.log(orgId, {
@@ -538,9 +560,9 @@ export class OrgRelay {
         })
       );
       const { forEveryone } = upsertEvents(out.card, { isNew: false });
-      for (const ev of forEveryone) this.broadcast(orgId, ev);
+      for (const ev of forEveryone) this.sendToParties(orgId, out.card, ev);
     }
-    if (toolCallId) this.broadcast(orgId, toolCallResult(toolCallId, out.card));
+    if (toolCallId) this.sendToParties(orgId, out.card, toolCallResult(toolCallId, out.card));
   }
 
   async webSocketClose(ws) {

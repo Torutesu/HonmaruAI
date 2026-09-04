@@ -144,3 +144,56 @@ test("a card cannot be addressed to someone outside the organization", async () 
   }) } }));
   expect(await until(async () => stored("c-nobody"), 40)).toBeNull();
 });
+
+test("a card reaches the people it names, and nobody else", async () => {
+  // The join snapshot used to be every decision the organization had ever made,
+  // handed to every member's device, with the app filtering by recipient on the
+  // way in. Filtering on the client is not access control.
+  const { upsertUser, upsertMembership, createSession } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "4004", login: "bystander", name: "By", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, ORG, "4004", "Engineer");
+  const bystanderToken = await createSession(env.DB, "4004", "gho_by");
+
+  const { messages: bystanderMessages } = await joined(ORG, bystanderToken);
+  const { messages: graceMessages } = await joined(ORG, globalThis.__grace);
+  const { ws: ada } = await asAda();
+
+  ada.send(JSON.stringify({ type: "card_created", payload: { card: card("c-private", {
+    title: "Approve the salary band",
+  }) } }));
+
+  // The recipient hears about it.
+  expect(await message(graceMessages, (m) => JSON.stringify(m).includes("c-private"))).toBeTruthy();
+  // The colleague on the next desk does not.
+  expect(await until(async () => bystanderMessages.some((m) => JSON.stringify(m).includes("c-private")), 30))
+    .toBeNull();
+});
+
+test("a join hands over your own decisions, not the organization's", async () => {
+  const { saveCard, createSession } = await import("../src/db.js");
+  await saveCard(env.DB, ORG, {
+    id: "c-mine", recipientUserID: "grace", senderUserID: "ada",
+    status: "pending", title: "Yours to decide", priority: "high",
+    createdAt: "2026-09-01T00:00:00Z",
+  });
+  await saveCard(env.DB, ORG, {
+    id: "c-theirs", recipientUserID: "ada", senderUserID: "outsider",
+    status: "pending", title: "Not yours to read", priority: "high",
+    createdAt: "2026-09-01T00:00:00Z",
+  });
+
+  const { messages } = await joined(ORG, globalThis.__grace);
+  const snapshot = messages.find((m) => m.type === "STATE_SNAPSHOT");
+  const ids = Object.keys(snapshot.snapshot.cardsById);
+  expect(ids).toContain("c-mine");
+  expect(ids).not.toContain("c-theirs");
+
+  // And the same again for the person on the other side of it.
+  const adaToken = globalThis.__ada;
+  expect(adaToken).toBeTruthy();
+  const { messages: adaMessages } = await joined(ORG, adaToken);
+  const adaIds = Object.keys(adaMessages.find((m) => m.type === "STATE_SNAPSHOT").snapshot.cardsById);
+  // Ada sent one and received the other, so she is party to both.
+  expect(adaIds).toEqual(expect.arrayContaining(["c-mine", "c-theirs"]));
+  expect(createSession).toBeTruthy();
+});

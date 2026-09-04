@@ -33,7 +33,9 @@ shape = one schema value + one native component. No generated HTML, ever.
 ## Event mapping
 
 State on the wire is `{ cardsById: { [id]: card } }` — keyed by id so JSON
-Patch paths never depend on array order.
+Patch paths never depend on array order. It is **one person's** state: the
+cards they were sent and the cards they sent, and nothing else. A card names
+two people, and everything about it goes to those two.
 
 | Happening | Legacy dialect (unchanged) | AG-UI dialect |
 |---|---|---|

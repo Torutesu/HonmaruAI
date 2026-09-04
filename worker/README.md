@@ -57,6 +57,24 @@ negotiable:
   route to anyone in the org, only ever as yourself.
 - **Only the recipient** can decide, delete or undo a card, and a decision is
   attributed to whoever made it. Delegation is a new card, not a moved one.
+- **A card only reaches the people it names.** The join snapshot is the cards
+  you were sent and the cards you sent; every later patch goes to those two
+  people. It used to be the whole organization, filtered by recipient in the
+  app — so a card naming a salary, a contract or a client sat in the cache of
+  every phone on the team, and any of them could read it out of the snapshot.
+  Presence and shared context still go to everyone: they are about the room,
+  not about a decision.
+- **An id that is taken is not a new card.** `card_created` onto an existing id
+  is refused unless you sent that card, in which case it is answered with the
+  stored card — the outbox replays on reconnect and has to stay idempotent.
+  `card_updated` merges only what a recipient decides with (status, decision,
+  revision note, context, priority, the GitHub fields); who asked, when, and
+  where it came from are the sender's account and are not the recipient's to
+  rewrite. An update to a card that is not there is refused rather than
+  treated as a create.
+- **A card can only be addressed to a member.** `device_tokens` is keyed by
+  login alone, so a card addressed across an org boundary is a push
+  notification, with the sender's chosen title, on a stranger's phone.
 - **`clear_store` does nothing.** It used to run `DELETE FROM cards` for the
   whole org, and the app sent it on every sign-out. It survives as a no-op so
   builds that still send it do not fail.
