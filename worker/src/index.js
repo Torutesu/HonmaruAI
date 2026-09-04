@@ -109,8 +109,19 @@ export default {
 
 async function handle(request, env, url) {
     if (url.pathname === "/health" && request.method === "GET") {
+      // A health check that only proves the Worker is running proves the one
+      // thing that was never in doubt: the deploy step already got a 200 back.
+      // Nothing here works without D1, so ask it.
+      let database = "ok";
+      try {
+        await env.DB.prepare("SELECT 1 AS ok").first();
+      } catch (err) {
+        database = "unreachable";
+        console.error("health: D1 unreachable", err?.message || err);
+      }
       return json({
-        ok: true,
+        ok: database === "ok",
+        database,
         orgId: "core-team",
         githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
         aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),

@@ -9,6 +9,7 @@ import {
   isMemberLogin, getUserByLogin, getOrgProfile,
 } from "./db.js";
 import { renderCardForRecipient } from "./render.js";
+import { logJSON, safe } from "./log.js";
 import { providerConfig } from "./provider.js";
 import { checkAIAllowance } from "./gate.js";
 import { appendCardEvent } from "./events.js";
@@ -254,7 +255,13 @@ export class OrgRelay {
       for (const ev of forEveryone) this.sendToParties(orgId, updated, ev);
     } catch (err) {
       if (err instanceof CardConflictError) return;
-      console.error("recipient render failed", err?.message || err);
+      logJSON({
+        source: "relay",
+        orgId,
+        userId: card?.recipientUserID || null,
+        messageType: "render-for-recipient",
+        error: safe(err?.message || err),
+      });
     }
   }
 
@@ -626,6 +633,18 @@ export class OrgRelay {
       return;
     }
     } catch (err) {
+      // A failure over the socket used to reach exactly one place: the client
+      // that caused it. `wrangler tail` showed nothing, so "the app says my
+      // decision did not go through" was unanswerable from the outside. The
+      // message is the one the throw site wrote — several are deliberate,
+      // user-facing copy — and the line beside it is what makes it findable.
+      logJSON({
+        source: "relay",
+        orgId,
+        userId: att.userId || null,
+        messageType: type || null,
+        error: safe(err?.message),
+      });
       try { ws.send(JSON.stringify(runError(err.message))); } catch {}
     }
   }
@@ -690,6 +709,13 @@ export class OrgRelay {
   }
 
   webSocketError(ws, err) {
-    console.error("ws error", err);
+    const att = ws.deserializeAttachment() || {};
+    logJSON({
+      source: "relay",
+      orgId: att.orgId || null,
+      userId: att.userId || null,
+      messageType: "socket-error",
+      error: safe(err?.message || err),
+    });
   }
 }

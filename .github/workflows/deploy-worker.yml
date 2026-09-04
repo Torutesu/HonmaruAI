@@ -73,15 +73,16 @@ jobs:
       # EXISTS, so applying it to the database that was built by hand is a
       # no-op rather than a conflict.
       #
-      # wrangler@4 explicitly: the pinned wrangler 3 fails `d1` commands with a
-      # 7403 "account is not authorized" that is a stale-client bug, not an auth
-      # problem, and reads exactly like a broken token.
+      # The devDependency is wrangler 4 now, so this is the same client the
+      # tests ran against. Wrangler 3 failed `d1` commands with a 7403 "account
+      # is not authorized" that was a stale-client bug rather than an auth
+      # problem, and read exactly like a broken token.
       - name: Migrate D1
-        run: npx -y wrangler@4 d1 migrations apply tiktokforwork --remote
+        run: npx wrangler d1 migrations apply tiktokforwork --remote
 
       - name: Deploy
         if: ${{ !inputs.migrate_only }}
-        run: npx -y wrangler@4 deploy
+        run: npx wrangler deploy
 
       - name: Verify
         if: ${{ !inputs.migrate_only }}
@@ -92,6 +93,8 @@ jobs:
             body="$(curl -fsS https://tiktokforwork.torubj0904.workers.dev/health || true)"
             if [ -n "$body" ]; then
               echo "$body"
+              # ok is false when D1 is unreachable, which is a deploy that
+              # serves 500s to every signed-in person.
               echo "$body" | grep -q '"ok":true' && exit 0
             fi
             sleep 5
