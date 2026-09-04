@@ -2278,6 +2278,17 @@
         }
       }
     },
+    "Passed to %@ by %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ から %1$@ へ引き継ぎ"
+          }
+        }
+      }
+    },
     "Pending": {
       "extractionState": "manual",
       "localizations": {

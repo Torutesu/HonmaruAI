@@ -329,6 +329,30 @@ final class DecisionCardService: ObservableObject {
 
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
+
+        // Down a delegation chain the sender is whoever handed the card on, not
+        // whoever needed the answer. A → B → C left A watching a card that said
+        // "delegated" and never hearing what C decided.
+        if let origin = card.originSenderUserID, origin != card.senderUserID, origin != actorUserID {
+            let forOrigin = DecisionCard(
+                id: UUID().uuidString,
+                recipientUserID: origin,
+                senderUserID: actorUserID,
+                type: .notification,
+                title: card.title,
+                summary: responseCard.summary,
+                context: String(localized: "Passed to \(DisplayName.of(actorUserID)) by \(DisplayName.of(card.senderUserID))"),
+                status: .pending,
+                priority: .medium,
+                createdAt: .now,
+                githubIssueNumber: card.githubIssueNumber,
+                githubIssueURL: card.githubIssueURL,
+                agentRoute: card.agentRoute,
+                routingReason: card.routingReason
+            )
+            append(forOrigin, for: origin)
+            await webSocketService?.publishCreated(forOrigin)
+        }
         changed()
 
         if wantsGitHub {
@@ -419,6 +443,8 @@ final class DecisionCardService: ObservableObject {
             id: UUID().uuidString,
             recipientUserID: recipientUserID,
             senderUserID: actorUserID,
+            // Whoever asked first stays named all the way down the chain.
+            originSenderUserID: card.originSenderUserID ?? card.senderUserID,
             type: .delegation,
             title: card.title,
             summary: card.summary,

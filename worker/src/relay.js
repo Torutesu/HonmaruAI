@@ -124,7 +124,9 @@ export class OrgRelay {
   /// Presence and shared context still go to everyone: they are about the room,
   /// not about a decision.
   sendToParties(orgId, card, obj) {
-    const parties = new Set([card?.recipientUserID, card?.senderUserID].filter(Boolean));
+    const parties = new Set(
+      [card?.recipientUserID, card?.senderUserID, card?.originSenderUserID].filter(Boolean)
+    );
     if (!parties.size) return this.broadcast(orgId, obj);
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
@@ -318,9 +320,14 @@ export class OrgRelay {
         // forever in everyone's snapshot; addressed to a login in a *different*
         // org it is a push notification, with an attacker's title, on a
         // stranger's phone — `device_tokens` is keyed by login alone.
-        if (!(await isMemberLogin(this.db, orgId, card.recipientUserID))) {
-          ws.send(JSON.stringify(runError("That person is not in this organization.")));
-          return;
+        // Both ends of the chain, for the same reason: a party to a card
+        // receives everything about it, so naming a stranger here would hand
+        // them a card and a notification.
+        for (const login of [card.recipientUserID, card.originSenderUserID].filter(Boolean)) {
+          if (!(await isMemberLogin(this.db, orgId, login))) {
+            ws.send(JSON.stringify(runError("That person is not in this organization.")));
+            return;
+          }
         }
       } else {
         // A card belongs to whoever has to decide it. Only they may change it,

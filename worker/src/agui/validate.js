@@ -19,7 +19,11 @@ export const ACTIONS = new Set(DECISION_ACTIONS);
 // Long enough for anything a person writes, short enough that a card cannot be
 // used to push a wall of text into everyone's feed — every member of the org
 // receives every card in the join snapshot.
-const LIMITS = { title: 300, summary: 2000, context: 8000, revisionNote: 2000, sourceDetail: 500 };
+const LIMITS = {
+  title: 300, summary: 2000, context: 8000, revisionNote: 2000, sourceDetail: 500,
+  // Who asked first, when this card is a hand-on of someone else's request.
+  originSenderUserID: 128,
+};
 
 // A curated context is a person's profile document, so it is allowed to be
 // bigger than a card — but not unbounded, and it goes straight into D1.

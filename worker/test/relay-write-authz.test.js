@@ -197,3 +197,37 @@ test("a join hands over your own decisions, not the organization's", async () =>
   expect(adaIds).toEqual(expect.arrayContaining(["c-mine", "c-theirs"]));
   expect(createSession).toBeTruthy();
 });
+
+test("a hand-on keeps the person who asked first in the room", async () => {
+  // A asks B, B hands it to C. The delegated card's sender is B, so without
+  // the chain A was left watching a card that said "delegated" and never heard
+  // what C decided.
+  const { upsertUser, upsertMembership, createSession } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "4005", login: "carol", name: "Carol", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, ORG, "4005", "Engineer");
+  const carolToken = await createSession(env.DB, "4005", "gho_carol");
+
+  const { messages: adaMessages } = await asAda();          // asked first
+  const { messages: carolMessages } = await joined(ORG, carolToken); // now holds it
+  const { ws: grace } = await asGrace();                    // handed it on
+
+  grace.send(JSON.stringify({ type: "card_created", payload: { card: card("c-chain", {
+    recipientUserID: "carol", originSenderUserID: "ada", title: "Sign the contract",
+  }) } }));
+
+  expect(await message(carolMessages, (m) => JSON.stringify(m).includes("c-chain"))).toBeTruthy();
+  expect(await message(adaMessages, (m) => JSON.stringify(m).includes("c-chain"))).toBeTruthy();
+  expect((await stored("c-chain")).originSenderUserID).toBe("ada");
+});
+
+test("the chain cannot name someone who is not here", async () => {
+  // A party to a card receives everything about it, so this is the recipient
+  // check again, at the other end.
+  const { ws, messages } = await asAda();
+  ws.send(JSON.stringify({ type: "card_created", payload: { card: card("c-chain-forged", {
+    originSenderUserID: "outsider",
+  }) } }));
+
+  expect(await message(messages, (m) => m.type === "RUN_ERROR")).toBeTruthy();
+  expect(await stored("c-chain-forged")).toBeNull();
+});

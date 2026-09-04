@@ -70,6 +70,14 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     let id: String
     let recipientUserID: String
     let senderUserID: String
+    /// Who asked in the first place, when this card is a hand-on of someone
+    /// else's request.
+    ///
+    /// A delegated card's sender is whoever handed it over, so A → B → C left A
+    /// watching a card that said "delegated" and never hearing what C decided.
+    /// The chain keeps the first name so the answer can reach the person who
+    /// actually needed it.
+    var originSenderUserID: String?
     var type: CardType
     var title: String
     var summary: String
@@ -153,6 +161,13 @@ struct DecisionCard: Identifiable, Codable, Hashable {
 
     var senderName: String {
         DisplayName.of(senderUserID)
+    }
+
+    /// Everyone with a stake in this decision: the person who has to make it,
+    /// the person who asked, and — down a delegation chain — the person who
+    /// asked first.
+    var parties: [String] {
+        [recipientUserID, senderUserID, originSenderUserID].compactMap { $0 }
     }
 
     func showsGitHubLink(for repository: String) -> Bool {
