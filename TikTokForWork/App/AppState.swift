@@ -67,6 +67,9 @@ final class AppState: ObservableObject {
         networkMonitor.onBecameOnline = { [weak self] in
             self?.webSocketService.reconnectIfNeeded()
         }
+        webSocketService.onContext = { [weak self] userID, text in
+            self?.adoptRemoteContext(userID: userID, text: text)
+        }
         networkMonitor.start()
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
@@ -132,6 +135,18 @@ final class AppState: ObservableObject {
 
     func publishUserContext() async {
         await webSocketService.publishContext(userContext)
+    }
+
+    /// Take back what you told your AI, on a device that never heard it.
+    ///
+    /// Only when there is nothing here: a fresh install, or a second phone. An
+    /// arriving copy must never overwrite something you are in the middle of
+    /// writing — the relay's copy is a backup, not the truth.
+    private func adoptRemoteContext(userID: String, text: String) {
+        guard userID == currentUser?.id || userID == SessionStore.githubUsername else { return }
+        guard userContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        userContext = text
     }
 
     /// Whether the current session is a look-around guest (no GitHub sign-in).

@@ -590,7 +590,9 @@ final class DecisionCardService: ObservableObject {
             upsert(card)
         case .cardDeleted(let cardID, let recipientUserID):
             remove(cardID: cardID, for: recipientUserID)
-        case .presence, .error:
+        case .presence, .error, .context:
+            // Presence is the shell's business and context is the app's; the
+            // card store has no opinion on either.
             break
         }
     }

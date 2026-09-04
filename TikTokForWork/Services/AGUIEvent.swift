@@ -49,10 +49,8 @@ final class AGUIEventAssembler {
 
         switch type {
         case "STATE_SNAPSHOT":
-            guard let snapshot = json["snapshot"] as? [String: Any],
-                  let cardsById = snapshot["cardsById"] as? [String: Any] else {
-                return []
-            }
+            guard let snapshot = json["snapshot"] as? [String: Any] else { return [] }
+            let cardsById = snapshot["cardsById"] as? [String: Any] ?? [:]
             var cardsByUser: [String: [DecisionCard]] = [:]
             for value in cardsById.values {
                 guard let card = decodeCard(value) else { continue }
@@ -61,7 +59,16 @@ final class AGUIEventAssembler {
             for key in cardsByUser.keys {
                 cardsByUser[key]?.sort { $0.createdAt > $1.createdAt }
             }
-            return [.snapshot(cardsByUser: cardsByUser)]
+            var events: [RealtimeEvent] = [.snapshot(cardsByUser: cardsByUser)]
+            // The relay has carried this since it was written; the assembler
+            // read `cardsById` and dropped the rest, so a reinstall lost what
+            // you had told your AI about how you work.
+            for (userID, value) in (snapshot["context"] as? [String: Any] ?? [:]) {
+                if let text = (value as? [String: Any])?["text"] as? String {
+                    events.append(.context(userID: userID, text: text))
+                }
+            }
+            return events
 
         case "STATE_DELTA":
             guard let delta = json["delta"] as? [[String: Any]] else { return [] }
@@ -114,10 +121,15 @@ final class AGUIEventAssembler {
 
     private func applyOperation(_ operation: [String: Any]) -> RealtimeEvent? {
         guard let op = operation["op"] as? String,
-              let path = operation["path"] as? String,
-              let cardID = Self.cardID(fromPointer: path) else {
+              let path = operation["path"] as? String else {
             return nil
         }
+        if let userID = Self.userID(fromContextPointer: path) {
+            guard op != "remove",
+                  let text = (operation["value"] as? [String: Any])?["text"] as? String else { return nil }
+            return .context(userID: userID, text: text)
+        }
+        guard let cardID = Self.cardID(fromPointer: path) else { return nil }
 
         switch op {
         case "add", "replace":
@@ -134,7 +146,15 @@ final class AGUIEventAssembler {
 
     /// "/cardsById/a~1b~0c" → "a/b~c" (RFC 6901 unescaping).
     static func cardID(fromPointer pointer: String) -> String? {
-        let prefix = "/cardsById/"
+        unescaped(pointer, under: "/cardsById/")
+    }
+
+    /// "/context/octocat" → "octocat".
+    static func userID(fromContextPointer pointer: String) -> String? {
+        unescaped(pointer, under: "/context/")
+    }
+
+    private static func unescaped(_ pointer: String, under prefix: String) -> String? {
         guard pointer.hasPrefix(prefix) else { return nil }
         let escaped = String(pointer.dropFirst(prefix.count))
         guard !escaped.isEmpty, !escaped.contains("/") else { return nil }

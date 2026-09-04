@@ -6,6 +6,13 @@ enum RealtimeEvent: Codable {
     case cardUpdated(card: DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
     case presence(userId: String, status: String)
+    /// Someone's curated context — what they told their AI about how they work.
+    ///
+    /// The relay has synced this since it was built and the app threw it away:
+    /// the snapshot carries a `context` map and the deltas patch it, and the
+    /// assembler only ever looked at `cardsById`. So "mirrored to the relay so
+    /// it survives a reinstall" was true of the relay and false of the app.
+    case context(userID: String, text: String)
     case error(message: String)
 
     private enum CodingKeys: String, CodingKey {
@@ -31,6 +38,9 @@ enum RealtimeEvent: Codable {
         case "presence":
             let payload = try container.decode(PresencePayload.self, forKey: .payload)
             self = .presence(userId: payload.userId, status: payload.status)
+        case "context_updated":
+            let payload = try container.decode(ContextPayload.self, forKey: .payload)
+            self = .context(userID: payload.userId, text: payload.context.text)
         case "error":
             let payload = try container.decode(ErrorPayload.self, forKey: .payload)
             self = .error(message: payload.message)
@@ -57,6 +67,9 @@ enum RealtimeEvent: Codable {
         case .presence(let userId, let status):
             try container.encode("presence", forKey: .type)
             try container.encode(PresencePayload(userId: userId, status: status), forKey: .payload)
+        case .context(let userID, let text):
+            try container.encode("context_updated", forKey: .type)
+            try container.encode(ContextPayload(userId: userID, context: .init(text: text)), forKey: .payload)
         case .error(let message):
             try container.encode("error", forKey: .type)
             try container.encode(ErrorPayload(message: message), forKey: .payload)
@@ -84,6 +97,12 @@ enum RealtimeEvent: Codable {
     private struct PresencePayload: Codable {
         let userId: String
         let status: String
+    }
+
+    private struct ContextPayload: Codable {
+        struct Body: Codable { let text: String }
+        let userId: String
+        let context: Body
     }
 
     private struct ErrorPayload: Codable {
@@ -208,6 +227,10 @@ final class WebSocketService: ObservableObject {
     var isConnected: Bool { state == .connected }
 
     var onEvent: ((RealtimeEvent) -> Void)?
+    /// Someone's curated context arriving from the relay. Separate from
+    /// `onEvent`, which the card store owns — a single closure with two owners
+    /// is one owner and a bug.
+    var onContext: ((String, String) -> Void)?
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?
@@ -219,6 +242,7 @@ final class WebSocketService: ObservableObject {
     private var connectionGeneration = 0
     private var joinContinuation: CheckedContinuation<Void, Error>?
     private var joinTimeout: Task<Void, Never>?
+    private var heartbeatTask: Task<Void, Never>?
     private var lastURLString: String?
     private var lastUserID: String?
     private var lastOrgID = "core-team"
@@ -312,7 +336,33 @@ final class WebSocketService: ObservableObject {
         guard generation == connectionGeneration else { return }
         reconnectAttempt = 0
         state = .connected
+        startHeartbeat(generation: generation, task: task)
         await flushOutbox()
+    }
+
+    /// Ask the socket whether it is still there, because it will not say.
+    ///
+    /// A connection iOS drops while the app is suspended produces no receive
+    /// error until something is sent, so the dot stayed green and the feed
+    /// stayed silent until the next decision — which then went into the outbox.
+    /// Coming back to the foreground was the only thing that noticed, and only
+    /// when the state had already changed.
+    private func startHeartbeat(generation: Int, task: URLSessionWebSocketTask) {
+        heartbeatTask?.cancel()
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(25))
+                guard !Task.isCancelled, let self, generation == self.connectionGeneration else { return }
+                let alive = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    task.sendPing { error in continuation.resume(returning: error == nil) }
+                }
+                if alive { continue }
+                guard generation == self.connectionGeneration else { return }
+                self.state = .offline
+                self.scheduleReconnect()
+                return
+            }
+        }
     }
 
     /// Wait for the relay to say the join was accepted.
@@ -353,6 +403,8 @@ final class WebSocketService: ObservableObject {
     func disconnect(intentional: Bool = true) {
         intentionalDisconnect = intentional
         completeJoin(.failure(CancellationError()))
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
         receiveLoopTask?.cancel()
@@ -580,6 +632,10 @@ final class WebSocketService: ObservableObject {
         // session has been resolved and the organization authorized.
         if case .snapshot = event { completeJoin(.success(())) }
 
+        if case .context(let userID, let text) = event {
+            onContext?(userID, text)
+        }
+
         if case .presence(let userId, let status) = event {
             if status == "online" {
                 onlineUserIDs.insert(userId)
@@ -604,7 +660,7 @@ final class WebSocketService: ObservableObject {
             cardOwners[card.id] = card.recipientUserID
         case .cardDeleted(let cardID, _):
             cardOwners.removeValue(forKey: cardID)
-        case .presence, .error:
+        case .presence, .error, .context:
             break
         }
     }
