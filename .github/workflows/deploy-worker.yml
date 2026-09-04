@@ -73,24 +73,29 @@ jobs:
       - name: Migrate D1
         run: npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql --yes
 
-      # Column additions, which CREATE ... IF NOT EXISTS cannot express: on a
-      # live table that statement is a no-op, so a new column never appears and
-      # anything depending on it fails. Runs after schema.sql, so every table it alters exists.
+      # Column additions for databases predating these columns. schema.sql
+      # declares them inside CREATE TABLE, so on a database it built these all
+      # fail with "duplicate column name" — the already-applied signal.
       #
-      # D1 has no IF NOT EXISTS for ADD COLUMN, so replaying this on an already
-      # migrated database fails with "duplicate column name". That is the
-      # already-applied signal, not an error, so it is tolerated here — and
-      # only that one. Any other failure still stops the deploy.
+      # Statement by statement, because D1 aborts a file at its first error:
+      # running them together meant one expected failure skipped the rest, and
+      # anything placed after it silently never ran.
       - name: Migrate D1 (column additions)
         run: |
           set -o pipefail
-          if ! npx -y wrangler@4 d1 execute tiktokforwork --remote --file migrations.sql --yes 2>&1 | tee /tmp/migrate.log; then
-            if grep -qi "duplicate column name" /tmp/migrate.log; then
-              echo "Columns already present; nothing to migrate."
-            else
-              exit 1
+          status=0
+          while IFS= read -r stmt; do
+            [ -z "$stmt" ] && continue
+            echo "-> $stmt"
+            if ! npx -y wrangler@4 d1 execute tiktokforwork --remote --command "$stmt" --yes 2>&1 | tee /tmp/migrate.log; then
+              if grep -qi "duplicate column name" /tmp/migrate.log; then
+                echo "   already applied"
+              else
+                status=1
+              fi
             fi
-          fi
+          done < <(grep -E '^(ALTER TABLE|CREATE )' migrations.sql)
+          exit $status
 
 
       - name: Deploy

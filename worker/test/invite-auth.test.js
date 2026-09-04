@@ -47,11 +47,43 @@ test("a member can mint an invite to their own org", async () => {
   expect(body.orgId).toBe(VICTIM_ORG);
 });
 
-test("an unknown role falls back to member rather than being honoured", async () => {
+test("an unknown role is refused rather than quietly downgraded", async () => {
+  // Substituting a different role than the one asked for is worse than saying
+  // no: the inviter hands out a code believing it grants something it doesn't.
   const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG, role: "superuser" }), env);
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
   const body = await res.json();
-  expect(body.role).toBe("member");
+  expect(body.code).toBeUndefined();
+});
+
+test("a member cannot mint an invite above their own role", async () => {
+  const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "7003", login: "plainmember", name: "Plain", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, VICTIM_ORG, "7003", "member");
+  const memberToken = await createSession(env.DB, "7003", "gho_member");
+
+  // Membership was enough to mint an admin code and redeem it, which promoted
+  // the caller in two calls.
+  const res = await worker.fetch(createInviteReq(memberToken, { orgId: VICTIM_ORG, role: "admin" }), env);
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.code).toBeUndefined();
+});
+
+test("redeeming a lesser invite does not demote an existing member", async () => {
+  const { upsertMembership, isMember } = await import("../src/db.js");
+  const { acceptInvite } = await import("../src/auth.js");
+
+  await upsertMembership(env.DB, VICTIM_ORG, "7001", "admin");
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG, role: "member" }), env);
+  const { code } = await res.json();
+
+  await acceptInvite(env, { code, userId: "7001" });
+  const row = await env.DB
+    .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(VICTIM_ORG, "7001").first();
+  expect(row.role).toBe("admin");
+  expect(await isMember(env.DB, VICTIM_ORG, "7001")).toBe(true);
 });
 
 test("an invite code carries no hint of the org it opens", async () => {

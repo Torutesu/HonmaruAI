@@ -49,3 +49,26 @@ test("role comes from the node, not from splitting the display label", () => {
   const routed = resolveRecipientTarget("ask the designer to review", "carol", orgWithSeparatorInName);
   expect(routed.recipientUserID).toBe("dana");
 });
+
+// \b is ASCII-only. The whole-word change that fixed dev/deviation silently
+// killed every Japanese role word, and nothing here covered them.
+const JP_ORG = {
+  orgId: "acme/app",
+  nodes: [
+    { id: "yui", kind: "person", role: "designer", label: "結衣 · designer" },
+    { id: "kenji", kind: "person", role: "engineer", label: "健二 · engineer" },
+    { id: "carol", kind: "person", role: "member", label: "Carol · member" },
+  ],
+  edges: [],
+};
+
+test("Japanese role words still route", () => {
+  expect(resolveRecipientTarget("デザイナーに確認をお願いして", "carol", JP_ORG).recipientUserID).toBe("yui");
+  expect(resolveRecipientTarget("エンジニアに実装を頼んで", "carol", JP_ORG).recipientUserID).toBe("kenji");
+});
+
+test("ASCII terms keep their word boundaries", () => {
+  // The regression fix must not undo the fix it regressed.
+  const routed = resolveRecipientTarget("review this deviation from the plan", "carol", JP_ORG);
+  expect(routed.recipientUserID).not.toBe("kenji");
+});

@@ -9,6 +9,12 @@ const ENC = new TextEncoder();
 // How long an invite stays redeemable.
 const INVITE_TTL_DAYS = 7;
 
+// Ordered so an invite can be compared against the inviter's own standing.
+// Everything outside this map is not a role.
+const ROLE_RANK = new Map([
+  ["member", 0], ["designer", 0], ["engineer", 0], ["triager", 1], ["admin", 2],
+]);
+
 function toHex(buffer) {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -132,10 +138,21 @@ export async function createInvite(env, { orgId, createdBy, role }) {
   // a known prefix is 16.7M guesses against an endpoint that grants membership
   // — a weekend of traffic. The code carries no hint of what it opens.
   const code = toHex(crypto.getRandomValues(new Uint8Array(16)));
-  // Only known roles. An unvalidated role let a caller mint themselves "admin".
-  const ALLOWED_ROLES = ["member", "designer", "engineer", "triager", "admin"];
+  // Only known roles, and never above the caller's own. Membership alone was
+  // enough to mint an admin code and redeem it, so any member could promote
+  // themselves in two calls.
   const requested = String(role || "member").trim().toLowerCase();
-  const inviteRole = ALLOWED_ROLES.includes(requested) ? requested : "member";
+  if (!ROLE_RANK.has(requested)) return { error: "That is not a role." };
+  const callerRole = String(
+    (await env.DB
+      .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+      .bind(orgId, createdBy)
+      .first())?.role || "member"
+  ).toLowerCase();
+  if (ROLE_RANK.get(requested) > (ROLE_RANK.get(callerRole) ?? 0)) {
+    return { error: "You cannot invite someone above your own role." };
+  }
+  const inviteRole = requested;
   // Invites expire. A code that works forever is a permanent unaudited way in,
   // and the only way to close it would be deleting the row by hand.
   const now = new Date();
@@ -160,6 +177,16 @@ export async function acceptInvite(env, { code, userId }) {
   if (row.expires_at && new Date(row.expires_at) < new Date()) {
     return { error: "That invite code is not valid." };
   }
-  await upsertMembership(env.DB, row.org_id, userId, row.role || "member");
+  // upsertMembership assigns the role outright, so redeeming a member link for
+  // an org you already administer used to demote you. An invite can add you,
+  // and can raise you, but must never take standing away.
+  const existing = await env.DB
+    .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(row.org_id, userId)
+    .first();
+  const offered = String(row.role || "member").toLowerCase();
+  const held = String(existing?.role || "").toLowerCase();
+  const keep = existing && (ROLE_RANK.get(held) ?? 0) >= (ROLE_RANK.get(offered) ?? 0) ? held : offered;
+  await upsertMembership(env.DB, row.org_id, userId, keep);
   return { orgId: row.org_id };
 }

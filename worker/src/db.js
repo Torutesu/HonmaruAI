@@ -242,13 +242,20 @@ export async function retainMemberships(db, orgId, keep) {
   const ids = [...new Set((keep || []).map(String))].filter(Boolean);
   if (!ids.length) return { removed: 0 };
   const holes = ids.map((_, i) => `?${i + 2}`).join(", ");
+  // GitHub is authoritative only for the members it issued. A collaborator list
+  // says nothing about someone who joined by invite, so pruning against it
+  // would evict every email member the moment anyone opened the org graph —
+  // a removal nobody performed, as a side effect of a read. Those ids are
+  // namespaced ("email:..."), so restricting the delete to numeric GitHub ids
+  // keeps the authority where it belongs.
+  const githubOnly = "AND user_github_id GLOB '[0-9]*'";
   const { meta } = await db
-    .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes})`)
+    .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
     .run();
   // Agents belong to the person, so they go the same way.
   await db
-    .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes})`)
+    .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
     .run();
   return { removed: meta?.changes ?? 0 };

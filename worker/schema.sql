@@ -13,6 +13,18 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 
+/* login exists on every version of this table, so its index is safe here.
+   The email index is not: on a database predating those columns this file is
+   a no-op for them, and indexing a column that does not exist yet fails the
+   whole step. It lives in migrations.sql, after the ALTER that adds it. */
+/* IF NOT EXISTS skips a same-named index; it does not tolerate duplicate rows.
+   schema.sql is replayed on every deploy with no error tolerance, so a single
+   pre-existing duplicate would fail this statement and every deploy after it,
+   until someone repaired the data by hand. Move any loser out of the way first:
+   the cost of the collision is total and permanent, the insurance is one line. */
+UPDATE users SET login = login || '+stale-' || github_id
+ WHERE rowid NOT IN (SELECT MAX(rowid) FROM users GROUP BY login);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login ON users(login);
 
 CREATE TABLE IF NOT EXISTS orgs (

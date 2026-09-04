@@ -1,33 +1,20 @@
-/* Schema changes that CREATE ... IF NOT EXISTS cannot express.
+/* Column additions for databases created before these columns existed.
 
-   schema.sql is replayed on every deploy and is safe because every statement
-   there is idempotent. Adding a column to a table that already exists is not:
-   CREATE TABLE IF NOT EXISTS is a no-op on a live table, so the column never
-   appears, and anything depending on it — an index, a query — then fails.
+   Every statement here is expected to fail on a database that schema.sql has
+   already created from scratch, because schema.sql declares these columns
+   inside CREATE TABLE. D1 aborts a file at its first error, so this file holds
+   *only* ALTERs — nothing after them that needs to run. Anything that must run
+   unconditionally belongs in schema.sql, which is idempotent by construction.
 
-   Only tables that already exist in production belong here. A brand new table
-   (invites) is defined complete in schema.sql instead, so it needs no ALTER.
-
-   D1 has no IF NOT EXISTS for ADD COLUMN, so replaying this on an already
-   migrated database errors with "duplicate column name". That is the expected
-   signal that there is nothing to do, not a failure. */
+   The deploy applies this file statement by statement and tolerates
+   "duplicate column name" for each, which is the already-applied signal. */
 
 ALTER TABLE users ADD COLUMN email TEXT;
 ALTER TABLE users ADD COLUMN password_hash TEXT;
 ALTER TABLE users ADD COLUMN password_salt TEXT;
-
-/* invites is created by schema.sql, so on a database that has never seen this
-   feature the CREATE there covers it. On one that already has the table from
-   an earlier deploy, only an ALTER adds the column — and the same
-   duplicate-column tolerance applies. */
 ALTER TABLE invites ADD COLUMN expires_at TEXT;
 
-/* Must come after the ALTER above: indexing a column that does not exist is
-   the exact failure this file is here to prevent. */
+/* After the ALTER above, and never in schema.sql: that file runs first, so on a
+   database predating the column this index would be created against a column
+   that does not exist yet and fail the deploy. */
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
-/* login is the relay's wire identity: sendTo() matches a socket on exactly
-   this string, so two users sharing one is two people answering to the same
-   address. Derivation makes it unique today; the constraint is what keeps it
-   that way when the next sign-in path is added. */
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login ON users(login);

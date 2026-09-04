@@ -28,7 +28,14 @@ function matchRealRole(text, senderID, organization) {
   const members = membersWithRoles(organization);
   // Whole words only: includes("dev") also fires on "deviation" and "device",
   // and includes("lead") on "leading".
-  const says = (word) => new RegExp(`\\b${word}\\b`, "i").test(lower);
+  // \b is defined over ASCII word characters, so \bデザイナー\b can never match:
+  // neither デ nor ー is a \w, so there is no boundary to find. Word boundaries
+  // are what stop "dev" firing on "deviation"; that problem only exists for
+  // terms written in a script that has them. Japanese terms are unambiguous
+  // enough that substring matching is correct for them.
+  const isAscii = (word) => /^[\x00-\x7F]+$/.test(word);
+  const says = (word) =>
+    isAscii(word) ? new RegExp(`\\b${word}\\b`, "i").test(lower) : lower.includes(word.toLowerCase());
   // "manager" and "lead" are deliberately absent: escalation is handled by the
   // manages edge below, which knows who a specific person reports to, and this
   // rule would shadow it with whoever happens to hold the admin role.
