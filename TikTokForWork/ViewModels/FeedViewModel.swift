@@ -213,12 +213,12 @@ final class FeedViewModel: ObservableObject {
             pendingVideoURL = nil
             refreshCards(from: cardService)
             Haptics.light()
+            reviewDraft = nil
         } catch {
             errorMessage = error.localizedDescription
         }
 
         isProcessing = false
-        reviewDraft = nil
     }
 
     private func resolve(

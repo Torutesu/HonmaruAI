@@ -344,7 +344,7 @@ struct DecisionCardView: View {
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textTertiary)
                 Spacer()
-                Image(systemName: "mic.fill")
+                Image(systemName: "arrow.up")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.Colors.textSecondary)
             }

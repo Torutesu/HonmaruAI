@@ -191,7 +191,7 @@ final class DecisionCardService: ObservableObject {
 
         // GitHub is optional: without a connection the decision is still
         // recorded locally and can sync later once a repository is linked.
-        if githubService.isConnected, action == .createIssue || card.githubIssueNumber != nil {
+        if githubService.isConnected && (action == .createIssue || card.githubIssueNumber != nil) {
             let synced = try await githubService.syncDecision(card)
             card.githubIssueNumber = synced.number
             card.githubIssueURL = synced.url
