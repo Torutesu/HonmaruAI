@@ -26,6 +26,8 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | DELETE | `/account` | Erase the caller's account (auth: `x-session-token`) |
 | GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1, and layers on what people have said about themselves |
 | GET/PUT | `/orgs/:owner/:repo/profile` | Your own title, responsibilities and manager in this org (auth + membership). You write your own — routing reads the result |
+| POST | `/media` | Upload a recording (auth: `x-session-token`). `video/*` only; anything else is 415 |
+| GET | `/media/:id` | Play one back. Needs a session, as `x-session-token` or `?t=` — AVPlayer streams the URL itself and cannot send a header |
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
 
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,

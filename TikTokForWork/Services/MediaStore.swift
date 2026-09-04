@@ -75,11 +75,33 @@ enum MediaStore {
     /// A `file:` URL is rewritten against the current container, because the app's
     /// sandbox path changes between installs and an absolute path saved earlier
     /// stops resolving after an update.
+    ///
+    /// A remote clip needs the session token: `/media/:id` used to serve a
+    /// recording to anyone who had the URL, and now does not. AVPlayer streams
+    /// the URL itself and there is no supported way to put a header on the
+    /// requests it makes, so the token rides in the query string — attached
+    /// here, at play time, and never stored on the card, which outlives it.
     static func playableURL(from stored: String) -> URL? {
         guard let url = URL(string: stored) else { return nil }
-        guard url.isFileURL else { return url }
+        guard url.isFileURL else { return authorized(url) }
 
         let relocated = directory.appendingPathComponent(url.lastPathComponent)
         return FileManager.default.fileExists(atPath: relocated.path) ? relocated : nil
+    }
+
+    /// Only for this app's own media, and only when signed in. Appending a
+    /// session token to somebody else's host would hand them the session.
+    static func authorized(_ url: URL) -> URL {
+        guard let token = SessionStore.sessionToken, !token.isEmpty,
+              let backend = BackendURL.httpBase(from: AppConfig.relayURL),
+              url.host == backend.host,
+              url.path.hasPrefix("/media/"),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else { return url }
+        var query = parts.queryItems ?? []
+        query.removeAll { $0.name == "t" }
+        query.append(URLQueryItem(name: "t", value: token))
+        parts.queryItems = query
+        return parts.url ?? url
     }
 }

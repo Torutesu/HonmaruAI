@@ -278,6 +278,18 @@ async function handle(request, env, url) {
     }
     const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
     if (mediaMatch && request.method === "GET") {
+      // Playback needed a session and did not have one. Anyone with the URL —
+      // out of a screenshot, a log, a shared link — could watch a colleague's
+      // recording of a salary conversation, from anywhere, forever.
+      //
+      // The token is accepted in the query string as well as the header
+      // because AVPlayer streams the URL itself and there is no supported way
+      // to attach a header to the requests it makes. The request line is not
+      // logged (`routeLabel` keeps the path and drops the query), and the app
+      // appends the token at play time rather than storing it on the card.
+      const mediaToken = request.headers.get("x-session-token") || url.searchParams.get("t");
+      const viewer = await getSession(env.DB, mediaToken, env);
+      if (!viewer) return json({ message: "invalid session" }, 401);
       return serveMedia(mediaMatch[1], env);
     }
     // Registered after the user grants permission, and re-registered on every

@@ -11,6 +11,20 @@
 // the client claims — see `readCapped` below.
 const MAX_BYTES = 12 * 1024 * 1024;
 
+// The bucket is served back over this origin, so what goes into it is what a
+// browser will be asked to render. An upload declaring `text/html` was stored
+// and served with that content type, which makes `/media/:id` a place to host a
+// page on the app's own origin — the shape of every stored-XSS report there has
+// ever been. Video is the only thing this endpoint is for.
+const ALLOWED_PREFIX = "video/";
+
+function unsupportedType(contentType) {
+  return new Response(
+    JSON.stringify({ message: `Only video uploads are accepted, not ${contentType}.` }),
+    { status: 415, headers: { "content-type": "application/json" } }
+  );
+}
+
 // Built per call, not once at module scope: a Response carries a body stream,
 // and a shared one cannot be handed out twice.
 function tooLarge() {
@@ -58,7 +72,9 @@ async function readCapped(body, maxBytes) {
 }
 
 export async function uploadMedia(request, env, url) {
-  const contentType = request.headers.get("content-type") || "video/mp4";
+  // Bare, without parameters: `video/mp4; codecs=avc1` is a video.
+  const contentType = (request.headers.get("content-type") || "video/mp4").split(";")[0].trim().toLowerCase();
+  if (!contentType.startsWith(ALLOWED_PREFIX)) return unsupportedType(contentType);
   const claimed = Number(request.headers.get("content-length") || 0);
   // Cheap rejection for an honest client that is simply too big.
   if (claimed > MAX_BYTES) return tooLarge();
@@ -83,11 +99,18 @@ export async function uploadMedia(request, env, url) {
 export async function serveMedia(id, env) {
   const object = await env.MEDIA.get(id);
   if (!object) return new Response("not found", { status: 404 });
+  const stored = object.httpMetadata?.contentType || "video/mp4";
   return new Response(object.body, {
     status: 200,
     headers: {
-      "content-type": object.httpMetadata?.contentType || "video/mp4",
-      "cache-control": "public, max-age=31536000, immutable",
+      // Objects written before the upload check existed can still carry
+      // anything, so the served type is clamped too rather than trusted.
+      "content-type": stored.startsWith(ALLOWED_PREFIX) ? stored : "application/octet-stream",
+      // Belt and braces: no sniffing our way back to text/html.
+      "x-content-type-options": "nosniff",
+      // A person's recording is not public. Shared caches must not keep a copy
+      // of one, and the response is only reachable with a session anyway.
+      "cache-control": "private, max-age=31536000, immutable",
     },
   });
 }
