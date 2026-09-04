@@ -248,7 +248,10 @@ export async function retainMemberships(db, orgId, keep) {
   // a removal nobody performed, as a side effect of a read. Those ids are
   // namespaced ("email:..."), so restricting the delete to numeric GitHub ids
   // keeps the authority where it belongs.
-  const githubOnly = "AND user_github_id GLOB '[0-9]*'";
+  // Entirely digits, not merely starting with one: GLOB '[0-9]*' would also
+  // match a future id scheme that happened to begin with a digit, and the
+  // whole point here is to delete only what GitHub issued.
+  const githubOnly = "AND user_github_id NOT GLOB '*[^0-9]*'";
   const { meta } = await db
     .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)

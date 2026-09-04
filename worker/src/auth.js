@@ -22,8 +22,19 @@ export function isGitHubSession(session) {
 
 // Ordered so an invite can be compared against the inviter's own standing.
 // Everything outside this map is not a role.
+/// How far a role reaches, for deciding who may invite whom.
+///
+/// This is administrative reach, not GitHub's permission ladder. `designer` and
+/// `engineer` are descriptive labels the router matches on, so they sit level
+/// with `member`; `triager`, `maintainer` and `admin` are granted standing.
+///
+/// `maintainer` was missing entirely, which made it unusable in both
+/// directions: `roleName()` hands it out for GitHub's `maintain` permission, so
+/// a person could hold it — and then rank 0, unable to invite a triager — while
+/// an admin asking to invite one was told "That is not a role."
 const ROLE_RANK = new Map([
-  ["member", 0], ["designer", 0], ["engineer", 0], ["triager", 1], ["admin", 2],
+  ["member", 0], ["designer", 0], ["engineer", 0],
+  ["triager", 1], ["maintainer", 2], ["admin", 3],
 ]);
 
 function toHex(buffer) {
@@ -89,21 +100,22 @@ export async function signup(env, { email, password, name, inviteCode }) {
   const login = `u:${normalizedEmail}`;
   const displayName = name?.trim() || normalizedEmail.split("@")[0];
 
-  await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: "en" });
-  await env.DB
-    .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3 WHERE github_id = ?4")
-    .bind(normalizedEmail, hash, salt, userId)
-    .run();
-
   // A caller-supplied orgId is not authorization. Signup may only place a user
   // in an org a valid invite names, or in a fresh org of their own. Trusting
   // body.orgId let anyone write a membership row for a private org, and
   // authorizeOrgAccess treats that row as proof of access.
+  //
+  // Settled before the account is written. The other order left a mistyped
+  // invite code behind as a real account with no org — and that address could
+  // then never sign up again, because the retry was answered with "an account
+  // with this email already exists".
   let org;
   let joinRole = "member";
   if (inviteCode?.trim()) {
-    const invite = await claimInvite(env.DB, inviteCode.trim());
-    if (!invite) return { error: "That invite code is not valid." };
+    const invite = await readInvite(env.DB, inviteCode.trim());
+    if (!invite || !(await spendInvite(env.DB, inviteCode.trim()))) {
+      return { error: "That invite code is not valid." };
+    }
     org = invite.org_id;
     joinRole = invite.role || "member";
   } else {
@@ -113,6 +125,12 @@ export async function signup(env, { email, password, name, inviteCode }) {
     org = `personal:${(await sha256Hex(userId)).slice(0, 24)}`;
     joinRole = "admin";
   }
+
+  await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: "en" });
+  await env.DB
+    .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3 WHERE github_id = ?4")
+    .bind(normalizedEmail, hash, salt, userId)
+    .run();
   await upsertMembership(env.DB, org, userId, joinRole);
   const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
   return { token, userId, login, orgId: org };
@@ -144,19 +162,26 @@ export async function login(env, { email, password }) {
 // lets two concurrent redemptions both see room on a single-use code; making
 // the condition part of the UPDATE lets the database decide who got there
 // first. Returns the invite when the use was granted, null when it was not.
-async function claimInvite(db, code) {
+async function readInvite(db, code) {
   const row = await db
     .prepare("SELECT org_id, role, expires_at, max_uses, uses FROM invites WHERE code = ?1")
     .bind(code)
     .first();
   if (!row) return null;
   if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
+  return row;
+}
+
+/// Take one use, or report that there was none left to take.
+///
+/// The condition lives in the UPDATE rather than in a read before it, so two
+/// concurrent redemptions of a single-use code cannot both see room.
+async function spendInvite(db, code) {
   const { meta } = await db
     .prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?1 AND uses < max_uses")
     .bind(code)
     .run();
-  if (!meta?.changes) return null;
-  return row;
+  return Boolean(meta?.changes);
 }
 
 export async function createInvite(env, { orgId, createdBy, role, uses }) {
@@ -200,7 +225,7 @@ export async function acceptInvite(env, { code, userId }) {
   if (!code || !userId) return { error: "Missing code." };
   // One message for unknown, expired and spent: distinguishing them tells a
   // guesser which of their guesses was once real.
-  const row = await claimInvite(env.DB, code.trim());
+  const row = await readInvite(env.DB, code.trim());
   if (!row) return { error: "That invite code is not valid." };
   // upsertMembership assigns the role outright, so redeeming a member link for
   // an org you already administer used to demote you. An invite can add you,
@@ -212,6 +237,16 @@ export async function acceptInvite(env, { code, userId }) {
   const offered = String(row.role || "member").toLowerCase();
   const held = String(existing?.role || "").toLowerCase();
   const keep = existing && (ROLE_RANK.get(held) ?? 0) >= (ROLE_RANK.get(offered) ?? 0) ? held : offered;
-  await upsertMembership(env.DB, row.org_id, userId, keep);
+
+  // A redemption that grants nothing costs nothing. Spending first meant the
+  // inviter testing their own link — or anyone already in the org — burned the
+  // single use, and the person it was actually for was then told the code was
+  // not valid. Only a redemption that adds someone, or raises them, takes one.
+  if (!existing || keep !== held) {
+    if (!(await spendInvite(env.DB, code.trim()))) {
+      return { error: "That invite code is not valid." };
+    }
+    await upsertMembership(env.DB, row.org_id, userId, keep);
+  }
   return { orgId: row.org_id };
 }

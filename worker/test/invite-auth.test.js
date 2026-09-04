@@ -157,3 +157,39 @@ test("a code can be issued for several people when asked", async () => {
   expect((await acceptInvite(env, { code, userId: "7202" })).error).toBeUndefined();
   expect((await acceptInvite(env, { code, userId: "7203" })).error).toBeTruthy();
 });
+
+// A redemption that grants nothing should cost nothing. Spending the use first
+// meant the inviter testing their own link burned it, and the person it was
+// actually for was then told the code was not valid.
+test("an already-member redemption does not spend the code", async () => {
+  const { createInvite, acceptInvite } = await import("../src/auth.js");
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "8100", login: "already", name: "Already", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, VICTIM_ORG, "8100", "member");
+
+  const { code } = await createInvite(env, { orgId: VICTIM_ORG, createdBy: "7001", role: "member" });
+  expect((await acceptInvite(env, { code, userId: "8100" })).error).toBeUndefined();
+
+  // Still good for the person it was for.
+  expect((await acceptInvite(env, { code, userId: "8101" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "8102" })).error).toBeTruthy();
+});
+
+// roleName() hands out "Maintainer" for GitHub's maintain permission, so a
+// person can hold a role the invite ladder did not know existed.
+test("maintainer is a role the ladder knows, in both directions", async () => {
+  const { createInvite } = await import("../src/auth.js");
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "8200", login: "keeper", name: "Keeper", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, VICTIM_ORG, "8200", "Maintainer");
+
+  // An admin can invite one.
+  expect((await createInvite(env, { orgId: VICTIM_ORG, createdBy: "7001", role: "maintainer" })).error)
+    .toBeUndefined();
+  // And holding it outranks a triager rather than tying with a plain member.
+  expect((await createInvite(env, { orgId: VICTIM_ORG, createdBy: "8200", role: "triager" })).error)
+    .toBeUndefined();
+  // But still not an admin.
+  expect((await createInvite(env, { orgId: VICTIM_ORG, createdBy: "8200", role: "admin" })).error)
+    .toBeTruthy();
+});

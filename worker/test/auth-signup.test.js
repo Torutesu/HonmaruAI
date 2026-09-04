@@ -88,3 +88,24 @@ test("two users cannot share a relay identity", async () => {
     upsertUser(env.DB, { githubId: "8002", login: "taken", name: "Second", avatarUrl: null, locale: "en" })
   ).rejects.toThrow();
 });
+
+// The account row used to be written before the invite was checked, so one
+// typo left a real account with no org — and the address could never be used
+// again, because the retry answered "an account with this email already exists".
+test("a bad invite code does not consume the email address", async () => {
+  const { signup } = await import("../src/auth.js");
+
+  const failed = await signup(env, {
+    email: "typo@example.com", password: "password123", name: "Typo", inviteCode: "not-a-real-code",
+  });
+  expect(failed.error).toBeTruthy();
+
+  const row = await env.DB
+    .prepare("SELECT github_id FROM users WHERE email = ?1").bind("typo@example.com").first();
+  expect(row).toBeNull();
+
+  // And the second attempt, with no code, works.
+  const ok = await signup(env, { email: "typo@example.com", password: "password123", name: "Typo" });
+  expect(ok.error).toBeUndefined();
+  expect(ok.token).toBeTruthy();
+});

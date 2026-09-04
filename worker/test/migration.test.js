@@ -11,13 +11,22 @@ import migrationsSql from "../migrations.sql?raw";
 // The deploy runs schema.sql, then migrations.sql statement by statement,
 // tolerating "duplicate column name" per statement. Asserting against schema
 // alone is what let an index land in a file that could not create it.
+
+// Exactly what .github/workflows/deploy-worker.yml greps for. Reproduced here
+// rather than approximated, because a test that extracts statements its own way
+// can pass while the deploy silently skips one — which is the shape of the bug
+// this file exists to prevent.
+const DEPLOY_STATEMENT = /^(ALTER TABLE|CREATE )/;
+
+function deployStatements(sql) {
+  return sql.split("\n").filter((line) => DEPLOY_STATEMENT.test(line)).map((l) => l.trim());
+}
+
 async function applyDeploy(db) {
   await db.exec(schemaSql.replace(/\n/g, " "));
-  for (const stmt of migrationsSql.split(";")) {
-    const sql = stmt.replace(/\/\*[\s\S]*?\*\//g, "").trim();
-    if (!sql) continue;
+  for (const sql of deployStatements(migrationsSql)) {
     try {
-      await db.exec(sql.replace(/\n/g, " "));
+      await db.exec(sql);
     } catch (err) {
       if (!/duplicate column name/i.test(String(err))) throw err;
     }
@@ -66,4 +75,14 @@ test("the email index is a real constraint, not just a name", async () => {
   await expect(
     env.DB.prepare("UPDATE users SET email = ?1 WHERE github_id = ?2").bind("dup@x.com", "e2").run()
   ).rejects.toThrow();
+});
+
+test("every statement in migrations.sql is one the deploy will actually run", () => {
+  // The workflow reads the file with a line-anchored grep, so an indented or
+  // line-wrapped statement is not skipped loudly — it is skipped silently, and
+  // everything depending on it is simply absent. Counting terminators against
+  // extracted statements catches that before it ships.
+  const withoutComments = migrationsSql.replace(/\/\*[\s\S]*?\*\//g, "");
+  const terminators = (withoutComments.match(/;/g) || []).length;
+  expect(deployStatements(migrationsSql)).toHaveLength(terminators);
 });
