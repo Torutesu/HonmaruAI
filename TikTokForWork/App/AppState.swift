@@ -241,6 +241,7 @@ final class AppState: ObservableObject {
 
     func signOut() {
         let sessionToken = SessionStore.sessionToken
+        let base = backendBaseURL
         Task {
             // Drop back to an anonymous RevenueCat id so the next account on this
             // device does not inherit this person's entitlement.
@@ -249,6 +250,12 @@ final class AppState: ObservableObject {
             // has no way to know which device to forget, and this phone keeps
             // buzzing about someone else's decisions.
             await PushService.shared.unregister(sessionToken: sessionToken)
+            // And then end the session itself. Until this existed, signing out
+            // was a local gesture: the phone forgot the token, the server kept
+            // honouring it for thirty days, and the GitHub access token behind
+            // it stayed live the whole time. Anyone holding a copy of the token
+            // was still signed in.
+            await AppState.endSession(token: sessionToken, base: base)
         }
         PushService.shared.setBadge(0)
         webSocketService.disconnect()
@@ -263,6 +270,19 @@ final class AppState: ObservableObject {
         isGuest = false
         isAuthenticated = false
         currentUser = nil
+    }
+
+    /// Tell the server the session is over. Best effort by design: a person
+    /// who is offline still gets to sign out of their phone, and the session
+    /// they leave behind expires on its own.
+    private static func endSession(token: String?, base: URL?) async {
+        guard let token, !token.isEmpty, let base else { return }
+        var request = URLRequest(url: base.appending(path: "logout"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        _ = try? await URLSession.shared.data(for: request)
     }
 
     enum AccountError: LocalizedError {

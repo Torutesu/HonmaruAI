@@ -482,6 +482,40 @@ export async function setConnectorConfig(db, githubId, connector, config) {
     .run();
 }
 
+/// Record that someone has linked a connector.
+///
+/// Written when they start the connect flow, and again whenever we see the
+/// account live — which backfills everyone who linked one before this table
+/// existed, the first time they open the connectors screen.
+export async function linkConnector(db, githubId, connector) {
+  await db
+    .prepare(
+      `INSERT INTO connector_links (user_github_id, connector, linked_at)
+       VALUES (?1, ?2, ?3)
+       ON CONFLICT(user_github_id, connector) DO NOTHING`
+    )
+    .bind(String(githubId), connector, new Date().toISOString())
+    .run();
+}
+
+/// Remember that this person's connectors have just been walked, so the next
+/// run serves whoever has waited longest instead of the same fifty people.
+export async function markConnectorsSynced(db, githubId) {
+  await db
+    .prepare("UPDATE connector_links SET last_synced_at = ?1 WHERE user_github_id = ?2")
+    .bind(new Date().toISOString(), String(githubId))
+    .run();
+}
+
+/// End a session, now, rather than in thirty days.
+///
+/// There was no way to: signing out cleared the device and left the session —
+/// and the GitHub token behind it — valid and sliding forward for a month.
+export async function deleteSession(db, token) {
+  if (!token) return;
+  await db.prepare("DELETE FROM sessions WHERE token = ?1").bind(token).run();
+}
+
 export async function registerDevice(db, { deviceToken, githubId, login, environment }) {
   await db
     .prepare(

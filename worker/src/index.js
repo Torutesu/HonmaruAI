@@ -6,6 +6,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
   getOrgProfiles, getOrgProfile, setOrgProfile, isMemberLogin,
+  linkConnector, deleteSession,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
@@ -303,6 +304,25 @@ async function handle(request, env, url) {
       if (body.deviceToken) await removeDevice(env.DB, body.deviceToken);
       return json({ ok: true });
     }
+    // Leaving, now rather than in thirty days.
+    //
+    // There was no way to. Signing out unregistered the device and dropped the
+    // session on the phone, and the session — with the GitHub access token
+    // behind it — stayed valid on the server for a month, sliding forward every
+    // time anything used it.
+    if (url.pathname === "/logout" && request.method === "POST") {
+      const token = request.headers.get("x-session-token");
+      const session = await getSession(env.DB, token);
+      // Answered the same way either way: a session that is already gone is the
+      // outcome the caller wanted.
+      if (session) {
+        const body = await request.json().catch(() => null);
+        if (body?.deviceToken) await removeDevice(env.DB, body.deviceToken);
+        await deleteSession(env.DB, token);
+      }
+      return json({ ok: true });
+    }
+
     if (url.pathname === "/account" && request.method === "DELETE") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
@@ -418,6 +438,11 @@ async function handle(request, env, url) {
           .filter((a) => String(a.status).toUpperCase() === "ACTIVE")
           .map((a) => (typeof a.toolkit === "string" ? a.toolkit : a.toolkit?.slug))
       );
+      // Anything Composio says is live gets recorded, which backfills everyone
+      // who linked a connector before there was a table to write it in.
+      for (const id of active) {
+        if (connectorById(id)) await linkConnector(env.DB, session.github_id, id);
+      }
       return json({
         connectors: CONNECTORS.map((c) => ({
           id: c.id, label: c.label, status: active.has(c.id) ? "active" : "none",
@@ -438,6 +463,11 @@ async function handle(request, env, url) {
         const link = await createConnectLink(
           env.COMPOSIO_API_KEY, String(session.github_id), connector.authConfigId
         );
+        // Recorded here so the scheduled sync knows this person has something
+        // to fetch. It used to look for a Notion database instead, which is the
+        // only per-user setting anything writes — so a Gmail or Slack account
+        // was never synced by the loop that exists to sync it.
+        await linkConnector(env.DB, session.github_id, connector.id);
         return json({ redirectUrl: link.redirect_url, connectedAccountId: link.connected_account_id });
       } catch (err) {
         return json({ message: err.message }, 502);

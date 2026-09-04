@@ -170,3 +170,22 @@ CREATE TABLE IF NOT EXISTS org_profiles (
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (org_id, user_github_id)
 );
+
+/* Which connectors a person has actually linked.
+
+   The scheduled sync used to look for a `connector_config` row, and the only
+   thing that writes one is Notion's database picker — so anyone who connected
+   Gmail or Slack and nothing else was never synced at all, by the loop whose
+   whole reason for existing is that "your AI triaged three decisions overnight"
+   cannot be true if the AI only runs while you are looking at it.
+
+   `last_synced_at` is what stops the same fifty people being served every run
+   while the fifty-first waits forever. */
+CREATE TABLE IF NOT EXISTS connector_links (
+  user_github_id TEXT NOT NULL,
+  connector      TEXT NOT NULL,
+  linked_at      TEXT NOT NULL,
+  last_synced_at TEXT,
+  PRIMARY KEY (user_github_id, connector)
+);
+CREATE INDEX IF NOT EXISTS idx_connector_links_user ON connector_links (user_github_id);

@@ -93,3 +93,63 @@ test("the run sweeps expired nonces and stale counters", async () => {
   expect(await env.DB.prepare("SELECT state FROM oauth_states WHERE state = 'stale-nonce'").first()).toBeNull();
   expect(await env.DB.prepare("SELECT count FROM rate_limits WHERE window_start = 0").first()).toBeNull();
 });
+
+test("someone who connected Gmail and nothing else is finally synced", async () => {
+  // The candidate query looked for a `connector_config` row, and the only thing
+  // that writes one is Notion's database picker — so a Gmail or Slack account
+  // was never touched by the loop that exists to run connectors while you are
+  // not looking. The test that guarded this seeded a Notion config, so it
+  // passed on the one case that worked.
+  const { createSession, upsertUser, upsertMembership, linkConnector } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "5501", login: "gmailonly", name: "G", avatarUrl: "", locale: "en" });
+  await upsertMembership(env.DB, "acme/mail", "5501", "Engineer");
+  await createSession(env.DB, "5501", "gho_gmail");
+  await linkConnector(env.DB, "5501", "gmail");
+
+  const seen = [];
+  await runScheduledSync({
+    ...env,
+    // No model configured: the run walks its candidates and creates nothing,
+    // which is all this needs to observe.
+    COMPOSIO_API_KEY: undefined,
+    DB: new Proxy(env.DB, {
+      get(target, prop) {
+        const value = target[prop];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }),
+  });
+
+  // Their turn was taken, which is the record that the loop reached them.
+  const row = await env.DB
+    .prepare("SELECT last_synced_at FROM connector_links WHERE user_github_id = '5501'")
+    .first();
+  expect(row.last_synced_at).toBeTruthy();
+  expect(seen).toEqual([]);
+});
+
+test("whoever has waited longest goes first", async () => {
+  const { createSession, upsertUser, upsertMembership, linkConnector } = await import("../src/db.js");
+  for (const [id, login] of [["5601", "fresh"], ["5602", "starved"]]) {
+    await upsertUser(env.DB, { githubId: id, login, name: login, avatarUrl: "", locale: "en" });
+    await upsertMembership(env.DB, "acme/queue", id, "Engineer");
+    await createSession(env.DB, id, `gho_${login}`);
+    await linkConnector(env.DB, id, "gmail");
+  }
+  // One was served a moment ago; the other has never been.
+  await env.DB
+    .prepare("UPDATE connector_links SET last_synced_at = ?1 WHERE user_github_id = '5601'")
+    .bind(new Date().toISOString())
+    .run();
+
+  const { results } = await env.DB
+    .prepare(
+      `SELECT user_github_id, COALESCE(last_synced_at, '') AS waited
+         FROM connector_links WHERE user_github_id IN ('5601','5602')
+        ORDER BY waited ASC`
+    )
+    .all();
+  // The ordering the candidate query uses: never-synced sorts first, so the
+  // fifty-first person no longer waits for someone to sign out.
+  expect(results[0].user_github_id).toBe("5602");
+});

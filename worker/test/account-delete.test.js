@@ -89,3 +89,63 @@ test("deletion needs a session", async () => {
   const res = await SELF.fetch("https://example.com/account", { method: "DELETE" });
   expect(res.status).toBe(401);
 });
+
+test("the name comes off the JSON everyone actually reads, not just the columns", async () => {
+  // `cards.data` and `card_events.snapshot` are what every client renders; the
+  // columns beside them are for querying. Anonymizing only the columns left the
+  // login in every teammate's feed and every line of the history — and the test
+  // that guarded this asserted on the columns, so it passed while the name
+  // stayed exactly where it was.
+  const { saveCard, upsertUser, upsertMembership, createSession, setOrgProfile } =
+    await import("../src/db.js");
+  const { appendCardEvent } = await import("../src/events.js");
+
+  await upsertUser(env.DB, { githubId: "9101", login: "carol", name: "Carol", avatarUrl: null, locale: "en" });
+  await upsertUser(env.DB, { githubId: "9102", login: "dave", name: "Dave", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "acme/json", "9101", "Admin");
+  await upsertMembership(env.DB, "acme/json", "9102", "Engineer");
+  // Dave reports to Carol, and Carol is about to leave.
+  await setOrgProfile(env.DB, "acme/json", "9102", { title: null, responsibilities: null, managerLogin: "carol" });
+
+  await saveCard(env.DB, "acme/json", {
+    id: "c-daves", recipientUserID: "dave", senderUserID: "carol",
+    originSenderUserID: "carol",
+    status: "pending", title: "Sign the contract", priority: "high",
+    createdAt: "2026-09-01T00:00:00Z",
+  });
+  await appendCardEvent(env.DB, "acme/json", {
+    cardId: "c-daves", type: "decided", action: "approve", actorUserId: "carol",
+    snapshot: {
+      id: "c-daves", recipientUserID: "dave", senderUserID: "carol",
+      decision: { action: "approve", actorUserID: "carol" },
+    },
+  });
+
+  const token = await createSession(env.DB, "9101", "gho_carol");
+  const res = await SELF.fetch("https://example.com/account", {
+    method: "DELETE", headers: { "x-session-token": token },
+  });
+  expect(res.status).toBe(200);
+
+  // Dave still has the decision he has to make, and the record of the one he
+  // made — with nobody's name on them.
+  const card = await env.DB.prepare("SELECT data FROM cards WHERE card_id = 'c-daves'").first();
+  const parsed = JSON.parse(card.data);
+  expect(parsed.senderUserID).toBe("deleted-user");
+  expect(parsed.originSenderUserID).toBe("deleted-user");
+  expect(card.data).not.toContain("carol");
+
+  const event = await env.DB
+    .prepare("SELECT actor_user_id, snapshot FROM card_events WHERE card_id = 'c-daves'")
+    .first();
+  expect(event.actor_user_id).toBe("deleted-user");
+  expect(JSON.parse(event.snapshot).decision.actorUserID).toBe("deleted-user");
+  expect(event.snapshot).not.toContain("carol");
+
+  // And nobody reports to someone who has left, which would keep routing
+  // escalations at an account that no longer exists.
+  const profile = await env.DB
+    .prepare("SELECT manager_login FROM org_profiles WHERE user_github_id = '9102'")
+    .first();
+  expect(profile.manager_login).toBeNull();
+});

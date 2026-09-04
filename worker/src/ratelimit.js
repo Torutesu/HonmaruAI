@@ -117,6 +117,12 @@ export async function sweepRateLimits(env) {
     const now = new Date().toISOString();
     await env.DB.prepare("DELETE FROM oauth_states WHERE expires_at < ?1").bind(now).run();
     await env.DB.prepare("DELETE FROM webhook_nonces WHERE expires_at < ?1").bind(now).run();
+    // An expired session is a GitHub access token nothing can reach and nobody
+    // is going to delete. They were never swept.
+    await env.DB
+      .prepare("DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at < ?1")
+      .bind(now)
+      .run();
   } catch (err) {
     console.error("rate limit sweep failed", err?.message || err);
   }
