@@ -138,8 +138,19 @@ struct FeedView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $viewModel.detailCard) { card in
-            CardDetailSheet(card: card)
-                .presentationDetents([.medium, .large])
+            CardDetailSheet(
+                card: card,
+                // Yours to work on only while it is still yours to decide.
+                canEdit: card.needsDecision && card.recipientUserID == appState.currentUser?.id,
+                isRefining: viewModel.isRefining,
+                onChangePriority: { priority in
+                    Task { await viewModel.setPriority(priority, for: card) }
+                },
+                onAskAI: { instruction in
+                    await viewModel.askAI(instruction, about: card, appState: appState)
+                }
+            )
+            .presentationDetents([.medium, .large])
         }
         .sheet(item: $viewModel.reviseCard) { card in
             ReviseSheet(card: card) { note in

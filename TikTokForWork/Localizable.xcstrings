@@ -518,6 +518,17 @@
         }
       }
     },
+    "Ask your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI に指示"
+          }
+        }
+      }
+    },
     "Assignee": {
       "extractionState": "manual",
       "localizations": {
@@ -1871,6 +1882,17 @@
         }
       }
     },
+    "Just give me the numbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数字だけにして"
+          }
+        }
+      }
+    },
     "Labels": {
       "extractionState": "manual",
       "localizations": {
@@ -2883,6 +2905,17 @@
         }
       }
     },
+    "Rewrite this card": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き直す"
+          }
+        }
+      }
+    },
     "Rewrites it as one clear decision, in Dana's context.": {
       "extractionState": "manual",
       "localizations": {
@@ -2890,6 +2923,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "相手の文脈に合わせ、1つの明確な判断に書き直します。"
+          }
+        }
+      }
+    },
+    "Rewriting this for you…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き直しています…"
           }
         }
       }
@@ -4254,6 +4298,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "あなたの AI"
+          }
+        }
+      }
+    },
+    "Your AI could not answer that.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI は答えられませんでした。"
           }
         }
       }

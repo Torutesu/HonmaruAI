@@ -17,6 +17,7 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | GET | `/health` | Readiness + which AI/GitHub features are configured |
 | GET | `/agui/tools` | AG-UI tool manifest |
 | POST | `/ai/route` | Instruction → intent, recipient, Decision Card (OpenAI, keyword fallback) |
+| POST | `/ai/refine` | Ask your own AI to rework the card in front of you (auth: `x-session-token`). Sends nothing to anyone; no keyword fallback, because there is no keyword version of "do what I just asked" |
 | GET | `/oauth/github/config` | Client id + scope + redirect for the app |
 | GET | `/oauth/github/state` | Mint a single-use, 10-minute nonce for the authorize URL |
 | POST | `/oauth/github/token` | OAuth `code` + `state` → GitHub token (server-side) + app session |

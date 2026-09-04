@@ -439,6 +439,14 @@ final class WebSocketService: ObservableObject {
         await publish(.rollback(cardID: cardID))
     }
 
+    /// Publish a change the recipient made to their own card: how urgent it
+    /// is, or the words, after asking their AI to rework them. Not a decision —
+    /// the relay merges only the fields a recipient may change and records it
+    /// as an update, so no notification and no Notion row follow it.
+    func publishUpdated(_ card: DecisionCard) async {
+        await publish(.cardUpdated(card))
+    }
+
     /// Report what happened to a decision after it was made — the issue it
     /// opened, or that issue changing state — without re-announcing the
     /// decision itself.

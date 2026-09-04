@@ -45,6 +45,16 @@ private struct RouteInstructionResponse: Decodable {
     let quotaExceeded: Bool?
 }
 
+/// A card, rewritten by the reader's own AI at their request.
+struct CardRefinement: Decodable {
+    let title: String
+    let summary: String
+    let context: String
+    let priority: String
+
+    var cardPriority: CardPriority? { CardPriority(rawValue: priority) }
+}
+
 private struct HealthResponse: Decodable {
     let aiRouting: Bool?
     let aiModel: String?
@@ -206,6 +216,59 @@ final class AIService: ObservableObject {
             toolCalls: routingResponse.toolCalls ?? [],
             quotaExceeded: routingResponse.quotaExceeded ?? false
         )
+    }
+
+    /// Ask your AI to rework the card in front of you.
+    ///
+    /// Your card, your AI: it rewrites what you are looking at — pull the
+    /// numbers out, shorten it, say what is actually being asked — and sends
+    /// nothing to anyone. There is no keyword version of "do what I just
+    /// asked", so unlike routing this has no offline fallback: it says it
+    /// cannot rather than answering something else.
+    func refine(
+        card: DecisionCard,
+        instruction: String,
+        readerLanguage: String
+    ) async throws -> CardRefinement {
+        guard let backendBaseURL, let token = SessionStore.sessionToken else {
+            throw AIServiceError.notConfigured
+        }
+        guard let url = URL(string: "/ai/refine", relativeTo: backendBaseURL) else {
+            throw AIServiceError.invalidResponse
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 40
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        if let key = SessionStore.apiKey, !key.isEmpty {
+            request.setValue(key, forHTTPHeaderField: "x-ai-key")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "instruction": instruction,
+            "readerLanguage": readerLanguage,
+            "card": [
+                "id": card.id,
+                "recipientUserID": card.recipientUserID,
+                "senderUserID": card.senderUserID,
+                "title": card.title,
+                "summary": card.summary,
+                "context": card.context,
+                "priority": card.priority.rawValue,
+            ],
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIServiceError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw AIServiceError.serverError(
+                parseServerError(data) ?? String(localized: "Your AI could not answer that.")
+            )
+        }
+        return try JSONDecoder().decode(CardRefinement.self, from: data)
     }
 
     private func name(for userID: String, in organization: OrganizationGraph) -> String {

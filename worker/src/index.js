@@ -26,6 +26,7 @@ import { createConnectLink, listConnectedAccounts, executeTool } from "./composi
 import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
 import { providerConfig } from "./provider.js";
+import { renderCardForRecipient } from "./render.js";
 
 export { OrgRelay } from "./relay.js";
 
@@ -158,6 +159,54 @@ async function handle(request, env, url) {
 
       return json(allowance.quotaExceeded ? { ...result, quotaExceeded: true } : result);
     }
+    // "Give additional instructions to the AI", from the PRD's list of things a
+    // person can do with a card. Your AI, your card: it reworks the one in
+    // front of you — pull the numbers out, shorten it, say what is actually
+    // being asked — rather than sending anything to anyone.
+    if (url.pathname === "/ai/refine" && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Sign in to ask your AI about a decision." }, 401);
+
+      const body = await request.json().catch(() => null);
+      const card = body?.card;
+      const instruction = typeof body?.instruction === "string" ? body.instruction.trim() : "";
+      if (!card || typeof card !== "object" || typeof card.title !== "string") {
+        return json({ message: "The request could not be read." }, 400);
+      }
+      if (!instruction) return json({ message: "Tell your AI what to do with this." }, 400);
+      if (instruction.length > 1000) {
+        return json({ message: "An instruction can be at most 1000 characters." }, 400);
+      }
+
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      const allowance = await checkAIAllowance(env, {
+        githubId: String(session.github_id), userKey,
+      });
+      const provider = allowance.allowed ? providerConfig(env, userKey) : undefined;
+      if (!provider) {
+        // Routing degrades to keywords; there is no keyword version of "do what
+        // I just asked", so this says so rather than answering with something
+        // that ignores the request.
+        return json({ message: "You have used today's AI. It comes back tomorrow.", quotaExceeded: true }, 429);
+      }
+
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      const result = await renderCardForRecipient({
+        card,
+        instruction,
+        recipient: { login: me?.login || String(session.github_id) },
+        provider,
+        readerLanguage: body.readerLanguage || me?.locale || "en",
+      });
+      if (result.called && allowance.metered) await allowance.consume();
+      if (!result.card) {
+        return json({ message: "Your AI could not work with that. Try saying it another way." }, 502);
+      }
+      return json(result.card);
+    }
+
     if (url.pathname === "/oauth/github/config" && request.method === "GET") {
       if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
         return json({ message: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET as Worker secrets" }, 503);

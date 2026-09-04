@@ -528,6 +528,50 @@ final class DecisionCardService: ObservableObject {
         return cardsByUser[actorUserID]?.first { $0.id == cardID } ?? card
     }
 
+    /// Change what the recipient may change about their own card: how urgent it
+    /// is, and the words, after asking their AI to rework them.
+    ///
+    /// The brief lists changing priority and giving your AI further
+    /// instructions among the things a person does with a card. Neither
+    /// existed: priority could only be set by the sender, at draft time, and
+    /// there was no way to ask your own AI anything about a card in front of
+    /// you.
+    @discardableResult
+    func applyEdit(
+        cardID: String,
+        actorUserID: String,
+        title: String? = nil,
+        summary: String? = nil,
+        context: String? = nil,
+        priority: CardPriority? = nil
+    ) async throws -> DecisionCard {
+        guard var userCards = cardsByUser[actorUserID],
+              let index = userCards.firstIndex(where: { $0.id == cardID }) else {
+            throw CardServiceError.cardNotFound
+        }
+        var card = userCards[index]
+        // A decided card is a record. Editing one changes the terms of a
+        // question that has been answered.
+        guard card.isPending else { return card }
+
+        let filled = { (value: String?) -> String? in
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+                return nil
+            }
+            return value
+        }
+        if let title = filled(title) { card.title = title }
+        if let summary = filled(summary) { card.summary = summary }
+        if let context = filled(context) { card.context = context }
+        if let priority { card.priority = priority }
+
+        userCards[index] = card
+        cardsByUser[actorUserID] = userCards
+        await webSocketService?.publishUpdated(card)
+        changed()
+        return card
+    }
+
     func delete(cardID: String, actorUserID: String) async throws {
         guard var userCards = cardsByUser[actorUserID],
               let index = userCards.firstIndex(where: { $0.id == cardID }) else {

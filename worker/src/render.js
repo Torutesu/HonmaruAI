@@ -30,6 +30,9 @@ anything back:
 - priority: keep what you were given unless the card itself names a deadline or
   a blocker that this person's own responsibilities make more urgent.
 
+When the recipient has asked you for something specific, that instruction comes
+first: do what they asked, and keep every fact while you do it.
+
 Reply with JSON only, no prose and no code fence:
 {"title": "3-8 words", "summary": "1-2 sentences", "context": "...", "priority": "low|medium|high|urgent"}`;
 
@@ -63,16 +66,19 @@ function parseJSON(content) {
 /// Returns `{ called, card }`. `called` is whether a model answered — the meter
 /// needs that, and it is not the same question as whether anything came of it.
 /// `card` is the fields to merge, or null to leave the card exactly as it is.
-export async function renderCardForRecipient({ card, recipient, provider, readerLanguage }) {
+export async function renderCardForRecipient({ card, recipient, provider, readerLanguage, instruction }) {
   if (!provider?.apiKey || !card) return NOT_CALLED;
+  const asked = String(instruction || "").trim();
   // With nothing known about the recipient there is nothing to rewrite *for*,
-  // and a rewrite that adds nothing is a model call that costs something.
+  // and a rewrite that adds nothing is a model call that costs something. An
+  // explicit request is knowing something: it is the recipient saying what
+  // they want done.
   const knows = [recipient?.title, recipient?.responsibilities, recipient?.context]
     .some((value) => String(value || "").trim());
-  if (!knows) return NOT_CALLED;
+  if (!knows && !asked) return NOT_CALLED;
 
   const userPrompt = `Reader language: ${readerLanguage || "en"}
-
+${asked ? `\nThe recipient has asked you, in their own words: ${asked}\n` : ""}
 The recipient:
 - id: ${recipient.login}
 ${recipient.title ? `- role: ${recipient.title}\n` : ""}${

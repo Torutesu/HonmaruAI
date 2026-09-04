@@ -17,6 +17,8 @@ final class FeedViewModel: ObservableObject {
     /// the free daily AI quota was spent. The feed shows a single quiet line
     /// offering the paywall — it is not raised as a repeating alert.
     @Published var quotaExceeded = false
+    /// Your AI is reworking the card you are looking at.
+    @Published var isRefining = false
     private var cardService: DecisionCardService?
     private var githubService: GitHubService?
     private var userID: String?
@@ -111,6 +113,56 @@ final class FeedViewModel: ObservableObject {
         }
 
         await resolve(card: card, action: action, revisionNote: nil, appState: appState)
+    }
+
+    /// How urgent this is, decided by the person who has to act on it.
+    ///
+    /// The sender set it once, at draft time, from the other side of the
+    /// problem. The recipient is the one who knows.
+    func setPriority(_ priority: CardPriority, for card: DecisionCard) async {
+        guard let cardService, let userID, priority != card.priority else { return }
+        do {
+            try await cardService.applyEdit(cardID: card.id, actorUserID: userID, priority: priority)
+            Haptics.light()
+            withAnimation(.easeOut(duration: 0.2)) { refreshCards(from: cardService) }
+            if let updated = cards.first(where: { $0.id == card.id }) { detailCard = updated }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Ask your own AI to rework the card in front of you.
+    ///
+    /// Nothing is sent to anyone: this rewrites what you are looking at. It has
+    /// no offline fallback on purpose — there is no keyword version of "do what
+    /// I just asked", and answering something else would be worse than saying
+    /// it cannot.
+    func askAI(_ instruction: String, about card: DecisionCard, appState: AppState) async {
+        let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let cardService, let userID, !trimmed.isEmpty else { return }
+
+        isRefining = true
+        defer { isRefining = false }
+        do {
+            let refined = try await appState.aiService.refine(
+                card: card,
+                instruction: trimmed,
+                readerLanguage: appState.readerLanguageCode
+            )
+            try await cardService.applyEdit(
+                cardID: card.id,
+                actorUserID: userID,
+                title: refined.title,
+                summary: refined.summary,
+                context: refined.context,
+                priority: refined.cardPriority
+            )
+            Haptics.success()
+            withAnimation(.easeOut(duration: 0.2)) { refreshCards(from: cardService) }
+            if let updated = cards.first(where: { $0.id == card.id }) { detailCard = updated }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func completeRevision(for card: DecisionCard, note: String, appState: AppState) async {
