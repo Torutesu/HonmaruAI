@@ -25,6 +25,11 @@ async function hashPassword(password, saltHex) {
   return toHex(bits);
 }
 
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest("SHA-256", ENC.encode(value));
+  return toHex(digest);
+}
+
 function newSaltHex() {
   return toHex(crypto.getRandomValues(new Uint8Array(16)));
 }
@@ -89,8 +94,10 @@ export async function signup(env, { email, password, name, inviteCode }) {
     org = invite.org_id;
     joinRole = invite.role || "member";
   } else {
-    // Their own org, named after their user id so no one else can claim it.
-    org = `personal:${normalizedEmail}`;
+    // Their own org. Derived from the user id so no one else can claim it, but
+    // hashed: this id travels in the socket's query string, and a URL is the
+    // classic place an address ends up somewhere it was never meant to be.
+    org = `personal:${(await sha256Hex(userId)).slice(0, 24)}`;
     joinRole = "admin";
   }
   await upsertMembership(env.DB, org, userId, joinRole);

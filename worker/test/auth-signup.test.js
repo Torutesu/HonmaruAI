@@ -45,8 +45,13 @@ test("signup with no invite puts the user in an org of their own", async () => {
   });
 
   expect(result.error).toBeUndefined();
-  expect(result.orgId).toContain("solo@example.com");
   expect(await isMember(env.DB, result.orgId, result.userId)).toBe(true);
+  // The org id travels in the socket's query string, so it must not carry the
+  // address it was derived from.
+  expect(result.orgId).not.toContain("solo@example.com");
+  expect(result.orgId).not.toContain("@");
+  // Same user, same org, every time — otherwise a re-signup would strand them.
+  expect(result.orgId).toMatch(/^personal:[0-9a-f]{24}$/);
 });
 
 test("signup cannot claim another user's relay identity via name", async () => {
