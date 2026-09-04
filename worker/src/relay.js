@@ -318,7 +318,7 @@ export class OrgRelay {
       // Identity is never taken from the client. `payload.userId` is read only
       // to be discarded: whoever you say you are, you act as the login on your
       // session, in the org that session can prove it belongs to.
-      const session = payload.sessionToken ? await getSession(this.db, payload.sessionToken) : null;
+      const session = payload.sessionToken ? await getSession(this.db, payload.sessionToken, this.env) : null;
       if (!session) {
         return this.refuse(ws, agui, "Sign in to join this organization.");
       }

@@ -148,6 +148,7 @@ npx wrangler d1 execute tiktokforwork --remote --file=./schema.sql   # apply sch
 npx wrangler secret put OPENAI_API_KEY        # set / rotate
 npx wrangler secret put GITHUB_CLIENT_ID
 npx wrangler secret put GITHUB_CLIENT_SECRET
+npx wrangler secret put TOKEN_ENCRYPTION_KEY   # openssl rand -base64 32
 npx wrangler tail                              # live logs
 ```
 
@@ -158,6 +159,13 @@ npx wrangler tail                              # live logs
 | `OPENAI_API_KEY` | set | Enables OpenAI routing (`gpt-4o-mini`); without it, keyword fallback |
 | `GITHUB_CLIENT_ID` | pending | From a GitHub OAuth App |
 | `GITHUB_CLIENT_SECRET` | pending | Stays server-side; never returned to the client |
+| `TOKEN_ENCRYPTION_KEY` | pending | Encrypts the GitHub access token in D1 (AES-GCM). Any passphrase of 16 characters or more; `openssl rand -base64 32` is a good one. Without it, tokens are stored in the clear and the Worker logs an error saying so |
+
+Rotating `TOKEN_ENCRYPTION_KEY` invalidates every session sealed with the old
+one: the tokens do not decrypt, so those people sign in again. Nothing else is
+lost. Sessions written before the key existed are plaintext and keep working —
+each one is re-sealed the first time it is read, so the plaintext ages out of
+the table on its own rather than needing a backfill.
 
 GitHub OAuth App: callback `tiktokforwork://oauth/callback`, homepage the base
 URL above.

@@ -1,3 +1,5 @@
+import { seal, open, isPlaintext, encryptionConfigured } from "./secretbox.js";
+
 // Loads the legacy store shape { [recipientUserID]: card[] } for one org,
 // so the copied adapter.js functions can operate on it unchanged.
 //
@@ -124,7 +126,11 @@ export async function saveContext(db, orgId, userId, context) {
 
 const SESSION_DAYS = 30;
 
-export async function createSession(db, githubId, accessToken) {
+
+/// `env` is optional so the many tests that only care about session lifetime can
+/// keep calling this with three arguments; without it the token is stored as it
+/// arrived, which is also what happens in a deployment with no key configured.
+export async function createSession(db, githubId, accessToken, env = null) {
   const token = crypto.randomUUID();
   const now = new Date();
   const expires = new Date(now.getTime() + SESSION_DAYS * 24 * 60 * 60 * 1000);
@@ -133,7 +139,8 @@ export async function createSession(db, githubId, accessToken) {
       `INSERT INTO sessions (token, github_id, github_access_token, created_at, expires_at)
        VALUES (?1, ?2, ?3, ?4, ?5)`
     )
-    .bind(token, githubId, accessToken, now.toISOString(), expires.toISOString())
+    .bind(token, githubId, env ? await seal(env, accessToken) : accessToken,
+          now.toISOString(), expires.toISOString())
     .run();
   return token;
 }
@@ -143,7 +150,7 @@ export async function createSession(db, githubId, accessToken) {
 // deadline that is still weeks away.
 const SESSION_SLIDE_AFTER_DAYS = 15;
 
-export async function getSession(db, token) {
+export async function getSession(db, token, env = null) {
   if (!token) return null;
   const row = await db
     .prepare(
@@ -173,6 +180,27 @@ export async function getSession(db, token) {
       // Failing to extend is not failing to authenticate. The session is still
       // valid right now, which is the question that was asked.
       console.error("session slide failed", err?.message || err);
+    }
+  }
+
+  // Decrypt for the caller, so every reader of `github_access_token` gets a
+  // usable token and none of them has to know the column is sealed.
+  if (env) {
+    if (isPlaintext(row.github_access_token) && encryptionConfigured(env)) {
+      // A row written before the column was encrypted. Upgrade it here rather
+      // than in a backfill: the plaintext ages out of the table on its own, one
+      // session at a time, as people use the app.
+      try {
+        const sealed = await seal(env, row.github_access_token);
+        await db
+          .prepare("UPDATE sessions SET github_access_token = ?1 WHERE token = ?2")
+          .bind(sealed, token)
+          .run();
+      } catch (err) {
+        console.error("token re-seal failed", err?.message || err);
+      }
+    } else {
+      row.github_access_token = await open(env, row.github_access_token);
     }
   }
   return row;

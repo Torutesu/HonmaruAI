@@ -62,7 +62,7 @@ function invalidRouteRequest(body) {
 // graph — where GitHub enforces access when we call its API — nothing else would
 // stop one org reading another's.
 async function requireMember(env, request, orgId) {
-  const session = await getSession(env.DB, request.headers.get("x-session-token"));
+  const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
   if (!session) return json({ message: "invalid session" }, 401);
   if (!(await isMember(env.DB, orgId, session.github_id))) {
     return json({ message: "not a member of this org" }, 403);
@@ -134,7 +134,7 @@ async function handle(request, env, url) {
       const userKey = request.headers.get("x-ai-key") || undefined;
       // The route is usable without a session (guests), but only a session can
       // be metered — and an unmetered guest must not spend our AI budget.
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       const allowance = await checkAIAllowance(env, {
         githubId: session ? String(session.github_id) : null,
         userKey,
@@ -167,7 +167,7 @@ async function handle(request, env, url) {
     if (url.pathname === "/ai/refine" && request.method === "POST") {
       const limited = await enforce(env, request, "ai/route");
       if (limited) return limited;
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "Sign in to ask your AI about a decision." }, 401);
 
       const body = await request.json().catch(() => null);
@@ -262,7 +262,7 @@ async function handle(request, env, url) {
         githubId: ghUser.id, login: ghUser.login, name: ghUser.name,
         avatarUrl: ghUser.avatar_url, locale: "en",
       });
-      const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
+      const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token, env);
       // The GitHub token is not handed back. It carries `repo` scope — every
       // repository this person can reach, code included — and the app does six
       // things with it, all of which now go through /github. A session cannot
@@ -270,7 +270,7 @@ async function handle(request, env, url) {
       return json({ tokenType: "bearer", sessionToken, login: ghUser.login });
     }
     if (url.pathname === "/media" && request.method === "POST") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const limited = await enforce(env, request, "media");
       if (limited) return limited;
@@ -283,7 +283,7 @@ async function handle(request, env, url) {
     // Registered after the user grants permission, and re-registered on every
     // launch — APNs reissues tokens, and a stale one is a silent no-op.
     if (url.pathname === "/devices" && request.method === "POST") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json();
       if (!body.deviceToken) return json({ message: "deviceToken is required" }, 400);
@@ -298,7 +298,7 @@ async function handle(request, env, url) {
       return json({ ok: true });
     }
     if (url.pathname === "/devices" && request.method === "DELETE") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json();
       if (body.deviceToken) await removeDevice(env.DB, body.deviceToken);
@@ -312,7 +312,7 @@ async function handle(request, env, url) {
     // time anything used it.
     if (url.pathname === "/logout" && request.method === "POST") {
       const token = request.headers.get("x-session-token");
-      const session = await getSession(env.DB, token);
+      const session = await getSession(env.DB, token, env);
       // Answered the same way either way: a session that is already gone is the
       // outcome the caller wanted.
       if (session) {
@@ -324,7 +324,7 @@ async function handle(request, env, url) {
     }
 
     if (url.pathname === "/account" && request.method === "DELETE") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const user = await getUserByGithubId(env.DB, session.github_id);
       await deleteAccount(env.DB, session.github_id, user?.login || null);
@@ -333,7 +333,7 @@ async function handle(request, env, url) {
     const orgGraphMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/graph$/);
     if (orgGraphMatch && request.method === "GET") {
       const [, owner, repo] = orgGraphMatch;
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const orgId = `${owner}/${repo}`;
       let collaborators;
@@ -376,7 +376,7 @@ async function handle(request, env, url) {
     const profileMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/profile$/);
     if (profileMatch) {
       const orgId = `${profileMatch[1]}/${profileMatch[2]}`;
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
@@ -423,7 +423,7 @@ async function handle(request, env, url) {
       return json({ events: await listCardEvents(env.DB, orgId, cardId) });
     }
     if (url.pathname === "/connectors" && request.method === "GET") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
 
@@ -452,7 +452,7 @@ async function handle(request, env, url) {
 
     const connectMatch = url.pathname.match(/^\/connectors\/([^/]+)\/connect$/);
     if (connectMatch && request.method === "POST") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
 
@@ -475,7 +475,7 @@ async function handle(request, env, url) {
     }
 
     if (url.pathname === "/connectors/notion/databases" && request.method === "GET") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
       try {
@@ -502,7 +502,7 @@ async function handle(request, env, url) {
     }
 
     if (url.pathname === "/connectors/notion/config" && request.method === "PUT") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json();
       if (!body.databaseId) return json({ message: "databaseId is required" }, 400);
@@ -511,7 +511,7 @@ async function handle(request, env, url) {
     }
 
     if (url.pathname === "/connectors/notion/config" && request.method === "GET") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       // Chosen-nothing is a normal state, not a 404: the app persists locally but
       // must be able to recover the server's truth on a fresh install or a second
@@ -524,7 +524,7 @@ async function handle(request, env, url) {
     const syncMatch = url.pathname === "/connectors/sync"
       || url.pathname.match(/^\/connectors\/([^/]+)\/sync$/);
     if (syncMatch && request.method === "POST") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
       const limited = await enforce(env, request, "connectors/sync");
@@ -583,7 +583,7 @@ async function handle(request, env, url) {
     // call GitHub directly; it now holds a session and calls this, which
     // forwards exactly the six things the app does and nothing else.
     if (url.pathname === "/github" || url.pathname.startsWith("/github/")) {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const limited = await enforce(env, request, "github");
       if (limited) return limited;
@@ -676,7 +676,7 @@ async function handle(request, env, url) {
     // Where to send mail so it reaches you. The address names its owner, which
     // is what makes routing an inbound message possible at all.
     if (url.pathname === "/connectors/email/address" && request.method === "GET") {
-      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const session = await getSession(env.DB, request.headers.get("x-session-token"), env);
       if (!session) return json({ message: "invalid session" }, 401);
       const address = inboundAddressFor(env, session.github_id);
       return address

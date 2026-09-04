@@ -1,3 +1,4 @@
+import { open as openToken } from "./secretbox.js";
 import { CONNECTORS } from "./connectors/index.js";
 import { syncAll } from "./sync.js";
 import { notifyCard } from "./push.js";
@@ -93,7 +94,9 @@ async function syncOneUser(env, provider, row) {
   const session = {
     token: row.token,
     github_id: row.github_id,
-    github_access_token: row.github_access_token,
+    // The column is sealed; this query reads it directly rather than going
+    // through getSession, so it has to unseal it itself.
+    github_access_token: await openToken(env, row.github_access_token),
   };
   try {
     // One connector's outage does not silence the others inside syncAll, and
