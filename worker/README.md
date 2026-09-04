@@ -14,7 +14,7 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/health` | Readiness + which AI/GitHub features are configured |
+| GET | `/health` | Readiness, including a D1 query, plus which AI/GitHub features are configured. `ok` is false when the database is unreachable |
 | GET | `/agui/tools` | AG-UI tool manifest |
 | POST | `/ai/route` | Instruction → intent, recipient, Decision Card (OpenAI, keyword fallback) |
 | POST | `/ai/refine` | Ask your own AI to rework the card in front of you (auth: `x-session-token`). Sends nothing to anyone; no keyword fallback, because there is no keyword version of "do what I just asked" |
@@ -24,10 +24,21 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | POST | `/devices` | Register an APNs token (auth: `x-session-token`) |
 | DELETE | `/devices` | Forget one, on sign-out |
 | DELETE | `/account` | Erase the caller's account (auth: `x-session-token`) |
-| GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1, and layers on what people have said about themselves |
+| GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users and memberships to D1, and layers on what people have said about themselves |
 | GET/PUT | `/orgs/:owner/:repo/profile` | Your own title, responsibilities and manager in this org (auth + membership). You write your own — routing reads the result |
+| GET | `/orgs/:owner/:repo/events` | The organization's decision history (auth + membership) |
+| GET | `/orgs/:owner/:repo/cards/:id/events` | One card's history, in order |
+| POST | `/logout` | End the session and unregister the device with it |
 | POST | `/media` | Upload a recording (auth: `x-session-token`). `video/*` only; anything else is 415 |
 | GET | `/media/:id` | Play one back. Needs a session, as `x-session-token` or `?t=` — AVPlayer streams the URL itself and cannot send a header |
+| GET | `/connectors` | Which connectors this person has linked, from Composio |
+| POST | `/connectors/:id/connect` | Start an authorization for one, returning the URL to open |
+| POST | `/connectors/:id/sync` | Pull what is new from one connector and triage it |
+| POST | `/connectors/sync` | The same, across all of them |
+| GET/POST | `/connectors/notion/databases`, `/connectors/notion/config` | Which Notion database decisions are written to |
+| GET | `/connectors/email/address` | Where to forward mail so it reaches you: `u-<github id>@<domain>` |
+| POST | `/webhooks/email` | Inbound mail from Mailgun. Signature verified; a sender you have not vouched for gets a low-priority update rather than an approval, and 20 messages a day per recipient |
+| ANY | `/github`, `/github/**` | The allowlisted GitHub proxy. Six calls forwarded, everything else refused — the access token never leaves the server |
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
 
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,
@@ -89,8 +100,11 @@ negotiable:
   builds that still send it do not fail.
 
 Rate limits (fixed windows in D1, keyed by session where there is one and by IP
-where there is not; fails open): `/ai/route` 30/5min, `/oauth/github/token`
-10/5min, `/connectors/*/sync` 6/5min, `/media` 20/hour.
+where there is not; fails open): `/ai/route` and `/ai/refine` 30/5min,
+`/oauth/github/token` 10/5min, `/oauth/github/state` 30/5min,
+`/connectors/*/sync` 6/5min, `/media` 20/hour, `/github` and
+`/orgs/:owner/:repo/graph` 300/5min, `/webhooks/email` per its own bucket and,
+separately, 20 accepted messages per recipient per day.
 
 ### The recipient's AI
 
@@ -113,32 +127,37 @@ taken on trust.
 
 ### Scheduled
 
-`crons = ["*/15 * * * *"]` syncs connectors for users who have a session, an org
-and a configured connector, pushes anything new, and sweeps expired nonces and
-stale rate-limit rows. Metered by the same per-message allowance a manual sync
-uses.
+`crons = ["*/15 * * * *"]` syncs connectors for anyone with a live session, an
+org and a linked connector — five people at a time, longest-waiting first, so a
+hundred users all get a turn rather than the same fifty every run. It pushes
+anything new, and sweeps expired nonces, stale rate-limit rows and expired
+sessions. Metered by the same per-message allowance a manual sync uses.
 
-### Phase 2 status (real identity & org)
+### Storage
 
-Live-verified: `/health` 200, `/orgs/:owner/:repo/graph` returns 401 without a
-valid session (auth guard), and `/ai/route` routes to real org members — an
-invalid recipient guessed by the model is rejected and falls back to a real
-member (`routingError: "AI picked an invalid recipient."`, `routedBy:"fallback"`).
+D1, applied as numbered migrations in `migrations/`. `schema.sql` is generated
+from them by `npm run schema:build` — it is the whole database in one file,
+which is what the test suite loads and what a person reads to see what is
+stored, and `npm run schema:check` fails if the two drift. Add a change as a new
+numbered file and regenerate; editing `schema.sql` is a change production never
+sees.
 
-Deferred: end-to-end `/orgs` against real GitHub needs the `GITHUB_CLIENT_ID`/
-`GITHUB_CLIENT_SECRET` secrets (a valid session comes from OAuth). Unit tests
-cover the build+persist logic via `fetchMock`.
+The GitHub access token is encrypted at rest with AES-GCM under
+`TOKEN_ENCRYPTION_KEY`. Rows written before that existed are plaintext, and
+`getSession` re-seals each one the first time it reads it, so the plaintext ages
+out without a backfill.
 
-Phase 3 follow-up: the OpenAI `SYSTEM_PROMPT` still references demo members, so
-the model may guess a demo id (caught by the validator and corrected via
-fallback). Feed the real org members into the prompt so OpenAI picks them
-directly.
+Cards carry a `version`. A change is conditional on the row still being the one
+that was read, so two writes racing on one card cannot end with the second
+silently erasing the first.
 
 ## Develop
 
 ```bash
 npm install
-npm test          # 11 tests under @cloudflare/vitest-pool-workers (real workerd)
+npm test          # the suite, under @cloudflare/vitest-pool-workers (real workerd)
+npm run lint      # eslint, including the unawaited-promise rules
+npm run schema:check   # schema.sql still matches migrations/
 npm run dev       # local wrangler dev
 ```
 

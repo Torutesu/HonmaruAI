@@ -41,8 +41,6 @@ works too — `.asc.env.example` documents every field.
 
 `.asc.env` is gitignored, as is `*.p8`. Neither ever gets committed.
 
-A Japanese walkthrough aimed at non-engineers is in [setup-ja.md](setup-ja.md).
-
 Then store the credentials in the keychain and confirm they work:
 
 ```bash

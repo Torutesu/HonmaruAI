@@ -9,10 +9,12 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 268 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
-- **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
-- **CI:** `.github/workflows/ci.yml` — Worker, the reference relay and the
-  reference web client on every push, iOS on pull requests
+- **Worker suite:** 291 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **iOS suite:** `TikTokForWorkTests` — outbox, cache, card decoding and card state
+- **CI:** `.github/workflows/ci.yml` — Worker (tests, ESLint, schema/migration
+  drift), the localization check, the reference relay and the reference web
+  client, and an iOS compile on every push; the iOS test run waits for a pull
+  request
 - **Deployed:** `https://tiktokforwork.torubj0904.workers.dev`
 - **Ships as:** Honmaru AI, `com.honmaru.ai`
 
@@ -64,14 +66,28 @@ verified against the code, and the plan it drives — is
       does not read the person's source
 - [x] Rate limits on routing, token exchange, sync and uploads, and on how fast
       one socket may talk
-- [x] Account deletion, in the app
+- [x] The GitHub token is encrypted at rest in D1, so a leaked database is not
+      a leak of everyone's source. Signing out ends the session on the server,
+      and expired sessions are swept rather than left holding a token
+- [x] A recording needs a session to watch. `/media/:id` used to serve one to
+      anyone who had the link, and uploads are video only, so the bucket cannot
+      host a page on the app's own origin
+- [x] Inbound mail from an address you have not vouched for arrives as
+      something to read, never as something to approve, capped at 20 a day
+- [x] Two writes racing on one card cannot end with the second silently
+      erasing the first
+- [x] Account deletion, in the app, including the names inside the JSON that
+      the row-level anonymisation never looked into
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
 
 ### Reliability
 - [x] Auto-reconnect with backoff, on foreground and on regaining a network
 - [x] Cards cached per organization, so a cold launch is not a blank feed
 - [x] Outbox: a decision made offline is delivered on reconnect, in order
-- [x] One structured log line per request, with an id echoed to the client
+- [x] One structured log line per request, with an id echoed to the client, and
+      one per socket failure carrying the org, the person and the message type
+- [x] `/health` runs a query, so a deploy that would serve 500s to every
+      signed-in person stops at the verify step
 
 ### Polish
 - [x] VoiceOver rotor actions on the card; approve and decline no longer need a swipe
@@ -105,7 +121,10 @@ verified against the code, and the plan it drives — is
       to show a person their address (`GET /connectors/email/address` returns
       it), and nothing in the app yet marks a sender trusted
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have
-      to be clamped at `accessibility1`
+      to be clamped at `accessibility1` on the card. Everywhere else scales, and
+      the rotor reaches every action at every size
+- [ ] Somewhere in the app to mark an email sender trusted. Until there is one,
+      every inbound message arrives as an update to read
 
 
 The remaining compromises are written up under
