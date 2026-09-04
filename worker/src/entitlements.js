@@ -18,7 +18,12 @@ export async function isPro(env, githubId) {
   try {
     const res = await fetch(
       `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(String(githubId))}`,
-      { headers: { Authorization: `Bearer ${env.REVENUECAT_SECRET_KEY}` } }
+      {
+        headers: { Authorization: `Bearer ${env.REVENUECAT_SECRET_KEY}` },
+        // Billing is a question asked on the way to doing something else. A
+        // slow answer has to become "not pro" quickly, not hold the route.
+        signal: AbortSignal.timeout(5_000),
+      }
     );
     if (res.ok) {
       const body = await res.json();

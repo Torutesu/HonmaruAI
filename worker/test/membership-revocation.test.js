@@ -24,7 +24,7 @@ test("loading the org graph removes anyone GitHub no longer lists", async () => 
 
   // GitHub's answer: leaver is gone from the repository.
   fetchMock.get("https://api.github.com")
-    .intercept({ path: "/repos/acme/web/collaborators?per_page=100", method: "GET" })
+    .intercept({ path: "/repos/acme/web/collaborators?per_page=100&page=1", method: "GET" })
     .reply(200, [{ id: 1, login: "stayer", avatar_url: "", permissions: { admin: true } }]);
 
   const res = await SELF.fetch("https://example.com/orgs/acme/web/graph", {

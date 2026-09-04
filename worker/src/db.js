@@ -235,23 +235,43 @@ export async function upsertMembership(db, orgId, githubId, role) {
 /// time it is used. Someone who left kept reading the team's decisions for as
 /// long as they kept the app open.
 ///
-/// `keep` empty is treated as "we learned nothing", not "nobody is a member".
-/// GitHub answering with an empty list — or not answering — must not empty an
-/// organization.
-export async function retainMemberships(db, orgId, keep) {
-  const ids = [...new Set((keep || []).map(String))].filter(Boolean);
-  if (!ids.length) return { removed: 0 };
-  const holes = ids.map((_, i) => `?${i + 2}`).join(", ");
-  const { meta } = await db
-    .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes})`)
-    .bind(orgId, ...ids)
-    .run();
-  // Agents belong to the person, so they go the same way.
-  await db
-    .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes})`)
-    .bind(orgId, ...ids)
-    .run();
-  return { removed: meta?.changes ?? 0 };
+/// `keep` empty is treated as "we learned nothing", not "nobody is a member" —
+/// GitHub answering with an empty list, or not answering, must not empty an
+/// organization. `authoritative` is the caller saying it did get an answer and
+/// the answer really is "nobody", which happens when every collaborator on a
+/// repository is read-only.
+///
+/// The set difference is computed here rather than in SQL because D1 binds at
+/// most 100 parameters per statement, and a `NOT IN` over everyone who stays
+/// fails on exactly the repositories big enough to need this. Deleting the
+/// people who left is bounded by the leavers instead.
+export async function retainMemberships(db, orgId, keep, { authoritative = false } = {}) {
+  const ids = new Set((keep || []).map(String).filter(Boolean));
+  if (!ids.size && !authoritative) return { removed: 0 };
+
+  const { results } = await db
+    .prepare("SELECT user_github_id FROM memberships WHERE org_id = ?1")
+    .bind(orgId)
+    .all();
+  const gone = (results || [])
+    .map((row) => String(row.user_github_id))
+    .filter((id) => !ids.has(id));
+  if (!gone.length) return { removed: 0 };
+
+  for (let i = 0; i < gone.length; i += 50) {
+    const chunk = gone.slice(i, i + 50);
+    const holes = chunk.map((_, n) => `?${n + 2}`).join(", ");
+    await db
+      .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id IN (${holes})`)
+      .bind(orgId, ...chunk)
+      .run();
+    // Agents belong to the person, so they go the same way.
+    await db
+      .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id IN (${holes})`)
+      .bind(orgId, ...chunk)
+      .run();
+  }
+  return { removed: gone.length };
 }
 
 export async function upsertAgent(db, orgId, githubId, displayName) {
@@ -271,6 +291,26 @@ export async function isMember(db, orgId, githubId) {
   const row = await db
     .prepare("SELECT 1 AS ok FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
     .bind(orgId, String(githubId))
+    .first();
+  return Boolean(row);
+}
+
+/// Is this login a member of this org?
+///
+/// Cards name people by their GitHub login; membership is keyed by the numeric
+/// id, so answering "may this card be addressed to this person" needs the join.
+/// A card addressed to someone who is not in the organization is a decision
+/// nobody can ever make, stored forever — and, because push is looked up by
+/// login alone, a notification with a stranger's title on someone else's phone.
+export async function isMemberLogin(db, orgId, login) {
+  if (!login) return false;
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok FROM memberships m
+       JOIN users u ON u.github_id = m.user_github_id
+       WHERE m.org_id = ?1 AND u.login = ?2`
+    )
+    .bind(orgId, login)
     .first();
   return Boolean(row);
 }

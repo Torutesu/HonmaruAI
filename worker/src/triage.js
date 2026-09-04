@@ -69,6 +69,9 @@ Body preview: ${message.snippet}
   try {
     const res = await fetch(provider.endpoint, {
       method: "POST",
+      // A model that never answers must not hold a connector sync, or the
+      // scheduled run behind it, open for the platform's whole timeout.
+      signal: AbortSignal.timeout(20_000),
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: provider.model, temperature: 0.1, max_tokens: 400,

@@ -43,6 +43,9 @@ export async function authorizeOrgAccess(env, session, orgId) {
   try {
     const res = await fetch(`${GH}/repos/${owner}/${repo}`, {
       headers: headers(session.github_access_token),
+      // This runs on the join path. GitHub not answering has to become "no",
+      // promptly, rather than a socket that never finishes connecting.
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return { ok: false, login: null };
     permissions = (await res.json())?.permissions || {};
@@ -62,7 +65,10 @@ export async function authorizeOrgAccess(env, session, orgId) {
   let name = known?.name || null;
   if (!login) {
     try {
-      const res = await fetch(`${GH}/user`, { headers: headers(session.github_access_token) });
+      const res = await fetch(`${GH}/user`, {
+        headers: headers(session.github_access_token),
+        signal: AbortSignal.timeout(10_000),
+      });
       if (!res.ok) return { ok: false, login: null };
       const me = await res.json();
       login = me.login;

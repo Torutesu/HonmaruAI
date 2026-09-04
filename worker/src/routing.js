@@ -1,7 +1,5 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
 
-export const DEMO_USER_IDS = ["user-toru", "user-tanaka", "user-yui", "user-alex"];
-
 // Person node ids of the passed organization (the real members).
 export function memberIdsOf(organization) {
   return (organization?.nodes || [])
@@ -9,58 +7,56 @@ export function memberIdsOf(organization) {
     .map((n) => n.id);
 }
 
-// Display name for a user id: prefer the org node label ("<name> · <role>"),
-// then the demo map, then the raw id.
+/// Display name for a user id: the org node's label without its role suffix,
+/// falling back to the id — which, for a real organization, is a GitHub login
+/// and already a name the team recognizes.
 export function displayNameOf(organization, userID) {
   const node = (organization?.nodes || []).find((n) => n.id === userID && n.kind === "person");
-  if (node?.label) return node.label.split(" · ")[0].trim();
-  return userNameFor(userID);
+  if (node?.label) return node.label.split(" \u00b7 ")[0].trim();
+  return String(userID || "");
 }
 
-/// A one-person business: unless the work clearly belongs to the contractor or
-/// the client, the owner decides. Defaulting anywhere else invents a colleague.
-/// (For a real org, defaultRecipient picks a member instead of a demo id.)
+/// Thrown when there is nobody to route to.
+///
+/// This used to be answered with four invented colleagues — `user-toru` and
+/// friends, left over from the demo — so an instruction sent before the org
+/// graph had loaded, or by a guest who never had one, produced a card addressed
+/// to a person who does not exist. The relay stored it, nobody could ever
+/// decide it, and the sender was told it had been routed. An error the client
+/// can act on is the honest answer, and the only one that does not quietly
+/// lose work.
+export class NoOrganizationError extends Error {
+  constructor() {
+    super("Load your organization before routing a decision.");
+    this.name = "NoOrganizationError";
+  }
+}
 
-const TEAM_ROUTES = [
-  {
-    phrases: ["デザイナー", "外注", "designer", "contractor"],
-    userID: "user-yui",
-    label: "Design",
-  },
-  {
-    phrases: ["クライアント", "先方", "取引先", "client", "customer"],
-    userID: "user-tanaka",
-    label: "Client",
-  },
-];
-
-const ROLE_ROUTES = [
-  {
-    phrases: ["ロゴ", "バナー", "デザイン", "画像", "ヒーロー", "logo", "banner", "design", "figma"],
-    userID: "user-yui",
-    reason: "Visual work goes to the contractor",
-  },
-  {
-    phrases: ["納品", "検収", "先方確認", "承認依頼", "delivery", "sign-off", "change order"],
-    userID: "user-tanaka",
-    reason: "The client has to agree to this",
-  },
-  {
-    phrases: ["実装", "デプロイ", "バグ", "サーバー", "コード", "deploy", "bug", "server", "code", "staging"],
-    userID: "user-alex",
-    reason: "Engineering work goes to Alex",
-  },
-  {
-    phrases: ["請求", "見積", "入金", "経費", "単価", "値上げ", "invoice", "quote", "pricing", "payment"],
-    userID: "user-toru",
-    reason: "Money decisions are yours alone",
-  },
-];
-
+/// Whether an instruction names this person.
+///
+/// A bare `includes` matched any member whose name happened to be a substring
+/// of the sentence — `al` inside "already", `sam` inside "same" — and the match
+/// then *overrode* the model's choice, so the better answer lost to an
+/// accident. Latin names need a word boundary; a script that has no word
+/// boundaries is matched directly, which is what that script allows. `@name`
+/// counts either way, because an explicit mention is never an accident.
+export function namesPerson(text, name) {
+  const needle = String(name || "").trim();
+  const haystack = String(text || "");
+  if (!needle || !haystack) return false;
+  if (haystack.toLowerCase().includes(`@${needle.toLowerCase()}`)) return true;
+  if (/^[\x20-\x7e]+$/.test(needle)) {
+    if (needle.length < 3) return false;
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^\\w-])${escaped}([^\\w-]|$)`, "i").test(haystack);
+  }
+  return needle.length >= 2 && haystack.includes(needle);
+}
 
 function defaultRecipient(senderID, organization) {
   const members = memberIdsOf(organization);
-  if (!members.length) return "user-toru"; // demo fallback
+  if (!members.length) throw new NoOrganizationError();
+  // Something that needs signing off goes to someone who can sign it off.
   const approver = (organization.edges || []).find(
     (e) => e.kind === "canApprove" && e.fromID !== senderID && members.includes(e.fromID)
   );
@@ -68,42 +64,20 @@ function defaultRecipient(senderID, organization) {
   return members.find((id) => id !== senderID) || members[0];
 }
 
-function matchTeamRoute(text, senderID, organization) {
-  const lower = String(text || "").toLowerCase();
-  const members = memberIdsOf(organization);
-  for (const route of TEAM_ROUTES) {
-    if (route.userID === senderID) continue;
-    if (members.length && !members.includes(route.userID)) continue;
-    if (route.phrases.some((phrase) => lower.includes(phrase))) {
-      return route;
-    }
-  }
-  return null;
-}
-
-function matchRoleRoute(text, senderID, organization) {
-  const lower = String(text || "").toLowerCase();
-  const members = memberIdsOf(organization);
-  for (const route of ROLE_ROUTES) {
-    if (route.userID === senderID) continue;
-    if (members.length && !members.includes(route.userID)) continue;
-    if (route.phrases.some((phrase) => lower.includes(phrase))) {
-      return route;
-    }
-  }
-  return null;
-}
-
+/// Who this instruction is for, before the model has said anything.
+///
+/// Three rules, in the order the PRD states them: a person named in the
+/// instruction, then the sender's manager for an escalation, then whoever can
+/// decide. Only the first overrides a model that disagreed — the other two are
+/// guesses, and a guess should not beat a reading.
 export function resolveRecipientTarget(text, senderID, organization) {
-  const lower = String(text || "").toLowerCase();
-
   const members = memberIdsOf(organization);
-  const candidateIds = members.length ? members : DEMO_USER_IDS;
-  for (const userID of candidateIds) {
+  if (!members.length) throw new NoOrganizationError();
+
+  for (const userID of members) {
     if (userID === senderID) continue;
     const displayName = displayNameOf(organization, userID);
-    const nameLower = displayName.toLowerCase();
-    if (nameLower && lower.includes(nameLower)) {
+    if (namesPerson(text, displayName) || namesPerson(text, userID)) {
       return {
         recipientUserID: userID,
         routingReason: `Mentioned ${displayName}`,
@@ -112,61 +86,30 @@ export function resolveRecipientTarget(text, senderID, organization) {
     }
   }
 
-  const team = matchTeamRoute(text, senderID, organization);
-  if (team) {
-    return {
-      recipientUserID: team.userID,
-      routingReason: `Routed to ${team.label} team · ${userNameFor(team.userID)}`,
-      forceOverride: true,
-    };
-  }
-
-  const role = matchRoleRoute(text, senderID, organization);
-  if (role) {
-    return {
-      recipientUserID: role.userID,
-      routingReason: role.reason,
-      forceOverride: true,
-    };
-  }
-
-  if (lower.includes("manager")) {
-    const edge = organization?.edges?.find(
-      (item) => item.toID === senderID && item.kind === "manages"
-    );
-    if (edge) {
-      return {
-        recipientUserID: edge.fromID,
-        routingReason: `You are ${userNameFor(senderID)}'s manager`,
-        forceOverride: true,
-      };
-    }
-  }
-
-  const managerEdge = organization?.edges?.find(
+  const managerEdge = (organization?.edges || []).find(
     (item) => item.toID === senderID && item.kind === "manages"
   );
-  if (managerEdge?.fromID && managerEdge.fromID !== senderID) {
+  if (managerEdge?.fromID && managerEdge.fromID !== senderID && members.includes(managerEdge.fromID)) {
     return {
       recipientUserID: managerEdge.fromID,
-      routingReason: `Escalated to ${userNameFor(managerEdge.fromID)}`,
+      routingReason: `Escalated to ${displayNameOf(organization, managerEdge.fromID)}`,
       forceOverride: false,
     };
   }
 
-  // In a one-person business the decision usually comes back to the owner, so
-  // routing to yourself is the right answer rather than a bug. Picking "anyone
-  // but the sender" hands your own work to a client.
   return {
     recipientUserID: defaultRecipient(senderID, organization),
-    routingReason: "This one is yours to decide",
+    routingReason: "Best match for this decision in the org graph",
     forceOverride: false,
   };
 }
 
 export function buildAgentTools(organization) {
-  const members = memberIdsOf(organization);
-  const recipientEnum = members.length ? members : DEMO_USER_IDS;
+  // The enum is the org's members and nothing else. It used to fall back to the
+  // demo ids for an empty org, which is how a model was invited to route a real
+  // instruction to a person who does not exist; an empty org is now refused
+  // before the model is ever called.
+  const recipientEnum = memberIdsOf(organization);
   return [
     {
       type: "function",
@@ -179,7 +122,7 @@ export function buildAgentTools(organization) {
           properties: {
             recipientUserID: {
               type: "string",
-              enum: recipientEnum,
+              ...(recipientEnum.length ? { enum: recipientEnum } : {}),
               description:
                 "Who should receive and act on this decision. Pick an id from the members listed under Organization in the user message. Route by the org graph: a named person → that person; an approval → a member with a canApprove edge; an escalation → the sender's manager. Never pick an id that is not in the list.",
             },
@@ -263,9 +206,6 @@ export function buildAgentTools(organization) {
   ];
 }
 
-// Back-compat: any importer of the old constant gets the demo-id variant.
-export const AGENT_TOOLS = buildAgentTools(null);
-
 const SYSTEM_PROMPT = `You route workplace instructions to the right teammate as structured Decision Cards.
 
 Call create_decision_card once with all fields filled:
@@ -321,14 +261,6 @@ function organizationContext(organization) {
   return `Nodes:\n${nodes}\nEdges:\n${edges}`;
 }
 
-function userNameFor(userID) {
-  if (userID === "user-toru") return "Toru";
-  if (userID === "user-tanaka") return "田中";
-  if (userID === "user-yui") return "結衣";
-  if (userID === "user-alex") return "Alex";
-  return userID;
-}
-
 function parseToolArguments(raw) {
   if (!raw) return {};
   if (typeof raw === "object") return raw;
@@ -339,7 +271,7 @@ function parseToolArguments(raw) {
  * @param {import('openai').ChatCompletionMessageToolCall[] | undefined} toolCalls
  * @param {string} senderName
  */
-export function materializeFromToolCalls(toolCalls, senderName) {
+export function materializeFromToolCalls(toolCalls, senderName, organization) {
   /** @type {DecisionCardArgs | null} */
   let card = null;
   /** @type {{ name: string, label: string, detail: string }[]} */
@@ -356,7 +288,7 @@ export function materializeFromToolCalls(toolCalls, senderName) {
       steps.push({
         name: "create_decision_card",
         label: "Route decision",
-        detail: `${userNameFor(args.recipientUserID)} · ${args.cardType}`,
+        detail: `${displayNameOf(organization, args.recipientUserID)} · ${args.cardType}`,
       });
     }
 
@@ -391,7 +323,7 @@ export function materializeFromToolCalls(toolCalls, senderName) {
     card.context = [card.context, ...contextExtras].filter(Boolean).join(" · ");
   }
 
-  const recipientName = userNameFor(card.recipientUserID);
+  const recipientName = displayNameOf(organization, card.recipientUserID);
   card.agentRoute = `${senderName}'s AI → ${recipientName}'s AI`;
 
   return { card, toolCalls: steps };
@@ -419,7 +351,7 @@ function routingReasonFor({
     (item) => item.toID === senderID && item.kind === "manages"
   );
   if (managerEdge?.fromID === recipientUserID) {
-    return `You are ${userNameFor(senderID)}'s manager`;
+    return `You are ${displayNameOf(organization, senderID)}'s manager`;
   }
   if (recipientUserID !== senderID) {
     return "Best match for this decision in org graph";
@@ -442,23 +374,33 @@ function isEchoOfInput(summary, input) {
   return false;
 }
 
-function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
+function summarizeInstruction(text, { sender, cardType, recipientUserID, organization }) {
   let cleaned = String(text || "").trim();
-  cleaned = cleaned.replace(
-    /^(please\s+)?(tell|ask|notify|send|ping|remind)\s+(alice|bob|carol|dana|manager)\s+(to\s+)?/i,
-    ""
-  );
+  // "Ask hubot to ..." is addressed to the AI, not to the reader: the card says
+  // who it is for in its own right. The name stripped here is the recipient's
+  // real one — this used to hunt for alice, bob, carol and dana, who left with
+  // the demo.
+  const recipientName = displayNameOf(organization, recipientUserID);
+  const named = [recipientName, recipientUserID]
+    .filter((value) => value && /^[\x20-\x7e]+$/.test(value))
+    .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  if (named) {
+    cleaned = cleaned.replace(
+      new RegExp(`^(please\\s+)?(tell|ask|notify|send|ping|remind)\\s+@?(${named})\\s+(to\\s+)?`, "i"),
+      ""
+    );
+    cleaned = cleaned.replace(
+      new RegExp(`^(i need|we need)\\s+@?(${named})\\s+to\\s+`, "i"),
+      ""
+    );
+  }
   cleaned = cleaned.replace(/^(can you|could you|hey|hi|yo)\s+/i, "");
-  cleaned = cleaned.replace(
-    /^(i need|we need)\s+(alice|bob|carol|dana|manager)\s+to\s+/i,
-    ""
-  );
   cleaned = cleaned.replace(/\s+/g, " ").trim();
   if (cleaned.length > 0) {
     cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
 
-  const recipientName = userNameFor(recipientUserID);
   const titles = {
     approval: "Approval needed",
     delegation: `Task for ${recipientName}`,
@@ -483,7 +425,7 @@ function applyRoutingGuard(routing, sender, originalText, organization = null) {
     return routing;
   }
 
-  const recipientName = userNameFor(target.recipientUserID);
+  const recipientName = displayNameOf(organization, target.recipientUserID);
   return {
     ...routing,
     recipientUserID: target.recipientUserID,
@@ -502,7 +444,11 @@ function applyRoutingGuard(routing, sender, originalText, organization = null) {
 
 function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null) {
   const members = memberIdsOf(organization);
-  const allowedRecipients = new Set(members.length ? members : DEMO_USER_IDS);
+  // An empty org has no valid recipient, so there is nothing to validate
+  // against. It is refused before the model is called; reaching here means a
+  // caller skipped that check, and inventing a recipient is what this replaced.
+  if (!members.length) throw new NoOrganizationError();
+  const allowedRecipients = new Set(members);
   const allowedTypes = new Set([
     "approval",
     "delegation",
@@ -537,13 +483,14 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       sender,
       cardType,
       recipientUserID,
+      organization,
     });
     title = rewritten.title;
     summary = rewritten.summary;
     context = rewritten.context;
   }
 
-  const recipientName = userNameFor(recipientUserID);
+  const recipientName = displayNameOf(organization, recipientUserID);
   const agentRoute =
     routingJSON.agentRoute || `${sender.name}'s AI → ${recipientName}'s AI`;
   const routingReason =
@@ -593,8 +540,9 @@ export function routeInstructionLocally({
     sender,
     cardType,
     recipientUserID,
+    organization,
   });
-  const recipientName = userNameFor(recipientUserID);
+  const recipientName = displayNameOf(organization, recipientUserID);
   const priority =
     priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)
       ? priorityOverride
@@ -670,6 +618,10 @@ async function routeInstructionWithOpenRouter({
 
   const response = await fetch(endpoint, {
     method: "POST",
+    // Routing runs inside the request the app is waiting on, and on the socket
+    // handler when a card is rendered. A provider that stops answering has to
+    // become the keyword fallback, not a stalled Durable Object.
+    signal: AbortSignal.timeout(20_000),
     headers,
     body: JSON.stringify({
       model: openRouter.model,
@@ -700,7 +652,7 @@ async function routeInstructionWithOpenRouter({
   const toolCalls = message?.tool_calls;
 
   if (toolCalls?.length) {
-    const { card, toolCalls: steps } = materializeFromToolCalls(toolCalls, sender.name);
+    const { card, toolCalls: steps } = materializeFromToolCalls(toolCalls, sender.name, organization);
     if (priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)) {
       card.priority = priorityOverride;
       steps.push({
@@ -796,4 +748,4 @@ export async function routeInstruction({
   };
 }
 
-export { SYSTEM_PROMPT, userNameFor };
+export { SYSTEM_PROMPT };

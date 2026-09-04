@@ -78,7 +78,12 @@ export async function proxyGitHub(request, env, url, session) {
     headers["content-type"] = "application/json";
   }
 
-  const res = await fetch(target, { method: request.method, headers, body });
+  const res = await fetch(target, {
+    method: request.method,
+    headers,
+    body,
+    signal: AbortSignal.timeout(15_000),
+  });
   const text = await res.text();
   return new Response(text, {
     status: res.status,

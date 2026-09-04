@@ -33,19 +33,19 @@ test("every response carries the id its log line was written under", async () =>
   expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
 });
 
-test("a malformed body is a clean 500, not a stack trace", async () => {
+test("a malformed body is refused as the caller's mistake, not ours", async () => {
   // `await request.json()` on this used to escape as an unhandled throw and
-  // become a raw Workers error page.
+  // become a raw Workers error page. It was then caught and answered "something
+  // went wrong on our side" — truthful about the crash, wrong about whose fault
+  // it was, and unactionable either way. A body we cannot read is a 400.
   const res = await SELF.fetch("https://example.com/ai/route", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: "{not json",
   });
-  expect(res.status).toBe(500);
+  expect(res.status).toBe(400);
   const body = await res.json();
-  expect(body.message).toBe("Something went wrong on our side.");
-  // The id in the body is the id in the header, so a user who reports the
-  // message hands over something that finds the line.
-  expect(body.requestId).toBe(res.headers.get("x-request-id"));
+  expect(body.message).toBe("The request could not be read.");
+  expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
   expect(JSON.stringify(body)).not.toMatch(/at |\.js:/);
 });

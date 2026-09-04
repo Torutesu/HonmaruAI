@@ -1,4 +1,4 @@
-import { routeInstruction } from "./routing.js";
+import { routeInstruction, memberIdsOf } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember,
@@ -18,7 +18,7 @@ import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
-import { buildOrgGraph, roleName } from "./org.js";
+import { buildOrgGraph, roleName, membersOf } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
 import { CONNECTORS, connectorById } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
@@ -50,6 +50,32 @@ function providerConfig(env, userKey) {
     };
   }
   return undefined;
+}
+
+// Long enough for anything anyone dictates or types into the composer, short
+// enough that one request cannot turn into a very large bill on our key.
+const MAX_INSTRUCTION_CHARS = 4000;
+
+/// What `/ai/route` needs before it is worth spending a model call on.
+///
+/// Returns a message to refuse with, or null. Every one of these used to be a
+/// 500: `sender.name` and `sender.id` are read without checking, an instruction
+/// had no length limit, and an empty organization was answered by inventing a
+/// recipient. Refusing in the client's language beats failing in ours.
+function invalidRouteRequest(body) {
+  if (!body || typeof body !== "object") return "The request could not be read.";
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (!text) return "Tell your AI what you need.";
+  if (text.length > MAX_INSTRUCTION_CHARS) {
+    return `An instruction can be at most ${MAX_INSTRUCTION_CHARS} characters.`;
+  }
+  if (!body.sender || typeof body.sender.id !== "string" || !body.sender.id.trim()) {
+    return "A sender is required.";
+  }
+  if (!memberIdsOf(body.organization).length) {
+    return "Load your organization before routing a decision.";
+  }
+  return null;
 }
 
 // Returns an error Response when the caller may not read this org's history, or
@@ -123,7 +149,9 @@ async function handle(request, env, url) {
     if (url.pathname === "/ai/route" && request.method === "POST") {
       const limited = await enforce(env, request, "ai/route");
       if (limited) return limited;
-      const body = await request.json();
+      const body = await request.json().catch(() => null);
+      const invalid = invalidRouteRequest(body);
+      if (invalid) return json({ message: invalid }, 400);
       const userKey = request.headers.get("x-ai-key") || undefined;
       // The route is usable without a session (guests), but only a session can
       // be metered — and an unmetered guest must not spend our AI budget.
@@ -180,6 +208,7 @@ async function handle(request, env, url) {
       }
       const ghRes = await fetch("https://github.com/login/oauth/access_token", {
         method: "POST",
+        signal: AbortSignal.timeout(10_000),
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
           client_id: env.GITHUB_CLIENT_ID,
@@ -194,6 +223,7 @@ async function handle(request, env, url) {
       }
       const userRes = await fetch("https://api.github.com/user", {
         headers: { authorization: `Bearer ${data.access_token}`, "user-agent": "tiktokforwork" },
+        signal: AbortSignal.timeout(10_000),
       });
       const ghUser = await userRes.json();
       if (!ghUser?.id) return json({ message: "GitHub did not identify this token" }, 502);
@@ -266,8 +296,15 @@ async function handle(request, env, url) {
       } catch (err) {
         return json({ message: err.message }, 502);
       }
-      const graph = buildOrgGraph(collaborators, { owner, repo });
-      for (const c of collaborators) {
+      // The organization is the people who can act in it. A read-only
+      // collaborator cannot join the relay (`membership.js` asks GitHub for
+      // write access), so listing them here would offer the app recipients
+      // whose cards nobody could ever decide — and persisting them as members
+      // handed them the relay anyway, through a table the socket trusts
+      // without re-asking.
+      const members = membersOf(collaborators);
+      const graph = buildOrgGraph(members, { owner, repo });
+      for (const c of members) {
         await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url, locale: "en" });
         await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
         await upsertAgent(env.DB, orgId, c.id, `${c.login}'s AI`);
@@ -277,8 +314,11 @@ async function handle(request, env, url) {
       // never became false anywhere: the relay trusts this table, so being
       // removed from the repository did not remove you from the organization.
       // This is the moment we have the authoritative answer, so it is the
-      // moment to act on it.
-      await retainMemberships(env.DB, orgId, collaborators.map((c) => c.id));
+      // moment to act on it — including when the answer is "none of them can
+      // write", which is a real answer rather than a failure to get one.
+      await retainMemberships(env.DB, orgId, members.map((c) => c.id), {
+        authoritative: collaborators.length > 0,
+      });
       return json(graph);
     }
     const cardEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/cards\/([^/]+)\/events$/);

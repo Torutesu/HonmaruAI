@@ -104,6 +104,7 @@ export async function sendPush(env, { deviceToken, payload, collapseId, priority
 
     const res = await fetch(`${apnsHost(env)}/3/device/${deviceToken}`, {
       method: "POST",
+      signal: AbortSignal.timeout(10_000),
       headers,
       body: JSON.stringify(payload),
     });

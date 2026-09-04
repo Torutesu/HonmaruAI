@@ -5,7 +5,7 @@ import {
 import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, loadContexts, saveContext,
-  getSession, getCard,
+  getSession, getCard, isMemberLogin,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
@@ -21,6 +21,34 @@ const MESSAGE_WINDOW_MS = 10_000;
 // No message this product sends is near this; a JSON.parse of something much
 // larger is a cost paid before anything has been checked.
 const MAX_MESSAGE_BYTES = 256 * 1024;
+
+/// What the recipient of a card is allowed to change about it.
+///
+/// Everything else is the sender's account of what they asked for — the title,
+/// the summary, who asked, when, and where it came from. Until this list
+/// existed, `card_updated` stored whatever JSON arrived as long as the sender
+/// was the recipient, so the person deciding could re-attribute the request to
+/// a colleague who never made it, backdate it, or change the source it claims
+/// to have come from. The audit log then recorded the forged version as fact,
+/// because it snapshots the card it was handed.
+const RECIPIENT_MUTABLE = [
+  "status",
+  "decision",
+  "revisionNote",
+  "context",
+  "priority",
+  "githubIssueNumber",
+  "githubIssueURL",
+  "githubRepository",
+];
+
+function mergeRecipientEdit(existing, incoming) {
+  const merged = { ...existing };
+  for (const field of RECIPIENT_MUTABLE) {
+    if (incoming[field] !== undefined) merged[field] = incoming[field];
+  }
+  return merged;
+}
 
 export class OrgRelay {
   constructor(state, env) {
@@ -62,11 +90,26 @@ export class OrgRelay {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /// Send to one socket, and let a dead one stay dead.
+  ///
+  /// A socket that has closed but not yet been reaped throws from `send`. The
+  /// loops below used to let that escape: the iteration stopped at the corpse,
+  /// every socket after it in the list heard nothing, and the throw surfaced to
+  /// the *sender* as a RUN_ERROR — telling them their decision had failed after
+  /// it was already written to D1.
+  static deliver(ws, text) {
+    try {
+      ws.send(text);
+    } catch {
+      // Nothing to do and nothing to say: the close handler will remove it.
+    }
+  }
+
   broadcast(orgId, obj, exclude) {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && ws !== exclude) ws.send(text);
+      if (att?.orgId === orgId && ws !== exclude) OrgRelay.deliver(ws, text);
     }
   }
 
@@ -74,7 +117,7 @@ export class OrgRelay {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && att?.userId === userId) ws.send(text);
+      if (att?.orgId === orgId && att?.userId === userId) OrgRelay.deliver(ws, text);
     }
   }
 
@@ -215,33 +258,68 @@ export class OrgRelay {
 
     if (type === "card_created" || type === "card_updated") {
       if (!payload.card?.id) return;
-      const card = payload.card;
+      const incoming = payload.card;
       // The schema was served and never enforced, so this took whatever JSON
       // arrived. Every member gets every card in their join snapshot, which is
       // what makes an unbounded field everyone's problem rather than one
       // client's.
-      const invalid = validateIncomingCard(card);
+      const invalid = validateIncomingCard(incoming);
       if (invalid) {
         ws.send(JSON.stringify(runError(invalid)));
         return;
       }
-      const existing = await getCard(this.db, orgId, card.id);
+      const existing = await getCard(this.db, orgId, incoming.id);
+      let card;
       if (type === "card_created") {
+        if (existing) {
+          // An id that is already taken is not a new card. `saveCard` upserts,
+          // so without this any member could name an existing id and replace
+          // someone else's decision wholesale — recipient, status, decision and
+          // all. Every member knows every id, because the join snapshot hands
+          // them out.
+          //
+          // Your own card coming round again is a different thing: the outbox
+          // replays on reconnect, and that has to stay idempotent. It is
+          // answered with the stored card rather than a write.
+          if (existing.senderUserID !== att.userId) {
+            ws.send(JSON.stringify(runError("A decision with that id already exists.")));
+            return;
+          }
+          const { forEveryone } = upsertEvents(existing, { isNew: false });
+          for (const ev of forEveryone) this.broadcast(orgId, ev);
+          return;
+        }
         // You may route a decision to anyone in the org, but only ever as
         // yourself. This is the line that makes a forged sender impossible
         // rather than merely impolite.
-        card.senderUserID = att.userId;
+        card = { ...incoming, senderUserID: att.userId };
+        // And only to someone who is actually in the org. A card addressed to a
+        // login that cannot join is a decision nobody will ever make, kept
+        // forever in everyone's snapshot; addressed to a login in a *different*
+        // org it is a push notification, with an attacker's title, on a
+        // stranger's phone — `device_tokens` is keyed by login alone.
+        if (!(await isMemberLogin(this.db, orgId, card.recipientUserID))) {
+          ws.send(JSON.stringify(runError("That person is not in this organization.")));
+          return;
+        }
       } else {
         // A card belongs to whoever has to decide it. Only they may change it,
         // and rewriting the field must not be a way to hand it off — delegation
         // is a new card, not a moved one.
-        const owner = existing?.recipientUserID ?? card.recipientUserID;
-        if (owner !== att.userId) {
+        if (!existing) {
+          // An update to a card that is not here cannot be authorized against
+          // anything, and taking it would let `card_updated` create a card with
+          // a sender of the client's choosing — the hole `card_created` closes
+          // above, reopened through the other door.
+          ws.send(JSON.stringify(runError("That decision no longer exists.")));
+          return;
+        }
+        if (existing.recipientUserID !== att.userId) {
           ws.send(JSON.stringify(runError("Only the recipient can update this decision.")));
           return;
         }
-        card.recipientUserID = owner;
-        if (card.decision?.action) card.decision.actorUserID = att.userId;
+        card = mergeRecipientEdit(existing, incoming);
+        if (card.decision?.action) card.decision = { ...card.decision, actorUserID: att.userId };
       }
       await saveCard(this.db, orgId, card);
       // The iOS client decides locally and republishes the whole card, so a

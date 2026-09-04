@@ -13,7 +13,7 @@ afterEach(() => fetchMock.assertNoPendingInterceptors());
 
 test("GET /orgs/:owner/:repo/graph builds and persists the org", async () => {
   fetchMock.get("https://api.github.com")
-    .intercept({ path: "/repos/acme/web/collaborators?per_page=100" })
+    .intercept({ path: "/repos/acme/web/collaborators?per_page=100&page=1" })
     .reply(200, [
       { login: "octocat", id: 1, avatar_url: "http://a", permissions: { admin: true, push: true, pull: true } },
       { login: "hubot", id: 2, avatar_url: "http://b", permissions: { push: true, pull: true } },
