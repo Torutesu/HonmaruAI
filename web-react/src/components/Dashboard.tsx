@@ -3,6 +3,7 @@ import { WebSocketClient } from '../services/WebSocketClient'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { InviteTeammate } from './InviteTeammate'
+import { requestNotificationPermission, notifyNewDecision, setTabBadge } from '../utils/notifications'
 import type { AppState, DecisionCard as DecisionCardType } from '../types/card'
 import './Dashboard.css'
 
@@ -20,11 +21,19 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const [showDebugLog, setShowDebugLog] = useState(import.meta.env.VITE_DEBUG === 'true')
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
 
+  // Lazy init: useRef(new WebSocketClient()) would construct a fresh
+  // instance on every render (immediately discarded, but still wasteful).
   const wsClientRef = React.useRef<WebSocketClient | null>(null)
   if (wsClientRef.current === null) {
     wsClientRef.current = new WebSocketClient()
   }
-
+  // Keep the browser tab title showing the pending count.
+  useEffect(() => {
+    const cards = Object.values(state.cardsById || {})
+    const pending = cards.filter(c => c.status === 'pending' && c.recipientUserID === userId)
+    setTabBadge(pending.length)
+    return () => setTabBadge(0)
+  }, [state, userId])
   const addDebugLog = useCallback((message: string) => {
     const now = new Date().toLocaleTimeString()
     setDebugLog(logs => [...logs, { timestamp: now, message }])
@@ -32,7 +41,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
   useEffect(() => {
     const wsClient = wsClientRef.current!
+    // StrictMode runs this effect twice in dev (mount → cleanup → mount).
+    // The cleanup below calls disconnect() correctly, but connect() is
+    // async — without this guard, the first pass's connect() could still
+    // resolve after cleanup and set state for an effect run that already
+    // tore down.
     let ignore = false
+    requestNotificationPermission()
 
     wsClient.onStateChange = (newState) => {
       if (ignore) return
@@ -41,7 +56,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     }
 
     wsClient.onCardCreated = (card) => {
-      if (!ignore) addDebugLog(`Card created: ${card.id}`)
+      if (ignore) return
+      addDebugLog(`Card created: ${card.id}`)
+      // Notify me only if this decision is for me and I'm not already looking.
+      if (card.recipientUserID === userId && card.status === 'pending') {
+        const from = card.senderUserID || 'a teammate'
+        notifyNewDecision(card.title || 'A decision is waiting', from)
+      }
     }
 
     wsClient.onCardUpdated = (card) => {
@@ -66,6 +87,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (!ignore) addDebugLog(`Tool result: ${toolCallId}`)
     }
 
+    // Reflects the socket's actual open/closed state at all times (initial
+    // connect, disconnect, and every reconnect) — previously this only
+    // ever flipped to true once and never back to false, so the UI stayed
+    // on "Connected" forever after a real disconnect.
     wsClient.onConnectionChange = (connected) => {
       if (ignore) return
       setIsConnected(connected)

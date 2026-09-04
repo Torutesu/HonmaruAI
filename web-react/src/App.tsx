@@ -6,11 +6,17 @@ import './App.css'
 // feed. We store one base host and derive both.
 const DEFAULT_HOST = import.meta.env.VITE_API_HOST || 'localhost:8787'
 
+// Derive the scheme from the page's own, so one build works in dev over http
+// and in production over https. Hardcoding http:// meant a deployed client
+// could not reach an https backend at all, and would have put the sign-in
+// email and password on the wire in cleartext if pointed at one.
+const secure = typeof location !== 'undefined' && location.protocol === 'https:'
+
 function httpBase(host: string) {
-  return `http://${host}`
+  return `${secure ? 'https' : 'http'}://${host}`
 }
 function wsBase(host: string) {
-  return `ws://${host}`
+  return `${secure ? 'wss' : 'ws'}://${host}`
 }
 
 function App() {
@@ -63,7 +69,8 @@ function App() {
             const body: any = { email: email.trim(), password }
       if (mode === 'signup') {
         body.name = name.trim()
-        body.orgId = orgId.trim() || 'web-team'
+        // No orgId: the server decides the org from the invite code, or gives
+        // the user one of their own. A caller-named org is not authorization.
         if (inviteCode.trim()) body.inviteCode = inviteCode.trim()
       }
       const res = await fetch(`${httpBase(host)}${path}`, {
@@ -122,20 +129,12 @@ function App() {
                 onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" />
             </div>
 
-            {mode === 'signup' && (
-              <div className="form-group">
-                <label htmlFor="org">Team:</label>
-                <input id="org" type="text" value={orgId}
-                  onChange={(e) => setOrgId(e.target.value)} placeholder="web-team" />
-              </div>
-            )}
-
                         {mode === 'signup' && (
               <div className="form-group">
                 <label htmlFor="invite">Invite code (optional):</label>
                 <input id="invite" type="text" value={inviteCode}
                   onChange={(e) => setInviteCode(e.target.value)}
-                  placeholder="Paste a code to join a team" />
+                  placeholder="Paste a code to join a team, or leave blank" />
               </div>
             )}
 
