@@ -139,15 +139,19 @@ final class OutboxTests: XCTestCase {
 
     // Dates go out ISO 8601 and have to come back the same.
     @MainActor
-    func testACardSurvivesTheRoundTripThroughTheQueue() {
+    func testACardSurvivesTheRoundTripThroughTheQueue() throws {
         let outbox = makeOutbox()
         let original = card("c-round")
         outbox.append(.cardCreated(original))
 
-        let back = outbox.unsentCards().first
-        XCTAssertEqual(back?.id, original.id)
-        XCTAssertEqual(back?.title, original.title)
-        XCTAssertEqual(back?.priority, original.priority)
-        XCTAssertEqual(back?.createdAt.timeIntervalSince1970, original.createdAt.timeIntervalSince1970, accuracy: 1)
+        let back = try XCTUnwrap(outbox.unsentCards().first)
+        XCTAssertEqual(back.id, original.id)
+        XCTAssertEqual(back.title, original.title)
+        XCTAssertEqual(back.priority, original.priority)
+        XCTAssertEqual(
+            back.createdAt.timeIntervalSince1970,
+            original.createdAt.timeIntervalSince1970,
+            accuracy: 1
+        )
     }
 }
