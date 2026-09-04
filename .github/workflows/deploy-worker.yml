@@ -68,6 +68,27 @@ jobs:
       # wrangler@4 explicitly: the pinned wrangler 3 fails `d1 execute --remote`
       # with a 7403 "account is not authorized" that is a stale-client bug, not
       # an auth problem, and reads exactly like a broken token.
+      # Column additions, which CREATE ... IF NOT EXISTS cannot express: on a
+      # live table that statement is a no-op, so a new column never appears and
+      # anything depending on it fails. Runs before schema.sql for that reason.
+      #
+      # D1 has no IF NOT EXISTS for ADD COLUMN, so replaying this on an already
+      # migrated database fails with "duplicate column name". That is the
+      # already-applied signal, not an error, so it is tolerated here — and
+      # only that one. Any other failure still stops the deploy.
+      - name: Migrate D1 (column additions)
+        run: |
+          set -o pipefail
+          if ! npx -y wrangler@4 d1 execute tiktokforwork --remote --file migrations.sql --yes 2>&1 | tee /tmp/migrate.log; then
+            if grep -qi "duplicate column name" /tmp/migrate.log; then
+              echo "Columns already present; nothing to migrate."
+            else
+              exit 1
+            fi
+          fi
+
+      # Every statement here is CREATE ... IF NOT EXISTS, so this is safe to run
+      # on every deploy and safe to re-run after a failure.
       - name: Migrate D1
         run: npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql --yes
 

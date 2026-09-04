@@ -26,5 +26,3 @@ server/data/
 worker/.wrangler/
 worker/seed-dev.sql
 worker/test-join.mjs
-worker/migrate-auth.sql
-worker/migrate-invites.sql
