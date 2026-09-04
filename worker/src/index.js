@@ -139,6 +139,12 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const body = await request.json().catch(() => ({}));
+      // A session proves who you are, not that you belong to the org you name.
+      // Without this check any signed-in account could mint a code — at any
+      // role — into a private org, and redeeming it writes the membership row.
+      if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
+        return json({ message: "You are not a member of this organization." }, 403);
+      }
       const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role });
       if (result.error) return json({ message: result.error }, 400);
       return json(result);

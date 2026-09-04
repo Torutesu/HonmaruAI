@@ -58,9 +58,13 @@ export async function signup(env, { email, password, name, orgId, inviteCode }) 
   const userId = `email:${normalizedEmail}`;
   const salt = newSaltHex();
   const hash = await hashPassword(password, salt);
-  const login = name?.trim() || normalizedEmail.split("@")[0];
+  // `login` is the relay's identity: sendTo() matches on exactly this string,
+  // so it must be unique and must not be chosen by the caller. Derive it from
+  // the email (already unique) and keep `name` as display text only.
+  const login = `u:${normalizedEmail}`;
+  const displayName = name?.trim() || normalizedEmail.split("@")[0];
 
-  await upsertUser(env.DB, { githubId: userId, login, name: login, avatarUrl: null, locale: "en" });
+  await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: "en" });
   await env.DB
     .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3 WHERE github_id = ?4")
     .bind(normalizedEmail, hash, salt, userId)
@@ -68,8 +72,12 @@ export async function signup(env, { email, password, name, orgId, inviteCode }) 
 
    // If they signed up with an invite code, join that team instead of creating
   // their own. Otherwise fall back to the org they typed (or a default).
-  let org = orgId?.trim() || "web-team";
-    let joinRole = "member";
+  // A caller-supplied orgId is not authorization. Signup may only place a user
+  // in an org a valid invite names, or in a fresh org of their own. Trusting
+  // body.orgId let anyone write a membership row for a private org, and
+  // authorizeOrgAccess treats that row as proof of access.
+  let org;
+  let joinRole = "member";
   if (inviteCode?.trim()) {
     const invite = await env.DB
       .prepare("SELECT org_id, role FROM invites WHERE code = ?1")
@@ -78,6 +86,10 @@ export async function signup(env, { email, password, name, orgId, inviteCode }) 
     if (!invite) return { error: "That invite code is not valid." };
     org = invite.org_id;
     joinRole = invite.role || "member";
+  } else {
+    // Their own org, named after their user id so no one else can claim it.
+    org = `personal:${normalizedEmail}`;
+    joinRole = "admin";
   }
   await upsertMembership(env.DB, org, userId, joinRole);
   const token = await createSession(env.DB, userId, "email-auth");
@@ -109,7 +121,10 @@ export async function createInvite(env, { orgId, createdBy, role }) {
   if (!orgId) return { error: "Missing team." };
   const suffix = toHex(crypto.getRandomValues(new Uint8Array(3)));
   const code = `${orgId.replace(/[^a-z0-9]/gi, "-")}-${suffix}`;
-  const inviteRole = (role || "member").trim().toLowerCase();
+  // Only known roles. An unvalidated role let a caller mint themselves "admin".
+  const ALLOWED_ROLES = ["member", "designer", "engineer", "triager", "admin"];
+  const requested = String(role || "member").trim().toLowerCase();
+  const inviteRole = ALLOWED_ROLES.includes(requested) ? requested : "member";
   await env.DB
     .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
     .bind(code, orgId, createdBy, inviteRole, new Date().toISOString())
