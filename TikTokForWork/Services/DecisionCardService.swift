@@ -283,6 +283,10 @@ final class DecisionCardService: ObservableObject {
         // decision existed — the person saw an error, the teammate waiting on
         // it heard nothing, and the outbox built for exactly this moment was
         // never reached. Deciding is the product; the issue is bookkeeping.
+        // Approving opens an issue. Declining and asking for a change only
+        // reach GitHub when there is already an issue to answer: a request
+        // that was turned down produced no work, and opening an issue to say
+        // so would fill the tracker with things nobody has to do.
         let wantsGitHub = githubService.isConnected
             && card.isDecision
             && (action == .createIssue || card.githubIssueNumber != nil)
@@ -356,9 +360,31 @@ final class DecisionCardService: ObservableObject {
         changed()
 
         if wantsGitHub {
-            await syncDecisionToGitHub(cardID: cardID, ownerUserID: actorUserID, githubService: githubService)
+            await syncDecisionToGitHub(
+                cardID: cardID,
+                ownerUserID: actorUserID,
+                githubService: githubService,
+                comment: githubComment(for: action, by: actorUserID, note: card.revisionNote)
+            )
         }
         return cardsByUser[actorUserID]?.first { $0.id == cardID } ?? card
+    }
+
+    /// What to say on the issue, when a decision is worth more than a state
+    /// change. An approval is explained by the issue existing; a refusal and a
+    /// request for changes are not explained by anything unless someone says so.
+    private func githubComment(for action: CardActionKind, by actorUserID: String, note: String?) -> String? {
+        let who = DisplayName.of(actorUserID)
+        switch action {
+        case .reject:
+            return note.map { String(localized: "Declined by \(who): \($0)") }
+                ?? String(localized: "Declined by \(who).")
+        case .requestRevision:
+            return note.map { String(localized: "\(who) asked for a change: \($0)") }
+                ?? String(localized: "\(who) asked for a change.")
+        default:
+            return nil
+        }
     }
 
     /// Tell GitHub about a decision that has already been made.
@@ -370,13 +396,17 @@ final class DecisionCardService: ObservableObject {
     private func syncDecisionToGitHub(
         cardID: String,
         ownerUserID: String,
-        githubService: GitHubService
+        githubService: GitHubService,
+        assignee: String? = nil,
+        comment: String? = nil
     ) async {
         guard githubService.isConnected,
               var cards = cardsByUser[ownerUserID],
               let index = cards.firstIndex(where: { $0.id == cardID }) else { return }
         do {
-            let synced = try await githubService.syncDecision(cards[index])
+            let synced = try await githubService.syncDecision(
+                cards[index], assignee: assignee, comment: comment
+            )
             cards[index].githubIssueNumber = synced.number
             cards[index].githubIssueURL = synced.url
             cards[index].githubRepository = githubService.linkedRepository
@@ -485,7 +515,15 @@ final class DecisionCardService: ObservableObject {
         changed()
 
         if wantsGitHub {
-            await syncDecisionToGitHub(cardID: cardID, ownerUserID: actorUserID, githubService: githubService)
+            await syncDecisionToGitHub(
+                cardID: cardID,
+                ownerUserID: actorUserID,
+                githubService: githubService,
+                // Handing work on and not moving the assignee is how a tracker
+                // ends up telling you the wrong person is doing something.
+                assignee: recipientUserID,
+                comment: String(localized: "\(actorName) passed this to \(recipientName).")
+            )
         }
         return cardsByUser[actorUserID]?.first { $0.id == cardID } ?? card
     }

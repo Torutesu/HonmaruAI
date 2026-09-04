@@ -27,6 +27,10 @@ const ALLOWED = [
   { method: "GET", pattern: ["repos", ":owner", ":repo", "issues", ":number"] },
   { method: "POST", pattern: ["repos", ":owner", ":repo", "issues"] },
   { method: "PATCH", pattern: ["repos", ":owner", ":repo", "issues", ":number"] },
+  // Why something was declined, and what a revision asked for. A comment
+  // rather than a rewritten body: the issue's history is what a reviewer
+  // reads, and editing the body would erase the fact that someone said no.
+  { method: "POST", pattern: ["repos", ":owner", ":repo", "issues", ":number", "comments"] },
 ];
 
 function matches(pattern, segments) {

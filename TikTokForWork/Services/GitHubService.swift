@@ -195,17 +195,33 @@ final class GitHubService: NSObject, ObservableObject {
         return connection
     }
 
-    func syncDecision(_ card: DecisionCard) async throws -> (number: Int, url: String) {
+    /// Put a decision on GitHub, where the engineers can see it.
+    ///
+    /// Approving created an issue and everything else did nothing: a decline
+    /// left the issue open, a revision note never arrived, and handing work to
+    /// someone else did not change who it was assigned to. An engineer reading
+    /// the tracker saw a request and no answer.
+    ///
+    /// `assignee` and `comment` are applied after the issue itself and are
+    /// deliberately best-effort. A label GitHub will not accept, or an assignee
+    /// who is not a collaborator, must not cost us the record of the decision.
+    func syncDecision(
+        _ card: DecisionCard,
+        assignee: String? = nil,
+        comment: String? = nil
+    ) async throws -> (number: Int, url: String) {
         guard token != nil, !repository.isEmpty else {
             throw GitHubServiceError.missingCredentials
         }
 
         let title = "[\(card.type.label)] \(card.title)"
         let body = issueBody(for: card)
+        let number: Int
+        let url: String
 
-        if let number = card.githubIssueNumber {
+        if let existing = card.githubIssueNumber {
             _ = try await request(
-                path: "/repos/\(repository)/issues/\(number)",
+                path: "/repos/\(repository)/issues/\(existing)",
                 method: "PATCH",
                 body: [
                     "title": title,
@@ -213,22 +229,47 @@ final class GitHubService: NSObject, ObservableObject {
                     "state": githubIssueState(for: card.status)
                 ]
             )
-            let url = "https://github.com/\(repository)/issues/\(number)"
-            return (number, url)
+            number = existing
+            url = "https://github.com/\(repository)/issues/\(existing)"
+        } else {
+            let response = try await requestDictionary(
+                path: "/repos/\(repository)/issues",
+                method: "POST",
+                body: ["title": title, "body": body, "labels": issueLabels(for: card)]
+            )
+            guard let created = response["number"] as? Int,
+                  let createdURL = response["html_url"] as? String else {
+                throw GitHubServiceError.api(statusCode: 0, message: "Unexpected GitHub response.")
+            }
+            number = created
+            url = createdURL
         }
 
-        let response = try await requestDictionary(
-            path: "/repos/\(repository)/issues",
-            method: "POST",
-            body: ["title": title, "body": body]
-        )
+        if let assignee, !assignee.isEmpty {
+            _ = try? await request(
+                path: "/repos/\(repository)/issues/\(number)",
+                method: "PATCH",
+                body: ["assignees": [assignee]]
+            )
+        }
 
-        guard let number = response["number"] as? Int,
-              let url = response["html_url"] as? String else {
-            throw GitHubServiceError.api(statusCode: 0, message: "Unexpected GitHub response.")
+        if let comment, !comment.isEmpty {
+            _ = try? await request(
+                path: "/repos/\(repository)/issues/\(number)/comments",
+                method: "POST",
+                body: ["body": comment]
+            )
         }
 
         return (number, url)
+    }
+
+    /// Labels a reader of the tracker can filter on. The priority is the one
+    /// the card carries, so an urgent decision looks urgent in both places.
+    private func issueLabels(for card: DecisionCard) -> [String] {
+        var labels = ["honmaru", "priority:\(card.priority.rawValue)"]
+        labels.append(contentsOf: card.labels ?? [])
+        return labels
     }
 
     func issueState(number: Int) async throws -> String {
@@ -399,13 +440,7 @@ final class GitHubService: NSObject, ObservableObject {
 
         ## Context
         \(card.context)
-        \(labelsSection(for: card))
         """
-    }
-
-    private func labelsSection(for card: DecisionCard) -> String {
-        guard let labels = card.labels, !labels.isEmpty else { return "" }
-        return "\n\n## Labels\n" + labels.map { "- `\($0)`" }.joined(separator: "\n")
     }
 
     @discardableResult

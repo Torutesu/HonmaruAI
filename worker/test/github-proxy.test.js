@@ -83,3 +83,41 @@ test("without a session there is no proxy at all", async () => {
   expect(res.status).toBe(401);
 });
 
+
+test("a decision's reason can be left on the issue as a comment", async () => {
+  // Approving opened an issue and everything else did nothing: a decline left
+  // it open with no explanation, and a revision note never arrived at all. An
+  // engineer reading the tracker saw a request and no answer.
+  let sentBody = null;
+  fetchMock.get("https://api.github.com")
+    .intercept({
+      path: "/repos/acme/web/issues/7/comments", method: "POST",
+      body: (b) => { sentBody = JSON.parse(b); return true; },
+    })
+    .reply(201, { id: 1 });
+
+  const res = await call("/repos/acme/web/issues/7/comments", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body: "Declined by grace: the budget is already committed." }),
+  });
+  expect(res.status).toBe(201);
+  expect(sentBody.body).toContain("Declined by grace");
+});
+
+test("the comment route does not widen into everything else under an issue", async () => {
+  // `:number` matches one segment and never a slash, so the new rule cannot be
+  // walked into a different endpoint.
+  for (const path of [
+    "/repos/acme/web/issues/7/labels",
+    "/repos/acme/web/issues/7/comments/9",
+    "/repos/acme/web/pulls/7/comments",
+  ]) {
+    const res = await call(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(404);
+  }
+});

@@ -1,6 +1,28 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%@ asked for a change.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が修正を依頼しました。"
+          }
+        }
+      }
+    },
+    "%@ asked for a change: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が修正を依頼: %2$@"
+          }
+        }
+      }
+    },
     "%@ is still waiting": {
       "extractionState": "manual",
       "localizations": {
@@ -19,6 +41,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ が %lld 日待っています"
+          }
+        }
+      }
+    },
+    "%@ passed this to %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が %2$@ に引き継ぎました。"
           }
         }
       }
@@ -1141,6 +1174,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "却下"
+          }
+        }
+      }
+    },
+    "Declined by %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が却下しました。"
+          }
+        }
+      }
+    },
+    "Declined by %@: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が却下: %2$@"
           }
         }
       }
