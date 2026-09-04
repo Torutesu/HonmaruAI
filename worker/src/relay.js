@@ -5,8 +5,11 @@ import {
 import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, loadContexts, saveContext,
-  getSession, getCard, isMemberLogin,
+  getSession, getCard, isMemberLogin, getUserByLogin, getOrgProfile,
 } from "./db.js";
+import { renderCardForRecipient } from "./render.js";
+import { providerConfig } from "./provider.js";
+import { checkAIAllowance } from "./gate.js";
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
@@ -174,6 +177,78 @@ export class OrgRelay {
       // A badge we cannot count is a badge we do not set. Leaving the icon as
       // it was beats putting a wrong number on it.
       return undefined;
+    }
+  }
+
+  /// The recipient's AI, doing the job the product is named for.
+  ///
+  /// A card was written once — by the sender's AI, from the sender's words —
+  /// and handed over unchanged. "The receiving AI converts it into a form that
+  /// makes it easy for *this* person to decide, given their role and
+  /// responsibilities" was a sentence in the design and nothing in the code,
+  /// and the recipient's own context, synced since the app was built, was read
+  /// by nothing.
+  ///
+  /// Deferred and never awaited, on the same rule the Notion write and the push
+  /// follow: the card is already stored and already delivered. A rewrite that
+  /// fails leaves the card as the sender's AI wrote it, which is where it
+  /// started — so the worst case here is the old behaviour.
+  ///
+  /// Metered against the *recipient*: it is their AI doing the work, on their
+  /// allowance, and that is also what stops one busy sender spending everyone
+  /// else's.
+  async renderForRecipient(orgId, card) {
+    try {
+      const provider = providerConfig(this.env);
+      if (!provider) return;
+      const user = await getUserByLogin(this.db, card.recipientUserID);
+      if (!user?.github_id) return;
+
+      const allowance = await checkAIAllowance(this.env, { githubId: String(user.github_id) });
+      if (!allowance.allowed) return;
+
+      const [contexts, profile] = await Promise.all([
+        loadContexts(this.db, orgId),
+        getOrgProfile(this.db, orgId, user.github_id),
+      ]);
+      const readerLanguage = user.locale || "en";
+      const result = await renderCardForRecipient({
+        card,
+        recipient: {
+          login: card.recipientUserID,
+          title: profile?.title,
+          responsibilities: profile?.responsibilities,
+          context: contexts[card.recipientUserID]?.text,
+        },
+        provider,
+        readerLanguage,
+      });
+      if (result.called && allowance.metered) await allowance.consume();
+      if (!result.card) return;
+
+      // Re-read: the rewrite took a model call, and in that time the person may
+      // have answered. Rewriting a card someone has already decided changes the
+      // terms of a question that has been answered.
+      const latest = await getCard(this.db, orgId, card.id);
+      if (!latest || latest.status !== "pending" || latest.decision) return;
+
+      const updated = { ...latest, ...result.card };
+      // Keep the sender's own words when this crossed a language, so the card
+      // can show what it is rather than ask to be taken on trust. Same
+      // language, no badge: it was rewritten, not translated, and saying
+      // otherwise would be a small lie in the one place accuracy matters.
+      const sender = card.senderUserID ? await getUserByLogin(this.db, card.senderUserID) : null;
+      const senderLanguage = sender?.locale || "en";
+      if (senderLanguage !== readerLanguage && latest.summary) {
+        updated.originalBody = latest.summary;
+        updated.originalLanguage = senderLanguage;
+      }
+
+      await saveCard(this.db, orgId, updated);
+      const { forEveryone } = upsertEvents(updated, { isNew: false });
+      for (const ev of forEveryone) this.sendToParties(orgId, updated, ev);
+    } catch (err) {
+      console.error("recipient render failed", err?.message || err);
     }
   }
 
@@ -396,6 +471,12 @@ export class OrgRelay {
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) this.sendToParties(orgId, card, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      // The card is delivered. Now the recipient's own AI has a look at it —
+      // after the fact, so nothing waits on a model call. An update is not a
+      // decision and has nothing to rewrite for.
+      if (type === "card_created" && card.status === "pending" && card.type !== "notification") {
+        this.state.waitUntil(this.renderForRecipient(orgId, card));
+      }
       return;
     }
 

@@ -27,7 +27,11 @@ verified against the code, and the plan it drives — is
 ### Product
 - [x] Vertical decision feed, swipe to approve/decline, delegate, revise, undo
 - [x] Instruction → Decision Card via OpenAI, keyword router as the always-available fallback
-- [x] Real org graph from GitHub repository collaborators
+- [x] Real org graph from GitHub repository collaborators, with what people
+      have said they are responsible for and who they report to layered on top
+- [x] The recipient's AI rewrites an incoming card for the person who has to
+      answer it — their role, their responsibilities, their context, their
+      language
 - [x] Decisions sync to GitHub Issues, and back (closed issue → completed card)
 - [x] Gmail, Slack and Notion inbound via Composio, authorized per user
 - [x] Decisions written out to the decider's chosen Notion database

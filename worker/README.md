@@ -89,6 +89,25 @@ Rate limits (fixed windows in D1, keyed by session where there is one and by IP
 where there is not; fails open): `/ai/route` 30/5min, `/oauth/github/token`
 10/5min, `/connectors/*/sync` 6/5min, `/media` 20/hour.
 
+### The recipient's AI
+
+A card is written twice. The sender's AI writes it from their instruction
+(`POST /ai/route`); when it lands, the *recipient's* AI rewrites it for the
+person who has to answer — their role, what they have said they are responsible
+for, their own curated context, and their language.
+
+It runs in `waitUntil` after the card is stored and delivered, so nothing waits
+on it, and it is metered against the recipient: it is their AI doing the work,
+on their allowance, which is also what stops one busy sender spending everyone
+else's. A model that does not answer, a recipient who has said nothing about
+themselves, or a key that is not set all leave the card exactly as the sender's
+AI wrote it. A card that has been decided in the meantime is never rewritten —
+that would change the terms of a question already answered.
+
+Where the two people read different languages the sender's own words are kept
+on the card (`originalBody`), so it can show what it is rather than ask to be
+taken on trust.
+
 ### Scheduled
 
 `crons = ["*/15 * * * *"]` syncs connectors for users who have a session, an org

@@ -4,6 +4,7 @@ import { notifyCard } from "./push.js";
 import { sweepRateLimits } from "./ratelimit.js";
 import { cardsCreatedSince } from "./db.js";
 import { announceCards } from "./announce.js";
+import { providerConfig } from "./provider.js";
 
 // "Your AI triaged three decisions overnight" cannot be true if the AI only
 // runs while you are looking at it. Until this existed, a connector sync
@@ -35,26 +36,6 @@ async function candidates(db) {
     .bind(new Date().toISOString(), MAX_USERS_PER_RUN)
     .all();
   return (results || []).filter((row) => row.org_id && row.login);
-}
-
-function providerConfig(env) {
-  if (env.OPENAI_API_KEY) {
-    return {
-      providerName: "OpenAI",
-      endpoint: "https://api.openai.com/v1/chat/completions",
-      apiKey: env.OPENAI_API_KEY,
-      model: env.OPENAI_MODEL || "gpt-4o-mini",
-    };
-  }
-  if (env.OPENROUTER_API_KEY) {
-    return {
-      providerName: "OpenRouter",
-      endpoint: "https://openrouter.ai/api/v1/chat/completions",
-      apiKey: env.OPENROUTER_API_KEY,
-      model: env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free",
-    };
-  }
-  return undefined;
 }
 
 export async function runScheduledSync(env) {
