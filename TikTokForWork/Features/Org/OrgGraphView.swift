@@ -166,7 +166,11 @@ struct OrgGraphView: View {
             }
 
             if let manager = graph.manager(of: person.id) {
-                Text("Reports to \(manager.label.split(separator: "·").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? manager.id)")
+                // The same name the profile card above uses. Splitting the
+                // node's "login · Role" label here gave the same person two
+                // spellings on one screen — and put a quoted separator inside a
+                // localised string, where the catalogue could not see the key.
+                Text("Reports to \(DisplayName.of(manager.id, in: graph))")
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
             }

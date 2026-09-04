@@ -1,10 +1,10 @@
 import { routeInstruction, memberIdsOf } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import {
-  createSession, getSession, upsertUser, upsertMembership, upsertMembers, isMember,
+  createSession, getSession, upsertUser, upsertMembers, isMember,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
-  isIngested, markIngested, saveCard, saveCardAndMarkIngested,
+  isIngested, markIngested, saveCardAndMarkIngested,
   getOrgProfiles, getOrgProfile, setOrgProfile, isMemberLogin,
   linkConnector, deleteSession,
 } from "./db.js";
@@ -89,7 +89,7 @@ export default {
     const url = new URL(request.url);
     const route = routeLabel(request.method, url.pathname);
     try {
-      const response = await handle(request, env, url);
+      const response = await handle(request, env, url, ctx);
       logJSON({ requestId, route, status: response.status, ms: Date.now() - startedAt });
       // A 101 carries the client end of the socket pair on a property, not in
       // the body. Rebuilding it to add a header would hand back a response with
@@ -110,7 +110,21 @@ export default {
   },
 };
 
-async function handle(request, env, url) {
+/// Work that must outlive the response without delaying it.
+///
+/// Falls back to awaiting when there is no execution context — a direct call to
+/// `worker.fetch(request, env)`, which is how several tests drive this. Slower
+/// there, correct everywhere.
+function defer(ctx, promise) {
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(promise);
+    return Promise.resolve();
+  }
+  return promise;
+}
+
+/// `ctx` is here for `defer`.
+async function handle(request, env, url, ctx) {
     if (url.pathname === "/health" && request.method === "GET") {
       // A health check that only proves the Worker is running proves the one
       // thing that was never in doubt: the deploy step already got a 200 back.
@@ -717,9 +731,13 @@ async function handle(request, env, url) {
         await saveCardAndMarkIngested(env.DB, orgId, card, {
           connector: "email", externalId: message.id, githubId, orgId, cardId,
         });
-        await announceCards(env, orgId, [card]);
-        // notifyCard never throws, and this handler has no ctx to defer with.
-        await notifyCard(env, { card, kind: "created", excludeLogin: null });
+        // Deferred, not awaited. Mailgun times out a webhook and retries it,
+        // and the retry is refused as a spent nonce — so a slow push or a slow
+        // relay used to turn one delivered message into no card at all. The
+        // card and its ingest record are already written by this point, which
+        // is what the response is reporting.
+        await defer(ctx, announceCards(env, orgId, [card]));
+        await defer(ctx, notifyCard(env, { card, kind: "created", excludeLogin: null }));
       } else {
         await markIngested(env.DB, {
           connector: "email", externalId: message.id, githubId, orgId, cardId: null,

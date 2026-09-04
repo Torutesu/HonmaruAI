@@ -570,28 +570,64 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
 /// became a "notification" — a card with no action on it — and every one of
 /// them came out marked "high", because that was the default for anything the
 /// English word list did not recognize.
-const TYPE_WORDS = [
-  ["approval", ["approve", "approval", "sign off", "sign-off", "承認", "決裁", "許可", "承認依頼"]],
-  ["delegation", ["delegate", "assign", "hand over", "依頼", "お願い", "担当", "任せ"]],
-  ["revision", ["revise", "revision", "feedback", "rework", "修正", "差し戻", "見直", "再検討"]],
-  ["task", ["task", "fix", "build", "implement", "ship", "タスク", "対応", "実装", "作業"]],
+/// Telling somebody something, first, because it is the one type that has to
+/// beat every other signal in the sentence.
+///
+/// "Let Yui know the release shipped" is an update. It used to come out a task,
+/// because "ship" is on the task list and a bare substring cannot tell "ship
+/// it" from "shipped" — so a sentence whose whole point was that the work was
+/// finished arrived as a request to do it, pending, on somebody's decision
+/// count.
+const FYI_WORDS = [
+  "let * know", "fyi", "heads up", "just so you know", "for your information",
+  "keep * posted", "共有", "お知らせ", "報告", "連絡",
 ];
 
-const URGENT_WORDS = ["urgent", "asap", "immediately", "至急", "大至急", "緊急", "今すぐ"];
+const TYPE_WORDS = [
+  ["approval", ["approve", "approval", "sign off", "sign-off", "承認", "決裁", "許可", "承認依頼"]],
+  ["delegation", ["delegate", "assign", "hand * over", "hand over", "over to", "pass * to",
+                  "依頼", "お願い", "担当", "任せ"]],
+  ["revision", ["revise", "revision", "feedback", "rework", "another pass", "another look",
+                "one more pass", "needs work", "修正", "差し戻", "見直", "再検討"]],
+  ["task", ["task", "fix", "build", "implement", "ship it", "タスク", "対応", "実装", "作業"]],
+];
+
+const URGENT_WORDS = [
+  "urgent", "asap", "immediately", "right now",
+  // An outage is urgent whatever else the sentence says.
+  "is down", "outage", "至急", "大至急", "緊急", "今すぐ", "停止", "障害",
+];
 const SOON_WORDS = ["today", "tonight", "deadline", "by friday", "eod", "今日", "本日", "期限", "締切"];
+
+/// Does this text contain the phrase?
+///
+/// `*` stands for "and then, within a few words". English puts the object in
+/// the middle of a phrasal verb — "hand the pricing page copy over" — and a
+/// substring match for "hand over" finds nothing there at all.
+function containsPhrase(lower, phrase) {
+  if (!phrase.includes("*")) return lower.includes(phrase);
+  const parts = phrase.split("*").map((p) => p.trim()).filter(Boolean);
+  const pattern = parts.map(escapeRegExp).join("[\\s\\S]{0,30}?");
+  return new RegExp(pattern).test(lower);
+}
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function inferCardType(text) {
   const lower = String(text || "").toLowerCase();
+  if (FYI_WORDS.some((word) => containsPhrase(lower, word))) return "notification";
   for (const [type, words] of TYPE_WORDS) {
-    if (words.some((word) => lower.includes(word))) return type;
+    if (words.some((word) => containsPhrase(lower, word))) return type;
   }
   return "notification";
 }
 
 function inferPriority(text) {
   const lower = String(text || "").toLowerCase();
-  if (URGENT_WORDS.some((word) => lower.includes(word))) return "urgent";
-  if (SOON_WORDS.some((word) => lower.includes(word))) return "high";
+  if (URGENT_WORDS.some((word) => containsPhrase(lower, word))) return "urgent";
+  if (SOON_WORDS.some((word) => containsPhrase(lower, word))) return "high";
   // Not "high". Everything the word list missed used to come out high, which is
   // the same as nothing being high.
   return "medium";

@@ -7,10 +7,14 @@
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "schema:build": "node scripts/build-schema.mjs",
-    "schema:check": "node scripts/build-schema.mjs --check"
+    "schema:check": "node scripts/build-schema.mjs --check",
+    "lint": "eslint src"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.5.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.1",
+    "eslint-plugin-promise": "^7.3.0",
     "vitest": "^2.0.0",
     "wrangler": "^4.129.0"
   }

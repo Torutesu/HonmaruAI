@@ -30,7 +30,23 @@ jobs:
       # schema.sql is generated from migrations/. Edited directly, a change
       # lands in the tests and never in production.
       - run: npm run schema:check
+      # An unawaited promise on a Worker is not a slow path: it is a write that
+      # may not have happened when the response goes out.
+      - run: npm run lint
       - run: npm test
+
+  # SwiftUI draws `Text("Save")` from the catalogue and `Text(someString)`
+  # verbatim, and the difference is invisible until a Japanese phone shows
+  # English. This catches every literal that is not in the catalogue.
+  localization:
+    name: Localization
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: node scripts/check-localization.mjs
 
   # The reference relay imports the Worker's AG-UI layer rather than keeping its
   # own copy, so a change over there can break it. Nothing ran these tests

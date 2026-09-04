@@ -30,7 +30,6 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     if (!message.id) continue;
     if (await isIngested(env.DB, connector.id, message.id, session.github_id)) continue;
 
-    let cardId = null;
     // Checked per message, so a sync stops creating cards the moment the day's
     // allowance runs out rather than blowing through it.
     const allowance = await checkAIAllowance(env, { githubId: String(session.github_id) });
@@ -49,7 +48,7 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     };
 
     if (triaged) {
-      cardId = crypto.randomUUID();
+      const cardId = crypto.randomUUID();
       ingest.cardId = cardId;
       // Together, not one then the other: a failure between them left a card
       // with no ingest row, so the next sync judged the same message again and
