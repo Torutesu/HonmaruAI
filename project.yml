@@ -39,8 +39,8 @@ targets:
       - path: TikTokForWork/PrivacyInfo.xcprivacy
         buildPhase: resources
     # RELAY_SCHEME / RELAY_HOST live here rather than in `settings` below,
-    # because target settings outrank an xcconfig and would make
-    # Config/Local.xcconfig (written by scripts/device.sh) have no effect.
+    # because target settings outrank an xcconfig and an override placed in one
+    # would have no effect.
     configFiles:
       Debug: Config/Base.xcconfig
       Release: Config/Base.xcconfig

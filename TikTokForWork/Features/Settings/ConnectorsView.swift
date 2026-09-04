@@ -1,3 +1,4 @@
+import UIKit
 import SwiftUI
 import AuthenticationServices
 
@@ -11,6 +12,11 @@ struct ConnectorsView: View {
     @State private var busy: String?
     @State private var databases: [NotionDatabase] = []
     @State private var chosenDatabase: String?
+    /// Where mail has to be sent to reach this person. Email is the one
+    /// connector you do not authorize — you forward to it — so without the
+    /// address on screen there was no way to use it at all.
+    @State private var inboundAddress: String?
+    @State private var copiedAddress = false
     private let webAuth = WebAuthContextProvider()
     /// The authorization session has to be held while it is on screen. As a
     /// local inside `authorize` it went out of scope the moment `start()`
@@ -30,6 +36,8 @@ struct ConnectorsView: View {
                     row(connector)
                 }
 
+                if let inboundAddress { emailCard(inboundAddress) }
+
                 if let message {
                     Text(message)
                         .font(Theme.TypeScale.label)
@@ -41,6 +49,40 @@ struct ConnectorsView: View {
         .navigationTitle(Text("Connectors"))
         .refreshable { await load() }
         .task { await load() }
+    }
+
+    /// Not a row in the list above: there is nothing to connect. This is an
+    /// address to forward mail to, and the only thing to do with it is copy it.
+    private func emailCard(_ address: String) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Text("Forward mail here")
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.Colors.textPrimary)
+            Text(address)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Mail from an address you have not vouched for arrives as something to read, never as something to approve.")
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(copiedAddress ? String(localized: "Copied") : String(localized: "Copy address")) {
+                UIPasteboard.general.string = address
+                copiedAddress = true
+                Haptics.success()
+            }
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(Theme.Colors.interactive)
+        }
+        .padding(Theme.Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.Colors.border, lineWidth: 1)
+        }
     }
 
     private func row(_ connector: Connector) -> some View {
@@ -116,6 +158,10 @@ struct ConnectorsView: View {
         } catch {
             message = String(localized: "Could not load your connectors.")
         }
+        // Nil on a deployment with no inbound domain, which is most of them —
+        // and then nothing about email appears at all, rather than an address
+        // that goes nowhere.
+        inboundAddress = await ConnectorService.inboundEmailAddress(backendBaseURL: base)
         if connectors.contains(where: { $0.id == "notion" && $0.isConnected }) {
             databases = (try? await ConnectorService.notionDatabases(backendBaseURL: base)) ?? []
             chosenDatabase = try? await ConnectorService.notionDatabaseConfig(backendBaseURL: base)

@@ -12,11 +12,16 @@ xcuserdata/
 # App Store Connect. The glob also catches .asc.env.bak and similar copies,
 # which hold the same credentials as the original.
 .asc.env*
+# …except the template, which holds no credentials and is what release.sh
+# tells you to copy.
+!.asc.env.example
 *.p8
 *.xcarchive
 ExportOptions.plist
 
-# Machine-specific relay address, written by scripts/device.sh
+# Machine-specific relay address. The script that wrote this is gone and every
+# build talks to the deployed Worker; the rule stays so an old checkout's file
+# cannot be committed by accident.
 Config/Local.xcconfig
 
 # Uploaded clips: runtime data, not source.

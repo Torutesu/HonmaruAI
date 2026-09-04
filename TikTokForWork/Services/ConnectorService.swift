@@ -30,6 +30,27 @@ enum ConnectorService {
         return try JSONDecoder().decode(ConnectorList.self, from: data).connectors
     }
 
+    /// Where to send mail so it reaches you.
+    ///
+    /// Email is the one connector you do not authorize — you forward to it. The
+    /// address names its owner (`u-<github id>@<domain>`), and until this
+    /// existed there was nowhere in the app to find out what yours was, so the
+    /// connector could not be used at all. Returns nil where the deployment has
+    /// no inbound domain configured, which is most of them.
+    static func inboundEmailAddress(backendBaseURL: URL) async -> String? {
+        guard let token = SessionStore.sessionToken,
+              let url = URL(string: "connectors/email/address", relativeTo: backendBaseURL) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200
+        else { return nil }
+        return try? JSONDecoder().decode(InboundAddress.self, from: data).address
+    }
+
+    private struct InboundAddress: Decodable { let address: String }
+
     static func connectURL(for id: String, backendBaseURL: URL) async throws -> URL {
         guard let token = SessionStore.sessionToken,
               let url = URL(string: "connectors/\(id)/connect", relativeTo: backendBaseURL) else {

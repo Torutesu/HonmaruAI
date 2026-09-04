@@ -24,7 +24,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The Xcode project is generated, so its name comes from project.yml — the same
-# way release.sh and device.sh resolve it.
+# way release.sh resolves it.
 XCODE_PROJECT_NAME="$(awk '/^name:/ {print $2; exit}' "$REPO_ROOT/project.yml")"
 XCODE_PROJECT="$REPO_ROOT/$XCODE_PROJECT_NAME.xcodeproj"
 SCHEME="${ASC_SCHEME:-$XCODE_PROJECT_NAME}"

@@ -18,15 +18,6 @@
 	     xcconfig and cannot appear in a value there. -->
 	<key>RelayURL</key>
 	<string>$(RELAY_SCHEME)://$(RELAY_HOST)</string>
-	<!-- The relay speaks plain ws:// on the LAN, which App Transport Security
-	     blocks by default. NSAllowsLocalNetworking exempts private and
-	     link-local addresses only — public hosts still require HTTPS, so this
-	     does not weaken the app once the relay is hosted behind wss://. -->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
 	<!-- The app only uses the encryption Apple exempts: the OS's own TLS.
 	     Without this key every upload parks in Missing Compliance and testers
 	     cannot install the build. -->

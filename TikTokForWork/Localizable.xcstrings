@@ -166,6 +166,17 @@
         }
       }
     },
+    "APPROVAL": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
+          }
+        }
+      }
+    },
     "Account": {
       "extractionState": "manual",
       "localizations": {
@@ -969,6 +980,28 @@
         }
       }
     },
+    "Copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーしました"
+          }
+        }
+      }
+    },
+    "Copy address": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスをコピー"
+          }
+        }
+      }
+    },
     "Could not delete your account.": {
       "extractionState": "manual",
       "localizations": {
@@ -1629,6 +1662,17 @@
         }
       }
     },
+    "Forward mail here": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにメールを転送"
+          }
+        }
+      }
+    },
     "Free plan": {
       "extractionState": "manual",
       "localizations": {
@@ -2014,6 +2058,17 @@
         }
       }
     },
+    "Mail from an address you have not vouched for arrives as something to read, never as something to approve.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認していないアドレスからのメールは、読むだけのカードとして届きます。承認を求めるカードにはなりません。"
+          }
+        }
+      }
+    },
     "Manage subscription": {
       "extractionState": "manual",
       "localizations": {
@@ -2197,6 +2252,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "サーバーから応答がありません。"
+          }
+        }
+      }
+    },
+    "No teammates available. Connect GitHub to load your organization.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーがいません。GitHub に接続すると組織が読み込まれます。"
           }
         }
       }
@@ -3653,6 +3719,17 @@
         }
       }
     },
+    "The decision was sent without it. The clip is still on this phone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録画なしで送信しました。動画はこの端末に残っています。"
+          }
+        }
+      }
+    },
     "The design system is yours": {
       "extractionState": "manual",
       "localizations": {
@@ -3880,6 +3957,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "種別"
+          }
+        }
+      }
+    },
+    "Type %@ to confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認のため %@ と入力してください"
+          }
+        }
+      }
+    },
+    "Type instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードで入力"
+          }
+        }
+      }
+    },
+    "URGENT": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至急"
           }
         }
       }
@@ -4122,6 +4232,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub Issue にする前に、何を直しますか？"
+          }
+        }
+      }
+    },
+    "What should change before this decision is sent?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送る前に、どこを直すべきですか？"
           }
         }
       }
@@ -4445,6 +4566,17 @@
         }
       }
     },
+    "Your recording did not upload": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録画をアップロードできませんでした"
+          }
+        }
+      }
+    },
     "Your role": {
       "extractionState": "manual",
       "localizations": {
@@ -4628,6 +4760,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "例：2 つの Issue に分割、受け入れ条件を追加…"
+          }
+        }
+      }
+    },
+    "e.g. split into two tasks, add acceptance criteria…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: 2 つのタスクに分ける、受け入れ条件を足す…"
           }
         }
       }

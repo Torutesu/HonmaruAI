@@ -107,7 +107,10 @@ ASC_BUNDLE_ID=${ASC_BUNDLE_ID:-com.honmaru.ai}
 DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM
 
 ASC_LOCALE=${ASC_LOCALE:-en-US}
-ASC_SCHEME=${ASC_SCHEME:-HonmaruAI}
+# The Xcode scheme, which is the project name in project.yml, not the
+# product name. Defaulting this to HonmaruAI wrote an .asc.env that made
+# every later xcodebuild fail with "scheme not found".
+ASC_SCHEME=${ASC_SCHEME:-TikTokForWork}
 EOF
 
 printf '\n'

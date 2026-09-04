@@ -6,7 +6,8 @@
 
 // The deployed Cloudflare backend. Every build — simulator, device, and
 // TestFlight — talks to the hosted relay over wss. (The old localhost/LAN
-// scheme via scripts/device.sh + Local.xcconfig is retired: it silently shipped
-// a dev machine's LAN address into TestFlight, so every request hung.)
+// scheme via a per-machine xcconfig is retired, and its script is deleted: it
+// silently shipped a dev machine's LAN address into TestFlight, so every
+// request hung.)
 RELAY_SCHEME = wss
 RELAY_HOST = tiktokforwork.torubj0904.workers.dev
