@@ -113,7 +113,7 @@ async function handle(request, env, url) {
         headers: {
           "access-control-allow-origin": "*",
           "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
-          "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+          "access-control-allow-methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
         },
       });
     }
@@ -151,9 +151,22 @@ async function handle(request, env, url) {
 
       if (request.method === "GET") {
         const org = await getOrg(env.DB, orgId);
+        // The caller's own role rides along: the client needs it to decide
+        // whether to offer a rename, and this is the route that governs one.
+        // Asking on a request it already makes beats a second round trip, and
+        // beats offering a control that answers 403 to most of the org.
+        const membership = await env.DB
+          .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+          .bind(orgId, session.github_id)
+          .first();
         // Every org predating this table has no row. The id is the fallback,
         // so an older org is unnamed rather than broken.
-        return json({ orgId, name: org?.name || orgId, named: Boolean(org) });
+        return json({
+          orgId,
+          name: org?.name || orgId,
+          named: Boolean(org),
+          role: String(membership?.role || "member").toLowerCase(),
+        });
       }
 
       const membership = await env.DB
@@ -689,7 +702,7 @@ export function json(body, status = 200) {
       // not subject to CORS, so this was never needed until the web client.
       "access-control-allow-origin": "*",
       "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
-      "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "access-control-allow-methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
     },
   });
 } 

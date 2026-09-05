@@ -3,6 +3,7 @@ import { WebSocketClient } from '../services/WebSocketClient'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { InviteTeammate } from './InviteTeammate'
+import { OrgName } from './OrgName'
 import { requestNotificationPermission, notifyNewDecision, setTabBadge } from '../utils/notifications'
 import type { AppState, DecisionCard as DecisionCardType } from '../types/card'
 import './Dashboard.css'
@@ -161,7 +162,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             {isConnected ? '● Connected' : '● Disconnected'}
           </span>
           <span className="user-info">{userId}</span>
-          <span className="org-info">{orgId}</span>
+          <OrgName httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} />
         </div>
       </div>
 
@@ -303,7 +304,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             <ul>
               <li><strong>URL:</strong> {relayUrl}</li>
               <li><strong>User ID:</strong> {userId}</li>
-              <li><strong>Org ID:</strong> {orgId}</li>
+              <li><strong>Org ID:</strong> <code>{orgId}</code></li>
               <li><strong>Total Cards:</strong> {cards.length}</li>
               <li><strong>Pending:</strong> {pendingCards.length}</li>
               <li><strong>Decided:</strong> {decidedCards.length}</li>

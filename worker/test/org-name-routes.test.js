@@ -43,6 +43,14 @@ test("a member reads the name instead of the id", async () => {
   const body = await res.json();
   expect(body.name).toBe("Boss's team");
   expect(body.named).toBe(true);
+  // The client needs this to decide whether to offer a rename at all.
+  expect(body.role).toBe("member");
+});
+
+test("the read tells an admin they are one", async () => {
+  const res = await worker.fetch(read(adminToken), env);
+  const body = await res.json();
+  expect(body.role).toBe("admin");
 });
 
 test("an org with no row falls back to its id rather than failing", async () => {
