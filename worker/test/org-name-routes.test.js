@@ -95,3 +95,14 @@ test("an empty or oversized name is refused", async () => {
   expect((await worker.fetch(rename(adminToken, "   "), env)).status).toBe(400);
   expect((await worker.fetch(rename(adminToken, "x".repeat(61)), env)).status).toBe(400);
 });
+
+test("the route is rate limited like the other session routes", async () => {
+  // PATCH writes and both verbs take a session, so an unbounded budget here
+  // would be the one route in this shape without one.
+  let sawLimit = false;
+  for (let i = 0; i < 40; i++) {
+    const res = await worker.fetch(read(adminToken), env);
+    if (res.status === 429) { sawLimit = true; break; }
+  }
+  expect(sawLimit).toBe(true);
+});

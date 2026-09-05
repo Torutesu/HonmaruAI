@@ -142,6 +142,10 @@ async function handle(request, env, url) {
     // with org-wide effect is the shape this codebase already guards against.
     const orgNameMatch = url.pathname.match(/^\/orgs\/name$/);
     if (orgNameMatch && (request.method === "GET" || request.method === "PATCH")) {
+      // PATCH writes, and both take a session, so this gets the same budget as
+      // every other route in that shape.
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const orgId = url.searchParams.get("orgId") || "";
@@ -149,31 +153,23 @@ async function handle(request, env, url) {
         return json({ message: "You are not a member of this organization." }, 403);
       }
 
-      if (request.method === "GET") {
-        const org = await getOrg(env.DB, orgId);
-        // The caller's own role rides along: the client needs it to decide
-        // whether to offer a rename, and this is the route that governs one.
-        // Asking on a request it already makes beats a second round trip, and
-        // beats offering a control that answers 403 to most of the org.
-        const membership = await env.DB
-          .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
-          .bind(orgId, session.github_id)
-          .first();
-        // Every org predating this table has no row. The id is the fallback,
-        // so an older org is unnamed rather than broken.
-        return json({
-          orgId,
-          name: org?.name || orgId,
-          named: Boolean(org),
-          role: String(membership?.role || "member").toLowerCase(),
-        });
-      }
-
+      // Read once: the GET returns it, the PATCH gates on it.
       const membership = await env.DB
         .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
         .bind(orgId, session.github_id)
         .first();
-      if (String(membership?.role || "").toLowerCase() !== "admin") {
+      const callerRole = String(membership?.role || "member").toLowerCase();
+
+      if (request.method === "GET") {
+        const org = await getOrg(env.DB, orgId);
+        // The caller's own role rides along: the client needs it to decide
+        // whether to offer a rename, and this is the route that governs one.
+        // Every org predating this table has no row, and the id is the
+        // fallback, so an older org is unnamed rather than broken.
+        return json({ orgId, name: org?.name || orgId, named: Boolean(org), role: callerRole });
+      }
+
+      if (callerRole !== "admin") {
         return json({ message: "Only an admin can rename this organization." }, 403);
       }
 
