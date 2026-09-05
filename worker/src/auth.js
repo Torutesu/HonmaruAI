@@ -2,7 +2,7 @@
 // into the Workers runtime — no external dependency). This is intentionally
 // simple; stronger token handling is a later concern.
 
-import { createSession, upsertUser, upsertMembership } from "./db.js";
+import { createSession, upsertUser, upsertMembership, upsertOrg } from "./db.js";
 
 const ENC = new TextEncoder();
 
@@ -111,6 +111,7 @@ export async function signup(env, { email, password, name, inviteCode }) {
   // with this email already exists".
   let org;
   let joinRole = "member";
+  let orgName = null;
   if (inviteCode?.trim()) {
     const invite = await readInvite(env.DB, inviteCode.trim());
     if (!invite || !(await spendInvite(env.DB, inviteCode.trim()))) {
@@ -124,6 +125,10 @@ export async function signup(env, { email, password, name, inviteCode }) {
     // classic place an address ends up somewhere it was never meant to be.
     org = `personal:${(await sha256Hex(userId)).slice(0, 24)}`;
     joinRole = "admin";
+    // The id is a hash because it travels in a URL. Nobody should ever have to
+    // read it, so the org gets a name at the moment it comes into existence.
+    // Renaming later changes this and nothing else.
+    orgName = `${displayName}'s team`;
   }
 
   await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: "en" });
@@ -131,6 +136,9 @@ export async function signup(env, { email, password, name, inviteCode }) {
     .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3 WHERE github_id = ?4")
     .bind(normalizedEmail, hash, salt, userId)
     .run();
+  // Only for an org this signup created. Joining by invite means the org
+  // already exists and already has whatever name its owner gave it.
+  if (orgName) await upsertOrg(env.DB, org, orgName);
   await upsertMembership(env.DB, org, userId, joinRole);
   const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
   return { token, userId, login, orgId: org };

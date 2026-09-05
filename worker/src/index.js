@@ -3,6 +3,7 @@ import { toolManifest } from "./agui/tools.js";
 import { signup, login, createInvite, acceptInvite, isGitHubSession } from "./auth.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
+  upsertOrg, getOrg, renameOrg,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
@@ -112,7 +113,7 @@ async function handle(request, env, url) {
         headers: {
           "access-control-allow-origin": "*",
           "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
-          "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+          "access-control-allow-methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
         },
       });
     }
@@ -135,7 +136,55 @@ async function handle(request, env, url) {
       return json(result);
     }
 
-           if (url.pathname === "/invites/create" && request.method === "POST") {
+           // The name is what a person sees in place of an id they should never have
+    // to read. Any member can read it; only an admin can change it, because it
+    // is how everyone else in the org identifies it — a low-privilege action
+    // with org-wide effect is the shape this codebase already guards against.
+    const orgNameMatch = url.pathname.match(/^\/orgs\/name$/);
+    if (orgNameMatch && (request.method === "GET" || request.method === "PATCH")) {
+      // PATCH writes, and both take a session, so this gets the same budget as
+      // every other route in that shape.
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId || !(await isMember(env.DB, orgId, session.github_id))) {
+        return json({ message: "You are not a member of this organization." }, 403);
+      }
+
+      // Read once: the GET returns it, the PATCH gates on it.
+      const membership = await env.DB
+        .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+        .bind(orgId, session.github_id)
+        .first();
+      const callerRole = String(membership?.role || "member").toLowerCase();
+
+      if (request.method === "GET") {
+        const org = await getOrg(env.DB, orgId);
+        // The caller's own role rides along: the client needs it to decide
+        // whether to offer a rename, and this is the route that governs one.
+        // Every org predating this table has no row, and the id is the
+        // fallback, so an older org is unnamed rather than broken.
+        return json({ orgId, name: org?.name || orgId, named: Boolean(org), role: callerRole });
+      }
+
+      if (callerRole !== "admin") {
+        return json({ message: "Only an admin can rename this organization." }, 403);
+      }
+
+      const body = await request.json().catch(() => ({}));
+      const name = String(body.name || "").trim();
+      if (!name || name.length > 60) {
+        return json({ message: "A name is required, up to 60 characters." }, 400);
+      }
+      // The row may not exist yet for an org created before this table.
+      await upsertOrg(env.DB, orgId, name);
+      await renameOrg(env.DB, orgId, name);
+      return json({ orgId, name });
+    }
+
+    if (url.pathname === "/invites/create" && request.method === "POST") {
       // Redeeming or minting a code grants org membership, so both are guessable
       // surfaces and both get the same budget as the other credential routes.
       const limited = await enforce(env, request, "oauth/token");
@@ -351,6 +400,11 @@ async function handle(request, env, url) {
       } catch (err) {
         return json({ message: err.message }, 502);
       }
+      // A repo-backed org exists the moment GitHub confirms it. "owner/repo"
+      // already reads as a name, so it is the default — but an admin can
+      // rename it like any other, and DO NOTHING means this never overwrites
+      // that on the next refresh.
+      await upsertOrg(env.DB, orgId, orgId);
       const graph = buildOrgGraph(collaborators, { owner, repo });
       for (const c of collaborators) {
         await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url, locale: "en" });
@@ -644,7 +698,7 @@ export function json(body, status = 200) {
       // not subject to CORS, so this was never needed until the web client.
       "access-control-allow-origin": "*",
       "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
-      "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "access-control-allow-methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
     },
   });
 } 
