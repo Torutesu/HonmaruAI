@@ -141,7 +141,7 @@ export async function signup(env, { email, password, name, inviteCode }) {
   if (orgName) await upsertOrg(env.DB, org, orgName);
   await upsertMembership(env.DB, org, userId, joinRole);
   const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
-  return { token, userId, login, orgId: org };
+  return { token, userId, login, name: displayName, orgId: org };
 }
 
 // Log in: look up by email, verify the password, return a session token.
@@ -151,7 +151,7 @@ export async function login(env, { email, password }) {
   }
   const normalizedEmail = email.trim().toLowerCase();
   const row = await env.DB
-    .prepare("SELECT github_id, login, password_hash, password_salt FROM users WHERE email = ?1")
+    .prepare("SELECT github_id, login, name, password_hash, password_salt FROM users WHERE email = ?1")
     .bind(normalizedEmail)
     .first();
   if (!row || !row.password_hash) return { error: "Invalid email or password." };
@@ -160,7 +160,22 @@ export async function login(env, { email, password }) {
   if (!safeEqual(attempt, row.password_hash)) return { error: "Invalid email or password." };
 
   const token = await createSession(env.DB, row.github_id, EMAIL_AUTH_TOKEN);
-  return { token, userId: row.github_id, login: row.login };
+  // Which org you are in is the server's answer, not something the client
+  // should remember: signing in on a machine that once held someone else's
+  // session would otherwise inherit their org and fail at the relay.
+  const membership = await env.DB
+    .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 ORDER BY created_at LIMIT 1")
+    .bind(row.github_id)
+    .first();
+  // login is the wire identity the relay matches on; name is for people to
+  // read. Returning both keeps the client from having to display an id.
+  return {
+    token,
+    userId: row.github_id,
+    login: row.login,
+    name: row.name || row.login,
+    orgId: membership?.org_id || null,
+  };
 }
 
 

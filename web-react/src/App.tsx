@@ -21,6 +21,9 @@ function wsBase(host: string) {
 
 function App() {
   const [userId, setUserId] = useState<string | null>(null)
+  // The identity the relay routes on, and the text a person reads, are not the
+  // same thing. Keeping both means the header never has to show an id.
+  const [displayName, setDisplayName] = useState<string>('')
   const [orgId, setOrgId] = useState<string>('web-team')
   const [sessionToken, setSessionToken] = useState<string>('')
   const [host, setHost] = useState<string>(DEFAULT_HOST)
@@ -39,6 +42,8 @@ function App() {
     const savedToken = localStorage.getItem('sessionToken')
     const savedUser = localStorage.getItem('userId')
     const savedOrg = localStorage.getItem('orgId')
+    const savedName = localStorage.getItem('displayName')
+    if (savedName) setDisplayName(savedName)
     const savedHost = localStorage.getItem('host')
     if (savedHost) setHost(savedHost)
     if (savedOrg) setOrgId(savedOrg)
@@ -49,7 +54,9 @@ function App() {
     }
   }, [])
 
-  const finishAuth = (token: string, uid: string, org: string) => {
+  const finishAuth = (token: string, uid: string, org: string, name?: string) => {
+    setDisplayName(name || uid)
+    localStorage.setItem('displayName', name || uid)
     setSessionToken(token)
     setUserId(uid)
     setOrgId(org)
@@ -83,7 +90,7 @@ function App() {
         setError(data.message || 'Something went wrong.')
         return
       }
-            finishAuth(data.token, data.login || data.userId, data.orgId || orgId)
+            finishAuth(data.token, data.login || data.userId, data.orgId || orgId, data.name)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -99,6 +106,7 @@ function App() {
     setPassword('')
     localStorage.removeItem('sessionToken')
     localStorage.removeItem('userId')
+    localStorage.removeItem('displayName')
   }
 
   if (!ready || !userId) {
@@ -158,7 +166,7 @@ function App() {
 
   return (
     <div className="app">
-      <Dashboard userId={userId} orgId={orgId} relayUrl={wsBase(host)} sessionToken={sessionToken} />
+      <Dashboard userId={userId} displayName={displayName} orgId={orgId} relayUrl={wsBase(host)} sessionToken={sessionToken} />
       <button className="logout-button" onClick={handleLogout}>
         Logout
       </button>

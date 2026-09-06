@@ -109,3 +109,29 @@ test("a bad invite code does not consume the email address", async () => {
   expect(ok.error).toBeUndefined();
   expect(ok.token).toBeTruthy();
 });
+
+test("sign-in returns a name to display as well as the identity to route on", async () => {
+  const { signup, login } = await import("../src/auth.js");
+
+  const created = await signup(env, {
+    email: "display@example.com", password: "password123", name: "Kinjal",
+  });
+  expect(created.name).toBe("Kinjal");
+  // The identity stays derived and unchosen; only the display text is theirs.
+  expect(created.login).not.toBe("Kinjal");
+
+  const returned = await login(env, { email: "display@example.com", password: "password123" });
+  expect(returned.name).toBe("Kinjal");
+  expect(returned.login).toBe(created.login);
+});
+
+test("signing in returns the org you are actually in", async () => {
+  const { signup, login } = await import("../src/auth.js");
+  const created = await signup(env, {
+    email: "own@example.com", password: "password123", name: "Owner",
+  });
+  const returned = await login(env, { email: "own@example.com", password: "password123" });
+  // Otherwise the client falls back to whatever org it happened to remember,
+  // which on a shared machine is someone else's.
+  expect(returned.orgId).toBe(created.orgId);
+});
