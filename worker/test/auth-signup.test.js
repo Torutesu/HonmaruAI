@@ -135,3 +135,23 @@ test("signing in returns the org you are actually in", async () => {
   // which on a shared machine is someone else's.
   expect(returned.orgId).toBe(created.orgId);
 });
+
+test("signing in returns the team you joined, not the personal org you started in", async () => {
+  const { signup, login, acceptInvite, createInvite } = await import("../src/auth.js");
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+
+  // A real team, and someone who signed up on their own first.
+  await upsertUser(env.DB, { githubId: "6001", login: "lead", name: "Lead", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "real/team", "6001", "admin");
+  const created = await signup(env, {
+    email: "joiner@example.com", password: "password123", name: "Joiner",
+  });
+
+  const { code } = await createInvite(env, { orgId: "real/team", createdBy: "6001", role: "member" });
+  await acceptInvite(env, { code, userId: created.userId });
+
+  // Oldest-first sent them back to the empty org they started in.
+  const returned = await login(env, { email: "joiner@example.com", password: "password123" });
+  expect(returned.orgId).toBe("real/team");
+  expect(returned.orgId).not.toBe(created.orgId);
+});

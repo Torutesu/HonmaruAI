@@ -140,25 +140,23 @@ async function handle(request, env, url) {
     // to read. Any member can read it; only an admin can change it, because it
     // is how everyone else in the org identifies it — a low-privilege action
     // with org-wide effect is the shape this codebase already guards against.
-    const orgNameMatch = url.pathname.match(/^\/orgs\/name$/);
-    if (orgNameMatch && (request.method === "GET" || request.method === "PATCH")) {
-      // PATCH writes, and both take a session, so this gets the same budget as
-      // every other route in that shape.
-      const limited = await enforce(env, request, "oauth/token");
-      if (limited) return limited;
+    if (url.pathname === "/orgs/name" && (request.method === "GET" || request.method === "PATCH")) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const orgId = url.searchParams.get("orgId") || "";
-      if (!orgId || !(await isMember(env.DB, orgId, session.github_id))) {
+      // One query, two jobs: no row means not a member, and the row carries the
+      // role the GET returns and the PATCH gates on. isMember() alongside this
+      // was asking the same question twice.
+      const membership = orgId
+        ? await env.DB
+            .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+            .bind(orgId, session.github_id)
+            .first()
+        : null;
+      if (!membership) {
         return json({ message: "You are not a member of this organization." }, 403);
       }
-
-      // Read once: the GET returns it, the PATCH gates on it.
-      const membership = await env.DB
-        .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
-        .bind(orgId, session.github_id)
-        .first();
-      const callerRole = String(membership?.role || "member").toLowerCase();
+      const callerRole = String(membership.role || "member").toLowerCase();
 
       if (request.method === "GET") {
         const org = await getOrg(env.DB, orgId);
@@ -169,6 +167,13 @@ async function handle(request, env, url) {
         return json({ orgId, name: org?.name || orgId, named: Boolean(org), role: callerRole });
       }
 
+      // Only the write. The read runs on every page load, and the credential
+      // bucket is ten requests per five minutes shared with signup, login and
+      // both invite routes — putting a page-load read on it meant eleven
+      // reloads locked you out of inviting anyone.
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+
       if (callerRole !== "admin") {
         return json({ message: "Only an admin can rename this organization." }, 403);
       }
@@ -178,7 +183,8 @@ async function handle(request, env, url) {
       if (!name || name.length > 60) {
         return json({ message: "A name is required, up to 60 characters." }, 400);
       }
-      // The row may not exist yet for an org created before this table.
+      // Insert carries the name for an org predating this table; the update
+      // covers one that already has a row, where the insert does nothing.
       await upsertOrg(env.DB, orgId, name);
       await renameOrg(env.DB, orgId, name);
       return json({ orgId, name });

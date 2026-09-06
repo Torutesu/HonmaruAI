@@ -96,12 +96,20 @@ test("an empty or oversized name is refused", async () => {
   expect((await worker.fetch(rename(adminToken, "x".repeat(61)), env)).status).toBe(400);
 });
 
-test("the route is rate limited like the other session routes", async () => {
-  // PATCH writes and both verbs take a session, so an unbounded budget here
-  // would be the one route in this shape without one.
+test("reading the name does not spend the credential budget", async () => {
+  // This runs on every page load. It shared a bucket with signup, login and
+  // both invite routes, so eleven reloads inside five minutes locked the
+  // account out of inviting anyone.
+  for (let i = 0; i < 15; i++) {
+    const res = await worker.fetch(read(adminToken), env);
+    expect(res.status).toBe(200);
+  }
+});
+
+test("renaming is still rate limited", async () => {
   let sawLimit = false;
   for (let i = 0; i < 40; i++) {
-    const res = await worker.fetch(read(adminToken), env);
+    const res = await worker.fetch(rename(adminToken, `Name ${i}`), env);
     if (res.status === 429) { sawLimit = true; break; }
   }
   expect(sawLimit).toBe(true);

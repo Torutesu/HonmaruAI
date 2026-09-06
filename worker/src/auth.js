@@ -163,8 +163,14 @@ export async function login(env, { email, password }) {
   // Which org you are in is the server's answer, not something the client
   // should remember: signing in on a machine that once held someone else's
   // session would otherwise inherit their org and fail at the relay.
+  //
+  // Most recently joined, not oldest. A solo signup gets a personal org first
+  // and joins a real team later, so oldest-first put them back in the empty
+  // one every time — a server-chosen wrong answer in place of a stale one.
+  // Someone in several teams still only gets one; picking between them is org
+  // switching, which is a feature rather than a fix.
   const membership = await env.DB
-    .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 ORDER BY created_at LIMIT 1")
+    .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 ORDER BY created_at DESC LIMIT 1")
     .bind(row.github_id)
     .first();
   // login is the wire identity the relay matches on; name is for people to
