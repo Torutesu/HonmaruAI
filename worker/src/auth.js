@@ -2,7 +2,7 @@
 // into the Workers runtime — no external dependency). This is intentionally
 // simple; stronger token handling is a later concern.
 
-import { createSession, upsertUser, upsertMembership } from "./db.js";
+import { createSession, upsertUser, upsertMembership, upsertOrg } from "./db.js";
 
 const ENC = new TextEncoder();
 
@@ -111,6 +111,7 @@ export async function signup(env, { email, password, name, inviteCode }) {
   // with this email already exists".
   let org;
   let joinRole = "member";
+  let orgName = null;
   if (inviteCode?.trim()) {
     const invite = await readInvite(env.DB, inviteCode.trim());
     if (!invite || !(await spendInvite(env.DB, inviteCode.trim()))) {
@@ -124,6 +125,10 @@ export async function signup(env, { email, password, name, inviteCode }) {
     // classic place an address ends up somewhere it was never meant to be.
     org = `personal:${(await sha256Hex(userId)).slice(0, 24)}`;
     joinRole = "admin";
+    // The id is a hash because it travels in a URL. Nobody should ever have to
+    // read it, so the org gets a name at the moment it comes into existence.
+    // Renaming later changes this and nothing else.
+    orgName = `${displayName}'s team`;
   }
 
   await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: "en" });
@@ -131,9 +136,12 @@ export async function signup(env, { email, password, name, inviteCode }) {
     .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3 WHERE github_id = ?4")
     .bind(normalizedEmail, hash, salt, userId)
     .run();
+  // Only for an org this signup created. Joining by invite means the org
+  // already exists and already has whatever name its owner gave it.
+  if (orgName) await upsertOrg(env.DB, org, orgName);
   await upsertMembership(env.DB, org, userId, joinRole);
   const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
-  return { token, userId, login, orgId: org };
+  return { token, userId, login, name: displayName, orgId: org };
 }
 
 // Log in: look up by email, verify the password, return a session token.
@@ -143,7 +151,7 @@ export async function login(env, { email, password }) {
   }
   const normalizedEmail = email.trim().toLowerCase();
   const row = await env.DB
-    .prepare("SELECT github_id, login, password_hash, password_salt FROM users WHERE email = ?1")
+    .prepare("SELECT github_id, login, name, password_hash, password_salt FROM users WHERE email = ?1")
     .bind(normalizedEmail)
     .first();
   if (!row || !row.password_hash) return { error: "Invalid email or password." };
@@ -152,7 +160,28 @@ export async function login(env, { email, password }) {
   if (!safeEqual(attempt, row.password_hash)) return { error: "Invalid email or password." };
 
   const token = await createSession(env.DB, row.github_id, EMAIL_AUTH_TOKEN);
-  return { token, userId: row.github_id, login: row.login };
+  // Which org you are in is the server's answer, not something the client
+  // should remember: signing in on a machine that once held someone else's
+  // session would otherwise inherit their org and fail at the relay.
+  //
+  // Most recently joined, not oldest. A solo signup gets a personal org first
+  // and joins a real team later, so oldest-first put them back in the empty
+  // one every time — a server-chosen wrong answer in place of a stale one.
+  // Someone in several teams still only gets one; picking between them is org
+  // switching, which is a feature rather than a fix.
+  const membership = await env.DB
+    .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 ORDER BY created_at DESC LIMIT 1")
+    .bind(row.github_id)
+    .first();
+  // login is the wire identity the relay matches on; name is for people to
+  // read. Returning both keeps the client from having to display an id.
+  return {
+    token,
+    userId: row.github_id,
+    login: row.login,
+    name: row.name || row.login,
+    orgId: membership?.org_id || null,
+  };
 }
 
 

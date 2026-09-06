@@ -216,6 +216,39 @@ export async function getUserByGithubId(db, githubId) {
   );
 }
 
+// An org's id is its identity: it routes sockets, keys memberships, and is
+// stored by value in card data. Nothing here ever updates it. The name is the
+// only mutable part, and exists so a person never has to read the id.
+//
+// DO NOTHING rather than DO UPDATE: this runs wherever an org is first seen,
+// so an update would quietly overwrite a name someone had chosen with the
+// default every time they signed in.
+export async function upsertOrg(db, orgId, name) {
+  await db
+    .prepare(
+      `INSERT INTO orgs (id, name, created_at)
+       VALUES (?1, ?2, ?3)
+       ON CONFLICT(id) DO NOTHING`
+    )
+    .bind(orgId, name, new Date().toISOString())
+    .run();
+}
+
+export async function getOrg(db, orgId) {
+  return (
+    (await db.prepare("SELECT id, name FROM orgs WHERE id = ?1").bind(orgId).first()) || null
+  );
+}
+
+// Renames touch the name column and nothing else, by construction.
+export async function renameOrg(db, orgId, name) {
+  const { meta } = await db
+    .prepare("UPDATE orgs SET name = ?2 WHERE id = ?1")
+    .bind(orgId, name)
+    .run();
+  return { renamed: (meta?.changes ?? 0) > 0 };
+}
+
 export async function upsertMembership(db, orgId, githubId, role) {
   await db
     .prepare(
