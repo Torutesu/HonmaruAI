@@ -192,6 +192,17 @@ Web の **⋯ → You → Email** に住所を入れたときだけ。送るの�
 `web-react/` は静的サイト。Cloudflare Pages が同じアカウントで済んで楽。
 
 ```bash
+./web-react/scripts/deploy-pages.sh
+```
+
+接続先を聞いて、ビルドして、Pages に出して、最後に `APP_WEB_URL` を Worker に
+入れるところまでやる。**接続先はビルド時に埋め込まれる**——サインイン画面に
+それを直す欄は無いので、忘れたページは `localhost` を見に行って何も繋がらない。
+スクリプトはビルド後に実際にバンドルの中を見て、入っていなければ止まる。
+
+以下は同じことを手でやる場合。
+
+```bash
 cd web-react
 npm ci
 VITE_API_HOST=tiktokforwork.torubj0904.workers.dev npm run build
