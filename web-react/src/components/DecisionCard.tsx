@@ -1,5 +1,6 @@
 import React from 'react'
 import type { DecisionCard as DecisionCardType } from '../types/card'
+import { getLocale } from '../utils/locale'
 import './DecisionCard.css'
 
 interface Props {
@@ -13,7 +14,10 @@ interface Props {
   onRollback: () => void
   onDelegate: (userId: string) => void
   isPending: boolean
+  highlighted?: boolean
+  businessName?: string
 }
+
 
 export const DecisionCard: React.FC<Props> = ({
   card,
@@ -25,10 +29,16 @@ export const DecisionCard: React.FC<Props> = ({
   onAcknowledge,
   onRollback,
   onDelegate,
-  isPending
+  isPending,
+  highlighted = false,
+  businessName
 }) => {
   const isRecipient = card.recipientUserID === currentUserId
   const isRequester = card.senderUserID === currentUserId
+  const localized = card.localized?.[getLocale()]
+  const title = localized?.title || card.title
+  const summary = localized?.summary || card.summary
+  const context = localized?.context || card.context
 
   const getStatusColor = (): string => {
     switch (card.status) {
@@ -52,19 +62,23 @@ export const DecisionCard: React.FC<Props> = ({
   }
 
   return (
-    <div className={`decision-card ${getStatusColor()}`}>
+    <div id={`card-${card.id}`} className={`decision-card ${getStatusColor()}${highlighted ? ' card-highlight' : ''}`}>
       <div className="card-header">
-        <div className="card-title">{card.title}</div>
+        <div className="card-title">{title}</div>
         <div className={`card-priority ${getPriorityColor()}`}>
           {card.priority.charAt(0).toUpperCase() + card.priority.slice(1)}
         </div>
       </div>
 
-      <div className="card-summary">{card.summary}</div>
+      {card.business && (
+        <div className="card-business"><span className="business-tag">{businessName || card.business}</span></div>
+      )}
 
-      {card.context && (
+      <div className="card-summary">{summary}</div>
+
+      {context && (
         <div className="card-context">
-          <p>{card.context}</p>
+          <p>{context}</p>
         </div>
       )}
 

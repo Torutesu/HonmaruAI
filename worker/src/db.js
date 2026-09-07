@@ -194,23 +194,75 @@ export async function consumeOAuthState(db, state) {
   return row.expires_at > new Date().toISOString();
 }
 
+/// Create or refresh a person.
+///
+/// `locale` is the language their notifications are written in. Pass it only
+/// when you actually know it — a value here overwrites, an absence keeps what
+/// is stored. Every caller used to write a literal "en", so loading the org
+/// graph reset every teammate to English on every open, and the setting the
+/// person had chosen lasted until the next time anyone looked at the team.
 export async function upsertUser(db, { githubId, login, name, avatarUrl, locale }) {
+  const known = normalizeLocale(locale);
   await db
     .prepare(
       `INSERT INTO users (github_id, login, name, avatar_url, locale, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       VALUES (?1, ?2, ?3, ?4, COALESCE(?5, 'en'), ?6)
        ON CONFLICT(github_id) DO UPDATE SET
          login = excluded.login, name = excluded.name,
-         avatar_url = excluded.avatar_url, locale = excluded.locale`
+         avatar_url = excluded.avatar_url,
+         locale = COALESCE(?5, users.locale)`
     )
-    .bind(String(githubId), login, name || null, avatarUrl || null, locale || "en", new Date().toISOString())
+    .bind(String(githubId), login, name || null, avatarUrl || null, known, new Date().toISOString())
+    .run();
+}
+
+/// A BCP 47 tag reduced to the part notifications are written in: "ja-JP" and
+/// "ja" are the same language to a lock screen. Anything that does not look
+/// like a language is null, which every caller treats as "unknown".
+export function normalizeLocale(value) {
+  if (typeof value !== "string") return null;
+  const primary = value.trim().toLowerCase().split(/[-_]/)[0];
+  return /^[a-z]{2,3}$/.test(primary) ? primary : null;
+}
+
+export async function setUserLocale(db, githubId, locale) {
+  const known = normalizeLocale(locale);
+  if (!known) return false;
+  const { meta } = await db
+    .prepare("UPDATE users SET locale = ?2 WHERE github_id = ?1")
+    .bind(String(githubId), known)
+    .run();
+  return (meta?.changes ?? 0) > 0;
+}
+
+/// The address notifications fall back to. Only for accounts that do not sign
+/// in with one: an email account's address is its identity. Empty clears it.
+export async function setUserEmail(db, githubId, email) {
+  const id = String(githubId);
+  if (id.startsWith("email:")) return { error: "This account signs in with its email address." };
+  const value = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return { error: "Please enter a valid email." };
+  if (value) {
+    const taken = await db.prepare("SELECT github_id FROM users WHERE email = ?1 AND github_id != ?2").bind(value, id).first();
+    if (taken) return { error: "That address belongs to another account." };
+  }
+  await db.prepare("UPDATE users SET email = ?2 WHERE github_id = ?1").bind(id, value || null).run();
+  return { ok: true };
+}
+
+export async function setUserNotifyEmail(db, githubId, enabled) {
+  await db
+    .prepare("UPDATE users SET notify_email = ?2 WHERE github_id = ?1")
+    .bind(String(githubId), enabled ? 1 : 0)
     .run();
 }
 
 export async function getUserByGithubId(db, githubId) {
   return (
     (await db
-      .prepare("SELECT github_id, login, name, avatar_url, locale FROM users WHERE github_id = ?1")
+      .prepare(
+        "SELECT github_id, login, name, avatar_url, locale, email, notify_email FROM users WHERE github_id = ?1"
+      )
       .bind(String(githubId))
       .first()) || null
   );
@@ -408,12 +460,48 @@ export async function removeDevice(db, deviceToken) {
 // The relay knows a person by their github LOGIN; config is keyed by the numeric
 // id. This is the bridge — comparing the two directly would never match.
 export async function getUserByLogin(db, login) {
+  if (!login) return null;
   return (
     (await db
-      .prepare("SELECT github_id, login FROM users WHERE login = ?1")
+      .prepare(
+        "SELECT github_id, login, name, locale, email, notify_email FROM users WHERE login = ?1"
+      )
       .bind(login)
       .first()) || null
   );
+}
+
+// Web Push subscriptions, one row per browser (or installed PWA) per person.
+// The same shape of contract as device_tokens: keyed by what the push service
+// makes unique, re-bound to whoever is signed in on that browser now.
+export async function registerSubscription(db, { endpoint, githubId, login, p256dh, auth, userAgent }) {
+  await db
+    .prepare(
+      `INSERT INTO push_subscriptions (endpoint, user_github_id, login, p256dh, auth, user_agent, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+       ON CONFLICT(endpoint) DO UPDATE SET
+         user_github_id = excluded.user_github_id,
+         login = excluded.login,
+         p256dh = excluded.p256dh,
+         auth = excluded.auth,
+         user_agent = excluded.user_agent,
+         updated_at = excluded.updated_at`
+    )
+    .bind(endpoint, String(githubId), login, p256dh, auth, userAgent || null, new Date().toISOString())
+    .run();
+}
+
+export async function subscriptionsForLogin(db, login) {
+  if (!login) return [];
+  const { results } = await db
+    .prepare("SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE login = ?1")
+    .bind(login)
+    .all();
+  return results || [];
+}
+
+export async function removeSubscription(db, endpoint) {
+  await db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1").bind(endpoint).run();
 }
 
 
@@ -440,4 +528,53 @@ export async function listOrgNodes(db, orgId) {
     role: (r.role || "member").toLowerCase(),
     label: `${r.name} · ${r.role || "member"}`,
   }));
+}
+
+// Businesses. A slug is the name, lowercased, with runs of whitespace and
+// punctuation folded to "-", letters of any script kept — "Hotel 本丸" and
+// "hotel 本丸" are the same business. Sixty-four characters is plenty for a
+// name and short enough to ride on every card.
+export const MAX_BUSINESS_SLUG = 64;
+
+export function businessSlug(name) {
+  if (typeof name !== "string") return null;
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_BUSINESS_SLUG);
+  return slug || null;
+}
+
+export async function listBusinesses(db, orgId) {
+  const { results } = await db
+    .prepare("SELECT slug, name, created_by, created_at FROM businesses WHERE org_id = ?1 ORDER BY created_at")
+    .bind(orgId)
+    .all();
+  return (results || []).map((r) => ({ slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at }));
+}
+
+/// Create a business, or return the one a name already means. The name that
+/// was typed first is the one that sticks: a later "HOTEL" does not rename
+/// "Hotel".
+export async function upsertBusiness(db, orgId, { name, createdBy }) {
+  const slug = businessSlug(name);
+  if (!slug) return null;
+  await db
+    .prepare(
+      `INSERT INTO businesses (org_id, slug, name, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(org_id, slug) DO NOTHING`
+    )
+    .bind(orgId, slug, String(name).trim().slice(0, 120), createdBy || null, new Date().toISOString())
+    .run();
+  const row = await db
+    .prepare("SELECT slug, name FROM businesses WHERE org_id = ?1 AND slug = ?2")
+    .bind(orgId, slug)
+    .first();
+  return row ? { slug: row.slug, name: row.name } : null;
+}
+
+export async function removeBusiness(db, orgId, slug) {
+  await db.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).run();
 }

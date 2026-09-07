@@ -1,4 +1,17 @@
 import { SELF } from "cloudflare:test";
+import { afterAll } from "vitest";
+
+// Every socket a file opens, closed when the file is done. A socket left open
+// is aborted when the file's runtime is torn down, and that abort surfaces
+// inside workerd as "Network connection lost" at the exact moment another
+// file is talking to it — which is how a green suite turned red on CI with
+// one file's results missing entirely.
+const openSockets = [];
+afterAll(() => {
+  for (const ws of openSockets.splice(0)) {
+    try { ws.close(1000, "test finished"); } catch {}
+  }
+});
 
 // Relay tests used to sleep a fixed number of milliseconds between sending a
 // message and asserting on its effect. That works on a quiet laptop and fails on
@@ -14,6 +27,7 @@ export function open(orgId) {
   }).then((res) => {
     const ws = res.webSocket;
     ws.accept();
+    openSockets.push(ws);
     return ws;
   });
 }

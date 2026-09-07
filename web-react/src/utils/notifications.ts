@@ -1,5 +1,8 @@
-// Browser desktop notifications for incoming decisions. All no-ops if the
-// browser doesn't support them or the user hasn't granted permission.
+// In-tab notifications for incoming decisions, for a browser that has granted
+// permission but not subscribed to push. Web Push (utils/push.ts) is the real
+// channel — it works with the tab closed and is written in the reader's
+// language by the Worker. This is the fallback while the tab is open in the
+// background. All no-ops if unsupported or not permitted.
 
 export function requestNotificationPermission(): void {
   if (typeof Notification === 'undefined') return

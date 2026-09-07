@@ -76,7 +76,7 @@ function validEmail(email) {
 
 // Create an account: hash the password, store the user, put them in a default
 // org, and return a session token the client can use immediately.
-export async function signup(env, { email, password, name, inviteCode }) {
+export async function signup(env, { email, password, name, inviteCode, locale }) {
   if (!validEmail(email)) return { error: "Please enter a valid email." };
   if (typeof password !== "string" || password.length < 8) {
     return { error: "Password must be at least 8 characters." };
@@ -126,7 +126,7 @@ export async function signup(env, { email, password, name, inviteCode }) {
     joinRole = "admin";
   }
 
-  await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: "en" });
+  await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: locale || undefined });
   await env.DB
     .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3 WHERE github_id = ?4")
     .bind(normalizedEmail, hash, salt, userId)

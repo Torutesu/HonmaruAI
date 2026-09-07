@@ -45,12 +45,13 @@ export async function deleteAccount(db, githubId, login) {
     "DELETE FROM ai_usage WHERE user_github_id = ?1",
     "DELETE FROM ingested_items WHERE user_github_id = ?1",
     "DELETE FROM device_tokens WHERE user_github_id = ?1",
+    "DELETE FROM push_subscriptions WHERE user_github_id = ?1",
     "DELETE FROM users WHERE github_id = ?1",
   ]) {
     try {
       await db.prepare(sql).bind(id).run();
     } catch (err) {
-      // device_tokens may not exist on a database that predates push. A missing
+      // device_tokens or push_subscriptions may not exist on a database that predates push. A missing
       // table must not leave the account half-deleted.
       if (!/no such table/i.test(String(err?.message))) throw err;
     }

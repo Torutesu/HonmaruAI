@@ -1,9 +1,10 @@
 import { CONNECTORS } from "./connectors/index.js";
 import { syncAll } from "./sync.js";
-import { notifyCard } from "./push.js";
+import { notifyCard } from "./notify.js";
 import { sweepRateLimits } from "./ratelimit.js";
 import { cardsCreatedSince } from "./db.js";
 import { announceCards } from "./announce.js";
+import { providerConfig } from "./provider.js";
 
 // "Your AI triaged three decisions overnight" cannot be true if the AI only
 // runs while you are looking at it. Until this existed, a connector sync
@@ -35,26 +36,6 @@ async function candidates(db) {
     .bind(new Date().toISOString(), MAX_USERS_PER_RUN)
     .all();
   return (results || []).filter((row) => row.org_id && row.login);
-}
-
-function providerConfig(env) {
-  if (env.OPENAI_API_KEY) {
-    return {
-      providerName: "OpenAI",
-      endpoint: "https://api.openai.com/v1/chat/completions",
-      apiKey: env.OPENAI_API_KEY,
-      model: env.OPENAI_MODEL || "gpt-4o-mini",
-    };
-  }
-  if (env.OPENROUTER_API_KEY) {
-    return {
-      providerName: "OpenRouter",
-      endpoint: "https://openrouter.ai/api/v1/chat/completions",
-      apiKey: env.OPENROUTER_API_KEY,
-      model: env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free",
-    };
-  }
-  return undefined;
 }
 
 export async function runScheduledSync(env) {
@@ -91,12 +72,15 @@ export async function runScheduledSync(env) {
       await announceCards(env, row.org_id, fresh);
       // One notification for the batch, not one per card: waking someone four
       // times because their inbox was busy is how notifications get turned off.
-      if (fresh.length) {
+      if (fresh.length === 1) {
+        await notifyCard(env, { card: fresh[0], kind: "created", excludeLogin: null, badge: fresh.length });
+      } else if (fresh.length) {
+        // The digest names no card and says nothing about any of them: it is
+        // a count, written in the recipient's language by the hub.
         await notifyCard(env, {
-          card: fresh.length === 1
-            ? fresh[0]
-            : { ...fresh[0], id: `digest-${row.login}-${startedAt}`, title: `${fresh.length} decisions need you`, senderUserID: null },
-          kind: "created",
+          card: { id: `digest-${row.login}-${startedAt}`, recipientUserID: row.login },
+          kind: "digest",
+          count: fresh.length,
           excludeLogin: null,
           badge: fresh.length,
         });

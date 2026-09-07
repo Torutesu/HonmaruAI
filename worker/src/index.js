@@ -5,16 +5,20 @@ import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
-  isIngested, markIngested, saveCard,
+  isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
+  registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, githubIdFromAddress, inboundAddressFor } from "./connectors/email.js";
 import { triageMessage } from "./triage.js";
-import { notifyCard } from "./push.js";
+import { notifyCard } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount } from "./account.js";
 import { isConfigured } from "./apns.js";
+import { isWebPushConfigured, parseSubscription } from "./webpush.js";
+import { isMailConfigured } from "./mailer.js";
+import { SUPPORTED_LOCALES } from "./notifyCopy.js";
 import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
@@ -25,32 +29,21 @@ import { CONNECTORS, connectorById } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
 import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
+import { providerConfig } from "./provider.js";
+import { fileCardUnderBusiness } from "./classify.js";
+import { buildRecord, recordToMarkdown } from "./record.js";
 
 export { OrgRelay } from "./relay.js";
 
-// A user's own key is never stored on our side — it arrives per request and is
-// used for that request only. Never log it.
-function providerConfig(env, userKey) {
-  const openaiKey = userKey || env.OPENAI_API_KEY;
-  if (openaiKey) {
-    return {
-      providerName: "OpenAI",
-      endpoint: "https://api.openai.com/v1/chat/completions",
-      apiKey: openaiKey,
-      model: env.OPENAI_MODEL || "gpt-4o-mini",
-    };
-  }
-  if (env.OPENROUTER_API_KEY) {
-    return {
-      providerName: "OpenRouter",
-      endpoint: "https://openrouter.ai/api/v1/chat/completions",
-      apiKey: env.OPENROUTER_API_KEY,
-      model: env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free",
-      appName: "TikTok for Work",
-      appUrl: "https://tiktokforwork.dev",
-    };
-  }
-  return undefined;
+/// The language a request was made in, from the header every client sends
+/// without being asked: URLSession fills Accept-Language from the device's
+/// languages, browsers from their settings. It seeds a new account's locale
+/// so the first notification is already in the right language; an explicit
+/// choice through PUT /me overrides it and is never overwritten by this.
+export function localeFromRequest(request) {
+  const header = request.headers.get("accept-language") || "";
+  const first = header.split(",")[0]?.trim();
+  return normalizeLocale(first);
 }
 
 // Returns an error Response when the caller may not read this org's history, or
@@ -121,7 +114,7 @@ async function handle(request, env, url) {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
-      const result = await signup(env, body);
+      const result = await signup(env, { ...body, locale: body.locale || localeFromRequest(request) });
       if (result.error) return json({ message: result.error }, 400);
       return json(result);
     }
@@ -179,6 +172,8 @@ async function handle(request, env, url) {
             ? env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free"
             : "fallback",
         push: isConfigured(env),
+        webPush: isWebPushConfigured(env),
+        email: isMailConfigured(env),
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {
@@ -207,6 +202,11 @@ async function handle(request, env, url) {
         if (nodes.length) {
           organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
         }
+        // The org's businesses, so the router can file the card under one.
+        // From the table, never the client: a slug the router returns must be
+        // one the feed can filter by.
+        const businesses = await listBusinesses(env.DB, routeOrgId);
+        if (businesses.length) organization = { ...(organization || {}), orgId: routeOrgId, businesses };
       }
 
       const result = await routeInstruction({
@@ -277,9 +277,13 @@ async function handle(request, env, url) {
       // which happens after the socket connects — so the relay could not name
       // the person who had just signed in. Identity is established here, where
       // it is first known.
+      // Seeded from the device's language on first sign-in only: upsertUser
+      // keeps a stored locale when none is passed, and an explicit choice made
+      // through PUT /me is the only thing that changes it after that.
+      const existing = await getUserByGithubId(env.DB, ghUser.id);
       await upsertUser(env.DB, {
         githubId: ghUser.id, login: ghUser.login, name: ghUser.name,
-        avatarUrl: ghUser.avatar_url, locale: "en",
+        avatarUrl: ghUser.avatar_url, locale: existing ? undefined : localeFromRequest(request),
       });
       const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
       // The GitHub token is not handed back. It carries `repo` scope — every
@@ -298,6 +302,136 @@ async function handle(request, env, url) {
     const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
     if (mediaMatch && request.method === "GET") {
       return serveMedia(mediaMatch[1], env);
+    }
+    // The businesses an organization runs. Read by the feed for its filter
+    // chips and by the router for its enum; written when someone names a new
+    // one — from here, or by tagging a card with a name nobody has typed
+    // before. `orgId` is a query or body field rather than a path segment
+    // because a personal org id is not "owner/repo".
+    if (url.pathname === "/businesses" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ businesses: await listBusinesses(env.DB, orgId) });
+    }
+    if (url.pathname === "/businesses" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      if (!businessSlug(body.name)) return json({ message: "A business needs a name." }, 400);
+      const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
+      return json({ business, businesses: await listBusinesses(env.DB, body.orgId) });
+    }
+    if (url.pathname === "/businesses" && request.method === "DELETE") {
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      // Cards keep their tag: a deleted business is a chip that disappears,
+      // not history rewritten. Tagging a card with the name brings it back.
+      await removeBusiness(env.DB, body.orgId, body.slug);
+      return json({ businesses: await listBusinesses(env.DB, body.orgId) });
+    }
+
+    // The record: every decision, per business, as it stands right now.
+    // JSON for the client, Markdown (?format=md) for pasting anywhere else.
+    if (url.pathname === "/record" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      const locale = normalizeLocale(url.searchParams.get("locale")) || me?.locale || "en";
+      const record = await buildRecord(env.DB, orgId, { locale });
+      if (url.searchParams.get("format") === "md") {
+        return new Response(recordToMarkdown(record, locale), {
+          headers: { "content-type": "text/markdown; charset=utf-8", "access-control-allow-origin": "*" },
+        });
+      }
+      return json(record);
+    }
+
+    // Who am I, and how do I want to be told. The locale here is the language
+    // every notification to this person is written in, whichever channel
+    // carries it — set explicitly by the app's language toggle or the browser,
+    // seeded from Accept-Language on the first sign-in.
+    if (url.pathname === "/me" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user) return json({ message: "unknown user" }, 409);
+      return json({
+        login: user.login,
+        name: user.name,
+        locale: user.locale || "en",
+        email: user.email || null,
+        // An email account signs in with its address; only a GitHub account
+        // can change where mail goes.
+        emailEditable: !String(user.github_id).startsWith("email:"),
+        notifyEmail: Number(user.notify_email ?? 1) !== 0,
+        supportedLocales: SUPPORTED_LOCALES,
+      });
+    }
+    if (url.pathname === "/me" && request.method === "PUT") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (body.locale !== undefined) {
+        if (!normalizeLocale(body.locale)) return json({ message: "locale must be a language tag like en or ja-JP" }, 400);
+        await setUserLocale(env.DB, session.github_id, body.locale);
+      }
+      if (body.notifyEmail !== undefined) {
+        await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
+      }
+      // Where email falls back to. A GitHub account has none unless it says
+      // so here; an email account's address is its login and cannot change.
+      if (body.email !== undefined) {
+        const result = await setUserEmail(env.DB, session.github_id, body.email);
+        if (result.error) return json({ message: result.error }, 400);
+      }
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      return json({
+        ok: true,
+        locale: user?.locale || "en",
+        email: user?.email || null,
+        notifyEmail: Number(user?.notify_email ?? 1) !== 0,
+      });
+    }
+
+    // Web Push. The public key is what a browser subscribes with; the
+    // subscription it gets back is posted here, bound to the person on the
+    // session — never to a login the browser claims.
+    if (url.pathname === "/push/vapid" && request.method === "GET") {
+      if (!isWebPushConfigured(env)) return json({ message: "Web push is not configured on this deployment." }, 503);
+      return json({ publicKey: env.VAPID_PUBLIC_KEY });
+    }
+    if (url.pathname === "/push/subscriptions" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      const subscription = parseSubscription(body);
+      if (!subscription) return json({ message: "A push subscription with endpoint and keys is required." }, 400);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user?.login) return json({ message: "unknown user" }, 409);
+      await registerSubscription(env.DB, {
+        ...subscription,
+        githubId: session.github_id,
+        login: user.login,
+        userAgent: (request.headers.get("user-agent") || "").slice(0, 200),
+      });
+      return json({ ok: true });
+    }
+    if (url.pathname === "/push/subscriptions" && request.method === "DELETE") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (typeof body.endpoint === "string") await removeSubscription(env.DB, body.endpoint);
+      return json({ ok: true });
     }
     // Registered after the user grants permission, and re-registered on every
     // launch — APNs reissues tokens, and a stale one is a silent no-op.
@@ -353,7 +487,8 @@ async function handle(request, env, url) {
       }
       const graph = buildOrgGraph(collaborators, { owner, repo });
       for (const c of collaborators) {
-        await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url, locale: "en" });
+        // No locale: the graph knows who is on the team, not what they read.
+        await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url });
         await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
         await upsertAgent(env.DB, orgId, c.id, `${c.login}'s AI`);
       }
@@ -588,8 +723,14 @@ async function handle(request, env, url) {
       let cardId = null;
       if (result.card) {
         cardId = crypto.randomUUID();
+        const business = await fileCardUnderBusiness(env, {
+          orgId, provider, githubId,
+          card: { ...result.card, sourceDetail: `${message.from} · ${message.subject}` },
+          allowance: await checkAIAllowance(env, { githubId: String(githubId) }),
+        });
         const card = {
           id: cardId,
+          ...(business ? { business } : {}),
           recipientUserID: user.login,
           senderUserID: user.login,
           type: result.card.cardType,

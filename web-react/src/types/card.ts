@@ -36,6 +36,16 @@ export interface DecisionCard {
   originalLanguage?: string
   videoURL?: string
   decision?: Decision
+  // The card in other languages, keyed by locale ("ja"), written by the relay
+  // for the recipient. The top-level fields stay in the sender's language.
+  localized?: Record<string, { title: string; summary?: string; context?: string }>
+  // Which of the org's businesses this decision belongs to, by slug.
+  business?: string
+}
+
+export interface Business {
+  slug: string
+  name: string
 }
 
 export interface AppState {

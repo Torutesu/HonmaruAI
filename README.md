@@ -4,6 +4,10 @@ AI-native decision feed for teams. Humans talk to their own AI; agents route Dec
 
 **The 3-second value:** open the feed, and the decision you need to make is already there — clear it in one swipe.
 
+Built for a small team running several businesses at once: the AI files every
+decision under the business it is about, in the background, and the taxonomy
+grows by use rather than setup ([docs/businesses.md](docs/businesses.md)).
+
 Ships as **Honmaru AI** (`com.honmaru.ai`) on TestFlight.
 
 ## Stack
@@ -16,7 +20,7 @@ Ships as **Honmaru AI** (`com.honmaru.ai`) on TestFlight.
 | Identity | GitHub OAuth. A repository's collaborators are the org graph |
 | Connectors | Gmail, Slack, Notion via [Composio](https://composio.dev), authorized **per user** |
 | Billing | RevenueCat, metered server-side (currently off — see below) |
-| Push | APNs direct from the Worker, ES256 provider token signed with Web Crypto — server-side ready, client switched off until the App ID carries the entitlement ([docs](docs/push-notifications.md)) |
+| Notifications | One hub, three channels, written in the recipient's language: APNs (built, client switched off until the App ID carries the entitlement), **Web Push** (any browser, Android, iOS home-screen web app — VAPID and `aes128gcm` in Web Crypto, no dependency), and **email** as the floor when no push reaches someone ([docs](docs/notifications.md)) |
 
 Deployed backend: `https://tiktokforwork.torubj0904.workers.dev`
 
@@ -54,9 +58,11 @@ than inferred from documentation. Read it before touching a connector.
 
 Secrets live only as Worker secrets (`npx wrangler secret put …`), never in the repo:
 `OPENAI_API_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `COMPOSIO_API_KEY`,
-`REVENUECAT_SECRET_KEY`, and the four APNs ones
-(`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_PRIVATE_KEY`) —
-see [docs/push-notifications.md](docs/push-notifications.md).
+`REVENUECAT_SECRET_KEY`, the four APNs ones
+(`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_PRIVATE_KEY`), the three
+Web Push ones (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) and the
+two for email (`MAILGUN_API_KEY`, `MAILGUN_DOMAIN`) —
+see [docs/notifications.md](docs/notifications.md).
 
 ## Access
 
@@ -128,12 +134,14 @@ Setup steps: [docs/revenuecat.md](docs/revenuecat.md).
 │  (SwiftUI)  │                │   OrgRelay (Durable Object)  │
 └──────┬──────┘     HTTPS      │   D1 · R2                    │
        │ ──────────────────────►│   /ai/route  /connectors/*   │
+       │                        │   /me  /push/*  notify hub   │
        │                        └───────────┬──────────────────┘
        │                                    │
-       │                     ┌──────────────┼───────────────┐
-       │                     ▼              ▼               ▼
-       └── GitHub Issues   OpenAI       Composio       RevenueCat
-           (client-side)   routing   Gmail/Slack/Notion  entitlements
+       │            ┌──────────────┬────────┼────────┬───────────────┐
+       │            ▼              ▼        ▼        ▼               ▼
+       └── GitHub Issues        OpenAI   Composio  RevenueCat   APNs · Web Push
+           (client-side)     routing +   Gmail/    entitlements   · Mailgun
+                             translation Slack/Notion             (in the reader's language)
 ```
 
 Every card mutation is appended to an audit log (`card_events`) with a full snapshot, so a
@@ -145,6 +153,9 @@ rollback preserves the decision it undid. The client↔agent protocol is
 | Topic | File |
 |-------|------|
 | Verified Composio / connector contracts | `worker/README.md` |
+| Notifications: channels, languages, setup | `docs/notifications.md` |
+| Businesses: one org, ten businesses, filed by the AI | `docs/businesses.md` |
+| The record: every decision per business, written by nobody | `docs/record.md` |
 | Subscriptions, entitlements, the meter | `docs/revenuecat.md` |
 | Design system | `docs/design-system.md` |
 | Onboarding rationale | `onboarding.md` |

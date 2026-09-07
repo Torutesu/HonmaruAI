@@ -5,12 +5,16 @@ import {
 import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, loadContexts, saveContext,
-  getSession, getCard,
+  getSession, getCard, getUserByLogin, upsertBusiness, businessSlug,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
-import { notifyCard } from "./push.js";
+import { notifyCard, anyChannelConfigured } from "./notify.js";
+import { localizeCard } from "./localize.js";
+import { fileCardUnderBusiness } from "./classify.js";
+import { providerConfig } from "./provider.js";
+import { checkAIAllowance } from "./gate.js";
 import { ANNOUNCE_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 
@@ -226,6 +230,16 @@ export class OrgRelay {
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
       for (const ev of forEveryone) this.sendTo(orgId, card.recipientUserID, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      // The socket only reaches someone with the app open — and a nudge is for
+      // the person who has not opened it. This is what makes it reach them.
+      if (anyChannelConfigured(this.env)) {
+        this.state.waitUntil(
+          notifyCard(this.env, {
+            card, kind: "nudged", excludeLogin: att.userId,
+            badge: await this.pendingCountFor(orgId, card.recipientUserID),
+          })
+        );
+      }
       return;
     }
 
@@ -242,6 +256,10 @@ export class OrgRelay {
         return;
       }
       const existing = await getCard(this.db, orgId, card.id);
+      // A business is a slug on the card and a row in the table. A name nobody
+      // has typed before becomes a business here — the taxonomy is built by
+      // using it, not designed up front.
+      if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
       if (type === "card_created") {
         // You may route a decision to anyone in the org, but only ever as
         // yourself. This is the line that makes a forged sender impossible
@@ -258,6 +276,15 @@ export class OrgRelay {
         }
         card.recipientUserID = owner;
         if (card.decision?.action) card.decision.actorUserID = att.userId;
+        // The iOS client republishes its whole local copy on a decision, and
+        // that copy does not carry what the relay added after the card was
+        // created — the translation, and sometimes the business. A client
+        // that does not know a field must not be able to erase it.
+        if (existing) {
+          for (const field of ["localized", "business"]) {
+            if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
+          }
+        }
       }
       await saveCard(this.db, orgId, card);
       // The iOS client decides locally and republishes the whole card, so a
@@ -290,23 +317,45 @@ export class OrgRelay {
           })
         );
       }
-      // Whoever now has to act hears about it on their phone. Same rule as the
-      // Notion write and for the same reason: deferred, never awaited, and
-      // never able to break the decision it is reporting.
-      this.state.waitUntil(
-        notifyCard(this.env, {
-          card,
-          kind: decision?.action ? "decided" : "created",
-          excludeLogin: att.userId,
-          badge: await this.pendingCountFor(
-            orgId,
-            decision?.action ? card.senderUserID : card.recipientUserID
-          ),
-        })
-      );
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      // Whoever now has to act hears about it, wherever they are. Same rule as
+      // the Notion write and for the same reason: deferred, never awaited, and
+      // never able to break the decision it is reporting. A new card is first
+      // put into the recipient's language, so the alert — and the card they
+      // open — read as if it had been written for them.
+      this.state.waitUntil(
+        this.deliver(orgId, card, {
+          kind: decision?.action ? "decided" : "created",
+          excludeLogin: att.userId,
+          translate: type === "card_created",
+          senderGithubId: att.githubId,
+        })
+      );
+      return;
+    }
+
+    if (type === "set_business") {
+      // Filing a card under a business changes nothing about the decision, so
+      // either party to it may do it: the sender who knows what it was about,
+      // or the recipient who is looking at it.
+      const card = await getCard(this.db, orgId, payload.cardId);
+      if (!card) return;
+      if (card.senderUserID !== att.userId && card.recipientUserID !== att.userId) {
+        ws.send(JSON.stringify(runError("Only the sender or the recipient can file this decision.")));
+        return;
+      }
+      const business = await this.fileUnder(orgId, payload.business, att.githubId);
+      if (business === undefined) return;
+      const updated = { ...card, business: business || undefined };
+      if (!business) delete updated.business;
+      await saveCard(this.db, orgId, updated);
+      await this.log(orgId, {
+        cardId: card.id, type: "filed", action: business || null, actorUserId: att.userId, snapshot: updated,
+      });
+      const { forEveryone } = upsertEvents(updated, { isNew: false });
+      for (const ev of forEveryone) this.broadcast(orgId, ev);
       return;
     }
 
@@ -383,6 +432,79 @@ export class OrgRelay {
     }
   }
 
+  /// The slug a card is filed under, creating the business if the name is
+  /// new. `null` and "" mean "no business" and come back as null; anything
+  /// that does not make a slug is ignored and comes back as undefined.
+  async fileUnder(orgId, value, githubId) {
+    if (value === null || value === "") return null;
+    if (typeof value !== "string" || !businessSlug(value)) return undefined;
+    try {
+      const business = await upsertBusiness(this.db, orgId, { name: value, createdBy: githubId });
+      return business?.slug || undefined;
+    } catch (err) {
+      console.error("business upsert failed", err?.message || err);
+      return businessSlug(value);
+    }
+  }
+
+  /// Notify whoever a card is now waiting on, after putting a new card into
+  /// their language.
+  ///
+  /// The translation is one model call, paid from the sender's allowance, and
+  /// it is skipped whenever it would change nothing: no provider, a recipient
+  /// who reads the language the card is already in, or a card that already
+  /// carries a version for them. When it produces something, the card is saved
+  /// again and re-broadcast so every open device shows the same words the
+  /// notification did.
+  async deliver(orgId, card, { kind, excludeLogin, translate, senderGithubId }) {
+    const provider = providerConfig(this.env);
+    const canNotify = anyChannelConfigured(this.env);
+    // Nothing to enrich with and nobody to tell: not a single query. This
+    // runs after the broadcast, in waitUntil, and a database round trip
+    // nobody needed is one that can outlive the request that started it.
+    if (!provider && !canNotify) return;
+
+    let current = card;
+    try {
+      if (translate && provider) {
+        const allowance = senderGithubId
+          ? await checkAIAllowance(this.env, { githubId: String(senderGithubId) })
+          : undefined;
+        let changed = false;
+        // Which business this is about, decided here rather than asked.
+        if (!current.business) {
+          const slug = await fileCardUnderBusiness(this.env, {
+            orgId, card: current, provider, allowance, githubId: senderGithubId,
+          });
+          if (slug) { current = { ...current, business: slug }; changed = true; }
+        }
+        const recipient = await getUserByLogin(this.db, card.recipientUserID);
+        const locale = recipient?.locale || "en";
+        const localized = await localizeCard(current, { provider, locale, allowance });
+        if (localized) { current = localized; changed = true; }
+        if (changed) {
+          await saveCard(this.db, orgId, current);
+          const { forEveryone } = upsertEvents(current, { isNew: false });
+          for (const ev of forEveryone) this.broadcast(orgId, ev);
+        }
+      }
+    } catch (err) {
+      // A translation or a filing that fails is a card read in the sender's
+      // language, or one without a business — not a card nobody was told about.
+      console.error("deliver enrichment failed", err?.message || err);
+    }
+    if (!canNotify) return;
+    await notifyCard(this.env, {
+      card: current,
+      kind,
+      excludeLogin,
+      badge: await this.pendingCountFor(
+        orgId,
+        kind === "decided" ? current.senderUserID : current.recipientUserID
+      ),
+    });
+  }
+
   async applyAndPublish(orgId, content, toolCallId, actorUserId) {
     const store = await loadStore(this.db, orgId);
     if (actorUserId && content?.cardId) {
@@ -421,14 +543,16 @@ export class OrgRelay {
           card: out.card,
         })
       );
-      this.state.waitUntil(
-        notifyCard(this.env, {
-          card: out.card,
-          kind: "decided",
-          excludeLogin: actorUserId,
-          badge: await this.pendingCountFor(orgId, out.card.senderUserID),
-        })
-      );
+      if (anyChannelConfigured(this.env)) {
+        this.state.waitUntil(
+          notifyCard(this.env, {
+            card: out.card,
+            kind: "decided",
+            excludeLogin: actorUserId,
+            badge: await this.pendingCountFor(orgId, out.card.senderUserID),
+          })
+        );
+      }
       const { forEveryone } = upsertEvents(out.card, { isNew: false });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
     }

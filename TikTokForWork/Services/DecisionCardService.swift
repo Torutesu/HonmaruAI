@@ -366,6 +366,7 @@ final class DecisionCardService: ObservableObject {
             routingReason: routing.routingReason,
             sourceInstruction: sourceText,
             labels: routing.labels.isEmpty ? nil : routing.labels,
+            business: routing.business,
             videoURL: videoURL
         )
 

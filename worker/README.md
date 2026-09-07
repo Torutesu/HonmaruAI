@@ -22,12 +22,20 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | POST | `/oauth/github/token` | OAuth `code` + `state` → GitHub token (server-side) + app session |
 | POST | `/devices` | Register an APNs token (auth: `x-session-token`) |
 | DELETE | `/devices` | Forget one, on sign-out |
+| GET | `/me` | Login, locale, email preference (auth: `x-session-token`) |
+| PUT | `/me` | `{ locale?, notifyEmail? }` — the language every notification is written in |
+| GET | `/push/vapid` | Web Push public key; 503 until `VAPID_*` are set |
+| POST | `/push/subscriptions` | Register a browser's `PushSubscription` (auth: `x-session-token`) |
+| DELETE | `/push/subscriptions` | Forget one, on sign-out |
+| GET/POST/DELETE | `/businesses` | The org's businesses — [docs/businesses.md](../docs/businesses.md) |
+| GET | `/record?orgId=` | Every decision, per business; `&format=md` for Markdown — [docs/record.md](../docs/record.md) |
 | DELETE | `/account` | Erase the caller's account (auth: `x-session-token`) |
 | GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1 |
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
 
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,
-`card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`.
+`card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`,
+`nudge`, `set_business`.
 
 ### The relay's access rules
 
@@ -83,7 +91,7 @@ directly.
 
 ```bash
 npm install
-npm test          # 11 tests under @cloudflare/vitest-pool-workers (real workerd)
+npm test          # 273 tests under @cloudflare/vitest-pool-workers (real workerd)
 npm run dev       # local wrangler dev
 ```
 
@@ -105,6 +113,8 @@ npx wrangler tail                              # live logs
 | `OPENAI_API_KEY` | set | Enables OpenAI routing (`gpt-4o-mini`); without it, keyword fallback |
 | `GITHUB_CLIENT_ID` | pending | From a GitHub OAuth App |
 | `GITHUB_CLIENT_SECRET` | pending | Stays server-side; never returned to the client |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | pending | Web Push. `node scripts/vapid-keys.mjs` prints a pair — [docs/notifications.md](../docs/notifications.md) |
+| `MAILGUN_API_KEY` / `MAILGUN_DOMAIN` | pending | Email, the floor when no push reaches someone. `NOTIFY_EMAIL_FROM`, `MAILGUN_API_BASE`, `APP_WEB_URL` optional |
 
 GitHub OAuth App: callback `tiktokforwork://oauth/callback`, homepage the base
 URL above.

@@ -155,6 +155,21 @@ struct DecisionCardView: View {
             HStack(alignment: .center, spacing: Theme.Spacing.sm) {
                 KindTag(type: card.type)
 
+                // Which business this is about. The slug is the name folded
+                // to lowercase, which reads fine as a chip.
+                if let business = card.business, !business.isEmpty {
+                    Text(business)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .tracking(0.5)
+                        .lineLimit(1)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Theme.Colors.textSecondary.opacity(0.10))
+                        .clipShape(Capsule())
+                        .accessibilityLabel(Text("Business \(business)"))
+                }
+
                 // How long this has sat. A card looks identical on day six and
                 // day one, which is how decisions rot without anyone deciding
                 // to let them.

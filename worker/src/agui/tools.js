@@ -83,6 +83,15 @@ export const CARD_SCHEMA = {
     // format === "reply": AI-drafted answers the user can tap instead of typing.
     drafts: { type: "array", maxItems: 4, items: { type: "string" } },
     labels: { type: "array", items: { type: "string" } },
+    business: { type: "string", maxLength: 64, description: "Slug of the business this decision belongs to" },
+    localized: {
+      type: "object",
+      description: "The card in other languages, keyed by locale, written by the relay for the recipient",
+      additionalProperties: {
+        type: "object",
+        properties: { title: { type: "string" }, summary: { type: "string" }, context: { type: "string" } },
+      },
+    },
     githubIssueNumber: { type: "integer" },
     githubIssueURL: { type: "string" },
     githubRepository: { type: "string" },

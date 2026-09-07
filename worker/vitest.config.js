@@ -5,6 +5,12 @@ export default defineWorkersConfig({
     poolOptions: {
       workers: {
         wrangler: { configPath: "./wrangler.toml" },
+        // One runtime, files in sequence. With one runtime per file in
+        // parallel, tearing one file down aborted its open connections while
+        // another file was mid-request, and the second file's results were
+        // lost with an "other side closed" the test never saw. Sequential is
+        // slower and never loses a file.
+        singleWorker: true,
         miniflare: {
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: { DB: "test-db" },

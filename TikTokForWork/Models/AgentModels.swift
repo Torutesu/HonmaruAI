@@ -14,6 +14,9 @@ struct InstructionRouting {
     /// The server routed this on the keyword fallback because the free daily AI
     /// quota was spent. The feed uses it to offer the paywall, once.
     var quotaExceeded: Bool = false
+    /// The business the router filed this under, when the instruction made it
+    /// clear. Always one of the organization's own, never invented.
+    var business: String? = nil
 }
 
 struct AgentToolCall: Identifiable, Codable, Hashable {
