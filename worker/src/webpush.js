@@ -54,6 +54,17 @@ export function isWebPushConfigured(env) {
   return Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT);
 }
 
+/// The `sub` claim, as RFC 8292 requires it: a contact URI, `mailto:` or
+/// `https:`. A bare email address is what a person types when asked for a
+/// contact, and every push service rejects the token for it — a 400 that
+/// looks exactly like a bad key. It means one thing only, so it is completed
+/// rather than refused.
+export function vapidSubject(env) {
+  const raw = String(env.VAPID_SUBJECT || "").trim();
+  if (/^(mailto:|https:)/i.test(raw)) return raw;
+  return raw.includes("@") ? `mailto:${raw}` : raw;
+}
+
 /// The raw public point split into the JWK coordinates Web Crypto wants.
 function jwkFromRaw(publicRaw, privateRaw) {
   if (publicRaw.length !== 65 || publicRaw[0] !== 4) throw new Error("VAPID public key must be a raw uncompressed P-256 point");
@@ -86,7 +97,7 @@ export async function vapidToken(env, audience, now = Date.now()) {
   const claims = b64url(encoder.encode(JSON.stringify({
     aud: audience,
     exp: Math.floor(now / 1000) + JWT_TTL_S,
-    sub: env.VAPID_SUBJECT,
+    sub: vapidSubject(env),
   })));
   const input = `${header}.${claims}`;
   const signature = await crypto.subtle.sign(

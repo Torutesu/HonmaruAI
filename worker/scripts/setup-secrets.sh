@@ -68,6 +68,12 @@ if [ "$(ask 'Generate and set a VAPID key pair? (y/N)' 'N')" = "y" ]; then
   public=$(printf '%s\n' "$keys" | sed -n 's/^VAPID_PUBLIC_KEY=//p')
   private=$(printf '%s\n' "$keys" | sed -n 's/^VAPID_PRIVATE_KEY=//p')
   subject=$(ask 'Contact URL for push services' 'mailto:you@example.com')
+  # RFC 8292 wants a URI. An address typed bare is the common answer, and every
+  # push service rejects the token for it, so complete it rather than send it.
+  case "$subject" in
+    mailto:*|https:*) ;;
+    *@*) subject="mailto:$subject" ;;
+  esac
   put VAPID_PUBLIC_KEY "$public"
   put VAPID_PRIVATE_KEY "$private"
   put VAPID_SUBJECT "$subject"
