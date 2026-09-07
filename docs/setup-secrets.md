@@ -11,6 +11,32 @@ main にマージされたコードを本番に出し、通知の各経路を有
 > 動いているということで、main にマージされたものが一度も本番に出ていない。
 > 原因は下の段階 1 だけ——デプロイのワークフローが資格情報が無くて毎回止まっている。
 
+---
+
+## 最短：いますぐ本番に出す
+
+GitHub の Secrets は要らない。手元から直接デプロイできる。**この順番で。**
+秘密情報を先に入れても効かない——動いている Worker が古いコードで、VAPID も
+メールも読まないため。コードを出してから入れる。
+
+```bash
+git clone https://github.com/Torutesu/HonmaruAI
+cd HonmaruAI
+npx wrangler login
+./worker/scripts/deploy-local.sh
+./worker/scripts/setup-secrets.sh
+```
+
+`deploy-local.sh` はデプロイのワークフローと同じ 4 つを同じ順でやる。テスト、
+D1 のマイグレーション、デプロイ、`/health` の確認。マイグレーションが本当に
+失敗したらデプロイせずに止まる。`setup-secrets.sh` は VAPID を生成して
+そのまま Cloudflare に渡すので、秘密鍵は画面にもシェル履歴にも残らない。
+
+これで本番は最新になる。以降の段階 1 は、**次から main への push で自動的に
+デプロイされるようにする**ための設定で、急がなくてよい。
+
+---
+
 | 段階 | 何が動くようになるか | 必要なもの |
 |------|---------------------|-----------|
 | 1. Cloudflare | main への push で Worker が自動デプロイされる | API トークン、アカウント ID |
@@ -86,7 +112,7 @@ npx wrangler deploy
 
 ---
 
-## 2〜3 をまとめてやる場合
+## 2〜3 をまとめてやる場合（手動でやる場合の説明は下）
 
 段階 1 を終えて `npx wrangler login` が済んでいれば、2 と 3 と 4 の秘密情報は
 1 本のスクリプトで入れられる。VAPID の秘密鍵は生成してそのまま Cloudflare に
