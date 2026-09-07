@@ -2,52 +2,51 @@ import XCTest
 @testable import TikTokForWork
 
 /// Email sign-in adds a second kind of session, and the two restore along
-/// different paths on launch. These pin the parts that decide which path a
-/// launch takes, and the name a person sees before the server has told us one.
+/// different paths on launch. What is worth pinning is the rule that picks the
+/// path — not the keychain's ability to persist it, which a test bundle cannot
+/// rely on and which would make every one of these pass for the wrong reason.
 final class EmailSessionTests: XCTestCase {
-    @MainActor
-    private func clean() {
-        SessionStore.clear()
-        addTeardownBlock { @MainActor in SessionStore.clear() }
+    func testASessionWithNoRepositoryIsAnEmailOne() {
+        XCTAssertTrue(SessionStore.isEmailSession(token: "tok", user: "u:mai@honmaru.jp", repository: nil))
+        XCTAssertTrue(SessionStore.isEmailSession(token: "tok", user: "u:mai@honmaru.jp", repository: ""))
     }
 
-    @MainActor
-    func testEmailSessionIsRecognisedWhenThereIsNoRepository() {
-        clean()
-        SessionStore.sessionToken = "tok"
-        SessionStore.currentUserID = "u:mai@honmaru.jp"
-        SessionStore.orgId = "personal:abc123"
-
-        XCTAssertTrue(SessionStore.hasSavedEmailSession)
-        XCTAssertFalse(SessionStore.hasSavedGitHubSession)
-    }
-
-    @MainActor
     func testAGitHubSessionIsNotMistakenForAnEmailOne() {
-        clean()
-        SessionStore.sessionToken = "tok"
-        SessionStore.currentUserID = "octocat"
-        SessionStore.githubRepository = "acme/app"
-
-        // Both would otherwise be true, and restore would take the wrong path:
-        // an email restore skips validating the repository the session is for.
-        XCTAssertFalse(SessionStore.hasSavedEmailSession)
-        XCTAssertTrue(SessionStore.hasSavedGitHubSession)
+        // Both would otherwise look true, and restore would take the wrong
+        // path: the email path skips validating the repository the session is
+        // for, so a stale repository would go unnoticed until something failed.
+        XCTAssertFalse(SessionStore.isEmailSession(token: "tok", user: "octocat", repository: "acme/app"))
+        XCTAssertTrue(SessionStore.isGitHubSession(token: "tok", repository: "acme/app"))
     }
 
-    @MainActor
-    func testSigningOutForgetsTheOrganization() {
-        clean()
-        SessionStore.sessionToken = "tok"
-        SessionStore.currentUserID = "u:mai@honmaru.jp"
-        SessionStore.orgId = "personal:abc123"
+    func testNeitherKindSurvivesAMissingToken() {
+        XCTAssertFalse(SessionStore.isEmailSession(token: nil, user: "u:mai@honmaru.jp", repository: nil))
+        XCTAssertFalse(SessionStore.isEmailSession(token: "", user: "u:mai@honmaru.jp", repository: nil))
+        XCTAssertFalse(SessionStore.isGitHubSession(token: nil, repository: "acme/app"))
+        XCTAssertFalse(SessionStore.isGitHubSession(token: "", repository: "acme/app"))
+    }
 
-        SessionStore.clear()
+    func testAnEmailSessionNeedsAPersonToBe() {
+        // The login is what the relay is joined as. Without it there is a token
+        // and nobody to spend it on.
+        XCTAssertFalse(SessionStore.isEmailSession(token: "tok", user: nil, repository: nil))
+        XCTAssertFalse(SessionStore.isEmailSession(token: "tok", user: "", repository: nil))
+    }
 
-        // Left behind, the next account on this phone would adopt the previous
-        // one's organization before the server ever named theirs.
-        XCTAssertNil(SessionStore.orgId)
-        XCTAssertFalse(SessionStore.hasSavedEmailSession)
+    func testAGitHubSessionWithoutARepositoryIsNoSession() {
+        XCTAssertFalse(SessionStore.isGitHubSession(token: "tok", repository: nil))
+        XCTAssertFalse(SessionStore.isGitHubSession(token: "tok", repository: ""))
+    }
+
+    func testSigningOutForgetsTheOrganizationAndTheToken() {
+        // Left behind, the organization would have the next account on this
+        // phone adopt the previous one's before the server ever named theirs.
+        XCTAssertTrue(SessionStore.clearedKeys.contains("orgId"))
+        XCTAssertTrue(SessionStore.clearedKeys.contains("sessionToken"))
+        XCTAssertTrue(SessionStore.clearedKeys.contains("currentUserID"))
+        XCTAssertTrue(SessionStore.clearedKeys.contains("githubRepository"))
+        // The person's own OpenAI key belongs to the device, not the session.
+        XCTAssertFalse(SessionStore.clearedKeys.contains("apiKey"))
     }
 
     func testARelayLoginReadsAsAName() {

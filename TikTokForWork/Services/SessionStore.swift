@@ -67,23 +67,37 @@ enum SessionStore {
     /// forwards the handful of calls this app makes and refuses the rest.
     /// What is kept here is the relay session.
     static var hasSavedGitHubSession: Bool {
-        guard let session = sessionToken, !session.isEmpty,
-              let repository = githubRepository, !repository.isEmpty else {
-            return false
-        }
-        return true
+        isGitHubSession(token: sessionToken, repository: githubRepository)
     }
 
     /// An email session: a token and the org it is for, with no repository and
     /// no GitHub username. Kept apart from `hasSavedGitHubSession` because the
     /// two restore along different paths.
     static var hasSavedEmailSession: Bool {
-        guard let session = sessionToken, !session.isEmpty,
-              let user = currentUserID, !user.isEmpty,
-              (githubRepository ?? "").isEmpty else {
-            return false
-        }
+        isEmailSession(token: sessionToken, user: currentUserID, repository: githubRepository)
+    }
+
+    /// Which kind of session a set of stored values describes.
+    ///
+    /// Separated from where those values live because the values live in the
+    /// keychain, and a keychain write from a test bundle is not something a
+    /// test can rely on succeeding — so the rule that decides which restore
+    /// path a launch takes would otherwise be untestable, which is exactly
+    /// backwards for the one piece of this that can send someone down the
+    /// wrong one.
+    ///
+    /// The two are mutually exclusive by construction: a stored repository
+    /// makes it a GitHub session and nothing else. Sharing one flag would let
+    /// a GitHub launch take the email path, which skips validating the
+    /// repository the session is for.
+    static func isGitHubSession(token: String?, repository: String?) -> Bool {
+        guard let token, !token.isEmpty, let repository, !repository.isEmpty else { return false }
         return true
+    }
+
+    static func isEmailSession(token: String?, user: String?, repository: String?) -> Bool {
+        guard let token, !token.isEmpty, let user, !user.isEmpty else { return false }
+        return (repository ?? "").isEmpty
     }
 
     static func saveGitHubConnection(_ connection: GitHubConnection, repository: String) {
@@ -92,14 +106,22 @@ enum SessionStore {
         githubRepositoryURL = connection.repositoryURL
     }
 
+    /// Everything signing out forgets.
+    ///
+    /// A list rather than a run of `delete` calls, so that adding something to
+    /// the store and forgetting it here is a thing a test can catch. What it
+    /// would cost: the next account on this phone inheriting the last one's
+    /// organization, or its session.
+    ///
+    /// `apiKey` is deliberately absent — it is the person's own OpenAI key,
+    /// which belongs to the device and not to the session.
+    static let clearedKeys = [
+        Key.githubRepository, Key.githubUsername, Key.githubUserId,
+        Key.githubRepositoryURL, Key.currentUserID, Key.sessionToken, Key.orgId,
+    ]
+
     static func clear() {
-        delete(Key.githubRepository)
-        delete(Key.githubUsername)
-        delete(Key.githubUserId)
-        delete(Key.githubRepositoryURL)
-        delete(Key.currentUserID)
-        delete(Key.sessionToken)
-        delete(Key.orgId)
+        clearedKeys.forEach { delete($0) }
     }
 
     private static func read(_ key: String) -> String? {
