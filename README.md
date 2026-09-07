@@ -153,6 +153,7 @@ rollback preserves the decision it undid. The client↔agent protocol is
 | Topic | File |
 |-------|------|
 | Verified Composio / connector contracts | `worker/README.md` |
+| Deploying, and every secret: where to get it, where to put it | `docs/setup-secrets.md` |
 | Notifications: channels, languages, setup | `docs/notifications.md` |
 | Businesses: one org, ten businesses, filed by the AI | `docs/businesses.md` |
 | The record: every decision per business, written by nobody | `docs/record.md` |
