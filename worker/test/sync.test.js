@@ -178,8 +178,11 @@ test("a second sync does not re-judge mail it has already seen", async () => {
     .persist();
 
   expect(await (await sync()).json()).toMatchObject({ scanned: 1, created: 1 });
+  // Two calls for one card: the triage, and the filing under a business that
+  // follows it. Neither may happen again for mail already seen.
+  expect(modelCalls).toBe(2);
   expect(await (await sync()).json()).toMatchObject({ scanned: 1, created: 0 });
-  expect(modelCalls).toBe(1);
+  expect(modelCalls).toBe(2);
 
   const { results } = await env.DB
     .prepare("SELECT card_id FROM ingested_items WHERE connector='gmail' AND external_id='m-needs'")

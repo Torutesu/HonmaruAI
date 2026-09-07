@@ -6,12 +6,14 @@ interface Props {
   sessionToken: string
 }
 
-/// One line at the top of the feed until notifications are on. It asks from a
-/// click, because browsers ignore a permission prompt nobody asked for, and it
-/// says the true thing on an iPhone: add to the home screen first.
-export const NotificationsBanner: React.FC<Props> = ({ httpBase, sessionToken }) => {
+/// One button in the top bar until notifications are on. It asks from a
+/// click, because browsers ignore a permission prompt nobody asked for, and
+/// on an iPhone it says the true thing: add to the home screen first.
+/// Nothing here ever covers the card.
+export const NotificationsButton: React.FC<Props> = ({ httpBase, sessionToken }) => {
   const [support, setSupport] = useState<PushSupport>('unsupported')
   const [state, setState] = useState<'unknown' | 'off' | 'on' | 'busy' | 'failed'>('unknown')
+  const [note, setNote] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -20,33 +22,39 @@ export const NotificationsBanner: React.FC<Props> = ({ httpBase, sessionToken })
     return () => { cancelled = true }
   }, [sessionToken])
 
-  if (state === 'on' || state === 'unknown') return null
-  if (support === 'unsupported') return null
+  useEffect(() => {
+    if (!note) return
+    const t = setTimeout(() => setNote(null), 6000)
+    return () => clearTimeout(t)
+  }, [note])
 
-  const turnOn = async () => {
+  if (state === 'on' || state === 'unknown' || support === 'unsupported') return null
+
+  const click = async () => {
+    if (support === 'needs-install') {
+      setNote('On iPhone: tap Share → Add to Home Screen, then open Honmaru from there to get notified.')
+      return
+    }
+    if (support === 'denied') {
+      setNote('Notifications are blocked for this site. Allow them in your browser settings.')
+      return
+    }
     setState('busy')
     const result = await enableWebPush(httpBase, sessionToken)
-    if (result === 'on') setState('on')
+    if (result === 'on') { setState('on'); setNote('You will be told when a decision is waiting — even with this tab closed.') }
     else if (result === 'denied') { setSupport('denied'); setState('off') }
-    else setState('failed')
+    else { setState('failed'); setNote('Could not turn notifications on. Try again in a moment.') }
   }
 
   return (
-    <div className="notify-banner" role="status">
-      {support === 'needs-install' && (
-        <span>To get notified on this iPhone, tap Share → <strong>Add to Home Screen</strong>, then open Honmaru from there.</span>
-      )}
-      {support === 'denied' && (
-        <span>Notifications are blocked for this site. Allow them in your browser settings to be told when a decision is waiting.</span>
-      )}
-      {support === 'ready' && (
-        <>
-          <span>Be told when a decision is waiting on you — even with this tab closed.</span>
-          <button className="notify-button" onClick={turnOn} disabled={state === 'busy'}>
-            {state === 'busy' ? 'Turning on…' : state === 'failed' ? 'Try again' : 'Turn on notifications'}
-          </button>
-        </>
-      )}
-    </div>
+    <>
+      <button className="notify-bell" onClick={click} disabled={state === 'busy'} title="Turn on notifications" aria-label="Turn on notifications">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
+        </svg>
+        <span className="bell-dot" />
+      </button>
+      {note && <div className="toast note" onClick={() => setNote(null)}>{note}</div>}
+    </>
   )
 }

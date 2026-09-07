@@ -2,6 +2,7 @@ import { executeTool } from "./composio.js";
 import { triageMessage } from "./triage.js";
 import { isIngested, markIngested, saveCard, getConnectorConfig } from "./db.js";
 import { checkAIAllowance } from "./gate.js";
+import { fileCardUnderBusiness } from "./classify.js";
 
 // The loop is deliberately ignorant of which connector it is running: fetch,
 // skip what we have seen, ask whether it needs a decision, and record the answer
@@ -45,8 +46,16 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
 
     if (triaged) {
       cardId = crypto.randomUUID();
+      // Filed in the background like every other card. Its own allowance
+      // check: the one above was spent on the triage.
+      const business = await fileCardUnderBusiness(env, {
+        orgId, provider, githubId: session.github_id,
+        card: { ...triaged, sourceDetail: `${message.from} · ${message.subject}` },
+        allowance: await checkAIAllowance(env, { githubId: String(session.github_id) }),
+      });
       await saveCard(env.DB, orgId, {
         id: cardId,
+        ...(business ? { business } : {}),
         recipientUserID: userId,
         senderUserID: userId,
         type: triaged.cardType,

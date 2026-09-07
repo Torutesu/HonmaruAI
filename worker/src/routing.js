@@ -276,10 +276,15 @@ export function buildAgentTools(organization) {
                     type: "string",
                     enum: businesses,
                     description:
-                      "Which of the organization's businesses this decision belongs to, when the instruction makes it clear. Omit when it does not.",
+                      "Which of the organization's businesses this decision is about. Pick one whenever the instruction plausibly concerns it.",
                   },
                 }
               : {}),
+            newBusiness: {
+              type: "string",
+              description:
+                "Only when no listed business fits: the name of the business this is about, 1-3 words, the venture or product itself (never a person or a task). Company-wide matters are 'General'.",
+            },
           },
           required: [
             "recipientUserID",
@@ -365,7 +370,7 @@ export function buildUserPrompt({ text, sender, organization, readerLanguage, se
   const businesses = (organization?.businesses || [])
     .map((b) => (typeof b === "string" ? `- ${b}` : `- ${b.slug}: ${b.name}`))
     .join("\n");
-  const businessBlock = businesses ? `\nBusinesses (file the card under one only when the instruction makes it clear):\n${businesses}\n` : "";
+  const businessBlock = `\nBusinesses the organization runs (file the card under the one it is about; name a new one in newBusiness only when none fits):\n${businesses || "- (none yet)"}\n`;
   return `Sender: ${sender.name} (${sender.id}, ${sender.role})
 Reader language: ${readerLanguage || "ja"}
 Instruction: ${text}
@@ -662,9 +667,13 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       labels: routingJSON.labels || [],
       // The model's pick, when it is one of ours; the instruction's own
       // words otherwise. Never a business the model made up.
+      // An existing business by slug; the instruction's own words; or the
+      // new name the model proposed, which the relay turns into a business.
+      // Never a slug the model made up.
       business: businessSlugsOf(organization).includes(routingJSON.business)
         ? routingJSON.business
-        : matchBusiness(originalText, organization),
+        : (matchBusiness(originalText, organization)
+          || (typeof routingJSON.newBusiness === "string" && routingJSON.newBusiness.trim().slice(0, 40)) || null),
       toolCalls,
     },
     sender,

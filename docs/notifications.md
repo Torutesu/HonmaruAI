@@ -77,15 +77,15 @@ npx wrangler secret put APP_WEB_URL     # optional: where a tap or an email link
 `GET /health` reports `webPush: true` once the three are set. The keys are in
 the format `web-push` prints, so a pair generated with that tool works too.
 
-The web client (`web-react/`) registers `public/sw.js`, offers a **Turn on
-notifications** line at the top of the feed, and on a click asks permission,
+The web client (`web-react/`) registers `public/sw.js`, shows a bell in the
+top bar until notifications are on, and on a click asks permission,
 subscribes, and posts the subscription to `POST /push/subscriptions`. The
 Worker binds it to the session's login — never to a login the browser
 claims — and encrypts every payload to the subscription's own keys
 (RFC 8291, `aes128gcm`), so the push service in between relays bytes it
 cannot read. Signing out unsubscribes and forgets it on the server.
 
-On an iPhone the line says the true thing instead: add the site to the home
+On an iPhone the bell says the true thing instead: add the site to the home
 screen first, because Safari only exposes push to an installed web app. The
 manifest and `apple-mobile-web-app-capable` meta in `index.html` are what
 make it installable.
@@ -132,8 +132,8 @@ did not throw.
 | Symptom | Cause |
 |---------|-------|
 | `/health` says `webPush: false` | one of `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` is missing |
-| The banner never appears on an iPhone | the site is open in Safari, not from the home screen |
-| The banner says notifications are blocked | the browser's site permission is "Block"; only the browser settings can undo that |
+| The bell only shows a hint on an iPhone | the site is open in Safari, not from the home screen |
+| The bell says notifications are blocked | the browser's site permission is "Block"; only the browser settings can undo that |
 | A push arrives in the wrong language | check `GET /me` — the app toggle and the browser both write it; the last one wins |
 | A subscription stops delivering after a while | the push service answered 404/410 and the row was deleted; the client re-subscribes on the next visit |
 | Email arrives alongside a push | the push failed (not "was not registered"): APNs or the push service answered with an error |

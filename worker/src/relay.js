@@ -12,6 +12,7 @@ import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { notifyCard } from "./notify.js";
 import { localizeCard } from "./localize.js";
+import { fileCardUnderBusiness } from "./classify.js";
 import { providerConfig } from "./provider.js";
 import { checkAIAllowance } from "./gate.js";
 import { ANNOUNCE_PATH } from "./announce.js";
@@ -448,24 +449,32 @@ export class OrgRelay {
     let current = card;
     try {
       if (translate) {
-        const recipient = await getUserByLogin(this.db, card.recipientUserID);
-        const locale = recipient?.locale || "en";
         const provider = providerConfig(this.env);
         const allowance = provider && senderGithubId
           ? await checkAIAllowance(this.env, { githubId: String(senderGithubId) })
           : undefined;
-        const localized = await localizeCard(card, { provider, locale, allowance });
-        if (localized) {
-          current = localized;
+        let changed = false;
+        // Which business this is about, decided here rather than asked.
+        if (!current.business) {
+          const slug = await fileCardUnderBusiness(this.env, {
+            orgId, card: current, provider, allowance, githubId: senderGithubId,
+          });
+          if (slug) { current = { ...current, business: slug }; changed = true; }
+        }
+        const recipient = await getUserByLogin(this.db, card.recipientUserID);
+        const locale = recipient?.locale || "en";
+        const localized = await localizeCard(current, { provider, locale, allowance });
+        if (localized) { current = localized; changed = true; }
+        if (changed) {
           await saveCard(this.db, orgId, current);
           const { forEveryone } = upsertEvents(current, { isNew: false });
           for (const ev of forEveryone) this.broadcast(orgId, ev);
         }
       }
     } catch (err) {
-      // A translation that fails is a card read in the sender's language, not
-      // a card nobody was told about.
-      console.error("localize failed", err?.message || err);
+      // A translation or a filing that fails is a card read in the sender's
+      // language, or one without a business — not a card nobody was told about.
+      console.error("deliver enrichment failed", err?.message || err);
     }
     await notifyCard(this.env, {
       card: current,

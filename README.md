@@ -4,9 +4,9 @@ AI-native decision feed for teams. Humans talk to their own AI; agents route Dec
 
 **The 3-second value:** open the feed, and the decision you need to make is already there — clear it in one swipe.
 
-Built for a small team running several businesses at once: every decision is
-filed under one of them, the feed reads one business at a time, and the
-taxonomy grows by use rather than setup ([docs/businesses.md](docs/businesses.md)).
+Built for a small team running several businesses at once: the AI files every
+decision under the business it is about, in the background, and the taxonomy
+grows by use rather than setup ([docs/businesses.md](docs/businesses.md)).
 
 Ships as **Honmaru AI** (`com.honmaru.ai`) on TestFlight.
 

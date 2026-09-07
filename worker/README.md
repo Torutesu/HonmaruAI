@@ -90,7 +90,7 @@ directly.
 
 ```bash
 npm install
-npm test          # 265 tests under @cloudflare/vitest-pool-workers (real workerd)
+npm test          # 269 tests under @cloudflare/vitest-pool-workers (real workerd)
 npm run dev       # local wrangler dev
 ```
 

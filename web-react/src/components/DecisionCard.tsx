@@ -1,6 +1,5 @@
 import React from 'react'
-import type { DecisionCard as DecisionCardType, Business } from '../types/card'
-import { BusinessSelect } from './BusinessSelect'
+import type { DecisionCard as DecisionCardType } from '../types/card'
 import './DecisionCard.css'
 
 interface Props {
@@ -15,8 +14,7 @@ interface Props {
   onDelegate: (userId: string) => void
   isPending: boolean
   highlighted?: boolean
-  businesses?: Business[]
-  onSetBusiness?: (value: string | null) => void
+  businessName?: string
 }
 
 // The relay stores a version of a new card in the recipient's language under
@@ -37,8 +35,7 @@ export const DecisionCard: React.FC<Props> = ({
   onDelegate,
   isPending,
   highlighted = false,
-  businesses = [],
-  onSetBusiness
+  businessName
 }) => {
   const isRecipient = card.recipientUserID === currentUserId
   const isRequester = card.senderUserID === currentUserId
@@ -77,12 +74,8 @@ export const DecisionCard: React.FC<Props> = ({
         </div>
       </div>
 
-      {(card.business || onSetBusiness) && (
-        <div className="card-business">
-          {onSetBusiness
-            ? <BusinessSelect value={card.business || ''} businesses={businesses} onChange={onSetBusiness} />
-            : <span className="business-tag">{businesses.find((b) => b.slug === card.business)?.name || card.business}</span>}
-        </div>
+      {card.business && (
+        <div className="card-business"><span className="business-tag">{businessName || card.business}</span></div>
       )}
 
       <div className="card-summary">{summary}</div>

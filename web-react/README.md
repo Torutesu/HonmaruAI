@@ -4,6 +4,7 @@ A production-ready React + TypeScript web client for the Honmaru AI decision fee
 
 ## Features
 
+- **The feed is the screen**: one decision per page, snap-scrolled; swipe right to approve, left to decline; A / D / R on a keyboard; N to tell your AI
 - **Real-time decision feed** via WebSocket AG-UI protocol
 - **Full decision lifecycle**: receive, decide (approve/decline/choose/reply), rollback
 - **Multi-user sync**: see other users' online status and decisions in real-time

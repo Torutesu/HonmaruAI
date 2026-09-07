@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 265 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 269 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **CI:** `.github/workflows/ci.yml` — Worker, the reference relay and the
   reference web client on every push, iOS on pull requests
@@ -59,11 +59,15 @@ The list of what is still missing, and why each item matters, is
       audience that did not need reminding
 - [x] The web client subscribes to Web Push, is installable as a PWA, opens
       the card a notification names, and shows a card in the browser's language
-- [x] Businesses: an org runs several, a card belongs to one, the feed reads
-      one at a time. Named as you go — from the chip row, the create form, or
-      by filing a card — never set up first. The router files a new card
-      under one of the org's own when the instruction makes it clear —
-      [docs/businesses.md](docs/businesses.md)
+- [x] Businesses: an org runs several and every card belongs to one, filed
+      by the AI in the background — the router, the relay, the sync and the
+      email webhook all classify, creating a business when the name is new.
+      No chip row, folder or filter; a label on the card and a list under
+      ⋯ — [docs/businesses.md](docs/businesses.md)
+- [x] The web client is the feed: one decision per screen, snap-scrolled,
+      swipe or A/D to decide, R to reply, and one button — Tell your AI.
+      Sent, Done and You are sheets over it. Verified in Chromium at phone
+      and desktop sizes against a fake relay
 
 ### Access and safety
 - [x] Relay requires a session with write access to the repository; identity comes off the session
@@ -99,8 +103,6 @@ The list of what is still missing, and why each item matters, is
 - [ ] Set the Web Push and Mailgun secrets on the deployment
       (`VAPID_*`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`) —
       [docs/notifications.md](docs/notifications.md#web-push--setup)
-- [ ] iOS: a business filter on the feed and a re-file control on the card
-      (the model, the chip and the router's pick are in)
 - [ ] A language row in the web client, and a way for a GitHub account to add
       an email address — today only email accounts have one to fall back to
 - [ ] First App Store submission (TestFlight internal works today)

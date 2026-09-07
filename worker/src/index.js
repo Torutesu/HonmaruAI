@@ -30,6 +30,7 @@ import { createConnectLink, listConnectedAccounts, executeTool } from "./composi
 import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
 import { providerConfig } from "./provider.js";
+import { fileCardUnderBusiness } from "./classify.js";
 
 export { OrgRelay } from "./relay.js";
 
@@ -692,8 +693,14 @@ async function handle(request, env, url) {
       let cardId = null;
       if (result.card) {
         cardId = crypto.randomUUID();
+        const business = await fileCardUnderBusiness(env, {
+          orgId, provider, githubId,
+          card: { ...result.card, sourceDetail: `${message.from} · ${message.subject}` },
+          allowance: await checkAIAllowance(env, { githubId: String(githubId) }),
+        });
         const card = {
           id: cardId,
+          ...(business ? { business } : {}),
           recipientUserID: user.login,
           senderUserID: user.login,
           type: result.card.cardType,

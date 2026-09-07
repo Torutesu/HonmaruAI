@@ -162,10 +162,7 @@ function App() {
 
   return (
     <div className="app">
-      <Dashboard userId={userId} orgId={orgId} relayUrl={wsBase(host)} sessionToken={sessionToken} />
-      <button className="logout-button" onClick={handleLogout}>
-        Logout
-      </button>
+      <Dashboard userId={userId} orgId={orgId} relayUrl={wsBase(host)} sessionToken={sessionToken} onLogout={handleLogout} />
     </div>
   )
 }
