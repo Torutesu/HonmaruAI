@@ -10,7 +10,7 @@ import {
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
-import { notifyCard } from "./notify.js";
+import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { localizeCard } from "./localize.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { providerConfig } from "./provider.js";
@@ -232,12 +232,14 @@ export class OrgRelay {
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
       // The socket only reaches someone with the app open — and a nudge is for
       // the person who has not opened it. This is what makes it reach them.
-      this.state.waitUntil(
-        notifyCard(this.env, {
-          card, kind: "nudged", excludeLogin: att.userId,
-          badge: await this.pendingCountFor(orgId, card.recipientUserID),
-        })
-      );
+      if (anyChannelConfigured(this.env)) {
+        this.state.waitUntil(
+          notifyCard(this.env, {
+            card, kind: "nudged", excludeLogin: att.userId,
+            badge: await this.pendingCountFor(orgId, card.recipientUserID),
+          })
+        );
+      }
       return;
     }
 
@@ -455,11 +457,17 @@ export class OrgRelay {
   /// again and re-broadcast so every open device shows the same words the
   /// notification did.
   async deliver(orgId, card, { kind, excludeLogin, translate, senderGithubId }) {
+    const provider = providerConfig(this.env);
+    const canNotify = anyChannelConfigured(this.env);
+    // Nothing to enrich with and nobody to tell: not a single query. This
+    // runs after the broadcast, in waitUntil, and a database round trip
+    // nobody needed is one that can outlive the request that started it.
+    if (!provider && !canNotify) return;
+
     let current = card;
     try {
-      if (translate) {
-        const provider = providerConfig(this.env);
-        const allowance = provider && senderGithubId
+      if (translate && provider) {
+        const allowance = senderGithubId
           ? await checkAIAllowance(this.env, { githubId: String(senderGithubId) })
           : undefined;
         let changed = false;
@@ -485,6 +493,7 @@ export class OrgRelay {
       // language, or one without a business — not a card nobody was told about.
       console.error("deliver enrichment failed", err?.message || err);
     }
+    if (!canNotify) return;
     await notifyCard(this.env, {
       card: current,
       kind,
@@ -534,14 +543,16 @@ export class OrgRelay {
           card: out.card,
         })
       );
-      this.state.waitUntil(
-        notifyCard(this.env, {
-          card: out.card,
-          kind: "decided",
-          excludeLogin: actorUserId,
-          badge: await this.pendingCountFor(orgId, out.card.senderUserID),
-        })
-      );
+      if (anyChannelConfigured(this.env)) {
+        this.state.waitUntil(
+          notifyCard(this.env, {
+            card: out.card,
+            kind: "decided",
+            excludeLogin: actorUserId,
+            badge: await this.pendingCountFor(orgId, out.card.senderUserID),
+          })
+        );
+      }
       const { forEveryone } = upsertEvents(out.card, { isNew: false });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
     }

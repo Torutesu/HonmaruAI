@@ -4,7 +4,6 @@ import schemaSql from "../schema.sql?raw";
 import { joined, message } from "./helpers.js";
 import { businessSlug } from "../src/db.js";
 import { routeInstruction, buildAgentTools, matchBusiness } from "../src/routing.js";
-import worker from "../src/index.js";
 
 // Ten people running ten businesses: every card belongs to one, and the
 // taxonomy is discovered by tagging rather than designed up front.
@@ -152,27 +151,18 @@ test("the router files a card under one of the org's businesses, never one it in
 
 test("/ai/route hands the router the org's businesses from the table", async () => {
   // Storage is isolated per test, so the business is named here.
-  await SELF.fetch("https://example.com/businesses", {
+  await (await SELF.fetch("https://example.com/businesses", {
     method: "POST", headers: headers(ownerToken), body: JSON.stringify({ orgId: ORG, name: "Hotel 本丸" }),
-  });
-  let captured;
-  fetchMock.get("https://api.openai.com")
-    .intercept({ path: "/v1/chat/completions", method: "POST", body: (b) => { captured = JSON.parse(b); return true; } })
-    .reply(200, { choices: [{ message: { tool_calls: [{
-      id: "t1", type: "function",
-      function: { name: "create_decision_card", arguments: JSON.stringify({
-        recipientUserID: "member", cardType: "task", title: "Fix the booking form", summary: "The form is broken.",
-        context: "scope: booking", priority: "high", routingReason: "Engineer.", business: "hotel-本丸",
-      }) },
-    }] } }] });
-  const res = await worker.fetch(new Request("https://example.com/ai/route", {
+  })).json();
+  // No model behind SELF, so this is the keyword router — which files by
+  // name only when the route loaded the businesses from the table. (The
+  // model's enum is covered above.)
+  const res = await SELF.fetch("https://example.com/ai/route", {
     method: "POST", headers: headers(ownerToken),
     body: JSON.stringify({ text: "ask member to fix the hotel booking form", orgId: ORG, sender: { id: "owner", name: "owner", role: "admin" } }),
-  }), { ...env, OPENAI_API_KEY: "sk-test" });
+  });
   expect(res.status).toBe(200);
   const body = await res.json();
-  const tool = captured.tools.find((t) => t.function.name === "create_decision_card");
-  expect(tool.function.parameters.properties.business.enum).toContain("hotel-本丸");
-  expect(captured.messages[1].content).toContain("Hotel 本丸");
+  expect(body.recipientUserID).toBe("member");
   expect(body.business).toBe("hotel-本丸");
 });
