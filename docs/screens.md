@@ -53,6 +53,13 @@ depends on. A deployment with no mail configured answers `503` on
 - written in the language of the browser that asked, because someone who has
   never signed in has no stored language yet.
 
+Turning it on is `./worker/scripts/setup-email.sh`: the two Mailgun secrets,
+the deploy that puts these endpoints and the `login_codes` table on the
+Worker, and then a real request for a code — because a wrong key, an
+unverified domain and an unauthorized sandbox recipient all look identical
+from outside (nothing arrives), and the person who notices is otherwise
+whoever was waiting for a code that never came.
+
 An account created this way has **no password hash at all** rather than a
 placeholder — `login()` requires a hash, so it can never be talked into
 accepting an empty string as the secret.

@@ -185,6 +185,21 @@ Web の **⋯ → You → Email** に住所を入れたときだけ。送るの�
 受信側（メールを Worker に流し込む webhook）は別の設定で、`MAILGUN_WEBHOOK_SIGNING_KEY`
 と `INBOUND_EMAIL_DOMAIN`。これは今回の範囲外（`PROGRESS.md` 参照）。
 
+### 3-d. まとめて 1 コマンドで
+
+秘密を入れるのは簡単なほうで、難しいのは「本当に送れているか」。鍵が違う・
+ドメインが未検証・サンドボックスで宛先を承認していない、のどれも外からは
+同じ（何も届かない）に見えるので、最後に本物の往復をして結果を出す。
+
+```bash
+./worker/scripts/setup-email.sh
+```
+
+Mailgun の 2 つを入れて → デプロイ（コードを送るエンドポイントと `login_codes`
+テーブルはデプロイされて初めて存在する）→ `/health` を見て → 指定した宛先に
+実際にサインインコードを送る。502 が返れば Mailgun 側の問題で、Mailgun →
+Sending → Logs に理由が出る。
+
 > **メールでのログインもこの 2 つに乗っている。**
 > 「6桁のコードをメールで送る」サインイン（`POST /auth/otp/request`）は
 > `MAILGUN_API_KEY` と `MAILGUN_DOMAIN` が無いと 503 を返す。返された側は
