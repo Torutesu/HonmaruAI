@@ -11,6 +11,7 @@ enum SessionStore {
         static let githubRepositoryURL = "githubRepositoryURL"
         static let currentUserID = "currentUserID"
         static let sessionToken = "sessionToken"
+        static let orgId = "orgId"
         static let apiKey = "apiKey"
     }
 
@@ -46,6 +47,15 @@ enum SessionStore {
         set { write(newValue, key: Key.sessionToken) }
     }
 
+    /// The organization an email session belongs to. A GitHub session gets its
+    /// org from the repository it picked; an email one is told by the server
+    /// (a team invite's org, or one of the person's own), and there is nowhere
+    /// else to derive it from on the next launch.
+    static var orgId: String? {
+        get { read(Key.orgId) }
+        set { write(newValue, key: Key.orgId) }
+    }
+
     static var apiKey: String? {
         get { read(Key.apiKey) }
         set { write(newValue, key: Key.apiKey) }
@@ -64,6 +74,18 @@ enum SessionStore {
         return true
     }
 
+    /// An email session: a token and the org it is for, with no repository and
+    /// no GitHub username. Kept apart from `hasSavedGitHubSession` because the
+    /// two restore along different paths.
+    static var hasSavedEmailSession: Bool {
+        guard let session = sessionToken, !session.isEmpty,
+              let user = currentUserID, !user.isEmpty,
+              (githubRepository ?? "").isEmpty else {
+            return false
+        }
+        return true
+    }
+
     static func saveGitHubConnection(_ connection: GitHubConnection, repository: String) {
         githubRepository = repository
         githubUsername = connection.username
@@ -77,6 +99,7 @@ enum SessionStore {
         delete(Key.githubRepositoryURL)
         delete(Key.currentUserID)
         delete(Key.sessionToken)
+        delete(Key.orgId)
     }
 
     private static func read(_ key: String) -> String? {

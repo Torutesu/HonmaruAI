@@ -15,7 +15,21 @@ The design system they are all built from is
 | Welcome | `screens/Welcome.tsx` | Nothing — one sentence about what happens tomorrow morning |
 | Sign in / Create account | `screens/SignIn.tsx` | `POST /auth/otp/request`, or `POST /auth/signup` / `/auth/login` with a password |
 | Enter the code (OTP) | `screens/Otp.tsx` | `POST /auth/otp/verify` |
-| Onboarding 1–3 + role | `screens/Onboarding.tsx` | `PUT /me` (`locale`, `role`) |
+| Onboarding 1–3 + role (**iOS**) | `screens/Onboarding.tsx` | `PUT /me` (`locale`, `role`) |
+| Sign in with email (**iOS**) | `Features/Auth/EmailSignInSheet.swift` | The same two endpoints, via `Services/EmailAuthService.swift` |
+
+On iOS the code path sits beside GitHub on the last onboarding screen, and
+under **You** for a guest. GitHub is right for the engineer on the team and
+wrong for the six people who are not — and an email session has no repository,
+so it restores on its own path (`SessionStore.hasSavedEmailSession`, which is
+deliberately false whenever a repository is stored, or the launch would take
+the email path and skip validating the session's repository).
+
+Its organization comes from the server — a team invite's org, or one of the
+person's own — and is kept in the keychain beside the token, because there is
+nowhere else to derive it from on the next launch. `SessionStore.clear()`
+forgets it, or the next account on that phone would adopt the previous one's
+organization before the server ever named theirs.
 
 Email is the front door and a password is the fallback, not the other way
 round. A code is the credential that works on a device you have just picked

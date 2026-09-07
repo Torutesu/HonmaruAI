@@ -11,6 +11,7 @@ struct YouView: View {
 
     @State private var showOrgGraph = false
     @State private var showConnectGitHub = false
+    @State private var showEmailSignIn = false
 
     var body: some View {
         NavigationStack {
@@ -25,6 +26,14 @@ struct YouView: View {
                     rowSeparator
                     row(String(localized: "GitHub"), value: appState.githubService.connection?.repository ?? String(localized: "Not connected")) {
                         showConnectGitHub = true
+                    }
+                    // A guest is looking around with no org and no relay. The
+                    // way out of that used to be GitHub or nothing.
+                    if appState.isGuest {
+                        rowSeparator
+                        row(String(localized: "Sign in with email"), value: "") {
+                            showEmailSignIn = true
+                        }
                     }
                 }
 
@@ -106,6 +115,12 @@ struct YouView: View {
         }
         .sheet(isPresented: $showConnectGitHub) {
             ConnectGitHubSheet(context: .settings)
+        }
+        .sheet(isPresented: $showEmailSignIn) {
+            EmailSignInSheet { session, name in
+                SessionStore.sessionToken = session.token
+                Task { await appState.activateEmailSession(login: session.login, orgId: session.orgId, name: name) }
+            }
                 .environmentObject(appState)
                 .presentationDetents([.medium, .large])
                 .presentationBackground(Theme.Colors.surface)

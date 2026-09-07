@@ -859,6 +859,17 @@
         }
       }
     },
+    "Could not reach the server. Check your connection and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーに接続できませんでした。通信状況を確かめてもう一度お試しください。"
+          }
+        }
+      }
+    },
     "Could not save your choice.": {
       "extractionState": "manual",
       "localizations": {
@@ -1365,6 +1376,17 @@
         }
       }
     },
+    "Email me a code": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードをメールで送る"
+          }
+        }
+      }
+    },
     "Ends %@": {
       "extractionState": "manual",
       "localizations": {
@@ -1394,6 +1416,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "入る"
+          }
+        }
+      }
+    },
+    "Enter the code": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードを入力"
           }
         }
       }
@@ -1640,6 +1673,17 @@
         }
       }
     },
+    "Invite code (optional)": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "招待コード（任意）"
+          }
+        }
+      }
+    },
     "Issue created": {
       "extractionState": "manual",
       "localizations": {
@@ -1867,6 +1911,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "チャンネルも DM も受信箱もありません。必要なことを言えば、誰にどう伝わるかは AI が引き受けます。"
+          }
+        }
+      }
+    },
+    "No code? You get a workspace of your own, and can invite people into it. Your name is only used if this address is new here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードがなくても大丈夫です。自分のワークスペースが作られ、そこに仲間を招待できます。お名前はこのアドレスが初めての場合にのみ使われます。"
           }
         }
       }
@@ -2729,6 +2784,28 @@
         }
       }
     },
+    "Send another code": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードを再送する"
+          }
+        }
+      }
+    },
+    "Send another code in %llds": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld秒後に再送できます"
+          }
+        }
+      }
+    },
     "Send decision card": {
       "extractionState": "manual",
       "localizations": {
@@ -2828,6 +2905,28 @@
         }
       }
     },
+    "Sign in with email": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールでログイン"
+          }
+        }
+      }
+    },
+    "Sign in with email instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールでログインする"
+          }
+        }
+      }
+    },
     "Sign out": {
       "extractionState": "manual",
       "localizations": {
@@ -2868,6 +2967,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "SNS AI → あなた"
+          }
+        }
+      }
+    },
+    "Something went wrong.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題が発生しました。"
           }
         }
       }
@@ -3191,6 +3301,17 @@
         }
       }
     },
+    "That code is not valid. Ask for a new one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードは使えません。新しいコードを取得してください。"
+          }
+        }
+      }
+    },
     "That plan isn't available on this account right now.": {
       "extractionState": "manual",
       "localizations": {
@@ -3330,6 +3451,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "この画面はデモ用の再現です。実際の連携では元のツールが開きます。"
+          }
+        }
+      }
+    },
+    "This workspace cannot send email yet. Sign in with GitHub for now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはまだメールを送信できません。いまは GitHub でログインしてください。"
           }
         }
       }
@@ -3642,6 +3774,28 @@
         }
       }
     },
+    "We send a six-digit code. Nothing to remember, and it proves where your decisions should reach you.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6桁のコードをお送りします。覚えることは何もなく、決定が届くべき場所を確かめられます。"
+          }
+        }
+      }
+    },
+    "We sent six digits to %@. It is good for ten minutes, once.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に6桁のコードを送りました。有効期間は10分、1回限りです。"
+          }
+        }
+      }
+    },
     "What is deleted": {
       "extractionState": "manual",
       "localizations": {
@@ -3902,6 +4056,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "昨夜サーバーが停止していました"
+          }
+        }
+      }
+    },
+    "Your name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お名前"
           }
         }
       }
