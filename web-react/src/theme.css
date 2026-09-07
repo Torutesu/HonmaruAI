@@ -1,0 +1,345 @@
+@import './screens/screens.css';
+
+/* The design system, as tokens. One source for every screen.
+   Values are docs/design-system.md — "hardworking dashboard on white marble". */
+:root {
+  --signal-white: #ffffff;
+  --ink-black: #202020;
+  --onyx: #090c1d;
+  --carbon: #2a2a2a;
+  --slate: #646464;
+  --ash: #838383;
+  --fog: #b3b3b3;
+  --cloud: #d4d4d4;
+  --bone: #e8e8e8;
+  --mist: #f8f9fa;
+  --plaster: #e9ebf0;
+  --mercury: #eeeeee;
+  --brand-violet: #6647f0;
+  --signal-blue: #0091ff;
+  --mint: #6ee7b7;
+  --emerald: #00c07a;
+  --pink: #fa49a5;
+
+  --radius-pill: 9999px;
+  --radius-card: 12px;
+  --radius-large: 20px;
+  --radius-input: 9px;
+
+  --ease-settle: cubic-bezier(0.33, 1, 0.68, 1);
+  --font-display: 'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-body: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'Sometype Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --rainbow: conic-gradient(from 90deg, #7d5be7 19%, #bc3fda 28%, #fa24ce 37%,
+    #fb49a5 45%, #fc6d7b 52%, #fd8461 55%, #fd9a46 58%, #f687c6 65%,
+    #a3a0e0 80%, #4fb9fa 95%, #0091ff 100%);
+}
+
+/* Every full-page screen in the app is this: a phone-width column, centred on
+   anything wider, with its own scroll. Building each screen against a fixed
+   390px column is what keeps the web client honest about being the same
+   product as the phone app. */
+.screen {
+  position: fixed;
+  inset: 0;
+  /* Above the feed's own chrome. A screen owns the viewport while it is open;
+     without this the top bar and tab bar float over it and swallow taps meant
+     for the screen's own back button. */
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  background: var(--signal-white);
+  color: var(--ink-black);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+.screen-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.screen-foot {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  padding: 12px 24px calc(20px + env(safe-area-inset-bottom));
+  background: var(--signal-white);
+  border-top: 1px solid var(--bone);
+}
+.screen-foot.bare { border-top: none; }
+
+/* Header: a back chevron, a title nobody needs to read twice, a skip. */
+.screen-head {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  padding: calc(14px + env(safe-area-inset-top)) 24px 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+}
+.screen-head .back {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border: 1px solid var(--bone);
+  border-radius: var(--radius-pill);
+  background: var(--signal-white);
+  color: var(--ink-black);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.screen-head .back:hover { background: var(--mist); }
+.screen-head .head-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.screen-head .spacer { flex: 1; }
+.screen-head .skip {
+  border: none;
+  background: none;
+  color: var(--slate);
+  font-size: 14px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  font-size: 34px;
+  color: var(--onyx);
+  margin: 8px 0 12px;
+}
+.lede {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--slate);
+  margin: 0 0 24px;
+}
+.meta-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ash);
+}
+
+/* Buttons. One pill curve everywhere; primary is filled dark, never violet. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 22px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease-settle), background 0.15s, opacity 0.15s;
+}
+.btn:active { transform: scale(0.985); }
+.btn[disabled] { cursor: default; }
+/* A disabled primary is not a dimmed black pill — at 45% that reads as a
+   button mid-press. It steps down to the neutral surface instead. */
+.btn-primary[disabled] { background: var(--mercury); color: var(--fog); }
+.btn-ghost[disabled], .btn-quiet[disabled] { opacity: 0.45; }
+.btn-primary { background: var(--ink-black); color: var(--signal-white); }
+.btn-primary:hover:not([disabled]) { background: var(--carbon); }
+.btn-ghost { background: var(--signal-white); color: var(--ink-black); border-color: var(--bone); }
+.btn-ghost:hover:not([disabled]) { background: var(--mist); }
+.btn-quiet { background: none; border: none; color: var(--slate); min-height: 44px; font-weight: 500; }
+.btn-quiet:hover { color: var(--ink-black); }
+
+/* One focus ring everywhere, in the interactive blue the system reserves for
+   exactly this. The UA default drew a violet-ish outline that read as a brand
+   colour on things that were not selected. */
+.screen :focus-visible {
+  outline: 2px solid var(--signal-blue);
+  outline-offset: 2px;
+}
+.screen button:focus:not(:focus-visible) { outline: none; }
+
+/* Inputs. Flat, hairline, and blue only when you are in them. */
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--slate);
+  margin-bottom: 6px;
+}
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  min-height: 50px;
+  padding: 13px 16px;
+  border: 1px solid var(--bone);
+  border-radius: var(--radius-input);
+  background: var(--signal-white);
+  color: var(--ink-black);
+  font-family: var(--font-body);
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus { border-color: var(--signal-blue); }
+.field .hint { font-size: 12px; color: var(--ash); margin-top: 6px; }
+
+.form-error {
+  background: rgba(250, 73, 165, 0.08);
+  border: 1px solid rgba(250, 73, 165, 0.35);
+  color: #a11258;
+  border-radius: var(--radius-card);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  margin: 4px 0 14px;
+}
+.form-note {
+  background: var(--mist);
+  border: 1px solid var(--bone);
+  color: var(--slate);
+  border-radius: var(--radius-card);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  margin: 4px 0 14px;
+}
+
+/* iOS inset-grouped settings list, which is what every settings screen in the
+   design is underneath the styling. */
+.rows {
+  background: var(--signal-white);
+  border: 1px solid var(--bone);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--bone);
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--ink-black);
+  text-align: left;
+  cursor: pointer;
+}
+.row:last-child { border-bottom: none; }
+.row:hover { background: var(--mist); }
+.row.static { cursor: default; }
+.row.static:hover { background: none; }
+.row .row-main { flex: 1; min-width: 0; }
+.row .row-sub { display: block; font-size: 12.5px; color: var(--ash); margin-top: 2px; }
+.row .row-value { color: var(--slate); font-size: 14px; }
+.row .row-icon {
+  width: 32px; height: 32px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 9px;
+  background: var(--mercury);
+  font-size: 15px;
+}
+.rows-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ash);
+  margin: 4px 0 8px 4px;
+}
+
+/* Switch */
+.switch {
+  position: relative;
+  width: 46px; height: 28px; flex: none;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--cloud);
+  cursor: pointer;
+  transition: background 0.2s var(--ease-settle);
+  padding: 0;
+}
+.switch[aria-checked="true"] { background: var(--emerald); }
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--signal-white);
+  transition: transform 0.2s var(--ease-settle);
+}
+.switch[aria-checked="true"]::after { transform: translateX(18px); }
+
+/* Progress dots for a paged screen. */
+.dots { display: flex; gap: 6px; justify-content: center; padding: 8px 0 16px; }
+.dots i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--cloud);
+  transition: width 0.25s var(--ease-settle), background 0.25s;
+}
+.dots i.on { width: 20px; border-radius: var(--radius-pill); background: var(--ink-black); }
+
+.pill-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--mercury);
+  color: var(--slate);
+  font-size: 12px;
+  font-weight: 500;
+}
+.pill-tag.violet { background: rgba(102, 71, 240, 0.1); color: var(--brand-violet); }
+.pill-tag.blue { background: rgba(0, 145, 255, 0.1); color: var(--signal-blue); }
+.pill-tag.mint { background: var(--mint); color: #04563a; }
+.pill-tag.pink { background: rgba(250, 73, 165, 0.12); color: #a11258; }
+
+.empty {
+  text-align: center;
+  color: var(--ash);
+  font-size: 14px;
+  padding: 56px 24px;
+  line-height: 1.6;
+}
+
+@media (prefers-color-scheme: dark) {
+  .screen { background: #0e0e11; color: #ededef; }
+  .screen-foot { background: #0e0e11; border-top-color: #26262b; }
+  .display { color: #f5f5f7; }
+  .lede, .row .row-value { color: #a2a2ab; }
+  .btn-primary { background: #ededef; color: #17171a; }
+  .btn-primary[disabled] { background: #26262b; color: #6b6b75; }
+  .btn-ghost { background: #17171a; color: #ededef; border-color: #2c2c33; }
+  .rows, .field input, .field select, .field textarea, .screen-head .back {
+    background: #17171a; border-color: #2c2c33; color: #ededef;
+  }
+  .row { color: #ededef; border-bottom-color: #26262b; }
+  .row:hover, .screen-head .back:hover, .btn-ghost:hover:not([disabled]) { background: #1e1e23; }
+  .row .row-icon { background: #26262b; }
+  .form-note { background: #17171a; border-color: #2c2c33; color: #a2a2ab; }
+}

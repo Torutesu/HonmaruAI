@@ -279,6 +279,39 @@ export async function upsertMembership(db, orgId, githubId, role) {
     .run();
 }
 
+/// The roles a person may give themselves.
+///
+/// These are descriptions the router matches on — "ask the designer to review"
+/// finds the person whose role is `designer` — and every one of them carries
+/// zero administrative standing. `triager`, `maintainer` and `admin` are
+/// deliberately absent: those are granted by an invite or by GitHub, never
+/// claimed, or the role picker on the onboarding screen would be a promotion
+/// button.
+export const SELF_ASSIGNABLE_ROLES = ["member", "designer", "engineer", "operator", "founder"];
+
+/// Change your own descriptive role, if you hold no standing to lose.
+///
+/// Returns `{ error }` rather than throwing, and refuses two things: a role
+/// outside the list above, and any change at all by someone who currently
+/// holds standing — an admin picking "designer" on an onboarding screen would
+/// otherwise quietly demote themselves out of their own org.
+export async function setOwnRole(db, orgId, githubId, role) {
+  const wanted = String(role || "").trim().toLowerCase();
+  if (!SELF_ASSIGNABLE_ROLES.includes(wanted)) return { error: "That is not a role you can pick." };
+  const current = await db
+    .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(orgId, String(githubId))
+    .first();
+  if (!current) return { error: "You are not a member of this organization." };
+  const held = String(current.role || "member").toLowerCase();
+  if (!SELF_ASSIGNABLE_ROLES.includes(held)) return { error: "Ask an admin to change your role." };
+  await db
+    .prepare("UPDATE memberships SET role = ?3 WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(orgId, String(githubId), wanted)
+    .run();
+  return { role: wanted };
+}
+
 /// Remove everyone from an org except the github ids given.
 ///
 /// Membership was only ever written, never withdrawn, so being removed from a

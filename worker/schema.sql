@@ -219,3 +219,17 @@ CREATE TABLE IF NOT EXISTS webhook_nonces (
   token      TEXT PRIMARY KEY,
   expires_at TEXT NOT NULL
 );
+
+/* Email sign-in codes. A six-digit code is the whole credential, so the row
+   holds a hash of it (PBKDF2, same as a password) rather than the code, has a
+   short life, and counts its own wrong guesses. One row per address: asking
+   for a new code replaces the old one, so a code that was emailed twice is
+   only valid in its latest form. */
+CREATE TABLE IF NOT EXISTS login_codes (
+  email       TEXT PRIMARY KEY,
+  code_hash   TEXT NOT NULL,
+  code_salt   TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
+);

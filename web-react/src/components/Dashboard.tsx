@@ -4,8 +4,13 @@ import { Feed } from './Feed'
 import { ClassicList } from './ClassicList'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
-import { YouSheet } from './YouSheet'
 import { RecordSheet } from './RecordSheet'
+import { InviteTeammate } from './InviteTeammate'
+import { Tools } from '../screens/Tools'
+import { History } from '../screens/History'
+import { NotificationSettings } from '../screens/NotificationSettings'
+import { Plans } from '../screens/Plans'
+import { Profile } from '../screens/Profile'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
@@ -20,8 +25,12 @@ interface Props {
   onLogout: () => void
 }
 
-type Panel = null | 'compose' | 'sent' | 'done' | 'more' | 'record'
+type Panel = null | 'compose' | 'sent' | 'done' | 'record' | 'invite'
 type Mode = 'cards' | 'classic'
+// A full screen over the feed, as opposed to a sheet. These are the design's
+// own screens — Tools, History, Notifications, Plan, You — and each one owns
+// the viewport while it is open.
+type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
@@ -31,6 +40,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
+  const [screen, setScreen] = useState<Screen>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
@@ -129,12 +139,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // Escape closes whatever is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPanel(null)
-      else if (e.key === 'n' && !panel && !(e.target as HTMLElement)?.matches('input, textarea')) setPanel('compose')
+      if (e.key === 'Escape') { setPanel(null); setScreen(null) }
+      else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) setPanel('compose')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [panel])
+  }, [panel, screen])
 
   /// "Ask anything" on a card: the same thing telling your AI does, with the
   /// card it is about named, so the router has the context a bare sentence
@@ -248,7 +258,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         <div className="topbar-right">
           <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? 'Connected' : 'Reconnecting…'} />
           <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
-          <button className="avatar-button" onClick={() => setPanel('more')} aria-label="You">
+          <button className="avatar-button" onClick={() => setScreen('profile')} aria-label="You">
             {(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()}
           </button>
         </div>
@@ -258,17 +268,19 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         {error && <div className="toast error" onClick={() => setError(null)}>{error}</div>}
       </div>
 
-      {panel === null && (
+      {panel === null && screen === null && (
         <nav className="tabbar" aria-label="Main">
           <button
             className={mode === 'cards' ? 'tab on' : 'tab'}
             onClick={() => switchMode('cards')}
             aria-label="Feed"
           >⌂</button>
+          <button className="tab" onClick={() => setScreen('history')} aria-label="History">↺</button>
           <button className="tab compose" onClick={() => setPanel('compose')} aria-label="Tell your AI" aria-keyshortcuts="n">
             <span className="ai-mark" />
           </button>
-          <button className="tab" onClick={() => setPanel('more')} aria-label="You">◯</button>
+          <button className="tab" onClick={() => setScreen('tools')} aria-label="Tools">⚯</button>
+          <button className="tab" onClick={() => setScreen('profile')} aria-label="You">◯</button>
         </nav>
       )}
 
@@ -333,22 +345,59 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         </aside>
       )}
 
-      {panel === 'more' && (
-        <YouSheet
+      {panel === 'record' && (
+        <RecordSheet httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setPanel(null)} />
+      )}
+
+      {panel === 'invite' && (
+        <div className="sheet sheet-bottom" role="dialog" aria-label="Invite a teammate">
+          <div className="sheet-title">
+            Invite a teammate
+            <button className="close" onClick={() => setPanel(null)} aria-label="Close">×</button>
+          </div>
+          <InviteTeammate relayHttpUrl={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} />
+        </div>
+      )}
+
+      {/* The design's own screens. Each takes the viewport while it is open,
+          which is what makes them screens and not sheets. */}
+      {screen === 'tools' && (
+        <Tools httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+      )}
+      {screen === 'history' && (
+        <History
+          decided={decidedCards}
+          sent={sentCards}
+          businesses={businesses}
+          userId={userId}
+          onOpen={(id) => { setScreen(null); setFocusCardId(id); switchMode('cards') }}
+          onClose={() => setScreen(null)}
+        />
+      )}
+      {screen === 'notifications' && (
+        <NotificationSettings httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+      )}
+      {screen === 'plans' && (
+        <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+      )}
+      {screen === 'profile' && (
+        <Profile
           httpBase={relayHttpUrl}
           orgId={orgId}
           userId={userId}
           sessionToken={sessionToken}
           businesses={businesses}
-          onOpenRecord={() => setPanel('record')}
-          onLogout={onLogout}
-          onClose={() => setPanel(null)}
+          pendingCount={pendingCards.length}
+          decidedCount={decidedCards.length}
+          onOpen={(where) => {
+            if (where === 'record') { setScreen(null); setPanel('record') }
+            else if (where === 'invite') { setScreen(null); setPanel('invite') }
+            else setScreen(where)
+          }}
           onLocaleChange={() => setLocaleVersion((v) => v + 1)}
+          onLogout={onLogout}
+          onClose={() => setScreen(null)}
         />
-      )}
-
-      {panel === 'record' && (
-        <RecordSheet httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setPanel(null)} />
       )}
 
       {showDebug && (
