@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import {
   vapidToken, resetVapidTokens, encryptPayload, decryptPayload, sendWebPush,
-  isDeadSubscription, parseSubscription, b64url, fromB64url,
+  isDeadSubscription, parseSubscription, b64url, fromB64url, vapidSubject,
 } from "../src/webpush.js";
 import { notifyCard } from "../src/notify.js";
 
@@ -209,4 +209,24 @@ test("parseSubscription refuses anything that is not a real subscription", () =>
 test("the public key is served only when web push is configured", async () => {
   const off = await SELF.fetch("https://example.com/push/vapid");
   expect(off.status).toBe(503);
+});
+
+test("a contact typed as a bare address still makes a token a push service accepts", async () => {
+  // RFC 8292 wants a URI. "selectdev111@gmail.com" is what a person types when
+  // asked for a contact, and sending it verbatim is a 400 from every push
+  // service that reads exactly like a bad key.
+  expect(vapidSubject({ VAPID_SUBJECT: "someone@example.com" })).toBe("mailto:someone@example.com");
+  expect(vapidSubject({ VAPID_SUBJECT: "  someone@example.com  " })).toBe("mailto:someone@example.com");
+  // Already a URI, either spelling: left exactly as it is.
+  expect(vapidSubject({ VAPID_SUBJECT: "mailto:someone@example.com" })).toBe("mailto:someone@example.com");
+  expect(vapidSubject({ VAPID_SUBJECT: "https://example.com/contact" })).toBe("https://example.com/contact");
+  expect(vapidSubject({ VAPID_SUBJECT: "MAILTO:someone@example.com" })).toBe("MAILTO:someone@example.com");
+  // Nothing to complete: passed through rather than guessed at.
+  expect(vapidSubject({ VAPID_SUBJECT: "" })).toBe("");
+  expect(vapidSubject({})).toBe("");
+
+  // And the claim on the wire carries the completed value.
+  const jwt = await vapidToken({ ...pushEnv, VAPID_SUBJECT: "someone@example.com" }, 2_000_000);
+  const claims = JSON.parse(new TextDecoder().decode(fromB64url(jwt.split(".")[1])));
+  expect(claims.sub).toBe("mailto:someone@example.com");
 });

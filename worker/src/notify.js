@@ -36,9 +36,19 @@ export function recipientFor(card, kind) {
 
 function deepLink(env, card) {
   if (!env.APP_WEB_URL || !card?.id) return undefined;
-  const url = new URL(env.APP_WEB_URL);
-  url.searchParams.set("card", card.id);
-  return url.toString();
+  try {
+    const url = new URL(env.APP_WEB_URL);
+    url.searchParams.set("card", card.id);
+    return url.toString();
+  } catch {
+    // `new URL` throws on anything that is not absolute, and this runs while
+    // building the payload of every notification — so one mistyped secret
+    // meant nobody was told anything, on any channel, with the failure
+    // surfacing as an unhandled rejection in a waitUntil nobody reads.
+    // A link nobody can follow is worth losing; the notification is not.
+    console.error("APP_WEB_URL is not a URL; notifying without a link");
+    return undefined;
+  }
 }
 
 /// Notify the person a card is now waiting on.
@@ -89,6 +99,7 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
 
   if (isWebPushConfigured(env)) {
     subscriptions = await subscriptionsForLogin(env.DB, recipient);
+    const link = deepLink(env, card);
     const payload = {
       title: alert.title,
       body: alert.subtitle,
@@ -96,7 +107,7 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
       kind,
       tag: card.id,
       ...(typeof badge === "number" ? { badge } : {}),
-      ...(deepLink(env, card) ? { url: deepLink(env, card) } : {}),
+      ...(link ? { url: link } : {}),
     };
     for (const subscription of subscriptions) {
       const result = await sendWebPush(env, {
