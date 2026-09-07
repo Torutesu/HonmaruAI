@@ -194,23 +194,60 @@ export async function consumeOAuthState(db, state) {
   return row.expires_at > new Date().toISOString();
 }
 
+/// Create or refresh a person.
+///
+/// `locale` is the language their notifications are written in. Pass it only
+/// when you actually know it — a value here overwrites, an absence keeps what
+/// is stored. Every caller used to write a literal "en", so loading the org
+/// graph reset every teammate to English on every open, and the setting the
+/// person had chosen lasted until the next time anyone looked at the team.
 export async function upsertUser(db, { githubId, login, name, avatarUrl, locale }) {
+  const known = normalizeLocale(locale);
   await db
     .prepare(
       `INSERT INTO users (github_id, login, name, avatar_url, locale, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       VALUES (?1, ?2, ?3, ?4, COALESCE(?5, 'en'), ?6)
        ON CONFLICT(github_id) DO UPDATE SET
          login = excluded.login, name = excluded.name,
-         avatar_url = excluded.avatar_url, locale = excluded.locale`
+         avatar_url = excluded.avatar_url,
+         locale = COALESCE(?5, users.locale)`
     )
-    .bind(String(githubId), login, name || null, avatarUrl || null, locale || "en", new Date().toISOString())
+    .bind(String(githubId), login, name || null, avatarUrl || null, known, new Date().toISOString())
+    .run();
+}
+
+/// A BCP 47 tag reduced to the part notifications are written in: "ja-JP" and
+/// "ja" are the same language to a lock screen. Anything that does not look
+/// like a language is null, which every caller treats as "unknown".
+export function normalizeLocale(value) {
+  if (typeof value !== "string") return null;
+  const primary = value.trim().toLowerCase().split(/[-_]/)[0];
+  return /^[a-z]{2,3}$/.test(primary) ? primary : null;
+}
+
+export async function setUserLocale(db, githubId, locale) {
+  const known = normalizeLocale(locale);
+  if (!known) return false;
+  const { meta } = await db
+    .prepare("UPDATE users SET locale = ?2 WHERE github_id = ?1")
+    .bind(String(githubId), known)
+    .run();
+  return (meta?.changes ?? 0) > 0;
+}
+
+export async function setUserNotifyEmail(db, githubId, enabled) {
+  await db
+    .prepare("UPDATE users SET notify_email = ?2 WHERE github_id = ?1")
+    .bind(String(githubId), enabled ? 1 : 0)
     .run();
 }
 
 export async function getUserByGithubId(db, githubId) {
   return (
     (await db
-      .prepare("SELECT github_id, login, name, avatar_url, locale FROM users WHERE github_id = ?1")
+      .prepare(
+        "SELECT github_id, login, name, avatar_url, locale, email, notify_email FROM users WHERE github_id = ?1"
+      )
       .bind(String(githubId))
       .first()) || null
   );
@@ -408,12 +445,48 @@ export async function removeDevice(db, deviceToken) {
 // The relay knows a person by their github LOGIN; config is keyed by the numeric
 // id. This is the bridge — comparing the two directly would never match.
 export async function getUserByLogin(db, login) {
+  if (!login) return null;
   return (
     (await db
-      .prepare("SELECT github_id, login FROM users WHERE login = ?1")
+      .prepare(
+        "SELECT github_id, login, name, locale, email, notify_email FROM users WHERE login = ?1"
+      )
       .bind(login)
       .first()) || null
   );
+}
+
+// Web Push subscriptions, one row per browser (or installed PWA) per person.
+// The same shape of contract as device_tokens: keyed by what the push service
+// makes unique, re-bound to whoever is signed in on that browser now.
+export async function registerSubscription(db, { endpoint, githubId, login, p256dh, auth, userAgent }) {
+  await db
+    .prepare(
+      `INSERT INTO push_subscriptions (endpoint, user_github_id, login, p256dh, auth, user_agent, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+       ON CONFLICT(endpoint) DO UPDATE SET
+         user_github_id = excluded.user_github_id,
+         login = excluded.login,
+         p256dh = excluded.p256dh,
+         auth = excluded.auth,
+         user_agent = excluded.user_agent,
+         updated_at = excluded.updated_at`
+    )
+    .bind(endpoint, String(githubId), login, p256dh, auth, userAgent || null, new Date().toISOString())
+    .run();
+}
+
+export async function subscriptionsForLogin(db, login) {
+  if (!login) return [];
+  const { results } = await db
+    .prepare("SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE login = ?1")
+    .bind(login)
+    .all();
+  return results || [];
+}
+
+export async function removeSubscription(db, endpoint) {
+  await db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1").bind(endpoint).run();
 }
 
 

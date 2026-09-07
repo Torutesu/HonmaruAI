@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Dashboard } from './components/Dashboard'
+import { disableWebPush } from './utils/push'
 import './App.css'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
@@ -92,6 +93,9 @@ function App() {
   }
 
   const handleLogout = () => {
+    // This browser stops receiving this account's decisions before the
+    // session is dropped — the Worker needs the token to forget the subscription.
+    disableWebPush(httpBase(host), sessionToken).catch(() => {})
     setUserId(null)
     setReady(false)
     setSessionToken('')

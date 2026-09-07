@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-08-15
+Last updated: 2026-09-07
 
 ## Where this is
 
@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 197 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 260 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **CI:** `.github/workflows/ci.yml` — Worker, the reference relay and the
   reference web client on every push, iOS on pull requests
@@ -42,6 +42,23 @@ The list of what is still missing, and why each item matters, is
 - [x] A cron that syncs connectors every 15 minutes
 - [~] Push notifications — built and tested end to end, switched off in the client
       (`PushService.isEnabledInThisBuild`) until the App ID carries `aps-environment`
+- [x] Notifications that reach people who do not have the iOS app: one hub
+      (`worker/src/notify.js`) behind every call site, fanning out to APNs,
+      **Web Push** (VAPID + `aes128gcm` written against Web Crypto, no
+      dependency; any browser, Android, an iPhone with the site on its home
+      screen) and **email** as the floor when no push arrived —
+      [docs/notifications.md](docs/notifications.md)
+- [x] Every notification in the recipient's language. `users.locale` is
+      seeded from `Accept-Language`, set by the app toggle and the browser,
+      and no longer reset to English by the org graph. All copy in
+      `notifyCopy.js`, en + ja
+- [x] A new card is translated into the recipient's language on the relay
+      (`localize.js`, one model call, paid from the sender's allowance) and
+      stored as `localized[locale]`, so the alert and the card agree
+- [x] A nudge notifies. It used to re-send to open sockets only — the one
+      audience that did not need reminding
+- [x] The web client subscribes to Web Push, is installable as a PWA, opens
+      the card a notification names, and shows a card in the browser's language
 
 ### Access and safety
 - [x] Relay requires a session with write access to the repository; identity comes off the session
@@ -71,8 +88,14 @@ The list of what is still missing, and why each item matters, is
 
 ## Still open
 
-- [ ] Turn push on: App ID capability, reissued profile, APNs secrets, and the
-      constant — [docs/push-notifications.md](docs/push-notifications.md)
+- [ ] Turn APNs on: App ID capability, reissued profile, APNs secrets, and the
+      constant — [docs/push-notifications.md](docs/push-notifications.md).
+      Until then Web Push and email are the channels that actually deliver
+- [ ] Set the Web Push and Mailgun secrets on the deployment
+      (`VAPID_*`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`) —
+      [docs/notifications.md](docs/notifications.md#web-push--setup)
+- [ ] A language row in the web client, and a way for a GitHub account to add
+      an email address — today only email accounts have one to fall back to
 - [ ] First App Store submission (TestFlight internal works today)
 - [ ] Point a Mailgun domain at the inbound webhook. Email is a connector on
       the Worker now — `POST /webhooks/email`, signature verified (HMAC over

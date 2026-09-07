@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS users (
      github_id is just the primary user id; email users get an "email:" id. */
   email         TEXT,
   password_hash TEXT,
-  password_salt TEXT
+  password_salt TEXT,
+  /* Whether a decision may reach this person by email when no push channel
+     (APNs device, web push subscription) can. 1 = yes. */
+  notify_email  INTEGER NOT NULL DEFAULT 1
 );
 
 
@@ -159,6 +162,21 @@ CREATE TABLE IF NOT EXISTS device_tokens (
   updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_device_tokens_login ON device_tokens (login);
+
+/* Web Push subscriptions: a browser, a PWA on a phone, or a desktop app that
+   wraps one. Keyed by the endpoint because that is what the push service makes
+   unique. The login is denormalized for the same reason device_tokens does it:
+   the relay knows a recipient by their login, on the hot path of every card. */
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint       TEXT PRIMARY KEY,
+  user_github_id TEXT NOT NULL,
+  login          TEXT NOT NULL,
+  p256dh         TEXT NOT NULL,
+  auth           TEXT NOT NULL,
+  user_agent     TEXT,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_login ON push_subscriptions (login);
 
 CREATE TABLE IF NOT EXISTS ai_usage (
   user_github_id TEXT NOT NULL,

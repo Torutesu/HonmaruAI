@@ -1,7 +1,7 @@
 import { SELF, env, fetchMock } from "cloudflare:test";
 import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
-import { notifyCard } from "../src/push.js";
+import { notifyCard } from "../src/notify.js";
 import { providerToken, resetProviderToken, isDeadToken } from "../src/apns.js";
 
 // A P-256 private key in PKCS#8 PEM, generated for this test only. It is not a
@@ -143,7 +143,7 @@ test("nothing is attempted when APNs is not configured", async () => {
   // No interceptors registered: a single request here would fail the test.
   const result = await notifyCard(env, { card: card(), kind: "created", excludeLogin: "bob" });
   expect(result.sent).toBe(0);
-  expect(result.skipped).toBe("apns not configured");
+  expect(result.skipped).toBe("no channel configured");
 });
 
 test("registering a device needs a session", async () => {

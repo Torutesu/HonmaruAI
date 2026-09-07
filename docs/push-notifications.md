@@ -1,4 +1,10 @@
-# Push notifications
+# Push notifications (APNs)
+
+> This page is the **APNs** channel. It is one of three: Web Push and email
+> live behind the same hub and are documented in
+> [notifications.md](notifications.md), which is also where the language a
+> notification is written in is explained. Until the App ID work below is
+> done, those two are the channels that actually deliver.
 
 > **Switched off in the shipping build.** `PushService.isEnabledInThisBuild` is
 > `false`. Everything below is built, tested and deployed on the server side —

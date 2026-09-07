@@ -237,3 +237,40 @@
     padding: 12px;
   }
 }
+
+/* Notifications banner: one line, until it is no longer needed. */
+.notify-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: #f3f0ff;
+  border: 1px solid #ded6ff;
+  color: #2a1f6b;
+  padding: 12px 16px;
+  margin: 12px 24px 0;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.notify-button {
+  background: #202020;
+  color: white;
+  border: none;
+  border-radius: 9999px;
+  padding: 8px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.notify-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.decision-card.card-highlight {
+  outline: 2px solid #6647f0;
+  outline-offset: 2px;
+}

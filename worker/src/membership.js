@@ -74,7 +74,9 @@ export async function authorizeOrgAccess(env, session, orgId) {
   }
   if (!login) return { ok: false, login: null };
 
-  await upsertUser(env.DB, { githubId: session.github_id, login, name, avatarUrl, locale: known?.locale || "en" });
+  // No locale: a stored one is kept, a new row defaults to English until the
+  // person's app says otherwise.
+  await upsertUser(env.DB, { githubId: session.github_id, login, name, avatarUrl });
   await upsertMembership(env.DB, orgId, session.github_id, roleName(permissions));
   await upsertAgent(env.DB, orgId, session.github_id, `${login}'s AI`);
   return { ok: true, login };

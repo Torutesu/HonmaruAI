@@ -5,12 +5,15 @@ import {
 import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, loadContexts, saveContext,
-  getSession, getCard,
+  getSession, getCard, getUserByLogin,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
 import { authorizeOrgAccess } from "./membership.js";
-import { notifyCard } from "./push.js";
+import { notifyCard } from "./notify.js";
+import { localizeCard } from "./localize.js";
+import { providerConfig } from "./provider.js";
+import { checkAIAllowance } from "./gate.js";
 import { ANNOUNCE_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 
@@ -226,6 +229,14 @@ export class OrgRelay {
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
       for (const ev of forEveryone) this.sendTo(orgId, card.recipientUserID, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      // The socket only reaches someone with the app open — and a nudge is for
+      // the person who has not opened it. This is what makes it reach them.
+      this.state.waitUntil(
+        notifyCard(this.env, {
+          card, kind: "nudged", excludeLogin: att.userId,
+          badge: await this.pendingCountFor(orgId, card.recipientUserID),
+        })
+      );
       return;
     }
 
@@ -290,23 +301,22 @@ export class OrgRelay {
           })
         );
       }
-      // Whoever now has to act hears about it on their phone. Same rule as the
-      // Notion write and for the same reason: deferred, never awaited, and
-      // never able to break the decision it is reporting.
-      this.state.waitUntil(
-        notifyCard(this.env, {
-          card,
-          kind: decision?.action ? "decided" : "created",
-          excludeLogin: att.userId,
-          badge: await this.pendingCountFor(
-            orgId,
-            decision?.action ? card.senderUserID : card.recipientUserID
-          ),
-        })
-      );
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      // Whoever now has to act hears about it, wherever they are. Same rule as
+      // the Notion write and for the same reason: deferred, never awaited, and
+      // never able to break the decision it is reporting. A new card is first
+      // put into the recipient's language, so the alert — and the card they
+      // open — read as if it had been written for them.
+      this.state.waitUntil(
+        this.deliver(orgId, card, {
+          kind: decision?.action ? "decided" : "created",
+          excludeLogin: att.userId,
+          translate: type === "card_created",
+          senderGithubId: att.githubId,
+        })
+      );
       return;
     }
 
@@ -381,6 +391,49 @@ export class OrgRelay {
     } catch (err) {
       try { ws.send(JSON.stringify(runError(err.message))); } catch {}
     }
+  }
+
+  /// Notify whoever a card is now waiting on, after putting a new card into
+  /// their language.
+  ///
+  /// The translation is one model call, paid from the sender's allowance, and
+  /// it is skipped whenever it would change nothing: no provider, a recipient
+  /// who reads the language the card is already in, or a card that already
+  /// carries a version for them. When it produces something, the card is saved
+  /// again and re-broadcast so every open device shows the same words the
+  /// notification did.
+  async deliver(orgId, card, { kind, excludeLogin, translate, senderGithubId }) {
+    let current = card;
+    try {
+      if (translate) {
+        const recipient = await getUserByLogin(this.db, card.recipientUserID);
+        const locale = recipient?.locale || "en";
+        const provider = providerConfig(this.env);
+        const allowance = provider && senderGithubId
+          ? await checkAIAllowance(this.env, { githubId: String(senderGithubId) })
+          : undefined;
+        const localized = await localizeCard(card, { provider, locale, allowance });
+        if (localized) {
+          current = localized;
+          await saveCard(this.db, orgId, current);
+          const { forEveryone } = upsertEvents(current, { isNew: false });
+          for (const ev of forEveryone) this.broadcast(orgId, ev);
+        }
+      }
+    } catch (err) {
+      // A translation that fails is a card read in the sender's language, not
+      // a card nobody was told about.
+      console.error("localize failed", err?.message || err);
+    }
+    await notifyCard(this.env, {
+      card: current,
+      kind,
+      excludeLogin,
+      badge: await this.pendingCountFor(
+        orgId,
+        kind === "decided" ? current.senderUserID : current.recipientUserID
+      ),
+    });
   }
 
   async applyAndPublish(orgId, content, toolCallId, actorUserId) {

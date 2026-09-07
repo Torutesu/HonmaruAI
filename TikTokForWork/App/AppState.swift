@@ -37,6 +37,16 @@ final class AppState: ObservableObject {
         // Point Bundle.main at the chosen .lproj so the string catalog switches
         // live — SwiftUI's \.locale does not re-resolve catalog lookups.
         Bundle.setAppLanguage(language.locale?.identifier)
+        // The server composes every notification, so it has to know too.
+        Task { await syncLanguageToBackend() }
+    }
+
+    /// Mirror the reader language to the Worker, which writes every
+    /// notification — push, web push, email — in it. A guest has no session
+    /// and nothing to mirror to.
+    func syncLanguageToBackend() async {
+        guard isAuthenticated, !isGuest, let base = backendBaseURL else { return }
+        await ProfileService.setLocale(readerLanguageCode, backendBaseURL: base)
     }
 
     /// The reader language to send to the AI for card generation.
@@ -171,6 +181,10 @@ final class AppState: ObservableObject {
         PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
         // Load the org in the background so entry never blocks on reachability.
         Task { await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId)) }
+        // And the language this person reads, so the first notification is
+        // already in it — the server seeded one from the device on sign-in,
+        // but the in-app toggle is the choice that counts.
+        Task { await syncLanguageToBackend() }
     }
 
     private func orgOwner(_ full: String) -> String { full.split(separator: "/").first.map(String.init) ?? "" }

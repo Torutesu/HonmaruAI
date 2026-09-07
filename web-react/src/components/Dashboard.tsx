@@ -3,7 +3,9 @@ import { WebSocketClient } from '../services/WebSocketClient'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { InviteTeammate } from './InviteTeammate'
-import { requestNotificationPermission, notifyNewDecision, setTabBadge } from '../utils/notifications'
+import { NotificationsBanner } from './NotificationsBanner'
+import { notifyNewDecision, setTabBadge } from '../utils/notifications'
+import { syncLocale } from '../utils/push'
 import type { AppState, DecisionCard as DecisionCardType } from '../types/card'
 import './Dashboard.css'
 
@@ -20,6 +22,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const [error, setError] = useState<string | null>(null)
   const [showDebugLog, setShowDebugLog] = useState(import.meta.env.VITE_DEBUG === 'true')
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
+  // The card a notification tap (or a ?card= link) asked for. Highlighted and
+  // scrolled to once it is in the feed.
+  const [focusCardId, setFocusCardId] = useState<string | null>(() => {
+    try { return new URL(window.location.href).searchParams.get('card') } catch { return null }
+  })
 
   // Lazy init: useRef(new WebSocketClient()) would construct a fresh
   // instance on every render (immediately discarded, but still wasteful).
@@ -47,7 +54,6 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // resolve after cleanup and set state for an effect run that already
     // tore down.
     let ignore = false
-    requestNotificationPermission()
 
     wsClient.onStateChange = (newState) => {
       if (ignore) return
@@ -116,6 +122,24 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     }
   }, [relayUrl, userId, orgId, sessionToken, addDebugLog])
 
+  // A notification tapped while a tab is open: the service worker tells us
+  // which card, rather than opening a second tab.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'open-card' && event.data.cardId) setFocusCardId(event.data.cardId)
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
+  }, [])
+
+  // Scroll to the card a notification named, once it exists in the feed.
+  useEffect(() => {
+    if (!focusCardId) return
+    const el = document.getElementById(`card-${focusCardId}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focusCardId, state])
+
   const handleDecision = useCallback(
     (cardId: string, action: string, options?: any) => {
       wsClientRef.current!.sendDecision(cardId, action, options)
@@ -142,6 +166,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 // /ai/route is an HTTP call; the relay URL is a WebSocket URL. Convert
   // ws://host -> http://host and wss://host -> https://host.
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
+
+  // What language this browser reads, so every notification — push, email,
+  // the phone — arrives in it. Once per sign-in; the Worker keeps it.
+  useEffect(() => {
+    syncLocale(relayHttpUrl, sessionToken)
+  }, [relayHttpUrl, sessionToken])
   
   
     const cards = Object.values(state.cardsById || {})
@@ -171,6 +201,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         </div>
       )}
 
+      <NotificationsBanner httpBase={relayHttpUrl} sessionToken={sessionToken} />
+
             <div className="dashboard-content">
         <div className="main-feed">
        <CreateDecision
@@ -196,6 +228,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
                   <DecisionCard
                     key={card.id}
                     card={card}
+                    highlighted={card.id === focusCardId}
                     currentUserId={userId}
                     onApprove={() => handleDecision(card.id, 'approve')}
                     onDecline={() => handleDecision(card.id, 'decline')}
