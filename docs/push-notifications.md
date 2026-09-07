@@ -68,6 +68,12 @@ and opens Settings instead.
 
 ## Setup
 
+> **The entitlements file already exists.** `TikTokForWork/HonmaruAI.entitlements`
+> is in the repo, unwired. It is not referenced from `project.yml`, so it
+> changes nothing until step 1 is done — pointing at it before the App ID
+> carries the capability makes every build fail to sign, local ones included.
+> Wiring it is two lines, listed in step 6.
+
 ### 1. The App ID and the profile
 
 The entitlement has to be in the provisioning profile before it can be in the
@@ -144,10 +150,28 @@ npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql
 
 Adds `device_tokens`. Registration 500s without it.
 
-### 6. Flip the constant
+### 6. Wire the entitlement and flip the constant
 
-`PushService.isEnabledInThisBuild = true`. Until this is set, the app never asks
-for permission and never registers, whatever the server is configured with.
+Both, in the same commit, after steps 1–3. In `project.yml`, under the
+`TikTokForWork` target:
+
+```yaml
+    entitlements:
+      path: TikTokForWork/HonmaruAI.entitlements
+    sources:
+      - path: TikTokForWork
+        excludes:
+          - PrivacyInfo.xcprivacy
+          - HonmaruAI.entitlements   # compiled as a resource otherwise
+```
+
+Then `PushService.isEnabledInThisBuild = true`. Until that constant is set, the
+app never asks for permission and never registers, whatever the server has.
+
+Do not land these before step 1. With the entitlement wired and the App ID
+without the capability, signing fails and nobody can build the app at all — and
+with the constant flipped but the entitlement absent, iOS spends its one
+permission prompt on a build that cannot deliver.
 
 ---
 

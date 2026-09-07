@@ -1,12 +1,13 @@
-/* The feed: one decision per screen, snap-scrolled. White canvas, #202020
-   ink, brand violet only for the AI marker — the design system's rules. */
+/* The feed: one decision per screen, snap-scrolled. A white card floating on
+   a light ground, as the design has it — the card is the object, the page is
+   the surface it sits on. */
 .feed {
   position: fixed;
   inset: 0;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   scroll-snap-type: y mandatory;
-  background: #ffffff;
+  background: #f5f5f7;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -15,7 +16,6 @@
   scroll-snap-align: start;
   scroll-snap-stop: always;
   display: flex;
-  align-items: stretch;
   justify-content: center;
   position: relative;
   touch-action: pan-y;
@@ -23,14 +23,13 @@
 }
 
 .page-inner {
-  width: min(100%, 640px);
+  width: min(100%, 430px);
   display: flex;
   flex-direction: column;
-  /* Room at the bottom for the floating composer, which must never cover
-     the action row. */
-  padding: calc(60px + env(safe-area-inset-top)) 24px calc(96px + env(safe-area-inset-bottom));
+  /* Top: the Cards/Classic bar. Bottom: the tab bar. Neither may cover the
+     card, so the page reserves both rather than floating over them. */
+  padding: calc(80px + env(safe-area-inset-top)) 20px calc(96px + env(safe-area-inset-bottom));
   box-sizing: border-box;
-  will-change: transform;
 }
 
 .page::before {
@@ -41,198 +40,214 @@
   opacity: 0;
   transition: opacity 120ms;
 }
-.page.hint-approve::before { background: linear-gradient(90deg, transparent 60%, rgba(74, 222, 128, 0.25)); opacity: 1; }
-.page.hint-decline::before { background: linear-gradient(270deg, transparent 60%, rgba(248, 113, 113, 0.25)); opacity: 1; }
+.page.hint-approve::before { background: linear-gradient(90deg, transparent 55%, rgba(34, 197, 94, 0.18)); opacity: 1; }
+.page.hint-decline::before { background: linear-gradient(270deg, transparent 55%, rgba(239, 68, 68, 0.18)); opacity: 1; }
 
-.page-head {
+/* The card */
+.card {
+  background: #ffffff;
+  border: 1px solid #ececf0;
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(16, 16, 24, 0.04), 0 12px 32px rgba(16, 16, 24, 0.06);
+  overflow-y: auto;
+  will-change: transform;
+}
+
+.card-top {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.card-kind {
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: #8b8b93;
+  text-transform: capitalize;
 }
 
-.page-head .kind {
-  border: 1px solid #e8e8e8;
-  border-radius: 9999px;
-  padding: 3px 10px;
-  color: #202020;
-}
-
-.page-head .business {
-  color: #6647f0;
-  font-weight: 600;
-}
-
-.page-head .priority { font-weight: 600; }
-.page-head .priority-high { color: #f57c00; }
-.page-head .priority-urgent { color: #c62828; }
-
-.page-from {
-  margin-top: 14px;
-  font-size: 13px;
-  color: #6647f0;
-}
-
-.page-title {
-  margin: 12px 0 0;
-  font-size: clamp(26px, 5vw, 34px);
-  line-height: 1.2;
-  font-weight: 500;
-  color: #202020;
-  letter-spacing: -0.01em;
-}
-
-.page-summary {
-  margin: 16px 0 0;
-  font-size: 17px;
-  line-height: 1.55;
-  color: #505050;
-}
-
-.page-context {
-  list-style: none;
-  padding: 0;
-  margin: 20px 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.page-context li {
-  border: 1px solid #e8e8e8;
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 13px;
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-}
-
-.ctx-label {
-  color: #8b8b93;
-  text-transform: uppercase;
+.priority-legend { display: flex; gap: 10px; align-items: center; }
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
-  letter-spacing: 0.06em;
+  color: #c2c2c9;
+}
+.legend i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+/* Every level is listed; only the card's own is lit. The legend teaches the
+   scale and states this card's place on it in one row. */
+.legend.on { color: #202020; font-weight: 600; }
+.legend.on.p-low i { background: #22c55e; }
+.legend.on.p-medium i { background: #f59e0b; }
+.legend.on.p-high i { background: #ef4444; }
+
+.card-title {
+  margin: 0;
+  font-size: clamp(22px, 5.6vw, 27px);
+  line-height: 1.24;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: #101014;
 }
 
-.ctx-detail { color: #202020; }
-
-.page-original {
-  margin-top: 16px;
-  font-size: 13px;
-  color: #8b8b93;
-}
-.page-original p { color: #505050; white-space: pre-wrap; }
-
-.page-source {
-  margin-top: 16px;
-  font-size: 12px;
-  color: #8b8b93;
+.card-summary {
+  margin: 12px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #6b6b75;
 }
 
-.page-spacer { flex: 1; min-height: 24px; }
-
-.page-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.page-actions button,
-.page-reply-actions button {
+.card-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.source-chip {
+  border: 1px solid #ececf0;
   border-radius: 9999px;
-  padding: 14px 20px;
-  font-size: 15px;
-  font-weight: 600;
-  border: 1px solid #e8e8e8;
-  background: white;
-  color: #202020;
-  cursor: pointer;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: #45454f;
+  background: #fff;
 }
+.source-chip.business { color: #6647f0; border-color: #e2dcff; background: #f7f5ff; }
 
-.page-actions .primary,
-.page-reply-actions .primary {
-  flex: 1;
-  background: #202020;
-  color: white;
-  border-color: #202020;
+.card-context {
+  list-style: none; padding: 0 0 2px; margin: 14px 0 0;
+  display: flex; gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-
-.page-actions .decline { color: #c62828; }
-.page-actions .ghost { color: #505050; }
-
-.page-actions button:disabled,
-.page-reply-actions button:disabled { opacity: 0.5; cursor: default; }
-
-.page-reply textarea {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #e8e8e8;
-  border-radius: 12px;
-  padding: 12px;
-  font-size: 15px;
-  font-family: inherit;
-  resize: vertical;
-}
-
-.page-reply-actions {
+.card-context::-webkit-scrollbar { display: none; }
+.card-context li {
+  border: 1px solid #ececf0;
+  border-radius: 9999px;
+  padding: 6px 12px;
+  font-size: 12px;
   display: flex;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 6px;
+  align-items: baseline;
+  white-space: nowrap;
+  flex: none;
 }
+.ctx-label { color: #a0a0aa; text-transform: uppercase; font-size: 9px; letter-spacing: 0.05em; }
+.ctx-detail { color: #101014; }
 
-.page-swipe-hint {
-  margin-top: 12px;
-  text-align: center;
-  font-size: 11px;
-  color: #c0c0c6;
+/* Requested by */
+.requested-by { margin-top: 18px; }
+.rb-label { font-size: 11px; color: #a0a0aa; margin-bottom: 10px; }
+.rb-row { display: flex; align-items: center; gap: 10px; }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: #efeaff; color: #6647f0;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 15px;
+  flex: none;
 }
+.rb-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rb-who strong { font-size: 14px; color: #101014; }
+.rb-meta { font-size: 12px; color: #a0a0aa; }
+.rb-quote {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 10px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid #ececf0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6b6b75;
+}
+.rb-link { display: inline-block; margin-top: 8px; font-size: 13px; color: #6647f0; text-decoration: none; }
 
-.page-empty {
-  flex-direction: column;
+/* What the AI would do. Violet, because it is the one AI marker on the screen. */
+.recommendation {
+  margin-top: 16px;
+  background: #f7f5ff;
+  border: 1px solid #e6e0ff;
+  border-radius: 14px;
+  padding: 14px;
+}
+.rec-head { font-size: 14px; color: #45454f; display: flex; align-items: center; gap: 7px; }
+.rec-head strong { color: #6647f0; text-transform: capitalize; }
+.rec-decline .rec-head strong { color: #d64545; }
+.ai-spark { color: #6647f0; }
+.rec-reason { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: #6b6b75; }
+
+/* The two answers */
+.decide-row { display: flex; justify-content: center; align-items: center; gap: 22px; margin: 18px 0 0; }
+.decide {
+  width: 64px; height: 64px; border-radius: 50%;
+  font-size: 24px; cursor: pointer;
+  display: grid; place-items: center;
+  transition: transform 120ms ease;
+}
+.decide:active { transform: scale(0.94); }
+.decide.decline { background: #fff; color: #45454f; border: 1px solid #e4e4ea; }
+.decide.approve { background: #101014; color: #fff; border: none; }
+
+/* Ask anything */
+.ask-bar {
+  margin-top: 18px;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  text-align: center;
-  color: #8b8b93;
-  padding: 24px;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid #ececf0;
+  border-radius: 9999px;
+  padding: 6px 6px 6px 8px;
 }
+.ask-bar input {
+  flex: 1; min-width: 0;
+  border: none; outline: none; background: transparent;
+  font-size: 15px; color: #101014;
+}
+.ask-bar input::placeholder { color: #a0a0aa; }
+.ask-plus, .ask-send {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: none; cursor: pointer; flex: none;
+  display: grid; place-items: center; font-size: 15px;
+}
+.ask-plus { background: #f1f1f4; color: #45454f; }
+.ask-send { background: #101014; color: #fff; }
+.ask-send:disabled { opacity: 0.35; cursor: default; }
 
-.page-empty h2 { color: #202020; font-weight: 500; margin: 12px 0 4px; }
-.page-empty p { margin: 0; }
-
+/* Empty */
+.page-empty { flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #8b8b93; padding: 24px; }
+.page-empty h2 { color: #101014; font-weight: 600; margin: 12px 0 4px; }
+.page-empty p { margin: 0; max-width: 34ch; }
 .empty-mark {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: 1px solid #e8e8e8;
-  display: grid;
-  place-items: center;
-  font-size: 24px;
-  color: #202020;
+  width: 56px; height: 56px; border-radius: 50%;
+  border: 1px solid #e4e4ea; background: #fff;
+  display: grid; place-items: center; font-size: 24px; color: #101014;
 }
 
 .page-indicator {
+  display: none;
   position: fixed;
-  right: 16px;
-  top: 50%;
+  right: 10px; top: 50%;
   transform: translateY(-50%);
-  font-size: 11px;
-  color: #8b8b93;
+  font-size: 11px; color: #b4b4bd;
   font-variant-numeric: tabular-nums;
   writing-mode: vertical-rl;
   letter-spacing: 0.1em;
+  pointer-events: none;
 }
+@media (min-width: 900px) { .page-indicator { display: block; } }
 
 @media (prefers-color-scheme: dark) {
-  .feed { background: #09090b; }
-  .page-title, .ctx-detail, .page-head .kind, .empty-mark, .page-empty h2 { color: #ededef; }
-  .page-summary, .page-actions .ghost, .page-original p { color: #b0b0b8; }
-  .page-head .kind, .page-context li, .page-actions button, .page-reply textarea, .empty-mark { border-color: #26262b; background: transparent; }
-  .page-actions button { color: #ededef; }
-  .page-actions .primary, .page-reply-actions .primary { background: #ededef; color: #09090b; border-color: #ededef; }
-  .page-reply textarea { color: #ededef; }
+  .feed { background: #0b0b0d; }
+  .card { background: #151518; border-color: #26262b; box-shadow: none; }
+  .card-title, .ctx-detail, .rb-who strong, .empty-mark, .page-empty h2 { color: #ededef; }
+  .card-summary, .rb-quote, .rec-reason, .rec-head { color: #a8a8b2; }
+  .source-chip, .card-context li, .ask-bar { background: #151518; border-color: #26262b; color: #ededef; }
+  .ask-bar input { color: #ededef; }
+  .decide.decline { background: #151518; border-color: #303038; color: #ededef; }
+  .decide.approve { background: #ededef; color: #0b0b0d; }
+  .ask-send { background: #ededef; color: #0b0b0d; }
+  .ask-plus { background: #26262b; color: #ededef; }
+  .recommendation { background: #17142a; border-color: #2f2a52; }
+  .empty-mark { background: #151518; border-color: #26262b; }
+  .legend.on { color: #ededef; }
 }

@@ -578,3 +578,23 @@ export async function upsertBusiness(db, orgId, { name, createdBy }) {
 export async function removeBusiness(db, orgId, slug) {
   await db.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).run();
 }
+
+/// Who someone is inside one organization: the name to show and the role they
+/// hold. The card carries this so every client can render "Requested by" from
+/// the card alone, rather than each one loading the org graph to turn a login
+/// into a person.
+export async function getMemberProfile(db, orgId, login) {
+  if (!orgId || !login) return null;
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(u.name, u.login) AS name, m.role AS role
+         FROM users u
+         LEFT JOIN memberships m
+           ON m.user_github_id = u.github_id AND m.org_id = ?1
+        WHERE u.login = ?2`
+    )
+    .bind(orgId, login)
+    .first();
+  if (!row) return null;
+  return { login, name: row.name || login, role: row.role || "member" };
+}

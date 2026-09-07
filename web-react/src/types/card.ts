@@ -41,6 +41,12 @@ export interface DecisionCard {
   localized?: Record<string, { title: string; summary?: string; context?: string }>
   // Which of the org's businesses this decision belongs to, by slug.
   business?: string
+  // What the AI would advise, and why. A starting point the person can
+  // ignore, never a decision — the card still waits for them.
+  recommendation?: { action: 'approve' | 'decline' | 'revise'; reason?: string }
+  // Who asked, stamped by the relay from the org's own membership table so a
+  // client cannot name someone else.
+  requestedBy?: { login?: string; name?: string; role?: string; avatarUrl?: string; quote?: string; sourceUrl?: string }
 }
 
 export interface Business {

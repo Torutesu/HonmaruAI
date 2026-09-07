@@ -21,6 +21,11 @@ export const ACTIONS = new Set(DECISION_ACTIONS);
 // receives every card in the join snapshot.
 const LIMITS = { title: 300, summary: 2000, context: 8000, revisionNote: 2000, sourceDetail: 500, business: 64 };
 
+// The AI's suggestion, and who asked. Both are shown on the card itself, so
+// both are as unbounded a surface as the summary and get the same treatment.
+const RECOMMENDED = new Set(["approve", "decline", "revise"]);
+const REQUESTER_LIMITS = { login: 128, name: 120, role: 60, quote: 600, sourceUrl: 500 };
+
 // A curated context is a person's profile document, so it is allowed to be
 // bigger than a card — but not unbounded, and it goes straight into D1.
 export const MAX_CONTEXT_BYTES = 64 * 1024;
@@ -46,6 +51,25 @@ export function validateIncomingCard(card) {
   if (card.type !== undefined && !CARD_TYPES.has(card.type)) return `Unknown card type: ${card.type}`;
   if (card.status !== undefined && !CARD_STATUSES.has(card.status)) return `Unknown status: ${card.status}`;
   if (card.priority !== undefined && !PRIORITIES.has(card.priority)) return `Unknown priority: ${card.priority}`;
+  if (card.recommendation !== undefined) {
+    const r = card.recommendation;
+    if (typeof r !== "object" || r === null) return "recommendation must be an object.";
+    if (!RECOMMENDED.has(r.action)) return `Unknown recommended action: ${r.action}`;
+    if (r.reason !== undefined) {
+      if (typeof r.reason !== "string") return "recommendation reason must be text.";
+      if (r.reason.length > 600) return "recommendation reason is longer than 600 characters.";
+    }
+  }
+  if (card.requestedBy !== undefined) {
+    const who = card.requestedBy;
+    if (typeof who !== "object" || who === null) return "requestedBy must be an object.";
+    for (const [field, max] of Object.entries(REQUESTER_LIMITS)) {
+      const value = who[field];
+      if (value === undefined || value === null) continue;
+      if (typeof value !== "string") return `requestedBy.${field} must be text.`;
+      if (value.length > max) return `requestedBy.${field} is longer than ${max} characters.`;
+    }
+  }
   if (card.decision !== undefined) {
     if (typeof card.decision !== "object" || card.decision === null) return "decision must be an object.";
     if (!ACTIONS.has(card.decision.action)) return `Unknown decision action: ${card.decision.action}`;

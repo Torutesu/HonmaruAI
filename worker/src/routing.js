@@ -280,6 +280,17 @@ export function buildAgentTools(organization) {
                   },
                 }
               : {}),
+            recommendation: {
+              type: "string",
+              enum: ["approve", "decline", "revise"],
+              description:
+                "What you would advise the recipient to do, on the facts in the instruction. Omit when the instruction gives you no basis to advise.",
+            },
+            recommendationReason: {
+              type: "string",
+              description:
+                "One or two sentences on why, citing the specific fact that decides it (an amount, a deadline, a precedent). Written in the READER's language, like every other field.",
+            },
             newBusiness: {
               type: "string",
               description:
@@ -353,6 +364,9 @@ Call create_decision_card once with all fields filled:
   only: deadline / scope / metric / amount / action — or in Japanese
   期限 / 範囲 / 指標 / 金額 / 対応.
 - priority: infer from urgency cues in the instruction
+- recommendation: what you would advise, and why, when the instruction gives
+  you the facts to advise on. The person still decides; this is a starting
+  point, not an answer, so leave it out rather than guess.
 
 Routing (critical):
 - recipientUserID MUST be one of the member ids listed under Organization in the
@@ -665,6 +679,16 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       agentRoute,
       routingReason,
       labels: routingJSON.labels || [],
+      // A suggestion, never a decision. Dropped whole unless the model named
+      // one of the three actions a person can actually take from the card.
+      recommendation: ["approve", "decline", "revise"].includes(routingJSON.recommendation)
+        ? {
+            action: routingJSON.recommendation,
+            reason: typeof routingJSON.recommendationReason === "string"
+              ? routingJSON.recommendationReason.slice(0, 600)
+              : "",
+          }
+        : undefined,
       // The model's pick, when it is one of ours; the instruction's own
       // words otherwise. Never a business the model made up.
       // An existing business by slug; the instruction's own words; or the

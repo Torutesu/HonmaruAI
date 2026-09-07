@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
+import { ClassicList } from './ClassicList'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { YouSheet } from './YouSheet'
@@ -20,6 +21,7 @@ interface Props {
 }
 
 type Panel = null | 'compose' | 'sent' | 'done' | 'more' | 'record'
+type Mode = 'cards' | 'classic'
 
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
@@ -34,6 +36,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
   // Bumped when the language changes, so cards re-read their localized text.
   const [localeVersion, setLocaleVersion] = useState(0)
+  // Cards is one decision per screen; Classic is the same decisions as a list
+  // you can scan. Remembered, because it is a way of working, not a detour.
+  const [mode, setMode] = useState<Mode>(() => {
+    try { return localStorage.getItem('mode') === 'classic' ? 'classic' : 'cards' } catch { return 'cards' }
+  })
+  const switchMode = (next: Mode) => {
+    setMode(next)
+    try { localStorage.setItem('mode', next) } catch {}
+  }
   // The card a notification tap (or a ?card= link) asked for.
   const [focusCardId, setFocusCardId] = useState<string | null>(() => {
     try { return new URL(window.location.href).searchParams.get('card') } catch { return null }
@@ -125,6 +136,44 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => window.removeEventListener('keydown', onKey)
   }, [panel])
 
+  /// "Ask anything" on a card: the same thing telling your AI does, with the
+  /// card it is about named, so the router has the context a bare sentence
+  /// would be missing.
+  const handleAsk = useCallback(async (text: string, card: any) => {
+    try {
+      const res = await fetch(`${relayHttpUrl}/ai/route`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({
+          text: `About "${card.title}": ${text}`,
+          orgId,
+          sender: { id: userId, name: userId, role: 'member' },
+        }),
+      })
+      const routed = await res.json()
+      if (!res.ok) { setError(routed.message || 'Your AI could not route that.'); return }
+      wsClientRef.current!.sendCardCreated({
+        id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: routed.cardType || 'notification',
+        status: 'pending',
+        recipientUserID: routed.recipientUserID,
+        title: routed.title || 'Decision needed',
+        summary: routed.summary || '',
+        context: routed.context || '',
+        priority: routed.priority || 'medium',
+        routingReason: routed.routingReason || '',
+        agentRoute: routed.agentRoute || '',
+        createdAt: new Date().toISOString(),
+        sourceInstruction: text,
+        ...(routed.business ? { business: routed.business } : {}),
+        ...(routed.recommendation ? { recommendation: routed.recommendation } : {}),
+      })
+      addDebugLog(`Asked about ${card.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }, [relayHttpUrl, orgId, userId, sessionToken, addDebugLog])
+
   const handleDecision = useCallback((cardId: string, action: string, options?: any) => {
     wsClientRef.current!.sendDecision(cardId, action, options)
     addDebugLog(`Sent decision: ${cardId} → ${action}`)
@@ -155,22 +204,54 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
   return (
     <div className="shell">
-      <Feed key={localeVersion} cards={pendingCards} userId={userId} businesses={businesses} focusCardId={focusCardId} onDecide={handleDecision} />
+      {mode === 'cards' ? (
+        <Feed
+          key={localeVersion}
+          cards={pendingCards}
+          userId={userId}
+          businesses={businesses}
+          focusCardId={focusCardId}
+          onDecide={handleDecision}
+          onAsk={handleAsk}
+        />
+      ) : (
+        <ClassicList
+          key={localeVersion}
+          pending={pendingCards}
+          sent={sentCards}
+          decided={decidedCards}
+          businesses={businesses}
+          onOpen={(id) => { setFocusCardId(id); switchMode('cards') }}
+          onNudge={handleNudge}
+        />
+      )}
 
       <header className="topbar">
-        <div className="topbar-left">
-          <span className="brand">Honmaru</span>
-          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? 'Connected' : 'Reconnecting…'} />
-          {pendingCards.length > 0 && <span className="pending-count">{pendingCards.length}</span>}
-        </div>
-        <nav className="topbar-right">
-          <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
-          <button className={panel === 'sent' ? 'active' : ''} onClick={() => setPanel(panel === 'sent' ? null : 'sent')}>
-            Sent{sentCards.filter((c) => c.status === 'pending').length > 0 && <span className="mini">{sentCards.filter((c) => c.status === 'pending').length}</span>}
+        <div className="mode-switch" role="tablist" aria-label="View">
+          <button
+            role="tab"
+            aria-selected={mode === 'cards'}
+            className={mode === 'cards' ? 'on' : ''}
+            onClick={() => switchMode('cards')}
+          >
+            Cards{pendingCards.length > 0 && <span className="mode-count">{pendingCards.length}</span>}
           </button>
-          <button className={panel === 'done' ? 'active' : ''} onClick={() => setPanel(panel === 'done' ? null : 'done')}>Done</button>
-          <button className={panel === 'more' ? 'active' : ''} onClick={() => setPanel(panel === 'more' ? null : 'more')} aria-label="More">⋯</button>
-        </nav>
+          <button
+            role="tab"
+            aria-selected={mode === 'classic'}
+            className={mode === 'classic' ? 'on' : ''}
+            onClick={() => switchMode('classic')}
+          >
+            Classic
+          </button>
+        </div>
+        <div className="topbar-right">
+          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? 'Connected' : 'Reconnecting…'} />
+          <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
+          <button className="avatar-button" onClick={() => setPanel('more')} aria-label="You">
+            {(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()}
+          </button>
+        </div>
       </header>
 
       <div className="toasts">
@@ -178,9 +259,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       </div>
 
       {panel === null && (
-        <button className="compose-fab" onClick={() => setPanel('compose')} aria-keyshortcuts="n">
-          <span className="ai-mark" />Tell your AI
-        </button>
+        <nav className="tabbar" aria-label="Main">
+          <button
+            className={mode === 'cards' ? 'tab on' : 'tab'}
+            onClick={() => switchMode('cards')}
+            aria-label="Feed"
+          >⌂</button>
+          <button className="tab compose" onClick={() => setPanel('compose')} aria-label="Tell your AI" aria-keyshortcuts="n">
+            <span className="ai-mark" />
+          </button>
+          <button className="tab" onClick={() => setPanel('more')} aria-label="You">◯</button>
+        </nav>
       )}
 
       {panel && <div className="scrim" onClick={() => setPanel(null)} />}

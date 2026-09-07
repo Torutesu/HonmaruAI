@@ -107,3 +107,52 @@ test("a client that republishes a card cannot erase what the relay added to it",
   expect(stored.localized).toEqual({ en: { title: "Approve the thing (en)" } });
   expect(stored.business).toBe("hotel-本丸");
 });
+
+test("the card carries who asked and what the AI advised, and a republish keeps both", async () => {
+  // Both are rendered on the card itself, so both have to survive the iOS
+  // client republishing its whole local copy when a decision is made — the
+  // same rule the translation and the business already follow.
+  const alice = await joined(ORG, ownerToken);
+  const bob = await joined(ORG, memberToken);
+
+  alice.ws.send(JSON.stringify({
+    type: "card_created",
+    payload: { card: {
+      id: "card-who", type: "approval", status: "pending", recipientUserID: "member",
+      title: "Approve the reshoot", summary: "The onboarding video needs recutting.",
+      priority: "high", createdAt: new Date().toISOString(),
+      sourceInstruction: "We need to reshoot the onboarding video.",
+      recommendation: { action: "approve", reason: "It is under the quarter's budget." },
+      // A client may not name someone else as the requester.
+      requestedBy: { name: "Someone Else", role: "ceo" },
+    } },
+  }));
+  expect(await message(bob.messages, (m) => JSON.stringify(m).includes("card-who"))).toBeTruthy();
+
+  const { getCard } = await import("../src/db.js");
+  const stored = await until(async () => {
+    const c = await getCard(env.DB, ORG, "card-who");
+    return c?.requestedBy ? c : null;
+  });
+  // Stamped from the membership table, not from what the client claimed.
+  expect(stored.requestedBy).toMatchObject({ login: "owner", name: "Owner", role: "admin" });
+  expect(stored.recommendation).toEqual({ action: "approve", reason: "It is under the quarter's budget." });
+
+  // Bob decides by republishing the whole card, as the iOS client does, with
+  // no idea either field exists.
+  bob.ws.send(JSON.stringify({
+    type: "card_updated",
+    payload: { card: {
+      id: "card-who", type: "approval", status: "approved", recipientUserID: "member",
+      title: "Approve the reshoot", summary: "The onboarding video needs recutting.",
+      priority: "high", createdAt: stored.createdAt,
+      decision: { action: "approve", actorUserID: "member", decidedAt: new Date().toISOString() },
+    } },
+  }));
+  const after = await until(async () => {
+    const c = await getCard(env.DB, ORG, "card-who");
+    return c?.decision?.action ? c : null;
+  });
+  expect(after.requestedBy).toMatchObject({ login: "owner", name: "Owner" });
+  expect(after.recommendation).toMatchObject({ action: "approve" });
+});
