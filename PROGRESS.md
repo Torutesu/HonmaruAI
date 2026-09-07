@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 269 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 273 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **CI:** `.github/workflows/ci.yml` — Worker, the reference relay and the
   reference web client on every push, iOS on pull requests
@@ -64,6 +64,14 @@ The list of what is still missing, and why each item matters, is
       email webhook all classify, creating a business when the name is new.
       No chip row, folder or filter; a label on the card and a list under
       ⋯ — [docs/businesses.md](docs/businesses.md)
+- [x] The record: what was decided, per business, as a view over the cards
+      — ⋯ → The record in the web client, `GET /record` (JSON or Markdown).
+      The minimum documentation, written by nobody —
+      [docs/record.md](docs/record.md)
+- [x] ⋯ → You: the language every card and notification is written in, and
+      an email address for a GitHub account so the email floor reaches it
+- [x] A client that republishes a card (iOS does, on a decision) can no
+      longer erase the translation or the business the relay added to it
 - [x] The web client is the feed: one decision per screen, snap-scrolled,
       swipe or A/D to decide, R to reply, and one button — Tell your AI.
       Sent, Done and You are sheets over it. Verified in Chromium at phone
@@ -103,8 +111,6 @@ The list of what is still missing, and why each item matters, is
 - [ ] Set the Web Push and Mailgun secrets on the deployment
       (`VAPID_*`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`) —
       [docs/notifications.md](docs/notifications.md#web-push--setup)
-- [ ] A language row in the web client, and a way for a GitHub account to add
-      an email address — today only email accounts have one to fall back to
 - [ ] First App Store submission (TestFlight internal works today)
 - [ ] Point a Mailgun domain at the inbound webhook. Email is a connector on
       the Worker now — `POST /webhooks/email`, signature verified (HMAC over

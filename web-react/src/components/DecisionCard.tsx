@@ -1,5 +1,6 @@
 import React from 'react'
 import type { DecisionCard as DecisionCardType } from '../types/card'
+import { getLocale } from '../utils/locale'
 import './DecisionCard.css'
 
 interface Props {
@@ -17,11 +18,6 @@ interface Props {
   businessName?: string
 }
 
-// The relay stores a version of a new card in the recipient's language under
-// `localized[locale]`. Read it in the browser's language when there is one.
-function readerLocale(): string {
-  return (typeof navigator !== 'undefined' ? navigator.language : 'en').toLowerCase().split(/[-_]/)[0]
-}
 
 export const DecisionCard: React.FC<Props> = ({
   card,
@@ -39,7 +35,7 @@ export const DecisionCard: React.FC<Props> = ({
 }) => {
   const isRecipient = card.recipientUserID === currentUserId
   const isRequester = card.senderUserID === currentUserId
-  const localized = card.localized?.[readerLocale()]
+  const localized = card.localized?.[getLocale()]
   const title = localized?.title || card.title
   const summary = localized?.summary || card.summary
   const context = localized?.context || card.context

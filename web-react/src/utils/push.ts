@@ -6,6 +6,8 @@
 // until the site has been added to the home screen — `pushSupport()` tells
 // the UI which of those it is looking at.
 
+import { getLocale } from './locale'
+
 export type PushSupport = 'ready' | 'needs-install' | 'unsupported' | 'denied'
 
 function isIOS(): boolean {
@@ -95,7 +97,7 @@ export async function disableWebPush(httpBase: string, sessionToken: string): Pr
 /// Tell the Worker what language this browser reads, so notifications — on
 /// any channel, not just this one — arrive in it.
 export async function syncLocale(httpBase: string, sessionToken: string, locale?: string): Promise<void> {
-  const tag = locale || navigator.language
+  const tag = locale || getLocale()
   if (!tag) return
   try {
     await fetch(`${httpBase}/me`, {

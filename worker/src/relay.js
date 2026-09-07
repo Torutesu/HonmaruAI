@@ -274,6 +274,15 @@ export class OrgRelay {
         }
         card.recipientUserID = owner;
         if (card.decision?.action) card.decision.actorUserID = att.userId;
+        // The iOS client republishes its whole local copy on a decision, and
+        // that copy does not carry what the relay added after the card was
+        // created — the translation, and sometimes the business. A client
+        // that does not know a field must not be able to erase it.
+        if (existing) {
+          for (const field of ["localized", "business"]) {
+            if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
+          }
+        }
       }
       await saveCard(this.db, orgId, card);
       // The iOS client decides locally and republishes the whole card, so a

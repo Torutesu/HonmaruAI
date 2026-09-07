@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DecisionCard, Business } from '../types/card'
+import { getLocale } from '../utils/locale'
 import './Feed.css'
 
 interface Props {
@@ -12,9 +13,6 @@ interface Props {
 
 const SWIPE_THRESHOLD = 96
 
-function readerLocale(): string {
-  return (typeof navigator !== 'undefined' ? navigator.language : 'en').toLowerCase().split(/[-_]/)[0]
-}
 
 function fromLine(card: DecisionCard, userId: string): string {
   const sender = card.senderUserID
@@ -114,7 +112,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide })
   const [replying, setReplying] = useState(false)
   const [reply, setReply] = useState('')
   const start = useRef<{ x: number; y: number } | null>(null)
-  const localized = card.localized?.[readerLocale()]
+  const localized = card.localized?.[getLocale()]
   const title = localized?.title || card.title
   const summary = localized?.summary || card.summary
   const context = localized?.context || card.context || ''

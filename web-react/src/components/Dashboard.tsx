@@ -3,7 +3,8 @@ import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
-import { InviteTeammate } from './InviteTeammate'
+import { YouSheet } from './YouSheet'
+import { RecordSheet } from './RecordSheet'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
@@ -18,7 +19,7 @@ interface Props {
   onLogout: () => void
 }
 
-type Panel = null | 'compose' | 'sent' | 'done' | 'more'
+type Panel = null | 'compose' | 'sent' | 'done' | 'more' | 'record'
 
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
@@ -31,6 +32,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
+  // Bumped when the language changes, so cards re-read their localized text.
+  const [localeVersion, setLocaleVersion] = useState(0)
   // The card a notification tap (or a ?card= link) asked for.
   const [focusCardId, setFocusCardId] = useState<string | null>(() => {
     try { return new URL(window.location.href).searchParams.get('card') } catch { return null }
@@ -152,7 +155,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
   return (
     <div className="shell">
-      <Feed cards={pendingCards} userId={userId} businesses={businesses} focusCardId={focusCardId} onDecide={handleDecision} />
+      <Feed key={localeVersion} cards={pendingCards} userId={userId} businesses={businesses} focusCardId={focusCardId} onDecide={handleDecision} />
 
       <header className="topbar">
         <div className="topbar-left">
@@ -242,32 +245,32 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel === 'more' && (
-        <aside className="sheet sheet-side" role="dialog" aria-label="More">
-          <div className="sheet-title">You <button className="close" onClick={() => setPanel(null)} aria-label="Close">×</button></div>
-          <p className="sheet-hint">{userId} · {orgId}</p>
-          <InviteTeammate relayHttpUrl={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} />
-          {businesses.length > 0 && (
-            <div className="businesses-note">
-              <div className="sheet-subtitle">Businesses your AI has filed decisions under</div>
-              <div className="business-list">{businesses.map((b) => <span key={b.slug} className="business-tag">{b.name}</span>)}</div>
-            </div>
-          )}
-          <div className="shortcuts">
-            <div className="sheet-subtitle">Keys</div>
-            <span>↑ ↓ next card</span><span>A approve</span><span>D decline</span><span>N tell your AI</span><span>Esc close</span>
+        <YouSheet
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          userId={userId}
+          sessionToken={sessionToken}
+          businesses={businesses}
+          onOpenRecord={() => setPanel('record')}
+          onLogout={onLogout}
+          onClose={() => setPanel(null)}
+          onLocaleChange={() => setLocaleVersion((v) => v + 1)}
+        />
+      )}
+
+      {panel === 'record' && (
+        <RecordSheet httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setPanel(null)} />
+      )}
+
+      {showDebug && (
+        <div className="debug-log">
+          <h3>Event log</h3>
+          <div className="log-entries">
+            {debugLog.map((entry, i) => (
+              <div key={i} className="log-entry"><span className="log-time">{entry.timestamp}</span><span className="log-message">{entry.message}</span></div>
+            ))}
           </div>
-          <button className="logout-button" onClick={onLogout}>Log out</button>
-          {showDebug && (
-            <div className="debug-log">
-              <h3>Event log</h3>
-              <div className="log-entries">
-                {debugLog.map((entry, i) => (
-                  <div key={i} className="log-entry"><span className="log-time">{entry.timestamp}</span><span className="log-message">{entry.message}</span></div>
-                ))}
-              </div>
-            </div>
-          )}
-        </aside>
+        </div>
       )}
     </div>
   )

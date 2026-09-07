@@ -28,6 +28,7 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | POST | `/push/subscriptions` | Register a browser's `PushSubscription` (auth: `x-session-token`) |
 | DELETE | `/push/subscriptions` | Forget one, on sign-out |
 | GET/POST/DELETE | `/businesses` | The org's businesses — [docs/businesses.md](../docs/businesses.md) |
+| GET | `/record?orgId=` | Every decision, per business; `&format=md` for Markdown — [docs/record.md](../docs/record.md) |
 | DELETE | `/account` | Erase the caller's account (auth: `x-session-token`) |
 | GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1 |
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
@@ -90,7 +91,7 @@ directly.
 
 ```bash
 npm install
-npm test          # 269 tests under @cloudflare/vitest-pool-workers (real workerd)
+npm test          # 273 tests under @cloudflare/vitest-pool-workers (real workerd)
 npm run dev       # local wrangler dev
 ```
 

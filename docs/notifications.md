@@ -99,15 +99,16 @@ npx wrangler secret put NOTIFY_EMAIL_FROM  # optional: "Honmaru AI <no-reply@mg.
 npx wrangler secret put MAILGUN_API_BASE   # optional: https://api.eu.mailgun.net for an EU domain
 ```
 
-Email accounts have an address. GitHub accounts do not, unless one is added
-later. A person can switch email off with `PUT /me {notifyEmail: false}`.
+Email accounts sign in with their address. A GitHub account adds one under
+⋯ → **Email** in the web client (`PUT /me {email}`), and either can switch
+the channel off there (`PUT /me {notifyEmail: false}`).
 
 ## API
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/me` | login, locale, whether email is on, the supported locales |
-| PUT | `/me` | `{ locale?, notifyEmail? }` — a BCP 47 tag is reduced to its language |
+| PUT | `/me` | `{ locale?, email?, notifyEmail? }` — a BCP 47 tag is reduced to its language; `email` only for accounts that do not sign in with one |
 | GET | `/push/vapid` | the public key a browser subscribes with (503 when unconfigured) |
 | POST | `/push/subscriptions` | a `PushSubscription.toJSON()` body, bound to the session |
 | DELETE | `/push/subscriptions` | `{ endpoint }` |

@@ -235,6 +235,21 @@ export async function setUserLocale(db, githubId, locale) {
   return (meta?.changes ?? 0) > 0;
 }
 
+/// The address notifications fall back to. Only for accounts that do not sign
+/// in with one: an email account's address is its identity. Empty clears it.
+export async function setUserEmail(db, githubId, email) {
+  const id = String(githubId);
+  if (id.startsWith("email:")) return { error: "This account signs in with its email address." };
+  const value = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return { error: "Please enter a valid email." };
+  if (value) {
+    const taken = await db.prepare("SELECT github_id FROM users WHERE email = ?1 AND github_id != ?2").bind(value, id).first();
+    if (taken) return { error: "That address belongs to another account." };
+  }
+  await db.prepare("UPDATE users SET email = ?2 WHERE github_id = ?1").bind(id, value || null).run();
+  return { ok: true };
+}
+
 export async function setUserNotifyEmail(db, githubId, enabled) {
   await db
     .prepare("UPDATE users SET notify_email = ?2 WHERE github_id = ?1")

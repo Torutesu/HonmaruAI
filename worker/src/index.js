@@ -5,7 +5,7 @@ import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
-  isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, normalizeLocale,
+  isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
@@ -31,6 +31,7 @@ import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
 import { providerConfig } from "./provider.js";
 import { fileCardUnderBusiness } from "./classify.js";
+import { buildRecord, recordToMarkdown } from "./record.js";
 
 export { OrgRelay } from "./relay.js";
 
@@ -336,6 +337,25 @@ async function handle(request, env, url) {
       return json({ businesses: await listBusinesses(env.DB, body.orgId) });
     }
 
+    // The record: every decision, per business, as it stands right now.
+    // JSON for the client, Markdown (?format=md) for pasting anywhere else.
+    if (url.pathname === "/record" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      const locale = normalizeLocale(url.searchParams.get("locale")) || me?.locale || "en";
+      const record = await buildRecord(env.DB, orgId, { locale });
+      if (url.searchParams.get("format") === "md") {
+        return new Response(recordToMarkdown(record, locale), {
+          headers: { "content-type": "text/markdown; charset=utf-8", "access-control-allow-origin": "*" },
+        });
+      }
+      return json(record);
+    }
+
     // Who am I, and how do I want to be told. The locale here is the language
     // every notification to this person is written in, whichever channel
     // carries it — set explicitly by the app's language toggle or the browser,
@@ -350,6 +370,9 @@ async function handle(request, env, url) {
         name: user.name,
         locale: user.locale || "en",
         email: user.email || null,
+        // An email account signs in with its address; only a GitHub account
+        // can change where mail goes.
+        emailEditable: !String(user.github_id).startsWith("email:"),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         supportedLocales: SUPPORTED_LOCALES,
       });
@@ -365,10 +388,17 @@ async function handle(request, env, url) {
       if (body.notifyEmail !== undefined) {
         await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
       }
+      // Where email falls back to. A GitHub account has none unless it says
+      // so here; an email account's address is its login and cannot change.
+      if (body.email !== undefined) {
+        const result = await setUserEmail(env.DB, session.github_id, body.email);
+        if (result.error) return json({ message: result.error }, 400);
+      }
       const user = await getUserByGithubId(env.DB, session.github_id);
       return json({
         ok: true,
         locale: user?.locale || "en",
+        email: user?.email || null,
         notifyEmail: Number(user?.notify_email ?? 1) !== 0,
       });
     }

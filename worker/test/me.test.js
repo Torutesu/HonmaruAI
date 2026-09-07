@@ -79,3 +79,29 @@ test("a new account starts in the language its device speaks", async () => {
   });
   expect(await env.DB.prepare("SELECT locale FROM users WHERE email = 'sam@example.com'").first()).toEqual({ locale: "en" });
 });
+
+test("a GitHub account can say where email should go; an email account cannot change it", async () => {
+  let res = await SELF.fetch("https://example.com/me", {
+    method: "PUT", headers: headers(globalThis.__yuki), body: JSON.stringify({ email: "Yuki@Example.com " }),
+  });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ email: "yuki@example.com" });
+  expect(await (await SELF.fetch("https://example.com/me", { headers: headers(globalThis.__yuki) })).json())
+    .toMatchObject({ email: "yuki@example.com", emailEditable: true });
+
+  res = await SELF.fetch("https://example.com/me", {
+    method: "PUT", headers: headers(globalThis.__yuki), body: JSON.stringify({ email: "not an address" }),
+  });
+  expect(res.status).toBe(400);
+
+  // Cleared with an empty string.
+  res = await SELF.fetch("https://example.com/me", {
+    method: "PUT", headers: headers(globalThis.__yuki), body: JSON.stringify({ email: "" }),
+  });
+  expect(await res.json()).toMatchObject({ email: null });
+
+  // An email account's address is its identity.
+  const { setUserEmail, upsertUser } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "email:mai@example.com", login: "u:mai@example.com", name: "Mai", avatarUrl: null });
+  expect(await setUserEmail(env.DB, "email:mai@example.com", "other@example.com")).toMatchObject({ error: expect.any(String) });
+});

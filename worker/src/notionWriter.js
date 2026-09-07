@@ -13,6 +13,7 @@ function childBlocksFor(card) {
     d.actorUserID ? `**By:** ${d.actorUserID}` : null,
     d.decidedAt ? `**When:** ${d.decidedAt}` : null,
     card.sourceApp ? `**Source:** ${card.sourceApp}` : null,
+    card.business ? `**Business:** ${card.business}` : null,
   ].filter(Boolean);
   return lines.map((content) => ({ block_property: "paragraph", content }));
 }
