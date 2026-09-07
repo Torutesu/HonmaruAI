@@ -185,6 +185,13 @@ Web の **⋯ → You → Email** に住所を入れたときだけ。送るの�
 受信側（メールを Worker に流し込む webhook）は別の設定で、`MAILGUN_WEBHOOK_SIGNING_KEY`
 と `INBOUND_EMAIL_DOMAIN`。これは今回の範囲外（`PROGRESS.md` 参照）。
 
+> **メールでのログインもこの 2 つに乗っている。**
+> 「6桁のコードをメールで送る」サインイン（`POST /auth/otp/request`）は
+> `MAILGUN_API_KEY` と `MAILGUN_DOMAIN` が無いと 503 を返す。返された側は
+> パスワード欄に切り替わって理由を出すので、壊れはしない — が、GitHub を
+> 持っていない人にとっては、この 2 つを入れて初めて入口が開く。
+> `/health` の `"email": true` が入っている証拠。
+
 ---
 
 ## 4. Web クライアントを置く
