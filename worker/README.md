@@ -27,12 +27,14 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | GET | `/push/vapid` | Web Push public key; 503 until `VAPID_*` are set |
 | POST | `/push/subscriptions` | Register a browser's `PushSubscription` (auth: `x-session-token`) |
 | DELETE | `/push/subscriptions` | Forget one, on sign-out |
+| GET/POST/DELETE | `/businesses` | The org's businesses — [docs/businesses.md](../docs/businesses.md) |
 | DELETE | `/account` | Erase the caller's account (auth: `x-session-token`) |
 | GET | `/orgs/:owner/:repo/graph` | Build the org graph from repo collaborators (auth: `x-session-token`); persists users/memberships/agents to D1 |
 | — | `Upgrade: websocket` | Forwarded to the org's `OrgRelay` Durable Object |
 
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,
-`card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`.
+`card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`,
+`nudge`, `set_business`.
 
 ### The relay's access rules
 
@@ -88,7 +90,7 @@ directly.
 
 ```bash
 npm install
-npm test          # 260 tests under @cloudflare/vitest-pool-workers (real workerd)
+npm test          # 265 tests under @cloudflare/vitest-pool-workers (real workerd)
 npm run dev       # local wrangler dev
 ```
 

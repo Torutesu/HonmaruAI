@@ -4,9 +4,11 @@ import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { InviteTeammate } from './InviteTeammate'
 import { NotificationsBanner } from './NotificationsBanner'
+import { BusinessBar } from './BusinessBar'
+import { BusinessSelect } from './BusinessSelect'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
-import type { AppState, DecisionCard as DecisionCardType } from '../types/card'
+import type { AppState, Business } from '../types/card'
 import './Dashboard.css'
 
 interface Props {
@@ -26,6 +28,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // scrolled to once it is in the feed.
   const [focusCardId, setFocusCardId] = useState<string | null>(() => {
     try { return new URL(window.location.href).searchParams.get('card') } catch { return null }
+  })
+  // The org's businesses, and the one the feed is currently showing. null is
+  // everything; '' is the cards nobody has filed yet.
+  const [businesses, setBusinesses] = useState<Business[]>([])
+  const [business, setBusiness] = useState<string | null>(() => {
+    try { return localStorage.getItem('business') } catch { return null }
   })
 
   // Lazy init: useRef(new WebSocketClient()) would construct a fresh
@@ -172,9 +180,63 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     syncLocale(relayHttpUrl, sessionToken)
   }, [relayHttpUrl, sessionToken])
+
+  const loadBusinesses = useCallback(async () => {
+    try {
+      const res = await fetch(`${relayHttpUrl}/businesses?orgId=${encodeURIComponent(orgId)}`, {
+        headers: { 'x-session-token': sessionToken },
+      })
+      if (res.ok) setBusinesses((await res.json()).businesses || [])
+    } catch {
+      // The chips are a convenience; the feed works without them.
+    }
+  }, [relayHttpUrl, orgId, sessionToken])
+
+  useEffect(() => { loadBusinesses() }, [loadBusinesses])
+
+  // A card filed under a name we have not seen means someone created a
+  // business from a card. Refresh the chips rather than show a bare slug.
+  useEffect(() => {
+    const known = new Set(businesses.map((b) => b.slug))
+    const unknown = Object.values(state.cardsById || {}).some((c) => c.business && !known.has(c.business))
+    if (unknown) loadBusinesses()
+  }, [state, businesses, loadBusinesses])
+
+  const addBusiness = useCallback(async (name: string) => {
+    const res = await fetch(`${relayHttpUrl}/businesses`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+      body: JSON.stringify({ orgId, name }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      setBusinesses(data.businesses || [])
+      if (data.business?.slug) selectBusiness(data.business.slug)
+    }
+  }, [relayHttpUrl, orgId, sessionToken])
+
+  const selectBusiness = (slug: string | null) => {
+    setBusiness(slug)
+    try { slug === null ? localStorage.removeItem('business') : localStorage.setItem('business', slug) } catch {}
+  }
+
+  const handleSetBusiness = useCallback((cardId: string, value: string | null) => {
+    wsClientRef.current!.sendSetBusiness(cardId, value)
+    addDebugLog(`Filed ${cardId} under ${value ?? 'nothing'}`)
+  }, [addDebugLog])
   
   
-    const cards = Object.values(state.cardsById || {})
+    const allCards = Object.values(state.cardsById || {})
+  // Pending-for-me counts per business drive the chips; the filter applies
+  // to every section, so "Hotel" shows the hotel's decisions and nothing else.
+  const pendingCounts: Record<string, number> = {}
+  for (const c of allCards) {
+    if (c.status === 'pending' && c.recipientUserID === userId) {
+      const key = c.business || ''
+      pendingCounts[key] = (pendingCounts[key] || 0) + 1
+    }
+  }
+  const cards = business === null ? allCards : allCards.filter(c => (c.business || '') === business)
   // To me, still waiting on my decision.
   const pendingCards = cards.filter(c => c.status === 'pending' && c.recipientUserID === userId)
   // Decisions I was the recipient of and have already acted on.
@@ -203,6 +265,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       <NotificationsBanner httpBase={relayHttpUrl} sessionToken={sessionToken} />
 
+      <BusinessBar
+        businesses={businesses}
+        selected={business}
+        counts={pendingCounts}
+        onSelect={selectBusiness}
+        onAdd={addBusiness}
+      />
+
             <div className="dashboard-content">
         <div className="main-feed">
        <CreateDecision
@@ -210,6 +280,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             orgId={orgId}
             userId={userId}
             sessionToken={sessionToken}
+            businesses={businesses}
+            defaultBusiness={business || null}
             onSendCard={(card) => wsClientRef.current!.sendCardCreated(card)}
             onLog={(msg) => addDebugLog(msg)}
           />
@@ -229,6 +301,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
                     key={card.id}
                     card={card}
                     highlighted={card.id === focusCardId}
+                    businesses={businesses}
+                    onSetBusiness={(value) => handleSetBusiness(card.id, value)}
                     currentUserId={userId}
                     onApprove={() => handleDecision(card.id, 'approve')}
                     onDecline={() => handleDecision(card.id, 'decline')}
@@ -263,6 +337,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
                       </span>
                     </div>
                     <p className="sent-summary">{card.summary}</p>
+                    <BusinessSelect
+                      value={card.business || ''}
+                      businesses={businesses}
+                      onChange={(value) => handleSetBusiness(card.id, value)}
+                    />
                     {card.status === 'pending' && (
                       <button
                         className="nudge-button"
@@ -289,6 +368,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
                   <DecisionCard
                     key={card.id}
                     card={card}
+                    businesses={businesses}
+                    onSetBusiness={(value) => handleSetBusiness(card.id, value)}
                     currentUserId={userId}
                     onApprove={() => {}}
                     onDecline={() => {}}

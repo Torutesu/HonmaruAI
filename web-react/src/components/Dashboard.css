@@ -274,3 +274,77 @@
   outline: 2px solid #6647f0;
   outline-offset: 2px;
 }
+
+/* Businesses: a row of chips over the feed. */
+.business-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 24px 0;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.business-chip {
+  background: white;
+  color: #202020;
+  border: 1px solid #e8e8e8;
+  border-radius: 9999px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.business-chip.selected {
+  background: #202020;
+  color: white;
+  border-color: #202020;
+}
+
+.business-chip.muted { color: #666; }
+.business-chip.add { padding: 6px 12px; font-weight: 700; }
+
+.chip-count {
+  background: #6647f0;
+  color: white;
+  border-radius: 9999px;
+  font-size: 11px;
+  padding: 1px 6px;
+  line-height: 16px;
+}
+
+.business-chip.selected .chip-count { background: white; color: #202020; }
+
+.business-add input {
+  border: 1px solid #e8e8e8;
+  border-radius: 9999px;
+  padding: 6px 14px;
+  font-size: 14px;
+  min-width: 160px;
+}
+
+.card-business { margin-bottom: 8px; }
+
+.business-select select,
+.create-business {
+  border: 1px solid #e8e8e8;
+  border-radius: 9999px;
+  padding: 4px 10px;
+  font-size: 13px;
+  background: white;
+  color: #202020;
+}
+
+.business-tag {
+  display: inline-block;
+  border: 1px solid #e8e8e8;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: #666;
+}

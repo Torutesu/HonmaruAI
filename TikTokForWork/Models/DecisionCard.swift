@@ -81,6 +81,10 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var routingReason: String?
     var sourceInstruction: String?
     var labels: [String]?
+    /// Which of the organization's businesses this decision belongs to, by
+    /// slug. Ten people running ten businesses read the feed one business at
+    /// a time; a card without one is simply not filed yet.
+    var business: String?
     var revisionNote: String?
     /// Where this decision came from — the tool the message was sitting in.
     /// Shown so you can see the card is a view onto real work rather than

@@ -43,6 +43,7 @@ private struct RouteInstructionResponse: Decodable {
     /// Present and true only when the free daily AI quota was spent and the
     /// server fell back to keyword routing.
     let quotaExceeded: Bool?
+    let business: String?
 }
 
 private struct HealthResponse: Decodable {
@@ -204,7 +205,8 @@ final class AIService: ObservableObject {
             routingReason: routingReason,
             labels: routingResponse.labels ?? [],
             toolCalls: routingResponse.toolCalls ?? [],
-            quotaExceeded: routingResponse.quotaExceeded ?? false
+            quotaExceeded: routingResponse.quotaExceeded ?? false,
+            business: routingResponse.business
         )
     }
 

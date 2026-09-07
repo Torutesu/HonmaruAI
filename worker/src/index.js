@@ -6,7 +6,7 @@ import {
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, normalizeLocale,
-  registerSubscription, removeSubscription,
+  registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
@@ -200,6 +200,11 @@ async function handle(request, env, url) {
         if (nodes.length) {
           organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
         }
+        // The org's businesses, so the router can file the card under one.
+        // From the table, never the client: a slug the router returns must be
+        // one the feed can filter by.
+        const businesses = await listBusinesses(env.DB, routeOrgId);
+        if (businesses.length) organization = { ...(organization || {}), orgId: routeOrgId, businesses };
       }
 
       const result = await routeInstruction({
@@ -296,6 +301,40 @@ async function handle(request, env, url) {
     if (mediaMatch && request.method === "GET") {
       return serveMedia(mediaMatch[1], env);
     }
+    // The businesses an organization runs. Read by the feed for its filter
+    // chips and by the router for its enum; written when someone names a new
+    // one — from here, or by tagging a card with a name nobody has typed
+    // before. `orgId` is a query or body field rather than a path segment
+    // because a personal org id is not "owner/repo".
+    if (url.pathname === "/businesses" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ businesses: await listBusinesses(env.DB, orgId) });
+    }
+    if (url.pathname === "/businesses" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      if (!businessSlug(body.name)) return json({ message: "A business needs a name." }, 400);
+      const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
+      return json({ business, businesses: await listBusinesses(env.DB, body.orgId) });
+    }
+    if (url.pathname === "/businesses" && request.method === "DELETE") {
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      // Cards keep their tag: a deleted business is a chip that disappears,
+      // not history rewritten. Tagging a card with the name brings it back.
+      await removeBusiness(env.DB, body.orgId, body.slug);
+      return json({ businesses: await listBusinesses(env.DB, body.orgId) });
+    }
+
     // Who am I, and how do I want to be told. The locale here is the language
     // every notification to this person is written in, whichever channel
     // carries it — set explicitly by the app's language toggle or the browser,

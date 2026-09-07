@@ -62,6 +62,19 @@ CREATE TABLE IF NOT EXISTS invites (
 
 CREATE INDEX IF NOT EXISTS idx_invites_org ON invites (org_id);
 
+/* The businesses an organization runs. Ten people, ten businesses: a card
+   belongs to one of them, and the feed can be read one business at a time.
+   Rows appear as they are used — tagging a card with a name nobody has typed
+   before creates the business — so the taxonomy is discovered, not designed. */
+CREATE TABLE IF NOT EXISTS businesses (
+  org_id      TEXT NOT NULL,
+  slug        TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  created_by  TEXT,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (org_id, slug)
+);
+
 CREATE TABLE IF NOT EXISTS agents (
   id                TEXT PRIMARY KEY,
   org_id            TEXT NOT NULL,

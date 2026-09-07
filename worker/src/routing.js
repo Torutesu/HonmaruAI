@@ -215,9 +215,15 @@ export function resolveRecipientTarget(text, senderID, organization) {
   };
 }
 
+/// The businesses the router may file a card under: the org's list, by slug.
+export function businessSlugsOf(organization) {
+  return (organization?.businesses || []).map((b) => (typeof b === "string" ? b : b?.slug)).filter(Boolean);
+}
+
 export function buildAgentTools(organization) {
   const members = memberIdsOf(organization);
   const recipientEnum = members.length ? members : DEMO_USER_IDS;
+  const businesses = businessSlugsOf(organization);
   return [
     {
       type: "function",
@@ -264,6 +270,16 @@ export function buildAgentTools(organization) {
               items: { type: "string" },
               description: "Optional GitHub-style labels e.g. bug, infra, blocked",
             },
+            ...(businesses.length
+              ? {
+                  business: {
+                    type: "string",
+                    enum: businesses,
+                    description:
+                      "Which of the organization's businesses this decision belongs to, when the instruction makes it clear. Omit when it does not.",
+                  },
+                }
+              : {}),
           },
           required: [
             "recipientUserID",
@@ -346,12 +362,38 @@ export function buildUserPrompt({ text, sender, organization, readerLanguage, se
   const contextBlock = senderContext && senderContext.trim()
     ? `\nSender context: ${senderContext.trim()}\n`
     : "";
+  const businesses = (organization?.businesses || [])
+    .map((b) => (typeof b === "string" ? `- ${b}` : `- ${b.slug}: ${b.name}`))
+    .join("\n");
+  const businessBlock = businesses ? `\nBusinesses (file the card under one only when the instruction makes it clear):\n${businesses}\n` : "";
   return `Sender: ${sender.name} (${sender.id}, ${sender.role})
 Reader language: ${readerLanguage || "ja"}
 Instruction: ${text}
-${contextBlock}
+${contextBlock}${businessBlock}
 Organization:
 ${orgContext}`;
+}
+
+/// The business an instruction names, by slug or by name, or null. The local
+/// router's answer, and the check on the model's: a slug it invented is not
+/// one of ours.
+export function matchBusiness(text, organization) {
+  const lower = String(text || "").toLowerCase();
+  const businesses = (organization?.businesses || []).map((b) => ({
+    slug: typeof b === "string" ? b : b?.slug,
+    name: String(typeof b === "string" ? b : b?.name || "").toLowerCase(),
+  })).filter((b) => b.slug);
+  // The whole name first, then any distinctive word of it: "本丸の予約" names
+  // Hotel 本丸. A word is distinctive when it is not something like "the" —
+  // four letters in Latin script, two characters in any other.
+  for (const b of businesses) {
+    if (lower.includes(String(b.slug).toLowerCase()) || (b.name && lower.includes(b.name))) return b.slug;
+  }
+  for (const b of businesses) {
+    const words = b.name.split(/[^\p{L}\p{N}]+/u).filter((w) => (/^[a-z0-9]+$/.test(w) ? w.length >= 4 : w.length >= 2));
+    if (words.some((w) => lower.includes(w))) return b.slug;
+  }
+  return null;
 }
 
 function organizationContext(organization) {
@@ -618,6 +660,11 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       agentRoute,
       routingReason,
       labels: routingJSON.labels || [],
+      // The model's pick, when it is one of ours; the instruction's own
+      // words otherwise. Never a business the model made up.
+      business: businessSlugsOf(organization).includes(routingJSON.business)
+        ? routingJSON.business
+        : matchBusiness(originalText, organization),
       toolCalls,
     },
     sender,

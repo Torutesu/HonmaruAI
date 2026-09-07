@@ -322,6 +322,16 @@ export class WebSocketClient {
   }
 
   
+  // File a card under a business (a slug, or a new name), or null to clear.
+  // The relay accepts this from the sender or the recipient.
+  sendSetBusiness(cardId: string, business: string | null): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    this.ws.send(JSON.stringify({
+      type: 'set_business',
+      payload: { cardId, business }
+    }))
+  }
+
   // Re-alert the recipient of a card you sent that is still pending.
   sendNudge(cardId: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return

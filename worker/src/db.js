@@ -514,3 +514,52 @@ export async function listOrgNodes(db, orgId) {
     label: `${r.name} · ${r.role || "member"}`,
   }));
 }
+
+// Businesses. A slug is the name, lowercased, with runs of whitespace and
+// punctuation folded to "-", letters of any script kept — "Hotel 本丸" and
+// "hotel 本丸" are the same business. Sixty-four characters is plenty for a
+// name and short enough to ride on every card.
+export const MAX_BUSINESS_SLUG = 64;
+
+export function businessSlug(name) {
+  if (typeof name !== "string") return null;
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_BUSINESS_SLUG);
+  return slug || null;
+}
+
+export async function listBusinesses(db, orgId) {
+  const { results } = await db
+    .prepare("SELECT slug, name, created_by, created_at FROM businesses WHERE org_id = ?1 ORDER BY created_at")
+    .bind(orgId)
+    .all();
+  return (results || []).map((r) => ({ slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at }));
+}
+
+/// Create a business, or return the one a name already means. The name that
+/// was typed first is the one that sticks: a later "HOTEL" does not rename
+/// "Hotel".
+export async function upsertBusiness(db, orgId, { name, createdBy }) {
+  const slug = businessSlug(name);
+  if (!slug) return null;
+  await db
+    .prepare(
+      `INSERT INTO businesses (org_id, slug, name, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(org_id, slug) DO NOTHING`
+    )
+    .bind(orgId, slug, String(name).trim().slice(0, 120), createdBy || null, new Date().toISOString())
+    .run();
+  const row = await db
+    .prepare("SELECT slug, name FROM businesses WHERE org_id = ?1 AND slug = ?2")
+    .bind(orgId, slug)
+    .first();
+  return row ? { slug: row.slug, name: row.name } : null;
+}
+
+export async function removeBusiness(db, orgId, slug) {
+  await db.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).run();
+}

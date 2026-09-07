@@ -4,6 +4,10 @@ AI-native decision feed for teams. Humans talk to their own AI; agents route Dec
 
 **The 3-second value:** open the feed, and the decision you need to make is already there — clear it in one swipe.
 
+Built for a small team running several businesses at once: every decision is
+filed under one of them, the feed reads one business at a time, and the
+taxonomy grows by use rather than setup ([docs/businesses.md](docs/businesses.md)).
+
 Ships as **Honmaru AI** (`com.honmaru.ai`) on TestFlight.
 
 ## Stack
@@ -150,6 +154,7 @@ rollback preserves the decision it undid. The client↔agent protocol is
 |-------|------|
 | Verified Composio / connector contracts | `worker/README.md` |
 | Notifications: channels, languages, setup | `docs/notifications.md` |
+| Businesses: one org, ten businesses, filed as you go | `docs/businesses.md` |
 | Subscriptions, entitlements, the meter | `docs/revenuecat.md` |
 | Design system | `docs/design-system.md` |
 | Onboarding rationale | `onboarding.md` |

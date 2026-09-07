@@ -5,7 +5,7 @@ import {
 import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, loadContexts, saveContext,
-  getSession, getCard, getUserByLogin,
+  getSession, getCard, getUserByLogin, upsertBusiness, businessSlug,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
@@ -253,6 +253,10 @@ export class OrgRelay {
         return;
       }
       const existing = await getCard(this.db, orgId, card.id);
+      // A business is a slug on the card and a row in the table. A name nobody
+      // has typed before becomes a business here — the taxonomy is built by
+      // using it, not designed up front.
+      if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
       if (type === "card_created") {
         // You may route a decision to anyone in the org, but only ever as
         // yourself. This is the line that makes a forged sender impossible
@@ -317,6 +321,29 @@ export class OrgRelay {
           senderGithubId: att.githubId,
         })
       );
+      return;
+    }
+
+    if (type === "set_business") {
+      // Filing a card under a business changes nothing about the decision, so
+      // either party to it may do it: the sender who knows what it was about,
+      // or the recipient who is looking at it.
+      const card = await getCard(this.db, orgId, payload.cardId);
+      if (!card) return;
+      if (card.senderUserID !== att.userId && card.recipientUserID !== att.userId) {
+        ws.send(JSON.stringify(runError("Only the sender or the recipient can file this decision.")));
+        return;
+      }
+      const business = await this.fileUnder(orgId, payload.business, att.githubId);
+      if (business === undefined) return;
+      const updated = { ...card, business: business || undefined };
+      if (!business) delete updated.business;
+      await saveCard(this.db, orgId, updated);
+      await this.log(orgId, {
+        cardId: card.id, type: "filed", action: business || null, actorUserId: att.userId, snapshot: updated,
+      });
+      const { forEveryone } = upsertEvents(updated, { isNew: false });
+      for (const ev of forEveryone) this.broadcast(orgId, ev);
       return;
     }
 
@@ -390,6 +417,21 @@ export class OrgRelay {
     }
     } catch (err) {
       try { ws.send(JSON.stringify(runError(err.message))); } catch {}
+    }
+  }
+
+  /// The slug a card is filed under, creating the business if the name is
+  /// new. `null` and "" mean "no business" and come back as null; anything
+  /// that does not make a slug is ignored and comes back as undefined.
+  async fileUnder(orgId, value, githubId) {
+    if (value === null || value === "") return null;
+    if (typeof value !== "string" || !businessSlug(value)) return undefined;
+    try {
+      const business = await upsertBusiness(this.db, orgId, { name: value, createdBy: githubId });
+      return business?.slug || undefined;
+    } catch (err) {
+      console.error("business upsert failed", err?.message || err);
+      return businessSlug(value);
     }
   }
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import type { Business } from '../types/card'
 
 interface Props {
   relayHttpUrl: string
@@ -7,10 +8,20 @@ interface Props {
   sessionToken: string
   onSendCard: (card: any) => void
   onLog: (message: string) => void
+  businesses?: Business[]
+  // The chip the feed is filtered to, which is what a new decision is most
+  // likely about. Empty means let the AI decide from the instruction.
+  defaultBusiness?: string | null
 }
 
-export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, sessionToken, onSendCard, onLog }) => {
+export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, sessionToken, onSendCard, onLog, businesses = [], defaultBusiness = null }) => {
   const [text, setText] = useState('')
+  const [business, setBusiness] = useState<string>('')
+  const [lastDefault, setLastDefault] = useState<string | null>(null)
+  if (defaultBusiness !== lastDefault) {
+    setLastDefault(defaultBusiness)
+    setBusiness(defaultBusiness || '')
+  }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -57,6 +68,9 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         routingReason: routed.routingReason || '',
         agentRoute: routed.agentRoute || '',
         createdAt: new Date().toISOString(),
+        // Yours if you picked one; the AI's when the instruction made it
+        // clear; nothing otherwise — it can be filed later from the card.
+        ...(business || routed.business ? { business: business || routed.business } : {}),
       }
 
       onSendCard(card)
@@ -79,6 +93,16 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         disabled={busy}
         onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
       />
+      <select
+        value={business}
+        aria-label="Business"
+        disabled={busy}
+        onChange={(e) => setBusiness(e.target.value)}
+        className="create-business"
+      >
+        <option value="">Business: auto</option>
+        {businesses.map((b) => <option key={b.slug} value={b.slug}>{b.name}</option>)}
+      </select>
       <button onClick={handleCreate} disabled={busy || !text.trim()}>
         {busy ? 'Creating…' : 'Create decision'}
       </button>
