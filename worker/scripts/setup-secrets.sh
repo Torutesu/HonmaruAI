@@ -85,6 +85,9 @@ fi
 say "2. Email (Mailgun)"
 note "The floor: only used when no push reached the person. Blank to skip."
 mg_domain=$(ask 'Mailgun sending domain (e.g. mg.example.com)' '')
+case "$mg_domain" in
+  *[!A-Za-z0-9.-]*) echo "  Mailgun — skipped: that is not a domain." >&2; mg_domain="" ;;
+esac
 if [ -n "$mg_domain" ]; then
   mg_key=$(ask_secret 'Mailgun private API key')
   mg_from=$(ask 'From line' "Honmaru AI <no-reply@$mg_domain>")
@@ -100,10 +103,26 @@ fi
 
 say "3. Where the web client lives"
 note "Where a notification tap and an email link open. Blank to skip."
-put APP_WEB_URL "$(ask 'Web client URL (e.g. https://honmaru-web.pages.dev)' '')"
+web_url=$(ask 'Web client URL (e.g. https://honmaru-web.pages.dev)' '')
+# The Worker builds a link out of this on every notification, and anything
+# that is not an absolute URL throws there. A pasted command must not become
+# the value: refuse it here rather than break every push.
+case "$web_url" in
+  "") note "  APP_WEB_URL — skipped" ;;
+  http://*|https://*) put APP_WEB_URL "$web_url" ;;
+  *)
+    echo "  APP_WEB_URL — NOT set: that is not a URL (it must start with https://)." >&2
+    echo "      npx -y wrangler@4 secret put APP_WEB_URL" >&2
+    ;;
+esac
 
 say "4. What is live now"
 host=$(ask 'Worker host' 'tiktokforwork.torubj0904.workers.dev')
+# Same reason, and here a bad answer only makes curl complain — so fall back
+# rather than stop with everything already set.
+case "$host" in
+  *[!A-Za-z0-9.-]*|"") note "  that is not a hostname; using the default"; host=tiktokforwork.torubj0904.workers.dev ;;
+esac
 # Secrets take effect on the running Worker immediately; no redeploy needed.
 curl -fsS "https://$host/health" | python3 -m json.tool 2>/dev/null \
   || curl -fsS "https://$host/health" \

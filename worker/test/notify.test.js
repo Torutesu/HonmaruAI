@@ -167,3 +167,38 @@ test("composeAlert and composeEmail agree on the words", () => {
   expect(email.text).toContain("Two floors");
   expect(email.text).toContain("https://x.example/?card=c");
 });
+
+test("a mistyped APP_WEB_URL costs the link, not the notification", async () => {
+  // `new URL` throws on anything that is not absolute, and this is built into
+  // the payload of every push — so a secret set to a pasted shell command
+  // silently stopped every notification on every channel.
+  const bodies = [];
+  interceptAPNs("tok-taro", bodies);
+  const result = await notifyCard(apns({ APP_WEB_URL: "cd ~/HonmaruAI" }), {
+    card: { id: "c-badlink", recipientUserID: "taro", senderUserID: "alice", status: "pending", title: "Still arrives" },
+    kind: "created", excludeLogin: "alice",
+  });
+  expect(result.sent).toBe(1);
+  expect(bodies[0].aps.alert.title).toBe("Still arrives");
+
+  // The email path builds the same link, and must survive it too.
+  let form;
+  fetchMock.get("https://api.mailgun.net")
+    .intercept({ path: "/v3/mg.example.com/messages", method: "POST", body: (b) => { form = new URLSearchParams(b); return true; } })
+    .reply(200, { id: "<msg>" });
+  const mailed = await notifyCard(mail({ APP_WEB_URL: "not a url" }), {
+    card: { id: "c-badlink-2", recipientUserID: "u:kenji@example.com", senderUserID: "alice", status: "pending", title: "Also arrives" },
+    kind: "created", excludeLogin: "alice",
+  });
+  expect(mailed.channels.email).toBe(1);
+  expect(form.get("text")).not.toContain("not a url");
+
+  // A good one still produces the link.
+  const good = [];
+  interceptAPNs("tok-taro", good);
+  await notifyCard(apns({ APP_WEB_URL: "https://honmaru-web.pages.dev" }), {
+    card: { id: "c-goodlink", recipientUserID: "taro", senderUserID: "alice", status: "pending", title: "With a link" },
+    kind: "created", excludeLogin: "alice",
+  });
+  expect(good[0].aps.alert.title).toBe("With a link");
+});
