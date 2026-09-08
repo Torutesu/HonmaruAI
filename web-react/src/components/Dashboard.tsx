@@ -300,7 +300,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {panel === 'compose' && (
         <div className="sheet sheet-bottom" role="dialog" aria-label={t('Tell your AI')}>
           <div className="sheet-title">{t('Tell your AI')}</div>
-          <p className="sheet-hint">Who it is for, what they decide, and by when. Your AI writes the card and routes it.</p>
+          <p className="sheet-hint">{t('compose.hint')}</p>
           <CreateDecision
             relayHttpUrl={relayHttpUrl}
             orgId={orgId}

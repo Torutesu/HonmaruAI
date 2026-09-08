@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { properName } from '../utils/names'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
@@ -18,6 +18,16 @@ interface Props {
 export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, sessionToken, onSendCard, onLog, onDone, autoFocus }) => {
   const t = useT()
   const [text, setText] = useState('')
+  const box = useRef<HTMLTextAreaElement>(null)
+
+  // Grow to fit what is in it, up to a point, so a long instruction is
+  // readable without becoming a page of its own.
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`
+  }, [text])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,14 +98,21 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
 
   return (
     <div className="create-decision">
-      <input
-        type="text"
+      {/* A sentence, not a search box. On one line anything longer than the
+          field scrolled out of sight, so you could not read what you were
+          about to send — which is the whole interaction. Enter still sends;
+          shift-Enter is a new line. */}
+      <textarea
+        ref={box}
         value={text}
+        rows={1}
         autoFocus={autoFocus}
         onChange={(e) => setText(e.target.value)}
         placeholder={t('Tell your AI — e.g. ask Yuki to approve the spring menu by Friday')}
         disabled={busy}
-        onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCreate() }
+        }}
       />
       <button onClick={handleCreate} disabled={busy || !text.trim()}>
         {busy ? t('Routing…') : t('Send')}

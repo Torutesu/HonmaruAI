@@ -382,13 +382,19 @@
   cursor: pointer;
 }
 
-.create-decision { display: flex; gap: 8px; }
-.create-decision input {
+.create-decision { display: flex; gap: 8px; align-items: flex-end; }
+.create-decision textarea {
   flex: 1;
+  min-width: 0;
   border: 1px solid #e8e8e8;
-  border-radius: 9999px;
+  border-radius: 20px;
   padding: 12px 16px;
   font-size: 15px;
+  font-family: inherit;
+  line-height: 1.45;
+  resize: none;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 .create-decision button {
   background: #202020; color: white; border: none; border-radius: 9999px; padding: 12px 18px; font-weight: 600; cursor: pointer;
@@ -400,7 +406,7 @@
   .brand, .topbar-right button, .sheet-title, .sheet-title .close { color: #ededef; }
   .topbar-right button { background: rgba(9,9,11,0.7); border-color: #26262b; }
   .sheet, .toast { background: #111113; color: #ededef; border-color: #26262b; }
-  .create-decision input { background: #18181b; color: #ededef; border-color: #26262b; }
+  .create-decision textarea { background: #18181b; color: #ededef; border-color: #26262b; }
 }
 
 /* You and the record. */

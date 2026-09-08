@@ -73,6 +73,7 @@ const ja: Dict = {
 
   // The feed
   'Tell your AI': 'AIに伝える',
+  'compose.hint': '誰に、何を決めてもらい、いつまでか。AIがカードにして振り分けます。',
   Feed: 'フィード',
   History: '履歴',
   Tools: 'ツール',
@@ -292,6 +293,8 @@ const ja: Dict = {
 // well as a key, so they get a name and an entry here; `t` falls back through
 // this before falling back to the key itself.
 const en: Dict = {
+  'compose.hint':
+    'Who it is for, what they decide, and by when. Your AI writes the card and routes it.',
   'tools.lede':
     'Connected tools feed your AI. They do not put channels in here — what comes back is decisions, in the same feed as everything else.',
   'notify.language':

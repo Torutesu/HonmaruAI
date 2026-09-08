@@ -201,10 +201,24 @@ await step('the relay is connected', async () => {
 await step('telling your AI something produces a decision', async () => {
   await page.click('[data-tab="compose"]')
   await page.waitForSelector('.sheet-bottom')
-  const box = await page.$('.create-decision input')
+  const box = await page.$('.create-decision textarea')
   if (!box) throw new Error('the compose sheet has no text field')
-  await box.fill('Approve the new supplier price for the cafe')
+  // A sentence longer than the field used to scroll out of sight, leaving you
+  // unable to read what you were about to send — which is the interaction.
+  const sentence = 'Approve the new supplier price for the cafe before the weekend, and tell Kenji either way'
+  await box.fill(sentence)
+  await page.waitForTimeout(200)
+  const readable = await page.evaluate(() => {
+    const el = document.querySelector('.create-decision textarea')
+    // Its own scroll height is what it would need to show everything.
+    return { shown: el.clientHeight, needed: el.scrollHeight, right: el.getBoundingClientRect().right }
+  })
+  if (readable.needed > readable.shown + 2) {
+    throw new Error(`the compose box hides ${readable.needed - readable.shown}px of what you typed`)
+  }
+  if (readable.right > 391) throw new Error('the compose box runs off the phone')
   await shot('08-compose')
+  await box.fill('Approve the new supplier price for the cafe')
   const send = await page.$('.create-decision button')
   if (!send) throw new Error('the compose sheet has no send button')
   await send.click()
@@ -383,8 +397,8 @@ await step('choosing a language changes the interface, and changing back returns
   // from the feed — on a phone an open screen hides the tab bar, which is the
   // point of it, so the nav is not clickable from under one.
   await page.click('nav [data-tab="compose"]')
-  await page.waitForSelector('.sheet-bottom .create-decision input', { timeout: 10000 })
-  await page.fill('.sheet-bottom .create-decision input', '来週の値上げを承認してほしい')
+  await page.waitForSelector('.sheet-bottom .create-decision textarea', { timeout: 10000 })
+  await page.fill('.sheet-bottom .create-decision textarea', '来週の値上げを承認してほしい')
   await page.click('.sheet-bottom .create-decision button')
   await page.waitForTimeout(2500)
   await closeEverything()
@@ -451,8 +465,8 @@ await step('the app is usable on a laptop', async () => {
   // A feed with nothing in it proves nothing about the feed. Compose one from
   // the laptop, which also puts the compose sheet on this size under test.
   await d.click('[data-tab="compose"]')
-  await d.waitForSelector('.create-decision input')
-  await d.fill('.create-decision input', 'Ask the designer to review the new card layout')
+  await d.waitForSelector('.create-decision textarea')
+  await d.fill('.create-decision textarea', 'Ask the designer to review the new card layout')
   await d.click('.create-decision button')
   await d.waitForSelector('.card-title', { timeout: 25000 })
   await d.waitForTimeout(600)
