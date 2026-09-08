@@ -1,0 +1,118 @@
+/* Semantic surfaces apply to the entire journey, including entry and settings. */
+:root {
+  --canvas: #fbfbfc;
+  --surface: #ffffff;
+  --surface-raised: #f2f2f2;
+  --text-primary: #202020;
+  --text-secondary: #646464;
+  --text-muted: #737373;
+  --border-subtle: #e8e8e8;
+  --paper: var(--canvas);
+  --ink: var(--text-primary);
+  --secondary: var(--text-secondary);
+  --muted: var(--text-muted);
+  --border: var(--border-subtle);
+  --surface-soft: var(--surface-raised);
+  --primary: #111111;
+  --on-primary: #ffffff;
+  --blue: #245ec7;
+  --violet: #6647f0;
+  --violet-soft: #f5f1ff;
+  --green: #176745;
+  --green-soft: #eaf5ee;
+  --danger: #a02b43;
+  --danger-soft: #fff0f3;
+}
+
+.btn-primary { transition: transform .15s var(--ease-settle); }
+.screen.figma-welcome { background: var(--canvas); color: var(--text-primary); }
+.figma-welcome-main p, .figma-welcome-sample { color: var(--text-secondary); }
+.screen.onboarding-figma { background: var(--canvas); }
+
+@media (min-width: 900px) {
+  .screen.auth-screen { padding: clamp(24px, 7vh, 72px) 24px 24px; }
+  .auth-screen .screen-head, .auth-screen .screen-body { max-width: 520px; }
+  .auth-screen .screen-head { padding-top: 0; padding-bottom: 28px; flex-shrink: 0; }
+  .auth-screen .screen-body { flex: 0 1 auto; padding-bottom: 24px; }
+  .auth-screen .display { margin-top: 0; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #111214;
+    --surface: #1b1d21;
+    --surface-raised: #272a30;
+    --text-primary: #f2f3f5;
+    --text-secondary: #b7bbc5;
+    --text-muted: #a0a5b1;
+    --border-subtle: #393d46;
+    /* Legacy components consume these roles for inputs, labels and settings. */
+    --signal-white: var(--surface);
+    --ink-black: var(--text-primary);
+    --onyx: var(--text-primary);
+    --carbon: #d9dce4;
+    --slate: var(--text-secondary);
+    --ash: var(--text-muted);
+    --fog: #8c919e;
+    --cloud: #525864;
+    --bone: var(--border-subtle);
+    --mist: var(--surface-raised);
+    --plaster: var(--canvas);
+    --mercury: var(--surface-raised);
+    --brand-violet: #bba9ff;
+    --signal-blue: #80baff;
+    --primary: var(--text-primary);
+    --on-primary: #17191d;
+    --blue: #9ac6ff;
+    --violet: #bba9ff;
+    --violet-soft: #2c2540;
+    --green: #8ddbb4;
+    --green-soft: #20352d;
+    --danger: #ffabc6;
+    --danger-soft: #35242d;
+  }
+
+  html, body, .feed, .classic, .screen,
+  .shell .screen.figma-profile, .shell .tabbar, .screen-foot { background: var(--canvas); color: var(--text-primary); }
+  .feed .card, .ask-bar, .ask-menu, .source-chip, .decide.decline,
+  .sheet, .figma-compose .compose-actions,
+  .figma-profile-identity, .figma-profile-group,
+  .rows, .plan-card, .form-note, .field input, .field select, .field textarea,
+  .screen-head .back, .otp-box {
+    background: var(--surface); color: var(--text-primary); border-color: var(--border-subtle);
+  }
+  .shell .tabbar, .cl-row, .screen-foot, .figma-profile-group > .figma-profile-row + .figma-profile-row {
+    border-color: var(--border-subtle);
+  }
+  .mode-switch, .avatar, .ask-plus, .topbar-right .avatar-button,
+  .figma-profile-avatar, .figma-profile-assistant, .figma-profile-plan { background: var(--surface-raised); color: var(--text-secondary); }
+  .mode-switch button { color: var(--text-secondary); }
+  .mode-switch button.on { background: #414650; color: var(--text-primary); }
+  .feed .card-title, .rb-who strong, .rec-head, .sheet-title, .row { color: var(--text-primary); }
+  .feed .card-summary, .card-kind, .legend, .legend.on, .rb-label, .rb-meta,
+  .rb-quote, .rb-expand, .rb-link, .card-background, .rec-reason,
+  .source-business, .ask-status, .sheet-hint, .cl-meta, .cl-when, .cl-filters label,
+  .figma-profile-person p, .figma-profile-assistant-copy small,
+  .figma-profile-plan small, .figma-profile-language > select { color: var(--text-secondary); }
+  .ask-bar input::placeholder, .field input::placeholder, .field textarea::placeholder { color: var(--text-muted); opacity: 1; }
+  .recommendation { background: #2c2540; }
+  .rec-head > svg, .rec-head strong { color: var(--brand-violet); }
+  .cl-section ul { background: var(--surface); }
+  .cl-mark { background: #30283f; color: var(--brand-violet); }
+  .cl-section h2, .cl-title { color: var(--text-primary); }
+  .cl-search label, .cl-search button, .cl-filters select { border-color: var(--border-subtle); color: var(--text-secondary); }
+  .cl-search input, .cl-filters select { color: var(--text-primary); }
+  .cl-nudge { background: var(--surface-raised); color: var(--text-primary); border-color: var(--border-subtle); }
+  .figma-welcome-actions .btn-primary, .btn-primary { background: var(--text-primary); color: #17191d; }
+  .figma-welcome-actions .btn-primary:hover:not(:disabled), .btn-primary:hover:not(:disabled) { background: #d9dce4; color: #17191d; }
+  .figma-welcome-actions .btn-ghost { background: var(--surface); color: var(--text-primary); border-color: var(--border-subtle); }
+  .btn-quiet:hover { color: var(--text-primary); }
+  .form-error, .create-error { background: #35242d; color: #ffabc6; border-color: #77445a; }
+  .switch::after { background: #ffffff; }
+  .onboarding-choices button { color: var(--text-primary); border-color: var(--border-subtle); }
+  .onboarding-choices button.selected { background: var(--text-primary); color: #17191d; }
+  .billing-toggle button.on .save { color: #14623f; }
+  .record-open small, .record-date, .record-note { color: var(--text-secondary); }
+  .record-action { color: var(--brand-violet); }
+  .demo-label { color: var(--text-muted); }
+}

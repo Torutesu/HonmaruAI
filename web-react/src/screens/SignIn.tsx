@@ -83,7 +83,7 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
   const canSubmit = emailLooksReal && (!usePassword || password.length >= 8) && !busy
 
   return (
-    <div className="screen">
+    <div className="screen auth-screen">
       <div className="screen-head">
         <button className="back" onClick={onBack} aria-label={t('Back')}>‹</button>
         <span className="head-title">{t(mode === 'signup' ? 'Create account' : 'Sign in')}</span>

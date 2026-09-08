@@ -100,7 +100,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
   }
 
   return (
-    <div className="screen">
+    <div className="screen auth-screen">
       <div className="screen-head">
         <button className="back" onClick={onBack} aria-label={t('Back')}>‹</button>
         <span className="head-title">{t('Check your email')}</span>

@@ -76,10 +76,41 @@ const geometry = (page, selectors) => page.evaluate((entries) => {
   }
 }, selectors)
 
+const checkContrast = async (page, view) => {
+  const selectors = {
+    welcome: ['.figma-welcome-main h1', '.figma-welcome-main p', '.figma-welcome-actions .btn-primary', '.figma-welcome-actions .btn-ghost', '.figma-welcome-sample'],
+    'sign-in': ['.display', '.lede', '.field label', '#email', '#password', '.btn-primary', '.btn-quiet'],
+    feed: ['.page:not([aria-hidden]) .card-title', '.page:not([aria-hidden]) .card-summary', '.page:not([aria-hidden]) .rb-meta', '.page:not([aria-hidden]) .rec-reason', '.page:not([aria-hidden]) .rec-head strong'],
+    profile: ['.figma-profile-header h1', '.figma-profile-person h2', '.figma-profile-person p', '.figma-profile-assistant-copy small', '.figma-profile-row'],
+    classic: ['.cl-title', '.cl-meta', '.cl-when', '.cl-section h2'],
+    compose: ['.sheet-title', '.sheet-hint', '.sheet .field label'],
+    'compose-preview': ['.sheet-title', '.sheet .field label', '.sheet .form-note'],
+  }[view] || []
+  const values = await page.evaluate((selectors) => {
+    const rgb = value => (value.match(/[\d.]+/g) || []).map(Number)
+    const luminance = c => c.slice(0,3).map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((n,v,i) => n + v * [.2126,.7152,.0722][i], 0)
+    return selectors.map(selector => {
+      const node = document.querySelector(selector)
+      if (!node) throw new Error(`Missing contrast target: ${selector}`)
+      const fg = rgb(getComputedStyle(node).color)
+      let bg = [17,18,20], opacity = 1
+      for(let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+        const style = getComputedStyle(ancestor), color = rgb(style.backgroundColor)
+        opacity *= Number(style.opacity)
+        if (color.length === 3 || color[3] === 1) { bg = color; break }
+      }
+      const a = luminance(fg), b = luminance(bg)
+      return { selector, foreground:fg, background:bg, opacity, ratio:(Math.max(a,b)+.05)/(Math.min(a,b)+.05) }
+    })
+  }, selectors)
+  for (const value of values) assert(value.ratio >= 4.5, `${view} unreadable text: ${value.selector}, contrast ${value.ratio.toFixed(2)}:1`)
+  return values
+}
+
 try {
-  for (const viewport of viewports) {
-    const label = `${viewport.width}x${viewport.height}`
-    const context = await browser.newContext({ viewport, deviceScaleFactor: 1, locale: 'en-US', colorScheme: 'light', reducedMotion: 'reduce', serviceWorkers: 'block' })
+  for (const colorScheme of ['light', 'dark']) for (const viewport of viewports) {
+    const label = `${colorScheme}-${viewport.width}x${viewport.height}`
+    const context = await browser.newContext({ viewport, deviceScaleFactor: 1, locale: 'en-US', colorScheme, reducedMotion: 'reduce', serviceWorkers: 'block' })
     // Fresh context: no saved session, account cookies, or browser storage are loaded.
     await context.route('**/*', (route) => {
       const request = route.request(), url = new URL(request.url())
@@ -110,9 +141,10 @@ try {
     const home = () => nav().locator('[data-tab="feed"]').click()
     const profile = () => nav().locator('[data-tab="you"]').click()
     const checkpoint = async (name, test) => {
-      const result = { viewport, check: name, result: 'passed', screenshot: `${label}-${name}.png` }
+      const result = { viewport, colorScheme, check: name, result: 'passed', screenshot: `${label}-${name}.png` }
       try {
         await test(result)
+        if (colorScheme === 'dark') result.contrast = await checkContrast(page, name)
         console.log(`PASS ${label} ${name}`)
       } catch (error) {
         result.result = 'failed'
@@ -147,12 +179,25 @@ try {
           assert(g[name].top >= -tolerance && g[name].bottom <= viewport.height + tolerance, `Welcome ${name} is not fully inside the viewport`)
         }
       })
+      await checkpoint('sign-in', async (result) => {
+        await page.getByRole('button', { name: 'I already have an account', exact: true }).click()
+        await page.getByLabel('Email', { exact: true }).fill('visual-check@honmaru.invalid')
+        await page.getByRole('button', { name: 'Use a password instead', exact: true }).click()
+        await page.getByLabel('Password', { exact: true }).fill('Visual-check-only')
+        await ready(page)
+        const g = await geometry(page, { body: '.auth-screen .screen-body', email: '#email', password: '#password', submit: '.auth-screen button[type=submit]' })
+        result.geometry = g
+        for (const name of ['body', 'email', 'password', 'submit']) centered(g[name], viewport, `Sign-in ${name}`)
+        noHorizontalOverflow(g.document, 'Sign-in document')
+        assert(g.submit.bottom <= viewport.height, 'Sign-in action extends below viewport')
+        // No credentials are submitted; this is only an editable form check.
+      })
       await page.goto(sampleURL.href, { waitUntil: 'networkidle' })
       await page.locator(`${current} .card`).waitFor()
       await checkpoint('feed', async (result) => {
         await ready(page)
         const g = await geometry(page, {
-          card: `${current} .card`, title: `${current} .card-title`, summary: `${current} .card-summary`,
+          recommendation: `${current} .recommendation`, card: `${current} .card`, title: `${current} .card-title`, summary: `${current} .card-summary`,
           topbar: '.topbar', actions: `${current} .decide-row`, ask: `${current} .ask-bar`, nav: '.tabbar',
         })
         result.geometry = g
@@ -161,6 +206,7 @@ try {
         assert(g.title.left >= g.card.left - tolerance && g.title.right <= g.card.right + tolerance, 'Title extends outside its card')
         assert(g.summary.left >= g.card.left - tolerance && g.summary.right <= g.card.right + tolerance, 'Summary extends outside its card')
         assert(g.topbar.top >= -tolerance && g.topbar.bottom <= g.card.top + tolerance, 'Topbar overlaps the visible card')
+        if (viewport.width >= 900) assert(g.recommendation.bottom <= g.card.bottom + tolerance, 'Standard desktop recommendation is clipped')
         assert(g.card.bottom <= g.actions.top + tolerance, 'Card overlaps decision actions')
         assert(g.actions.bottom <= g.ask.top + tolerance, 'Decision actions overlap the composer')
         assert(g.ask.bottom + clearance <= g.nav.top + tolerance, `Composer needs at least ${clearance}px clearance above navigation`)

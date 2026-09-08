@@ -111,11 +111,23 @@
   .figma-welcome-actions .btn { min-height: 50px; font-size: 14px; }
 }
 
-@media (min-width: 900px) and (max-height: 760px) {
+@media (min-width: 900px) and (max-height: 820px) {
+  :root { --app-nav-height: 72px; }
   .shell .topbar { top: 16px; }
-  .page-inner { padding-top: 76px; }
-  .feed .card { padding: 24px; }
-  .decide-row { margin-top: 16px; }
-  .ask-area { padding-top: 16px; }
+  .page-inner { padding-top: 76px; padding-bottom: calc(var(--app-nav-height) + 16px + env(safe-area-inset-bottom)); }
+  .feed .card { padding: 18px 24px; }
+  .card-top { margin-bottom: 10px; }
+  .feed .card-title { font-size: 26px; }
+  .feed .card-summary { font-size: 14px; line-height: 1.6; margin-top: 12px; }
+  .card-sources, .requested-by { margin-top: 14px; }
+  .source-chip { font-size: 12px; }
+  .rb-label { margin-bottom: 8px; }
+  .rb-quote, .rec-reason { font-size: 12px; line-height: 1.6; }
+  .recommendation { padding: 12px; margin-top: 14px; }
+  .rec-head { font-size: 14px; }
+  .decide-row { margin-top: 12px; }
+  .decide { width: 52px; height: 52px; }
+  .ask-area { padding-top: 12px; }
+  .ask-bar { min-height: 50px; padding: 4px; }
   .screen.figma-welcome { justify-content: safe center; gap: 24px; }
 }

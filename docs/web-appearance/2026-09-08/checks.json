@@ -1,0 +1,8529 @@
+{
+  "startedAt": "2026-09-08T12:03:35.433Z",
+  "checkedAt": "2026-09-08T12:03:58.192Z",
+  "result": "passed",
+  "environment": "Fresh local Welcome and sample contexts; no account state, Worker, or external provider used",
+  "viewports": [
+    {
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "width": 390,
+      "height": 844
+    },
+    {
+      "width": 320,
+      "height": 640
+    }
+  ],
+  "constraints": {
+    "roundingToleranceCSSPixels": 1,
+    "centerToleranceCSSPixels": 2,
+    "minimumComposerNavigationClearanceCSSPixels": 8
+  },
+  "checksPassed": 84,
+  "checksFailed": 0,
+  "runtimeErrors": [],
+  "blockedRequests": [],
+  "allowedDevelopmentSockets": 0,
+  "checks": [
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "light",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "light-1024x768-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 480,
+          "right": 544,
+          "top": 177.3125,
+          "bottom": 241.3125,
+          "width": 64,
+          "height": 64,
+          "centerX": 512,
+          "centerY": 209.3125,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 331,
+          "right": 693,
+          "top": 269.3125,
+          "bottom": 355.6875,
+          "width": 362,
+          "height": 86.375,
+          "centerX": 512,
+          "centerY": 312.5,
+          "scrollWidth": 362,
+          "clientWidth": 362
+        },
+        "intro": {
+          "left": 297,
+          "right": 727,
+          "top": 177.3125,
+          "bottom": 420.6875,
+          "width": 430,
+          "height": 243.375,
+          "centerX": 512,
+          "centerY": 299,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "actions": {
+          "left": 297,
+          "right": 727,
+          "top": 444.6875,
+          "bottom": 590.6875,
+          "width": 430,
+          "height": 146,
+          "centerX": 512,
+          "centerY": 517.6875,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "start": {
+          "left": 317,
+          "right": 707,
+          "top": 444.6875,
+          "bottom": 494.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 469.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "signIn": {
+          "left": 317,
+          "right": 707,
+          "top": 503.6875,
+          "bottom": 553.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 528.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "sample": {
+          "left": 317,
+          "right": 707,
+          "top": 562.6875,
+          "bottom": 590.6875,
+          "width": 390,
+          "height": 28,
+          "centerX": 512,
+          "centerY": 576.6875,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "light",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "light-1024x768-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 252,
+          "right": 772,
+          "top": 117.75,
+          "bottom": 617.484375,
+          "width": 520,
+          "height": 499.734375,
+          "centerX": 512,
+          "centerY": 367.6171875,
+          "scrollWidth": 520,
+          "clientWidth": 520
+        },
+        "email": {
+          "left": 276,
+          "right": 748,
+          "top": 231.984375,
+          "bottom": 281.984375,
+          "width": 472,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 256.984375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "password": {
+          "left": 276,
+          "right": 748,
+          "top": 321.484375,
+          "bottom": 371.484375,
+          "width": 472,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 346.484375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "submit": {
+          "left": 276,
+          "right": 748,
+          "top": 385.484375,
+          "bottom": 437.484375,
+          "width": 472,
+          "height": 52,
+          "centerX": 512,
+          "centerY": 411.484375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "light",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "light-1024x768-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 201,
+          "right": 823,
+          "top": 416.28125,
+          "bottom": 507.65625,
+          "width": 622,
+          "height": 91.375,
+          "centerX": 512,
+          "centerY": 461.96875,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "card": {
+          "left": 176,
+          "right": 848,
+          "top": 103.328125,
+          "bottom": 526.65625,
+          "width": 672,
+          "height": 423.328125,
+          "centerX": 512,
+          "centerY": 314.9921875,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "title": {
+          "left": 201,
+          "right": 823,
+          "top": 148.828125,
+          "bottom": 182.625,
+          "width": 622,
+          "height": 33.796875,
+          "centerX": 512,
+          "centerY": 165.7265625,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "summary": {
+          "left": 201,
+          "right": 823,
+          "top": 194.625,
+          "bottom": 239.40625,
+          "width": 622,
+          "height": 44.78125,
+          "centerX": 512,
+          "centerY": 217.015625,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "topbar": {
+          "left": 152,
+          "right": 872,
+          "top": 16,
+          "bottom": 60,
+          "width": 720,
+          "height": 44,
+          "centerX": 512,
+          "centerY": 38,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "actions": {
+          "left": 176,
+          "right": 848,
+          "top": 538.65625,
+          "bottom": 590.65625,
+          "width": 672,
+          "height": 52,
+          "centerX": 512,
+          "centerY": 564.65625,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "ask": {
+          "left": 176,
+          "right": 848,
+          "top": 602.65625,
+          "bottom": 652.65625,
+          "width": 672,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 627.65625,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 152,
+          "right": 872,
+          "top": 696,
+          "bottom": 768,
+          "width": 720,
+          "height": 72,
+          "centerX": 512,
+          "centerY": 732,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "light",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "light-1024x768-profile.png",
+      "geometry": {
+        "body": {
+          "left": 152,
+          "right": 872,
+          "top": 88,
+          "bottom": 696,
+          "width": 720,
+          "height": 608,
+          "centerX": 512,
+          "centerY": 392,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "identity": {
+          "left": 176,
+          "right": 848,
+          "top": 88,
+          "bottom": 253,
+          "width": 672,
+          "height": 165,
+          "centerX": 512,
+          "centerY": 170.5,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 152,
+          "right": 872,
+          "top": 696,
+          "bottom": 768,
+          "width": 720,
+          "height": 72,
+          "centerX": 512,
+          "centerY": 732,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "light",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "light-1024x768-classic.png",
+      "geometry": {
+        "content": {
+          "left": 152,
+          "right": 872,
+          "top": 0,
+          "bottom": 1001,
+          "width": 720,
+          "height": 1001,
+          "centerX": 512,
+          "centerY": 500.5,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "header": {
+          "left": 152,
+          "right": 872,
+          "top": 0,
+          "bottom": 68,
+          "width": 720,
+          "height": 68,
+          "centerX": 512,
+          "centerY": 34,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "nav": {
+          "left": 152,
+          "right": 872,
+          "top": 696,
+          "bottom": 768,
+          "width": 720,
+          "height": 72,
+          "centerX": 512,
+          "centerY": 732,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "light",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "light-1024x768-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 176,
+          "right": 848,
+          "top": 146.0625,
+          "bottom": 621.9375,
+          "width": 672,
+          "height": 475.875,
+          "centerX": 512,
+          "centerY": 384,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 204,
+          "right": 820,
+          "top": 514.9375,
+          "bottom": 593.9375,
+          "width": 616,
+          "height": 79,
+          "centerX": 512,
+          "centerY": 554.4375,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "light",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "light-1024x768-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 176,
+          "right": 848,
+          "top": 32,
+          "bottom": 736,
+          "width": 672,
+          "height": 704,
+          "centerX": 512,
+          "centerY": 384,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 204,
+          "right": 820,
+          "top": 657,
+          "bottom": 736,
+          "width": 616,
+          "height": 79,
+          "centerX": 512,
+          "centerY": 696.5,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "light",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "light-1280x720-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 608,
+          "right": 672,
+          "top": 153.3125,
+          "bottom": 217.3125,
+          "width": 64,
+          "height": 64,
+          "centerX": 640,
+          "centerY": 185.3125,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 459,
+          "right": 821,
+          "top": 245.3125,
+          "bottom": 331.6875,
+          "width": 362,
+          "height": 86.375,
+          "centerX": 640,
+          "centerY": 288.5,
+          "scrollWidth": 362,
+          "clientWidth": 362
+        },
+        "intro": {
+          "left": 425,
+          "right": 855,
+          "top": 153.3125,
+          "bottom": 396.6875,
+          "width": 430,
+          "height": 243.375,
+          "centerX": 640,
+          "centerY": 275,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "actions": {
+          "left": 425,
+          "right": 855,
+          "top": 420.6875,
+          "bottom": 566.6875,
+          "width": 430,
+          "height": 146,
+          "centerX": 640,
+          "centerY": 493.6875,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "start": {
+          "left": 445,
+          "right": 835,
+          "top": 420.6875,
+          "bottom": 470.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 445.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "signIn": {
+          "left": 445,
+          "right": 835,
+          "top": 479.6875,
+          "bottom": 529.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 504.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "sample": {
+          "left": 445,
+          "right": 835,
+          "top": 538.6875,
+          "bottom": 566.6875,
+          "width": 390,
+          "height": 28,
+          "centerX": 640,
+          "centerY": 552.6875,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "light",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "light-1280x720-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 380,
+          "right": 900,
+          "top": 114.390625,
+          "bottom": 614.125,
+          "width": 520,
+          "height": 499.734375,
+          "centerX": 640,
+          "centerY": 364.2578125,
+          "scrollWidth": 520,
+          "clientWidth": 520
+        },
+        "email": {
+          "left": 404,
+          "right": 876,
+          "top": 228.625,
+          "bottom": 278.625,
+          "width": 472,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 253.625,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "password": {
+          "left": 404,
+          "right": 876,
+          "top": 318.125,
+          "bottom": 368.125,
+          "width": 472,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 343.125,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "submit": {
+          "left": 404,
+          "right": 876,
+          "top": 382.125,
+          "bottom": 434.125,
+          "width": 472,
+          "height": 52,
+          "centerX": 640,
+          "centerY": 408.125,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "light",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "light-1280x720-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 329,
+          "right": 951,
+          "top": 392.28125,
+          "bottom": 483.65625,
+          "width": 622,
+          "height": 91.375,
+          "centerX": 640,
+          "centerY": 437.96875,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "card": {
+          "left": 304,
+          "right": 976,
+          "top": 79.328125,
+          "bottom": 502.65625,
+          "width": 672,
+          "height": 423.328125,
+          "centerX": 640,
+          "centerY": 290.9921875,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "title": {
+          "left": 329,
+          "right": 951,
+          "top": 124.828125,
+          "bottom": 158.625,
+          "width": 622,
+          "height": 33.796875,
+          "centerX": 640,
+          "centerY": 141.7265625,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "summary": {
+          "left": 329,
+          "right": 951,
+          "top": 170.625,
+          "bottom": 215.40625,
+          "width": 622,
+          "height": 44.78125,
+          "centerX": 640,
+          "centerY": 193.015625,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "topbar": {
+          "left": 280,
+          "right": 1000,
+          "top": 16,
+          "bottom": 60,
+          "width": 720,
+          "height": 44,
+          "centerX": 640,
+          "centerY": 38,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "actions": {
+          "left": 304,
+          "right": 976,
+          "top": 514.65625,
+          "bottom": 566.65625,
+          "width": 672,
+          "height": 52,
+          "centerX": 640,
+          "centerY": 540.65625,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "ask": {
+          "left": 304,
+          "right": 976,
+          "top": 578.65625,
+          "bottom": 628.65625,
+          "width": 672,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 603.65625,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 280,
+          "right": 1000,
+          "top": 648,
+          "bottom": 720,
+          "width": 720,
+          "height": 72,
+          "centerX": 640,
+          "centerY": 684,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "light",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "light-1280x720-profile.png",
+      "geometry": {
+        "body": {
+          "left": 280,
+          "right": 1000,
+          "top": 88,
+          "bottom": 648,
+          "width": 720,
+          "height": 560,
+          "centerX": 640,
+          "centerY": 368,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "identity": {
+          "left": 304,
+          "right": 976,
+          "top": 88,
+          "bottom": 253,
+          "width": 672,
+          "height": 165,
+          "centerX": 640,
+          "centerY": 170.5,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 280,
+          "right": 1000,
+          "top": 648,
+          "bottom": 720,
+          "width": 720,
+          "height": 72,
+          "centerX": 640,
+          "centerY": 684,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "light",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "light-1280x720-classic.png",
+      "geometry": {
+        "content": {
+          "left": 280,
+          "right": 1000,
+          "top": 0,
+          "bottom": 1001,
+          "width": 720,
+          "height": 1001,
+          "centerX": 640,
+          "centerY": 500.5,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "header": {
+          "left": 280,
+          "right": 1000,
+          "top": 0,
+          "bottom": 68,
+          "width": 720,
+          "height": 68,
+          "centerX": 640,
+          "centerY": 34,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "nav": {
+          "left": 280,
+          "right": 1000,
+          "top": 648,
+          "bottom": 720,
+          "width": 720,
+          "height": 72,
+          "centerX": 640,
+          "centerY": 684,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "light",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "light-1280x720-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 304,
+          "right": 976,
+          "top": 122.0625,
+          "bottom": 597.9375,
+          "width": 672,
+          "height": 475.875,
+          "centerX": 640,
+          "centerY": 360,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 332,
+          "right": 948,
+          "top": 490.9375,
+          "bottom": 569.9375,
+          "width": 616,
+          "height": 79,
+          "centerX": 640,
+          "centerY": 530.4375,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "light",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "light-1280x720-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 304,
+          "right": 976,
+          "top": 32,
+          "bottom": 688,
+          "width": 672,
+          "height": 656,
+          "centerX": 640,
+          "centerY": 360,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 332,
+          "right": 948,
+          "top": 609,
+          "bottom": 688,
+          "width": 616,
+          "height": 79,
+          "centerX": 640,
+          "centerY": 648.5,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "light",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "light-1440x900-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 688,
+          "right": 752,
+          "top": 235.3125,
+          "bottom": 299.3125,
+          "width": 64,
+          "height": 64,
+          "centerX": 720,
+          "centerY": 267.3125,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 539,
+          "right": 901,
+          "top": 327.3125,
+          "bottom": 413.6875,
+          "width": 362,
+          "height": 86.375,
+          "centerX": 720,
+          "centerY": 370.5,
+          "scrollWidth": 362,
+          "clientWidth": 362
+        },
+        "intro": {
+          "left": 505,
+          "right": 935,
+          "top": 235.3125,
+          "bottom": 478.6875,
+          "width": 430,
+          "height": 243.375,
+          "centerX": 720,
+          "centerY": 357,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "actions": {
+          "left": 505,
+          "right": 935,
+          "top": 518.6875,
+          "bottom": 664.6875,
+          "width": 430,
+          "height": 146,
+          "centerX": 720,
+          "centerY": 591.6875,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "start": {
+          "left": 525,
+          "right": 915,
+          "top": 518.6875,
+          "bottom": 568.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 720,
+          "centerY": 543.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "signIn": {
+          "left": 525,
+          "right": 915,
+          "top": 577.6875,
+          "bottom": 627.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 720,
+          "centerY": 602.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "sample": {
+          "left": 525,
+          "right": 915,
+          "top": 636.6875,
+          "bottom": 664.6875,
+          "width": 390,
+          "height": 28,
+          "centerX": 720,
+          "centerY": 650.6875,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "light",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "light-1440x900-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 460,
+          "right": 980,
+          "top": 127,
+          "bottom": 626.734375,
+          "width": 520,
+          "height": 499.734375,
+          "centerX": 720,
+          "centerY": 376.8671875,
+          "scrollWidth": 520,
+          "clientWidth": 520
+        },
+        "email": {
+          "left": 484,
+          "right": 956,
+          "top": 241.234375,
+          "bottom": 291.234375,
+          "width": 472,
+          "height": 50,
+          "centerX": 720,
+          "centerY": 266.234375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "password": {
+          "left": 484,
+          "right": 956,
+          "top": 330.734375,
+          "bottom": 380.734375,
+          "width": 472,
+          "height": 50,
+          "centerX": 720,
+          "centerY": 355.734375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "submit": {
+          "left": 484,
+          "right": 956,
+          "top": 394.734375,
+          "bottom": 446.734375,
+          "width": 472,
+          "height": 52,
+          "centerX": 720,
+          "centerY": 420.734375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "light",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "light-1440x900-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 413,
+          "right": 1027,
+          "top": 508.46875,
+          "bottom": 618.65625,
+          "width": 614,
+          "height": 110.1875,
+          "centerX": 720,
+          "centerY": 563.5625,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "card": {
+          "left": 384,
+          "right": 1056,
+          "top": 92,
+          "bottom": 638,
+          "width": 672,
+          "height": 546,
+          "centerX": 720,
+          "centerY": 365,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "title": {
+          "left": 413,
+          "right": 1027,
+          "top": 153.5,
+          "bottom": 231.5,
+          "width": 614,
+          "height": 78,
+          "centerX": 720,
+          "centerY": 192.5,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "summary": {
+          "left": 413,
+          "right": 1027,
+          "top": 247.5,
+          "bottom": 300.28125,
+          "width": 614,
+          "height": 52.78125,
+          "centerX": 720,
+          "centerY": 273.890625,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "topbar": {
+          "left": 360,
+          "right": 1080,
+          "top": 24,
+          "bottom": 68,
+          "width": 720,
+          "height": 44,
+          "centerX": 720,
+          "centerY": 46,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "actions": {
+          "left": 384,
+          "right": 1056,
+          "top": 658,
+          "bottom": 714,
+          "width": 672,
+          "height": 56,
+          "centerX": 720,
+          "centerY": 686,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "ask": {
+          "left": 384,
+          "right": 1056,
+          "top": 734,
+          "bottom": 788,
+          "width": 672,
+          "height": 54,
+          "centerX": 720,
+          "centerY": 761,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 360,
+          "right": 1080,
+          "top": 812,
+          "bottom": 900,
+          "width": 720,
+          "height": 88,
+          "centerX": 720,
+          "centerY": 856,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "light",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "light-1440x900-profile.png",
+      "geometry": {
+        "body": {
+          "left": 360,
+          "right": 1080,
+          "top": 88,
+          "bottom": 812,
+          "width": 720,
+          "height": 724,
+          "centerX": 720,
+          "centerY": 450,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "identity": {
+          "left": 384,
+          "right": 1056,
+          "top": 88,
+          "bottom": 253,
+          "width": 672,
+          "height": 165,
+          "centerX": 720,
+          "centerY": 170.5,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 360,
+          "right": 1080,
+          "top": 812,
+          "bottom": 900,
+          "width": 720,
+          "height": 88,
+          "centerX": 720,
+          "centerY": 856,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "light",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "light-1440x900-classic.png",
+      "geometry": {
+        "content": {
+          "left": 360,
+          "right": 1080,
+          "top": 0,
+          "bottom": 1001,
+          "width": 720,
+          "height": 1001,
+          "centerX": 720,
+          "centerY": 500.5,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "header": {
+          "left": 360,
+          "right": 1080,
+          "top": 0,
+          "bottom": 68,
+          "width": 720,
+          "height": 68,
+          "centerX": 720,
+          "centerY": 34,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "nav": {
+          "left": 360,
+          "right": 1080,
+          "top": 812,
+          "bottom": 900,
+          "width": 720,
+          "height": 88,
+          "centerX": 720,
+          "centerY": 856,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "light",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "light-1440x900-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 384,
+          "right": 1056,
+          "top": 212.0625,
+          "bottom": 687.9375,
+          "width": 672,
+          "height": 475.875,
+          "centerX": 720,
+          "centerY": 450,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 412,
+          "right": 1028,
+          "top": 580.9375,
+          "bottom": 659.9375,
+          "width": 616,
+          "height": 79,
+          "centerX": 720,
+          "centerY": 620.4375,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "light",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "light-1440x900-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 384,
+          "right": 1056,
+          "top": 32,
+          "bottom": 868,
+          "width": 672,
+          "height": 836,
+          "centerX": 720,
+          "centerY": 450,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 412,
+          "right": 1028,
+          "top": 781.8125,
+          "bottom": 860.8125,
+          "width": 616,
+          "height": 79,
+          "centerX": 720,
+          "centerY": 821.3125,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "light",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "light-1920x1080-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 928,
+          "right": 992,
+          "top": 325.3125,
+          "bottom": 389.3125,
+          "width": 64,
+          "height": 64,
+          "centerX": 960,
+          "centerY": 357.3125,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 779,
+          "right": 1141,
+          "top": 417.3125,
+          "bottom": 503.6875,
+          "width": 362,
+          "height": 86.375,
+          "centerX": 960,
+          "centerY": 460.5,
+          "scrollWidth": 362,
+          "clientWidth": 362
+        },
+        "intro": {
+          "left": 745,
+          "right": 1175,
+          "top": 325.3125,
+          "bottom": 568.6875,
+          "width": 430,
+          "height": 243.375,
+          "centerX": 960,
+          "centerY": 447,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "actions": {
+          "left": 745,
+          "right": 1175,
+          "top": 608.6875,
+          "bottom": 754.6875,
+          "width": 430,
+          "height": 146,
+          "centerX": 960,
+          "centerY": 681.6875,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "start": {
+          "left": 765,
+          "right": 1155,
+          "top": 608.6875,
+          "bottom": 658.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 960,
+          "centerY": 633.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "signIn": {
+          "left": 765,
+          "right": 1155,
+          "top": 667.6875,
+          "bottom": 717.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 960,
+          "centerY": 692.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "sample": {
+          "left": 765,
+          "right": 1155,
+          "top": 726.6875,
+          "bottom": 754.6875,
+          "width": 390,
+          "height": 28,
+          "centerX": 960,
+          "centerY": 740.6875,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "light",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "light-1920x1080-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 700,
+          "right": 1220,
+          "top": 136,
+          "bottom": 635.734375,
+          "width": 520,
+          "height": 499.734375,
+          "centerX": 960,
+          "centerY": 385.8671875,
+          "scrollWidth": 520,
+          "clientWidth": 520
+        },
+        "email": {
+          "left": 724,
+          "right": 1196,
+          "top": 250.234375,
+          "bottom": 300.234375,
+          "width": 472,
+          "height": 50,
+          "centerX": 960,
+          "centerY": 275.234375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "password": {
+          "left": 724,
+          "right": 1196,
+          "top": 339.734375,
+          "bottom": 389.734375,
+          "width": 472,
+          "height": 50,
+          "centerX": 960,
+          "centerY": 364.734375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "submit": {
+          "left": 724,
+          "right": 1196,
+          "top": 403.734375,
+          "bottom": 455.734375,
+          "width": 472,
+          "height": 52,
+          "centerX": 960,
+          "centerY": 429.734375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "light",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "light-1920x1080-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 653,
+          "right": 1267,
+          "top": 593.640625,
+          "bottom": 703.828125,
+          "width": 614,
+          "height": 110.1875,
+          "centerX": 960,
+          "centerY": 648.734375,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "card": {
+          "left": 624,
+          "right": 1296,
+          "top": 177.171875,
+          "bottom": 732.828125,
+          "width": 672,
+          "height": 555.65625,
+          "centerX": 960,
+          "centerY": 455,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "title": {
+          "left": 653,
+          "right": 1267,
+          "top": 238.671875,
+          "bottom": 316.671875,
+          "width": 614,
+          "height": 78,
+          "centerX": 960,
+          "centerY": 277.671875,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "summary": {
+          "left": 653,
+          "right": 1267,
+          "top": 332.671875,
+          "bottom": 385.453125,
+          "width": 614,
+          "height": 52.78125,
+          "centerX": 960,
+          "centerY": 359.0625,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "topbar": {
+          "left": 600,
+          "right": 1320,
+          "top": 24,
+          "bottom": 68,
+          "width": 720,
+          "height": 44,
+          "centerX": 960,
+          "centerY": 46,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "actions": {
+          "left": 624,
+          "right": 1296,
+          "top": 752.828125,
+          "bottom": 808.828125,
+          "width": 672,
+          "height": 56,
+          "centerX": 960,
+          "centerY": 780.828125,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "ask": {
+          "left": 624,
+          "right": 1296,
+          "top": 828.828125,
+          "bottom": 882.828125,
+          "width": 672,
+          "height": 54,
+          "centerX": 960,
+          "centerY": 855.828125,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 600,
+          "right": 1320,
+          "top": 992,
+          "bottom": 1080,
+          "width": 720,
+          "height": 88,
+          "centerX": 960,
+          "centerY": 1036,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "light",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "light-1920x1080-profile.png",
+      "geometry": {
+        "body": {
+          "left": 600,
+          "right": 1320,
+          "top": 88,
+          "bottom": 992,
+          "width": 720,
+          "height": 904,
+          "centerX": 960,
+          "centerY": 540,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "identity": {
+          "left": 624,
+          "right": 1296,
+          "top": 88,
+          "bottom": 253,
+          "width": 672,
+          "height": 165,
+          "centerX": 960,
+          "centerY": 170.5,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 600,
+          "right": 1320,
+          "top": 992,
+          "bottom": 1080,
+          "width": 720,
+          "height": 88,
+          "centerX": 960,
+          "centerY": 1036,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "light",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "light-1920x1080-classic.png",
+      "geometry": {
+        "content": {
+          "left": 600,
+          "right": 1320,
+          "top": 0,
+          "bottom": 1001,
+          "width": 720,
+          "height": 1001,
+          "centerX": 960,
+          "centerY": 500.5,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "header": {
+          "left": 600,
+          "right": 1320,
+          "top": 0,
+          "bottom": 68,
+          "width": 720,
+          "height": 68,
+          "centerX": 960,
+          "centerY": 34,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "nav": {
+          "left": 600,
+          "right": 1320,
+          "top": 992,
+          "bottom": 1080,
+          "width": 720,
+          "height": 88,
+          "centerX": 960,
+          "centerY": 1036,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "light",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "light-1920x1080-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 624,
+          "right": 1296,
+          "top": 302.0625,
+          "bottom": 777.9375,
+          "width": 672,
+          "height": 475.875,
+          "centerX": 960,
+          "centerY": 540,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 652,
+          "right": 1268,
+          "top": 670.9375,
+          "bottom": 749.9375,
+          "width": 616,
+          "height": 79,
+          "centerX": 960,
+          "centerY": 710.4375,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "light",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "light-1920x1080-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 624,
+          "right": 1296,
+          "top": 111.59375,
+          "bottom": 968.40625,
+          "width": 672,
+          "height": 856.8125,
+          "centerX": 960,
+          "centerY": 540,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 652,
+          "right": 1268,
+          "top": 861.40625,
+          "bottom": 940.40625,
+          "width": 616,
+          "height": 79,
+          "centerX": 960,
+          "centerY": 900.90625,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "light",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "light-390x844-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 163,
+          "right": 227,
+          "top": 306.71875,
+          "bottom": 370.71875,
+          "width": 64,
+          "height": 64,
+          "centerX": 195,
+          "centerY": 338.71875,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 34,
+          "right": 356,
+          "top": 398.71875,
+          "bottom": 475.5,
+          "width": 322,
+          "height": 76.78125,
+          "centerX": 195,
+          "centerY": 437.109375,
+          "scrollWidth": 322,
+          "clientWidth": 322
+        },
+        "intro": {
+          "left": 0,
+          "right": 390,
+          "top": 306.71875,
+          "bottom": 537.28125,
+          "width": 390,
+          "height": 230.5625,
+          "centerX": 195,
+          "centerY": 422,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "actions": {
+          "left": 0,
+          "right": 390,
+          "top": 692,
+          "bottom": 830,
+          "width": 390,
+          "height": 138,
+          "centerX": 195,
+          "centerY": 761,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "start": {
+          "left": 20,
+          "right": 370,
+          "top": 692,
+          "bottom": 738,
+          "width": 350,
+          "height": 46,
+          "centerX": 195,
+          "centerY": 715,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "signIn": {
+          "left": 20,
+          "right": 370,
+          "top": 747,
+          "bottom": 793,
+          "width": 350,
+          "height": 46,
+          "centerX": 195,
+          "centerY": 770,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "sample": {
+          "left": 20,
+          "right": 370,
+          "top": 802,
+          "bottom": 830,
+          "width": 350,
+          "height": 28,
+          "centerX": 195,
+          "centerY": 816,
+          "scrollWidth": 350,
+          "clientWidth": 350
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "light",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "light-390x844-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 0,
+          "right": 390,
+          "top": 58,
+          "bottom": 844,
+          "width": 390,
+          "height": 786,
+          "centerX": 195,
+          "centerY": 451,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "email": {
+          "left": 24,
+          "right": 366,
+          "top": 180.234375,
+          "bottom": 230.234375,
+          "width": 342,
+          "height": 50,
+          "centerX": 195,
+          "centerY": 205.234375,
+          "scrollWidth": 340,
+          "clientWidth": 340
+        },
+        "password": {
+          "left": 24,
+          "right": 366,
+          "top": 269.734375,
+          "bottom": 319.734375,
+          "width": 342,
+          "height": 50,
+          "centerX": 195,
+          "centerY": 294.734375,
+          "scrollWidth": 340,
+          "clientWidth": 340
+        },
+        "submit": {
+          "left": 24,
+          "right": 366,
+          "top": 333.734375,
+          "bottom": 385.734375,
+          "width": 342,
+          "height": 52,
+          "centerX": 195,
+          "centerY": 359.734375,
+          "scrollWidth": 340,
+          "clientWidth": 340
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "light",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "light-390x844-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 38,
+          "right": 352,
+          "top": 424.125,
+          "bottom": 504.90625,
+          "width": 314,
+          "height": 80.78125,
+          "centerX": 195,
+          "centerY": 464.515625,
+          "scrollWidth": 314,
+          "clientWidth": 314
+        },
+        "card": {
+          "left": 20,
+          "right": 370,
+          "top": 78,
+          "bottom": 521.90625,
+          "width": 350,
+          "height": 443.90625,
+          "centerX": 195,
+          "centerY": 299.953125,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "title": {
+          "left": 38,
+          "right": 352,
+          "top": 124,
+          "bottom": 183.5,
+          "width": 314,
+          "height": 59.5,
+          "centerX": 195,
+          "centerY": 153.75,
+          "scrollWidth": 314,
+          "clientWidth": 314
+        },
+        "summary": {
+          "left": 38,
+          "right": 323,
+          "top": 196.5,
+          "bottom": 249.75,
+          "width": 285,
+          "height": 53.25,
+          "centerX": 180.5,
+          "centerY": 223.125,
+          "scrollWidth": 285,
+          "clientWidth": 285
+        },
+        "topbar": {
+          "left": 0,
+          "right": 390,
+          "top": 16,
+          "bottom": 58,
+          "width": 390,
+          "height": 42,
+          "centerX": 195,
+          "centerY": 37,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "actions": {
+          "left": 20,
+          "right": 370,
+          "top": 548.90625,
+          "bottom": 609.90625,
+          "width": 350,
+          "height": 61,
+          "centerX": 195,
+          "centerY": 579.40625,
+          "scrollWidth": 350,
+          "clientWidth": 350
+        },
+        "ask": {
+          "left": 20,
+          "right": 370,
+          "top": 696,
+          "bottom": 744,
+          "width": 350,
+          "height": 48,
+          "centerX": 195,
+          "centerY": 720,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "nav": {
+          "left": 0,
+          "right": 390,
+          "top": 756,
+          "bottom": 844,
+          "width": 390,
+          "height": 88,
+          "centerX": 195,
+          "centerY": 800,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "light",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "light-390x844-profile.png",
+      "geometry": {
+        "body": {
+          "left": 0,
+          "right": 390,
+          "top": 78,
+          "bottom": 756,
+          "width": 390,
+          "height": 678,
+          "centerX": 195,
+          "centerY": 417,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "identity": {
+          "left": 20,
+          "right": 370,
+          "top": 78,
+          "bottom": 231,
+          "width": 350,
+          "height": 153,
+          "centerX": 195,
+          "centerY": 154.5,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "nav": {
+          "left": 0,
+          "right": 390,
+          "top": 756,
+          "bottom": 844,
+          "width": 390,
+          "height": 88,
+          "centerX": 195,
+          "centerY": 800,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "light",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "light-390x844-classic.png",
+      "geometry": {
+        "content": {
+          "left": 0,
+          "right": 390,
+          "top": 0,
+          "bottom": 824.5,
+          "width": 390,
+          "height": 824.5,
+          "centerX": 195,
+          "centerY": 412.25,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "header": {
+          "left": 0,
+          "right": 390,
+          "top": 0,
+          "bottom": 58,
+          "width": 390,
+          "height": 58,
+          "centerX": 195,
+          "centerY": 29,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "nav": {
+          "left": 0,
+          "right": 390,
+          "top": 756,
+          "bottom": 844,
+          "width": 390,
+          "height": 88,
+          "centerX": 195,
+          "centerY": 800,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "light",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "light-390x844-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 0,
+          "right": 390,
+          "top": 372.625,
+          "bottom": 844,
+          "width": 390,
+          "height": 471.375,
+          "centerX": 195,
+          "centerY": 608.3125,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "actions": {
+          "left": 20,
+          "right": 370,
+          "top": 753,
+          "bottom": 824,
+          "width": 350,
+          "height": 71,
+          "centerX": 195,
+          "centerY": 788.5,
+          "scrollWidth": 350,
+          "clientWidth": 350
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "light",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "light-390x844-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 0,
+          "right": 390,
+          "top": 168.8125,
+          "bottom": 844,
+          "width": 390,
+          "height": 675.1875,
+          "centerX": 195,
+          "centerY": 506.40625,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "actions": {
+          "left": 20,
+          "right": 370,
+          "top": 773,
+          "bottom": 844,
+          "width": 350,
+          "height": 71,
+          "centerX": 195,
+          "centerY": 808.5,
+          "scrollWidth": 350,
+          "clientWidth": 350
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "light",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "light-320x640-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 128,
+          "right": 192,
+          "top": 149.515625,
+          "bottom": 213.515625,
+          "width": 64,
+          "height": 64,
+          "centerX": 160,
+          "centerY": 181.515625,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 34,
+          "right": 286,
+          "top": 233.515625,
+          "bottom": 300.703125,
+          "width": 252,
+          "height": 67.1875,
+          "centerX": 160,
+          "centerY": 267.109375,
+          "scrollWidth": 252,
+          "clientWidth": 252
+        },
+        "intro": {
+          "left": 0,
+          "right": 320,
+          "top": 149.515625,
+          "bottom": 362.484375,
+          "width": 320,
+          "height": 212.96875,
+          "centerX": 160,
+          "centerY": 256,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "actions": {
+          "left": 0,
+          "right": 320,
+          "top": 488,
+          "bottom": 626,
+          "width": 320,
+          "height": 138,
+          "centerX": 160,
+          "centerY": 557,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "start": {
+          "left": 20,
+          "right": 300,
+          "top": 488,
+          "bottom": 534,
+          "width": 280,
+          "height": 46,
+          "centerX": 160,
+          "centerY": 511,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "signIn": {
+          "left": 20,
+          "right": 300,
+          "top": 543,
+          "bottom": 589,
+          "width": 280,
+          "height": 46,
+          "centerX": 160,
+          "centerY": 566,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "sample": {
+          "left": 20,
+          "right": 300,
+          "top": 598,
+          "bottom": 626,
+          "width": 280,
+          "height": 28,
+          "centerX": 160,
+          "centerY": 612,
+          "scrollWidth": 280,
+          "clientWidth": 280
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "light",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "light-320x640-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 0,
+          "right": 320,
+          "top": 58,
+          "bottom": 640,
+          "width": 320,
+          "height": 582,
+          "centerX": 160,
+          "centerY": 349,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "email": {
+          "left": 24,
+          "right": 296,
+          "top": 180.234375,
+          "bottom": 230.234375,
+          "width": 272,
+          "height": 50,
+          "centerX": 160,
+          "centerY": 205.234375,
+          "scrollWidth": 270,
+          "clientWidth": 270
+        },
+        "password": {
+          "left": 24,
+          "right": 296,
+          "top": 269.734375,
+          "bottom": 319.734375,
+          "width": 272,
+          "height": 50,
+          "centerX": 160,
+          "centerY": 294.734375,
+          "scrollWidth": 270,
+          "clientWidth": 270
+        },
+        "submit": {
+          "left": 24,
+          "right": 296,
+          "top": 333.734375,
+          "bottom": 385.734375,
+          "width": 272,
+          "height": 52,
+          "centerX": 160,
+          "centerY": 359.734375,
+          "scrollWidth": 270,
+          "clientWidth": 270
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "light",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "light-320x640-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 38,
+          "right": 282,
+          "top": 457.8125,
+          "bottom": 573.984375,
+          "width": 244,
+          "height": 116.171875,
+          "centerX": 160,
+          "centerY": 515.8984375,
+          "scrollWidth": 244,
+          "clientWidth": 244
+        },
+        "card": {
+          "left": 20,
+          "right": 300,
+          "top": 68,
+          "bottom": 409,
+          "width": 280,
+          "height": 341,
+          "centerX": 160,
+          "centerY": 238.5,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "title": {
+          "left": 38,
+          "right": 282,
+          "top": 114,
+          "bottom": 203.25,
+          "width": 244,
+          "height": 89.25,
+          "centerX": 160,
+          "centerY": 158.625,
+          "scrollWidth": 244,
+          "clientWidth": 244
+        },
+        "summary": {
+          "left": 38,
+          "right": 282,
+          "top": 216.25,
+          "bottom": 269.5,
+          "width": 244,
+          "height": 53.25,
+          "centerX": 160,
+          "centerY": 242.875,
+          "scrollWidth": 244,
+          "clientWidth": 244
+        },
+        "topbar": {
+          "left": 0,
+          "right": 320,
+          "top": 16,
+          "bottom": 58,
+          "width": 320,
+          "height": 42,
+          "centerX": 160,
+          "centerY": 37,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "actions": {
+          "left": 20,
+          "right": 300,
+          "top": 424,
+          "bottom": 477,
+          "width": 280,
+          "height": 53,
+          "centerX": 160,
+          "centerY": 450.5,
+          "scrollWidth": 280,
+          "clientWidth": 280
+        },
+        "ask": {
+          "left": 20,
+          "right": 300,
+          "top": 492,
+          "bottom": 540,
+          "width": 280,
+          "height": 48,
+          "centerX": 160,
+          "centerY": 516,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "nav": {
+          "left": 0,
+          "right": 320,
+          "top": 552,
+          "bottom": 640,
+          "width": 320,
+          "height": 88,
+          "centerX": 160,
+          "centerY": 596,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "light",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "light-320x640-profile.png",
+      "geometry": {
+        "body": {
+          "left": 0,
+          "right": 320,
+          "top": 78,
+          "bottom": 552,
+          "width": 320,
+          "height": 474,
+          "centerX": 160,
+          "centerY": 315,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "identity": {
+          "left": 20,
+          "right": 300,
+          "top": 78,
+          "bottom": 244,
+          "width": 280,
+          "height": 166,
+          "centerX": 160,
+          "centerY": 161,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "nav": {
+          "left": 0,
+          "right": 320,
+          "top": 552,
+          "bottom": 640,
+          "width": 320,
+          "height": 88,
+          "centerX": 160,
+          "centerY": 596,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "light",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "light-320x640-classic.png",
+      "geometry": {
+        "content": {
+          "left": 0,
+          "right": 320,
+          "top": 0,
+          "bottom": 824.5,
+          "width": 320,
+          "height": 824.5,
+          "centerX": 160,
+          "centerY": 412.25,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "header": {
+          "left": 0,
+          "right": 320,
+          "top": 0,
+          "bottom": 58,
+          "width": 320,
+          "height": 58,
+          "centerX": 160,
+          "centerY": 29,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "nav": {
+          "left": 0,
+          "right": 320,
+          "top": 552,
+          "bottom": 640,
+          "width": 320,
+          "height": 88,
+          "centerX": 160,
+          "centerY": 596,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "light",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "light-320x640-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 0,
+          "right": 320,
+          "top": 168.625,
+          "bottom": 640,
+          "width": 320,
+          "height": 471.375,
+          "centerX": 160,
+          "centerY": 404.3125,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "actions": {
+          "left": 20,
+          "right": 300,
+          "top": 549,
+          "bottom": 620,
+          "width": 280,
+          "height": 71,
+          "centerX": 160,
+          "centerY": 584.5,
+          "scrollWidth": 280,
+          "clientWidth": 280
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "light",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "light-320x640-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 0,
+          "right": 320,
+          "top": 128,
+          "bottom": 640,
+          "width": 320,
+          "height": 512,
+          "centerX": 160,
+          "centerY": 384,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "actions": {
+          "left": 20,
+          "right": 300,
+          "top": 565,
+          "bottom": 640,
+          "width": 280,
+          "height": 75,
+          "centerX": 160,
+          "centerY": 602.5,
+          "scrollWidth": 280,
+          "clientWidth": 280
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "dark",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "dark-1024x768-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 480,
+          "right": 544,
+          "top": 177.3125,
+          "bottom": 241.3125,
+          "width": 64,
+          "height": 64,
+          "centerX": 512,
+          "centerY": 209.3125,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 331,
+          "right": 693,
+          "top": 269.3125,
+          "bottom": 355.6875,
+          "width": 362,
+          "height": 86.375,
+          "centerX": 512,
+          "centerY": 312.5,
+          "scrollWidth": 362,
+          "clientWidth": 362
+        },
+        "intro": {
+          "left": 297,
+          "right": 727,
+          "top": 177.3125,
+          "bottom": 420.6875,
+          "width": 430,
+          "height": 243.375,
+          "centerX": 512,
+          "centerY": 299,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "actions": {
+          "left": 297,
+          "right": 727,
+          "top": 444.6875,
+          "bottom": 590.6875,
+          "width": 430,
+          "height": 146,
+          "centerX": 512,
+          "centerY": 517.6875,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "start": {
+          "left": 317,
+          "right": 707,
+          "top": 444.6875,
+          "bottom": 494.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 469.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "signIn": {
+          "left": 317,
+          "right": 707,
+          "top": 503.6875,
+          "bottom": 553.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 528.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "sample": {
+          "left": 317,
+          "right": 707,
+          "top": 562.6875,
+          "bottom": 590.6875,
+          "width": 390,
+          "height": 28,
+          "centerX": 512,
+          "centerY": 576.6875,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-welcome-main h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-welcome-main p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            242,
+            243,
+            245
+          ],
+          "opacity": 1,
+          "ratio": 15.851318945030128
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-ghost",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-welcome-sample",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "dark",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "dark-1024x768-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 252,
+          "right": 772,
+          "top": 117.75,
+          "bottom": 617.484375,
+          "width": 520,
+          "height": 499.734375,
+          "centerX": 512,
+          "centerY": 367.6171875,
+          "scrollWidth": 520,
+          "clientWidth": 520
+        },
+        "email": {
+          "left": 276,
+          "right": 748,
+          "top": 231.984375,
+          "bottom": 281.984375,
+          "width": 472,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 256.984375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "password": {
+          "left": 276,
+          "right": 748,
+          "top": 321.484375,
+          "bottom": 371.484375,
+          "width": 472,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 346.484375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "submit": {
+          "left": 276,
+          "right": 748,
+          "top": 385.484375,
+          "bottom": 437.484375,
+          "width": 472,
+          "height": 52,
+          "centerX": 512,
+          "centerY": 411.484375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".display",
+          "foreground": [
+            245,
+            245,
+            247
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 17.213084805635365
+        },
+        {
+          "selector": ".lede",
+          "foreground": [
+            162,
+            162,
+            171
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 7.400958745650078
+        },
+        {
+          "selector": ".field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": "#email",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": "#password",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            217,
+            220,
+            228
+          ],
+          "opacity": 1,
+          "ratio": 12.829015048070781
+        },
+        {
+          "selector": ".btn-quiet",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "dark",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "dark-1024x768-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 201,
+          "right": 823,
+          "top": 416.28125,
+          "bottom": 507.65625,
+          "width": 622,
+          "height": 91.375,
+          "centerX": 512,
+          "centerY": 461.96875,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "card": {
+          "left": 176,
+          "right": 848,
+          "top": 103.328125,
+          "bottom": 526.65625,
+          "width": 672,
+          "height": 423.328125,
+          "centerX": 512,
+          "centerY": 314.9921875,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "title": {
+          "left": 201,
+          "right": 823,
+          "top": 148.828125,
+          "bottom": 182.625,
+          "width": 622,
+          "height": 33.796875,
+          "centerX": 512,
+          "centerY": 165.7265625,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "summary": {
+          "left": 201,
+          "right": 823,
+          "top": 194.625,
+          "bottom": 239.40625,
+          "width": 622,
+          "height": 44.78125,
+          "centerX": 512,
+          "centerY": 217.015625,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "topbar": {
+          "left": 152,
+          "right": 872,
+          "top": 16,
+          "bottom": 60,
+          "width": 720,
+          "height": 44,
+          "centerX": 512,
+          "centerY": 38,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "actions": {
+          "left": 176,
+          "right": 848,
+          "top": 538.65625,
+          "bottom": 590.65625,
+          "width": 672,
+          "height": 52,
+          "centerX": 512,
+          "centerY": 564.65625,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "ask": {
+          "left": 176,
+          "right": 848,
+          "top": 602.65625,
+          "bottom": 652.65625,
+          "width": 672,
+          "height": 50,
+          "centerX": 512,
+          "centerY": 627.65625,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 152,
+          "right": 872,
+          "top": 696,
+          "bottom": 768,
+          "width": 720,
+          "height": 72,
+          "centerX": 512,
+          "centerY": 732,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".page:not([aria-hidden]) .card-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .card-summary",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rb-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-reason",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.55856332212179
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-head strong",
+          "foreground": [
+            187,
+            169,
+            255
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.077373079530272
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "dark",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "dark-1024x768-profile.png",
+      "geometry": {
+        "body": {
+          "left": 152,
+          "right": 872,
+          "top": 88,
+          "bottom": 696,
+          "width": 720,
+          "height": 608,
+          "centerX": 512,
+          "centerY": 392,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "identity": {
+          "left": 176,
+          "right": 848,
+          "top": 88,
+          "bottom": 253,
+          "width": 672,
+          "height": 165,
+          "centerX": 512,
+          "centerY": 170.5,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 152,
+          "right": 872,
+          "top": 696,
+          "bottom": 768,
+          "width": 720,
+          "height": 72,
+          "centerX": 512,
+          "centerY": 732,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-profile-header h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-profile-person h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-profile-person p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".figma-profile-assistant-copy small",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            39,
+            42,
+            48
+          ],
+          "opacity": 1,
+          "ratio": 7.484133695922254
+        },
+        {
+          "selector": ".figma-profile-row",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "dark",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "dark-1024x768-classic.png",
+      "geometry": {
+        "content": {
+          "left": 152,
+          "right": 872,
+          "top": 0,
+          "bottom": 1001,
+          "width": 720,
+          "height": 1001,
+          "centerX": 512,
+          "centerY": 500.5,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "header": {
+          "left": 152,
+          "right": 872,
+          "top": 0,
+          "bottom": 68,
+          "width": 720,
+          "height": 68,
+          "centerX": 512,
+          "centerY": 34,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "nav": {
+          "left": 152,
+          "right": 872,
+          "top": 696,
+          "bottom": 768,
+          "width": 720,
+          "height": 72,
+          "centerX": 512,
+          "centerY": 732,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".cl-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".cl-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-when",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-section h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "dark",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "dark-1024x768-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 176,
+          "right": 848,
+          "top": 146.0625,
+          "bottom": 621.9375,
+          "width": 672,
+          "height": 475.875,
+          "centerX": 512,
+          "centerY": 384,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 204,
+          "right": 820,
+          "top": 514.9375,
+          "bottom": 593.9375,
+          "width": 616,
+          "height": 79,
+          "centerX": 512,
+          "centerY": 554.4375,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet-hint",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "colorScheme": "dark",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "dark-1024x768-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 176,
+          "right": 848,
+          "top": 32,
+          "bottom": 736,
+          "width": 672,
+          "height": 704,
+          "centerX": 512,
+          "centerY": 384,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 204,
+          "right": 820,
+          "top": 657,
+          "bottom": 736,
+          "width": 616,
+          "height": 79,
+          "centerX": 512,
+          "centerY": 696.5,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .form-note",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "dark",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "dark-1280x720-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 608,
+          "right": 672,
+          "top": 153.3125,
+          "bottom": 217.3125,
+          "width": 64,
+          "height": 64,
+          "centerX": 640,
+          "centerY": 185.3125,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 459,
+          "right": 821,
+          "top": 245.3125,
+          "bottom": 331.6875,
+          "width": 362,
+          "height": 86.375,
+          "centerX": 640,
+          "centerY": 288.5,
+          "scrollWidth": 362,
+          "clientWidth": 362
+        },
+        "intro": {
+          "left": 425,
+          "right": 855,
+          "top": 153.3125,
+          "bottom": 396.6875,
+          "width": 430,
+          "height": 243.375,
+          "centerX": 640,
+          "centerY": 275,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "actions": {
+          "left": 425,
+          "right": 855,
+          "top": 420.6875,
+          "bottom": 566.6875,
+          "width": 430,
+          "height": 146,
+          "centerX": 640,
+          "centerY": 493.6875,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "start": {
+          "left": 445,
+          "right": 835,
+          "top": 420.6875,
+          "bottom": 470.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 445.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "signIn": {
+          "left": 445,
+          "right": 835,
+          "top": 479.6875,
+          "bottom": 529.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 504.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "sample": {
+          "left": 445,
+          "right": 835,
+          "top": 538.6875,
+          "bottom": 566.6875,
+          "width": 390,
+          "height": 28,
+          "centerX": 640,
+          "centerY": 552.6875,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-welcome-main h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-welcome-main p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            242,
+            243,
+            245
+          ],
+          "opacity": 1,
+          "ratio": 15.851318945030128
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-ghost",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-welcome-sample",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "dark",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "dark-1280x720-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 380,
+          "right": 900,
+          "top": 114.390625,
+          "bottom": 614.125,
+          "width": 520,
+          "height": 499.734375,
+          "centerX": 640,
+          "centerY": 364.2578125,
+          "scrollWidth": 520,
+          "clientWidth": 520
+        },
+        "email": {
+          "left": 404,
+          "right": 876,
+          "top": 228.625,
+          "bottom": 278.625,
+          "width": 472,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 253.625,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "password": {
+          "left": 404,
+          "right": 876,
+          "top": 318.125,
+          "bottom": 368.125,
+          "width": 472,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 343.125,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "submit": {
+          "left": 404,
+          "right": 876,
+          "top": 382.125,
+          "bottom": 434.125,
+          "width": 472,
+          "height": 52,
+          "centerX": 640,
+          "centerY": 408.125,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".display",
+          "foreground": [
+            245,
+            245,
+            247
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 17.213084805635365
+        },
+        {
+          "selector": ".lede",
+          "foreground": [
+            162,
+            162,
+            171
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 7.400958745650078
+        },
+        {
+          "selector": ".field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": "#email",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": "#password",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            217,
+            220,
+            228
+          ],
+          "opacity": 1,
+          "ratio": 12.829015048070781
+        },
+        {
+          "selector": ".btn-quiet",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "dark",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "dark-1280x720-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 329,
+          "right": 951,
+          "top": 392.28125,
+          "bottom": 483.65625,
+          "width": 622,
+          "height": 91.375,
+          "centerX": 640,
+          "centerY": 437.96875,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "card": {
+          "left": 304,
+          "right": 976,
+          "top": 79.328125,
+          "bottom": 502.65625,
+          "width": 672,
+          "height": 423.328125,
+          "centerX": 640,
+          "centerY": 290.9921875,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "title": {
+          "left": 329,
+          "right": 951,
+          "top": 124.828125,
+          "bottom": 158.625,
+          "width": 622,
+          "height": 33.796875,
+          "centerX": 640,
+          "centerY": 141.7265625,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "summary": {
+          "left": 329,
+          "right": 951,
+          "top": 170.625,
+          "bottom": 215.40625,
+          "width": 622,
+          "height": 44.78125,
+          "centerX": 640,
+          "centerY": 193.015625,
+          "scrollWidth": 622,
+          "clientWidth": 622
+        },
+        "topbar": {
+          "left": 280,
+          "right": 1000,
+          "top": 16,
+          "bottom": 60,
+          "width": 720,
+          "height": 44,
+          "centerX": 640,
+          "centerY": 38,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "actions": {
+          "left": 304,
+          "right": 976,
+          "top": 514.65625,
+          "bottom": 566.65625,
+          "width": 672,
+          "height": 52,
+          "centerX": 640,
+          "centerY": 540.65625,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "ask": {
+          "left": 304,
+          "right": 976,
+          "top": 578.65625,
+          "bottom": 628.65625,
+          "width": 672,
+          "height": 50,
+          "centerX": 640,
+          "centerY": 603.65625,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 280,
+          "right": 1000,
+          "top": 648,
+          "bottom": 720,
+          "width": 720,
+          "height": 72,
+          "centerX": 640,
+          "centerY": 684,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".page:not([aria-hidden]) .card-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .card-summary",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rb-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-reason",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.55856332212179
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-head strong",
+          "foreground": [
+            187,
+            169,
+            255
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.077373079530272
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "dark",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "dark-1280x720-profile.png",
+      "geometry": {
+        "body": {
+          "left": 280,
+          "right": 1000,
+          "top": 88,
+          "bottom": 648,
+          "width": 720,
+          "height": 560,
+          "centerX": 640,
+          "centerY": 368,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "identity": {
+          "left": 304,
+          "right": 976,
+          "top": 88,
+          "bottom": 253,
+          "width": 672,
+          "height": 165,
+          "centerX": 640,
+          "centerY": 170.5,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 280,
+          "right": 1000,
+          "top": 648,
+          "bottom": 720,
+          "width": 720,
+          "height": 72,
+          "centerX": 640,
+          "centerY": 684,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-profile-header h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-profile-person h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-profile-person p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".figma-profile-assistant-copy small",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            39,
+            42,
+            48
+          ],
+          "opacity": 1,
+          "ratio": 7.484133695922254
+        },
+        {
+          "selector": ".figma-profile-row",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "dark",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "dark-1280x720-classic.png",
+      "geometry": {
+        "content": {
+          "left": 280,
+          "right": 1000,
+          "top": 0,
+          "bottom": 1001,
+          "width": 720,
+          "height": 1001,
+          "centerX": 640,
+          "centerY": 500.5,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "header": {
+          "left": 280,
+          "right": 1000,
+          "top": 0,
+          "bottom": 68,
+          "width": 720,
+          "height": 68,
+          "centerX": 640,
+          "centerY": 34,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "nav": {
+          "left": 280,
+          "right": 1000,
+          "top": 648,
+          "bottom": 720,
+          "width": 720,
+          "height": 72,
+          "centerX": 640,
+          "centerY": 684,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".cl-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".cl-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-when",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-section h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "dark",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "dark-1280x720-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 304,
+          "right": 976,
+          "top": 122.0625,
+          "bottom": 597.9375,
+          "width": 672,
+          "height": 475.875,
+          "centerX": 640,
+          "centerY": 360,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 332,
+          "right": 948,
+          "top": 490.9375,
+          "bottom": 569.9375,
+          "width": 616,
+          "height": 79,
+          "centerX": 640,
+          "centerY": 530.4375,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet-hint",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "colorScheme": "dark",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "dark-1280x720-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 304,
+          "right": 976,
+          "top": 32,
+          "bottom": 688,
+          "width": 672,
+          "height": 656,
+          "centerX": 640,
+          "centerY": 360,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 332,
+          "right": 948,
+          "top": 609,
+          "bottom": 688,
+          "width": 616,
+          "height": 79,
+          "centerX": 640,
+          "centerY": 648.5,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1280,
+          "clientWidth": 1280
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .form-note",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "dark",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "dark-1440x900-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 688,
+          "right": 752,
+          "top": 235.3125,
+          "bottom": 299.3125,
+          "width": 64,
+          "height": 64,
+          "centerX": 720,
+          "centerY": 267.3125,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 539,
+          "right": 901,
+          "top": 327.3125,
+          "bottom": 413.6875,
+          "width": 362,
+          "height": 86.375,
+          "centerX": 720,
+          "centerY": 370.5,
+          "scrollWidth": 362,
+          "clientWidth": 362
+        },
+        "intro": {
+          "left": 505,
+          "right": 935,
+          "top": 235.3125,
+          "bottom": 478.6875,
+          "width": 430,
+          "height": 243.375,
+          "centerX": 720,
+          "centerY": 357,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "actions": {
+          "left": 505,
+          "right": 935,
+          "top": 518.6875,
+          "bottom": 664.6875,
+          "width": 430,
+          "height": 146,
+          "centerX": 720,
+          "centerY": 591.6875,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "start": {
+          "left": 525,
+          "right": 915,
+          "top": 518.6875,
+          "bottom": 568.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 720,
+          "centerY": 543.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "signIn": {
+          "left": 525,
+          "right": 915,
+          "top": 577.6875,
+          "bottom": 627.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 720,
+          "centerY": 602.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "sample": {
+          "left": 525,
+          "right": 915,
+          "top": 636.6875,
+          "bottom": 664.6875,
+          "width": 390,
+          "height": 28,
+          "centerX": 720,
+          "centerY": 650.6875,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-welcome-main h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-welcome-main p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            242,
+            243,
+            245
+          ],
+          "opacity": 1,
+          "ratio": 15.851318945030128
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-ghost",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-welcome-sample",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "dark",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "dark-1440x900-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 460,
+          "right": 980,
+          "top": 127,
+          "bottom": 626.734375,
+          "width": 520,
+          "height": 499.734375,
+          "centerX": 720,
+          "centerY": 376.8671875,
+          "scrollWidth": 520,
+          "clientWidth": 520
+        },
+        "email": {
+          "left": 484,
+          "right": 956,
+          "top": 241.234375,
+          "bottom": 291.234375,
+          "width": 472,
+          "height": 50,
+          "centerX": 720,
+          "centerY": 266.234375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "password": {
+          "left": 484,
+          "right": 956,
+          "top": 330.734375,
+          "bottom": 380.734375,
+          "width": 472,
+          "height": 50,
+          "centerX": 720,
+          "centerY": 355.734375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "submit": {
+          "left": 484,
+          "right": 956,
+          "top": 394.734375,
+          "bottom": 446.734375,
+          "width": 472,
+          "height": 52,
+          "centerX": 720,
+          "centerY": 420.734375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".display",
+          "foreground": [
+            245,
+            245,
+            247
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 17.213084805635365
+        },
+        {
+          "selector": ".lede",
+          "foreground": [
+            162,
+            162,
+            171
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 7.400958745650078
+        },
+        {
+          "selector": ".field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": "#email",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": "#password",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            217,
+            220,
+            228
+          ],
+          "opacity": 1,
+          "ratio": 12.829015048070781
+        },
+        {
+          "selector": ".btn-quiet",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "dark",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "dark-1440x900-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 413,
+          "right": 1027,
+          "top": 508.46875,
+          "bottom": 618.65625,
+          "width": 614,
+          "height": 110.1875,
+          "centerX": 720,
+          "centerY": 563.5625,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "card": {
+          "left": 384,
+          "right": 1056,
+          "top": 92,
+          "bottom": 638,
+          "width": 672,
+          "height": 546,
+          "centerX": 720,
+          "centerY": 365,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "title": {
+          "left": 413,
+          "right": 1027,
+          "top": 153.5,
+          "bottom": 231.5,
+          "width": 614,
+          "height": 78,
+          "centerX": 720,
+          "centerY": 192.5,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "summary": {
+          "left": 413,
+          "right": 1027,
+          "top": 247.5,
+          "bottom": 300.28125,
+          "width": 614,
+          "height": 52.78125,
+          "centerX": 720,
+          "centerY": 273.890625,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "topbar": {
+          "left": 360,
+          "right": 1080,
+          "top": 24,
+          "bottom": 68,
+          "width": 720,
+          "height": 44,
+          "centerX": 720,
+          "centerY": 46,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "actions": {
+          "left": 384,
+          "right": 1056,
+          "top": 658,
+          "bottom": 714,
+          "width": 672,
+          "height": 56,
+          "centerX": 720,
+          "centerY": 686,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "ask": {
+          "left": 384,
+          "right": 1056,
+          "top": 734,
+          "bottom": 788,
+          "width": 672,
+          "height": 54,
+          "centerX": 720,
+          "centerY": 761,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 360,
+          "right": 1080,
+          "top": 812,
+          "bottom": 900,
+          "width": 720,
+          "height": 88,
+          "centerX": 720,
+          "centerY": 856,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".page:not([aria-hidden]) .card-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .card-summary",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rb-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-reason",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.55856332212179
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-head strong",
+          "foreground": [
+            187,
+            169,
+            255
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.077373079530272
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "dark",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "dark-1440x900-profile.png",
+      "geometry": {
+        "body": {
+          "left": 360,
+          "right": 1080,
+          "top": 88,
+          "bottom": 812,
+          "width": 720,
+          "height": 724,
+          "centerX": 720,
+          "centerY": 450,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "identity": {
+          "left": 384,
+          "right": 1056,
+          "top": 88,
+          "bottom": 253,
+          "width": 672,
+          "height": 165,
+          "centerX": 720,
+          "centerY": 170.5,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 360,
+          "right": 1080,
+          "top": 812,
+          "bottom": 900,
+          "width": 720,
+          "height": 88,
+          "centerX": 720,
+          "centerY": 856,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-profile-header h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-profile-person h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-profile-person p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".figma-profile-assistant-copy small",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            39,
+            42,
+            48
+          ],
+          "opacity": 1,
+          "ratio": 7.484133695922254
+        },
+        {
+          "selector": ".figma-profile-row",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "dark",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "dark-1440x900-classic.png",
+      "geometry": {
+        "content": {
+          "left": 360,
+          "right": 1080,
+          "top": 0,
+          "bottom": 1001,
+          "width": 720,
+          "height": 1001,
+          "centerX": 720,
+          "centerY": 500.5,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "header": {
+          "left": 360,
+          "right": 1080,
+          "top": 0,
+          "bottom": 68,
+          "width": 720,
+          "height": 68,
+          "centerX": 720,
+          "centerY": 34,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "nav": {
+          "left": 360,
+          "right": 1080,
+          "top": 812,
+          "bottom": 900,
+          "width": 720,
+          "height": 88,
+          "centerX": 720,
+          "centerY": 856,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".cl-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".cl-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-when",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-section h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "dark",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "dark-1440x900-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 384,
+          "right": 1056,
+          "top": 212.0625,
+          "bottom": 687.9375,
+          "width": 672,
+          "height": 475.875,
+          "centerX": 720,
+          "centerY": 450,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 412,
+          "right": 1028,
+          "top": 580.9375,
+          "bottom": 659.9375,
+          "width": 616,
+          "height": 79,
+          "centerX": 720,
+          "centerY": 620.4375,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet-hint",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "colorScheme": "dark",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "dark-1440x900-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 384,
+          "right": 1056,
+          "top": 32,
+          "bottom": 868,
+          "width": 672,
+          "height": 836,
+          "centerX": 720,
+          "centerY": 450,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 412,
+          "right": 1028,
+          "top": 781.8125,
+          "bottom": 860.8125,
+          "width": 616,
+          "height": 79,
+          "centerX": 720,
+          "centerY": 821.3125,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .form-note",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "dark",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "dark-1920x1080-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 928,
+          "right": 992,
+          "top": 325.3125,
+          "bottom": 389.3125,
+          "width": 64,
+          "height": 64,
+          "centerX": 960,
+          "centerY": 357.3125,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 779,
+          "right": 1141,
+          "top": 417.3125,
+          "bottom": 503.6875,
+          "width": 362,
+          "height": 86.375,
+          "centerX": 960,
+          "centerY": 460.5,
+          "scrollWidth": 362,
+          "clientWidth": 362
+        },
+        "intro": {
+          "left": 745,
+          "right": 1175,
+          "top": 325.3125,
+          "bottom": 568.6875,
+          "width": 430,
+          "height": 243.375,
+          "centerX": 960,
+          "centerY": 447,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "actions": {
+          "left": 745,
+          "right": 1175,
+          "top": 608.6875,
+          "bottom": 754.6875,
+          "width": 430,
+          "height": 146,
+          "centerX": 960,
+          "centerY": 681.6875,
+          "scrollWidth": 430,
+          "clientWidth": 430
+        },
+        "start": {
+          "left": 765,
+          "right": 1155,
+          "top": 608.6875,
+          "bottom": 658.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 960,
+          "centerY": 633.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "signIn": {
+          "left": 765,
+          "right": 1155,
+          "top": 667.6875,
+          "bottom": 717.6875,
+          "width": 390,
+          "height": 50,
+          "centerX": 960,
+          "centerY": 692.6875,
+          "scrollWidth": 388,
+          "clientWidth": 388
+        },
+        "sample": {
+          "left": 765,
+          "right": 1155,
+          "top": 726.6875,
+          "bottom": 754.6875,
+          "width": 390,
+          "height": 28,
+          "centerX": 960,
+          "centerY": 740.6875,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-welcome-main h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-welcome-main p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            242,
+            243,
+            245
+          ],
+          "opacity": 1,
+          "ratio": 15.851318945030128
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-ghost",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-welcome-sample",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "dark",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "dark-1920x1080-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 700,
+          "right": 1220,
+          "top": 136,
+          "bottom": 635.734375,
+          "width": 520,
+          "height": 499.734375,
+          "centerX": 960,
+          "centerY": 385.8671875,
+          "scrollWidth": 520,
+          "clientWidth": 520
+        },
+        "email": {
+          "left": 724,
+          "right": 1196,
+          "top": 250.234375,
+          "bottom": 300.234375,
+          "width": 472,
+          "height": 50,
+          "centerX": 960,
+          "centerY": 275.234375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "password": {
+          "left": 724,
+          "right": 1196,
+          "top": 339.734375,
+          "bottom": 389.734375,
+          "width": 472,
+          "height": 50,
+          "centerX": 960,
+          "centerY": 364.734375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "submit": {
+          "left": 724,
+          "right": 1196,
+          "top": 403.734375,
+          "bottom": 455.734375,
+          "width": 472,
+          "height": 52,
+          "centerX": 960,
+          "centerY": 429.734375,
+          "scrollWidth": 470,
+          "clientWidth": 470
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".display",
+          "foreground": [
+            245,
+            245,
+            247
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 17.213084805635365
+        },
+        {
+          "selector": ".lede",
+          "foreground": [
+            162,
+            162,
+            171
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 7.400958745650078
+        },
+        {
+          "selector": ".field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": "#email",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": "#password",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            217,
+            220,
+            228
+          ],
+          "opacity": 1,
+          "ratio": 12.829015048070781
+        },
+        {
+          "selector": ".btn-quiet",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "dark",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "dark-1920x1080-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 653,
+          "right": 1267,
+          "top": 593.640625,
+          "bottom": 703.828125,
+          "width": 614,
+          "height": 110.1875,
+          "centerX": 960,
+          "centerY": 648.734375,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "card": {
+          "left": 624,
+          "right": 1296,
+          "top": 177.171875,
+          "bottom": 732.828125,
+          "width": 672,
+          "height": 555.65625,
+          "centerX": 960,
+          "centerY": 455,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "title": {
+          "left": 653,
+          "right": 1267,
+          "top": 238.671875,
+          "bottom": 316.671875,
+          "width": 614,
+          "height": 78,
+          "centerX": 960,
+          "centerY": 277.671875,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "summary": {
+          "left": 653,
+          "right": 1267,
+          "top": 332.671875,
+          "bottom": 385.453125,
+          "width": 614,
+          "height": 52.78125,
+          "centerX": 960,
+          "centerY": 359.0625,
+          "scrollWidth": 614,
+          "clientWidth": 614
+        },
+        "topbar": {
+          "left": 600,
+          "right": 1320,
+          "top": 24,
+          "bottom": 68,
+          "width": 720,
+          "height": 44,
+          "centerX": 960,
+          "centerY": 46,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "actions": {
+          "left": 624,
+          "right": 1296,
+          "top": 752.828125,
+          "bottom": 808.828125,
+          "width": 672,
+          "height": 56,
+          "centerX": 960,
+          "centerY": 780.828125,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "ask": {
+          "left": 624,
+          "right": 1296,
+          "top": 828.828125,
+          "bottom": 882.828125,
+          "width": 672,
+          "height": 54,
+          "centerX": 960,
+          "centerY": 855.828125,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 600,
+          "right": 1320,
+          "top": 992,
+          "bottom": 1080,
+          "width": 720,
+          "height": 88,
+          "centerX": 960,
+          "centerY": 1036,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".page:not([aria-hidden]) .card-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .card-summary",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rb-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-reason",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.55856332212179
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-head strong",
+          "foreground": [
+            187,
+            169,
+            255
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.077373079530272
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "dark",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "dark-1920x1080-profile.png",
+      "geometry": {
+        "body": {
+          "left": 600,
+          "right": 1320,
+          "top": 88,
+          "bottom": 992,
+          "width": 720,
+          "height": 904,
+          "centerX": 960,
+          "centerY": 540,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "identity": {
+          "left": 624,
+          "right": 1296,
+          "top": 88,
+          "bottom": 253,
+          "width": 672,
+          "height": 165,
+          "centerX": 960,
+          "centerY": 170.5,
+          "scrollWidth": 670,
+          "clientWidth": 670
+        },
+        "nav": {
+          "left": 600,
+          "right": 1320,
+          "top": 992,
+          "bottom": 1080,
+          "width": 720,
+          "height": 88,
+          "centerX": 960,
+          "centerY": 1036,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-profile-header h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-profile-person h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-profile-person p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".figma-profile-assistant-copy small",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            39,
+            42,
+            48
+          ],
+          "opacity": 1,
+          "ratio": 7.484133695922254
+        },
+        {
+          "selector": ".figma-profile-row",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "dark",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "dark-1920x1080-classic.png",
+      "geometry": {
+        "content": {
+          "left": 600,
+          "right": 1320,
+          "top": 0,
+          "bottom": 1001,
+          "width": 720,
+          "height": 1001,
+          "centerX": 960,
+          "centerY": 500.5,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "header": {
+          "left": 600,
+          "right": 1320,
+          "top": 0,
+          "bottom": 68,
+          "width": 720,
+          "height": 68,
+          "centerX": 960,
+          "centerY": 34,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "nav": {
+          "left": 600,
+          "right": 1320,
+          "top": 992,
+          "bottom": 1080,
+          "width": 720,
+          "height": 88,
+          "centerX": 960,
+          "centerY": 1036,
+          "scrollWidth": 720,
+          "clientWidth": 720
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".cl-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".cl-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-when",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-section h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "dark",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "dark-1920x1080-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 624,
+          "right": 1296,
+          "top": 302.0625,
+          "bottom": 777.9375,
+          "width": 672,
+          "height": 475.875,
+          "centerX": 960,
+          "centerY": 540,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 652,
+          "right": 1268,
+          "top": 670.9375,
+          "bottom": 749.9375,
+          "width": 616,
+          "height": 79,
+          "centerX": 960,
+          "centerY": 710.4375,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet-hint",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "colorScheme": "dark",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "dark-1920x1080-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 624,
+          "right": 1296,
+          "top": 111.59375,
+          "bottom": 968.40625,
+          "width": 672,
+          "height": 856.8125,
+          "centerX": 960,
+          "centerY": 540,
+          "scrollWidth": 672,
+          "clientWidth": 672
+        },
+        "actions": {
+          "left": 652,
+          "right": 1268,
+          "top": 861.40625,
+          "bottom": 940.40625,
+          "width": 616,
+          "height": 79,
+          "centerX": 960,
+          "centerY": 900.90625,
+          "scrollWidth": 616,
+          "clientWidth": 616
+        },
+        "document": {
+          "scrollWidth": 1920,
+          "clientWidth": 1920
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .form-note",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "dark",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "dark-390x844-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 163,
+          "right": 227,
+          "top": 306.71875,
+          "bottom": 370.71875,
+          "width": 64,
+          "height": 64,
+          "centerX": 195,
+          "centerY": 338.71875,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 34,
+          "right": 356,
+          "top": 398.71875,
+          "bottom": 475.5,
+          "width": 322,
+          "height": 76.78125,
+          "centerX": 195,
+          "centerY": 437.109375,
+          "scrollWidth": 322,
+          "clientWidth": 322
+        },
+        "intro": {
+          "left": 0,
+          "right": 390,
+          "top": 306.71875,
+          "bottom": 537.28125,
+          "width": 390,
+          "height": 230.5625,
+          "centerX": 195,
+          "centerY": 422,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "actions": {
+          "left": 0,
+          "right": 390,
+          "top": 692,
+          "bottom": 830,
+          "width": 390,
+          "height": 138,
+          "centerX": 195,
+          "centerY": 761,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "start": {
+          "left": 20,
+          "right": 370,
+          "top": 692,
+          "bottom": 738,
+          "width": 350,
+          "height": 46,
+          "centerX": 195,
+          "centerY": 715,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "signIn": {
+          "left": 20,
+          "right": 370,
+          "top": 747,
+          "bottom": 793,
+          "width": 350,
+          "height": 46,
+          "centerX": 195,
+          "centerY": 770,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "sample": {
+          "left": 20,
+          "right": 370,
+          "top": 802,
+          "bottom": 830,
+          "width": 350,
+          "height": 28,
+          "centerX": 195,
+          "centerY": 816,
+          "scrollWidth": 350,
+          "clientWidth": 350
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-welcome-main h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-welcome-main p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            242,
+            243,
+            245
+          ],
+          "opacity": 1,
+          "ratio": 15.851318945030128
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-ghost",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-welcome-sample",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "dark",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "dark-390x844-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 0,
+          "right": 390,
+          "top": 58,
+          "bottom": 844,
+          "width": 390,
+          "height": 786,
+          "centerX": 195,
+          "centerY": 451,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "email": {
+          "left": 24,
+          "right": 366,
+          "top": 180.234375,
+          "bottom": 230.234375,
+          "width": 342,
+          "height": 50,
+          "centerX": 195,
+          "centerY": 205.234375,
+          "scrollWidth": 340,
+          "clientWidth": 340
+        },
+        "password": {
+          "left": 24,
+          "right": 366,
+          "top": 269.734375,
+          "bottom": 319.734375,
+          "width": 342,
+          "height": 50,
+          "centerX": 195,
+          "centerY": 294.734375,
+          "scrollWidth": 340,
+          "clientWidth": 340
+        },
+        "submit": {
+          "left": 24,
+          "right": 366,
+          "top": 333.734375,
+          "bottom": 385.734375,
+          "width": 342,
+          "height": 52,
+          "centerX": 195,
+          "centerY": 359.734375,
+          "scrollWidth": 340,
+          "clientWidth": 340
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".display",
+          "foreground": [
+            245,
+            245,
+            247
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 17.213084805635365
+        },
+        {
+          "selector": ".lede",
+          "foreground": [
+            162,
+            162,
+            171
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 7.400958745650078
+        },
+        {
+          "selector": ".field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": "#email",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": "#password",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            217,
+            220,
+            228
+          ],
+          "opacity": 1,
+          "ratio": 12.829015048070781
+        },
+        {
+          "selector": ".btn-quiet",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "dark",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "dark-390x844-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 38,
+          "right": 352,
+          "top": 424.125,
+          "bottom": 504.90625,
+          "width": 314,
+          "height": 80.78125,
+          "centerX": 195,
+          "centerY": 464.515625,
+          "scrollWidth": 314,
+          "clientWidth": 314
+        },
+        "card": {
+          "left": 20,
+          "right": 370,
+          "top": 78,
+          "bottom": 521.90625,
+          "width": 350,
+          "height": 443.90625,
+          "centerX": 195,
+          "centerY": 299.953125,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "title": {
+          "left": 38,
+          "right": 352,
+          "top": 124,
+          "bottom": 183.5,
+          "width": 314,
+          "height": 59.5,
+          "centerX": 195,
+          "centerY": 153.75,
+          "scrollWidth": 314,
+          "clientWidth": 314
+        },
+        "summary": {
+          "left": 38,
+          "right": 323,
+          "top": 196.5,
+          "bottom": 249.75,
+          "width": 285,
+          "height": 53.25,
+          "centerX": 180.5,
+          "centerY": 223.125,
+          "scrollWidth": 285,
+          "clientWidth": 285
+        },
+        "topbar": {
+          "left": 0,
+          "right": 390,
+          "top": 16,
+          "bottom": 58,
+          "width": 390,
+          "height": 42,
+          "centerX": 195,
+          "centerY": 37,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "actions": {
+          "left": 20,
+          "right": 370,
+          "top": 548.90625,
+          "bottom": 609.90625,
+          "width": 350,
+          "height": 61,
+          "centerX": 195,
+          "centerY": 579.40625,
+          "scrollWidth": 350,
+          "clientWidth": 350
+        },
+        "ask": {
+          "left": 20,
+          "right": 370,
+          "top": 696,
+          "bottom": 744,
+          "width": 350,
+          "height": 48,
+          "centerX": 195,
+          "centerY": 720,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "nav": {
+          "left": 0,
+          "right": 390,
+          "top": 756,
+          "bottom": 844,
+          "width": 390,
+          "height": 88,
+          "centerX": 195,
+          "centerY": 800,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".page:not([aria-hidden]) .card-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .card-summary",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rb-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-reason",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.55856332212179
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-head strong",
+          "foreground": [
+            187,
+            169,
+            255
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.077373079530272
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "dark",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "dark-390x844-profile.png",
+      "geometry": {
+        "body": {
+          "left": 0,
+          "right": 390,
+          "top": 78,
+          "bottom": 756,
+          "width": 390,
+          "height": 678,
+          "centerX": 195,
+          "centerY": 417,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "identity": {
+          "left": 20,
+          "right": 370,
+          "top": 78,
+          "bottom": 231,
+          "width": 350,
+          "height": 153,
+          "centerX": 195,
+          "centerY": 154.5,
+          "scrollWidth": 348,
+          "clientWidth": 348
+        },
+        "nav": {
+          "left": 0,
+          "right": 390,
+          "top": 756,
+          "bottom": 844,
+          "width": 390,
+          "height": 88,
+          "centerX": 195,
+          "centerY": 800,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-profile-header h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-profile-person h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-profile-person p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".figma-profile-assistant-copy small",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            39,
+            42,
+            48
+          ],
+          "opacity": 1,
+          "ratio": 7.484133695922254
+        },
+        {
+          "selector": ".figma-profile-row",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "dark",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "dark-390x844-classic.png",
+      "geometry": {
+        "content": {
+          "left": 0,
+          "right": 390,
+          "top": 0,
+          "bottom": 824.5,
+          "width": 390,
+          "height": 824.5,
+          "centerX": 195,
+          "centerY": 412.25,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "header": {
+          "left": 0,
+          "right": 390,
+          "top": 0,
+          "bottom": 58,
+          "width": 390,
+          "height": 58,
+          "centerX": 195,
+          "centerY": 29,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "nav": {
+          "left": 0,
+          "right": 390,
+          "top": 756,
+          "bottom": 844,
+          "width": 390,
+          "height": 88,
+          "centerX": 195,
+          "centerY": 800,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".cl-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".cl-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-when",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-section h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "dark",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "dark-390x844-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 0,
+          "right": 390,
+          "top": 372.625,
+          "bottom": 844,
+          "width": 390,
+          "height": 471.375,
+          "centerX": 195,
+          "centerY": 608.3125,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "actions": {
+          "left": 20,
+          "right": 370,
+          "top": 753,
+          "bottom": 824,
+          "width": 350,
+          "height": 71,
+          "centerX": 195,
+          "centerY": 788.5,
+          "scrollWidth": 350,
+          "clientWidth": 350
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet-hint",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "colorScheme": "dark",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "dark-390x844-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 0,
+          "right": 390,
+          "top": 168.8125,
+          "bottom": 844,
+          "width": 390,
+          "height": 675.1875,
+          "centerX": 195,
+          "centerY": 506.40625,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "actions": {
+          "left": 20,
+          "right": 370,
+          "top": 773,
+          "bottom": 844,
+          "width": 350,
+          "height": 71,
+          "centerX": 195,
+          "centerY": 808.5,
+          "scrollWidth": 350,
+          "clientWidth": 350
+        },
+        "document": {
+          "scrollWidth": 390,
+          "clientWidth": 390
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .form-note",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "dark",
+      "check": "welcome",
+      "result": "passed",
+      "screenshot": "dark-320x640-welcome.png",
+      "geometry": {
+        "logo": {
+          "left": 128,
+          "right": 192,
+          "top": 149.515625,
+          "bottom": 213.515625,
+          "width": 64,
+          "height": 64,
+          "centerX": 160,
+          "centerY": 181.515625,
+          "scrollWidth": 64,
+          "clientWidth": 64
+        },
+        "title": {
+          "left": 34,
+          "right": 286,
+          "top": 233.515625,
+          "bottom": 300.703125,
+          "width": 252,
+          "height": 67.1875,
+          "centerX": 160,
+          "centerY": 267.109375,
+          "scrollWidth": 252,
+          "clientWidth": 252
+        },
+        "intro": {
+          "left": 0,
+          "right": 320,
+          "top": 149.515625,
+          "bottom": 362.484375,
+          "width": 320,
+          "height": 212.96875,
+          "centerX": 160,
+          "centerY": 256,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "actions": {
+          "left": 0,
+          "right": 320,
+          "top": 488,
+          "bottom": 626,
+          "width": 320,
+          "height": 138,
+          "centerX": 160,
+          "centerY": 557,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "start": {
+          "left": 20,
+          "right": 300,
+          "top": 488,
+          "bottom": 534,
+          "width": 280,
+          "height": 46,
+          "centerX": 160,
+          "centerY": 511,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "signIn": {
+          "left": 20,
+          "right": 300,
+          "top": 543,
+          "bottom": 589,
+          "width": 280,
+          "height": 46,
+          "centerX": 160,
+          "centerY": 566,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "sample": {
+          "left": 20,
+          "right": 300,
+          "top": 598,
+          "bottom": 626,
+          "width": 280,
+          "height": 28,
+          "centerX": 160,
+          "centerY": 612,
+          "scrollWidth": 280,
+          "clientWidth": 280
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-welcome-main h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-welcome-main p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            242,
+            243,
+            245
+          ],
+          "opacity": 1,
+          "ratio": 15.851318945030128
+        },
+        {
+          "selector": ".figma-welcome-actions .btn-ghost",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-welcome-sample",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "dark",
+      "check": "sign-in",
+      "result": "passed",
+      "screenshot": "dark-320x640-sign-in.png",
+      "geometry": {
+        "body": {
+          "left": 0,
+          "right": 320,
+          "top": 58,
+          "bottom": 640,
+          "width": 320,
+          "height": 582,
+          "centerX": 160,
+          "centerY": 349,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "email": {
+          "left": 24,
+          "right": 296,
+          "top": 180.234375,
+          "bottom": 230.234375,
+          "width": 272,
+          "height": 50,
+          "centerX": 160,
+          "centerY": 205.234375,
+          "scrollWidth": 270,
+          "clientWidth": 270
+        },
+        "password": {
+          "left": 24,
+          "right": 296,
+          "top": 269.734375,
+          "bottom": 319.734375,
+          "width": 272,
+          "height": 50,
+          "centerX": 160,
+          "centerY": 294.734375,
+          "scrollWidth": 270,
+          "clientWidth": 270
+        },
+        "submit": {
+          "left": 24,
+          "right": 296,
+          "top": 333.734375,
+          "bottom": 385.734375,
+          "width": 272,
+          "height": 52,
+          "centerX": 160,
+          "centerY": 359.734375,
+          "scrollWidth": 270,
+          "clientWidth": 270
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".display",
+          "foreground": [
+            245,
+            245,
+            247
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 17.213084805635365
+        },
+        {
+          "selector": ".lede",
+          "foreground": [
+            162,
+            162,
+            171
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 7.400958745650078
+        },
+        {
+          "selector": ".field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        },
+        {
+          "selector": "#email",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": "#password",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".btn-primary",
+          "foreground": [
+            23,
+            25,
+            29
+          ],
+          "background": [
+            217,
+            220,
+            228
+          ],
+          "opacity": 1,
+          "ratio": 12.829015048070781
+        },
+        {
+          "selector": ".btn-quiet",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 9.753001858434601
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "dark",
+      "check": "feed",
+      "result": "passed",
+      "screenshot": "dark-320x640-feed.png",
+      "geometry": {
+        "recommendation": {
+          "left": 38,
+          "right": 282,
+          "top": 457.8125,
+          "bottom": 573.984375,
+          "width": 244,
+          "height": 116.171875,
+          "centerX": 160,
+          "centerY": 515.8984375,
+          "scrollWidth": 244,
+          "clientWidth": 244
+        },
+        "card": {
+          "left": 20,
+          "right": 300,
+          "top": 68,
+          "bottom": 409,
+          "width": 280,
+          "height": 341,
+          "centerX": 160,
+          "centerY": 238.5,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "title": {
+          "left": 38,
+          "right": 282,
+          "top": 114,
+          "bottom": 203.25,
+          "width": 244,
+          "height": 89.25,
+          "centerX": 160,
+          "centerY": 158.625,
+          "scrollWidth": 244,
+          "clientWidth": 244
+        },
+        "summary": {
+          "left": 38,
+          "right": 282,
+          "top": 216.25,
+          "bottom": 269.5,
+          "width": 244,
+          "height": 53.25,
+          "centerX": 160,
+          "centerY": 242.875,
+          "scrollWidth": 244,
+          "clientWidth": 244
+        },
+        "topbar": {
+          "left": 0,
+          "right": 320,
+          "top": 16,
+          "bottom": 58,
+          "width": 320,
+          "height": 42,
+          "centerX": 160,
+          "centerY": 37,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "actions": {
+          "left": 20,
+          "right": 300,
+          "top": 424,
+          "bottom": 477,
+          "width": 280,
+          "height": 53,
+          "centerX": 160,
+          "centerY": 450.5,
+          "scrollWidth": 280,
+          "clientWidth": 280
+        },
+        "ask": {
+          "left": 20,
+          "right": 300,
+          "top": 492,
+          "bottom": 540,
+          "width": 280,
+          "height": 48,
+          "centerX": 160,
+          "centerY": 516,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "nav": {
+          "left": 0,
+          "right": 320,
+          "top": 552,
+          "bottom": 640,
+          "width": 320,
+          "height": 88,
+          "centerX": 160,
+          "centerY": 596,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".page:not([aria-hidden]) .card-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .card-summary",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rb-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-reason",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.55856332212179
+        },
+        {
+          "selector": ".page:not([aria-hidden]) .rec-head strong",
+          "foreground": [
+            187,
+            169,
+            255
+          ],
+          "background": [
+            44,
+            37,
+            64
+          ],
+          "opacity": 1,
+          "ratio": 7.077373079530272
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "dark",
+      "check": "profile",
+      "result": "passed",
+      "screenshot": "dark-320x640-profile.png",
+      "geometry": {
+        "body": {
+          "left": 0,
+          "right": 320,
+          "top": 78,
+          "bottom": 552,
+          "width": 320,
+          "height": 474,
+          "centerX": 160,
+          "centerY": 315,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "identity": {
+          "left": 20,
+          "right": 300,
+          "top": 78,
+          "bottom": 244,
+          "width": 280,
+          "height": 166,
+          "centerX": 160,
+          "centerY": 161,
+          "scrollWidth": 278,
+          "clientWidth": 278
+        },
+        "nav": {
+          "left": 0,
+          "right": 320,
+          "top": 552,
+          "bottom": 640,
+          "width": 320,
+          "height": 88,
+          "centerX": 160,
+          "centerY": 596,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".figma-profile-header h1",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        },
+        {
+          "selector": ".figma-profile-person h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".figma-profile-person p",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".figma-profile-assistant-copy small",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            39,
+            42,
+            48
+          ],
+          "opacity": 1,
+          "ratio": 7.484133695922254
+        },
+        {
+          "selector": ".figma-profile-row",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "dark",
+      "check": "classic",
+      "result": "passed",
+      "screenshot": "dark-320x640-classic.png",
+      "geometry": {
+        "content": {
+          "left": 0,
+          "right": 320,
+          "top": 0,
+          "bottom": 824.5,
+          "width": 320,
+          "height": 824.5,
+          "centerX": 160,
+          "centerY": 412.25,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "header": {
+          "left": 0,
+          "right": 320,
+          "top": 0,
+          "bottom": 58,
+          "width": 320,
+          "height": 58,
+          "centerX": 160,
+          "centerY": 29,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "nav": {
+          "left": 0,
+          "right": 320,
+          "top": 552,
+          "bottom": 640,
+          "width": 320,
+          "height": 88,
+          "centerX": 160,
+          "centerY": 596,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".cl-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".cl-meta",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-when",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".cl-section h2",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            17,
+            18,
+            20
+          ],
+          "opacity": 1,
+          "ratio": 16.880775803956144
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "dark",
+      "check": "compose",
+      "result": "passed",
+      "screenshot": "dark-320x640-compose.png",
+      "geometry": {
+        "dialog": {
+          "left": 0,
+          "right": 320,
+          "top": 168.625,
+          "bottom": 640,
+          "width": 320,
+          "height": 471.375,
+          "centerX": 160,
+          "centerY": 404.3125,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "actions": {
+          "left": 20,
+          "right": 300,
+          "top": 549,
+          "bottom": 620,
+          "width": 280,
+          "height": 71,
+          "centerX": 160,
+          "centerY": 584.5,
+          "scrollWidth": 280,
+          "clientWidth": 280
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet-hint",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        }
+      ]
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "colorScheme": "dark",
+      "check": "compose-preview",
+      "result": "passed",
+      "screenshot": "dark-320x640-compose-preview.png",
+      "geometry": {
+        "dialog": {
+          "left": 0,
+          "right": 320,
+          "top": 128,
+          "bottom": 640,
+          "width": 320,
+          "height": 512,
+          "centerX": 160,
+          "centerY": 384,
+          "scrollWidth": 320,
+          "clientWidth": 320
+        },
+        "actions": {
+          "left": 20,
+          "right": 300,
+          "top": 565,
+          "bottom": 640,
+          "width": 280,
+          "height": 75,
+          "centerX": 160,
+          "centerY": 602.5,
+          "scrollWidth": 280,
+          "clientWidth": 280
+        },
+        "document": {
+          "scrollWidth": 320,
+          "clientWidth": 320
+        }
+      },
+      "contrast": [
+        {
+          "selector": ".sheet-title",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        },
+        {
+          "selector": ".sheet .field label",
+          "foreground": [
+            183,
+            187,
+            197
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 8.782244590785163
+        },
+        {
+          "selector": ".sheet .form-note",
+          "foreground": [
+            242,
+            243,
+            245
+          ],
+          "background": [
+            27,
+            29,
+            33
+          ],
+          "opacity": 1,
+          "ratio": 15.200561236881159
+        }
+      ]
+    }
+  ],
+  "limitations": "Browser geometry and sample navigation only; no external integration, production deployment, or physical-device qualification"
+}
