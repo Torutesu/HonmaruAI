@@ -1,4 +1,11 @@
-# Web release candidate — local fixture evidence
+# Historical web candidate — superseded local fixture evidence
+
+This directory records the earlier `7fd1a2d` candidate, before the current
+Figma alignment. Its screenshots and checklist are retained as historical
+evidence and do not qualify the current interface. The current references,
+visual review, and local browser regression results are in
+[`docs/figma-alignment/2026-09-08/`](../../../docs/figma-alignment/2026-09-08/),
+including [`browser-regression/checks.json`](../../../docs/figma-alignment/2026-09-08/browser-regression/checks.json).
 
 Captured 2026-09-08 using the implemented frontend, a real local Cloudflare
 Worker, disposable D1/R2 under `/tmp/honmaruai-web-qa`, and Chromium via
@@ -8,7 +15,7 @@ uses the reserved `.invalid` domain. No tokens, passwords, browser storage
 state, production customer data, or remote integration credentials are stored
 in this evidence directory.
 
-## Verified
+## Verified at that checkpoint
 
 - `npm ci --no-audit --ignore-scripts` succeeds with the locked toolchain.
 - `npm run test:run`: 22 tests across transport, API configuration, and context
@@ -33,11 +40,13 @@ Generated identity-routing context is suppressed only when it exactly matches
 the known sender, recipient, or route names. Substantive context is retained;
 full source requests are accessible when they differ from the summary.
 
-## Reproduce
+## Run the current checks
 
-Follow the disposable Worker and frontend instructions in `../../README.md`.
+Follow the current disposable Worker and frontend instructions in [`../../README.md`](../../README.md).
 Then run `npm run test:browser` from `web-react`. The script restricts API traffic
-to localhost and writes new evidence to `/tmp`, leaving checked-in images intact.
+to local services and writes new evidence to `/tmp`, leaving these historical
+images intact. Current Figma selectors and workflows differ from this checkpoint;
+running today's script does not reproduce this older visual state.
 
 ## Boundaries
 

@@ -17,7 +17,7 @@ Ships as **Honmaru AI** (`com.honmaru.ai`) on TestFlight.
 | iOS | SwiftUI, xcodegen (`project.yml`), ASWebAuthenticationSession, URLSession WebSocket |
 | Backend | Cloudflare Workers (`worker/`) — Durable Objects for the relay, D1 for storage, R2 for video |
 | AI | OpenAI `gpt-4o-mini`, with a keyword router as the always-available fallback |
-| Identity | GitHub OAuth. A repository's collaborators are the org graph |
+| Identity | GitHub OAuth, or an email sign-in code (no password to remember, and it proves the address notifications go to) — [docs/screens.md](docs/screens.md). A repository's collaborators are the org graph |
 | Connectors | Gmail, Slack, Notion via [Composio](https://composio.dev), authorized **per user** |
 | Billing | RevenueCat, metered server-side (currently off — see below) |
 | Notifications | One hub, three channels, written in the recipient's language: APNs (built, client switched off until the App ID carries the entitlement), **Web Push** (any browser, Android, iOS home-screen web app — VAPID and `aes128gcm` in Web Crypto, no dependency), and **email** as the floor when no push reaches someone ([docs](docs/notifications.md)) |
@@ -60,9 +60,8 @@ Secrets live only as Worker secrets (`npx wrangler secret put …`), never in th
 `OPENAI_API_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `COMPOSIO_API_KEY`,
 `REVENUECAT_SECRET_KEY`, the four APNs ones
 (`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_PRIVATE_KEY`), the three
-Web Push ones (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) and the
-two for email (`MAILGUN_API_KEY`, `MAILGUN_DOMAIN`) —
-see [docs/notifications.md](docs/notifications.md).
+Web Push ones (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) and
+`RESEND_API_KEY` for email — see [docs/notifications.md](docs/notifications.md).
 
 ## Access
 
@@ -148,7 +147,7 @@ Setup steps: [docs/revenuecat.md](docs/revenuecat.md).
        │            ┌──────────────┬────────┼────────┬───────────────┐
        │            ▼              ▼        ▼        ▼               ▼
        └── GitHub Issues        OpenAI   Composio  RevenueCat   APNs · Web Push
-           (client-side)     routing +   Gmail/    entitlements   · Mailgun
+           (client-side)     routing +   Gmail/    entitlements   · Resend
                              translation Slack/Notion             (in the reader's language)
 ```
 
@@ -160,6 +159,7 @@ rollback preserves the decision it undid. The client↔agent protocol is
 
 | Topic | File |
 |-------|------|
+| Every screen, and what is actually behind it | `docs/screens.md` |
 | Verified Composio / connector contracts | `worker/README.md` |
 | Deploying, and every secret: where to get it, where to put it | `docs/setup-secrets.md` |
 | Notifications: channels, languages, setup | `docs/notifications.md` |

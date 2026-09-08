@@ -25,6 +25,10 @@ const STRINGS = {
     emailNudgeIntro: "{name} is still waiting on your decision.",
     emailOpen: "Open it here: {url}",
     emailFooter: "You are getting this because no device of yours can receive a push notification. Install the app or enable notifications in your browser to switch.",
+    codeSubject: "{code} is your Honmaru sign-in code",
+    codeIntro: "Enter this code to sign in to Honmaru AI:",
+    codeExpiry: "It works for {minutes} minutes, once.",
+    codeIgnore: "If you did not ask to sign in, ignore this email — nothing has happened to your account.",
     actions: {
       approve: "approved", decline: "declined", choose: "chose an option", reply: "replied",
       acknowledge: "acknowledged", later: "deferred", delete: "removed", mute: "muted",
@@ -46,6 +50,10 @@ const STRINGS = {
     emailNudgeIntro: "{name}があなたの決定を待っています。",
     emailOpen: "こちらから開けます: {url}",
     emailFooter: "このメールは、プッシュ通知を受け取れる端末が登録されていないため送られています。アプリをインストールするか、ブラウザで通知を有効にすると切り替わります。",
+    codeSubject: "Honmaru のログインコード: {code}",
+    codeIntro: "このコードを入力すると Honmaru AI にログインできます:",
+    codeExpiry: "有効期間は{minutes}分、1回限りです。",
+    codeIgnore: "心当たりがない場合は、このメールを無視してください。アカウントには何も起きていません。",
     actions: {
       approve: "承認", decline: "却下", choose: "選択", reply: "返信",
       acknowledge: "確認済み", later: "保留", delete: "削除", mute: "ミュート",
@@ -58,8 +66,15 @@ export const SUPPORTED_LOCALES = Object.keys(STRINGS);
 
 /// The strings for a locale, falling back to English for one we have not
 /// written yet. A person whose language we cannot speak still gets told.
+///
+/// A region is not a language here: "ja-JP", "ja_JP" and "ja" all read the
+/// same table. Stored locales are already reduced to the primary subtag, but
+/// an Accept-Language header is not, and a sign-in code email is written
+/// before there is any stored locale to read.
 export function stringsFor(locale) {
-  return STRINGS[locale] || STRINGS.en;
+  if (typeof locale !== "string") return STRINGS.en;
+  const primary = locale.trim().toLowerCase().split(/[-_]/)[0];
+  return STRINGS[primary] || STRINGS.en;
 }
 
 function fill(template, vars = {}) {
@@ -145,5 +160,25 @@ export function composeEmail({ card, kind, locale, count, url }) {
   return {
     subject: t(lang, "emailSubject", { title: alert.title }),
     text: lines.join("\n"),
+  };
+}
+
+/// The sign-in code email. Written in the language the browser asked in, since
+/// someone who has never signed in has no stored language yet.
+///
+/// The code is in the subject as well as the body: on a phone, that is the
+/// difference between reading it from the notification and opening the mail
+/// app, and the code is single-use and short-lived either way.
+export function composeCodeEmail({ code, locale, minutes }) {
+  return {
+    subject: t(locale, "codeSubject", { code }),
+    text: [
+      t(locale, "codeIntro"),
+      "",
+      code,
+      "",
+      t(locale, "codeExpiry", { minutes: String(minutes) }),
+      t(locale, "codeIgnore"),
+    ].join("\n"),
   };
 }

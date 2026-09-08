@@ -1,0 +1,128 @@
+import React, { useState } from 'react'
+import { Search, SlidersHorizontal, UserRound, X } from 'lucide-react'
+import type { DecisionCard, Business } from '../types/card'
+import { getLocale } from '../utils/locale'
+import { displayName } from '../utils/names'
+
+/// What was done, as a word rather than the verb the API uses — the same
+/// table History reads from, so one decision is not "approve" here and
+/// "Approved" one screen away. English keys, translated where they are read.
+const ACTION_WORD: Record<string, string> = {
+  approve: 'Approved', decline: 'Declined', revise: 'Revision asked', revised: 'Revision asked',
+  choose: 'Chose', reply: 'Replied', acknowledge: 'Acknowledged',
+  delegate: 'Delegated', later: 'Deferred', pending: 'Waiting',
+}
+const actionWord = (value?: string) => (value ? ACTION_WORD[value] || value : '')
+import { useT } from '../utils/i18n'
+
+interface Props {
+  workspaceLabel:string
+  onProfile:() => void
+  pending: DecisionCard[]
+  sent: DecisionCard[]
+  decided: DecisionCard[]
+  businesses: Business[]
+  memberName: (id:string) => string
+  onOpen: (cardId: string) => void
+  onNudge: (cardId: string) => void
+}
+
+function when(iso?: string): string {
+  if (!iso) return ''
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return ''
+  const d = new Date(t)
+  const today = new Date()
+  const sameDay = d.toDateString() === today.toDateString()
+  return sameDay
+    ? d.toLocaleTimeString(getLocale(), { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric' })
+}
+
+/// The same decisions, as a list you scan rather than a stack you swipe.
+///
+/// It is deliberately the same data as the card feed: everything here can be
+/// opened as a card, and nothing here exists that the feed does not know
+/// about. The channels and direct messages in the design are a separate
+/// feature with no backend yet, and inventing them here would be a screen
+/// that lies about what the product does.
+export const ClassicList: React.FC<Props> = ({ pending, sent, decided, businesses, onOpen, onNudge, memberName, workspaceLabel, onProfile }) => {
+  const t = useT()
+  const locale = getLocale()
+  const [search,setSearch]=useState(''), [filters,setFilters]=useState(false), [kind,setKind]=useState('all'),[priority,setPriority]=useState('all')
+  const matches=(card:DecisionCard) => (kind === 'all' || card.type === kind) && (priority === 'all' || card.priority === priority) && `${card.localized?.[locale]?.title || card.title} ${card.summary} ${card.requestedBy?.name || memberName(card.senderUserID)} ${memberName(card.recipientUserID)}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+  const visiblePending=pending.filter(matches),visibleSent=sent.filter(matches),visibleDecided=decided.filter(matches)
+  const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug || ''
+  const titleOf = (c: DecisionCard) => c.localized?.[locale]?.title || c.title
+
+  const Row: React.FC<{ card: DecisionCard; meta: string; badge?: string; action?: React.ReactNode }> = ({ card, meta, badge, action }) => (
+    <li className="cl-row">
+      <button className="cl-open" onClick={() => onOpen(card.id)}>
+        <span className="cl-mark" aria-hidden="true">{(nameOf(card.business)[0] || '#').toUpperCase()}</span>
+        <span className="cl-text">
+          <span className="cl-title">{titleOf(card)}</span>
+          <span className="cl-meta">{meta}</span>
+        </span>
+        <span className="cl-right">
+          <span className="cl-when">{when(card.decision?.decidedAt || card.createdAt)}</span>
+          {badge && <span className="cl-badge">{badge}</span>}
+        </span>
+      </button>
+      {action}
+    </li>
+  )
+
+  return (
+    <div className="classic">
+      <header className="cl-workspace-header"><img src="/honmaru-mark.png" width="30" height="30" alt="" /><strong>{workspaceLabel}</strong><button aria-label={t('You')} onClick={onProfile}><UserRound size={21} /></button></header>
+      <div className="classic-inner">
+        <div className="cl-search"><label><Search size={17} /><input aria-label={t('Search requests')} placeholder={t('Search requests or people…')} value={search} onChange={event=>setSearch(event.target.value)} />{search && <button onClick={()=>setSearch('')} aria-label={t('Clear search')}><X size={15} /></button>}</label><button className={filters ? 'on' : ''} onClick={()=>setFilters(!filters)} aria-label={t('Filters')} aria-expanded={filters}><SlidersHorizontal size={18} /></button></div>
+        {filters && <div className="cl-filters"><label>{t('Request type')}<select aria-label={t('Filter by type')} value={kind} onChange={event=>setKind(event.target.value)}>{['all','approval','task','revision','delegation','notification'].map(value=><option key={value} value={value}>{t(value === 'all' ? 'All types' : value[0].toUpperCase()+value.slice(1))}</option>)}</select></label><label>{t('Priority')}<select aria-label={t('Filter by priority')} value={priority} onChange={event=>setPriority(event.target.value)}>{['all','low','medium','high','urgent'].map(value=><option key={value} value={value}>{t(value === 'all' ? 'All priorities' : value[0].toUpperCase()+value.slice(1))}</option>)}</select></label></div>}
+        {visiblePending.length + visibleSent.length + visibleDecided.length === 0 && (search || kind !== 'all' || priority !== 'all') && <p className="cl-empty">{t('No matching requests.')}</p>}
+        <section className="cl-section">
+          <h2>{t('Waiting on you')}<span>{visiblePending.length}</span></h2>
+          {pending.length === 0 && <p className="cl-empty">{t('Nothing is waiting on you.')}</p>}
+          <ul>
+            {visiblePending.map((c) => (
+              <Row
+                key={c.id}
+                card={c}
+                meta={`${displayName(c.requestedBy?.name || c.senderUserID)}${nameOf(c.business) ? ` · ${nameOf(c.business)}` : ''}`}
+                badge={c.priority === 'urgent' || c.priority === 'high' ? t(c.priority[0].toUpperCase()+c.priority.slice(1)) : undefined}
+              />
+            ))}
+          </ul>
+        </section>
+
+        <section className="cl-section">
+          <h2>{t('Sent by you')}<span>{visibleSent.length}</span></h2>
+          {sent.length === 0 && <p className="cl-empty">{t('You have not sent anything yet.')}</p>}
+          <ul>
+            {visibleSent.map((c) => (
+              <Row
+                key={c.id}
+                card={c}
+                meta={c.status === 'pending'
+                  ? t('Waiting on {name}', { name: memberName(c.recipientUserID) })
+                  : `${memberName(c.recipientUserID)} · ${t(actionWord(c.decision?.action || c.status))}`}
+                action={c.status === 'pending'
+                  ? <button className="cl-nudge" onClick={() => onNudge(c.id)}>{t('Nudge')}</button>
+                  : undefined}
+              />
+            ))}
+          </ul>
+        </section>
+
+        <section className="cl-section">
+          <h2>{t('Decided')}<span>{visibleDecided.length}</span></h2>
+          {decided.length === 0 && <p className="cl-empty">{t('No decisions yet.')}</p>}
+          <ul>
+            {visibleDecided.map((c) => (
+              <Row key={c.id} card={c} meta={`${t(actionWord(c.decision?.action || c.status))}${nameOf(c.business) ? ` · ${nameOf(c.business)}` : ''}`} />
+            ))}
+          </ul>
+        </section>
+      </div>
+    </div>
+  )
+}

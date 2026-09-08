@@ -218,9 +218,21 @@ describe('WebSocketClient', () => {
     await Promise.resolve()
     expect(saved).not.toHaveBeenCalled()
     expect(socket.sent[socket.sent.length - 1].type).toBe('card_created')
-    socket.emit({ type: 'STATE_DELTA', delta: [{ op: 'add', path: '/cardsById/new-card', value: { id: 'new-card' } }] })
+    socket.emit({ type: 'STATE_DELTA', delta: [{ op: 'add', path: '/cardsById/new-card', value: { id: 'new-card', title:'Review launch', senderUserID:'user-alice' } }] })
     await delivery
     expect(saved).toHaveBeenCalledOnce()
+  })
+
+  it('does not confirm a previous version of a same-id draft from a late echo', async () => {
+    const { client, socket } = await connectedClient()
+    const draft = { id:'edited-card', title:'Updated request', summary:'Review current proposal', context:'Final version', type:'approval', priority:'high', recipientUserID:'user-bob', sourceInstruction:'Original instruction', videoURL:'https://media.invalid/current.mp4' }
+    const saved=vi.fn(), delivery=client.sendCardCreated(draft).then(saved)
+    socket.emit({type:'STATE_SNAPSHOT',snapshot:{cardsById:{'edited-card':{...draft,title:'Previous request',senderUserID:'user-alice'}}}})
+    await Promise.resolve(); expect(saved).not.toHaveBeenCalled()
+    socket.emit({type:'STATE_DELTA',delta:[{op:'replace',path:'/cardsById/edited-card',value:{...draft,videoURL:'https://media.invalid/old.mp4',senderUserID:'user-alice'}}]})
+    await Promise.resolve(); expect(saved).not.toHaveBeenCalled()
+    socket.emit({type:'STATE_DELTA',delta:[{op:'replace',path:'/cardsById/edited-card',value:{...draft,senderUserID:'user-alice',requestedBy:{name:'Alice'},localized:{ja:{title:'依頼'}}}}]})
+    await delivery; expect(saved).toHaveBeenCalledOnce()
   })
 
   it('rejects an offline creation and a server-rejected creation', async () => {

@@ -19,7 +19,7 @@ export class WebSocketClient {
   private intentionalDisconnect = false
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private joined = false
-  private pendingCards = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
+  private pendingCards = new Map<string, { expected: Record<string,unknown>; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   // Grows on each failed retry (2s → 4s → 8s … capped) so a server that is
   // down is not hammered every 2s, and resets to the minimum on a success.
   private reconnectDelay = RECONNECT_MIN_MS
@@ -353,7 +353,9 @@ export class WebSocketClient {
         this.pendingCards.delete(card.id)
         reject(new Error('Delivery could not be confirmed. Check Sent before retrying.'))
       }, 15000)
-      this.pendingCards.set(card.id, { resolve, reject, timer })
+      const expected = Object.fromEntries(['title','summary','context','type','priority','recipientUserID','sourceInstruction','videoURL'].map((field) => [field,card[field]]))
+      expected.senderUserID = this.currentUserId
+      this.pendingCards.set(card.id, { expected, resolve, reject, timer })
       try {
         this.ws!.send(JSON.stringify({ type: 'card_created', payload: { card } }))
       } catch {
@@ -370,7 +372,8 @@ export class WebSocketClient {
 
   private confirmPendingCards(): void {
     for (const [id, pending] of this.pendingCards) {
-      if (!this.state.cardsById[id]) continue
+      const card = this.state.cardsById[id]
+      if (!card || !Object.entries(pending.expected).every(([field,value]) => (card as unknown as Record<string,unknown>)[field] === value)) continue
       clearTimeout(pending.timer)
       this.pendingCards.delete(id)
       pending.resolve()

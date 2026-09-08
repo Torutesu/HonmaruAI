@@ -9,4 +9,5 @@ test("GET /health reports readiness", async () => {
   // No AI keys in the test env, so routing reports the keyword fallback.
   expect(body.aiRouting).toBe(false);
   expect(body.aiModel).toBe("fallback");
+  expect(body.email).toBe(false);
 });

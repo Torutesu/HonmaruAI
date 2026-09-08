@@ -1,0 +1,15 @@
+  using already-booted simulator 70C0FAF7-A7E3-43ED-82D1-BC428C44254B
+
+==> Building TikTokForWork (Release, simulator, unsigned)
+
+** BUILD SUCCEEDED **
+
+
+==> Locating the built app
+  <isolated-derived-data>/Build/Products/Release-iphonesimulator/TikTokForWork.app
+
+==> Installing and launching on the simulator
+  launched pid 6017
+
+==> Watching the process for 12s
+✓  still running after 12s, no fatal in the log — Release build launches cleanly

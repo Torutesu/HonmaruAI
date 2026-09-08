@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// Shared workbench palette: paper surfaces, ink actions, restrained violet.
+// Figma HonmaruAI Final Screen palette; semantic dark counterparts retained.
 // Semantic roles remain stable across native screens and both appearances.
 enum Theme {
     enum Colors {
@@ -13,19 +13,19 @@ enum Theme {
         }
 
         static let background = dyn(0xFFFFFF, 0x191C22)
-        static let surface = dyn(0xF7F8FA, 0x0F1115)
-        static let surfaceRaised = dyn(0xF0F1F5, 0x222631)
-        static let textPrimary = dyn(0x20242C, 0xF4F5F7)
-        static let textSecondary = dyn(0x626873, 0xB5BDC9)
+        static let surface = dyn(0xFBFBFC, 0x0F1115)
+        static let surfaceRaised = dyn(0xF2F2F2, 0x222631)
+        static let textPrimary = dyn(0x202020, 0xF4F5F7)
+        static let textSecondary = dyn(0x666666, 0xB5BDC9)
         static let textTertiary = dyn(0x707683, 0x98A1B0)
-        static let accent = dyn(0x6650CB, 0xB4A1FF)
+        static let accent = dyn(0x6647F0, 0xB4A1FF)
         static let interactive = dyn(0x4268D5, 0x89ACFF)
         static let approve = dyn(0x00885E, 0x67D6A5)
         static let issueGreen = dyn(0x238636, 0x3FB950)
         static let reject = dyn(0xC63B4D, 0xFF8E9D)
-        static let border = dyn(0xE5E7ED, 0x2D323D)
-        static let ctaFill = dyn(0x252834, 0xF4F5F7)
-        static let ctaText = dyn(0xFFFFFF, 0x20242C)
+        static let border = dyn(0xE8E8E8, 0x2D323D)
+        static let ctaFill = dyn(0x111111, 0xF4F5F7)
+        static let ctaText = dyn(0xFFFFFF, 0x202020)
     }
 
     enum TypeScale {
@@ -50,8 +50,8 @@ enum Theme {
         static let sm: CGFloat = 6
         static let md: CGFloat = 10
         static let sheet: CGFloat = 14
-        // Compact status badges may use Capsule(); primary controls use
-        // restrained rounded rectangles defined by their component.
+        // Figma entry buttons use Capsule(); individual content surfaces
+        // and form controls retain their component-specific corners.
         static let input: CGFloat = 9
         static let card: CGFloat = 12
         static let largeCard: CGFloat = 20

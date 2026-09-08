@@ -87,6 +87,39 @@ test("card_created cannot overwrite another recipient's existing decision", asyn
   expect(await env.DB.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND slug = 'injected-business'").bind(ORG).first()).toBeNull();
 });
 
+test.each(["missing", "other-workspace", "removed"])("a new card cannot target a %s recipient", async (kind) => {
+  if (kind !== "missing") {
+    await upsertUser(env.DB, { githubId: "outside-id", login: "outside", name: "Outside" });
+    await upsertMembership(env.DB, "another-workspace", "outside-id", "member");
+  }
+  if (kind === "removed") {
+    await upsertMembership(env.DB, ORG, "outside-id", "member");
+    await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = 'outside-id'").bind(ORG).run();
+  }
+  const author = socket("author");
+  const { value, work } = relay([author]);
+  await value.webSocketMessage(author, JSON.stringify({ type: "card_created", payload: {
+    card: { ...original("invalid-recipient"), recipientUserID: "outside", business: "must-not-file" },
+  } }));
+  await Promise.all(work);
+  expect(author.sent.find((event) => event.type === "RUN_ERROR")?.message).toMatch(/recipient.*member/i);
+  expect(await getCard(env.DB, ORG, "invalid-recipient")).toBeNull();
+  expect(await env.DB.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND slug = 'must-not-file'").bind(ORG).first()).toBeNull();
+});
+
+test("a recipient removed while card filing is pending cannot receive a newly persisted card", async () => {
+  const author = socket("author");
+  const { value, work } = relay([author]);
+  value.fileUnder = async () => {
+    await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = 'reader'").bind(ORG).run();
+    return "honmaru";
+  };
+  await value.webSocketMessage(author, JSON.stringify({ type: "card_created", payload: { card: original("recipient-removed-during-send") } }));
+  await Promise.all(work);
+  expect(await getCard(env.DB, ORG, "recipient-removed-during-send")).toBeNull();
+  expect(author.sent.some((event) => event.type === "RUN_ERROR")).toBe(true);
+});
+
 test("a stale card_updated cannot recreate a deleted card", async () => {
   const reader = socket("reader");
   const { value, work } = relay([reader]);

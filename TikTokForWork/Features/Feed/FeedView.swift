@@ -1,216 +1,242 @@
 import SwiftUI
 
-enum RequestQueue: String, CaseIterable {
-    case inbox, sent, completed
-    var title: String {
-        switch self {
-        case .inbox: String(localized: "Inbox")
-        case .sent: String(localized: "Sent")
-        case .completed: String(localized: "Completed")
-        }
-    }
-}
-
 struct FeedView: View {
-    var queue: RequestQueue = .inbox
-    var onCompose: () -> Void = {}
+    var onProfile: () -> Void = {}
+    var onComposeToMember: (String) -> Void = { _ in }
     @EnvironmentObject private var appState: AppState
-    var body: some View {
-        RequestQueueView(queue: queue, service: appState.cardService, onCompose: onCompose)
-    }
+    var body: some View { CardHomeContent(service: appState.cardService, onProfile: onProfile, onComposeToMember: onComposeToMember) }
 }
 
-private struct RequestQueueView: View {
-    let queue: RequestQueue
+private struct CardHomeContent: View {
     @ObservedObject var service: DecisionCardService
-    let onCompose: () -> Void
+    let onProfile: () -> Void
+    let onComposeToMember: (String) -> Void
     @EnvironmentObject private var appState: AppState
-    @State private var search = ""
-    @State private var priorityOnly = false
-    @State private var oldestFirst = false
-    @State private var selectedType: CardType?
-    @State private var path: [String] = []
     @EnvironmentObject private var push: PushService
-
-    private var cards: [DecisionCard] {
-        guard let userID = appState.currentUser?.id else { return [] }
-        return service.allCards(for: userID).filter { card in
-            let inQueue = switch queue {
-            case .inbox: card.recipientUserID == userID && card.isPending
-            case .sent: card.senderUserID == userID && card.sourceDetail != "decision-result"
-            case .completed: card.recipientUserID == userID && !card.isPending
-            }
-            let matchesSearch = search.isEmpty || [card.title, card.summary, memberName(card.senderUserID), memberName(card.recipientUserID)]
-                .joined(separator: " ").localizedCaseInsensitiveContains(search)
-            return inQueue && matchesSearch && (!priorityOnly || card.priority == .high || card.priority == .urgent)
-                && (selectedType == nil || selectedType == card.type)
-        }.sorted { oldestFirst ? $0.createdAt < $1.createdAt : $0.createdAt > $1.createdAt }
+    @State private var classic = false
+    @State private var selectedID: String?
+    @State private var search = ""
+    @State private var highPriorityOnly = false
+    @State private var detailCard: DecisionCard?
+    @State private var noteCard: DecisionCard?
+    @State private var noteAction: CardActionKind = .reply
+    @State private var note = ""
+    @State private var delegateCard: DecisionCard?
+    @State private var pendingAction: CardActionKind?
+    @State private var confirmationCard: DecisionCard?
+    @State private var showConfirmation = false
+    @State private var isWorking = false
+    @State private var error: String?
+    @State private var lastDecision: DecisionCard?
+    @State private var confirmUndo = false
+    private var cards: [DecisionCard] { service.cards(for: appState.currentUser?.id ?? "").filter(\.isPending) }
+    private var selectedCard: DecisionCard? { cards.first { $0.id == selectedID } ?? cards.first }
+    private var filtered: [DecisionCard] {
+        cards.filter { card in (!highPriorityOnly || card.priority == .high || card.priority == .urgent) && (search.isEmpty || [card.title, card.summary, memberName(card.senderUserID)].joined(separator: " ").localizedCaseInsensitiveContains(search)) }
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    workspaceStrip
-                    searchField
-                    filters
-                    HStack {
-                        Text(queue == .inbox ? String(localized: "Waiting for you") : queue == .sent ? String(localized: "Requests you created") : String(localized: "Your decisions and replies"))
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text("\(cards.count)").font(.subheadline.monospacedDigit()).foregroundStyle(Theme.Colors.textSecondary)
-                    }
-                    if cards.isEmpty { emptyState }
-                    else {
-                        LazyVStack(spacing: 0) {
-                            ForEach(cards) { card in
-                                NavigationLink(value: card.id) {
-                                    RequestListRow(card: card, person: memberName(queue == .sent ? card.recipientUserID : card.senderUserID), isSent: queue == .sent, awaitingDelivery: service.awaitingDeliveryIDs.contains(card.id))
-                                }
-                                .buttonStyle(.plain)
-                                if card.id != cards.last?.id { Divider().padding(.vertical, 16) }
+        VStack(spacing: 0) {
+            header
+            if classic { classicList }
+            else if cards.isEmpty { emptyState }
+            else {
+                TabView(selection: $selectedID) {
+                    ForEach(cards) { card in
+                        VStack(spacing: 0) {
+                            ScrollView {
+                                DecisionCardView(card: card, linkedRepository: appState.githubService.linkedRepository, isGitHubConnected: !appState.isGuest && appState.githubService.isConnected, showsActions: false, onAction: { handle($0, card: card) }, onShowDetails: { detailCard = card })
+                                    .disabled(isWorking).padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 8)
                             }
+                            DecisionCardActions(card: card, onAction: { handle($0, card: card) })
+                                .disabled(isWorking).padding(.top, 12).padding(.bottom, 20)
+                        }.tag(Optional(card.id))
+                    }
+                }.tabViewStyle(.page(indexDisplayMode: .never))
+            }
+            if let lastDecision {
+                HStack(spacing: 10) {
+                    Text(service.awaitingDeliveryIDs.contains(lastDecision.id) ? String(localized: "Waiting for workspace sync") : lastDecision.status.label).font(.footnote)
+                    Spacer()
+                    Button("Undo") { if lastDecision.githubIssueNumber != nil { confirmUndo = true } else { undo(lastDecision) } }.font(.footnote.weight(.semibold)).disabled(isWorking)
+                }.padding(.horizontal, 22).padding(.vertical, 8).background(Theme.Colors.background)
+            }
+            if !appState.isGuest && appState.connectionState != .connected {
+                Text(connectionMessage).font(.caption).foregroundStyle(Theme.Colors.textSecondary).padding(.bottom, 8)
+            }
+        }
+        .background(Theme.Colors.surface)
+        .onAppear { selectedID = selectedCard?.id }
+        .onChange(of: service.revision) { _, _ in if !cards.contains(where: { $0.id == selectedID }) { selectedID = cards.first?.id } }
+        .onChange(of: push.pendingCardID) { _, id in
+            guard let id, let card = service.card(id: id) else { return }
+            detailCard = card; push.pendingCardID = nil
+        }
+        .sheet(item: $detailCard) { card in
+            NavigationStack {
+                RequestDetailView(cardID: card.id, service: service)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { detailCard = nil } } }
+            }
+        }
+        .sheet(item: $noteCard) { card in noteSheet(card) }
+        .sheet(item: $delegateCard) { card in delegateSheet(card) }
+        .confirmationDialog(pendingAction == .reject ? String(localized: "Decline this request?") : String(localized: "Approve and create a GitHub issue?"), isPresented: $showConfirmation, titleVisibility: .visible) {
+            if let card = confirmationCard, let action = pendingAction {
+                Button(action == .reject ? String(localized: "Decline") : String(localized: "Approve"), role: action == .reject ? .destructive : nil) { resolve(card, action: action) }
+            }
+        } message: {
+            if pendingAction == .createIssue { Text(appState.githubService.linkedRepository) }
+        }
+        .confirmationDialog("Undo this decision?", isPresented: $confirmUndo, titleVisibility: .visible) {
+            if let card = lastDecision { Button("Undo decision") { undo(card) } }
+        } message: { Text("This reopens the request. Changes already made in GitHub will remain.") }
+        .alert("Could not update request", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK") { error = nil }
+        } message: { Text(error ?? "") }
+    }
+
+    private var header: some View {
+        HStack {
+            HStack(spacing: 0) {
+                Button { classic = false } label: {
+                    HStack(spacing: 6) {
+                        Text("Cards").font(.system(size: 13, weight: .medium))
+                        Text("\(cards.count)").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.Colors.ctaText)
+                            .frame(minWidth: 20, minHeight: 20).background(Theme.Colors.ctaFill, in: Circle())
+                    }.padding(.horizontal, 10).frame(minHeight: 34)
+                        .background(!classic ? Theme.Colors.background : Color.clear, in: Capsule())
+                }
+                Button { classic = true } label: {
+                    Text("Classic").font(.system(size: 13, weight: .medium)).padding(.horizontal, 12).frame(minHeight: 34)
+                        .foregroundStyle(classic ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
+                        .background(classic ? Theme.Colors.background : Color.clear, in: Capsule())
+                }
+            }.padding(4).background(Theme.Colors.surfaceRaised, in: Capsule()).buttonStyle(.plain)
+            Spacer()
+            Button(action: onProfile) {
+                RequestAvatar(name: appState.currentUser?.name ?? "?", url: appState.workspaceMembers.first { $0.id == appState.currentUser?.id }?.avatarUrl, size: 38)
+            }.buttonStyle(.plain).accessibilityLabel("Profile")
+        }
+        .foregroundStyle(Theme.Colors.textPrimary)
+        .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 12)
+    }
+
+    private var classicList: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(Theme.Colors.textSecondary)
+                TextField("Search requests or people", text: $search).font(.subheadline)
+                Button { highPriorityOnly.toggle() } label: { Image(systemName: "slider.horizontal.3") }
+                    .foregroundStyle(highPriorityOnly ? Theme.Colors.accent : Theme.Colors.textSecondary).accessibilityLabel("High priority")
+            }.padding(12).background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.Colors.border)).padding(.horizontal, 20)
+            List {
+                Section(appState.isGuest ? String(localized: "Sample requests") : String(localized: "Requests")) {
+                    ForEach(filtered) { card in
+                        Button { detailCard = card } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "number").font(.title3).foregroundStyle(Theme.Colors.accent).frame(width: 36, height: 36).background(Theme.Colors.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.Colors.textPrimary).lineLimit(1)
+                                    Text(card.summary).font(.caption).foregroundStyle(Theme.Colors.textSecondary).lineLimit(1)
+                                }
+                            }.padding(.vertical, 4)
                         }
-                        .padding(18)
-                        .background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.Colors.border, lineWidth: 1))
+                    }
+                    if filtered.isEmpty { Text("No matching requests").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary) }
+                }
+                Section("Teammates") {
+                    ForEach(appState.workspaceMembers.filter { $0.id != appState.currentUser?.id }) { member in
+                        Button { onComposeToMember(member.id) } label: {
+                            HStack(spacing: 10) {
+                                RequestAvatar(name: member.name, url: member.avatarUrl, size: 32)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(member.name).font(.subheadline.weight(.medium)).foregroundStyle(Theme.Colors.textPrimary)
+                                    Text(member.role).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+                                }
+                            }.padding(.vertical, 3)
+                        }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 10)
-                .padding(.bottom, 24)
-            }
-            .background(Theme.Colors.surface)
-            .navigationTitle(queue.title)
-            .navigationDestination(for: String.self) { RequestDetailView(cardID: $0, service: service) }
-            .onChange(of: push.pendingCardID) { _, id in
-                guard queue == .inbox, let id, service.card(id: id) != nil else { return }
-                path = [id]
-                push.pendingCardID = nil
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: onCompose) {
-                        Label("New request", systemImage: "plus")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.Colors.ctaText)
-                            .padding(.horizontal, 13).padding(.vertical, 10)
-                            .background(Theme.Colors.ctaFill, in: Capsule())
-                    }.buttonStyle(.plain)
-                }
-            }
-            .refreshable {
-                guard !appState.isGuest else { return }
-                await appState.refreshWorkspaceMembers()
-                await service.syncGitHubStatus(githubService: appState.githubService)
-                appState.webSocketService.reconnectIfNeeded()
-            }
+            }.listStyle(.plain).scrollContentBackground(.hidden)
         }
-        .tint(Theme.Colors.accent)
     }
-
-    private var workspaceStrip: some View {
-        HStack(spacing: 8) {
-            Image(systemName: appState.isGuest ? "square.stack.3d.up" : "building.2")
-            Text(appState.workspaceDisplayName).lineLimit(1)
-            Spacer(minLength: 4)
-            if appState.isGuest { Text("Sample data").font(.caption.weight(.medium)) }
-            else if appState.connectionState != .connected { Text("Offline").font(.caption.weight(.medium)) }
-        }
-        .font(.footnote).foregroundStyle(appState.isGuest ? Theme.Colors.accent : Theme.Colors.textSecondary)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass").foregroundStyle(Theme.Colors.textTertiary)
-            TextField("Search requests or people", text: $search).font(.body)
-            if !search.isEmpty {
-                Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
-                    .accessibilityLabel("Clear search").foregroundStyle(Theme.Colors.textSecondary)
-            }
-        }
-        .padding(13).background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.Colors.border, lineWidth: 1))
-    }
-
-    private var filters: some View {
-        HStack(spacing: 8) {
-            Menu {
-                Button("All types") { selectedType = nil }
-                ForEach(CardType.allCases, id: \.self) { type in Button(type.label) { selectedType = type } }
-            } label: { Label(selectedType?.label ?? String(localized: "All types"), systemImage: "line.3.horizontal.decrease") }
-            Toggle(isOn: $priorityOnly) { Text("High priority") }.toggleStyle(.button)
-            Spacer(minLength: 0)
-            Menu {
-                Button("Newest first", systemImage: oldestFirst ? "circle" : "checkmark") { oldestFirst = false }
-                Button("Oldest first", systemImage: oldestFirst ? "checkmark" : "circle") { oldestFirst = true }
-            } label: { Image(systemName: "arrow.up.arrow.down").frame(width: 36, height: 34) }
-                .accessibilityLabel("Sort requests")
-        }
-        .font(.caption.weight(.medium)).tint(Theme.Colors.accent)
-        .buttonStyle(.bordered)
-    }
-
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: queue == .inbox ? "tray" : queue == .sent ? "paperplane" : "checkmark.circle")
-                .font(.system(size: 32)).foregroundStyle(Theme.Colors.accent)
-            Text(search.isEmpty && !priorityOnly && selectedType == nil ? (queue == .inbox ? String(localized: "You're all caught up") : queue == .sent ? String(localized: "Send your first request") : String(localized: "Decisions will appear here")) : String(localized: "No matching requests"))
-                .font(.headline)
-            Text(queue == .inbox ? String(localized: "New requests from your teammates will appear here.") : queue == .sent ? String(localized: "Create a request and follow its outcome here.") : String(localized: "Approve, reply, or complete a request to keep a record here."))
-                .font(.subheadline).foregroundStyle(Theme.Colors.textSecondary).multilineTextAlignment(.center)
-        }.frame(maxWidth: .infinity).padding(.vertical, 42).padding(.horizontal, 20)
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "checkmark.circle").font(.system(size: 42, weight: .light)).foregroundStyle(Theme.Colors.textSecondary)
+            Text("You're all caught up").font(.title3.weight(.semibold))
+            Text("New requests from your teammates will appear here.").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary).multilineTextAlignment(.center)
+            Spacer()
+        }.padding(30)
     }
-
-    private func memberName(_ id: String) -> String {
-        appState.workspaceMembers.first { $0.id == id }?.name ?? DisplayName.of(id, in: appState.organization)
-    }
-}
-
-struct RequestListRow: View {
-    @Environment(\.locale) private var locale
-    let card: DecisionCard
-    let person: String
-    var isSent = false
-    var awaitingDelivery = false
-    private var relativeTime: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        formatter.locale = locale
-        let minutes = max(1, Int(Date().timeIntervalSince(card.createdAt) / 60))
-        if minutes < 60 { return formatter.localizedString(from: DateComponents(minute: -minutes)) }
-        if minutes < 1440 { return formatter.localizedString(from: DateComponents(hour: -(minutes / 60))) }
-        return formatter.localizedString(from: DateComponents(day: -(minutes / 1440)))
-    }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 8) {
-                Text(String(person.prefix(1))).font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.Colors.accent).frame(width: 26, height: 26)
-                    .background(Theme.Colors.accent.opacity(0.09), in: Circle())
-                Text(isSent ? String(localized: "To \(person)") : person)
-                    .font(.subheadline).foregroundStyle(Theme.Colors.textSecondary).lineLimit(1)
-                Spacer(minLength: 4)
-                Text(relativeTime).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(card.title).font(.system(.body, weight: .semibold)).lineLimit(2)
-                    .foregroundStyle(Theme.Colors.textPrimary).frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right").font(.caption.weight(.medium)).foregroundStyle(Theme.Colors.textTertiary)
-            }
-            Text(card.summary).font(.subheadline).lineLimit(2).foregroundStyle(Theme.Colors.textSecondary)
-            HStack(spacing: 10) {
-                Text(awaitingDelivery ? String(localized: "Waiting for workspace sync") : (card.isPending ? card.type.label : card.status.label))
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                if card.priority == .urgent || card.priority == .high {
-                    Circle().fill(card.priority == .urgent ? Theme.Colors.reject : Theme.Colors.accent).frame(width: 5, height: 5)
-                    Text(card.priorityLabel).foregroundStyle(card.priority == .urgent ? Theme.Colors.reject : Theme.Colors.accent)
-                }
-                Spacer()
-                if let source = card.sourceApp { Text(source.capitalized).foregroundStyle(Theme.Colors.textTertiary) }
-            }.font(.caption.weight(.medium))
+    private var connectionMessage: String {
+        switch appState.connectionState {
+        case .connected: ""
+        case .connecting: String(localized: "Reconnecting…")
+        case .offline: String(localized: "Offline")
+        case .refused: String(localized: "No access")
         }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+    }
+    private func memberName(_ id: String) -> String { appState.workspaceMembers.first { $0.id == id }?.name ?? DisplayName.of(id, in: appState.organization) }
+    private func handle(_ action: CardActionKind, card: DecisionCard) {
+        if action == .reply || action == .requestRevision { noteAction = action; note = ""; noteCard = card }
+        else if action == .delegate { delegateCard = card }
+        else if action == .viewDetails { detailCard = card }
+        else if action == .reject || (action == .createIssue && !appState.isGuest && appState.githubService.isConnected) {
+            pendingAction = action; confirmationCard = card; showConfirmation = true
+        } else { resolve(card, action: action) }
+    }
+    private func resolve(_ card: DecisionCard, action: CardActionKind, text: String? = nil) {
+        guard let userID = appState.currentUser?.id else { return }
+        isWorking = true
+        Task {
+            do {
+                lastDecision = try await service.resolve(cardID: card.id, action: action, actorUserID: userID, revisionNote: action == .requestRevision ? text : nil, replyText: action == .reply ? text : nil, githubService: appState.githubService)
+                Haptics.success()
+            } catch { self.error = error.localizedDescription }
+            isWorking = false
+        }
+    }
+    private func undo(_ card: DecisionCard) {
+        guard let userID = appState.currentUser?.id else { return }
+        isWorking = true
+        Task {
+            do { try await service.undo(cardID: card.id, actorUserID: userID); selectedID = card.id; lastDecision = nil }
+            catch { self.error = error.localizedDescription }
+            isWorking = false
+        }
+    }
+    private func noteSheet(_ card: DecisionCard) -> some View {
+        NavigationStack {
+            Form {
+                Section { Text(card.title).font(.headline) }
+                Section { TextEditor(text: $note).frame(minHeight: 140) } footer: {
+                    Text(appState.isGuest ? String(localized: "This action stays in the demo. Nobody will be notified.") : (noteAction == .reply ? String(localized: "Sending a reply completes this request and notifies the sender.") : String(localized: "The sender will receive your revision request.")))
+                }
+            }
+            .navigationTitle(noteAction == .reply ? String(localized: "Reply") : String(localized: "Request revision"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { noteCard = nil } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") { resolve(card, action: noteAction, text: note); noteCard = nil }.disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+    private func delegateSheet(_ card: DecisionCard) -> some View {
+        NavigationStack {
+            List(appState.workspaceMembers.filter { $0.id != appState.currentUser?.id }) { member in
+                Button(member.name) {
+                    delegateCard = nil; isWorking = true
+                    Task {
+                        do { lastDecision = try await service.delegate(cardID: card.id, to: member.id, actorUserID: appState.currentUser?.id ?? "", organization: appState.organization, githubService: appState.githubService) }
+                        catch { self.error = error.localizedDescription }
+                        isWorking = false
+                    }
+                }
+            }.navigationTitle("Delegate to").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { delegateCard = nil } } }
+        }
     }
 }

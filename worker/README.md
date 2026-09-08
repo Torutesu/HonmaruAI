@@ -18,6 +18,8 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 | GET | `/agui/tools` | AG-UI tool manifest |
 | POST | `/auth/signup` | Email/password account → session, relay login, workspace; optional invite code |
 | POST | `/auth/login` | Email/password → session, relay login, earliest current workspace (`orgId`) |
+| POST | `/auth/otp/request` | Email a sign-in code; 503 when mail is not configured |
+| POST | `/auth/otp/verify` | Spend a code once → session, relay login, earliest current workspace (`orgId`) |
 | GET | `/members?orgId=` | Current workspace members `{id,name,role,avatarUrl?}` for email or GitHub sessions |
 | POST | `/ai/route` | Instruction → draft card; optional validated `recipientUserID` preserves an explicit choice |
 | GET | `/oauth/github/config` | Client id + scope + redirect for the app |
@@ -44,6 +46,9 @@ The member directory requires `x-session-token` and current membership in the
 requested workspace. Its `id` is the relay login used by cards, not a display
 name; existing email-account logins contain their sign-in address. No separate
 private notification address, account id, or credential is returned.
+The returned `role` is the member's descriptive title when set, otherwise their
+membership role, matching routing and `/me?orgId=`. A title change does not
+change administrative permissions.
 
 For an explicit draft recipient, send `recipientUserID` with `orgId` (or
 `organization.orgId`) to `/ai/route`. The caller and recipient must both belong
@@ -53,10 +58,14 @@ the selected recipient; `routedBy` still identifies the drafting method.
 Routing returns a draft only: the client reviews it before `card_created`.
 Without an explicit recipient, automatic routing retains its existing behavior.
 
-Login adds `orgId` without changing `token`, `userId`, or `login`. Accounts with
+Password and OTP login return `orgId` alongside `token`, `userId`, and `login`. Accounts with
 several memberships get the earliest current one; accounts whose memberships
 were removed still receive a session, with `orgId: null`, so they can redeem an
 invite through `/invites/accept` instead of silently regaining access.
+Only the verified OTP path can create a passwordless account. The public
+password signup route requires a password even if a caller supplies
+`passwordless: true`. Code consumption is atomic and checks the current hash,
+salt, expiry, and remaining guess budget before issuing a session.
 
 ### The relay's access rules
 
@@ -79,7 +88,9 @@ negotiable:
   internet, and `GET /repos` cannot tell a read-only collaborator from a
   stranger.
 - **A created card is stamped with the sender the session proves.** You may
-  route to anyone in the org, only ever as yourself.
+  route to anyone in the org, only ever as yourself. The recipient must be a
+  current member before filing begins and at the atomic insert, including
+  cards sent manually or from a stale cached directory.
 - **Creation cannot overwrite an existing decision.** Concurrent creates of
   the same ID store one card. Updates preserve the original sender and creation
   time and refuse deleted or concurrently changed cards.

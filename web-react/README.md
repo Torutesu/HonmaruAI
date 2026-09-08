@@ -4,12 +4,17 @@ React and TypeScript client for the Honmaru request workspace. It connects to th
 Cloudflare Worker in `../worker` for authentication, routing, live decisions,
 team membership, invitations, connections, and notification preferences.
 
-The interface uses a desktop navigation/list/detail workbench and a mobile
-list-to-detail flow, with automatic light/dark appearance. Inbox, Sent, Completed,
-and Workspace are separate views. Search, type/priority filters, sorting, and a
-completed-request Markdown export operate on the current visible card state. Requests remain visible until the server confirms the
-saved decision. Creating a request waits for the server's persisted-card echo;
-an offline or rejected request keeps its draft and shows an error.
+The current interface follows the product's Figma screens: Welcome, role and
+language onboarding, one request per screen in Cards, a searchable Classic list,
+and Profile. Home, request creation, and Profile use persistent bottom navigation
+on mobile and desktop. Classic groups requests into Waiting on you, Sent by you,
+and Decided, with type and priority filters. Profile links to History, tools,
+notification preferences, plans, the record, and invitations.
+
+Requests remain visible until the server confirms the saved response. Creating a
+request waits for a server echo matching its content; an offline or rejected
+request keeps its draft and shows an error. Profile follows the light Figma
+reference; the feed and Classic also support a dark system appearance.
 
 ## Run locally
 
@@ -36,7 +41,7 @@ Use the account form to create a test account. A new account gets its own
 workspace; a valid invite code joins the corresponding existing workspace.
 No AI provider is required for local tests: the Worker uses its fallback router.
 
-The sign-in screen also offers **Try the local demo** (`?demo=true`). Its five
+Welcome and sign-in also offer **Try a local sample workspace** (`?demo=true`). Its five
 incoming requests, one sent request, and one completed request exist only in
 React memory. Review, respond, undo, create, and reset all work without an account
 or backend. Reloading or exiting drops changes.
@@ -44,7 +49,8 @@ or backend. Reloading or exiting drops changes.
 Real requests use an explicit member picker, then a separate editable preview
 and Send confirmation. AI preparation is optional; the manual path works without
 a provider. A response completes a request rather than starting a chat thread.
-Undo reopens the request but does not reverse changes made in external tools.
+Undo asks for confirmation and reopens the request; it does not reverse changes
+made in external tools. Profile's role and language settings persist to `/me`.
 
 ## Build configuration
 
@@ -75,18 +81,29 @@ npm run test:browser
 ```
 
 The browser smoke test requires the disposable local Worker and frontend above.
-It signs up `.invalid` test accounts and exercises real request routing,
-explicit recipient selection, editable preview, persistence, approval, undo,
-response, completed state, invitations, re-login, modal isolation, cancellation
-of pending AI preparation, and responsive layout. It also tests the sample
-workspace and asserts that it makes no backend requests or WebSocket connections. It rejects non-local HTTP requests.
+It signs up `.invalid` test accounts and exercises role/language onboarding,
+real request routing, explicit recipient selection, editable preview, persistence,
+approval, delayed server confirmation, undo, reply, History, reload, profile
+language/title changes, re-login, modal isolation, canceled draft preparation,
+and responsive layout. A local HTTP fixture checks Notion's database prerequisite;
+it does not contact Notion. The sample workspace is checked for zero backend
+requests or WebSocket connections. Non-local HTTP and WebSocket hosts are blocked.
 No production account or storage state is saved. Screenshots and a JSON checklist
 are written to `/tmp/honmaruai-web-qa/screenshots` by default.
 
-Optional `WEB_QA_URL` and `WEB_QA_OUTPUT` override the local URL and output path.
+Optional `WEB_QA_URL`, `WORKER_QA_URL`, and `WEB_QA_OUTPUT` override the local
+frontend URL, Worker URL, and output path. Defaults use web port 3000 and Worker
+port 8787. The Worker health check must show all external providers disabled.
 `PLAYWRIGHT_MODULE` can point to an already provisioned Playwright installation.
-Current redesign evidence is under `../docs/ux-redesign/2026-09-08/after/`.
-Earlier release evidence under `qa/2026-09-08/` shows the previous interface.
+Current Figma references, visual comparisons, and verification boundaries are in
+[`../docs/figma-alignment/2026-09-08/`](../docs/figma-alignment/2026-09-08/).
+The `browser-regression/` subdirectory contains the 12-group local candidate
+checklist and screenshots. `after/` contains separate visual review captures.
+`browser-regression/cold-production/` records the same checks against an isolated
+production bundle and a fresh disposable database, with the command and limits
+in `run.json`. This verifies the local production build, not a public deployment.
+The older `qa/2026-09-08/` and `docs/ux-redesign/` evidence records superseded
+interfaces; neither is evidence for the current Figma layout.
 
 For the same cold gate used in CI, with both dependency trees and Chromium installed:
 

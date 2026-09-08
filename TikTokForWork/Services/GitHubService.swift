@@ -87,7 +87,7 @@ final class GitHubService: NSObject, ObservableObject {
     var hasToken: Bool { token != nil }
     var linkedRepository: String { repository }
 
-    func disconnect() {
+    func disconnect(clearStoredSession: Bool = true) {
         repositoryRequestGeneration = UUID()
         authorizationGeneration = UUID()
         token = nil
@@ -97,7 +97,8 @@ final class GitHubService: NSObject, ObservableObject {
         lastError = nil
         authSession?.cancel()
         authSession = nil
-        SessionStore.clear()
+        if clearStoredSession { SessionStore.clear() }
+        else { SessionStore.clearGitHubConnection() }
     }
 
     func restorePartialCredentials() {

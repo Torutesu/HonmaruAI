@@ -1,0 +1,16 @@
+{
+  "at": "2026-09-08T08:31:25.658Z",
+  "viewport": "390×844 CSS pixels, density2; desktop1440×1000; narrow320×768",
+  "environment": "Local sample workspace. No backend/provider/account/session state loaded.",
+  "checks": [
+    "Only current card exposed to accessibility",
+    "Profile navigation visible",
+    "Language remount keeps background inert",
+    "Dark title foreground readable",
+    "Preview footer inside mobile viewport",
+    "30% text-enlargement simulation keeps actions and no horizontal overflow",
+    "320px width has no horizontal overflow",
+    "Zero unexpected network requests and browser errors"
+  ],
+  "largeText": "Explicit 30% text-size robustness simulation; not an OS accessibility setting or device qualification"
+}

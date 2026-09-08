@@ -13,13 +13,17 @@ export async function loadStore(db, orgId) {
   return store;
 }
 
-export async function saveCard(db, orgId, card, { createOnly = false } = {}) {
+export async function saveCard(db, orgId, card, { createOnly = false, requireRecipientMembership = false } = {}) {
   const now = new Date().toISOString();
   const result = await db
     .prepare(
       `INSERT INTO cards (org_id, card_id, recipient_user_id, sender_user_id, created_at, data,
                           status, priority, decided_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+       WHERE ${requireRecipientMembership ? `EXISTS (
+         SELECT 1 FROM memberships m JOIN users u ON u.github_id = m.user_github_id
+         WHERE m.org_id = ?1 AND u.login = ?3
+       )` : "1"}
        ON CONFLICT(org_id, card_id) ${createOnly ? "DO NOTHING" : `DO UPDATE SET
          recipient_user_id = excluded.recipient_user_id,
          sender_user_id = excluded.sender_user_id,
@@ -318,6 +322,46 @@ export async function upsertMembership(db, orgId, githubId, role) {
     .run();
 }
 
+/// What a person may say they do.
+///
+/// These are descriptions, not standing. The router matches on them — "ask the
+/// designer to review" finds the person whose title is `designer` — and saying
+/// you are one grants you nothing, which is why anyone may set their own.
+///
+/// `admin`, `triager` and `maintainer` are absent because those are standing:
+/// granted by an invite or by GitHub, never claimed.
+export const SELF_ASSIGNABLE_ROLES = ["member", "designer", "engineer", "operator", "founder"];
+
+/// Say what you do. Any member, any of the titles above, no standing changed.
+///
+/// This used to write `memberships.role`, and refuse anyone holding standing
+/// so that an admin could not demote themselves by answering an onboarding
+/// question. That made the question unanswerable in the commonest case:
+/// signing up alone makes you admin of your own organization, so every new
+/// account was told no. Standing and description are different columns now,
+/// and this one touches only the description.
+export async function setOwnTitle(db, orgId, githubId, title) {
+  const wanted = String(title || "").trim().toLowerCase();
+  if (!SELF_ASSIGNABLE_ROLES.includes(wanted)) return { error: "That is not a role you can pick." };
+  const { meta } = await db
+    .prepare("UPDATE memberships SET title = ?3 WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(orgId, String(githubId), wanted)
+    .run();
+  if (!meta?.changes) return { error: "You are not a member of this organization." };
+  return { role: wanted };
+}
+
+/// What this person does in this org, for the client and the router: the title
+/// they chose, or their standing when they have not chosen one.
+export async function ownTitle(db, orgId, githubId) {
+  const row = await db
+    .prepare("SELECT role, title FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(orgId, String(githubId))
+    .first();
+  if (!row) return null;
+  return String(row.title || row.role || "member").toLowerCase();
+}
+
 /// Remove everyone from an org except the github ids given.
 ///
 /// Membership was only ever written, never withdrawn, so being removed from a
@@ -373,6 +417,15 @@ export async function isMember(db, orgId, githubId) {
     .prepare("SELECT 1 AS ok FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
     .bind(orgId, String(githubId))
     .first();
+  return Boolean(row);
+}
+
+// Cards address relay logins, while membership rows hold account ids.
+export async function isLoginMember(db, orgId, login) {
+  const row = await db.prepare(
+    `SELECT 1 FROM memberships m JOIN users u ON u.github_id = m.user_github_id
+     WHERE m.org_id = ?1 AND u.login = ?2`
+  ).bind(orgId, login).first();
   return Boolean(row);
 }
 
@@ -548,7 +601,7 @@ export async function removeSubscription(db, endpoint) {
 export async function listWorkspaceMembers(db, orgId) {
   const rows = await db.prepare(
     `SELECT u.login AS id, COALESCE(NULLIF(u.name, ''), u.login) AS name,
-            m.role AS role, u.avatar_url AS avatarUrl
+            COALESCE(m.title, m.role) AS role, u.avatar_url AS avatarUrl
        FROM memberships m JOIN users u ON u.github_id = m.user_github_id
       WHERE m.org_id = ?1
       ORDER BY name COLLATE NOCASE, u.login`
@@ -569,7 +622,7 @@ export async function listOrgNodes(db, orgId) {
   const rows = await db
     .prepare(
       `SELECT COALESCE(u.login, m.user_github_id) AS id,
-              m.role AS role,
+              COALESCE(m.title, m.role) AS role,
               COALESCE(u.name, u.login, m.user_github_id) AS name
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
@@ -634,4 +687,24 @@ export async function upsertBusiness(db, orgId, { name, createdBy }) {
 
 export async function removeBusiness(db, orgId, slug) {
   await db.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).run();
+}
+
+/// Who someone is inside one organization: the name to show and the role they
+/// hold. The card carries this so every client can render "Requested by" from
+/// the card alone, rather than each one loading the org graph to turn a login
+/// into a person.
+export async function getMemberProfile(db, orgId, login) {
+  if (!orgId || !login) return null;
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(u.name, u.login) AS name, m.role AS role
+         FROM users u
+         LEFT JOIN memberships m
+           ON m.user_github_id = u.github_id AND m.org_id = ?1
+        WHERE u.login = ?2`
+    )
+    .bind(orgId, login)
+    .first();
+  if (!row) return null;
+  return { login, name: row.name || login, role: row.role || "member" };
 }

@@ -1,0 +1,17 @@
+{
+  "qualification": "Local cold production-bundle candidate verification; no deployment",
+  "checkedAt": "2026-09-08T08:30:26.736Z",
+  "command": "WEB_QA_WEB_PORT=45149 WEB_QA_WORKER_PORT=49949 WEB_QA_OUTPUT=/private/tmp/honmaru-figma-cold-qa bash scripts/ci-browser-smoke.sh",
+  "workingDirectory": "web-react",
+  "result": "passed",
+  "groupsPassed": 12,
+  "exitCode": 0,
+  "environment": "Isolated Vite production bundle; freshly initialized disposable D1/R2; empty environment file; external providers disabled; loopback-only Chromium requests",
+  "log": "/private/tmp/honmaru-figma-cold-browser.log",
+  "cleanup": "Gate stopped its own preview and Worker and removed its temporary state and build output",
+  "limitations": [
+    "Working-tree evidence during merge; not an exact-commit or CI-host attestation",
+    "No public deployment, real external integration, physical iOS device or TestFlight evidence",
+    "Notion database-selection/sync check uses local HTTP fixtures"
+  ]
+}

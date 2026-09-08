@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "result": "Passed",
+  "configuration": "Release",
+  "platform": "iOS Simulator",
+  "device": "iPhone 17 Pro",
+  "osVersion": "26.4",
+  "architecture": "arm64",
+  "completedAt": "2026-09-08T08:32:22.904823+00:00",
+  "gate": "scripts/smoke-release.sh",
+  "cleanInstall": true,
+  "settleSeconds": 12,
+  "launchedPID": 6017,
+  "sameProcessSurvivedEntireWindow": true,
+  "fatalSignatureFound": false,
+  "bundleIdentifier": "com.honmaru.ai",
+  "version": "1.0",
+  "build": "1",
+  "binarySHA256": "90cf7c2ebb88233c8ae27d8a8fc9f697f470a3b1595d60e6bcefc6d14b1271e5",
+  "assetsSHA256": "f154a39a2796a1717fec51c4b81a578bda8fc208eed70713d4f8bff9c17aee4b",
+  "postUnitTestChange": "Presentation only: accessibility card header uses separate kind and priority rows; all functional code matches the 58-test run.",
+  "notProven": [
+    "Physical-device launch/camera/microphone",
+    "Production authentication and two-account delivery",
+    "Signed archive or TestFlight install",
+    "Production billing or purchases"
+  ],
+  "buildLimitations": [
+    "APNs remains disabled until entitlements, signing profile and server secrets are configured.",
+    "Production RevenueCat configuration was not supplied or validated."
+  ]
+}

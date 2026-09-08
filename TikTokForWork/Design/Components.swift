@@ -48,7 +48,7 @@ struct PrimaryButton: View {
                 .frame(minHeight: 52)
                 .background(enabled ? Theme.Colors.ctaFill : Theme.Colors.surfaceRaised)
                 .foregroundStyle(enabled ? Theme.Colors.ctaText : Theme.Colors.textTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .clipShape(Capsule())
         }
         .buttonStyle(PressFeedbackStyle())
         .disabled(!enabled)

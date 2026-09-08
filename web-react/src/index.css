@@ -1,27 +1,38 @@
 :root {
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: var(--ink); background: var(--canvas); line-height: 1.5; font-weight: 400;
-  font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
-  --canvas: #f7f8fa; --surface: #fff; --surface-soft: #f0f1f5; --surface-hover: #eeeff3;
-  --ink: #20242c; --secondary: #626873; --muted: #818896; --border: #e5e7ed;
-  --violet: #6650cb; --violet-soft: #f2effb; --blue: #4268d5; --green: #00885e; --green-soft: #e7f5ee;
-  --danger: #c63b4d; --danger-soft: #fff0f2; --primary: #252834; --on-primary: #fff;
-  --shadow: 0 4px 28px rgba(22,29,52,.045); color-scheme: light;
+  color-scheme: light dark;
+  color: rgba(0, 0, 0, 0.87);
+  background-color: #f9f9f9;
+
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-* { box-sizing: border-box; }
-html, body, #root { margin: 0; min-height: 100%; }
-body { min-width: 320px; }
-button, input, textarea, select { font: inherit; }
-button { cursor: pointer; color: inherit; border: 1px solid var(--border); background: var(--surface); border-radius: 9999px; padding: 10px 16px; font-size: 14px; font-weight: 550; transition: background 140ms ease, border-color 140ms ease, transform 120ms ease; }
-button:disabled { cursor: not-allowed; opacity: .5; }
-button:not(:disabled):active { transform: scale(.98); }
-a { color: inherit; }
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #8d80f5; outline-offset: 3px; }
-input, textarea, select { color: var(--ink); background: var(--surface); border: 1px solid var(--border); }
-input::placeholder, textarea::placeholder { color: var(--muted); }
-svg { flex: none; }
-@media (hover: hover) { button:not(:disabled):hover { background: var(--surface-hover); } }
-@media (prefers-color-scheme: dark) {
-  :root { --canvas: #0f1115; --surface: #191c22; --surface-soft: #222631; --surface-hover: #2b303c; --ink: #f4f5f7; --secondary: #b5bdc9; --muted: #8c94a3; --border: #2d323d; --violet: #b4a1ff; --violet-soft: #2d2846; --blue: #69bafa; --green: #74d3ad; --green-soft: #203a31; --danger: #f28b98; --danger-soft: #3e262e; --primary: #f0f1f4; --on-primary: #191c23; --shadow: 0 4px 28px rgba(0,0,0,.1); color-scheme: dark; }
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+/* Buttons carry no default styling. Everything in this app styles its own —
+   and the Vite starter's defaults that used to live here (a black fill, a
+   #646cff hover border, a 4px focus ring) leaked a second, unrelated palette
+   into every screen, most visibly as a violet ring around whichever card had
+   last been touched. */
+button {
+  font-family: inherit;
+  font-size: 1em;
+  cursor: pointer;
+}

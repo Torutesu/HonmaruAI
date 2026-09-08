@@ -5,7 +5,7 @@ import {
 import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, replaceCard, mergeCardEnrichment, removeCard, loadContexts, saveContext,
-  getSession, getCard, getUserByLogin, upsertBusiness, businessSlug,
+  getSession, getCard, getUserByLogin, upsertBusiness, businessSlug, getMemberProfile, isLoginMember,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
@@ -307,10 +307,28 @@ export class OrgRelay {
       // has typed before becomes a business here — the taxonomy is built by
       // using it, not designed up front.
       if (type === "card_created") {
+        // A cached directory or a hand-written socket frame is not proof that
+        // the chosen person still belongs here. Check before any filing work;
+        // the INSERT repeats this condition atomically after awaited work.
+        if (!(await isLoginMember(this.db, orgId, card.recipientUserID))) {
+          ws.send(JSON.stringify(runError("That recipient is not a current member of this workspace.")));
+          return;
+        }
         // You may route a decision to anyone in the org, but only ever as
         // yourself. This is the line that makes a forged sender impossible
         // rather than merely impolite.
         card.senderUserID = att.userId;
+        // Who asked, as the card's own record of it. Stamped here from the
+        // membership table for the same reason the sender is: a client may
+        // not name someone else, and every client can then render the
+        // requester without loading the org graph to resolve a login.
+        try {
+          const profile = await getMemberProfile(this.db, orgId, att.userId);
+          if (profile) card.requestedBy = { ...(card.requestedBy || {}), ...profile };
+        } catch (err) {
+          // A card that does not say who asked is still a card.
+          console.error("requester lookup failed", err?.message || err);
+        }
       } else {
         // A card belongs to whoever has to decide it. Only they may change it,
         // and rewriting the field must not be a way to hand it off — delegation
@@ -326,17 +344,17 @@ export class OrgRelay {
         if (card.decision?.action) card.decision.actorUserID = att.userId;
         // The iOS client republishes its whole local copy on a decision, and
         // that copy does not carry what the relay added after the card was
-        // created — the translation, and sometimes the business. A client
-        // that does not know a field must not be able to erase it.
+        // created — the translation, the business, who asked, what the AI
+        // advised. A client that does not know a field must not erase it.
         if (existing) {
-          for (const field of ["localized", "business"]) {
+          for (const field of ["localized", "business", "requestedBy", "recommendation"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
         }
       }
       if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
       const saved = type === "card_created"
-        ? await saveCard(this.db, orgId, card, { createOnly: true })
+        ? await saveCard(this.db, orgId, card, { createOnly: true, requireRecipientMembership: true })
         : await replaceCard(this.db, orgId, card, existing);
       if (!saved) {
         ws.send(JSON.stringify(runError("This decision changed. Refresh your feed and try again.")));

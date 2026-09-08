@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { getLocale } from '../utils/locale'
+import { useT } from '../utils/i18n'
 
 interface Props {
   httpBase: string
@@ -15,58 +16,42 @@ interface Section { slug: string; name: string | null; decided: Entry[]; open: E
 /// over the cards, so it is never stale — and one button to take it
 /// anywhere as Markdown.
 export const RecordSheet: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose }) => {
+  const t = useT()
   const [sections, setSections] = useState<Section[] | null>(null)
   const [copied, setCopied] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [copying, setCopying] = useState(false)
-  const [retry, setRetry] = useState(0)
   const locale = getLocale()
   const query = `orgId=${encodeURIComponent(orgId)}&locale=${encodeURIComponent(locale)}`
 
   useEffect(() => {
-    let active = true
-    setError(null); setSections(null)
     fetch(`${httpBase}/record?${query}`, { headers: { 'x-session-token': sessionToken } })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('The record could not be loaded. Please try again.')
-        const data = await response.json()
-        if (active) setSections(data.businesses || [])
-      }).catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Could not load the record.') })
-    return () => { active = false }
-  }, [httpBase, query, sessionToken, retry])
+      .then(async (r) => { if (r.ok) setSections((await r.json()).businesses || []) })
+      .catch(() => setSections([]))
+  }, [httpBase, query, sessionToken])
 
   const copy = async () => {
-    if (copying) return
-    setCopying(true); setError(null)
-    try {
-      const response = await fetch(`${httpBase}/record?${query}&format=md`, { headers: { 'x-session-token': sessionToken } })
-      if (!response.ok) throw new Error('The record could not be exported. Please try again.')
-      const text = await response.text()
-      await navigator.clipboard.writeText(text)
-      setCopied(true); setTimeout(() => setCopied(false), 2000)
-    } catch (err) { setError(err instanceof Error ? err.message : 'Copying is unavailable. Please try again.') }
-    finally { setCopying(false) }
+    const res = await fetch(`${httpBase}/record?${query}&format=md`, { headers: { 'x-session-token': sessionToken } })
+    const text = await res.text()
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { window.prompt('Copy the record', text) }
   }
 
   const day = (iso?: string | null) => (iso ? iso.slice(0, 10) : '')
 
   return (
-    <aside className="sheet sheet-side" role="dialog" aria-label="The record">
-      <div className="sheet-title">The record <button className="close" onClick={onClose} aria-label="Close">×</button></div>
+    <aside className="sheet sheet-side" role="dialog" aria-label={t('The record')}>
+      <div className="sheet-title">{t('The record')} <button className="close" onClick={onClose} aria-label={t('Close')}>×</button></div>
       <p className="sheet-hint">Every decision, per business, as it stands now. Nobody writes this; it is what happened.</p>
-      <button className="ghost record-copy" onClick={copy} disabled={copying || sections === null}>{copying ? 'Copying…' : copied ? 'Copied' : 'Copy as Markdown'}</button>
-      {error && <div className="create-error" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>Retry</button></div>}
-      {sections === null && !error && <p className="sheet-hint">Loading…</p>}
-      {sections?.length === 0 && <p className="sheet-empty">Nothing decided yet.</p>}
+      <button className="ghost record-copy" onClick={copy}>{copied ? t('Copied') : t('Copy as Markdown')}</button>
+      {sections === null && <p className="sheet-hint">{t('Loading…')}</p>}
+      {sections?.length === 0 && <p className="sheet-empty">{t('Nothing decided yet.')}</p>}
       {sections?.map((s) => (
         <section key={s.slug || '-'} className="record-section">
-          <h3>{s.name || 'Not yet filed'}</h3>
+          <h3>{s.name || t('Not yet filed')}</h3>
           {s.open.length > 0 && (
             <ul className="record-open">
               {s.open.map((c) => <li key={c.id}><span className="record-box" />{c.title} <small>waiting on {c.recipient}</small></li>)}
             </ul>
           )}
-          {s.decided.length === 0 && s.open.length === 0 && <p className="sheet-hint">Nothing yet.</p>}
+          {s.decided.length === 0 && s.open.length === 0 && <p className="sheet-hint">{t('Nothing yet.')}</p>}
           <ul className="record-decided">
             {s.decided.map((c) => (
               <li key={c.id}>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { pushSupport, currentSubscription, enableWebPush, type PushSupport } from '../utils/push'
+import { useT } from '../utils/i18n'
 
 interface Props {
   httpBase: string
@@ -11,6 +12,7 @@ interface Props {
 /// on an iPhone it says the true thing: add to the home screen first.
 /// Nothing here ever covers the card.
 export const NotificationsButton: React.FC<Props> = ({ httpBase, sessionToken }) => {
+  const t = useT()
   const [support, setSupport] = useState<PushSupport>('unsupported')
   const [state, setState] = useState<'unknown' | 'off' | 'on' | 'busy' | 'failed'>('unknown')
   const [note, setNote] = useState<string | null>(null)
@@ -40,17 +42,15 @@ export const NotificationsButton: React.FC<Props> = ({ httpBase, sessionToken })
       return
     }
     setState('busy')
-    try {
     const result = await enableWebPush(httpBase, sessionToken)
     if (result === 'on') { setState('on'); setNote('You will be told when a decision is waiting — even with this tab closed.') }
     else if (result === 'denied') { setSupport('denied'); setState('off') }
-    else { setState('failed'); setNote('Could not turn notifications on. Try again in a moment.') }
-    } catch { setState('failed'); setNote('Could not turn notifications on. Check your connection and try again.') }
+    else { setState('failed'); setNote(t('Could not turn notifications on. Try again in a moment.')) }
   }
 
   return (
     <>
-      <button className="notify-bell" onClick={click} disabled={state === 'busy'} title="Turn on notifications" aria-label="Turn on notifications">
+      <button className="notify-bell" onClick={click} disabled={state === 'busy'} title={t('Turn on notifications')} aria-label={t('Turn on notifications')}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
         </svg>

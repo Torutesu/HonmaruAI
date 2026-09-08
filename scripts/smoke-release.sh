@@ -110,6 +110,7 @@ xcodebuild build \
   -configuration Release \
   -sdk iphonesimulator \
   -destination "id=$UDID" \
+  ONLY_ACTIVE_ARCH=YES \
   CODE_SIGNING_ALLOWED=NO \
   | tail -n 3
 
@@ -123,6 +124,7 @@ BUILD_SETTINGS="$(xcodebuild -showBuildSettings \
   -configuration Release \
   -sdk iphonesimulator \
   -destination "id=$UDID" \
+  ONLY_ACTIVE_ARCH=YES \
   CODE_SIGNING_ALLOWED=NO 2>/dev/null)"
 APP_DIR="$(printf '%s\n' "$BUILD_SETTINGS" | awk -F' = ' '/ TARGET_BUILD_DIR = /{print $2; exit}')"
 APP_NAME="$(printf '%s\n' "$BUILD_SETTINGS" | awk -F' = ' '/ WRAPPER_NAME = /{print $2; exit}')"

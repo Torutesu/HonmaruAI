@@ -65,6 +65,20 @@ struct Decision: Codable, Hashable {
     let decidedAt: Date
 }
 
+struct DecisionRecommendation: Codable, Hashable {
+    let action: String
+    let reason: String?
+}
+
+struct CardRequester: Codable, Hashable {
+    let name: String?
+    let login: String?
+    let role: String?
+    let avatarUrl: String?
+    let quote: String?
+    let sourceUrl: String?
+}
+
 struct DecisionCard: Identifiable, Codable, Hashable {
     let id: String
     let recipientUserID: String
@@ -104,6 +118,8 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var videoURL: String?
     /// The decision made on this card (if decided). Present only after the card has been actioned.
     var decision: Decision?
+    var recommendation: DecisionRecommendation?
+    var requestedBy: CardRequester?
 
     var isPending: Bool { status == .pending }
 

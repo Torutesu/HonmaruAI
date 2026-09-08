@@ -1,6 +1,6 @@
 # Honmaru AI リリース候補レビュー — 2026-09-08
 
-> この資料は `7fd1a2d` 時点の記録です。その後の全面的なUI/UX再設計は [新しい検証記録](../../ux-redesign/2026-09-08/README.md) を参照してください。
+> この資料は `7fd1a2d` 時点の記録です。その後のFigmaに基づくUI修正は [新しい検証記録](../../figma-alignment/2026-09-08/README.md) を参照してください。
 
 対象: `main` の `76ce3a1` から作成した `codex/release-ui-modernization`。
 この資料は候補コードの検証記録です。本番デプロイ、App Store / TestFlight 配信、実機での外部サービス連携が済んだことを示す資料ではありません。

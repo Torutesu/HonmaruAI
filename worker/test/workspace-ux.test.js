@@ -77,6 +77,16 @@ test("members no longer in a workspace disappear from the selectable directory",
   expect(body.members.map((member) => member.id)).not.toContain("engineer");
 });
 
+test("the member picker reflects a descriptive title without changing administrative standing", async () => {
+  await env.DB.prepare("UPDATE memberships SET title = 'designer' WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(ORG, "email:owner@example.test").run();
+  const body = await (await request(`/members?orgId=${ORG}`, emailToken)).json();
+  expect(body.members.find((member) => member.id === "u:owner@example.test")?.role).toBe("designer");
+  const membership = await env.DB.prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(ORG, "email:owner@example.test").first();
+  expect(membership.role).toBe("admin");
+});
+
 test("explicit recipient survives conflicting role words and forged client organization data", async () => {
   const response = await request("/ai/route", emailToken, routeBody({ recipientUserID: "engineer" }));
   expect(response.status).toBe(200);
