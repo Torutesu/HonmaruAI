@@ -194,6 +194,49 @@ await step('onboarding runs to the end and saves', async () => {
   await shot('07-feed-empty')
 })
 
+// The tab bar was a row of text glyphs — ⌂ ↺ ⚯ ◯ — which are characters, not
+// icons: they change shape with the system font and there is no ⚯ that means
+// "tools". Every tab must carry the drawn icon instead.
+await step('the tab bar is drawn, not typed', async () => {
+  const tabs = await page.evaluate(() =>
+    [...document.querySelectorAll('nav .tab')].map((el) => ({
+      tab: el.dataset.tab,
+      svg: el.querySelectorAll('svg').length,
+      // Any leftover glyph shows up as text content on the button itself.
+      text: (el.textContent || '').trim(),
+      size: (() => { const s = el.querySelector('svg'); if (!s) return null
+        const r = s.getBoundingClientRect(); return `${Math.round(r.width)}x${Math.round(r.height)}` })(),
+    }))
+  )
+  if (tabs.length !== 5) throw new Error(`expected 5 tabs, found ${tabs.length}`)
+  for (const t of tabs) {
+    if (t.svg < 1) throw new Error(`the ${t.tab} tab has no icon`)
+    if (t.text) throw new Error(`the ${t.tab} tab still shows a glyph: ${JSON.stringify(t.text)}`)
+    if (!/^2[0-9]x2[0-9]$/.test(t.size || '')) {
+      throw new Error(`the ${t.tab} icon is ${t.size}, not the 24px the design draws`)
+    }
+  }
+  await shot('07b-tabbar')
+})
+
+// The same problem lived in every row icon on every screen: a character
+// standing in for a drawing. A glyph is whatever the system font decides.
+await step('no screen falls back to a text glyph for an icon', async () => {
+  const found = []
+  for (const [tab, marker] of [['tools', '.rows'], ['you', '.profile-stats']]) {
+    await page.click(`nav [data-tab="${tab}"]`)
+    await page.waitForSelector(marker, { timeout: 10000 })
+    const bad = await page.evaluate(() =>
+      [...document.querySelectorAll('.screen .row-icon')]
+        .filter((el) => !el.querySelector('svg'))
+        .map((el) => (el.textContent || '').trim())
+    )
+    found.push(...bad.map((g) => `${tab}: ${g}`))
+    await closeEverything()
+  }
+  if (found.length) throw new Error(`glyphs still standing in for icons — ${found.join(' , ')}`)
+})
+
 await step('the relay is connected', async () => {
   await page.waitForSelector('.dot.on', { timeout: 20000 })
 })

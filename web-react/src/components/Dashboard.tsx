@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { ClassicList } from './ClassicList'
+import { Icon } from './Icon'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { RecordSheet } from './RecordSheet'
@@ -285,13 +286,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             onClick={() => switchMode('cards')}
             data-tab="feed"
             aria-label={t('Feed')}
-          >⌂</button>
-          <button className="tab" data-tab="history" onClick={() => setScreen('history')} aria-label={t('History')}>↺</button>
+          ><Icon name="home" /></button>
+          <button className="tab" data-tab="history" onClick={() => setScreen('history')} aria-label={t('History')}><Icon name="history" /></button>
           <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} aria-keyshortcuts="n">
-            <span className="ai-mark" />
+            <span className="fab-face"><Icon name="plus" /></span>
           </button>
-          <button className="tab" data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}>⚯</button>
-          <button className="tab" data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}>◯</button>
+          <button className="tab" data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
+          <button className="tab" data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /></button>
         </nav>
       )}
 
