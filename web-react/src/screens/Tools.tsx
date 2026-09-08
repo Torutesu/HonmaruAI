@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
+import { Icon, type IconName } from '../components/Icon'
 
 interface Connector { id: string; label: string; status: string }
 
@@ -12,12 +13,17 @@ interface Props {
 
 // English keys, translated where they are read — see utils/i18n.
 const BLURB: Record<string, string> = {
+  googlecalendar: 'Meetings still waiting on an answer from you.',
+  googledrive: 'Documents someone put in front of you.',
   gmail: 'Mail that needs a decision becomes a card. Nothing else does.',
   slack: 'Messages addressed to you, triaged into decisions — without you opening Slack.',
   notion: 'Decisions are written back to the database you point at.',
   github: 'Approvals, tasks and assignee changes sync to Issues and Pull Requests.',
 }
-const ICON: Record<string, string> = { gmail: '✉', slack: '#', notion: 'N', github: '⌥' }
+const ICON: Record<string, IconName> = {
+  gmail: 'mail', slack: 'hash', notion: 'notion', github: 'github',
+  googlecalendar: 'calendar', googledrive: 'drive',
+}
 
 /// Your tools, connected — and deliberately not as channels.
 ///
@@ -121,7 +127,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           <div className="rows">
             {connectors.map((c) => (
               <div key={c.id} className="row static">
-                <span className="row-icon">{ICON[c.id] || '◇'}</span>
+                <span className="row-icon"><Icon name={ICON[c.id] || 'box'} size={18} /></span>
                 <span className="row-main">
                   {c.label}
                   <span className="row-sub">{t(BLURB[c.id] || 'Feeds decisions into your feed.')}</span>
@@ -151,7 +157,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         <div className="rows-title">{t('Always on')}</div>
         <div className="rows">
           <div className="row static">
-            <span className="row-icon">⌥</span>
+            <span className="row-icon"><Icon name="github" size={18} /></span>
             <span className="row-main">
               GitHub
               <span className="row-sub">{t(BLURB.github)}</span>

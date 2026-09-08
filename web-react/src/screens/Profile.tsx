@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { getLocale, LOCALE_NAMES } from '../utils/locale'
 import type { Business } from '../types/card'
 import { useT, changeLocale as applyLocale } from '../utils/i18n'
+import { Icon } from '../components/Icon'
 
 interface Props {
   httpBase: string
@@ -144,32 +145,32 @@ export const Profile: React.FC<Props> = ({
         <div className="rows-title">{t('Your workspace')}</div>
         <div className="rows">
           <button className="row" onClick={() => onOpen('history')}>
-            <span className="row-icon">↺</span>
+            <span className="row-icon"><Icon name="history" size={18} /></span>
             <span className="row-main">{t('History')}<span className="row-sub">{t('Everything already settled.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row" onClick={() => onOpen('record')}>
-            <span className="row-icon">▤</span>
+            <span className="row-icon"><Icon name="record" size={18} /></span>
             <span className="row-main">{t('The record')}<span className="row-sub">{t('Every decision, by business, written by nobody.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row" onClick={() => onOpen('tools')}>
-            <span className="row-icon">⚯</span>
+            <span className="row-icon"><Icon name="tools" size={18} /></span>
             <span className="row-main">{t('Tools')}<span className="row-sub">{t('Gmail, Slack, Notion, GitHub.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row" onClick={() => onOpen('notifications')}>
-            <span className="row-icon">◉</span>
+            <span className="row-icon"><Icon name="bell" size={18} /></span>
             <span className="row-main">{t('Notifications')}<span className="row-sub">{t('Where a decision reaches you.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row" onClick={() => onOpen('invite')}>
-            <span className="row-icon">＋</span>
+            <span className="row-icon"><Icon name="invite" size={18} /></span>
             <span className="row-main">{t('Invite a teammate')}<span className="row-sub">{t('They get their own AI, in this workspace.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row" onClick={() => onOpen('plans')}>
-            <span className="row-icon">◆</span>
+            <span className="row-icon"><Icon name="plan" size={18} /></span>
             <span className="row-main">{t('Plan')}<span className="row-sub">{t('What you are on, and what else there is.')}</span></span>
             <span className="row-value">›</span>
           </button>

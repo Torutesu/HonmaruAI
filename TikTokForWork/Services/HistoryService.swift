@@ -7,7 +7,7 @@ enum HistoryError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notSignedIn: String(localized: "Sign in with GitHub to see your team's history.")
+        case .notSignedIn: String(localized: "Sign in to see your team's history.")
         case .forbidden: String(localized: "You are not a member of this repository.")
         case .server(let code): String(localized: "History request failed (\(code)).")
         }

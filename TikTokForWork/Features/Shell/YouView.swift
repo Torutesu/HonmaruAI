@@ -23,9 +23,17 @@ struct YouView: View {
                     row(String(localized: "Your AI"), value: appState.aiService.isConfigured ? String(localized: "Connected") : String(localized: "Not set"))
                     rowSeparator
                     row(String(localized: "Relay"), value: relayHost)
-                    rowSeparator
-                    row(String(localized: "GitHub"), value: appState.githubService.connection?.repository ?? String(localized: "Not connected")) {
-                        showConnectGitHub = true
+                    // GitHub is not a way into this app on a phone any more,
+                    // so it is shown to the people who already have it and to
+                    // nobody else. The repository-backed workspace is set up on
+                    // the web; an invite code brings you into it from here.
+                    // The separator comes with the row, or the list grows a
+                    // double rule where the row used to be.
+                    if appState.githubService.hasToken {
+                        rowSeparator
+                        row(String(localized: "GitHub"), value: appState.githubService.connection?.repository ?? String(localized: "Not connected")) {
+                            showConnectGitHub = true
+                        }
                     }
                     // A guest is looking around with no org and no relay. The
                     // way out of that used to be GitHub or nothing.

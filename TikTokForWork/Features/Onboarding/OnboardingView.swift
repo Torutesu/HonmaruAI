@@ -11,16 +11,12 @@ struct OnboardingView: View {
         case welcome
         case routing
         case swipe
-        case github
+        case signIn
     }
 
     @State private var step: Step = .welcome
 
-    // GitHub step
-    @State private var selectedRepository: GitHubRepository?
-    @State private var isSigningIn = false
-    @State private var isConnecting = false
-    @State private var isRefreshingRepos = false
+    // Sign-in step
     @State private var errorMessage: String?
     @State private var showEmailSignIn = false
 
@@ -35,7 +31,7 @@ struct OnboardingView: View {
                 case .welcome: welcomeStep
                 case .routing: routingStep
                 case .swipe: swipeStep
-                case .github: githubStep
+                case .signIn: signInStep
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -207,61 +203,48 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - 4. GitHub
+    // MARK: - 4. The way in
 
-    private var githubStep: some View {
+    /// Email, and nothing else.
+    ///
+    /// GitHub used to be the way in here, with email underneath it as the
+    /// alternative. It is gone from the phone, for two reasons that point the
+    /// same way.
+    ///
+    /// App Review Guideline 4.8: an app that authenticates its primary account
+    /// with a third-party login service must also offer one that lets a person
+    /// keep their email address private. A code sent to an address cannot do
+    /// that — there is no relay — so offering GitHub here means owing Apple a
+    /// Sign in with Apple we do not have.
+    ///
+    /// And it was already the wrong default. GitHub is right for the engineer
+    /// on the team and wrong for the six people who are not, and this screen is
+    /// on a phone, which is where those six are. The engineer sets the
+    /// repository-backed workspace up on the web and invites them; an invite
+    /// code brings them into it here.
+    ///
+    /// Anyone already signed in with GitHub stays signed in — this is the door,
+    /// not the lock.
+    private var signInStep: some View {
         VStack(alignment: .leading, spacing: 0) {
             stepTitle(
-                "Sign in with GitHub",
-                subtitle: "Sign in with GitHub to reach your team. Your teammates are your repo's collaborators, and every approval becomes an Issue you can track."
+                "Your decisions, where you are",
+                subtitle: "We email you a six-digit code. Nothing to set up, nothing to remember, and it proves the address every notification from here depends on."
             )
 
-            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-                if appState.githubService.hasToken {
-                    repositoryPicker
-                } else {
-                    githubSignInButton
-                }
-
-                if appState.githubService.isConnected, let connection = appState.githubService.connection {
-                    connectedBanner(connection)
-                }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.reject)
-                }
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(Theme.TypeScale.label)
+                    .foregroundStyle(Theme.Colors.reject)
+                    .padding(.top, Theme.Spacing.lg)
             }
-            .padding(.top, Theme.Spacing.lg)
 
             Spacer()
 
             VStack(spacing: Theme.Spacing.sm) {
-                PrimaryButton(
-                    title: String(localized: "Enter"),
-                    enabled: canConnectGitHub && !isConnecting && !isSigningIn
-                ) {
-                    connectGitHubAndEnter()
-                }
-                .overlay {
-                    if isConnecting {
-                        ProgressView().tint(Theme.Colors.background)
-                    }
-                }
-
-                // GitHub is right for the engineer on the team and wrong for
-                // the six people who are not. An email code needs nothing set
-                // up beforehand, and proves the address every notification
-                // this app sends depends on.
-                Button {
+                PrimaryButton(title: String(localized: "Sign in with email"), enabled: true) {
                     showEmailSignIn = true
-                } label: {
-                    Text("Sign in with email instead")
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.textPrimary)
                 }
-                .disabled(isConnecting || isSigningIn)
 
                 Button {
                     appState.activateGuestSession()
@@ -270,177 +253,10 @@ struct OnboardingView: View {
                         .font(Theme.TypeScale.label)
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }
-                .disabled(isConnecting || isSigningIn)
             }
             .padding(.bottom, Theme.Spacing.xl)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear {
-            if selectedRepository == nil,
-               let repository = appState.githubService.connection?.repository {
-                selectedRepository = appState.githubService.repositories.first { $0.fullName == repository }
-            }
-            if appState.githubService.hasToken, appState.githubService.repositories.isEmpty {
-                refreshRepositories()
-            }
-        }
-    }
-
-    private var githubSignInButton: some View {
-        Button(action: signInWithGitHub) {
-            HStack(spacing: 10) {
-                if isSigningIn {
-                    ProgressView().tint(Theme.Colors.textPrimary)
-                } else {
-                    Image("GitHubMark")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
-                    Text("Sign in with GitHub")
-                        .font(.system(size: 15, weight: .medium))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(Theme.Colors.surfaceRaised)
-            .foregroundStyle(Theme.Colors.textPrimary)
-            .clipShape(Capsule())
-        }
-        .disabled(isSigningIn)
-    }
-
-    private func connectedBanner(_ connection: GitHubConnection) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.Colors.approve)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(connection.username)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                Text(connection.repository)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            Spacer()
-        }
-        .padding(Theme.Spacing.md)
-        .background(Theme.Colors.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
-    }
-
-    private var repositoryPicker: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            HStack {
-                Text("Repository")
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .textCase(.uppercase)
-                    .tracking(0.8)
-                Spacer()
-                Button(action: refreshRepositories) {
-                    Group {
-                        if isRefreshingRepos {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(Theme.Colors.textSecondary)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(Theme.Colors.textSecondary)
-                        }
-                    }
-                    .frame(width: 28, height: 28)
-                }
-                .disabled(isRefreshingRepos)
-                .accessibilityLabel("Refresh repositories")
-            }
-
-            if appState.githubService.repositories.isEmpty {
-                Text(isRefreshingRepos ? String(localized: "Loading repositories…") : String(localized: "No repositories found"))
-                    .font(Theme.TypeScale.caption)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Theme.Spacing.md)
-                    .background(Theme.Colors.surfaceRaised)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
-            } else {
-                Picker("Repository", selection: $selectedRepository) {
-                    Text("Select").tag(Optional<GitHubRepository>.none)
-                    ForEach(appState.githubService.repositories) { repo in
-                        Text(repo.fullName).tag(Optional(repo))
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(Theme.Colors.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(Theme.Spacing.md)
-                .background(Theme.Colors.surfaceRaised)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
-            }
-        }
-    }
-
-    private var canConnectGitHub: Bool {
-        appState.githubService.isConnected || selectedRepository != nil
-    }
-
-    private func signInWithGitHub() {
-        errorMessage = nil
-        isSigningIn = true
-
-        Task {
-            do {
-                guard let backendBaseURL = appState.backendBaseURL else {
-                    throw URLError(.badURL)
-                }
-                try await appState.githubService.signInWithOAuth(backendBaseURL: backendBaseURL)
-                selectedRepository = appState.githubService.repositories.first
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isSigningIn = false
-        }
-    }
-
-    private func refreshRepositories() {
-        errorMessage = nil
-        isRefreshingRepos = true
-
-        Task {
-            do {
-                let repos = try await appState.githubService.refreshRepositories()
-                if selectedRepository == nil {
-                    selectedRepository = repos.first
-                } else if let current = selectedRepository,
-                          !repos.contains(where: { $0.id == current.id }) {
-                    selectedRepository = repos.first
-                }
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isRefreshingRepos = false
-        }
-    }
-
-    private func connectGitHubAndEnter() {
-        errorMessage = nil
-        isConnecting = true
-
-        Task {
-            do {
-                guard let repository = selectedRepository?.fullName
-                    ?? appState.githubService.connection?.repository else {
-                    throw GitHubServiceError.missingCredentials
-                }
-                let connection = try await appState.githubService.connect(repository: repository)
-                Haptics.success()
-                await appState.activateGitHubSession(connection: connection)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isConnecting = false
-        }
     }
 
     // MARK: - Shared
