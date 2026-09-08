@@ -141,6 +141,22 @@ const ja: Dict = {
   Businesses: '事業',
   'Businesses your AI has found': 'AIが見つけた事業',
 
+  'notify.language':
+    'どの経路で届いても、文面はあなたの言語で書かれます。決定を動かした人の言語ではなく。',
+  'history.blurb': '決まった瞬間にここに並びます。あなたが決めたものも、依頼したものも。',
+  'businesses.blurb': 'この一覧は誰も作っていません。決定が積まれるにつれて増えていきます。',
+  'On iPhone, add this to your home screen first — Safari only allows notifications for an installed web app.':
+    'iPhoneではまずホーム画面に追加してください。Safariはインストール済みのWebアプリにしか通知を許可しません。',
+  'Blocked in your browser settings — allow notifications for this site to turn it on.':
+    'ブラウザの設定でブロックされています。このサイトの通知を許可してください。',
+  'A decision that needs you arrives even when this tab is closed.':
+    'このタブを閉じていても、あなたの判断が必要な決定は届きます。',
+  'Email as the fallback': '予備の連絡先としてのメール',
+  'Changing this changes nothing else — it is only where mail lands.':
+    'ここを変えても他には影響しません。メールの届き先だけです。',
+  'This is the address you sign in with, so it cannot be changed here.':
+    'サインインに使っているアドレスなので、ここでは変更できません。',
+
   // Notifications
   'On this device': 'この端末で',
   'By email': 'メールで',
@@ -220,7 +236,30 @@ const ja: Dict = {
   'We could not save that.': '保存できませんでした。',
 
   // Tools
+  'tools.lede':
+    '連携したツールはAIに情報を渡します。ここにチャンネルは増えません。返ってくるのは決定で、ほかと同じフィードに並びます。',
   Connected: '接続済み',
+  Connect: '接続する',
+  'Pull now': '今すぐ取り込む',
+  'Pulling…': '取り込み中…',
+  'Mail that needs a decision becomes a card. Nothing else does.':
+    '判断が必要なメールだけがカードになります。それ以外はなりません。',
+  'Messages addressed to you, triaged into decisions — without you opening Slack.':
+    'あなた宛のメッセージを決定に整理します。Slackを開く必要はありません。',
+  'Decisions are written back to the database you point at.':
+    '決定は、指定したデータベースに書き戻されます。',
+  'Approvals, tasks and assignee changes sync to Issues and Pull Requests.':
+    '承認・タスク・担当者の変更が、IssueとPull Requestに同期されます。',
+  'Feeds decisions into your feed.': '決定をフィードに流し込みます。',
+  'Connectors are not switched on for this workspace yet.':
+    'このワークスペースでは連携がまだ有効になっていません。',
+  'Could not load your tools.': 'ツールを読み込めませんでした。',
+  'Could not start that connection.': '接続を開始できませんでした。',
+  'Finish in the tab that opened, then come back and pull.':
+    '開いたタブで手続きを終えてから、戻って取り込んでください。',
+  'Nothing could be pulled just now.': '今は取り込めるものがありませんでした。',
+  '{n} new in your feed.': 'フィードに{n}件届きました。',
+  'Nothing new needed you.': 'あなたの判断が必要な新しいものはありません。',
   'Built in': '標準搭載',
   'No connectors are available on this deployment.': 'この環境では連携ツールを利用できません。',
   'Event log': 'イベントログ',
@@ -239,6 +278,13 @@ const ja: Dict = {
 // well as a key, so they get a name and an entry here; `t` falls back through
 // this before falling back to the key itself.
 const en: Dict = {
+  'tools.lede':
+    'Connected tools feed your AI. They do not put channels in here — what comes back is decisions, in the same feed as everything else.',
+  'notify.language':
+    'Whichever channel carries it, the words are written in your language — not the language of whoever set the decision in motion.',
+  'history.blurb':
+    'Decisions land here the moment they are made — yours and the ones you asked for.',
+  'businesses.blurb': 'Nobody made this list. It grows as decisions are filed.',
   'ob.tell.title': 'Tell your AI. Not a channel.',
   'ob.tell.body':
     '“Ask Kenji to sign off on the new supplier price.” That is the whole interaction. There is nowhere to post it, nobody to @-mention, and no channel to pick.',

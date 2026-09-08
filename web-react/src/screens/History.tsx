@@ -80,7 +80,7 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
         {groups.length === 0 && (
           <div className="empty">
             Nothing settled yet.<br />
-            Decisions land here the moment they are made — yours and the ones you asked for.
+            {t('history.blurb')}
           </div>
         )}
 

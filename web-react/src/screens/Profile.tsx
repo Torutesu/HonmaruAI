@@ -182,7 +182,7 @@ export const Profile: React.FC<Props> = ({
               {businesses.map((b) => <span key={b.slug} className="pill-tag">{b.name}</span>)}
             </div>
             <p className="hint" style={{ margin: '8px 4px 20px', color: 'var(--ash)', fontSize: 12.5 }}>
-              Nobody made this list. It grows as decisions are filed.
+              {t('businesses.blurb')}
             </p>
           </>
         )}

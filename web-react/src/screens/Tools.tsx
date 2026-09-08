@@ -10,6 +10,7 @@ interface Props {
   onClose: () => void
 }
 
+// English keys, translated where they are read — see utils/i18n.
 const BLURB: Record<string, string> = {
   gmail: 'Mail that needs a decision becomes a card. Nothing else does.',
   slack: 'Messages addressed to you, triaged into decisions — without you opening Slack.',
@@ -36,12 +37,12 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     try {
       const res = await fetch(`${httpBase}/connectors`, { headers: { 'x-session-token': sessionToken } })
       if (res.status === 503) {
-        setUnavailable('Connectors are not switched on for this workspace yet.')
+        setUnavailable(t('Connectors are not switched on for this workspace yet.'))
         setConnectors([])
         return
       }
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.message || 'Could not load your tools.'); setConnectors([]); return }
+      if (!res.ok) { setError(data.message || t('Could not load your tools.')); setConnectors([]); return }
       setConnectors(data.connectors || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -63,12 +64,12 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
       const data = await res.json().catch(() => ({}))
       if (!res.ok || !data.redirectUrl) {
         tab?.close()
-        setError(data.message || 'Could not start that connection.')
+        setError(data.message || t('Could not start that connection.'))
         return
       }
       if (tab) tab.location.href = data.redirectUrl
       else window.location.href = data.redirectUrl
-      setNote('Finish in the tab that opened, then come back and pull.')
+      setNote(t('Finish in the tab that opened, then come back and pull.'))
     } catch (err) {
       tab?.close()
       setError(err instanceof Error ? err.message : String(err))
@@ -84,13 +85,13 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         body: JSON.stringify({ orgId }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.message || 'Nothing could be pulled just now.'); return }
+      if (!res.ok) { setError(data.message || t('Nothing could be pulled just now.')); return }
       // One entry per connector, each with what it scanned and what it made.
       const results: Array<{ created?: number; error?: string }> = data.results || []
       const made = results.reduce((sum, r) => sum + Number(r.created || 0), 0)
       const failed = results.filter((r) => r.error)
       if (failed.length) setError(failed.map((r) => r.error).join(' · '))
-      setNote(made > 0 ? `${made} new ${made === 1 ? 'decision' : 'decisions'} in your feed.` : 'Nothing new needed you.')
+      setNote(made > 0 ? t('{n} new in your feed.', { n: made }) : t('Nothing new needed you.'))
       load()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -107,8 +108,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
       </div>
       <div className="screen-body">
         <p className="lede" style={{ marginTop: 8 }}>
-          Connected tools feed your AI. They do not put channels in here — what
-          comes back is decisions, in the same feed as everything else.
+          {t('tools.lede')}
         </p>
 
         {unavailable && <div className="form-note">{unavailable}</div>}
@@ -124,13 +124,13 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
                 <span className="row-icon">{ICON[c.id] || '◇'}</span>
                 <span className="row-main">
                   {c.label}
-                  <span className="row-sub">{BLURB[c.id] || 'Feeds decisions into your feed.'}</span>
+                  <span className="row-sub">{t(BLURB[c.id] || 'Feeds decisions into your feed.')}</span>
                 </span>
                 {c.status === 'active'
                   ? <span className="pill-tag mint">{t('Connected')}</span>
                   : (
                     <button className="pill-btn" onClick={() => connect(c.id)} disabled={busy === c.id}>
-                      {busy === c.id ? '…' : 'Connect'}
+                      {busy === c.id ? '…' : t('Connect')}
                     </button>
                   )}
               </div>
@@ -144,7 +144,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
 
         {active.length > 0 && (
           <button className="btn btn-ghost" onClick={pull} disabled={syncing}>
-            {syncing ? 'Pulling…' : 'Pull now'}
+            {syncing ? t('Pulling…') : t('Pull now')}
           </button>
         )}
 

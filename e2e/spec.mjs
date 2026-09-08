@@ -19,13 +19,17 @@ mkdirSync(SHOTS, { recursive: true })
 const results = []
 let failures = 0
 
-async function step(name, fn) {
+async function step(name, fn, { after } = {}) {
   try {
     await fn()
     results.push(`  ok    ${name}`)
   } catch (err) {
     failures += 1
     results.push(`  FAIL  ${name}\n        ${String(err).split('\n')[0]}`)
+  } finally {
+    // A step that changes global state has to put it back even when it
+    // fails, or every step after it fails for a reason that is not its own.
+    if (after) await after().catch(() => {})
   }
 }
 
@@ -182,7 +186,7 @@ await step('the relay is connected', async () => {
 })
 
 await step('telling your AI something produces a decision', async () => {
-  await page.click('[aria-label="Tell your AI"]')
+  await page.click('[data-tab="compose"]')
   await page.waitForSelector('.sheet-bottom')
   const box = await page.$('.create-decision input')
   if (!box) throw new Error('the compose sheet has no text field')
@@ -204,7 +208,7 @@ await step('the decision can be taken, and it sticks', async () => {
   await page.reload({ waitUntil: 'load' })
   await page.waitForSelector('.tabbar', { timeout: 20000 })
   // Approved, so it is off the pending feed and in history.
-  await page.click('[aria-label="History"]')
+  await page.click('[data-tab="history"]')
   await page.waitForSelector('.seg', { timeout: 10000 })
   const text = await page.evaluate(() => document.body.innerText)
   if (!/Approved|承認/.test(text)) throw new Error('the decision is not in history after a reload')
@@ -212,22 +216,22 @@ await step('the decision can be taken, and it sticks', async () => {
 })
 
 await step('every other screen opens', async () => {
-  await page.click('[aria-label="Close"]')
+  await page.click('.screen .back')
   for (const [label, marker, name] of [
-    ['Tools', '.rows', '12-tools'],
-    ['You', '.profile-stats', '13-profile'],
+    ['tools', '.rows', '12-tools'],
+    ['you', '.profile-stats', '13-profile'],
   ]) {
-    await page.click(`nav [aria-label="${label}"]`)
+    await page.click(`nav [data-tab="${label}"]`)
     await page.waitForSelector(marker, { timeout: 10000 })
     await shot(name)
-    await page.click('[aria-label="Close"]')
+    await page.click('.screen .back')
   }
-  await page.click('nav [aria-label="You"]')
+  await page.click('nav [data-tab="you"]')
   await page.click('text=Notifications')
   await page.waitForSelector('.switch', { timeout: 10000 })
   await shot('14-notifications')
-  await page.click('[aria-label="Close"]')
-  await page.click('nav [aria-label="You"]')
+  await page.click('.screen .back')
+  await page.click('nav [data-tab="you"]')
   await page.click('text=Plan')
   await page.waitForSelector('.plan-card, .empty', { timeout: 10000 })
   await shot('15-plans')
@@ -247,13 +251,13 @@ await step('no request failed that was not meant to', async () => {
 await step('an unconfigured connector is said out loud, not hidden', async () => {
   // Close whatever is open, however many layers, and get back to the feed.
   for (let i = 0; i < 3; i++) {
-    const close = await page.$('.screen [aria-label="Close"]')
+    const close = await page.$('.screen .back')
     if (!close) break
     await close.click()
     await page.waitForTimeout(300)
   }
-  await page.waitForSelector('nav [aria-label="Tools"]', { timeout: 10000 })
-  await page.click('nav [aria-label="Tools"]')
+  await page.waitForSelector('nav [data-tab="tools"]', { timeout: 10000 })
+  await page.click('nav [data-tab="tools"]')
   await page.waitForSelector('.screen .head-title:has-text("Tools")', { timeout: 10000 })
   await shot('16-tools-unconfigured')
   const text = await page.evaluate(() => document.querySelector('.screen').innerText)
@@ -268,12 +272,12 @@ await step('an unconfigured connector is said out loud, not hidden', async () =>
 // must return it — a one-way door would be worse than none.
 await step('choosing a language changes the interface, and changing back returns it', async () => {
   for (let i = 0; i < 3; i++) {
-    const close = await page.$('.screen [aria-label="Close"]')
+    const close = await page.$('.screen .back')
     if (!close) break
     await close.click()
     await page.waitForTimeout(300)
   }
-  await page.click('nav [aria-label="You"]')
+  await page.click('nav [data-tab="you"]')
   await page.waitForSelector('.profile-stats', { timeout: 10000 })
 
   const pick = async (value) => {
@@ -300,6 +304,29 @@ await step('choosing a language changes the interface, and changing back returns
     throw new Error(`the tab bar is still English: ${ja.rail}`)
   }
 
+  // Every screen, not just this one: a single untranslated screen is exactly
+  // the kind of thing that survives a spot check.
+  await page.click('.screen .back')
+  await page.waitForTimeout(300)
+  for (const [label, marker] of [['history', '.seg'], ['tools', '.rows'], ['you', '.profile-stats']]) {
+    await page.click(`nav [data-tab="${label}"]`)
+    await page.waitForSelector(marker, { timeout: 10000 })
+    const text = await page.evaluate(() => document.querySelector('.screen').innerText)
+    // Ignore the parts no language owns: the address, brand names, and digits.
+    const words = text
+      .replace(/[\w.+-]+@[\w.-]+/g, ' ')
+      .replace(/\b(Gmail|Slack|Notion|GitHub|AI|Honmaru|Pro|E2E Person)\b/g, ' ')
+      .replace(/[^\p{L}]/gu, '')
+    const japanese = (words.match(/[ぁ-んァ-ヶ一-龯]/g) || []).length
+    if (japanese < words.length * 0.5) {
+      throw new Error(`${label} is mostly untranslated in 日本語: ${text.replace(/\n/g, ' ').slice(0, 140)}`)
+    }
+    await page.click('.screen .back')
+    await page.waitForTimeout(300)
+  }
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+
   await pick('en');
   const back = await page.evaluate(() => ({
     lang: document.documentElement.lang,
@@ -309,8 +336,15 @@ await step('choosing a language changes the interface, and changing back returns
   if (!/Language|Role/.test(back.screen)) {
     throw new Error(`English did not come back: ${back.screen.slice(0, 120)}`)
   }
-  await page.click('.screen [aria-label="Close"]')
+  await page.click('.screen .back')
   await page.waitForTimeout(300)
+}, {
+  after: async () => {
+    // Whatever happened above, the app goes back to English and to the feed.
+    await page.evaluate(() => localStorage.setItem('locale', 'en'))
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('.tabbar', { timeout: 20000 })
+  },
 })
 
 // The same account, on a laptop. This is the size the design was not drawn for
@@ -332,7 +366,7 @@ await step('the app is usable on a laptop', async () => {
 
   // A feed with nothing in it proves nothing about the feed. Compose one from
   // the laptop, which also puts the compose sheet on this size under test.
-  await d.click('[aria-label="Tell your AI"]')
+  await d.click('[data-tab="compose"]')
   await d.waitForSelector('.create-decision input')
   await d.fill('.create-decision input', 'Ask the designer to review the new card layout')
   await d.click('.create-decision button')
@@ -373,10 +407,10 @@ await step('the app is usable on a laptop', async () => {
 await step('the other screens hold up on a laptop', async () => {
   const d = desk.pages()[0]
   for (const [label, marker, name] of [
-    ['History', '.seg', '21-desktop-history'],
-    ['You', '.profile-stats', '22-desktop-profile'],
+    ['history', '.seg', '21-desktop-history'],
+    ['you', '.profile-stats', '22-desktop-profile'],
   ]) {
-    await d.click(`nav [aria-label="${label}"]`)
+    await d.click(`nav [data-tab="${label}"]`)
     await d.waitForSelector(marker, { timeout: 10000 })
     await d.screenshot({ path: `${SHOTS}/${name}.png` })
     // The rail stays: a screen is a place in the app, not a takeover.
@@ -387,7 +421,7 @@ await step('the other screens hold up on a laptop', async () => {
       return r.width > 0 && r.left < 10
     })
     if (!railVisible) throw new Error(`the rail disappears on ${label}`)
-    await d.click('.screen [aria-label="Close"]')
+    await d.click('.screen .back')
     await d.waitForTimeout(400)
   }
   await desk.close()
@@ -399,14 +433,14 @@ await step('the other screens hold up on a laptop', async () => {
 // not the point.
 await step('a second person joins by invite and the card reaches them', async () => {
   for (let i = 0; i < 3; i++) {
-    const close = await page.$('.screen [aria-label="Close"]')
+    const close = await page.$('.screen .back')
     if (!close) break
     await close.click()
     await page.waitForTimeout(300)
   }
 
   // A mints a code for an engineer.
-  await page.click('nav [aria-label="You"]')
+  await page.click('nav [data-tab="you"]')
   await page.waitForSelector('.profile-stats', { timeout: 10000 })
   await page.click('text=Invite a teammate')
   // The invite is a sheet over the You screen, not a screen of its own, so
@@ -434,7 +468,7 @@ await step('a second person joins by invite and the card reaches them', async ()
     return bad.slice(0, 5)
   })
   if (spill.length) throw new Error(`the invite sheet spills off the phone: ${spill.join(' ; ')}`)
-  await page.click('.sheet [aria-label="Close"]')
+  await page.click('.sheet .close')
   await page.waitForTimeout(400)
 
   // B signs up with it, in their own browser.
@@ -459,7 +493,7 @@ await step('a second person joins by invite and the card reaches them', async ()
   await b.waitForSelector('.dot.on', { timeout: 25000 })
 
   // A tells their AI something meant for the engineer.
-  await page.click('nav [aria-label="Tell your AI"]')
+  await page.click('nav [data-tab="compose"]')
   await page.waitForSelector('.sheet-bottom textarea, .sheet-bottom input', { timeout: 10000 })
   const box = (await page.$('.sheet-bottom textarea')) || (await page.$('.sheet-bottom input'))
   await box.fill('ask the engineer to fix the booking form before Friday')
@@ -477,7 +511,7 @@ await step('a second person joins by invite and the card reaches them', async ()
     throw new Error(`the card shows a raw account id: ${seen.slice(0, 140)}`)
   }
   for (let i = 0; i < 4; i++) {
-    const close = await page.$('.sheet [aria-label="Close"], .screen [aria-label="Close"]')
+    const close = await page.$('.sheet .close, .screen .back')
     if (!close) break
     await close.click().catch(() => {})
     await page.waitForTimeout(300)

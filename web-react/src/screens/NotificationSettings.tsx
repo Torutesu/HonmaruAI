@@ -82,12 +82,12 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
               {t('Push notifications')}
               <span className="row-sub">
                 {support === 'needs-install'
-                  ? 'On iPhone, add this to your home screen first — Safari only allows notifications for an installed web app.'
+                  ? t('On iPhone, add this to your home screen first — Safari only allows notifications for an installed web app.')
                   : support === 'unsupported'
                     ? t('This browser cannot receive them.')
                     : support === 'denied'
-                      ? 'Blocked in your browser settings — allow notifications for this site to turn it on.'
-                      : 'A decision that needs you arrives even when this tab is closed.'}
+                      ? t('Blocked in your browser settings — allow notifications for this site to turn it on.')
+                      : t('A decision that needs you arrives even when this tab is closed.')}
               </span>
             </span>
             <button
@@ -106,7 +106,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
           <div className="row static">
             <span className="row-icon">✉</span>
             <span className="row-main">
-              Email as the fallback
+              {t('Email as the fallback')}
               <span className="row-sub">{t('Only when no device of yours can be reached. Never a duplicate.')}</span>
             </span>
             <button
@@ -134,15 +134,14 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
             />
             <div className="hint">
               {me.emailEditable
-                ? 'Changing this changes nothing else — it is only where mail lands.'
-                : 'This is the address you sign in with, so it cannot be changed here.'}
+                ? t('Changing this changes nothing else — it is only where mail lands.')
+                : t('This is the address you sign in with, so it cannot be changed here.')}
             </div>
           </div>
         )}
 
         <p className="lede" style={{ fontSize: 13.5, marginTop: 20 }}>
-          Whichever channel carries it, the words are written in your language —
-          not the language of whoever set the decision in motion.
+          {t('notify.language')}
         </p>
         <div style={{ height: 24 }} />
       </div>

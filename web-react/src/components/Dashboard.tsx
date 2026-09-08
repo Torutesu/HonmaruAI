@@ -279,14 +279,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           <button
             className={mode === 'cards' ? 'tab on' : 'tab'}
             onClick={() => switchMode('cards')}
+            data-tab="feed"
             aria-label={t('Feed')}
           >⌂</button>
-          <button className="tab" onClick={() => setScreen('history')} aria-label={t('History')}>↺</button>
-          <button className="tab compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} aria-keyshortcuts="n">
+          <button className="tab" data-tab="history" onClick={() => setScreen('history')} aria-label={t('History')}>↺</button>
+          <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} aria-keyshortcuts="n">
             <span className="ai-mark" />
           </button>
-          <button className="tab" onClick={() => setScreen('tools')} aria-label={t('Tools')}>⚯</button>
-          <button className="tab" onClick={() => setScreen('profile')} aria-label={t('You')}>◯</button>
+          <button className="tab" data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}>⚯</button>
+          <button className="tab" data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}>◯</button>
         </nav>
       )}
 
@@ -311,7 +312,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       {panel === 'sent' && (
         <aside className="sheet sheet-side" role="dialog" aria-label={t('Sent by you')}>
-          <div className="sheet-title">{t('Sent by you')} <button className="close" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
+          <div className="sheet-title">{t('Sent by you')} <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
           {sentCards.length === 0 && <p className="sheet-empty">{t('Nothing sent yet. Tell your AI something.')}</p>}
           {sentCards.map((card) => (
             <div key={card.id} className="sent-card">
@@ -334,7 +335,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       {panel === 'done' && (
         <aside className="sheet sheet-side" role="dialog" aria-label={t('Decided')}>
-          <div className="sheet-title">{t('Decided')} <button className="close" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
+          <div className="sheet-title">{t('Decided')} <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
           {decidedCards.length === 0 && <p className="sheet-empty">{t('No decisions yet.')}</p>}
           {decidedCards.map((card) => (
             <DecisionCard
@@ -359,7 +360,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         <div className="sheet sheet-bottom" role="dialog" aria-label={t('Invite a teammate')}>
           <div className="sheet-title">
             {t('Invite a teammate')}
-            <button className="close" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button>
+            <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button>
           </div>
           <InviteTeammate relayHttpUrl={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} />
         </div>
