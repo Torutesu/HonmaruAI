@@ -100,6 +100,23 @@ if [ -z "$to" ]; then
   note "  skipped — but nothing has proved mail leaves the building yet."
   exit 0
 fi
+# A prompt reading from /dev/tty will accept anything the clipboard had in it,
+# and this value goes into a JSON body unescaped. Refuse what is not an address
+# rather than send a malformed request and report Resend's confusion as if it
+# were an answer.
+case "$to" in
+  *[!A-Za-z0-9._%+-@]*|*' '*)
+    echo "That does not look like an email address. Nothing was sent." >&2
+    echo "Everything above is already set — run this again to test." >&2
+    exit 1
+    ;;
+  ?*@?*.?*) ;;
+  *)
+    echo "That does not look like an email address. Nothing was sent." >&2
+    echo "Everything above is already set — run this again to test." >&2
+    exit 1
+    ;;
+esac
 
 # The endpoint answers the internet, so it says only that the send failed —
 # naming an unverified domain to an unauthenticated caller is a detail nobody
