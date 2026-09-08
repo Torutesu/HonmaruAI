@@ -1,6 +1,7 @@
 import React from 'react'
 import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
+import { displayName } from '../utils/names'
 
 interface Props {
   pending: DecisionCard[]
@@ -9,10 +10,6 @@ interface Props {
   businesses: Business[]
   onOpen: (cardId: string) => void
   onNudge: (cardId: string) => void
-}
-
-function displayName(login?: string): string {
-  return (login || '').replace(/^(u:|email:)/, '').split('@')[0]
 }
 
 function when(iso?: string): string {

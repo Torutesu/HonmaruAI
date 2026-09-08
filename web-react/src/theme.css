@@ -345,123 +345,123 @@
 }
 
 /* ── On a laptop ──────────────────────────────────────────────────────────
-   This is a phone app, and every screen in it is 430px wide by design. On a
-   1280px display that reads as a broken strip of content stranded in white —
-   which is exactly how it looked the first time anyone opened it on a Mac.
-   The fix is not to stretch the screens (a decision card 1200px wide is a
-   worse card) but to say what the narrow column is: an app, on a surface,
-   with the product's own words beside it.
+   This is a phone app: one decision per screen, a bar of tabs under the
+   thumb. Shipped unchanged to a 1440px display that reads as a broken strip
+   of content stranded in white, and it was.
 
-   Below 1080px nothing here applies and the app fills the viewport, which is
-   the phone case and the case the design was drawn for. */
+   Stretching the screens is the wrong fix — a decision card 1200px across is
+   a worse card. So the column keeps its width and the space around it does
+   the work: navigation moves to a rail on the left where a pointer expects
+   it, the feed stops taking a whole screen per card and becomes a queue you
+   can scroll, and the ground behind it all stops being blank white.
+
+   Below 1080px none of this applies, and the app is exactly what it was. */
+/* A screen owns the phone's viewport, so the tab bar goes away under it.
+   The rail on a laptop does not — see .shell.screen-open. */
+@media (max-width: 1079px) {
+  .shell.screen-open .tabbar { display: none; }
+}
+
 @media (min-width: 1080px) {
   body { background: var(--plaster); }
 
-  /* The device: a fixed column, centred-right of the statement panel. */
-  .screen,
-  .shell {
-    position: fixed;
-    /* First, because `inset` is shorthand for all four and would otherwise
-       undo the two set after it — which parked the frame at its static
-       position with the top half off the screen. */
-    inset: auto;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 430px;
-    height: min(900px, calc(100vh - 64px));
-    border-radius: 28px;
-    border: 1px solid var(--bone);
-    background: var(--signal-white);
-    box-shadow: rgba(9, 12, 29, 0.1) 0 24px 60px -12px, rgba(9, 12, 29, 0.06) 0 4px 12px;
-    overflow: hidden;
+  /* The tab bar becomes a rail. Same buttons, same order, same targets. */
+  .tabbar {
+    top: 0;
+    bottom: 0;
+    right: auto;
+    width: 216px;
+    height: auto;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 4px;
+    padding: 88px 16px 24px;
+    background: transparent;
+    backdrop-filter: none;
+    border-top: none;
+    border-right: 1px solid var(--bone);
   }
-  .shell { min-height: 0; }
+  .tab {
+    width: auto;
+    height: 44px;
+    border-radius: var(--radius-pill);
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+    font-size: 18px;
+  }
+  .tab::after {
+    content: attr(aria-label);
+    font-family: var(--font-body);
+    font-size: 14.5px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .tab:hover { background: rgba(9, 12, 29, 0.045); }
+  .tab.on { background: var(--signal-white); box-shadow: rgba(9, 12, 29, .06) 0 1px 2px; }
+  /* Compose keeps its weight, and gains the words. */
+  .tab.compose {
+    width: auto;
+    order: -1;
+    margin-bottom: 12px;
+    color: var(--signal-white);
+  }
+  .tab.compose::after { content: 'Tell your AI'; }
 
-  /* The feed's own chrome is fixed to the viewport, which is now wrong: it has
-     to be fixed to the device instead. `position: fixed` inside a transformed
-     ancestor resolves against that ancestor, so this is what the transform
-     above buys, and why the shell carries it too. */
-  .topbar, .tabbar, .scrim, .toasts, .sheet { position: absolute; }
+  /* The product's name where an app puts it, above the rail. */
+  .tabbar::before {
+    content: 'Honmaru AI';
+    position: absolute;
+    top: 26px; left: 30px;
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--onyx);
+  }
 
-  /* Nothing inside needs to know it is in a frame. */
-  .screen-body, .screen-head, .screen-foot { max-width: none; }
-  .screen-body { padding: 0 24px; }
-}
+  /* Everything else starts to the right of the rail. */
+  .topbar { left: 216px; padding-left: 28px; }
+  .feed, .classic { left: 216px; }
+  .screen { left: 216px; }
 
-/* Wide enough to say something beside the app rather than around it. */
-@media (min-width: 1440px) {
-  .screen, .shell { left: calc(50% + 210px); }
+  /* The feed becomes a queue: cards stack and scroll, instead of one filling
+     the viewport and the next being a swipe away. The card itself is
+     unchanged — it is the good part. */
+  .feed { scroll-snap-type: none; background: var(--plaster); }
+  .page { height: auto; min-height: 0; scroll-snap-align: none; }
+  /* One column, one gutter. Centring the cards while the Cards/Classic bar
+     stayed at the left edge put the two on different left margins, which
+     reads as a mistake even when nothing is broken. */
+  .page { justify-content: flex-start; }
+  .page-inner { width: min(100%, 640px); padding: 20px 28px; }
+  .page:first-child .page-inner { padding-top: 84px; }
+  .page:last-child .page-inner { padding-bottom: 64px; }
+  .page-empty { min-height: 60vh; align-items: center; }
+
+  /* Screens are a column on the ground, not a full white wall. */
+  .screen { background: var(--plaster); }
+  /* Left-aligned, on the same gutter as the feed and the Cards/Classic bar —
+     a screen that centres itself while the feed does not makes the content
+     jump sideways every time you open one. */
+  .screen-head, .screen-body, .screen-foot {
+    max-width: 668px;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 28px;
+    padding-right: 28px;
+  }
+  .screen-foot { background: transparent; border-top: none; }
 }
 
 @media (min-width: 1080px) and (prefers-color-scheme: dark) {
   body { background: #08080a; }
-  .screen, .shell { border-color: #26262b; box-shadow: rgba(0, 0, 0, 0.6) 0 24px 60px -12px; }
-}
-
-/* The panel beside the app. Hidden until there is room for it to be a
-   statement rather than a crowd. */
-.desk-aside { display: none; }
-@media (min-width: 1440px) {
-  .desk-aside {
-    display: block;
-    position: fixed;
-    top: 50%;
-    right: calc(50% + 60px);
-    transform: translateY(-50%);
-    width: min(420px, 32vw);
-    font-family: var(--font-body);
-    color: var(--slate);
-  }
-  .desk-mark {
-    width: 44px; height: 44px;
-    border-radius: 14px;
-    background: var(--rainbow);
-    margin-bottom: 26px;
-    position: relative;
-  }
-  .desk-mark::after {
-    content: '';
-    position: absolute; inset: 4px;
-    border-radius: 11px;
-    background: var(--plaster);
-  }
-  .desk-mark::before {
-    content: '';
-    position: absolute; inset: 17px;
-    border-radius: 50%;
-    background: var(--brand-violet);
-    z-index: 1;
-  }
-  .desk-aside h1 {
-    font-family: var(--font-display);
-    font-size: 40px;
-    font-weight: 800;
-    letter-spacing: -0.04em;
-    line-height: 1.05;
-    color: var(--onyx);
-    margin: 0 0 16px;
-  }
-  .desk-aside p {
-    font-size: 15.5px;
-    line-height: 1.55;
-    margin: 0 0 22px;
-  }
-  .desk-aside ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-  .desk-aside li {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--ash);
-    border: 1px solid var(--cloud);
-    border-radius: var(--radius-pill);
-    padding: 6px 12px;
-  }
-}
-@media (min-width: 1440px) and (prefers-color-scheme: dark) {
-  .desk-aside { color: #a2a2ab; }
-  .desk-aside h1 { color: #f5f5f7; }
-  .desk-mark::after { background: #08080a; }
-  .desk-aside li { border-color: #2c2c33; color: #6b6b75; }
+  .tabbar { border-right-color: #26262b; }
+  .tabbar::before { color: #f5f5f7; }
+  .tab:hover { background: #17171a; }
+  .tab.on { background: #17171a; box-shadow: none; }
+  .feed, .screen { background: #08080a; }
 }

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import './Feed.css'
+import { displayName } from '../utils/names'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -13,11 +14,6 @@ interface Props {
 }
 
 const SWIPE_THRESHOLD = 96
-
-function displayName(login?: string): string {
-  if (!login) return ''
-  return login.replace(/^(u:|email:)/, '').split('@')[0]
-}
 
 function initials(name: string): string {
   const clean = name.trim()

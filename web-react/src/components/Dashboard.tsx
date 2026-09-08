@@ -16,6 +16,7 @@ import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
 import type { AppState, Business } from '../types/card'
 import './Dashboard.css'
+import { properName } from '../utils/names'
 
 interface Props {
   userId: string
@@ -157,7 +158,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         body: JSON.stringify({
           text: `About "${card.title}": ${text}`,
           orgId,
-          sender: { id: userId, name: userId, role: 'member' },
+          sender: { id: userId, name: properName(userId), role: 'member' },
         }),
       })
       const routed = await res.json()
@@ -213,7 +214,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name
 
   return (
-    <div className="shell">
+    // `screen-open` is what lets the rail stay on a laptop while a screen is
+    // open: on a phone a screen owns the viewport and the tab bar goes away,
+    // on a laptop navigation is a place on the page and disappearing would be
+    // the app losing its own chrome.
+    <div className={`shell${screen ? ' screen-open' : ''}`}>
       {mode === 'cards' ? (
         <Feed
           key={localeVersion}
@@ -268,7 +273,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         {error && <div className="toast error" onClick={() => setError(null)}>{error}</div>}
       </div>
 
-      {panel === null && screen === null && (
+      {panel === null && (
         <nav className="tabbar" aria-label="Main">
           <button
             className={mode === 'cards' ? 'tab on' : 'tab'}

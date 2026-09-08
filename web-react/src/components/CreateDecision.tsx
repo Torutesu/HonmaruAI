@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { properName } from '../utils/names'
 
 interface Props {
   relayHttpUrl: string
@@ -30,14 +31,14 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         },
         body: JSON.stringify({
           text: text.trim(),
-          sender: { name: userId, id: userId, role: 'member' },
+          sender: { name: properName(userId), id: userId, role: 'member' },
                   organization: {
             orgId,
             // The router reads members from `nodes` (kind: "person"). Sending
             // the real org member here makes it route to a real user instead of
             // falling back to a demo identity like user-toru.
             nodes: [
-              { id: userId, kind: 'person', label: `${userId} · member` },
+              { id: userId, kind: 'person', label: `${properName(userId)} · member` },
             ],
           },
         }),

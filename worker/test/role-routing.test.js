@@ -72,3 +72,67 @@ test("ASCII terms keep their word boundaries", () => {
   const routed = resolveRecipientTarget("review this deviation from the plan", "carol", JP_ORG);
   expect(routed.recipientUserID).not.toBe("kenji");
 });
+
+// A card is read by a person, so it may not carry an internal id. Both
+// prefixes had to be stripped, not one: the relay's login is "u:…" and only
+// "email:…" was handled, so the fallback titled cards "Update for
+// u:someone@example.com" — and the colon in that then split the context into
+// a fact chip labelled "From u".
+test("no card wears a raw account id", async () => {
+  const { routeInstruction } = await import("../src/routing.js");
+  const organization = {
+    nodes: [
+      { id: "u:mai@honmaru.jp", kind: "person", role: "founder", label: "Mai · founder" },
+      { id: "u:ken@honmaru.jp", kind: "person", role: "engineer", label: "Ken · engineer" },
+    ],
+  };
+  const routed = await routeInstruction({
+    text: "ask the engineer to fix the booking form",
+    sender: { id: "u:mai@honmaru.jp", name: "Mai", role: "founder" },
+    organization,
+  });
+  const shown = `${routed.title} ${routed.summary} ${routed.context}`;
+  expect(shown).not.toContain("u:");
+  expect(shown).not.toContain("email:");
+  expect(shown).not.toContain("@honmaru.jp");
+});
+
+// The clients send `sender.name` from what they have at compose time, which is
+// the login. Trusting it put "From u:someone@example.com" on the card even
+// though the recipient's name was already being cleaned up.
+test("a sender name that is really an id is cleaned up too", async () => {
+  const { routeInstruction } = await import("../src/routing.js");
+  const organization = {
+    nodes: [
+      { id: "u:mai@honmaru.jp", kind: "person", role: "founder", label: "Mai · founder" },
+      { id: "u:ken@honmaru.jp", kind: "person", role: "engineer", label: "Ken · engineer" },
+    ],
+  };
+  const routed = await routeInstruction({
+    text: "ask the engineer to fix the booking form",
+    // The name is the login, exactly as the web client used to send it.
+    sender: { id: "u:mai@honmaru.jp", name: "u:mai@honmaru.jp", role: "founder" },
+    organization,
+  });
+  const shown = `${routed.title} ${routed.summary} ${routed.context} ${routed.agentRoute || ""}`;
+  expect(shown).not.toContain("u:");
+  expect(shown).not.toContain("@honmaru.jp");
+  expect(routed.context).toContain("Mai");
+});
+
+// A workspace of one is the first thing anybody sees, and the card in it was
+// captioned "Update for Alice · From Alice · decision routed to Alice".
+test("a card you routed to yourself does not introduce you to yourself", async () => {
+  const { routeInstruction } = await import("../src/routing.js");
+  const routed = await routeInstruction({
+    text: "remember to send the invoice on Friday",
+    sender: { id: "u:mai@honmaru.jp", name: "u:mai@honmaru.jp", role: "founder" },
+    organization: {
+      nodes: [{ id: "u:mai@honmaru.jp", kind: "person", role: "founder", label: "Mai · founder" }],
+    },
+  });
+  expect(routed.recipientUserID).toBe("u:mai@honmaru.jp");
+  expect(routed.context).not.toMatch(/routed to/);
+  expect(routed.title).not.toContain("Mai");
+  expect(routed.summary).toContain("invoice");
+});

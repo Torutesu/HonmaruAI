@@ -235,13 +235,31 @@ await step('an unconfigured connector is said out loud, not hidden', async () =>
 })
 
 // The same account, on a laptop. This is the size the design was not drawn for
-// and the one the complaint was about.
+// and the one the complaint was about, so it is signed in and photographed
+// rather than glanced at from the welcome screen.
+let desk
 await step('the app is usable on a laptop', async () => {
-  const desk = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  // The session this run just created, carried over — a laptop showing the
+  // welcome screen proves nothing about the feed.
+  desk = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    storageState: await phone.storageState(),
+  })
   const d = await desk.newPage()
   await d.goto(WEB, { waitUntil: 'load' })
-  await d.waitForSelector('text=Get started', { timeout: 15000 })
-  await d.screenshot({ path: `${SHOTS}/20-desktop-welcome.png` })
+  await d.waitForSelector('.tabbar', { timeout: 20000 })
+  await d.waitForTimeout(1200)
+  await d.screenshot({ path: `${SHOTS}/20-desktop-empty.png` })
+
+  // A feed with nothing in it proves nothing about the feed. Compose one from
+  // the laptop, which also puts the compose sheet on this size under test.
+  await d.click('[aria-label="Tell your AI"]')
+  await d.waitForSelector('.create-decision input')
+  await d.fill('.create-decision input', 'Ask the designer to review the new card layout')
+  await d.click('.create-decision button')
+  await d.waitForSelector('.card-title', { timeout: 25000 })
+  await d.waitForTimeout(600)
+  await d.screenshot({ path: `${SHOTS}/20-desktop-feed.png` })
   // Nothing may sit outside the viewport horizontally, and nothing may be
   // cut off at the top — both of which is what "表示崩れ" looked like.
   const overflow = await d.evaluate(() => {
@@ -256,6 +274,43 @@ await step('the app is usable on a laptop', async () => {
     return bad.slice(0, 6)
   })
   if (overflow.length) throw new Error(`off-screen on a laptop: ${overflow.join(' ; ')}`)
+
+  // Navigation has to be reachable with a pointer, which on a laptop means
+  // labelled and to the side rather than a row of glyphs under the thumb.
+  const rail = await d.$('.tabbar')
+  const box = await rail.boundingBox()
+  if (!box || box.width > 400 || box.height < 400) {
+    throw new Error(`the tab bar is not a rail on a laptop: ${JSON.stringify(box)}`)
+  }
+  const labelled = await d.evaluate(() =>
+    [...document.querySelectorAll('.tab')].every((t) => {
+      const after = getComputedStyle(t, '::after').content
+      return after && after !== 'none' && after !== '""'
+    })
+  )
+  if (!labelled) throw new Error('the rail buttons have no words on them')
+})
+
+await step('the other screens hold up on a laptop', async () => {
+  const d = desk.pages()[0]
+  for (const [label, marker, name] of [
+    ['History', '.seg', '21-desktop-history'],
+    ['You', '.profile-stats', '22-desktop-profile'],
+  ]) {
+    await d.click(`nav [aria-label="${label}"]`)
+    await d.waitForSelector(marker, { timeout: 10000 })
+    await d.screenshot({ path: `${SHOTS}/${name}.png` })
+    // The rail stays: a screen is a place in the app, not a takeover.
+    const railVisible = await d.evaluate(() => {
+      const el = document.querySelector('.tabbar')
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      return r.width > 0 && r.left < 10
+    })
+    if (!railVisible) throw new Error(`the rail disappears on ${label}`)
+    await d.click('.screen [aria-label="Close"]')
+    await d.waitForTimeout(400)
+  }
   await desk.close()
 })
 

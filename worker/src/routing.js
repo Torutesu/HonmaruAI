@@ -438,14 +438,34 @@ function userNameFor(userID) {
   if (userID === "user-tanaka") return "田中";
   if (userID === "user-yui") return "結衣";
   if (userID === "user-alex") return "Alex";
-  // Email users have ids like "email:kinjal@test.com". Show the part before
-  // the @, capitalized, instead of the raw id — "Kinjal" rather than
-  // "email:kinjal@test.com".
-  if (userID.startsWith("email:")) {
-    const local = userID.slice("email:".length).split("@")[0];
+  // Accounts carry a prefixed id — "email:kinjal@test.com" as the user id,
+  // "u:kinjal@test.com" as the relay login — and neither belongs on a card.
+  // Only the first was stripped, so every card routed by the fallback to a
+  // login was titled "Update for u:someone@example.com", and the colon in it
+  // then split the context into a fact chip labelled "From u".
+  const withoutPrefix = String(userID).replace(/^(u:|email:)/, "");
+  if (withoutPrefix.includes("@")) {
+    const local = withoutPrefix.split("@")[0];
     return local.charAt(0).toUpperCase() + local.slice(1);
   }
-  return userID;
+  return withoutPrefix;
+}
+
+/// The name that goes on a card, whoever the client says the sender is.
+///
+/// The clients send `sender.name` from whatever they have to hand, and what
+/// they have to hand at compose time is the login — so a card could be
+/// captioned "From u:someone@example.com", and the colon in it then split the
+/// context into a fact chip labelled "From u". A display name is the card's
+/// business, not the caller's: normalise it here rather than trusting six
+/// call sites to.
+function senderForCard(sender) {
+  const raw = sender || {};
+  const id = raw.id || raw.name || "";
+  const given = String(raw.name || "").trim();
+  // A name that is really an id — its own login, or an address — is no name.
+  const looksLikeAnID = !given || given === id || /^(u:|email:)/.test(given) || given.includes("@");
+  return { ...raw, name: looksLikeAnID ? userNameFor(id) : given };
 }
 
 function parseToolArguments(raw) {
@@ -578,12 +598,16 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
   }
 
   const recipientName = userNameFor(recipientUserID);
+  // On your own — a workspace of one, or a note you routed to yourself — the
+  // card is talking to the person who wrote it. "Update for Alice · From Alice
+  // · decision routed to Alice" is three ways of saying nothing.
+  const toSelf = String(recipientUserID) === String(sender.id);
   const titles = {
     approval: "Approval needed",
-    delegation: `Task for ${recipientName}`,
+    delegation: toSelf ? "Your task" : `Task for ${recipientName}`,
     revision: "Revision requested",
     task: cleaned.split(" ").slice(0, 6).join(" ").slice(0, 48) || "New task",
-    notification: `Update for ${recipientName}`,
+    notification: toSelf ? "Your note" : `Update for ${recipientName}`,
   };
 
   const summary =
@@ -592,7 +616,9 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
   return {
     title: titles[cardType] || "Decision needed",
     summary: summary || "Decision requested.",
-    context: `From ${sender.name} · decision routed to ${recipientName}`,
+    context: toSelf
+      ? "From your own AI"
+      : `From ${sender.name} · decision routed to ${recipientName}`,
   };
 }
 
@@ -891,13 +917,14 @@ async function routeInstructionWithOpenRouter({
 
 export async function routeInstruction({
   text,
-  sender,
+  sender: rawSender,
   organization,
   priorityOverride,
   openRouter,
   readerLanguage,
   senderContext,
 }) {
+  const sender = senderForCard(rawSender);
   if (openRouter?.apiKey) {
     // `aiCalled` is for the meter, not for clients: /ai/route strips it before
     // responding, so the wire format is unchanged. routedBy cannot stand in for
