@@ -131,7 +131,6 @@
 		2E87DCC57193FEC4D70357DC /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		2F1C39E5BEABD558A524E5BC /* DecisionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCard.swift; sourceTree = "<group>"; };
 		2FE01A8DEA5C1C23E8DF9CC2 /* FeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewModel.swift; sourceTree = "<group>"; };
-		33802747118090AB01C483D2 /* HonmaruAI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HonmaruAI.entitlements; sourceTree = "<group>"; };
 		3682961C072107DA8A4887AB /* MediaStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStore.swift; sourceTree = "<group>"; };
 		386D0C1CF181AD207E7129BB /* BundleLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundleLanguage.swift; sourceTree = "<group>"; };
 		41D5E4302BE3E11D598E9989 /* ContextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextView.swift; sourceTree = "<group>"; };
@@ -257,7 +256,6 @@
 			isa = PBXGroup;
 			children = (
 				9A2EB4E8E9EE3FAA5CF579C5 /* Assets.xcassets */,
-				33802747118090AB01C483D2 /* HonmaruAI.entitlements */,
 				5349B1ECC01DECCBD1B04E37 /* Info.plist */,
 				B02EAAD1FAC6FF8A245C1A32 /* Localizable.xcstrings */,
 				7EBD5BBFE95D3A28660521C4 /* PrivacyInfo.xcprivacy */,
@@ -751,8 +749,10 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 25118BB93999691339E80C91 /* Base.xcconfig */;
 			buildSettings = {
+				APNS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TikTokForWork/HonmaruAI.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -777,8 +777,10 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 25118BB93999691339E80C91 /* Base.xcconfig */;
 			buildSettings = {
+				APNS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TikTokForWork/HonmaruAI.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Distribution";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
