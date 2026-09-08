@@ -2207,7 +2207,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "人"
+            "value": "メンバー"
           }
         }
       }
@@ -2746,7 +2746,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "送り先"
+            "value": "送信先"
           }
         }
       }
@@ -2933,7 +2933,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "録音を止める"
+            "value": "録音を停止"
           }
         }
       }
@@ -3032,7 +3032,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "要約"
+            "value": "依頼内容"
           }
         }
       }
@@ -4363,7 +4363,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースに再接続"
+            "value": "ワークスペースを再接続"
           }
         }
       }
@@ -4385,7 +4385,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべて確認できました"
+            "value": "未対応の依頼はありません"
           }
         }
       }
@@ -4485,6 +4485,1844 @@
           "stringUnit": {
             "state": "translated",
             "value": "Honmaru AI"
+          }
+        }
+      }
+    },
+    "Less chasing.\nClearer decisions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認の往復を減らし、\n判断を前へ。"
+          }
+        }
+      }
+    },
+    "Review what needs you, send a clear request, and keep every decision in one place.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたを待つ依頼を確認し、相手と内容を確かめて送信。決まったことまで、一か所で追えます。"
+          }
+        }
+      }
+    },
+    "Inbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信箱"
+          }
+        }
+      }
+    },
+    "Sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信済み"
+          }
+        }
+      }
+    },
+    "Completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "Sample workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプルワークスペース"
+          }
+        }
+      }
+    },
+    "Demo workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモワークスペース"
+          }
+        }
+      }
+    },
+    "Try approving, replying, and creating a request. No account needed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認・返信・依頼の作成を試せます。アカウント登録は不要です。"
+          }
+        }
+      }
+    },
+    "Try the demo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモを試す"
+          }
+        }
+      }
+    },
+    "Try the demo first": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まずはデモを試す"
+          }
+        }
+      }
+    },
+    "Your workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたのワークスペース"
+          }
+        }
+      }
+    },
+    "Bring your team into focus.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの仕事を、\nひとつに。"
+          }
+        }
+      }
+    },
+    "Connect a GitHub repository to see its collaborators and send real requests to your team.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHubリポジトリを連携すると、メンバーに実際の依頼を送れるようになります。"
+          }
+        }
+      }
+    },
+    "1. Sign in securely with GitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. GitHubでサインイン"
+          }
+        }
+      }
+    },
+    "2. Choose your team's repository": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. チームのリポジトリを選択"
+          }
+        }
+      }
+    },
+    "3. Review requests together": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. チームで依頼を確認"
+          }
+        }
+      }
+    },
+    "Open workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを開く"
+          }
+        }
+      }
+    },
+    "Connecting…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中…"
+          }
+        }
+      }
+    },
+    "Ken · Approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ken · 承認依頼"
+          }
+        }
+      }
+    },
+    "Aya · Task": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aya · タスク"
+          }
+        }
+      }
+    },
+    "Mika · Question": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mika · 返信依頼"
+          }
+        }
+      }
+    },
+    "Reset sample requests?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプルの依頼をリセットしますか？"
+          }
+        }
+      }
+    },
+    "Reset demo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモをリセット"
+          }
+        }
+      }
+    },
+    "This replaces your demo changes with the original samples. Your real workspace is unaffected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモで行った変更を消し、最初のサンプルに戻します。実際のワークスペースには影響しません。"
+          }
+        }
+      }
+    },
+    "Leave the demo?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモを終了しますか？"
+          }
+        }
+      }
+    },
+    "Exit demo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモを終了"
+          }
+        }
+      }
+    },
+    "Sign out of this workspace?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースからサインアウトしますか？"
+          }
+        }
+      }
+    },
+    "You · Demo account": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなた · デモアカウント"
+          }
+        }
+      }
+    },
+    "Your changes stay in this demo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はこのデモ内だけに反映されます"
+          }
+        }
+      }
+    },
+    "Your active workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のワークスペース"
+          }
+        }
+      }
+    },
+    "Ready to work with your team?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームで使い始める"
+          }
+        }
+      }
+    },
+    "Connect GitHub to use your repository's real members and requests.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHubを連携して、実際のメンバーと依頼をやり取りできます。"
+          }
+        }
+      }
+    },
+    "Loading your team…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーを読み込み中…"
+          }
+        }
+      }
+    },
+    "We couldn't load your team": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーを読み込めませんでした"
+          }
+        }
+      }
+    },
+    "Connect a workspace to see your team here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを接続すると、メンバーがここに表示されます。"
+          }
+        }
+      }
+    },
+    "Sample teammates for trying the workflow.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作を試すためのサンプルメンバーです。"
+          }
+        }
+      }
+    },
+    "People who belong to this workspace.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースに所属するメンバーです。"
+          }
+        }
+      }
+    },
+    "Connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携"
+          }
+        }
+      }
+    },
+    "Connect your repository": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリを接続"
+          }
+        }
+      }
+    },
+    "Connected tools": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携ツール"
+          }
+        }
+      }
+    },
+    "Sources for your team's work": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの仕事の情報源"
+          }
+        }
+      }
+    },
+    "AI assistance": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIアシスタント"
+          }
+        }
+      }
+    },
+    "Demo suggestions · no external AI calls": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモ用の候補 · 外部AIへの送信なし"
+          }
+        }
+      }
+    },
+    "Available for request drafts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼の下書きに利用できます"
+          }
+        }
+      }
+    },
+    "You can still create requests manually": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で依頼を作成できます"
+          }
+        }
+      }
+    },
+    "Preferences": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示と通知"
+          }
+        }
+      }
+    },
+    "Not available in this version": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンでは利用できません"
+          }
+        }
+      }
+    },
+    "Start again with the sample requests": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初のサンプルからやり直す"
+          }
+        }
+      }
+    },
+    "Your work context": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの仕事の情報"
+          }
+        }
+      }
+    },
+    "Help AI understand your role": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "役割や仕事の進め方をAIに伝える"
+          }
+        }
+      }
+    },
+    "Plan and usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランと利用状況"
+          }
+        }
+      }
+    },
+    "Manage your subscription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションを管理"
+          }
+        }
+      }
+    },
+    "AI provider": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIプロバイダー"
+          }
+        }
+      }
+    },
+    "Optional provider settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロバイダーの設定（任意）"
+          }
+        }
+      }
+    },
+    "Offline · showing saved requests": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン · 保存済みの依頼を表示"
+          }
+        }
+      }
+    },
+    "Version %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョン %@"
+          }
+        }
+      }
+    },
+    "Product lead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロダクト責任者"
+          }
+        }
+      }
+    },
+    "Design": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デザイン"
+          }
+        }
+      }
+    },
+    "Engineering": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発"
+          }
+        }
+      }
+    },
+    "Operations": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "業務運営"
+          }
+        }
+      }
+    },
+    "Product": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロダクト"
+          }
+        }
+      }
+    },
+    "Marketing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マーケティング"
+          }
+        }
+      }
+    },
+    "Approve the onboarding release": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンボーディングの公開を承認"
+          }
+        }
+      }
+    },
+    "The new onboarding flow is ready. Please confirm we can roll it out tomorrow at 10:00.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいオンボーディングの準備ができました。明日10時から公開してよいか確認をお願いします。"
+          }
+        }
+      }
+    },
+    "QA checks are complete. We will start with 10% of users and monitor sign-in errors before expanding.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動作確認は完了しています。まず利用者の10%に公開し、ログインエラーを確認してから対象を広げます。"
+          }
+        }
+      }
+    },
+    "You own the release decision.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリリースの判断はあなたの担当です。"
+          }
+        }
+      }
+    },
+    "Confirm the homepage direction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームページの方針を確認"
+          }
+        }
+      }
+    },
+    "We have narrowed the design to two directions. Which message should the team lead with?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デザインを2案に絞りました。どちらのメッセージを前面に出すか、ご意見をお願いします。"
+          }
+        }
+      }
+    },
+    "Option A leads with faster decisions. Option B leads with fewer meetings. A short reply will unblock the final layout.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A案は判断の速さ、B案は会議の削減を伝えます。短い返信をいただければ、最終レイアウトに進められます。"
+          }
+        }
+      }
+    },
+    "Review the customer handoff checklist": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顧客への引き継ぎ項目を確認"
+          }
+        }
+      }
+    },
+    "Check the owner, due date, and support contact before Friday's customer handoff.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金曜の顧客引き継ぎに向けて、担当者・期限・サポート窓口を確認してください。"
+          }
+        }
+      }
+    },
+    "The account team has filled in the checklist. Mark this complete after your review, or delegate it to the right person.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "営業チームがチェックリストを記入しました。確認が終わったら完了にするか、適切な担当者に委任してください。"
+          }
+        }
+      }
+    },
+    "Review the launch announcement": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開のお知らせ文をレビュー"
+          }
+        }
+      }
+    },
+    "Please review the announcement copy before it goes to customers.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顧客への送信前に、お知らせの文面を確認してください。"
+          }
+        }
+      }
+    },
+    "This sample request is waiting for Mika. Sent requests stay here so you can follow the outcome.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサンプル依頼はMikaの確認待ちです。送った依頼はここで結果を追えます。"
+          }
+        }
+      }
+    },
+    "The weekly report is ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "週次レポートが届きました"
+          }
+        }
+      }
+    },
+    "Your team has published this week's customer feedback and product metrics.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今週の顧客フィードバックとプロダクト指標が共有されました。"
+          }
+        }
+      }
+    },
+    "This sample shows how a completed request remains available with its decision.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了した依頼も、判断結果と一緒に確認できるサンプルです。"
+          }
+        }
+      }
+    },
+    "Sample data": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプルデータ"
+          }
+        }
+      }
+    },
+    "Search requests or people": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼・メンバーを検索"
+          }
+        }
+      }
+    },
+    "Clear search": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をクリア"
+          }
+        }
+      }
+    },
+    "All types": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての種類"
+          }
+        }
+      }
+    },
+    "High priority": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先度が高い"
+          }
+        }
+      }
+    },
+    "Newest first": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい順"
+          }
+        }
+      }
+    },
+    "Oldest first": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古い順"
+          }
+        }
+      }
+    },
+    "Sort requests": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を並べ替え"
+          }
+        }
+      }
+    },
+    "Waiting for you": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの対応待ち"
+          }
+        }
+      }
+    },
+    "Requests you created": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたが送った依頼"
+          }
+        }
+      }
+    },
+    "Your decisions and replies": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断・返信の記録"
+          }
+        }
+      }
+    },
+    "Send your first request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の依頼を作成"
+          }
+        }
+      }
+    },
+    "Decisions will appear here": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了した依頼がここに表示されます"
+          }
+        }
+      }
+    },
+    "No matching requests": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する依頼がありません"
+          }
+        }
+      }
+    },
+    "New requests from your teammates will appear here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーから届いた依頼がここに表示されます。"
+          }
+        }
+      }
+    },
+    "Create a request and follow its outcome here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を作成して、その後の対応をここで確認できます。"
+          }
+        }
+      }
+    },
+    "Approve, reply, or complete a request to keep a record here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認・返信・完了した依頼をここで確認できます。"
+          }
+        }
+      }
+    },
+    "To %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宛先：%@"
+          }
+        }
+      }
+    },
+    "Request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼"
+          }
+        }
+      }
+    },
+    "Source": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参照元"
+          }
+        }
+      }
+    },
+    "Sample source": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプルの参照元"
+          }
+        }
+      }
+    },
+    "Original request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の依頼文"
+          }
+        }
+      }
+    },
+    "Waiting for workspace sync": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースへの保存を確認中"
+          }
+        }
+      }
+    },
+    "Saved in this demo only": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデモ内にのみ保存しました"
+          }
+        }
+      }
+    },
+    "Open GitHub issue": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub Issue を開く"
+          }
+        }
+      }
+    },
+    "Waiting for %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の対応待ち"
+          }
+        }
+      }
+    },
+    "Request unavailable": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を表示できません"
+          }
+        }
+      }
+    },
+    "Could not update request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を更新できませんでした"
+          }
+        }
+      }
+    },
+    "Decline this request?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この依頼を却下しますか？"
+          }
+        }
+      }
+    },
+    "Undo this decision?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この判断を取り消しますか？"
+          }
+        }
+      }
+    },
+    "Undo decision": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断を取り消す"
+          }
+        }
+      }
+    },
+    "This reopens the request. Changes already made in GitHub will remain.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を未対応に戻します。GitHub に反映済みの変更は取り消されません。"
+          }
+        }
+      }
+    },
+    "Reconnect to respond. Your request stays here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応するには再接続してください。依頼はここに保存されています。"
+          }
+        }
+      }
+    },
+    "Approving creates a GitHub issue in this workspace.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認すると、このワークスペースに GitHub Issue を作成します。"
+          }
+        }
+      }
+    },
+    "More actions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他の操作"
+          }
+        }
+      }
+    },
+    "Mark complete": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了にする"
+          }
+        }
+      }
+    },
+    "Acknowledge": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認済みにする"
+          }
+        }
+      }
+    },
+    "Your reply": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信内容"
+          }
+        }
+      }
+    },
+    "What needs to change?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正してほしい内容"
+          }
+        }
+      }
+    },
+    "Sending a reply completes this request and notifies the sender.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信すると依頼が完了し、送信者に返答が届きます。"
+          }
+        }
+      }
+    },
+    "The sender will receive your revision request.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信者に修正依頼が届きます。"
+          }
+        }
+      }
+    },
+    "Delegate to": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "担当を引き継ぐ相手"
+          }
+        }
+      }
+    },
+    "Demo": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモ"
+          }
+        }
+      }
+    },
+    "Demo workspace · sample data only": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモワークスペース · サンプルデータのみ"
+          }
+        }
+      }
+    },
+    "Request type": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼の種類"
+          }
+        }
+      }
+    },
+    "Video attached": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を添付済み"
+          }
+        }
+      }
+    },
+    "Remove": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "This creates a local sample request. Nobody will be notified.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデモ内にサンプルの依頼を作成します。誰にも通知されません。"
+          }
+        }
+      }
+    },
+    "The recipient will receive this request in their inbox. You can follow it in Sent.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相手の受信箱に依頼が届きます。送信後は「送信済み」で確認できます。"
+          }
+        }
+      }
+    },
+    "Review request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信前に確認"
+          }
+        }
+      }
+    },
+    "New request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を作成"
+          }
+        }
+      }
+    },
+    "Sending request…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を送信中…"
+          }
+        }
+      }
+    },
+    "Preparing your draft…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下書きを準備中…"
+          }
+        }
+      }
+    },
+    "Send request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を送信"
+          }
+        }
+      }
+    },
+    "Nothing is sent until you confirm.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認して送信するまで、相手には届きません。"
+          }
+        }
+      }
+    },
+    "Discard this draft?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この下書きを破棄しますか？"
+          }
+        }
+      }
+    },
+    "Discard draft": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下書きを破棄"
+          }
+        }
+      }
+    },
+    "Keep editing": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集を続ける"
+          }
+        }
+      }
+    },
+    "What do you need from your teammate?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーに依頼したいことは？"
+          }
+        }
+      }
+    },
+    "Describe the request, the context, and when you need a response.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼の内容・背景・返答がほしい時期を入力してください。"
+          }
+        }
+      }
+    },
+    "Request description": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼の内容"
+          }
+        }
+      }
+    },
+    "For example: Please review the launch copy before Friday. We need approval on the headline and customer quote.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例：金曜までに公開用の文章を確認してください。見出しとお客様のコメントについて承認をお願いします。"
+          }
+        }
+      }
+    },
+    "Dictate": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声で入力"
+          }
+        }
+      }
+    },
+    "Record video": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を撮影"
+          }
+        }
+      }
+    },
+    "Title": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "件名"
+          }
+        }
+      }
+    },
+    "Give the request a clear title": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容が伝わる件名を入力"
+          }
+        }
+      }
+    },
+    "Context · optional": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景・補足（任意）"
+          }
+        }
+      }
+    },
+    "Add details or links": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳しい内容やリンクを追加"
+          }
+        }
+      }
+    },
+    "Choose a teammate": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーを選択"
+          }
+        }
+      }
+    },
+    "Loading teammates…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーを読み込み中…"
+          }
+        }
+      }
+    },
+    "Connect to load your workspace members.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続するとワークスペースのメンバーを表示します。"
+          }
+        }
+      }
+    },
+    "Reconnect to send. Your draft stays editable.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信するには再接続してください。下書きは引き続き編集できます。"
+          }
+        }
+      }
+    },
+    "Choose someone in this workspace.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースのメンバーを選んでください。"
+          }
+        }
+      }
+    },
+    "Demo draft · your words stay on this device": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモの下書き · 入力した内容はこの端末内に保存されます"
+          }
+        }
+      }
+    },
+    "Manual draft · reconnect before sending": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動の下書き · 送信前に接続してください"
+          }
+        }
+      }
+    },
+    "AI limit reached. Review this manual draft before sending.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI の利用上限に達しました。下書きを確認・編集してから送信してください。"
+          }
+        }
+      }
+    },
+    "AI draft · review every detail before sending": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI の下書き · 内容を確認してから送信してください"
+          }
+        }
+      }
+    },
+    "AI could not prepare this request. Your text is kept below; edit it and send when ready.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI で準備できませんでした。入力内容は保持しています。内容を編集して送信できます。"
+          }
+        }
+      }
+    },
+    "Connect to your workspace before sending. Your draft is kept here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信前にワークスペースに接続してください。下書きは保持しています。"
+          }
+        }
+      }
+    },
+    "Selected by you": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたが指定"
+          }
+        }
+      }
+    },
+    "Created in the demo. Open Sent to follow the request.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモ内に依頼を作成しました。「送信済み」で確認できます。"
+          }
+        }
+      }
+    },
+    "Request queued. Sent shows when your workspace receives it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信待ちに追加しました。ワークスペースでの受信は「送信済み」で確認できます。"
+          }
+        }
+      }
+    },
+    "Delivery needs attention": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信状態を確認してください"
+          }
+        }
+      }
+    },
+    "Demo request created": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモの依頼を作成しました"
+          }
+        }
+      }
+    },
+    "Request queued": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信待ちに追加しました"
+          }
+        }
+      }
+    },
+    "This action stays in the demo. Nobody will be notified.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作結果はデモ内にのみ保存されます。誰にも通知されません。"
+          }
+        }
+      }
+    },
+    "Camera preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラのプレビュー"
+          }
+        }
+      }
+    },
+    "Video is silent. Your speech is added as an editable transcript.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画に音声は含まれません。話した内容は編集可能なテキストとして追加されます。"
+          }
+        }
+      }
+    },
+    "Speak your request, then review the transcript before adding it to your draft.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼したいことを話してください。文字起こしを確認してから下書きに追加できます。"
+          }
+        }
+      }
+    },
+    "Ready when you are": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備ができたら開始してください"
+          }
+        }
+      }
+    },
+    "Start recording": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録音を開始"
+          }
+        }
+      }
+    },
+    "Transcript": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字起こし"
+          }
+        }
+      }
+    },
+    "You can close this screen and type your request instead.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画面を閉じて、文字で入力することもできます。"
+          }
+        }
+      }
+    },
+    "Dictate request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声で依頼を入力"
+          }
+        }
+      }
+    },
+    "Use transcript": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字起こしを使う"
+          }
+        }
+      }
+    },
+    "Camera access is off. Enable it in Settings or use dictation.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラへのアクセスが無効です。設定で許可するか、音声入力を使ってください。"
+          }
+        }
+      }
+    },
+    "Review every detail before sending.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信前に内容を確認してください。"
+          }
+        }
+      }
+    },
+    "Video could not be recorded. You can still use the transcript.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を録画できませんでした。文字起こしは利用できます。"
           }
         }
       }

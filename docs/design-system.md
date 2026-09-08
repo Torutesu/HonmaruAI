@@ -1,133 +1,59 @@
-# Design System — "Hardworking dashboard on white marble"
+# Honmaru AI product design
 
-Adopted from the ClickUp-style reference. Light theme, high-contrast
-productivity dialect: white canvas, near-black filled CTAs, one relentless
-9999px pill curve, color used surgically.
+The September 2026 redesign organizes the product around requests: find what needs your attention, understand the context, respond, and follow the outcome. This document describes the implemented direction for the native app and React web app. It supersedes the earlier card carousel, forced swipe onboarding, and all-pill prototype rules.
 
-## Core rules
+## Information architecture
 
-| Rule | Value |
+| Destination | Purpose |
 |---|---|
-| Canvas | `#ffffff` — 95% of every screen |
-| Card surface | `#f8f9fa`, section band `#e9ebf0`, chip fill `#eeeeee` |
-| Text | `#202020` primary · `#646464` secondary · `#838383` tertiary · `#090c1d` display headlines |
-| Default border | `1px solid #e8e8e8` (hairline `#d4d4d4`) — elevation is borders, not shadows |
-| Primary CTA | **Filled dark `#202020`, white text, 9999px pill** — never purple |
-| Brand violet `#6647f0` | Badges, AI markers, brand moments only |
-| Interactive blue `#0091ff` | Selected chips, links, outlined interactive borders |
-| Status | Done `#6ee7b7` bg / dark text · In-progress `#0091ff` bg / white · Overdue-decline pink `#fa49a5` · Emerald outline `#00c07a` |
-| Radii | buttons/badges/tags 9999px · cards 12px · large cards 20px · inputs 9px · images 16px |
-| Spacing | 4px base unit, compact density; section gap 80px, element gap 12px |
-| Display type | Plus Jakarta Sans (subst. Inter/system) 650–800, tracking −0.04em at 48px+ |
-| Body type | Inter (subst. system-ui); never positive tracking |
-| Meta labels | Sometype Mono (subst. ui-monospace) 10–12px uppercase, tracking +0.06–0.08em |
-| Motion | 0.45s `cubic-bezier(0.33, 1, 0.68, 1)`; hovers 0.15s |
-| Conic rainbow border | **At most one element per screen** — ours is the ＋ compose FAB |
+| Inbox | Requests addressed to you that still need attention. Search people or content; filter by request type or priority; sort deliberately. |
+| Sent | Requests you created, with recipient and current status. System-generated response notifications do not count as requests you created. |
+| Completed | Decisions and completed requests, including who responded and the stored outcome when available. This is the current record, not an immutable audit log. |
+| Workspace | People, tool connections, preferences, and account controls. |
 
-## Component mapping (this product)
+Desktop web uses a persistent navigation rail, a searchable request list, and a detail pane. Narrow screens and iPhone use a list followed by a detail screen with an explicit Back action. A single New request entry remains available across destinations. Detail actions must stay visible above the keyboard, home indicator, and navigation.
 
-| App element | Treatment |
-|---|---|
-| Decision card | White, 1px `#e8e8e8`, radius 12–24px, subtle shadow only |
-| Kind tag (Decision/Choice/Reply/FYI) | Mono uppercase; emerald / blue / violet / ash |
-| Priority stripe | urgent `#fa49a5` · high `#0091ff` · medium `#d4d4d4` |
-| Approve / primary buttons | Filled dark `#202020` pill |
-| Secondary / ghost | White fill, `#e8e8e8` border, `#202020` text, pill |
-| Selected chips (roles, options) | Blue `#0091ff` text + border, 8% blue tint fill |
-| AI-recommended badge, routing reason bar, agent avatars | Brand violet `#6647f0` |
-| ＋ FAB | White circle wrapped by the rotating 11-stop conic border (the page's one expressive moment) |
-| Segmented (Cards/Classic) | `#eeeeee` track, white raised pill for selected |
-| Billing segmented | Selected = filled dark pill |
-| Settings | iOS inset-grouped: white cards, radius 16, `#e8e8e8` separators |
-| Status pills | DONE mint bg/dark text · OPEN blue bg/white · DECLINED pink bg/white |
-| Camera / viewfinder | Stays dark (`#111` fade) — the sanctioned dark panel |
-| Undo toast, tab bar, sheets | White translucent material, `#e8e8e8` border, blur |
+## Request creation and outcomes
 
-## Tokens (CSS)
+1. Choose a real workspace member and describe the request. Text is the default input; voice or camera is an explicit choice.
+2. Prepare a draft manually or with AI when available. Show whether AI was used. Preserve the original instruction as context.
+3. Review and edit the recipient, subject, request, background, type, and priority before sending.
+4. Confirm delivery from the authenticated workspace response. An optimistic update or local cache alone must not claim confirmed delivery.
 
-```css
-:root {
-  --color-signal-white:#ffffff; --color-ink-black:#202020; --color-onyx:#090c1d;
-  --color-carbon:#2a2a2a; --color-slate:#646464; --color-ash:#838383;
-  --color-fog:#b3b3b3; --color-cloud:#d4d4d4; --color-bone:#e8e8e8;
-  --color-mist:#f8f9fa; --color-plaster:#e9ebf0; --color-mercury:#eeeeee;
-  --color-brand-violet:#6647f0; --color-signal-blue:#0091ff;
-  --color-mint:#6ee7b7; --color-emerald:#00c07a; --color-teal-tag:#16c0a4;
-  --gradient-rainbow-conic: conic-gradient(from 90deg,#7d5be7 19%,#bc3fda 28%,#fa24ce 37%,#fb49a5 45%,#fc6d7b 52%,#fd8461 55%,#fd9a46 58%,#f687c6 65%,#a3a0e0 80%,#4fb9fa 95%,#0091ff 100%);
-  --gradient-primary: linear-gradient(83deg,#40ddff -5%,#7612fa 51%,#fa12e3 125%);
-  --gradient-dark-fade: linear-gradient(#111111 24%, #000000);
-  --font-display:'Plus Jakarta Sans',Inter,ui-sans-serif,system-ui,sans-serif;
-  --font-body:'Inter',ui-sans-serif,system-ui,sans-serif;
-  --font-mono:'Sometype Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
-  --radius-buttons:9999px; --radius-cards:12px; --radius-largecards:20px;
-  --radius-inputs:9px; --radius-images:16px;
-  --ease-settle:cubic-bezier(0.33,1,0.68,1);
-  --shadow-subtle:rgba(0,0,0,.1) 0 1px 3px 0, rgba(0,0,0,.1) 0 1px 2px -1px;
-}
-```
+Approval, reply, completion, and revision actions explain their effects. Replies that finish a request must say so. Undo restores the request state; it must not imply that an external GitHub issue or notification has also been undone.
 
-## SwiftUI token mapping (`TikTokForWork/Design/Theme.swift`)
+The sample workspace is explicitly marked as local demo data. Its people and requests are illustrative. It performs no external AI calls, notifications, or tool writes. Reset and exit are available. Live sessions use the authenticated member roster and workspace data.
 
-| Swift token | Value |
-|---|---|
-| `background` | `#FFFFFF` |
-| `surface` | `#F8F9FA` |
-| `surfaceRaised` | `#EEEEEE` |
-| `textPrimary` | `#202020` |
-| `textSecondary` | `#646464` |
-| `textTertiary` | `#838383` |
-| `accent` (brand) | `#6647F0` |
-| `interactive` | `#0091FF` |
-| `approve` | `#00C07A` |
-| `reject` | `#FA49A5` |
-| `issueGreen` | `#238636` (GitHub brand, unchanged) |
-| Buttons | `Capsule()` fills; primary = `#202020` |
+## Visual roles
 
-## Figma handoff
+| Role | Light | Dark |
+|---|---|---|
+| Canvas | `#F7F8FA` | `#0F1115` |
+| Content surface | `#FFFFFF` | `#191C22` |
+| Raised surface | `#F0F1F5` | `#222631` |
+| Primary text | `#20242C` | `#F4F5F7` |
+| Secondary text | `#626873` | `#B5BDC9` |
+| Hairline border | `#E5E7ED` | `#2D323D` |
+| Brand / AI / selection | `#6650CB` | `#B4A1FF` |
+| Primary action | dark ink, white text | near-white, dark ink text |
+| Positive action status | green | light green |
+| Destructive or blocked status | red | light red |
 
-Live in [Honmaru-AI-Mobile-App-UI-UX-Design](https://www.figma.com/design/ii8w8x7gvN3wp70vlszBSa/Honmaru-AI-Mobile-App-UI-UX-Design)
-on the `Refference` page (the team's Starter plan blocks extra pages), placed
-in clear space right of the reference shots (x ≈ 18400):
+Color never carries status alone. Pair it with a readable label and icon. Primary actions use ink rather than violet. Cards have a restrained border; shadows are reserved for overlays and floating controls. Gradients and animated rings are not part of the work surface.
 
-- **Components row** — `Chrome/Status Bar`, `Chrome/Home Indicator`,
-  `Button/Primary`, `Button/Ghost`, `Chrome/Tab Bar` (conic-ring ＋ FAB)
-- **Section "Honmaru AI · Onboarding v3"** — 12 screens (390×844): Welcome,
-  Create account, Bring your own AI, Call name, Role, Connect your tools,
-  Scanning, Your projects, Who's who, House rules, Ready, Choose your plan
-- **Section "Honmaru AI · Core App v3"** — 6 screens: Home Decision / Choice /
-  Reply cards, Classic view, Capture, You (settings)
+Native `Theme.Colors.background` is the content surface; `surface` is the surrounding canvas. The names are retained for existing view compatibility. Web semantic variables live in `web-react/src/index.css`; native roles live in `TikTokForWork/Design/Theme.swift`.
 
-Fonts used in the file: Plus Jakarta Sans ExtraBold (display), Inter
-(body/UI), Sometype Mono Medium (meta labels).
+## Components and readability
 
-### Classic view = Slack clone
+- Use SF Symbols on iPhone and Lucide icons on web; retain the product's real logo asset.
+- Use the system font stack. Native body text follows Dynamic Type; web body text is 14–16 px. Request subjects are prominent without hero-sized marketing typography.
+- Use a 4 px spacing rhythm, 12–14 px control corners, and restrained 12–20 px card corners. Pills are for compact status chips, not every control.
+- A request row shows person, time, subject, a short summary, and the few metadata fields needed to triage. The detail screen carries full context and original text.
+- Inputs have persistent labels. Buttons name their action. Loading, empty, offline, error, and success states offer the next useful step.
+- Respect Reduce Motion, system appearance, keyboard focus, modal focus containment, and large text. Visual screenshots do not establish full accessibility conformance.
 
-The Classic tab is a deliberate Slack iOS clone (the "old way" surface):
-workspace header (`Honmaru HQ ▾`), Jump-to search pill, `Channels` /
-`Direct messages` / `Apps` sections, unread rows in bold with red
-`#e01e5a` badges, `#2bac76` presence dots. Open decisions map to unreads;
-tapping a row surfaces that card back in the Cards view. Implemented in the
-prototype (`classicHTML()` / `.slk-*` styles); it intentionally uses Slack's
-palette, not ours.
+## Design reference and verification
 
-### Pending Figma writes (blocked by Starter-plan MCP limit)
+The existing [Honmaru design file](https://www.figma.com/design/ii8w8x7gvN3wp70vlszBSa/Honmaru-AI-Mobile-App-UI-UX-Design) remains historical product context. Node `470:282` was read during this redesign to verify the existing decision-detail hierarchy. The new queue and draft flow are an intentional product redesign, not a claim of pixel matching every historical Figma frame. No Figma frames were published during this change.
 
-The file's team is on Figma Starter, whose MCP read-tool budget is monthly
-and currently exhausted. Two ready-to-run `use_figma` scripts live in
-[docs/figma/](figma/):
-
-- `classic-slack-rebuild.js` — rebuilds `A4 Home — Classic` (node `59:164`)
-  as the Slack clone above
-- `capture-fix.js` — clears white wrapper fills on `A5 Capture` (node
-  `60:122`) so the dark viewfinder shows
-
-Unblock by moving the file to a Professional team (limits jump to 200/day;
-the file URL/key stays the same) or waiting for the billing-cycle reset.
-
-## Don'ts (enforced)
-
-- No pure `#000` for text/background (camera viewfinder excepted)
-- Violet never fills a primary CTA
-- One conic-border element per screen, maximum
-- No decorative gradients on cards or section backgrounds
-- Don't mix radii within a component class — all buttons are pills
+Current evidence and Before / After / Why review are recorded in [the September UX review](ux-redesign/2026-09-08/README.md). Release qualification remains separate from visual acceptance and local build success.

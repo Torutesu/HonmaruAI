@@ -1,164 +1,54 @@
 import SwiftUI
 
-/// Everything above the tab bar. Home draws the cards; the ＋ button asks the
-/// feed to open its compose flow rather than duplicating the draft chain, which
-/// lives with `FeedViewModel`.
-///
-/// The screens are "Honmaru AI · Core App v3" in `docs/design-system.md`.
 struct AppShell: View {
     @EnvironmentObject private var appState: AppState
-
-    @State private var tab: AppTab = .home
-    @State private var composeTick = 0
-    @State private var showCapture = false
-    @State private var captured: CaptureRequest?
-    @State private var feedCardCount = 0
-    @State private var feedCardIndex = 0
+    @EnvironmentObject private var push: PushService
+    @State private var tab: AppTab = .inbox
+    @State private var showCompose = false
+    @StateObject private var composer = FeedViewModel()
+    @State private var deliveryError: String?
+    @State private var sentMessage: String?
+    @State private var pendingSentMessage: String?
+    @State private var sentRevision = 0
 
     var body: some View {
-        ZStack {
-            Theme.Colors.background.ignoresSafeArea()
-
-            switch tab {
-            case .home:
-                FeedView(
-                    showsChrome: false,
-                    composeTick: composeTick,
-                    onComposeConsumed: { composeTick = 0 },
-                    captured: captured,
-                    cardCount: $feedCardCount,
-                    currentCardIndex: $feedCardIndex
-                )
-            case .you:
-                YouView()
+        TabView(selection: $tab) {
+            FeedView(queue: .inbox) { showCompose = true }
+                .tabItem { Label("Inbox", systemImage: "tray") }.badge(appState.pendingCount).tag(AppTab.inbox)
+            FeedView(queue: .sent) { showCompose = true }.id(sentRevision)
+                .tabItem { Label("Sent", systemImage: "paperplane") }.tag(AppTab.sent)
+            FeedView(queue: .completed) { showCompose = true }
+                .tabItem { Label("Completed", systemImage: "checkmark.circle") }.tag(AppTab.completed)
+            YouView { showCompose = true }
+                .tabItem { Label("Workspace", systemImage: "square.grid.2x2") }.tag(AppTab.workspace)
+        }
+        .tint(Theme.Colors.accent)
+        .sheet(isPresented: $showCompose, onDismiss: {
+            if let message = pendingSentMessage { sentMessage = message; pendingSentMessage = nil }
+        }) {
+            RequestComposerView(model: composer) { card in
+                showCompose = false
+                tab = .sent
+                sentRevision += 1
+                pendingSentMessage = appState.isGuest ? String(localized: "Created in the demo. Open Sent to follow the request.") : String(localized: "Request queued. Sent shows when your workspace receives it.")
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if tab == .home { homeTopBar }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            AppTabBar(
-                selection: $tab,
-                onCompose: {
-                    // The ＋ records; the transcript is editable before it is sent.
-                    tab = .home
-                    showCapture = true
-                },
-                onComposeText: {
-                    // Long press is the way in for someone who cannot talk right
-                    // now — same draft chain, no camera.
-                    tab = .home
-                    composeTick += 1
-                },
-                pendingCount: appState.pendingCount
-            )
-        }
-        .fullScreenCover(isPresented: $showCapture) {
-            CaptureView { text, video in
-                showCapture = false
-                Task { await handleCapture(text: text, video: video) }
+        .task(id: appState.activeSessionID) {
+            composer.bind(to: appState)
+            guard !appState.isGuest else { return }
+            await appState.refreshWorkspaceMembers()
+            while !Task.isCancelled {
+                await appState.cardService.syncGitHubStatus(githubService: appState.githubService)
+                try? await Task.sleep(for: .seconds(30))
             }
-            .environmentObject(appState)
         }
+        .onChange(of: push.pendingCardID) { _, id in if id != nil { tab = .inbox } }
+        .onReceive(appState.webSocketService.$deliveryError) { if let message = $0 { composer.restoreRejectedDraft(appState: appState); deliveryError = message } }
+        .alert("Delivery needs attention", isPresented: Binding(get: { deliveryError != nil }, set: { if !$0 { deliveryError = nil } })) {
+            Button("OK") { deliveryError = nil; appState.webSocketService.clearDeliveryError() }
+        } message: { Text(deliveryError ?? "") }
+        .alert(appState.isGuest ? String(localized: "Demo request created") : String(localized: "Request queued"), isPresented: Binding(get: { sentMessage != nil }, set: { if !$0 { sentMessage = nil } })) {
+            Button("OK") { sentMessage = nil }
+        } message: { Text(sentMessage ?? "") }
     }
-
-    /// Keeps the clip locally first, so a failed upload still plays back, then
-    /// compresses and uploads it when a backend is configured. The decision
-    /// routes on its text either way.
-    private func handleCapture(text: String, video: URL?) async {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let userID = appState.currentUser?.id
-        let repository = appState.githubService.connection?.repository
-        let sessionToken = SessionStore.sessionToken
-        func isCurrentCapture() -> Bool {
-            appState.currentUser?.id == userID &&
-            appState.githubService.connection?.repository == repository &&
-            SessionStore.sessionToken == sessionToken
-        }
-        var uploaded: String?
-        if let video {
-            let local = MediaStore.keep(video)
-            // Compress before upload: R2 bills stored bytes, and a raw capture is
-            // ~20x larger than a 960x540 export of the same talking-head clip.
-            let toUpload = await MediaStore.compress(local ?? video)
-            guard isCurrentCapture() else { return }
-            if let base = appState.backendBaseURL {
-                uploaded = try? await MediaUploader.upload(toUpload, to: base)
-            }
-            if uploaded == nil { uploaded = local?.absoluteString }
-        }
-        guard isCurrentCapture() else { return }
-        captured = CaptureRequest(text: text, videoURL: uploaded)
-    }
-
-    private var homeTopBar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text("Decisions")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                    if appState.pendingCount > 0 {
-                        Text("\(appState.pendingCount)")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .foregroundStyle(Theme.Colors.accent)
-                            .background(Theme.Colors.accent.opacity(0.09), in: Capsule())
-                    }
-                }
-                HStack(spacing: 6) {
-                    Circle().fill(connectionColor).frame(width: 6, height: 6)
-                    Text(appState.isGuest ? String(localized: "Guest workspace") : (connectionLabel ?? String(localized: "Up to date")))
-                        .font(.caption)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                    if feedCardCount > 1 {
-                        Text("· \(feedCardIndex + 1) / \(feedCardCount)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(Theme.Colors.textSecondary)
-                    }
-                }
-            }
-            Spacer()
-            Button { tab = .you } label: {
-                Text(String(appState.currentUser?.name.prefix(1) ?? "?"))
-                    .font(.headline)
-                    .foregroundStyle(Theme.Colors.accent)
-                    .frame(width: 44, height: 44)
-                    .background(Theme.Colors.accent.opacity(0.08), in: Circle())
-                    .overlay(Circle().strokeBorder(Theme.Colors.accent.opacity(0.12), lineWidth: 1))
-            }
-            .buttonStyle(PressFeedbackStyle())
-            .accessibilityLabel(Text("You"))
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-        .background(Theme.Colors.surface.ignoresSafeArea(edges: .top))
-    }
-
-    private var connectionColor: Color {
-        switch appState.connectionState {
-        case .connected: Theme.Colors.approve
-        case .connecting: Theme.Colors.interactive
-        case .refused: Theme.Colors.reject
-        case .offline: Theme.Colors.textTertiary
-        }
-    }
-
-    private var connectionLabel: String? {
-        switch appState.connectionState {
-        case .connected: nil
-        case .connecting: String(localized: "Reconnecting…")
-        case .refused: String(localized: "No access")
-        case .offline: String(localized: "Offline")
-        }
-    }
-}
-
-#Preview {
-    AppShell()
-        .environmentObject(AppState())
-        .environmentObject(SubscriptionService.shared)
-        .environmentObject(PushService.shared)
 }

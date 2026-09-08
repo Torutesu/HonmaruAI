@@ -16,7 +16,10 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 |--------|------|---------|
 | GET | `/health` | Readiness + which AI/GitHub features are configured |
 | GET | `/agui/tools` | AG-UI tool manifest |
-| POST | `/ai/route` | Instruction → intent, recipient, Decision Card (OpenAI, keyword fallback) |
+| POST | `/auth/signup` | Email/password account → session, relay login, workspace; optional invite code |
+| POST | `/auth/login` | Email/password → session, relay login, earliest current workspace (`orgId`) |
+| GET | `/members?orgId=` | Current workspace members `{id,name,role,avatarUrl?}` for email or GitHub sessions |
+| POST | `/ai/route` | Instruction → draft card; optional validated `recipientUserID` preserves an explicit choice |
 | GET | `/oauth/github/config` | Client id + scope + redirect for the app |
 | GET | `/oauth/github/state` | Mint a single-use, 10-minute nonce for the authorize URL |
 | POST | `/oauth/github/token` | OAuth `code` + `state` → GitHub token (server-side) + app session |
@@ -36,6 +39,24 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result`,
 `card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`,
 `nudge`, `set_business`.
+
+The member directory requires `x-session-token` and current membership in the
+requested workspace. Its `id` is the relay login used by cards, not a display
+name; existing email-account logins contain their sign-in address. No separate
+private notification address, account id, or credential is returned.
+
+For an explicit draft recipient, send `recipientUserID` with `orgId` (or
+`organization.orgId`) to `/ai/route`. The caller and recipient must both belong
+to that workspace. Invalid selections return 400, missing sessions 401, and
+unrelated workspace access 403. Both model drafting and keyword fallback keep
+the selected recipient; `routedBy` still identifies the drafting method.
+Routing returns a draft only: the client reviews it before `card_created`.
+Without an explicit recipient, automatic routing retains its existing behavior.
+
+Login adds `orgId` without changing `token`, `userId`, or `login`. Accounts with
+several memberships get the earliest current one; accounts whose memberships
+were removed still receive a session, with `orgId: null`, so they can redeem an
+invite through `/invites/accept` instead of silently regaining access.
 
 ### The relay's access rules
 

@@ -1,22 +1,11 @@
 import SwiftUI
 
-/// Guided first-run flow. Five screens, in order of persuasion:
-/// value → how it works → try it (interactive swipe) → GitHub sign-in → identity.
-/// Sign-in comes after the product has shown itself, and can be skipped —
-/// the feed offers the connection again in context.
+/// One clear entry screen, followed by optional GitHub workspace setup.
+/// The sample workspace is interactive and separate from live team data.
 struct OnboardingView: View {
     @EnvironmentObject private var appState: AppState
-
-    private enum Step: Int, CaseIterable {
-        case welcome
-        case routing
-        case swipe
-        case github
-    }
-
-    @State private var step: Step = .welcome
-
-    // GitHub step
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showConnection = false
     @State private var selectedRepository: GitHubRepository?
     @State private var isSigningIn = false
     @State private var isConnecting = false
@@ -24,281 +13,180 @@ struct OnboardingView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.horizontal, Theme.Spacing.screen)
-                .padding(.top, Theme.Spacing.sm)
-
+        NavigationStack {
             Group {
-                switch step {
-                case .welcome: welcomeStep
-                case .routing: routingStep
-                case .swipe: swipeStep
-                case .github: githubStep
-                }
+                if showConnection { githubStep } else { welcomeStep }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, Theme.Spacing.screen)
-            .transition(.asymmetric(
-                insertion: .move(edge: .trailing).combined(with: .opacity),
-                removal: .move(edge: .leading).combined(with: .opacity)
-            ))
-            .id(step)
-        }
-        .background(Theme.Colors.surface.ignoresSafeArea())
-        .animation(.easeOut(duration: 0.25), value: step)
-    }
-
-    // MARK: - Chrome
-
-    private var header: some View {
-        ZStack {
-            PageDots(count: Step.allCases.count, index: step.rawValue)
-
-            HStack {
-                if step != .welcome {
-                    Button(action: goBack) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(Theme.Colors.textSecondary)
-                            .frame(width: 32, height: 32)
+            .background(Theme.Colors.surface.ignoresSafeArea())
+            .toolbar {
+                if showConnection {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showConnection = false } label: {
+                            Label("Back", systemImage: "chevron.left")
+                        }
+                        .disabled(isSigningIn || isConnecting)
                     }
-                    .accessibilityLabel("Back")
                 }
-                Spacer()
             }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showConnection)
         }
-        .frame(height: 32)
+        .tint(Theme.Colors.interactive)
     }
-
-    private func advance() {
-        guard let next = Step(rawValue: step.rawValue + 1) else { return }
-        errorMessage = nil
-        step = next
-    }
-
-    private func goBack() {
-        guard let previous = Step(rawValue: step.rawValue - 1) else { return }
-        errorMessage = nil
-        step = previous
-    }
-
-    // MARK: - 1. Welcome
 
     private var welcomeStep: some View {
-        VStack(spacing: 16) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    HStack(spacing: 10) {
-                        AppLogo(size: 36)
-                        Text("Honmaru AI")
-                            .font(.headline)
-                            .foregroundStyle(Theme.Colors.textPrimary)
-                    }
-                    .padding(.top, 28)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                HStack(spacing: 10) {
+                    AppLogo(size: 34)
+                    Text("Honmaru AI").font(.headline)
+                    Spacer()
+                }
+                .padding(.top, 12)
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Decisions,\nnot messages")
-                            .font(.system(.largeTitle, design: .default, weight: .bold))
-                            .tracking(-1)
-                            .foregroundStyle(Theme.Colors.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("A work feed where nothing needs reading twice. Your AI turns your team's asks, approvals, and tasks into cards you clear in seconds.")
-                            .font(.body)
-                            .foregroundStyle(Theme.Colors.textSecondary)
-                            .lineSpacing(4)
-                    }
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Less chasing.\nClearer decisions.")
+                        .font(.largeTitle.weight(.bold))
+                        .tracking(-0.8)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Review what needs you, send a clear request, and keep every decision in one place.")
+                        .font(.body)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .lineSpacing(3)
+                }
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            Label("Decision preview", systemImage: "rectangle.stack")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(Theme.Colors.textSecondary)
-                            Spacer()
-                            Image(systemName: "sparkles").foregroundStyle(Theme.Colors.accent)
-                        }
-                        Text("Approve the Friday release?")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(Theme.Colors.textPrimary)
-                        Text("QA passed on staging. Your AI batched 6 merged PRs into one release and checked the deploy window.")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.Colors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Label("Ready for your decision", systemImage: "checkmark.circle")
+                VStack(spacing: 0) {
+                    HStack {
+                        Label("Inbox", systemImage: "tray")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text("Sample workspace")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(Theme.Colors.accent)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Theme.Colors.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
                     }
-                    .padding(20)
-                    .background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 24))
-                    .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Theme.Colors.border, lineWidth: 1))
-                    .padding(.bottom, 8)
+                    .padding(18)
+                    Divider().overlay(Theme.Colors.border)
+                    sampleRow("Approve the onboarding release", subtitle: "Ken · Approval", symbol: "checkmark.seal", tint: Theme.Colors.approve)
+                    Divider().padding(.leading, 58)
+                    sampleRow("Review the customer handoff checklist", subtitle: "Aya · Task", symbol: "checklist", tint: Theme.Colors.interactive)
+                    Divider().padding(.leading, 58)
+                    sampleRow("Confirm the homepage direction", subtitle: "Mika · Question", symbol: "bubble.left", tint: Theme.Colors.accent)
+                }
+                .background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Theme.Colors.border, lineWidth: 1))
+                .accessibilityElement(children: .contain)
+
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "hand.tap").foregroundStyle(Theme.Colors.accent)
+                    Text("Try approving, replying, and creating a request. No account needed.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .scrollIndicators(.hidden)
-            PrimaryButton(title: String(localized: "Get started")) {
-                Haptics.light()
-                advance()
-            }
+            .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - 2. How it works
-
-    private var routingStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-            stepTitle(
-                "Talk only to your AI",
-                subtitle: "No channels, no DMs, no inbox. Say what you need — the AIs handle who hears it, and how."
-            )
-
-            VStack(spacing: Theme.Spacing.sm) {
-                routingRow(
-                    icon: "person",
-                    title: "You",
-                    detail: "“Get the auth fix reviewed before Friday.”"
-                )
-                routingArrow
-                routingRow(
-                    icon: "sparkle",
-                    title: "Your AI",
-                    detail: "Reads intent, checks the org graph, picks who can decide."
-                )
-                routingArrow
-                routingRow(
-                    icon: "sparkle",
-                    title: "Dana's AI",
-                    detail: "Rewrites it as one clear decision, in Dana's context."
-                )
-                routingArrow
-                routingRow(
-                    icon: "person",
-                    title: "Dana",
-                    detail: "Sees a card. One tap: approved."
-                )
-            }
-            .padding(.top, Theme.Spacing.lg)
-
-            .padding(.bottom, 16)
-            }
-            }
-            .scrollIndicators(.hidden)
-
-            PrimaryButton(title: String(localized: "Continue")) {
-                Haptics.light()
-                advance()
-            }
-            .padding(.bottom, Theme.Spacing.xl)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func routingRow(icon: String, title: LocalizedStringKey, detail: LocalizedStringKey) -> some View {
-        HStack(alignment: .top, spacing: Theme.Spacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(icon == "sparkle" ? Theme.Colors.accent : Theme.Colors.textSecondary)
-                .frame(width: 20, height: 20)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 14, weight: .medium))
+        .scrollIndicators(.hidden)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 12) {
+                PrimaryButton(title: String(localized: "Try the demo")) {
+                    appState.activateGuestSession()
+                }
+                Button {
+                    showConnection = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image("GitHubMark").resizable().scaledToFit().frame(width: 18, height: 18)
+                        Text("Connect GitHub").font(.body.weight(.medium))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 48)
                     .foregroundStyle(Theme.Colors.textPrimary)
-                Text(detail)
-                    .font(Theme.TypeScale.caption)
-                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.Colors.border, lineWidth: 1))
+                }
+                .buttonStyle(PressFeedbackStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 16)
+            .background(Theme.Colors.surface)
+        }
+    }
+
+    private func sampleRow(_ title: LocalizedStringKey, subtitle: LocalizedStringKey, symbol: String, tint: Color) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 32)
+                .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.Colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(subtitle).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
             }
             Spacer(minLength: 0)
         }
-        .padding(Theme.Spacing.md)
-        .background(Theme.Colors.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
+        .padding(18)
     }
-
-    private var routingArrow: some View {
-        Image(systemName: "arrow.down")
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Theme.Colors.textTertiary)
-    }
-
-    // MARK: - 3. Try it
-
-    private var swipeStep: some View {
-        OnboardingSwipeDemo {
-            advance()
-        }
-    }
-
-    // MARK: - 4. GitHub
 
     private var githubStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            stepTitle(
-                "Sign in with GitHub",
-                subtitle: "Sign in with GitHub to reach your team. Your teammates are your repo's collaborators, and every approval becomes an Issue you can track."
-            )
-
-            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-                if appState.githubService.hasToken {
-                    repositoryPicker
-                } else {
-                    githubSignInButton
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Label("Your workspace", systemImage: "person.2")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.Colors.accent)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Bring your team into focus.")
+                        .font(.largeTitle.weight(.bold))
+                        .tracking(-0.6)
+                    Text("Connect a GitHub repository to see its collaborators and send real requests to your team.")
+                        .font(.body)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                if appState.githubService.isConnected, let connection = appState.githubService.connection {
-                    connectedBanner(connection)
+                VStack(alignment: .leading, spacing: 20) {
+                    Label("1. Sign in securely with GitHub", systemImage: "person.crop.circle.badge.checkmark")
+                    Label("2. Choose your team's repository", systemImage: "folder")
+                    Label("3. Review requests together", systemImage: "tray")
                 }
+                .font(.subheadline)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.Colors.border, lineWidth: 1))
 
+                if appState.githubService.hasToken { repositoryPicker } else { githubSignInButton }
+                if appState.githubService.isConnected, let connection = appState.githubService.connection { connectedBanner(connection) }
                 if let errorMessage {
-                    Text(errorMessage)
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.reject)
+                    Label(errorMessage, systemImage: "exclamationmark.circle")
+                        .font(.subheadline).foregroundStyle(Theme.Colors.reject)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.top, Theme.Spacing.lg)
-
-            Spacer()
-
-            VStack(spacing: Theme.Spacing.sm) {
-                PrimaryButton(
-                    title: String(localized: "Enter"),
-                    enabled: canConnectGitHub && !isConnecting && !isSigningIn
-                ) {
+            .padding(24)
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 12) {
+                PrimaryButton(title: String(localized: "Open workspace"), enabled: canConnectGitHub && !isConnecting && !isSigningIn) {
                     connectGitHubAndEnter()
                 }
-                .overlay {
-                    if isConnecting {
-                        ProgressView().tint(Theme.Colors.background)
-                    }
-                }
-
-                Button {
-                    appState.activateGuestSession()
-                } label: {
-                    Text("Continue without signing in")
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
-                .disabled(isConnecting || isSigningIn)
+                if isConnecting { ProgressView("Connecting…").font(.footnote) }
+                Button("Try the demo first") { appState.activateGuestSession() }
+                    .font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(minHeight: 36)
+                    .disabled(isConnecting || isSigningIn)
             }
-            .padding(.bottom, Theme.Spacing.xl)
+            .padding(24)
+            .background(Theme.Colors.surface)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
-            if selectedRepository == nil,
-               let repository = appState.githubService.connection?.repository {
+            if selectedRepository == nil, let repository = appState.githubService.connection?.repository {
                 selectedRepository = appState.githubService.repositories.first { $0.fullName == repository }
             }
-            if appState.githubService.hasToken, appState.githubService.repositories.isEmpty {
-                refreshRepositories()
-            }
+            if appState.githubService.hasToken, appState.githubService.repositories.isEmpty { refreshRepositories() }
         }
     }
 

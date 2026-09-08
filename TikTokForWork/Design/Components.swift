@@ -40,12 +40,15 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 16, weight: .medium))
+                .font(.body.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(enabled ? Theme.Colors.textPrimary : Theme.Colors.surfaceRaised)
-                .foregroundStyle(enabled ? Theme.Colors.background : Theme.Colors.textTertiary)
-                .clipShape(Capsule())
+                .frame(minHeight: 52)
+                .background(enabled ? Theme.Colors.ctaFill : Theme.Colors.surfaceRaised)
+                .foregroundStyle(enabled ? Theme.Colors.ctaText : Theme.Colors.textTertiary)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(PressFeedbackStyle())
         .disabled(!enabled)

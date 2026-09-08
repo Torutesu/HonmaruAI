@@ -53,6 +53,16 @@ final class CardCacheTests: XCTestCase {
     }
 
     @MainActor
+    func testUnconfirmedDeliveryStaysUnconfirmedAfterReloadAndIsOrganizationScoped() {
+        clean()
+        CardCache.save(orgID: "acme/app", cardsByUser: ["alice": [card("c-1")]], awaitingDeliveryIDs: ["c-1"])
+        XCTAssertEqual(CardCache.loadAwaitingDeliveryIDs(orgID: "acme/app"), ["c-1"])
+        XCTAssertTrue(CardCache.loadAwaitingDeliveryIDs(orgID: "other/repo").isEmpty)
+        CardCache.save(orgID: "acme/app", cardsByUser: ["alice": [card("c-1")]])
+        XCTAssertTrue(CardCache.loadAwaitingDeliveryIDs(orgID: "acme/app").isEmpty)
+    }
+
+    @MainActor
     func testNoCacheIsAnEmptyFeed() {
         clean()
         XCTAssertTrue(CardCache.load(orgID: "acme/app").isEmpty)

@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-09-08T07:49:01.314Z",
+  "environment": "Local Worker, disposable D1, Chromium; sample workspace isolated in client memory",
+  "checks": [
+    "Search, type filter, real sorting, and five realistic sample requests",
+    "Sample task/revision completion and undo change local state",
+    "Mobile list-to-detail, unobscured actions, dark mode, and sample response",
+    "Sample recipient/preview/create/reset/exit with zero backend requests or sockets",
+    "Real signup, authenticated WebSocket join, and setup-aware empty state",
+    "Explicit authenticated recipient, editable AI/fallback preview, and modal focus isolation",
+    "Confirmed delivery, persisted approval, Completed view, and server-confirmed undo",
+    "Real mobile response and completed request survive reload",
+    "Workspace loads actual team/account and creates a real invite code",
+    "Sign-out and email re-login restore actual membership and saved decisions",
+    "Closing pending AI preparation cancels stale preview without delivery",
+    "Notion UI requires persisted database selection before sync (local HTTP fixtures only)",
+    "No browser runtime errors or external network requests"
+  ]
+}

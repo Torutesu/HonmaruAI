@@ -15,6 +15,38 @@ final class AppState: ObservableObject {
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
     @Published var organization = OrganizationGraph(nodes: [], edges: [])
+    @Published private(set) var workspaceMembers: [WorkspaceMember] = []
+    @Published private(set) var membersLoading = false
+    @Published private(set) var membersError: String?
+
+    var workspaceDisplayName: String {
+        isGuest ? String(localized: "Demo workspace") : (githubService.connection?.repository ?? String(localized: "Workspace"))
+    }
+
+    func refreshWorkspaceMembers() async {
+        let generation = sessionGeneration
+        if isGuest { workspaceMembers = DemoWorkspace.members; return }
+        guard let orgID = githubService.connection?.repository, let base = backendBaseURL,
+              let token = SessionStore.sessionToken else { return }
+        membersLoading = true
+        do {
+            let members = try await WorkspaceMemberService.fetch(orgID: orgID, baseURL: base, sessionToken: token)
+            guard generation == sessionGeneration, !isGuest, githubService.connection?.repository == orgID,
+                  SessionStore.sessionToken == token else { return }
+            workspaceMembers = members
+            membersError = nil
+        } catch {
+            guard generation == sessionGeneration, !isGuest, githubService.connection?.repository == orgID,
+                  SessionStore.sessionToken == token else { return }
+            membersError = String(localized: "Could not load teammates. Try again.")
+        }
+        membersLoading = false
+    }
+
+    func resetDemoWorkspace() {
+        guard isGuest else { return }
+        cardService.activateDemo(cardsByUser: DemoWorkspace.cards(), userID: DemoWorkspace.userID)
+    }
     @Published var language: AppLanguage = {
         AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "system") ?? .system
     }() {
@@ -60,12 +92,13 @@ final class AppState: ObservableObject {
 
     let relayURL = AppConfig.relayURL
     private var sessionGeneration = UUID()
+    var activeSessionID: UUID { sessionGeneration }
 
     var backendBaseURL: URL? {
         BackendURL.httpBase(from: relayURL)
     }
 
-    init() {
+    init(startServices: Bool = true) {
         // didSet does not fire for the initial value, so apply the saved
         // language before the first view renders.
         Bundle.setAppLanguage(language.locale?.identifier)
@@ -75,13 +108,14 @@ final class AppState: ObservableObject {
         networkMonitor.onBecameOnline = { [weak self] in
             self?.webSocketService.reconnectIfNeeded()
         }
-        networkMonitor.start()
+        if startServices { networkMonitor.start() }
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
                 await self?.handleRepositoryChanged()
             }
         }
-        Task { await bootstrapBackend() }
+        if startServices { Task { await bootstrapBackend() } }
+        else { isBootstrapping = false }
     }
 
     func bootstrapBackend() async {
@@ -98,6 +132,7 @@ final class AppState: ObservableObject {
     }
 
     func restoreSessionIfNeeded() async {
+        guard !isGuest else { return }
         let generation = sessionGeneration
         guard SessionStore.hasSavedGitHubSession,
               githubService.restoreSavedSession() else {
@@ -144,19 +179,20 @@ final class AppState: ObservableObject {
     /// Whether the current session is a look-around guest (no GitHub sign-in).
     @Published private(set) var isGuest = false
 
-    /// Enter without signing in, to look around. There is no org and no relay
-    /// connection — the feed is empty and AI routing has no teammates — but the
-    /// UI is fully explorable, and the user can sign in later from the account
-    /// screen to get the real thing.
+    /// An isolated sample workspace. Demo requests and actions remain in memory;
+    /// no relay or connected external tool receives them.
     func activateGuestSession() {
         sessionGeneration = UUID()
         webSocketService.disconnect()
         webSocketService.clearPendingEvents()
         cardService.reset()
         isGuest = true
-        organization = OrganizationGraph(nodes: [], edges: [])
-        let guest = User(id: "guest", name: "Guest", role: "Guest", teamID: nil, githubUsername: nil)
-        cardService.setActiveUser(guest.id)
+        organization = DemoWorkspace.organization
+        workspaceMembers = DemoWorkspace.members
+        membersError = nil
+        membersLoading = false
+        let guest = User(id: DemoWorkspace.userID, name: String(localized: "You"), role: String(localized: "Demo member"), teamID: DemoWorkspace.id, githubUsername: nil)
+        cardService.activateDemo(cardsByUser: DemoWorkspace.cards(), userID: guest.id)
         currentUser = guest
         isAuthenticated = true
     }
@@ -165,6 +201,9 @@ final class AppState: ObservableObject {
         sessionGeneration = UUID()
         let generation = sessionGeneration
         isGuest = false
+        membersLoading = false
+        workspaceMembers = []
+        membersError = nil
         let user = AppState.user(from: connection)
         if currentUser?.teamID != user.teamID {
             organization = OrganizationGraph(nodes: [], edges: [])
@@ -200,6 +239,7 @@ final class AppState: ObservableObject {
         PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
         // Load the org in the background so entry never blocks on reachability.
         Task { await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId)) }
+        Task { await refreshWorkspaceMembers() }
         // And the language this person reads, so the first notification is
         // already in it — the server seeded one from the device on sign-in,
         // but the in-app toggle is the choice that counts.
@@ -250,6 +290,9 @@ final class AppState: ObservableObject {
         isAuthenticated = false
         currentUser = nil
         organization = OrganizationGraph(nodes: [], edges: [])
+        workspaceMembers = []
+        membersError = nil
+        membersLoading = false
         userContext = ""
     }
 

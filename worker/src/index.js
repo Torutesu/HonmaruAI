@@ -2,7 +2,7 @@ import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import { signup, login, createInvite, acceptInvite, isGitHubSession } from "./auth.js";
 import {
-  createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
+  createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes, listWorkspaceMembers,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
@@ -46,8 +46,8 @@ export function localeFromRequest(request) {
   return normalizeLocale(first);
 }
 
-// Returns an error Response when the caller may not read this org's history, or
-// null when they may. History is served straight from D1, so unlike the org
+// Returns an error Response when the caller may not read this org, or null
+// when they may. Workspace data is served straight from D1, so unlike the org
 // graph — where GitHub enforces access when we call its API — nothing else would
 // stop one org reading another's.
 async function requireMember(env, request, orgId) {
@@ -187,17 +187,27 @@ async function handle(request, env, url) {
       // The route is usable without a session (guests), but only a session can
       // be metered — and an unmetered guest must not spend our AI budget.
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
-      const allowance = await checkAIAllowance(env, {
-        githubId: session ? String(session.github_id) : null,
-        userKey,
-      });
-
-            // Build the org from real memberships when we can, so routing sees the
+      // Build the org from real memberships when we can, so routing sees the
       // whole team (and cannot be spoofed by the client). Fall back to whatever
       // the client sent only when there is no session/org to look up.
       let organization = body.organization;
       const routeOrgId = body.organization?.orgId || body.orgId;
+      const chosenId = body.recipientUserID;
+      if (chosenId !== undefined && (typeof chosenId !== "string" || !chosenId.trim())) {
+        return json({ message: "Choose a workspace member." }, 400);
+      }
+      if (chosenId !== undefined && !session) return json({ message: "Please sign in to choose a teammate." }, 401);
+      if (chosenId !== undefined && !routeOrgId) return json({ message: "orgId is required to choose a teammate." }, 400);
+      let chosenMember;
       if (session && routeOrgId) {
+        // A valid session cannot inspect or route using another workspace's
+        // private directory. Check before reading its members or AI budget.
+        const denied = await requireMember(env, request, routeOrgId);
+        if (denied) return denied;
+        if (chosenId !== undefined) {
+          chosenMember = (await listWorkspaceMembers(env.DB, routeOrgId)).find((member) => member.id === chosenId);
+          if (!chosenMember) return json({ message: "That recipient is not a current member of this workspace." }, 400);
+        }
         const nodes = await listOrgNodes(env.DB, routeOrgId);
         if (nodes.length) {
           organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
@@ -209,6 +219,21 @@ async function handle(request, env, url) {
         if (businesses.length) organization = { ...(organization || {}), orgId: routeOrgId, businesses };
       }
 
+      if (chosenMember) {
+        // The model and keyword fallback both receive exactly the selected
+        // person as a possible recipient. An old manager edge or a name in
+        // the instruction must not override the user's explicit selection.
+        organization = {
+          ...organization,
+          nodes: [{ id: chosenMember.id, kind: "person", role: chosenMember.role, label: `${chosenMember.name} · ${chosenMember.role}` }],
+          edges: [],
+        };
+      }
+      const allowance = await checkAIAllowance(env, {
+        githubId: session ? String(session.github_id) : null,
+        userKey,
+      });
+
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
@@ -219,6 +244,11 @@ async function handle(request, env, url) {
         // No provider means the local keyword router — the graceful degradation.
         openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
       });
+      if (chosenMember) {
+        result.recipientUserID = chosenMember.id;
+        result.routingReason = "Selected by you";
+        result.agentRoute = `${body.sender?.name || "You"} → ${chosenMember.name}`;
+      }
       // Only a model that actually answered is billable — including one whose
       // answer we then rejected, which still comes back as routedBy "fallback".
       // A provider outage never burns someone's three.
@@ -303,6 +333,14 @@ async function handle(request, env, url) {
     if (mediaMatch && request.method === "GET") {
       return serveMedia(mediaMatch[1], env);
     }
+    if (url.pathname === "/members" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ orgId, members: await listWorkspaceMembers(env.DB, orgId) });
+    }
+
     // The businesses an organization runs. Read by the feed for its filter
     // chips and by the router for its enum; written when someone names a new
     // one — from here, or by tagging a card with a name nobody has typed

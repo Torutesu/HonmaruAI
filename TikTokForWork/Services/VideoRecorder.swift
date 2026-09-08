@@ -10,6 +10,7 @@ import Foundation
 final class VideoRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var recordedFile: URL?
+    @Published private(set) var errorMessage: String?
 
     let session = AVCaptureSession()
     private let output = AVCaptureMovieFileOutput()
@@ -40,11 +41,16 @@ final class VideoRecorder: NSObject, ObservableObject {
 
     func start() {
         guard !isRecording else { return }
+        errorMessage = nil
+        let delegate = delegateProxy
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("capture-\(UUID().uuidString).mov")
 
-        queue.async { [output, session] in
-            guard session.isRunning else { return }
+        queue.async { [output, session, weak self] in
+            guard session.isRunning, let connection = output.connection(with: .video), connection.isEnabled else {
+                Task { @MainActor [weak self] in self?.recordingFinished(nil) }
+                return
+            }
             // Mirror the file to match the preview. A clip where you reach left
             // and the video reaches right reads as someone else.
             if let connection = output.connection(with: .video),
@@ -52,7 +58,7 @@ final class VideoRecorder: NSObject, ObservableObject {
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = true
             }
-            DispatchQueue.main.async { output.startRecording(to: url, recordingDelegate: self.delegateProxy) }
+            output.startRecording(to: url, recordingDelegate: delegate)
         }
         isRecording = true
     }
@@ -60,11 +66,15 @@ final class VideoRecorder: NSObject, ObservableObject {
     func stop(completion: @escaping (URL?) -> Void) {
         guard isRecording else { completion(recordedFile); return }
         finished = completion
-        output.stopRecording()
+        queue.async { [output, weak self] in
+            if output.isRecording { output.stopRecording() }
+            else { Task { @MainActor [weak self] in self?.recordingFinished(nil) } }
+        }
     }
 
     func teardown() {
-        queue.async { [session] in
+        queue.async { [session, output] in
+            if output.isRecording { output.stopRecording() }
             if session.isRunning { session.stopRunning() }
         }
     }
@@ -74,6 +84,7 @@ final class VideoRecorder: NSObject, ObservableObject {
     fileprivate func recordingFinished(_ url: URL?) {
         isRecording = false
         recordedFile = url
+        if url == nil { errorMessage = String(localized: "Video could not be recorded. You can still use the transcript.") }
         finished?(url)
         finished = nil
     }

@@ -2,10 +2,10 @@
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: var(--ink); background: var(--canvas); line-height: 1.5; font-weight: 400;
   font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
-  --canvas: #f8f9fb; --surface: #fff; --surface-soft: #f4f5f7; --surface-hover: #eeeff3;
-  --ink: #202126; --secondary: #686d79; --muted: #858b97; --border: #e7e9ee;
-  --violet: #6647f0; --violet-soft: #f0edff; --blue: #087ecc; --green: #167b5c; --green-soft: #e7f5ee;
-  --danger: #c34655; --danger-soft: #fff0f2; --primary: #202126; --on-primary: #fff;
+  --canvas: #f7f8fa; --surface: #fff; --surface-soft: #f0f1f5; --surface-hover: #eeeff3;
+  --ink: #20242c; --secondary: #626873; --muted: #818896; --border: #e5e7ed;
+  --violet: #6650cb; --violet-soft: #f2effb; --blue: #4268d5; --green: #00885e; --green-soft: #e7f5ee;
+  --danger: #c63b4d; --danger-soft: #fff0f2; --primary: #252834; --on-primary: #fff;
   --shadow: 0 4px 28px rgba(22,29,52,.045); color-scheme: light;
 }
 * { box-sizing: border-box; }
@@ -22,6 +22,6 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 svg { flex: none; }
 @media (hover: hover) { button:not(:disabled):hover { background: var(--surface-hover); } }
 @media (prefers-color-scheme: dark) {
-  :root { --canvas: #13151b; --surface: #1b1e26; --surface-soft: #222630; --surface-hover: #2b303c; --ink: #f0f1f4; --secondary: #a4abba; --muted: #8c94a3; --border: #303643; --violet: #b0a0ff; --violet-soft: #2d2846; --blue: #69bafa; --green: #74d3ad; --green-soft: #203a31; --danger: #f28b98; --danger-soft: #3e262e; --primary: #f0f1f4; --on-primary: #191c23; --shadow: 0 4px 28px rgba(0,0,0,.1); color-scheme: dark; }
+  :root { --canvas: #0f1115; --surface: #191c22; --surface-soft: #222631; --surface-hover: #2b303c; --ink: #f4f5f7; --secondary: #b5bdc9; --muted: #8c94a3; --border: #2d323d; --violet: #b4a1ff; --violet-soft: #2d2846; --blue: #69bafa; --green: #74d3ad; --green-soft: #203a31; --danger: #f28b98; --danger-soft: #3e262e; --primary: #f0f1f4; --on-primary: #191c23; --shadow: 0 4px 28px rgba(0,0,0,.1); color-scheme: dark; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

@@ -29,11 +29,11 @@ enum CardStatus: String, Codable {
     var label: String {
         switch self {
         case .pending: String(localized: "Pending")
-        case .approved: String(localized: "Issue created")
+        case .approved: String(localized: "Approved")
         case .rejected: String(localized: "Declined")
         case .revised: String(localized: "Revision requested")
         case .delegated: String(localized: "Delegated")
-        case .completed: String(localized: "Closed on GitHub")
+        case .completed: String(localized: "Completed")
         }
     }
 }
@@ -46,6 +46,8 @@ enum CardPriority: String, Codable, CaseIterable {
 }
 
 enum CardActionKind {
+    case acknowledge
+    case reply
     case createIssue
     case reject
     case requestRevision

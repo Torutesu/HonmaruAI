@@ -1,108 +1,54 @@
 import SwiftUI
 
-/// The three destinations in the bottom chrome. Compose is not a tab — it opens
-/// the feed's compose flow over whatever is on screen — but it lives in the same
-/// bar, so it is modelled here to keep the layout in one place.
-enum AppTab: Hashable {
-    case home
-    case you
+enum AppTab: CaseIterable, Hashable {
+    case inbox, sent, completed, workspace
+    var title: String {
+        switch self {
+        case .inbox: String(localized: "Inbox")
+        case .sent: String(localized: "Sent")
+        case .completed: String(localized: "Completed")
+        case .workspace: String(localized: "Workspace")
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .inbox: "tray"
+        case .sent: "paperplane"
+        case .completed: "checkmark.circle"
+        case .workspace: "square.grid.2x2"
+        }
+    }
 }
 
-/// White translucent bar with a hairline top border, per the design system's
-/// "elevation is borders, not shadows" rule.
 struct AppTabBar: View {
     @Binding var selection: AppTab
-    let onCompose: () -> Void
-    /// The way in without a camera, on a long press. Nil leaves the ＋ doing
-    /// one thing.
-    var onComposeText: (() -> Void)?
-    /// Decisions waiting on you. The count already existed and was already on
-    /// the app icon; not having it on the tab meant leaving Home was the only
-    /// way to stop knowing.
-    var pendingCount: Int = 0
-
+    var pendingCount = 0
     var body: some View {
-        HStack {
-            tabButton(.home, systemImage: "house", badge: pendingCount)
-            Spacer()
-            composeButton
-            Spacer()
-            tabButton(.you, systemImage: "person")
-        }
-        .padding(.horizontal, 44)
-        .padding(.top, Theme.Spacing.sm)
-        .padding(.bottom, Theme.Spacing.xs)
-        .background(alignment: .top) {
-            ZStack(alignment: .top) {
-                Rectangle()
-                    .fill(.regularMaterial)
-                    .ignoresSafeArea(edges: .bottom)
-                Rectangle()
-                    .fill(Theme.Colors.border)
-                    .frame(height: 1)
+        HStack(spacing: 0) {
+            ForEach(AppTab.allCases, id: \.self) { tab in
+                Button { selection = tab } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: selection == tab ? tab.symbol + ".fill" : tab.symbol)
+                            .font(.system(size: 21, weight: .regular))
+                            .frame(width: 40, height: 25)
+                            .overlay(alignment: .topTrailing) {
+                                if tab == .inbox && pendingCount > 0 {
+                                    Text(pendingCount > 99 ? "99+" : "\(pendingCount)")
+                                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
+                                        .padding(.horizontal, 4).frame(minWidth: 16, minHeight: 16)
+                                        .background(Theme.Colors.accent, in: Capsule()).offset(x: 8, y: -5)
+                                }
+                            }
+                        Text(tab.title).font(.caption2.weight(selection == tab ? .semibold : .regular))
+                    }
+                    .foregroundStyle(selection == tab ? Theme.Colors.accent : Theme.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityAddTraits(selection == tab ? .isSelected : [])
             }
         }
+        .padding(.top, 10).padding(.bottom, 4)
+        .background(Theme.Colors.background.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { Divider() }
     }
-
-    private func tabButton(_ tab: AppTab, systemImage: String, badge: Int = 0) -> some View {
-        Button {
-            selection = tab
-        } label: {
-            VStack(spacing: 4) {
-            Image(systemName: selection == tab ? "\(systemImage).fill" : systemImage)
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(selection == tab ? Theme.Colors.textPrimary : Theme.Colors.textTertiary)
-                .frame(width: 44, height: 28)
-                .overlay(alignment: .topTrailing) {
-                    if badge > 0 { badgeView(badge) }
-                }
-            Text(tab == .home ? String(localized: "Home") : String(localized: "You"))
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(selection == tab ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
-            }
-            .frame(minWidth: 56, minHeight: 48)
-        }
-        .buttonStyle(PressFeedbackStyle())
-        .accessibilityAddTraits(selection == tab ? .isSelected : [])
-        .accessibilityLabel(tab == .home ? Text("Home") : Text("You"))
-        .accessibilityValue(badge > 0 ? Text("\(badge) waiting") : Text(""))
-    }
-
-    /// Violet, because the design system reserves it for badges and AI markers.
-    /// Capped at 99+: past that the number has stopped being information.
-    private func badgeView(_ count: Int) -> some View {
-        Text(count > 99 ? "99+" : "\(count)")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, count > 9 ? 5 : 0)
-            .frame(minWidth: 16, minHeight: 16)
-            .background(Theme.Colors.accent)
-            .clipShape(Capsule())
-            .offset(x: -2, y: 4)
-            .accessibilityHidden(true)
-    }
-
-    private var composeButton: some View {
-        Button(action: onCompose) {
-            ConicRingCircle(diameter: 46)
-                .overlay {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                }
-        }
-        .contextMenu {
-            Button("Type instead", systemImage: "keyboard") { onComposeText?() }
-        }
-        .accessibilityLabel(Text("Create"))
-        .accessibilityAction(named: Text("Type instead")) { onComposeText?() }
-    }
-}
-
-#Preview {
-    VStack {
-        Spacer()
-        AppTabBar(selection: .constant(.home), onCompose: {})
-    }
-    .background(Theme.Colors.background)
 }

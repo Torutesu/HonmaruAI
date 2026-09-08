@@ -151,8 +151,14 @@ export async function login(env, { email, password }) {
   const attempt = await hashPassword(password, row.password_salt);
   if (!safeEqual(attempt, row.password_hash)) return { error: "Invalid email or password." };
 
+  const membership = await env.DB
+    .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 ORDER BY created_at, org_id LIMIT 1")
+    .bind(row.github_id)
+    .first();
   const token = await createSession(env.DB, row.github_id, EMAIL_AUTH_TOKEN);
-  return { token, userId: row.github_id, login: row.login };
+  // Keep authenticating accounts whose final membership was removed: their
+  // session can redeem an invite. Never invent or revive a former workspace.
+  return { token, userId: row.github_id, login: row.login, orgId: membership?.org_id ?? null };
 }
 
 

@@ -544,9 +544,27 @@ export async function removeSubscription(db, endpoint) {
 }
 
 
-// List an org's members with their display names, for routing. Joins to users
-// so the router can match instructions like "ask Newbie to ..." to a real
-// person, and returns them in the org-graph "nodes" shape the router expects.
+// Directory for recipient pickers, using the same ids as card delivery.
+export async function listWorkspaceMembers(db, orgId) {
+  const rows = await db.prepare(
+    `SELECT u.login AS id, COALESCE(NULLIF(u.name, ''), u.login) AS name,
+            m.role AS role, u.avatar_url AS avatarUrl
+       FROM memberships m JOIN users u ON u.github_id = m.user_github_id
+      WHERE m.org_id = ?1
+      ORDER BY name COLLATE NOCASE, u.login`
+  ).bind(orgId).all();
+  // Relay logins are the identifiers cards use. Do not expose account ids,
+  // notification email addresses, credentials, or unrelated memberships.
+  return (rows?.results || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    role: (row.role || "member").toLowerCase(),
+    ...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+  }));
+}
+
+// Routing uses the org-graph shape, including explicit roles for name/role
+// matching. Keep it separate from the minimal member-directory response.
 export async function listOrgNodes(db, orgId) {
   const rows = await db
     .prepare(
