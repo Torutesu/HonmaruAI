@@ -46,6 +46,15 @@ test("one key is the whole setup", async () => {
   expect(body.text).toBe("Body");
 });
 
+test("the API base is configurable, so something else can answer", async () => {
+  const { sendMail } = await import("../src/mailer.js");
+  await sendMail(
+    { ...env, RESEND_API_KEY: "re_test", RESEND_API_BASE: "http://127.0.0.1:9099/" },
+    { to: "a@b.com", subject: "s", text: "t" }
+  );
+  expect(calls[0].url).toBe("http://127.0.0.1:9099/emails");
+});
+
 test("a verified domain's From line wins over the shared sender", async () => {
   const { mailFrom } = await import("../src/mailer.js");
   const from = "Honmaru <hi@honmaru.jp>";

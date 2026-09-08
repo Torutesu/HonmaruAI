@@ -16,6 +16,7 @@ ALTER TABLE invites ADD COLUMN expires_at TEXT;
 ALTER TABLE invites ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE invites ADD COLUMN uses INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN notify_email INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE memberships ADD COLUMN title TEXT;
 
 /* After the ALTER above, and never in schema.sql: that file runs first, so on a
    database predating the column this index would be created against a column

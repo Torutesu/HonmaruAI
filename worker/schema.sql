@@ -36,10 +36,22 @@ CREATE TABLE IF NOT EXISTS orgs (
   created_at    TEXT NOT NULL
 );
 
+/* `role` is standing — who may invite whom, who may act for the org. It is
+   granted by an invite or by GitHub, never claimed.
+
+   `title` is description — what this person does, which is what the router
+   matches on when someone says "ask the designer to review". Anyone may set
+   their own, because saying you are a designer grants you nothing.
+
+   They were one column once, and that made the onboarding question unusable
+   for the commonest case: signing up alone makes you admin of your own org,
+   so every attempt to say "I am the founder" was refused as an attempt to
+   demote an admin. */
 CREATE TABLE IF NOT EXISTS memberships (
   org_id            TEXT NOT NULL,
   user_github_id    TEXT NOT NULL,
   role              TEXT NOT NULL DEFAULT 'member',
+  title             TEXT,
   created_at        TEXT NOT NULL,
   PRIMARY KEY (org_id, user_github_id)
 );

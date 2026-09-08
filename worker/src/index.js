@@ -8,7 +8,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
-  setOwnRole, SELF_ASSIGNABLE_ROLES,
+  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
@@ -425,12 +425,10 @@ async function handle(request, env, url) {
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         supportedLocales: SUPPORTED_LOCALES,
         // What the router will assume you decide, and what you may change it
-        // to. Roles carrying standing are not in the second list.
+        // to. This is the description, not the standing: an admin who says
+        // they are a designer is still an admin.
         role: url.searchParams.get("orgId")
-          ? String((await env.DB
-              .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
-              .bind(url.searchParams.get("orgId"), String(session.github_id))
-              .first())?.role || "member").toLowerCase()
+          ? await ownTitle(env.DB, url.searchParams.get("orgId"), session.github_id)
           : null,
         assignableRoles: SELF_ASSIGNABLE_ROLES,
       });
@@ -453,12 +451,11 @@ async function handle(request, env, url) {
         if (result.error) return json({ message: result.error }, 400);
       }
       // What you do, as the router understands it. Scoped to one org because
-      // that is where a role lives, and refused outright for anyone holding
-      // standing — see setOwnRole.
+      // that is where it lives, and it changes no standing — see setOwnTitle.
       let role;
       if (body.role !== undefined) {
         if (!body.orgId) return json({ message: "orgId is required to set a role" }, 400);
-        const result = await setOwnRole(env.DB, body.orgId, session.github_id, body.role);
+        const result = await setOwnTitle(env.DB, body.orgId, session.github_id, body.role);
         if (result.error) return json({ message: result.error }, 400);
         role = result.role;
       }

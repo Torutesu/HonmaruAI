@@ -42,7 +42,12 @@ export function mailFrom(env) {
 export async function sendMail(env, { to, subject, text }) {
   if (!isMailConfigured(env)) return { ok: false, status: 0, skipped: "mail not configured" };
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    // Configurable for the same reason every API base is: something other than
+    // the real service has to be able to answer. Here that is the end-to-end
+    // test, which reads the code out of the message the Worker actually sent
+    // rather than being handed one by the code under test.
+    const base = (env.RESEND_API_BASE || "https://api.resend.com").replace(/\/$/, "");
+    const res = await fetch(`${base}/emails`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${env.RESEND_API_KEY}`,

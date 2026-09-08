@@ -1,0 +1,268 @@
+// What a person actually does, against the real thing.
+//
+// No fake relay, no injected WebSocket, no seeded localStorage: the browser
+// signs up with a code it reads out of the message the Worker sent, lands in
+// the feed, tells its AI something, and the decision comes back. Every screen
+// is visited and photographed at both sizes on the way past.
+//
+// Failures are loud and specific — the point of this file is to be the thing
+// that finds them before anyone else does.
+
+import { chromium } from '../web-react/node_modules/playwright/index.mjs'
+import { mkdirSync, writeFileSync } from 'node:fs'
+
+const WEB = 'http://127.0.0.1:4173'
+const SINK = 'http://127.0.0.1:9099'
+const SHOTS = process.env.E2E_SHOTS || '/tmp/e2e-shots'
+mkdirSync(SHOTS, { recursive: true })
+
+const results = []
+let failures = 0
+
+async function step(name, fn) {
+  try {
+    await fn()
+    results.push(`  ok    ${name}`)
+  } catch (err) {
+    failures += 1
+    results.push(`  FAIL  ${name}\n        ${String(err).split('\n')[0]}`)
+  }
+}
+
+/// The code the Worker put in an email, for the address given. Polls, because
+/// the send happens while the request is in flight.
+async function codeFor(email, { after = 0 } = {}) {
+  for (let i = 0; i < 40; i++) {
+    const sent = await (await fetch(`${SINK}/sent`)).json()
+    const mine = sent.filter((m) => (m.to || []).includes(email))
+    if (mine.length > after) {
+      const match = (mine[mine.length - 1].text || '').match(/\b\d{6}\b/)
+      if (match) return match[0]
+    }
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  throw new Error(`no sign-in code was emailed to ${email}`)
+}
+
+/// Type a code the way a person does: one digit at a time, into the box that
+/// has focus. `fill` on the first box relies on the paste path and did not
+/// always reach React, which made the test flaky rather than the product.
+async function typeCode(p, code) {
+  await p.click('.otp-box >> nth=0')
+  await p.keyboard.type(code, { delay: 40 })
+  // Six digits submit themselves. If they have not after a moment, press the
+  // button, so a failure here means the flow is broken and not merely slow.
+  await p.waitForTimeout(600)
+  // Only if we are still here: six digits usually submit themselves, and a
+  // click landing after the screen has changed presses whatever took its
+  // place — which silently skipped an onboarding page and made the next
+  // assertion look like a product failure.
+  if (await p.$('.otp-boxes')) {
+    const button = await p.$('.screen .btn-primary:not([disabled])')
+    if (button) await button.click().catch(() => {})
+  }
+}
+
+const browser = await chromium.launch({
+  executablePath: '/opt/pw-browsers/chromium',
+  ignoreDefaultArgs: ['--headless=old'],
+  args: ['--headless=new'],
+})
+
+// One person, signing up from scratch, on a phone.
+const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })
+const page = await phone.newPage()
+const thrown = []
+page.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
+
+// Console errors do not carry the URL that caused them, and this deployment
+// legitimately answers 503 on endpoints whose credentials it does not have.
+// So watch responses instead: then "which request failed" is a fact rather
+// than a guess, and an expected refusal can be told from a broken screen.
+const badResponses = []
+page.on('response', (r) => {
+  if (r.status() >= 400) badResponses.push(`${r.status()} ${new URL(r.url()).pathname}`)
+})
+
+// What this configuration is *supposed* to refuse: connectors need a Composio
+// key, web push needs a VAPID pair, and the screens for both say so out loud.
+const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/]
+
+const email = `e2e-${Date.now()}@example.com`
+const shot = (n) => page.screenshot({ path: `${SHOTS}/${n}.png` })
+
+await step('the welcome screen loads', async () => {
+  await page.goto(WEB, { waitUntil: 'load' })
+  await page.waitForSelector('text=Get started', { timeout: 15000 })
+  await shot('01-welcome')
+})
+
+await step('an email gets a code sent to it', async () => {
+  await page.click('text=Get started')
+  await page.waitForSelector('#email')
+  await page.fill('#name', 'E2E Person')
+  await page.fill('#email', email)
+  await shot('02-signup')
+  await page.click('text=Email me a code')
+  await page.waitForSelector('.otp-boxes', { timeout: 15000 })
+  await shot('03-otp')
+})
+
+let code
+await step('the code that arrives signs the person in', async () => {
+  code = await codeFor(email)
+  await typeCode(page, code)
+  // Six digits submit themselves; onboarding is what comes next for a new account.
+  await page.waitForSelector('.ob-art', { timeout: 20000 })
+  await shot('04-onboarding-1')
+})
+
+await step('a wrong code is refused', async () => {
+  // A second account, so the first one's session is untouched.
+  const other = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const p2 = await other.newPage()
+  const addr = `e2e-bad-${Date.now()}@example.com`
+  await p2.goto(WEB, { waitUntil: 'load' })
+  await p2.click('text=Get started')
+  await p2.fill('#email', addr)
+  await p2.click('text=Email me a code')
+  await p2.waitForSelector('.otp-boxes')
+  const real = await codeFor(addr)
+  const wrong = real === '000000' ? '111111' : '000000'
+  await typeCode(p2, wrong)
+  await p2.waitForSelector('.form-error', { timeout: 15000 })
+  await other.close()
+})
+
+await step('onboarding runs to the end and saves', async () => {
+  await page.click('text=Next')
+  await page.waitForSelector('.ob-art-route')
+  await page.click('text=Next')
+  await page.waitForSelector('.ob-demo')
+  await page.click('[aria-label="Approve"]')
+  await shot('05-onboarding-swiped')
+  await page.click('text=Set me up')
+  await page.waitForSelector('.radio')
+  await shot('06-onboarding-role')
+  await page.click('text=Open my feed')
+  await page.waitForSelector('.tabbar', { timeout: 20000 })
+  await shot('07-feed-empty')
+})
+
+await step('the relay is connected', async () => {
+  await page.waitForSelector('.dot.on', { timeout: 20000 })
+})
+
+await step('telling your AI something produces a decision', async () => {
+  await page.click('[aria-label="Tell your AI"]')
+  await page.waitForSelector('.sheet-bottom')
+  const box = await page.$('.create-decision input')
+  if (!box) throw new Error('the compose sheet has no text field')
+  await box.fill('Approve the new supplier price for the cafe')
+  await shot('08-compose')
+  const send = await page.$('.create-decision button')
+  if (!send) throw new Error('the compose sheet has no send button')
+  await send.click()
+  // The keyword router has no teammates in a one-person org, so the card comes
+  // back to the person who asked. Either way a card must appear.
+  await page.waitForSelector('.card-title', { timeout: 25000 })
+  await shot('09-card')
+})
+
+await step('the decision can be taken, and it sticks', async () => {
+  await page.click('.decide.approve')
+  await page.waitForTimeout(1200)
+  await shot('10-after-decision')
+  await page.reload({ waitUntil: 'load' })
+  await page.waitForSelector('.tabbar', { timeout: 20000 })
+  // Approved, so it is off the pending feed and in history.
+  await page.click('[aria-label="History"]')
+  await page.waitForSelector('.seg', { timeout: 10000 })
+  const text = await page.evaluate(() => document.body.innerText)
+  if (!/Approved|承認/.test(text)) throw new Error('the decision is not in history after a reload')
+  await shot('11-history')
+})
+
+await step('every other screen opens', async () => {
+  await page.click('[aria-label="Close"]')
+  for (const [label, marker, name] of [
+    ['Tools', '.rows', '12-tools'],
+    ['You', '.profile-stats', '13-profile'],
+  ]) {
+    await page.click(`nav [aria-label="${label}"]`)
+    await page.waitForSelector(marker, { timeout: 10000 })
+    await shot(name)
+    await page.click('[aria-label="Close"]')
+  }
+  await page.click('nav [aria-label="You"]')
+  await page.click('text=Notifications')
+  await page.waitForSelector('.switch', { timeout: 10000 })
+  await shot('14-notifications')
+  await page.click('[aria-label="Close"]')
+  await page.click('nav [aria-label="You"]')
+  await page.click('text=Plan')
+  await page.waitForSelector('.plan-card, .empty', { timeout: 10000 })
+  await shot('15-plans')
+})
+
+await step('nothing threw in the browser', async () => {
+  if (thrown.length) throw new Error(`uncaught: ${thrown.slice(0, 3).join(' | ')}`)
+})
+
+await step('no request failed that was not meant to', async () => {
+  const unexpected = [...new Set(badResponses)].filter(
+    (r) => !EXPECTED_REFUSALS.some((ok) => ok.test(r))
+  )
+  if (unexpected.length) throw new Error(unexpected.join(' ; '))
+})
+
+await step('an unconfigured connector is said out loud, not hidden', async () => {
+  // Close whatever is open, however many layers, and get back to the feed.
+  for (let i = 0; i < 3; i++) {
+    const close = await page.$('.screen [aria-label="Close"]')
+    if (!close) break
+    await close.click()
+    await page.waitForTimeout(300)
+  }
+  await page.waitForSelector('nav [aria-label="Tools"]', { timeout: 10000 })
+  await page.click('nav [aria-label="Tools"]')
+  await page.waitForSelector('.screen .head-title:has-text("Tools")', { timeout: 10000 })
+  await shot('16-tools-unconfigured')
+  const text = await page.evaluate(() => document.querySelector('.screen').innerText)
+  if (!/not switched on|No connectors/i.test(text)) {
+    throw new Error(`the Tools screen does not say connectors are unavailable: ${text.slice(0, 120)}`)
+  }
+})
+
+// The same account, on a laptop. This is the size the design was not drawn for
+// and the one the complaint was about.
+await step('the app is usable on a laptop', async () => {
+  const desk = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const d = await desk.newPage()
+  await d.goto(WEB, { waitUntil: 'load' })
+  await d.waitForSelector('text=Get started', { timeout: 15000 })
+  await d.screenshot({ path: `${SHOTS}/20-desktop-welcome.png` })
+  // Nothing may sit outside the viewport horizontally, and nothing may be
+  // cut off at the top — both of which is what "表示崩れ" looked like.
+  const overflow = await d.evaluate(() => {
+    const bad = []
+    for (const el of document.querySelectorAll('body *')) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      if (r.left < -1 || r.right > window.innerWidth + 1 || r.top < -1) {
+        bad.push(`${el.className || el.tagName} @ ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`)
+      }
+    }
+    return bad.slice(0, 6)
+  })
+  if (overflow.length) throw new Error(`off-screen on a laptop: ${overflow.join(' ; ')}`)
+  await desk.close()
+})
+
+await browser.close()
+
+const report = results.join('\n')
+writeFileSync(`${SHOTS}/report.txt`, report)
+console.log('\n' + report)
+console.log(`\n${failures === 0 ? 'ALL PASSED' : `${failures} FAILED`} — screenshots in ${SHOTS}`)
+process.exit(failures === 0 ? 1 * 0 : 1)

@@ -279,37 +279,44 @@ export async function upsertMembership(db, orgId, githubId, role) {
     .run();
 }
 
-/// The roles a person may give themselves.
+/// What a person may say they do.
 ///
-/// These are descriptions the router matches on — "ask the designer to review"
-/// finds the person whose role is `designer` — and every one of them carries
-/// zero administrative standing. `triager`, `maintainer` and `admin` are
-/// deliberately absent: those are granted by an invite or by GitHub, never
-/// claimed, or the role picker on the onboarding screen would be a promotion
-/// button.
+/// These are descriptions, not standing. The router matches on them — "ask the
+/// designer to review" finds the person whose title is `designer` — and saying
+/// you are one grants you nothing, which is why anyone may set their own.
+///
+/// `admin`, `triager` and `maintainer` are absent because those are standing:
+/// granted by an invite or by GitHub, never claimed.
 export const SELF_ASSIGNABLE_ROLES = ["member", "designer", "engineer", "operator", "founder"];
 
-/// Change your own descriptive role, if you hold no standing to lose.
+/// Say what you do. Any member, any of the titles above, no standing changed.
 ///
-/// Returns `{ error }` rather than throwing, and refuses two things: a role
-/// outside the list above, and any change at all by someone who currently
-/// holds standing — an admin picking "designer" on an onboarding screen would
-/// otherwise quietly demote themselves out of their own org.
-export async function setOwnRole(db, orgId, githubId, role) {
-  const wanted = String(role || "").trim().toLowerCase();
+/// This used to write `memberships.role`, and refuse anyone holding standing
+/// so that an admin could not demote themselves by answering an onboarding
+/// question. That made the question unanswerable in the commonest case:
+/// signing up alone makes you admin of your own organization, so every new
+/// account was told no. Standing and description are different columns now,
+/// and this one touches only the description.
+export async function setOwnTitle(db, orgId, githubId, title) {
+  const wanted = String(title || "").trim().toLowerCase();
   if (!SELF_ASSIGNABLE_ROLES.includes(wanted)) return { error: "That is not a role you can pick." };
-  const current = await db
-    .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
-    .bind(orgId, String(githubId))
-    .first();
-  if (!current) return { error: "You are not a member of this organization." };
-  const held = String(current.role || "member").toLowerCase();
-  if (!SELF_ASSIGNABLE_ROLES.includes(held)) return { error: "Ask an admin to change your role." };
-  await db
-    .prepare("UPDATE memberships SET role = ?3 WHERE org_id = ?1 AND user_github_id = ?2")
+  const { meta } = await db
+    .prepare("UPDATE memberships SET title = ?3 WHERE org_id = ?1 AND user_github_id = ?2")
     .bind(orgId, String(githubId), wanted)
     .run();
+  if (!meta?.changes) return { error: "You are not a member of this organization." };
   return { role: wanted };
+}
+
+/// What this person does in this org, for the client and the router: the title
+/// they chose, or their standing when they have not chosen one.
+export async function ownTitle(db, orgId, githubId) {
+  const row = await db
+    .prepare("SELECT role, title FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+    .bind(orgId, String(githubId))
+    .first();
+  if (!row) return null;
+  return String(row.title || row.role || "member").toLowerCase();
 }
 
 /// Remove everyone from an org except the github ids given.
@@ -545,7 +552,7 @@ export async function listOrgNodes(db, orgId) {
   const rows = await db
     .prepare(
       `SELECT COALESCE(u.login, m.user_github_id) AS id,
-              m.role AS role,
+              COALESCE(m.title, m.role) AS role,
               COALESCE(u.name, u.login, m.user_github_id) AS name
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
