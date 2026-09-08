@@ -13,12 +13,17 @@ interface Props {
 
 // English keys, translated where they are read — see utils/i18n.
 const BLURB: Record<string, string> = {
+  googlecalendar: 'Meetings still waiting on an answer from you.',
+  googledrive: 'Documents someone put in front of you.',
   gmail: 'Mail that needs a decision becomes a card. Nothing else does.',
   slack: 'Messages addressed to you, triaged into decisions — without you opening Slack.',
   notion: 'Decisions are written back to the database you point at.',
   github: 'Approvals, tasks and assignee changes sync to Issues and Pull Requests.',
 }
-const ICON: Record<string, IconName> = { gmail: 'mail', slack: 'hash', notion: 'notion', github: 'github' }
+const ICON: Record<string, IconName> = {
+  gmail: 'mail', slack: 'hash', notion: 'notion', github: 'github',
+  googlecalendar: 'calendar', googledrive: 'drive',
+}
 
 /// Your tools, connected — and deliberately not as channels.
 ///

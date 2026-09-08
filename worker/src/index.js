@@ -27,7 +27,7 @@ import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
-import { CONNECTORS, connectorById } from "./connectors/index.js";
+import { CONNECTORS, connectorById, authConfigFor, availableConnectors } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
 import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
@@ -592,7 +592,7 @@ async function handle(request, env, url) {
           .map((a) => (typeof a.toolkit === "string" ? a.toolkit : a.toolkit?.slug))
       );
       return json({
-        connectors: CONNECTORS.map((c) => ({
+        connectors: availableConnectors(env).map((c) => ({
           id: c.id, label: c.label, status: active.has(c.id) ? "active" : "none",
         })),
       });
@@ -606,10 +606,16 @@ async function handle(request, env, url) {
 
       const connector = connectorById(connectMatch[1]);
       if (!connector) return json({ message: "unknown connector" }, 404);
+      const authConfig = authConfigFor(env, connector);
+      // Nothing to send them to. Said plainly rather than passing a null to
+      // Composio, which answers with something about a malformed request.
+      if (!authConfig) {
+        return json({ message: `${connector.label} is not set up on this deployment yet.` }, 503);
+      }
 
       try {
         const link = await createConnectLink(
-          env.COMPOSIO_API_KEY, String(session.github_id), connector.authConfigId
+          env.COMPOSIO_API_KEY, String(session.github_id), authConfig
         );
         return json({ redirectUrl: link.redirect_url, connectedAccountId: link.connected_account_id });
       } catch (err) {
@@ -696,7 +702,7 @@ async function handle(request, env, url) {
       if (typeof syncMatch === "object" && !only) return json({ message: "unknown connector" }, 404);
 
       const startedAt = new Date().toISOString();
-      const results = await syncAll(only ? [only] : CONNECTORS, {
+      const results = await syncAll(only ? [only] : availableConnectors(env), {
         env, session,
         orgId: body.orgId, userId: me.login,
         readerLanguage: body.readerLanguage,
