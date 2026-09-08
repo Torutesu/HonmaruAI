@@ -66,9 +66,20 @@ and in the notes:
 Do not skip the notes. Without them a reviewer lands on a screen offering
 GitHub and a code, and the password route is one tap away but not obvious.
 
-**Or** verify a domain at Resend, and the email code reaches anyone — which you
-want anyway, because until then the same limit applies to every real user you
-invite, not only to the reviewer.
+### The domain is verified now
+
+honmaruai.com is verified at Resend and `NOTIFY_EMAIL_FROM` is
+`Honmaru AI <noreply@honmaruai.com>`, so a code reaches **any** address, not
+only the one that owns the Resend account. Confirmed by sending to an unrelated
+domain and by reading the From line on a delivered message.
+
+That closes the same hole for real users: until it was done, nobody you invited
+could sign in either. The demo account stays regardless — a reviewer should not
+have to wait for mail.
+
+> **When testing this, do not use `example.com`.** Resend refuses reserved
+> domains with a 422, which is indistinguishable from an unverified sender and
+> cost a wrong diagnosis here. Use a real address you can read.
 
 ---
 
@@ -148,6 +159,4 @@ Checked against the current tree, so a review does not spend time on them:
 1. Create the demo account and check `/auth/login` returns a token.
 2. Take the screenshots *after* pulling this branch — the sign-in screen
    changed, and it is usually one of them.
-3. Verify a domain at Resend, or accept that only the demo account and your own
-   address can sign in.
-4. Then follow `app-store-release.md` for the build and the submission.
+3. Then follow `app-store-release.md` for the build and the submission.

@@ -152,6 +152,8 @@ case "$health" in
 esac
 
 say "4. Does a code actually arrive?"
+note "Not a reserved domain: Resend refuses example.com and friends with a 422,"
+note "which looks exactly like an unverified sender. Use an address you can read."
 note "This sends a real email. Until you have verified a domain at Resend, use"
 note "the address that owns the Resend account — anything else Resend refuses,"
 note "and that refusal is theirs, not ours."

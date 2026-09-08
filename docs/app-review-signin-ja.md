@@ -134,10 +134,11 @@ A GitHub account is not required and GitHub sign-in is not offered in this app.
 
 ---
 
-## これで足りないもの
+## メールについて
 
-デモアカウントは**審査は通せますが、実ユーザーは通せません**。
+honmaruai.com は Resend で認証済みで、差出人は `noreply@honmaruai.com` です。
+**招待した人にもサインインコードが届きます**（認証前は Resend アカウントの
+持ち主のアドレスにしか届きませんでした）。
 
-招待した人にサインインコードを届けるには、Resend でドメイン認証が要ります。
-今は Resend アカウントの持ち主のアドレスにしか届きません。そちらは
-[app-store-review-readiness.md](app-store-review-readiness.md) を見てください。
+デモアカウントはそれとは別に必要です。審査員をメールの到着待ちにさせない
+ため、パスワードで入れるようにしてあります。
