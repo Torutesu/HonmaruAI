@@ -68,6 +68,33 @@ enum EmailAuthService {
         _ = try await post("auth/otp/request", body: ["email": email])
     }
 
+    /// Sign in with a password.
+    ///
+    /// The code is the front door and this is the other one. It exists for two
+    /// people. The first is anyone on a deployment that cannot send mail at
+    /// all: the code path answers 503 there, and telling them to use GitHub is
+    /// a dead end for exactly the people this sign-in was added for. The second
+    /// is an App Store reviewer, who has no GitHub account and no way to
+    /// receive a code sent to an address they do not own — an app they cannot
+    /// sign in to is rejected under Guideline 2.1, and a demo account with a
+    /// password is the answer Apple asks for.
+    ///
+    /// `/auth/login` does not return an organization; a personal workspace has
+    /// none to return, and `activateEmailSession` already treats an empty one
+    /// as "no graph to load".
+    static func signIn(email: String, password: String) async throws -> Session {
+        let json = try await post("auth/login", body: ["email": email, "password": password])
+        guard let token = json["token"] as? String else {
+            throw Failure.message(String(localized: "Invalid email or password."))
+        }
+        return Session(
+            token: token,
+            login: (json["login"] as? String) ?? (json["userId"] as? String) ?? email,
+            orgId: (json["orgId"] as? String) ?? "",
+            created: false
+        )
+    }
+
     /// Trade a code for a session, creating the account if this address has
     /// never been here. `name` and `inviteCode` are only used in that case.
     static func verifyCode(email: String, code: String, name: String, inviteCode: String) async throws -> Session {

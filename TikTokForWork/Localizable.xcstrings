@@ -1486,6 +1486,17 @@
         }
       }
     },
+    "For an account that already has one. If you do not, go back and we will email you a code instead.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにパスワードを設定しているアカウント用です。無い場合は戻ると、コードをメールでお送りします。"
+          }
+        }
+      }
+    },
     "Free plan": {
       "extractionState": "manual",
       "localizations": {
@@ -1691,6 +1702,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "実際のフィードでは、これで判断が記録され GitHub にも同期されます。"
+          }
+        }
+      }
+    },
+    "Invalid email or password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールアドレスかパスワードが違います。"
           }
         }
       }
@@ -2285,6 +2307,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "参加者"
+          }
+        }
+      }
+    },
+    "Password": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード"
           }
         }
       }
@@ -2905,6 +2938,17 @@
         }
       }
     },
+    "Sign in": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
     "Sign in before deleting your account.": {
       "extractionState": "manual",
       "localizations": {
@@ -2945,6 +2989,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "チームの履歴を見るには GitHub でサインインしてください。"
+          }
+        }
+      }
+    },
+    "Sign in with a password": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードでサインイン"
           }
         }
       }
@@ -3510,6 +3565,17 @@
         }
       }
     },
+    "This workspace cannot send email yet. Sign in with a password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはまだメールを送れません。パスワードでサインインしてください。"
+          }
+        }
+      }
+    },
     "Those purchases are attached to a different account. Sign in with the Apple ID that bought them.": {
       "extractionState": "manual",
       "localizations": {
@@ -3759,6 +3825,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "下の「AI に伝える」から送れます"
+          }
+        }
+      }
+    },
+    "Use a password instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードを使う"
           }
         }
       }

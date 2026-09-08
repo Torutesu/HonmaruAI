@@ -282,6 +282,11 @@ commands. Two habits worth keeping:
 
 ## Before the first App Store submission
 
+Read [app-store-review-readiness.md](app-store-review-readiness.md) first. It
+covers what review does with the build rather than how to send it, and names
+the two things that would have failed the first submission — a reviewer who
+cannot sign in, and Guideline 4.8.
+
 TestFlight *internal* testing skips Beta App Review, so `build` + `testflight`
 works today. App Store review does not: run the checklist at the end of
 [production-release-plan.md](production-release-plan.md#release-checklist)
