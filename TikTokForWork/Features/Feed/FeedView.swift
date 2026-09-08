@@ -37,6 +37,7 @@ private struct CardHomeContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if classic { classicWorkspaceHeader }
             header
             if classic { classicList }
             else if cards.isEmpty { emptyState }
@@ -113,12 +114,32 @@ private struct CardHomeContent: View {
                 }
             }.padding(4).background(Theme.Colors.surfaceRaised, in: Capsule()).buttonStyle(.plain)
             Spacer()
-            Button(action: onProfile) {
-                RequestAvatar(name: appState.currentUser?.name ?? "?", url: appState.workspaceMembers.first { $0.id == appState.currentUser?.id }?.avatarUrl, size: 38)
-            }.buttonStyle(.plain).accessibilityLabel("Profile")
+            if !classic {
+                Button(action: onProfile) {
+                    RequestAvatar(name: appState.currentUser?.name ?? "?", url: appState.workspaceMembers.first { $0.id == appState.currentUser?.id }?.avatarUrl, size: 38)
+                }.buttonStyle(.plain).accessibilityLabel("Profile")
+            }
         }
         .foregroundStyle(Theme.Colors.textPrimary)
         .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 12)
+    }
+
+    private var classicWorkspaceHeader: some View {
+        HStack(spacing: 10) {
+            AppLogo(size: 24)
+                .padding(4).background(.white, in: RoundedRectangle(cornerRadius: 6))
+            Text(appState.workspaceDisplayName)
+                .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onProfile) {
+                RequestAvatar(name: appState.currentUser?.name ?? "?", url: appState.workspaceMembers.first { $0.id == appState.currentUser?.id }?.avatarUrl, size: 30)
+                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1))
+                    .frame(width: 44, height: 44)
+            }.buttonStyle(.plain).accessibilityLabel("Profile")
+        }
+        .padding(.horizontal, 20).padding(.vertical, 6)
+        .background(Color(hex: 0x2B154B))
+        .padding(.bottom, 6)
     }
 
     private var classicList: some View {

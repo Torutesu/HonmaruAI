@@ -53,7 +53,7 @@ The product mark was extracted without redrawing from the actual Welcome canvas 
 | Native Release | Build, clean install and 12-second launch survival passed | [Native summary](native-tests.json) |
 | Visual responsiveness | 390 × 844, 320 × 768, desktop 1440 × 1000; dark and Japanese checked | [Visual checklist](after/web-visual-checks.json) |
 
-The native 58-test run includes email activation, cache/outbox isolation, exact pending-delivery matching, cancelled/deferred session callbacks, serial billing identity, failed-identity purchase gating, and live JA→EN localization. A subsequent UI-only large-text header correction is validated by the Release build and direct simulator review.
+The native 58-test run includes email activation, cache/outbox isolation, exact pending-delivery matching, cancelled/deferred session callbacks, serial billing identity, failed-identity purchase gating, and live JA→EN localization. Subsequent UI-only large-text and Classic-header corrections, plus seven missing Japanese strings, are validated by the Release builds and direct simulator review.
 
 Web large-text evidence is an explicit 30% text-size simulation, not OS Dynamic Type. Native checks use actual simulator accessibility-extra-large text; approval and Undo remain operable above the composer.
 
@@ -72,6 +72,7 @@ The root reviewer inspected the source and final screenshots together. The origi
 | iPhone Japanese Home | [Simulator capture](after/ios-home-ja.png) |
 | Web Profile | [Light](after/web-profile-demo-mobile.png), [Dark Japanese](after/web-profile-ja-dark.png) |
 | Web Welcome | [Mobile](after/web-welcome-mobile.png), [Desktop](after/web-welcome-desktop.png) |
+| iPhone Classic | [Final Release](after/ios-release-classic-ja.png) |
 | Web Classic | [Mobile](after/web-classic-mobile.png), [Desktop](after/web-classic-desktop.png) |
 | Editable preview | [Mobile](after/web-compose-preview-mobile.png) |
 

@@ -7898,6 +7898,76 @@
           }
         }
       }
+    },
+    "Approve and create a GitHub issue?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認してGitHubのIssueを作成しますか？"
+          }
+        }
+      }
+    },
+    "Could not load teammates. Try again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーを読み込めませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Demo member": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモメンバー"
+          }
+        }
+      }
+    },
+    "Requests": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼"
+          }
+        }
+      }
+    },
+    "Sample requests": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプルの依頼"
+          }
+        }
+      }
+    },
+    "Teammates": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームメンバー"
+          }
+        }
+      }
+    },
+    "Write a reply before sending.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を入力してから送信してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
