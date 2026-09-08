@@ -2,7 +2,8 @@
 
 `app-store-release.md` covers how to *ship* a build. This is the other half:
 what App Store review will do with it once it arrives, and the two things that
-would have failed the first submission.
+would have failed the first submission. Both are fixed; this is the record of
+what they were and what is still only half-proved.
 
 Both were found by reading the app the way a reviewer meets it — with no
 GitHub account, no access to our mailbox, and no context.
@@ -117,17 +118,19 @@ and Pull Requests, for a workspace that has a repository.
 So 4.8 no longer applies. If GitHub sign-in ever returns to iOS, it comes back
 with Sign in with Apple beside it.
 
-## 3. Push asks for a permission that cannot be honoured yet
+## 3. Push — configured, and not yet proved
 
-`/health` reports `"push": false` — APNs is not configured on the Worker — while
-the app still asks for notification permission once you have earned it
-(`requestAuthorizationIfEarned`). Nothing is rejected for this, and a reviewer
-is unlikely to reach it, but a person who says yes gets nothing, forever, with
-no way to tell why.
+`/health` reports `"push": true`: the four APNs secrets are set, against a key
+scoped **Sandbox & Production**, so `APNS_ENVIRONMENT=production` is the right
+one and works for TestFlight as well as the App Store.
 
-Either finish APNs before release (`docs/push-notifications.md`), or gate the
-prompt on the Worker actually being able to deliver. Web Push is unaffected and
-works today.
+That is not the same as "a notification arrives". `isConfigured` checks that the
+values exist, not that Apple accepts them — a key restricted to the wrong
+environment, a wrong team id, or a topic that is not the bundle id all leave
+`push` true and fail silently, with the reason only in the Worker's log. The
+first build on a real device is what proves it.
+
+Web Push has worked throughout and is unaffected.
 
 ---
 

@@ -134,7 +134,7 @@ A GitHub account is not required and GitHub sign-in is not offered in this app.
 
 ---
 
-## メールについて
+## メールと通知について
 
 honmaruai.com は Resend で認証済みで、差出人は `noreply@honmaruai.com` です。
 **招待した人にもサインインコードが届きます**（認証前は Resend アカウントの
@@ -142,3 +142,10 @@ honmaruai.com は Resend で認証済みで、差出人は `noreply@honmaruai.co
 
 デモアカウントはそれとは別に必要です。審査員をメールの到着待ちにさせない
 ため、パスワードで入れるようにしてあります。
+
+問い合わせ先の `support@honmaruai.com` も Cloudflare Email Routing で受信でき
+るようにしてあります。プライバシーポリシーに載せているアドレスなので、Apple
+はここが到達可能であることを前提にします。
+
+iOS プッシュ（APNs）も設定済みです。ただし「設定が入っている」ことと「実際に
+届く」ことは別で、後者は実機に配って初めて分かります。
