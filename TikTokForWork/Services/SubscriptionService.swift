@@ -30,6 +30,16 @@ final class SubscriptionService: ObservableObject {
 
     var isConfigured: Bool { Purchases.isConfigured }
 
+    /// Whether the app can actually take money right now.
+    ///
+    /// The same fact as `isConfigured`, named for what the UI needs to decide. A build
+    /// without a production RevenueCat key never configures the SDK (see
+    /// `RevenueCatConfig.isConfigurable`), and every purchase path then answers
+    /// "not configured" — so an Upgrade button in that build is a button that can only
+    /// produce an error alert. App Review reads that as a broken app, not as a feature
+    /// that is switched off, so the views ask this before offering to sell anything.
+    var canSell: Bool { Purchases.isConfigured }
+
     /// The `honmaruai Pro` entitlement, active or not (expired ones stay readable).
     var proEntitlement: EntitlementInfo? {
         customerInfo?.entitlements[RevenueCatConfig.proEntitlementID]

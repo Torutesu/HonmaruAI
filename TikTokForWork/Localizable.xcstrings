@@ -3455,6 +3455,17 @@
         }
       }
     },
+    "The free routing limit above still applies.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上に記載の無料ルーティング上限はそのまま適用されます。"
+          }
+        }
+      }
+    },
     "The old site has a booking form nobody mentioned. Rebuilding it is roughly three extra days.": {
       "extractionState": "manual",
       "localizations": {
@@ -3781,6 +3792,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pro にアップグレード"
+          }
+        }
+      }
+    },
+    "Upgrading isn't available in this version.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンではアップグレードはご利用いただけません。"
           }
         }
       }

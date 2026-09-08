@@ -308,22 +308,29 @@ struct FeedView: View {
     /// because the free daily AI quota ran out. Tapping it opens the paywall;
     /// tapping the ✕ dismisses it. It is deliberately not an alert — it must not
     /// interrupt or repeat.
+    ///
+    /// The Upgrade half is there only when the build can actually sell. Without a
+    /// production RevenueCat key the paywall has no plans in it, and offering the tap
+    /// anyway turns "you hit today's limit" into "this app is broken".
     private var quotaNotice: some View {
         HStack(spacing: Theme.Spacing.sm) {
             Button {
                 viewModel.quotaExceeded = false
-                showPaywall = true
+                if subscriptions.canSell { showPaywall = true }
             } label: {
                 HStack(spacing: 4) {
                     Text("You've used today's AI routing.")
                         .foregroundStyle(Theme.Colors.textTertiary)
-                    Text("Upgrade")
-                        .foregroundStyle(Theme.Colors.accent)
+                    if subscriptions.canSell {
+                        Text("Upgrade")
+                            .foregroundStyle(Theme.Colors.accent)
+                    }
                 }
                 .font(.system(size: 11))
                 .lineLimit(1)
             }
             .buttonStyle(.plain)
+            .disabled(!subscriptions.canSell)
 
             Button {
                 viewModel.quotaExceeded = false
