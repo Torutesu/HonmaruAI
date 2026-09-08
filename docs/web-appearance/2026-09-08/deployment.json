@@ -1,0 +1,16 @@
+{
+  "verifiedAt": "2026-09-08T12:05:37.358818+00:00",
+  "productionUrl": "https://honmaru-web.pages.dev",
+  "deploymentUrl": "https://4807a5d5.honmaru-web.pages.dev",
+  "build": {
+    "commit": "1e786ecb7800b44f0ebca2a46ad73b7b4a36d937",
+    "builtAt": "2026-09-08T12:05:11.009728+00:00",
+    "apiOrigin": "https://tiktokforwork.torubj0904.workers.dev",
+    "assets": {
+      "/assets/index-PLDA35gd.js": "9fa3cbb1bf1ac4d359e4c4e94c7190211913039f90c67fe1cb3a3c1643400ddf",
+      "/assets/index-BCYSb9ie.css": "16a4d94b0f3ed579538e5f10672c5c603da00adbc636bc6ca9ec22431b448afc"
+    }
+  },
+  "publicHtmlAndAssetsMatch": true,
+  "previousDeployment": "b9860d06-4350-42dc-9ce9-f274eb4edf6a"
+}
