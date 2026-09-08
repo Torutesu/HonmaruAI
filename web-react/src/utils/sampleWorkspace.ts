@@ -1,0 +1,28 @@
+import type { DecisionCard } from '../types/card'
+export const sampleUser = 'sample:alex'
+export const sampleMembers: Array<{ id: string; name: string; role: string }> = [{ id: sampleUser, name: 'Alex Morgan', role: 'Product lead' }, { id: 'sample:maya', name: 'Maya Chen', role: 'Design' }, { id: 'sample:daniel', name: 'Daniel Park', role: 'Engineering' }, { id: 'sample:sophie', name: 'Sophie Taylor', role: 'Operations' }, { id: 'sample:james', name: 'James Wilson', role: 'Customer success' }]
+export const sampleBusinesses = [{ slug: 'launch', name: 'Product launch' }, { slug: 'customers', name: 'Customer experience' }, { slug: 'operations', name: 'Operations' }]
+export function sampleCards(figmaFixture = false): DecisionCard[] {
+  const base = { recipientUserID: sampleUser, status: 'pending' as const, priority: 'medium' as const }
+  const cards: DecisionCard[] = [
+    { ...base, id: 'sample-launch', senderUserID: 'sample:maya', type: 'approval', title: 'Approve the autumn launch homepage', summary: 'The homepage is ready for a final review. Can you approve the new messaging and pricing section so we can publish on Thursday?', context: 'The design and engineering reviews are complete. The page introduces the Team plan at $24 per member and includes the customer quote approved by Acme.\n\nWe need your sign-off on the headline and plan positioning before the campaign assets go into production.', business: 'launch', priority: 'high', createdAt: new Date(Date.now() - 24 * 60000).toISOString() },
+    { ...base, id: 'sample-onboarding', senderUserID: 'sample:daniel', type: 'task', title: 'Check the new teammate onboarding flow', summary: 'Please test the invite-to-workspace flow and confirm that a new teammate can find their first request without help.', context: 'The latest build now opens directly into the shared inbox after accepting an invite. Check the empty state, member names, and the first-request walkthrough.\n\nLeave your findings in the response if anything needs to change.', business: 'launch', createdAt: new Date(Date.now() - 71 * 60000).toISOString() },
+    { ...base, id: 'sample-proposal', senderUserID: 'sample:james', type: 'revision', title: 'Update the Acme renewal proposal', summary: 'Acme asked for a quarterly billing option. Please revise the proposal before their procurement review on Friday.', context: 'The scope and annual commitment stay the same. Replace the annual payment schedule with four quarterly installments and add the support response times we discussed.', business: 'customers', createdAt: new Date(Date.now() - 130 * 60000).toISOString() },
+    { ...base, id: 'sample-research', senderUserID: 'sample:maya', type: 'notification', title: 'Customer interviews: the three recurring themes', summary: 'Five interviews are complete. Teams want clearer ownership, fewer status meetings, and a reliable record of decisions.', context: 'No decision is needed today. These findings will shape next week’s planning session. The strongest signal was that people want to see who is waiting on whom without sending another message.', business: 'customers', priority: 'low', createdAt: new Date(Date.now() - 220 * 60000).toISOString() },
+    { ...base, id: 'sample-planning', senderUserID: 'sample:sophie', type: 'delegation', title: 'Take ownership of next week’s launch check-in', summary: 'Could you lead Tuesday’s 30-minute launch check-in while I am away? Design, engineering, and customer success will attend.', context: 'Review the remaining blockers, confirm each owner, and share a short recap after the meeting. The agenda is already prepared; no slide deck is needed.', business: 'operations', createdAt: new Date(Date.now() - 300 * 60000).toISOString() },
+    { ...base, id: 'sample-sent', senderUserID: sampleUser, recipientUserID: 'sample:daniel', type: 'task', title: 'Confirm the launch-day monitoring checklist', summary: 'Please check that the alert owners and rollback steps are documented before Thursday’s launch.', context: 'Share the checklist with the on-call engineer after your review.', business: 'launch', createdAt: new Date(Date.now() - 1440 * 60000).toISOString() },
+    { ...base, id: 'sample-completed', senderUserID: 'sample:sophie', type: 'approval', title: 'Approve the September team workshop budget', summary: 'Please approve the $1,200 venue and catering budget for the September team workshop.', context: 'The budget covers 12 people and stays within the quarterly team allocation.', business: 'operations', status: 'approved', createdAt: new Date(Date.now() - 2 * 1440 * 60000).toISOString(), decision: { action: 'approve', actorUserID: sampleUser, decidedAt: new Date(Date.now() - 1440 * 60000).toISOString() } },
+  ]
+  if (figmaFixture) cards[0] = {
+    ...cards[0], title: 'Approve $1,840 for the onboarding video reshoot',
+    summary: "Reshoot covers the new signup flow. Same crew as June and it lands 15% under this quarter’s video budget.",
+    context: '', business: undefined, sourceApp: 'Sample request',
+    requestedBy: { name: 'Maya Chen', role: 'Marketing Manager', quote: 'We need to reshoot the onboarding video to reflect the new signup flow. Current video is causing confusion and drop-off.' },
+    recommendation: { action: 'approve', reason: 'This request is 15% under this quarter’s video budget and consistent with similar requests you’ve approved in the past.' },
+    createdAt: new Date(Date.now() - 12 * 60000).toISOString(),
+  }
+  return cards.map((card) => {
+    const sender = sampleMembers.find((member) => member.id === card.senderUserID)
+    return { ...card, requestedBy: card.requestedBy || { name: sender?.name || 'Teammate', role: sender?.role, quote: card.summary } }
+  })
+}

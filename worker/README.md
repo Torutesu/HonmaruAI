@@ -16,7 +16,12 @@ Workers + Durable Objects + D1. Ported from the old localhost Node relay
 |--------|------|---------|
 | GET | `/health` | Readiness + which AI/GitHub features are configured |
 | GET | `/agui/tools` | AG-UI tool manifest |
-| POST | `/ai/route` | Instruction → intent, recipient, Decision Card (OpenAI, keyword fallback) |
+| POST | `/auth/signup` | Email/password account → session, relay login, workspace; optional invite code |
+| POST | `/auth/login` | Email/password → session, relay login, earliest current workspace (`orgId`) |
+| POST | `/auth/otp/request` | Email a sign-in code; 503 when mail is not configured |
+| POST | `/auth/otp/verify` | Spend a code once → session, relay login, earliest current workspace (`orgId`) |
+| GET | `/members?orgId=` | Current workspace members `{id,name,role,avatarUrl?}` for email or GitHub sessions |
+| POST | `/ai/route` | Instruction → draft card; optional validated `recipientUserID` preserves an explicit choice |
 | GET | `/oauth/github/config` | Client id + scope + redirect for the app |
 | GET | `/oauth/github/state` | Mint a single-use, 10-minute nonce for the authorize URL |
 | POST | `/oauth/github/token` | OAuth `code` + `state` → GitHub token (server-side) + app session |
@@ -37,6 +42,31 @@ WebSocket messages (AG-UI over `join {protocol:"agui/1"}`): `join`, `tool_result
 `card_created`, `card_updated`, `card_deleted`, `context_updated`, `rollback`,
 `nudge`, `set_business`.
 
+The member directory requires `x-session-token` and current membership in the
+requested workspace. Its `id` is the relay login used by cards, not a display
+name; existing email-account logins contain their sign-in address. No separate
+private notification address, account id, or credential is returned.
+The returned `role` is the member's descriptive title when set, otherwise their
+membership role, matching routing and `/me?orgId=`. A title change does not
+change administrative permissions.
+
+For an explicit draft recipient, send `recipientUserID` with `orgId` (or
+`organization.orgId`) to `/ai/route`. The caller and recipient must both belong
+to that workspace. Invalid selections return 400, missing sessions 401, and
+unrelated workspace access 403. Both model drafting and keyword fallback keep
+the selected recipient; `routedBy` still identifies the drafting method.
+Routing returns a draft only: the client reviews it before `card_created`.
+Without an explicit recipient, automatic routing retains its existing behavior.
+
+Password and OTP login return `orgId` alongside `token`, `userId`, and `login`. Accounts with
+several memberships get the earliest current one; accounts whose memberships
+were removed still receive a session, with `orgId: null`, so they can redeem an
+invite through `/invites/accept` instead of silently regaining access.
+Only the verified OTP path can create a passwordless account. The public
+password signup route requires a password even if a caller supplies
+`passwordless: true`. Code consumption is atomic and checks the current hash,
+salt, expiry, and remaining guess budget before issuing a session.
+
 ### The relay's access rules
 
 The socket holds every decision an organization has made, so none of these are
@@ -45,6 +75,11 @@ negotiable:
 - **`join` requires `sessionToken`.** No token, or a token whose session cannot
   prove write access to `orgId`, and the relay sends an error and closes with
   1008. There is no anonymous read.
+- **Opening a socket grants no read access.** Broadcasts and recipient prompts
+  require a completed authenticated join. Each subsequent read and mutation
+  checks the current session and D1 membership; expired/deleted sessions and
+  removed memberships are refused. Sockets hibernating across this release
+  reconnect with 1012 to establish the new attachment format.
 - **Identity is never taken from the client.** `payload.userId` is read only to
   be discarded; you act as the login on your session.
 - **Membership** is a `memberships` row, or — when there is none yet, because
@@ -53,12 +88,26 @@ negotiable:
   internet, and `GET /repos` cannot tell a read-only collaborator from a
   stranger.
 - **A created card is stamped with the sender the session proves.** You may
-  route to anyone in the org, only ever as yourself.
+  route to anyone in the org, only ever as yourself. The recipient must be a
+  current member before filing begins and at the atomic insert, including
+  cards sent manually or from a stale cached directory.
+- **Creation cannot overwrite an existing decision.** Concurrent creates of
+  the same ID store one card. Updates preserve the original sender and creation
+  time and refuse deleted or concurrently changed cards.
 - **Only the recipient** can decide, delete or undo a card, and a decision is
   attributed to whoever made it. Delegation is a new card, not a moved one.
 - **`clear_store` does nothing.** It used to run `DELETE FROM cards` for the
   whole org, and the app sent it on every sign-out. It survives as a no-op so
   builds that still send it do not fail.
+- **Delayed AI enrichment cannot undo a decision.** Translation and filing
+  merge their fields atomically into a surviving card with matching source
+  text. They cannot restore deleted cards or replace a newer approval.
+
+These checks use the membership table; a GitHub permission change takes effect
+after membership refresh removes the row. Client sign-out currently clears the
+client's credentials and does not revoke its server session. WebSocket delivery
+also has no durable per-message acknowledgement yet: a successful transport send
+is not proof of persistence.
 
 Rate limits (fixed windows in D1, keyed by session where there is one and by IP
 where there is not; fails open): `/ai/route` 30/5min, `/oauth/github/token`
@@ -89,11 +138,26 @@ directly.
 
 ## Develop
 
+Use Node 20.19+ or 22.12+. The pinned test toolchain is Vitest 3.2.6,
+Cloudflare's Workers pool 0.12.21, and Wrangler 4.72.0. The pool's matching
+Miniflare/workerd versions are recorded in `package-lock.json`.
+
 ```bash
-npm install
-npm test          # 273 tests under @cloudflare/vitest-pool-workers (real workerd)
+npm ci --no-audit
+npm test          # under @cloudflare/vitest-pool-workers (local workerd + D1)
 npm run dev       # local wrangler dev
 ```
+
+Vitest 3.2.6 includes the fix for
+[GHSA-5xrq-8626-4rwp](https://github.com/advisories/GHSA-5xrq-8626-4rwp).
+Wrangler 4.72.0 also replaces the older pool's embedded Wrangler 3.100.0 and
+includes the fix for
+[GHSA-36p8-mvp6-cv38](https://github.com/cloudflare/workers-sdk/security/advisories/GHSA-36p8-mvp6-cv38).
+The Workers pool remains on the last release series compatible with Vitest 3
+to preserve the existing per-test storage isolation and `fetchMock` coverage.
+[Cloudflare's Vitest 4 migration](https://developers.cloudflare.com/workers/testing/vitest-integration/migration-guides/migrate-from-vitest-3-to-vitest-4/)
+changes those APIs and requires a separate test migration. These are targeted
+advisory fixes, not a claim that every transitive dependency has been audited.
 
 ## Deploy / operate
 

@@ -12,6 +12,7 @@ enum EmailAuthService {
     struct Session {
         let token: String
         let login: String
+        let userID: String
         let orgId: String
         let created: Bool
     }
@@ -43,6 +44,7 @@ enum EmailAuthService {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -51,8 +53,10 @@ enum EmailAuthService {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
+            if Task.isCancelled { throw CancellationError() }
             throw Failure.unreachable
         }
+        try Task.checkCancellation()
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         guard let http = response as? HTTPURLResponse else { throw Failure.unreachable }
         if http.statusCode == 503 { throw Failure.mailNotConfigured }
@@ -75,12 +79,19 @@ enum EmailAuthService {
         if !name.isEmpty { body["name"] = name }
         if !inviteCode.isEmpty { body["inviteCode"] = inviteCode }
         let json = try await post("auth/otp/verify", body: body)
-        guard let token = json["token"] as? String else {
+        return try decodeSession(json)
+    }
+
+    static func decodeSession(_ json: [String: Any]) throws -> Session {
+        guard let token = json["token"] as? String, !token.isEmpty,
+              let login = json["login"] as? String, !login.isEmpty,
+              let userID = json["userId"] as? String, !userID.isEmpty else {
             throw Failure.message(String(localized: "That code is not valid. Ask for a new one."))
         }
         return Session(
             token: token,
-            login: (json["login"] as? String) ?? (json["userId"] as? String) ?? email,
+            login: login,
+            userID: userID,
             orgId: (json["orgId"] as? String) ?? "",
             created: (json["created"] as? Bool) ?? false
         )

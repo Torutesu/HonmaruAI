@@ -21,6 +21,8 @@ const RESEND_SECONDS = 60
 /// people retype a code they already have on the clipboard.
 export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVerified, onBack }) => {
   const t = useT()
+  const live=useRef(true),request=useRef<AbortController|null>(null),verifying=useRef(false)
+  useEffect(() => {live.current=true;return () => {live.current=false;request.current?.abort()}},[email,httpBase])
   const [digits, setDigits] = useState<string[]>(Array(LENGTH).fill(''))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,24 +39,26 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
   }, [wait])
 
   const verify = async (value: string) => {
+    if(verifying.current || value.length !== LENGTH)return;verifying.current=true;request.current?.abort();request.current=new AbortController()
     setBusy(true); setError(null)
     try {
       const res = await fetch(`${httpBase}/auth/otp/verify`, {
-        method: 'POST',
+        method: 'POST', signal:request.current.signal,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, code: value, name, inviteCode: inviteCode || undefined }),
       })
       const data = await res.json().catch(() => ({}))
+      if (!live.current)return
       if (!res.ok) {
-        setError(data.message || 'That code is not valid.')
+        setError(data.message || t('That code is not valid.'))
         setDigits(Array(LENGTH).fill(''))
         inputs.current[0]?.focus()
         return
       }
       onVerified(data.token, data.login || data.userId, data.orgId || '', Boolean(data.created))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally { setBusy(false) }
+      if(live.current)setError(err instanceof Error ? err.message : String(err))
+    } finally {verifying.current=false;if(live.current)setBusy(false)}
   }
 
   // Six digits present means the person is done typing. Making them press a
@@ -91,16 +95,8 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
   }
 
   const resend = async () => {
-    setError(null); setNote(null)
-    const res = await fetch(`${httpBase}/auth/otp/request`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) { setError(data.message || 'We could not send another code.'); return }
-    setNote('Sent. Check your email again.')
-    setWait(RESEND_SECONDS)
+    if(busy || wait>0)return;setBusy(true);setError(null);setNote(null);request.current?.abort();request.current=new AbortController()
+    try{const res=await fetch(`${httpBase}/auth/otp/request`,{method:'POST',signal:request.current.signal,headers:{'content-type':'application/json'},body:JSON.stringify({email})});const data=await res.json().catch(()=>({}));if(!live.current)return;if(!res.ok){setError(data.message||t('We could not send another code.'));return}setDigits(Array(LENGTH).fill(''));setNote(t('Sent. Check your email again.'));setWait(RESEND_SECONDS)}catch(err){if(live.current)setError(err instanceof Error?err.message:t('We could not send another code.'))}finally{if(live.current)setBusy(false)}
   }
 
   return (
@@ -112,8 +108,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
       <div className="screen-body">
         <h1 className="display" style={{ fontSize: 28 }}>{t('Enter the code.')}</h1>
         <p className="lede">
-          We sent six digits to <b style={{ color: 'var(--ink-black)' }}>{email}</b>. It is
-          good for ten minutes, once.
+          {t('We sent a six-digit code to {email}. It is valid once, for ten minutes.',{email})}
         </p>
 
         <div className="otp-boxes">
@@ -128,7 +123,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
               inputMode="numeric"
               autoComplete={i === 0 ? 'one-time-code' : 'off'}
               maxLength={LENGTH}
-              aria-label={`Digit ${i + 1}`}
+              aria-label={t('Digit {n}',{n:i+1})}
               disabled={busy}
             />
           ))}
@@ -138,10 +133,10 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
         {error && <div className="form-error">{error}</div>}
 
         <button className="btn btn-primary" disabled={code.length !== LENGTH || busy} onClick={() => verify(code)}>
-          {busy ? 'Checking…' : 'Continue'}
+          {t(busy ? 'Checking…' : 'Continue')}
         </button>
-        <button className="btn btn-quiet" disabled={wait > 0} onClick={resend}>
-          {wait > 0 ? `Send another code in ${wait}s` : 'Send another code'}
+        <button className="btn btn-quiet" disabled={wait > 0 || busy} onClick={resend}>
+          {wait>0?t('Send another code in {n}s',{n:wait}):t('Send another code')}
         </button>
       </div>
     </div>

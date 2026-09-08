@@ -1,6 +1,24 @@
 import Foundation
 import RevenueCat
 
+@MainActor
+protocol SubscriptionIdentityClient {
+    var isConfigured: Bool { get }
+    var appUserID: String? { get }
+    var isAnonymous: Bool { get }
+    func logIn(_ userID: String) async throws -> CustomerInfo?
+    func logOut() async throws -> CustomerInfo?
+}
+
+@MainActor
+private struct RevenueCatIdentityClient: SubscriptionIdentityClient {
+    var isConfigured: Bool { Purchases.isConfigured }
+    var appUserID: String? { Purchases.isConfigured ? Purchases.shared.appUserID : nil }
+    var isAnonymous: Bool { !Purchases.isConfigured || Purchases.shared.isAnonymous }
+    func logIn(_ userID: String) async throws -> CustomerInfo? { try await Purchases.shared.logIn(userID).customerInfo }
+    func logOut() async throws -> CustomerInfo? { try await Purchases.shared.logOut() }
+}
+
 /// Single owner of every RevenueCat call in the app.
 ///
 /// Views never touch `Purchases` directly — they read `isPro` / `summary` and call
@@ -25,6 +43,24 @@ final class SubscriptionService: ObservableObject {
     @Published var showPaywall = false
 
     private var customerInfoTask: Task<Void, Never>?
+    private let identityClient: any SubscriptionIdentityClient
+    private var identityTask: Task<Void, Never>?
+    private var identityGeneration = UUID()
+    private var isChangingIdentity = false
+    private var desiredIdentity: String?
+
+    init(identityClient: (any SubscriptionIdentityClient)? = nil) {
+        self.identityClient = identityClient ?? RevenueCatIdentityClient()
+        desiredIdentity = self.identityClient.appUserID
+    }
+
+    /// A failed login can leave the SDK signed into the previous account.
+    /// That account's purchases and cached entitlements must remain unavailable.
+    var isIdentityReady: Bool {
+        guard identityClient.isConfigured, !isChangingIdentity else { return false }
+        if let desiredIdentity { return identityClient.appUserID == desiredIdentity }
+        return identityClient.isAnonymous
+    }
 
     // MARK: - Entitlement
 
@@ -32,7 +68,8 @@ final class SubscriptionService: ObservableObject {
 
     /// The `honmaruai Pro` entitlement, active or not (expired ones stay readable).
     var proEntitlement: EntitlementInfo? {
-        customerInfo?.entitlements[RevenueCatConfig.proEntitlementID]
+        guard isIdentityReady else { return nil }
+        return customerInfo?.entitlements[RevenueCatConfig.proEntitlementID]
     }
 
     /// The one check the rest of the app makes. `isActive` already accounts for grace
@@ -43,7 +80,7 @@ final class SubscriptionService: ObservableObject {
 
     /// Generic form, for gating anything else you add to the dashboard later.
     func isEntitled(to entitlementID: String) -> Bool {
-        customerInfo?.entitlements[entitlementID]?.isActive == true
+        isIdentityReady && customerInfo?.entitlements[entitlementID]?.isActive == true
     }
 
     /// Everything the status UI needs, flattened out of `EntitlementInfo`.
@@ -113,6 +150,7 @@ final class SubscriptionService: ObservableObject {
                 .with(appUserID: appUserID)
                 .build()
         )
+        desiredIdentity = appUserID
 
         observeCustomerInfo()
         Task { await refresh() }
@@ -125,7 +163,8 @@ final class SubscriptionService: ObservableObject {
         customerInfoTask = Task { [weak self] in
             for await info in Purchases.shared.customerInfoStream {
                 guard !Task.isCancelled else { return }
-                self?.customerInfo = info
+                guard let self, self.isIdentityReady else { continue }
+                self.customerInfo = info
             }
         }
     }
@@ -136,10 +175,14 @@ final class SubscriptionService: ObservableObject {
     }
 
     func refreshCustomerInfo() async {
-        guard Purchases.isConfigured else { return }
+        guard Purchases.isConfigured, isIdentityReady else { return }
+        let generation = identityGeneration
         do {
-            customerInfo = try await Purchases.shared.customerInfo()
+            let info = try await Purchases.shared.customerInfo()
+            guard identityGeneration == generation, isIdentityReady else { return }
+            customerInfo = info
         } catch {
+            guard identityGeneration == generation else { return }
             report(error)
         }
     }
@@ -170,7 +213,8 @@ final class SubscriptionService: ObservableObject {
             errorMessage = SubscriptionError.notConfigured.errorDescription
             return false
         }
-        guard !isPurchasing else { return false }
+        guard !isPurchasing, isIdentityReady else { return false }
+        let generation = identityGeneration
 
         isPurchasing = true
         errorMessage = nil
@@ -178,10 +222,12 @@ final class SubscriptionService: ObservableObject {
 
         do {
             let result = try await Purchases.shared.purchase(package: package)
+            guard identityGeneration == generation else { return false }
             guard !result.userCancelled else { return false }
             customerInfo = result.customerInfo
             return isPro
         } catch {
+            guard identityGeneration == generation else { return false }
             report(error)
             return false
         }
@@ -196,19 +242,23 @@ final class SubscriptionService: ObservableObject {
             errorMessage = SubscriptionError.notConfigured.errorDescription
             return false
         }
-        guard !isRestoring else { return false }
+        guard !isRestoring, isIdentityReady else { return false }
+        let generation = identityGeneration
 
         isRestoring = true
         errorMessage = nil
         defer { isRestoring = false }
 
         do {
-            customerInfo = try await Purchases.shared.restorePurchases()
+            let info = try await Purchases.shared.restorePurchases()
+            guard identityGeneration == generation else { return false }
+            customerInfo = info
             if !isPro {
                 errorMessage = SubscriptionError.nothingToRestore.errorDescription
             }
             return isPro
         } catch {
+            guard identityGeneration == generation else { return false }
             report(error)
             return false
         }
@@ -225,27 +275,48 @@ final class SubscriptionService: ObservableObject {
     /// Ties RevenueCat's app user ID to your own account ID so an entitlement follows the
     /// person across devices and reinstalls. Safe to call on every sign-in.
     func identify(userID: String) async {
-        guard Purchases.isConfigured, !userID.isEmpty else { return }
-        guard Purchases.shared.appUserID != userID else { return }
-
-        do {
-            let (info, _) = try await Purchases.shared.logIn(userID)
-            customerInfo = info
-            await loadOfferings(force: true)
-        } catch {
-            report(error)
-        }
+        guard !userID.isEmpty else { return }
+        await transitionIdentity(to: userID)
     }
 
     /// Drops back to an anonymous app user ID. Call on sign-out so the next person on the
     /// device does not inherit the previous account's entitlement.
     func signOut() async {
-        guard Purchases.isConfigured, !Purchases.shared.isAnonymous else { return }
-        do {
-            customerInfo = try await Purchases.shared.logOut()
-        } catch {
-            report(error)
+        await transitionIdentity(to: nil)
+    }
+
+    /// The SDK mutates its own identity after an await. Serializing those calls
+    /// prevents an old log-out from finishing after the next account's log-in.
+    private func transitionIdentity(to userID: String?) async {
+        guard identityClient.isConfigured else { return }
+        let generation = UUID()
+        identityGeneration = generation
+        desiredIdentity = userID
+        isChangingIdentity = true
+        customerInfo = nil
+        errorMessage = nil
+        showPaywall = false
+        let previous = identityTask
+        let task = Task { @MainActor in
+            await previous?.value
+            guard identityGeneration == generation else { return }
+            defer { if identityGeneration == generation { isChangingIdentity = false } }
+            do {
+                let info: CustomerInfo?
+                if let userID {
+                    info = try await identityClient.logIn(userID)
+                } else if !identityClient.isAnonymous {
+                    info = try await identityClient.logOut()
+                } else { return }
+                guard identityGeneration == generation else { return }
+                customerInfo = info
+            } catch {
+                guard identityGeneration == generation else { return }
+                report(error)
+            }
         }
+        identityTask = task
+        await task.value
     }
 
     // MARK: - Callbacks from the RevenueCat UI
@@ -253,6 +324,7 @@ final class SubscriptionService: ObservableObject {
     /// The paywall and Customer Center hand back fresh `CustomerInfo`; adopting it right
     /// away avoids a frame of stale "Free" state before the stream catches up.
     func apply(_ info: CustomerInfo) {
+        guard isIdentityReady else { return }
         customerInfo = info
     }
 

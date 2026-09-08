@@ -59,13 +59,13 @@
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   width: 100%;
-  max-width: 430px;
+  max-width: var(--app-width);
   margin: 0 auto;
   padding: 0 24px;
 }
 .screen-foot {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--app-width);
   margin: 0 auto;
   padding: 12px 24px calc(20px + env(safe-area-inset-bottom));
   background: var(--signal-white);
@@ -76,7 +76,7 @@
 /* Header: a back chevron, a title nobody needs to read twice, a skip. */
 .screen-head {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--app-width);
   margin: 0 auto;
   padding: calc(14px + env(safe-area-inset-top)) 24px 8px;
   display: flex;
@@ -344,134 +344,8 @@
   .form-note { background: #17171a; border-color: #2c2c33; color: #a2a2ab; }
 }
 
-/* ── On a laptop ──────────────────────────────────────────────────────────
-   This is a phone app: one decision per screen, a bar of tabs under the
-   thumb. Shipped unchanged to a 1440px display that reads as a broken strip
-   of content stranded in white, and it was.
-
-   Stretching the screens is the wrong fix — a decision card 1200px across is
-   a worse card. So the column keeps its width and the space around it does
-   the work: navigation moves to a rail on the left where a pointer expects
-   it, the feed stops taking a whole screen per card and becomes a queue you
-   can scroll, and the ground behind it all stops being blank white.
-
-   Below 1080px none of this applies, and the app is exactly what it was. */
-/* A screen owns the phone's viewport, so the tab bar goes away under it.
-   The rail on a laptop does not — see .shell.screen-open. */
-@media (max-width: 1079px) {
-  .shell.screen-open .tabbar { display: none; }
-}
-
-@media (min-width: 1080px) {
-  body { background: var(--plaster); }
-
-  /* The tab bar becomes a rail. Same buttons, same order, same targets. */
-  .tabbar {
-    top: 0;
-    bottom: 0;
-    right: auto;
-    width: 216px;
-    height: auto;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: stretch;
-    gap: 4px;
-    padding: 88px 16px 24px;
-    background: transparent;
-    backdrop-filter: none;
-    border-top: none;
-    border-right: 1px solid var(--bone);
-  }
-  .tab {
-    width: auto;
-    height: 44px;
-    border-radius: var(--radius-pill);
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 0 14px;
-    font-size: 18px;
-  }
-  .tab::after {
-    content: attr(aria-label);
-    font-family: var(--font-body);
-    font-size: 14.5px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-  }
-  .tab:hover { background: rgba(9, 12, 29, 0.045); }
-  .tab.on { background: var(--signal-white); box-shadow: rgba(9, 12, 29, .06) 0 1px 2px; }
-  /* Compose keeps its weight, and gains the words. */
-  .tab.compose {
-    width: auto;
-    order: -1;
-    margin-bottom: 12px;
-    color: var(--signal-white);
-  }
-  .tab.compose::after { content: 'Tell your AI'; }
-
-  /* The product's name where an app puts it, above the rail. */
-  .tabbar::before {
-    content: 'Honmaru AI';
-    position: absolute;
-    top: 26px; left: 30px;
-    font-family: var(--font-display);
-    font-size: 17px;
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    color: var(--onyx);
-  }
-
-  /* Everything else starts to the right of the rail — but only where there
-     is one. Signed out there is no rail, and offsetting the welcome and
-     sign-in screens anyway left a bare white column down the left edge. */
-  .shell .topbar { left: 216px; padding-left: 28px; }
-  .shell .feed, .shell .classic { left: 216px; }
-  .shell .screen { left: 216px; }
-
-  /* The feed becomes a queue: cards stack and scroll, instead of one filling
-     the viewport and the next being a swipe away. The card itself is
-     unchanged — it is the good part. */
-  .feed { scroll-snap-type: none; background: var(--plaster); }
-  .page { height: auto; min-height: 0; scroll-snap-align: none; }
-  /* One column, one gutter. Centring the cards while the Cards/Classic bar
-     stayed at the left edge put the two on different left margins, which
-     reads as a mistake even when nothing is broken. */
-  .page { justify-content: flex-start; }
-  .page-inner { width: min(100%, 640px); padding: 20px 28px; }
-  .page:first-child .page-inner { padding-top: 84px; }
-  .page:last-child .page-inner { padding-bottom: 64px; }
-  .page-empty { min-height: 60vh; align-items: center; }
-
-  /* Screens are a column on the ground, not a full white wall. */
-  .shell .screen { background: var(--plaster); }
-  /* Left-aligned, on the same gutter as the feed and the Cards/Classic bar —
-     a screen that centres itself while the feed does not makes the content
-     jump sideways every time you open one. */
-  .shell .screen-head, .shell .screen-body, .shell .screen-foot {
-    max-width: 668px;
-    margin-left: 0;
-    margin-right: 0;
-    padding-left: 28px;
-    padding-right: 28px;
-  }
-
-  /* Signed out there is no rail to sit beside, so welcome and sign-in are a
-     centred column on the ground — wider than a phone, and not stranded at
-     one edge of a 1440px window. */
-  .screen:not(.shell .screen) { background: var(--plaster); }
-  .screen:not(.shell .screen) .screen-head,
-  .screen:not(.shell .screen) .screen-body,
-  .screen:not(.shell .screen) .screen-foot { max-width: 520px; }
-  .screen-foot { background: transparent; border-top: none; }
-}
-
-@media (min-width: 1080px) and (prefers-color-scheme: dark) {
-  body { background: #08080a; }
-  .tabbar { border-right-color: #26262b; }
-  .tabbar::before { color: #f5f5f7; }
-  .tab:hover { background: #17171a; }
-  .tab.on { background: #17171a; box-shadow: none; }
-  .feed, .screen { background: #08080a; }
+/* Figma screens retain the same centered hierarchy on desktop. */
+.shell.screen-open .tabbar { display:none; }
+@media (min-width:700px) {
+  .sheet-bottom { width:var(--app-width); left:50%; right:auto; transform:translateX(-50%); }
 }

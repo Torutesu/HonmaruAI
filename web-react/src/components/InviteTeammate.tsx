@@ -56,16 +56,15 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
     }
   }
 
-  const copyCode = () => {
+  const copyCode = async () => {
     if (!code) return
-    navigator.clipboard?.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    try { if (!navigator.clipboard) throw new Error('Clipboard unavailable'); await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { setError(t('The code could not be copied. Select and copy it manually.')) }
   }
 
   if (code) {
     return (
       <div className="invite">
+        {error && <p className="form-error" role="alert">{error}</p>}
         <p className="sheet-hint">
           {t('Anyone who signs up with this code joins your workspace as {role}.', {
             role: t(ROLES.find((r) => r.id === role)?.label || role),

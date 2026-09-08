@@ -57,6 +57,9 @@ function relay() {
 // second. `context_updated` puts what it is given into D1.
 test("a socket that floods is told to slow down, not disconnected", async () => {
   const r = relay();
+  // This test isolates the per-socket flood budget; session revocation is
+  // exercised against real D1 in relay-release-integrity.test.js.
+  r.socketIsAuthorized = async () => true;
   const ws = socket("acme/web", "octocat");
   const frame = JSON.stringify({ type: "rollback", payload: { cardId: "nope" } });
 

@@ -26,6 +26,7 @@ final class DictationService: ObservableObject {
     @Published var errorMessage: String?
 
     private let audioEngine = AVAudioEngine()
+    private var recordingGeneration = UUID()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private lazy var recognizer = SFSpeechRecognizer(locale: Locale.current)
@@ -33,20 +34,26 @@ final class DictationService: ObservableObject {
 
     func start() async {
         guard !isRecording else { return }
+        recordingGeneration = UUID()
+        let generation = recordingGeneration
         transcript = ""
         errorMessage = nil
 
         do {
             try await requestAccess()
+            guard recordingGeneration == generation else { return }
+            try Task.checkCancellation()
             try beginSession()
             isRecording = true
         } catch {
+            guard recordingGeneration == generation else { return }
             errorMessage = error.localizedDescription
             stop()
         }
     }
 
     func stop() {
+        recordingGeneration = UUID()
         // Order matters: detach the tap before stopping the engine, or the tap
         // outlives the node and the next start() traps on a duplicate install.
         if audioEngine.isRunning {
@@ -94,7 +101,9 @@ final class DictationService: ObservableObject {
         self.request = request
 
         let input = audioEngine.inputNode
-        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw Failure.unavailable }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             request.append(buffer)
         }
 

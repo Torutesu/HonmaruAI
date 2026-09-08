@@ -24,6 +24,8 @@ struct EmailSignInSheet: View {
     @State private var errorMessage: String?
     @State private var resendIn = 0
     @State private var ticker: Task<Void, Never>?
+    @State private var requestTask: Task<Void, Never>?
+    @State private var requestGeneration = UUID()
 
     private var emailLooksReal: Bool {
         let value = email.trimmingCharacters(in: .whitespaces)
@@ -49,13 +51,15 @@ struct EmailSignInSheet: View {
                 Spacer()
 
                 PrimaryButton(title: primaryTitle, enabled: primaryEnabled && !busy) {
-                    Task { await primaryAction() }
+                    requestTask?.cancel()
+                    requestTask = Task { await primaryAction() }
                 }
                 .overlay { if busy { ProgressView().tint(Theme.Colors.background) } }
 
                 if step == .code {
                     Button {
-                        Task { await resend() }
+                        requestTask?.cancel()
+                        requestTask = Task { await resend() }
                     } label: {
                         Text(resendIn > 0
                              ? String(localized: "Send another code in \(resendIn)s")
@@ -73,13 +77,16 @@ struct EmailSignInSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(step == .code ? String(localized: "Back") : String(localized: "Cancel")) {
+                        requestGeneration = UUID()
+                        requestTask?.cancel()
+                        busy = false
                         if step == .code { step = .address; errorMessage = nil } else { dismiss() }
                     }
                 }
             }
         }
-        .onAppear { focus = .email }
-        .onDisappear { ticker?.cancel() }
+        .onAppear { requestGeneration = UUID(); focus = .email }
+        .onDisappear { requestGeneration = UUID(); requestTask?.cancel(); ticker?.cancel() }
     }
 
     // MARK: - Steps
@@ -143,9 +150,18 @@ struct EmailSignInSheet: View {
                     // Digits only, six of them, and submit as soon as they are
                     // there — a Continue button under a full code is a step
                     // that exists only to be pressed.
-                    let digits = String(value.filter(\.isNumber).prefix(6))
-                    if digits != value { code = digits }
-                    if digits.count == 6, !busy { Task { await verify() } }
+                    let digits = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6))
+                    if digits != value {
+                        code = digits
+                        return
+                    }
+                    if digits.count == 6, !busy {
+                        // Reserve the request before scheduling it so a second
+                        // text change cannot redeem the same code concurrently.
+                        busy = true
+                        requestTask?.cancel()
+                        requestTask = Task { await verify() }
+                    }
                 }
         }
     }
@@ -183,36 +199,43 @@ struct EmailSignInSheet: View {
     }
 
     private func sendCode() async {
+        let generation = requestGeneration
         busy = true
         errorMessage = nil
-        defer { busy = false }
+        defer { if requestGeneration == generation { busy = false } }
         do {
             try await EmailAuthService.requestCode(email: email.trimmingCharacters(in: .whitespaces))
+            guard requestGeneration == generation, !Task.isCancelled else { return }
             step = .code
             focus = .code
             startResendCountdown()
         } catch {
+            guard requestGeneration == generation, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }
 
     private func resend() async {
+        let generation = requestGeneration
         busy = true
         errorMessage = nil
-        defer { busy = false }
+        defer { if requestGeneration == generation { busy = false } }
         do {
             try await EmailAuthService.requestCode(email: email.trimmingCharacters(in: .whitespaces))
+            guard requestGeneration == generation, !Task.isCancelled else { return }
             code = ""
             startResendCountdown()
         } catch {
+            guard requestGeneration == generation, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }
 
     private func verify() async {
+        let generation = requestGeneration
         busy = true
         errorMessage = nil
-        defer { busy = false }
+        defer { if requestGeneration == generation { busy = false } }
         do {
             let session = try await EmailAuthService.verifyCode(
                 email: email.trimmingCharacters(in: .whitespaces),
@@ -220,9 +243,11 @@ struct EmailSignInSheet: View {
                 name: name.trimmingCharacters(in: .whitespaces),
                 inviteCode: inviteCode.trimmingCharacters(in: .whitespaces)
             )
+            guard requestGeneration == generation, !Task.isCancelled else { return }
             onSignedIn(session, name.trimmingCharacters(in: .whitespaces))
             dismiss()
         } catch {
+            guard requestGeneration == generation, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
             code = ""
         }

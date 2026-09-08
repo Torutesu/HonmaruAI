@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "result": "Passed",
+  "startedAt": "2026-09-08T08:24:40.911000+00:00",
+  "finishedAt": "2026-09-08T08:25:33.394000+00:00",
+  "configuration": "Debug",
+  "platform": "iOS Simulator",
+  "device": "iPhone 17 Pro",
+  "osVersion": "26.4",
+  "architecture": "arm64",
+  "totalTests": 58,
+  "passed": 58,
+  "failed": 0,
+  "skipped": 0,
+  "suites": [
+    {
+      "name": "AccountLifecycleTests",
+      "tests": 4,
+      "failures": 0
+    },
+    {
+      "name": "AppLocalizationTests",
+      "tests": 2,
+      "failures": 0
+    },
+    {
+      "name": "CardCacheTests",
+      "tests": 5,
+      "failures": 0
+    },
+    {
+      "name": "DecisionCardTests",
+      "tests": 6,
+      "failures": 0
+    },
+    {
+      "name": "DecisionScopeTests",
+      "tests": 2,
+      "failures": 0
+    },
+    {
+      "name": "DeliveryErrorTests",
+      "tests": 6,
+      "failures": 0
+    },
+    {
+      "name": "DemoWorkspaceTests",
+      "tests": 6,
+      "failures": 0
+    },
+    {
+      "name": "EmailSessionTests",
+      "tests": 9,
+      "failures": 0
+    },
+    {
+      "name": "OutboxTests",
+      "tests": 8,
+      "failures": 0
+    },
+    {
+      "name": "PendingDeliveryTests",
+      "tests": 3,
+      "failures": 0
+    },
+    {
+      "name": "RequestComposerTests",
+      "tests": 4,
+      "failures": 0
+    },
+    {
+      "name": "SessionRecoveryTests",
+      "tests": 3,
+      "failures": 0
+    }
+  ],
+  "binarySHA256": {
+    "TikTokForWork": "2bb26ef9a5ff12905b54c2c8efd800edec39ed334a8122de4288841e9fad3ed1",
+    "TikTokForWork.debug.dylib": "4b8a5d482e5f35fc35d9ae151bf22c1185a695beedcd7868cec8bf289954c910"
+  },
+  "scope": "Local candidate working tree; includes Figma card layout, email integration, account lifecycle fixes and live English/Japanese catalog resolution.",
+  "evidenceType": "Xcode xcresult summary and test log",
+  "notProven": [
+    "Physical-device camera and microphone",
+    "Production OAuth or email delivery",
+    "APNs delivery",
+    "Signed archive or TestFlight install",
+    "Production billing or purchases"
+  ],
+  "postTestChanges": [
+    "Presentation only: accessibility card header uses separate kind and priority rows; all functional code matches the 58-test run.",
+    "Presentation only: Classic has a violet header with the actual workspace name, original AppLogo and profile action; missing Japanese section and action labels are translated. Cards layout and functional services are unchanged."
+  ],
+  "releaseSmoke": {
+    "result": "Passed",
+    "configuration": "Release",
+    "cleanInstall": true,
+    "settleSeconds": 12,
+    "launchedPID": 6017,
+    "sameProcessSurvivedEntireWindow": true,
+    "fatalSignatureFound": false,
+    "binarySHA256": "90cf7c2ebb88233c8ae27d8a8fc9f697f470a3b1595d60e6bcefc6d14b1271e5",
+    "postUnitTestChange": "Presentation only: accessibility card header uses separate kind and priority rows; all functional code matches the 58-test run.",
+    "log": "native-release-smoke.log",
+    "details": "native-release-smoke.json"
+  },
+  "releaseUIFollowup": {
+    "result": "Build succeeded; installed and launched",
+    "configuration": "Release",
+    "platform": "iOS Simulator",
+    "architecture": "arm64",
+    "completedAt": "2026-09-08T08:37:31.054033+00:00",
+    "launchedPID": 6999,
+    "binarySHA256": "c6b80a97929115d863c330b2a1981ee32beba2a10290a4c471006447fc4b0d4d",
+    "assetsSHA256": "f154a39a2796a1717fec51c4b81a578bda8fc208eed70713d4f8bff9c17aee4b",
+    "delta": "Presentation only: Classic has a violet header with the actual workspace name, original AppLogo and profile action; missing Japanese section and action labels are translated. Cards layout and functional services are unchanged.",
+    "unitTestsRerun": false,
+    "verification": "Incremental xcodebuild build, simctl terminate/install/launch; manual Classic screenshot review follows.",
+    "priorSmokeScope": "The recorded clean-install 12-second smoke run predates this Classic header and catalog-only follow-up."
+  }
+}

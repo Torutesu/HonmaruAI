@@ -1,0 +1,50 @@
+{
+  "recordedAt": "2026-09-08",
+  "qualification": "Local merged working-tree verification; no production deployment",
+  "source": {
+    "headBeforeMerge": "efb6c910dd2f602822bf15bef0b2cfac4c0a098f",
+    "mergedUpstream": "22f3b2aa380d8a2ef02b78e0fe8b18d97a69fa08",
+    "state": "Resolved Worker sources in an in-progress merge, with additional uncommitted regression fixes; this is not exact-commit qualification"
+  },
+  "worker": {
+    "command": "WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/private/tmp/honmaru-worker-logs npm test",
+    "workingDirectory": "worker",
+    "runtime": "Cloudflare Vitest pool / workerd with disposable D1",
+    "startedAt": "2026-09-08T17:14:32+09:00",
+    "result": "passed",
+    "filesPassed": 62,
+    "testsPassed": 353,
+    "testsFailed": 0,
+    "durationSeconds": 19.27,
+    "log": "/private/tmp/honmaru-worker-final-353.log",
+    "coveredChanges": [
+      "Current workspace member listing and validated explicit AI recipient",
+      "Current recipient membership checked before filing and atomically at card INSERT",
+      "Session and membership revocation on existing WebSockets",
+      "Public signup cannot bypass password validation with passwordless=true",
+      "OTP consumption is single-use under concurrent verification",
+      "Stale OTP attempts cannot consume or penalize a replacement code",
+      "Returning password and OTP sessions return a current authorized workspace or null",
+      "Descriptive roster titles preserve administrative membership standing"
+    ]
+  },
+  "referenceRelay": {
+    "command": "npm test",
+    "workingDirectory": "server",
+    "runtime": "Local Node.js reference relay",
+    "result": "passed",
+    "testsPassed": 11,
+    "testsFailed": 0,
+    "durationSeconds": 7.730863375,
+    "log": "/private/tmp/honmaru-relay-final-tests-unrestricted.log",
+    "initialSandboxRun": "8 pure tests passed; 3 spawned-server tests timed out before listening. All 11 passed after granting local listener access.",
+    "scope": "server/ is a legacy reference implementation; its tests do not qualify production authorization"
+  },
+  "limitations": [
+    "Logs are local filesystem evidence and may not survive workspace cleanup.",
+    "No remote Worker deployment, production D1 migration or live user data was used.",
+    "External AI, GitHub OAuth, email delivery, Notion, APNs, Web Push and billing-provider behavior are not qualified by these tests.",
+    "Physical-device, App Store signing and TestFlight readiness require separate evidence.",
+    "WebSocket transport send alone is not a persistence receipt; client confirmation relies on matching saved server state, with no general exactly-once delivery guarantee."
+  ]
+}

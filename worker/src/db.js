@@ -13,21 +13,25 @@ export async function loadStore(db, orgId) {
   return store;
 }
 
-export async function saveCard(db, orgId, card) {
+export async function saveCard(db, orgId, card, { createOnly = false, requireRecipientMembership = false } = {}) {
   const now = new Date().toISOString();
-  await db
+  const result = await db
     .prepare(
       `INSERT INTO cards (org_id, card_id, recipient_user_id, sender_user_id, created_at, data,
                           status, priority, decided_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-       ON CONFLICT(org_id, card_id) DO UPDATE SET
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+       WHERE ${requireRecipientMembership ? `EXISTS (
+         SELECT 1 FROM memberships m JOIN users u ON u.github_id = m.user_github_id
+         WHERE m.org_id = ?1 AND u.login = ?3
+       )` : "1"}
+       ON CONFLICT(org_id, card_id) ${createOnly ? "DO NOTHING" : `DO UPDATE SET
          recipient_user_id = excluded.recipient_user_id,
          sender_user_id = excluded.sender_user_id,
          data = excluded.data,
          status = excluded.status,
          priority = excluded.priority,
          decided_at = excluded.decided_at,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at`}`
     )
     .bind(
       orgId,
@@ -42,6 +46,45 @@ export async function saveCard(db, orgId, card) {
       now
     )
     .run();
+  return result.meta.changes > 0;
+}
+
+// An update must not recreate a card deleted while the client was offline, or
+// replace a newer mutation that landed during an asynchronous handler.
+export async function replaceCard(db, orgId, card, expected) {
+  const row = await db.prepare(
+    `UPDATE cards SET data = ?3, status = ?4, priority = ?5, decided_at = ?6, updated_at = ?7
+     WHERE org_id = ?1 AND card_id = ?2 AND data = ?8 RETURNING card_id`
+  ).bind(
+    orgId, card.id, JSON.stringify(card), card.status || null, card.priority || null,
+    card.decision?.decidedAt || null, new Date().toISOString(), JSON.stringify(expected)
+  ).first();
+  return Boolean(row);
+}
+
+// Model work can finish after an approval, edit, filing, or deletion. Merge
+// only its enrichment fields in SQL, conditional on the original source text;
+// never write the stale full card that was sent to the model.
+export async function mergeCardEnrichment(db, orgId, original, enriched) {
+  const patch = {};
+  if (enriched.localized !== original.localized) patch.localized = enriched.localized;
+  if (enriched.business !== original.business) patch.business = enriched.business;
+  if (!Object.keys(patch).length) return null;
+  const row = await db.prepare(
+    `UPDATE cards SET data = json_patch(data, ?3), updated_at = ?4
+     WHERE org_id = ?1 AND card_id = ?2
+       AND json_extract(data, '$.recipientUserID') IS ?5
+       AND json_extract(data, '$.title') IS ?6
+       AND json_extract(data, '$.summary') IS ?7
+       AND json_extract(data, '$.context') IS ?8
+       AND (?9 = 0 OR json_extract(data, '$.business') IS ?10)
+     RETURNING data`
+  ).bind(
+    orgId, original.id, JSON.stringify(patch), new Date().toISOString(),
+    original.recipientUserID, original.title ?? null, original.summary ?? null,
+    original.context ?? null, Object.hasOwn(patch, "business") ? 1 : 0, original.business ?? null
+  ).first();
+  return row ? JSON.parse(row.data) : null;
 }
 
 // One card, without paying to deserialize the whole org. The relay needs this
@@ -377,6 +420,15 @@ export async function isMember(db, orgId, githubId) {
   return Boolean(row);
 }
 
+// Cards address relay logins, while membership rows hold account ids.
+export async function isLoginMember(db, orgId, login) {
+  const row = await db.prepare(
+    `SELECT 1 FROM memberships m JOIN users u ON u.github_id = m.user_github_id
+     WHERE m.org_id = ?1 AND u.login = ?2`
+  ).bind(orgId, login).first();
+  return Boolean(row);
+}
+
 // A row is written for every scanned item, including ones the triage rejected
 // (card_id NULL). Without that, every sync re-reads and re-judges the same mail
 // forever, paying the model to reach the same "no".
@@ -545,9 +597,27 @@ export async function removeSubscription(db, endpoint) {
 }
 
 
-// List an org's members with their display names, for routing. Joins to users
-// so the router can match instructions like "ask Newbie to ..." to a real
-// person, and returns them in the org-graph "nodes" shape the router expects.
+// Directory for recipient pickers, using the same ids as card delivery.
+export async function listWorkspaceMembers(db, orgId) {
+  const rows = await db.prepare(
+    `SELECT u.login AS id, COALESCE(NULLIF(u.name, ''), u.login) AS name,
+            COALESCE(m.title, m.role) AS role, u.avatar_url AS avatarUrl
+       FROM memberships m JOIN users u ON u.github_id = m.user_github_id
+      WHERE m.org_id = ?1
+      ORDER BY name COLLATE NOCASE, u.login`
+  ).bind(orgId).all();
+  // Relay logins are the identifiers cards use. Do not expose account ids,
+  // notification email addresses, credentials, or unrelated memberships.
+  return (rows?.results || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    role: (row.role || "member").toLowerCase(),
+    ...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+  }));
+}
+
+// Routing uses the org-graph shape, including explicit roles for name/role
+// matching. Keep it separate from the minimal member-directory response.
 export async function listOrgNodes(db, orgId) {
   const rows = await db
     .prepare(

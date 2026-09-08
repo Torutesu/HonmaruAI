@@ -4,15 +4,31 @@ struct PageDots: View {
     let count: Int
     let index: Int
 
+    private var visibleRange: Range<Int> {
+        let start = min(max(0, index - 3), max(0, count - 7))
+        return start..<min(count, start + 7)
+    }
+
     var body: some View {
         HStack(spacing: 5) {
-            ForEach(0..<count, id: \.self) { i in
+            ForEach(visibleRange, id: \.self) { i in
                 Capsule()
                     .fill(i == index ? Theme.Colors.textPrimary : Theme.Colors.textTertiary.opacity(0.45))
                     .frame(width: i == index ? 16 : 5, height: 5)
                     .animation(.easeOut(duration: 0.2), value: index)
             }
         }
+    }
+}
+
+struct PressFeedbackStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.78 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: configuration.isPressed)
     }
 }
 
@@ -24,13 +40,17 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 16, weight: .medium))
+                .font(.body.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(enabled ? Theme.Colors.textPrimary : Theme.Colors.surfaceRaised)
-                .foregroundStyle(enabled ? Theme.Colors.background : Theme.Colors.textTertiary)
+                .frame(minHeight: 52)
+                .background(enabled ? Theme.Colors.ctaFill : Theme.Colors.surfaceRaised)
+                .foregroundStyle(enabled ? Theme.Colors.ctaText : Theme.Colors.textTertiary)
                 .clipShape(Capsule())
         }
+        .buttonStyle(PressFeedbackStyle())
         .disabled(!enabled)
     }
 }
@@ -56,6 +76,7 @@ struct GitHubPrimaryButton: View {
             .foregroundStyle(enabled ? Color.white : Theme.Colors.textTertiary)
             .clipShape(Capsule())
         }
+        .buttonStyle(PressFeedbackStyle())
         .disabled(!enabled)
     }
 }
@@ -71,7 +92,7 @@ struct SecondaryAction: View {
                 .font(.system(size: 14))
                 .foregroundStyle(tint)
                 .frame(maxWidth: .infinity)
-                .frame(height: 40)
+                .frame(minHeight: 44)
         }
     }
 }
@@ -86,15 +107,20 @@ struct ComposeBar: View {
                 Image(systemName: "sparkle")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.Colors.accent)
-                Text(placeholder)
+                Text(LocalizedStringKey(placeholder))
                     .font(Theme.TypeScale.body)
                     .foregroundStyle(Theme.Colors.textTertiary)
                 Spacer()
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.ctaText)
+                    .frame(width: 30, height: 30)
+                    .background(Theme.Colors.ctaFill, in: Circle())
             }
             .padding(.horizontal, Theme.Spacing.md)
-            .frame(height: 48)
-            .background(Theme.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input))
+            .frame(minHeight: 52)
+            .background(Theme.Colors.background, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.Colors.border, lineWidth: 1))
         }
     }
 }
@@ -142,10 +168,10 @@ struct PrioritySlider: View {
 
     private var priorityLabel: String {
         switch priority {
-        case .low: "Low"
-        case .medium: "Medium"
-        case .high: "High"
-        case .urgent: "Urgent"
+        case .low: String(localized: "Low")
+        case .medium: String(localized: "Medium")
+        case .high: String(localized: "High")
+        case .urgent: String(localized: "Urgent")
         }
     }
 
@@ -164,10 +190,10 @@ struct PrioritySlider: View {
 
     private func shortLabel(for level: CardPriority) -> String {
         switch level {
-        case .low: "Low"
+        case .low: String(localized: "Low")
         case .medium: String(localized: "Med")
-        case .high: "High"
-        case .urgent: String(localized: "Now")
+        case .high: String(localized: "High")
+        case .urgent: String(localized: "Urgent")
         }
     }
 }

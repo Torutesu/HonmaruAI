@@ -89,7 +89,8 @@ export async function requestCode(env, { email, locale }) {
   if (!sent.ok) {
     // The row would otherwise sit there refusing a resend for a minute over a
     // code that never left the building.
-    await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
+    await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1 AND code_hash = ?2 AND code_salt = ?3")
+      .bind(address, hash, salt).run();
     // The provider's status code travels with the refusal, and its message
     // does not. A number is enough to tell a bad key (401) from a permission
     // (403) from a malformed request (422), which is the whole question when
@@ -121,7 +122,8 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
   const dead = { error: "That code is not valid. Ask for a new one.", status: 400 };
   if (!row) return dead;
   if (Date.parse(row.expires_at) < Date.now() || row.attempts >= MAX_ATTEMPTS) {
-    await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
+    await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1 AND code_hash = ?2 AND code_salt = ?3")
+      .bind(address, row.code_hash, row.code_salt).run();
     return dead;
   }
 
@@ -129,18 +131,26 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
   if (!safeEqual(attempt, row.code_hash)) {
     // Counted in the database, not in memory: the guesses arrive on different
     // requests, and a Worker isolate does not survive between them.
-    await env.DB
-      .prepare("UPDATE login_codes SET attempts = attempts + 1 WHERE email = ?1")
-      .bind(address)
-      .run();
-    const left = MAX_ATTEMPTS - (row.attempts + 1);
+    const updated = await env.DB.prepare(
+      `UPDATE login_codes SET attempts = attempts + 1
+       WHERE email = ?1 AND code_hash = ?2 AND code_salt = ?3
+         AND attempts < ?4 AND expires_at > ?5 RETURNING attempts`
+    ).bind(address, row.code_hash, row.code_salt, MAX_ATTEMPTS, new Date().toISOString()).first();
+    if (!updated) return dead;
+    const left = MAX_ATTEMPTS - updated.attempts;
     return left > 0
       ? { error: `That code is not right. ${left} ${left === 1 ? "try" : "tries"} left.`, status: 400 }
       : dead;
   }
 
-  // Spent. A correct code is single-use, whatever happens after this line.
-  await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
+  // Spend only the code that was checked, while its guess budget and expiry
+  // are still valid. Hashing awaited above; another request may have replaced
+  // or consumed it in the meantime. Exactly one DELETE may issue a session.
+  const spent = await env.DB.prepare(
+    `DELETE FROM login_codes WHERE email = ?1 AND code_hash = ?2 AND code_salt = ?3
+       AND attempts < ?4 AND expires_at > ?5 RETURNING email`
+  ).bind(address, row.code_hash, row.code_salt, MAX_ATTEMPTS, new Date().toISOString()).first();
+  if (!spent) return dead;
 
   const user = await env.DB
     .prepare("SELECT github_id, login FROM users WHERE email = ?1")
@@ -156,5 +166,8 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
   // keeps the name and language they chose; `upsertUser` overwrites `name`
   // with what it is given, and this path is given none.
   const token = await createSession(env.DB, user.github_id, EMAIL_AUTH_TOKEN);
-  return { token, userId: user.github_id, login: user.login, created: false };
+  const membership = await env.DB
+    .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 ORDER BY created_at, org_id LIMIT 1")
+    .bind(user.github_id).first();
+  return { token, userId: user.github_id, login: user.login, orgId: membership?.org_id ?? null, created: false };
 }

@@ -49,6 +49,22 @@ final class EmailSessionTests: XCTestCase {
         XCTAssertFalse(SessionStore.clearedKeys.contains("apiKey"))
     }
 
+    func testAnEmailTransitionClearsGitHubFieldsWithoutDeletingItsFreshToken() {
+        XCTAssertTrue(SessionStore.githubConnectionKeys.contains("githubRepository"))
+        XCTAssertTrue(SessionStore.githubConnectionKeys.contains("githubUsername"))
+        XCTAssertFalse(SessionStore.githubConnectionKeys.contains("sessionToken"))
+        XCTAssertFalse(SessionStore.githubConnectionKeys.contains("orgId"))
+        XCTAssertTrue(SessionStore.clearedKeys.contains("accountID"))
+    }
+
+    func testEmailResponseKeepsServerIdentityAndAllowsMembershipLessAccounts() throws {
+        let session = try EmailAuthService.decodeSession(["token": "tok", "login": "u:mai@example.com", "userId": "email:mai@example.com", "orgId": NSNull()])
+        XCTAssertEqual(session.login, "u:mai@example.com")
+        XCTAssertEqual(session.userID, "email:mai@example.com")
+        XCTAssertTrue(session.orgId.isEmpty)
+        XCTAssertThrowsError(try EmailAuthService.decodeSession(["token": "tok", "orgId": "acme/app"]))
+    }
+
     func testARelayLoginReadsAsAName() {
         XCTAssertEqual(AppState.readableLogin("u:mai@honmaru.jp"), "mai")
         XCTAssertEqual(AppState.readableLogin("email:ken@example.com"), "ken")

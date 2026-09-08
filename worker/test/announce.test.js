@@ -1,4 +1,7 @@
-import { expect, test } from "vitest";
+import { expect, test, beforeAll } from "vitest";
+import { env } from "cloudflare:test";
+import schemaSql from "../schema.sql?raw";
+import { upsertUser, upsertMembership, createSession } from "../src/db.js";
 import { announceCards, ANNOUNCE_PATH } from "../src/announce.js";
 import { OrgRelay } from "../src/relay.js";
 
@@ -59,9 +62,19 @@ test("a relay that will not answer does not fail the sync that produced the card
   await expect(announceCards({ ORG_RELAY }, "acme/web", [CARD])).resolves.toMatchObject({ announced: 0 });
 });
 
+const tokens = {};
+beforeAll(async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  for (const login of ["watcher", "someone-else"]) {
+    await upsertUser(env.DB, { githubId: login, login });
+    await upsertMembership(env.DB, "acme/web", login, "member");
+    tokens[login] = await createSession(env.DB, login, "email-auth");
+  }
+});
+
 function fakeSocket(orgId, userId) {
   const sent = [];
-  return { sent, deserializeAttachment: () => ({ orgId, userId, agui: true }), send: (t) => sent.push(t) };
+  return { sent, deserializeAttachment: () => ({ orgId, userId, githubId: userId, sessionToken: tokens[userId], agui: true, authed: true }), send: (t) => sent.push(t) };
 }
 
 test("the relay pushes an announced card to the sockets already open", async () => {
@@ -70,7 +83,7 @@ test("the relay pushes an announced card to the sockets already open", async () 
   const otherOrg = fakeSocket("other/repo", "watcher");
   const relay = new OrgRelay(
     { getWebSockets: () => [watcher, bystander, otherOrg], acceptWebSocket() {} },
-    {}
+    env
   );
 
   const res = await relay.fetch(new Request(

@@ -1,386 +1,263 @@
 import SwiftUI
 
 struct FeedView: View {
-    /// When embedded in `AppShell` the surrounding chrome — the segmented
-    /// control, the avatar, the tab bar — belongs to the shell, and this view
-    /// draws only the cards. Standalone it draws its own, which is what the
-    /// preview and any direct presentation still rely on.
-    var showsChrome: Bool = true
-    /// Incremented by the shell's ＋ button. The draft chain lives here with the
-    /// view model, so the shell asks for it rather than rebuilding it.
-    var composeTick: Int = 0
-    /// What the capture screen came back with. Arrives already uploaded, so the
-    /// draft chain starts the moment it is set.
-    var captured: CaptureRequest?
-    /// Exposed so the embedding shell can display page dots without owning the
-    /// view model. Ignored when showsChrome is true (topBar renders them itself).
-    var cardCount: Binding<Int> = .constant(0)
-    var currentCardIndex: Binding<Int> = .constant(0)
-
+    var onProfile: () -> Void = {}
+    var onComposeToMember: (String) -> Void = { _ in }
     @EnvironmentObject private var appState: AppState
-    @EnvironmentObject private var subscriptions: SubscriptionService
-    @EnvironmentObject private var push: PushService
-    @StateObject private var viewModel = FeedViewModel()
-    @State private var aiPrompt = ""
-    @State private var showAIInput = false
-    @State private var showOrgGraph = false
-    @State private var showMenu = false
-    @State private var showConnectGitHub = false
-    @State private var showPaywall = false
-    @State private var connectContext: ConnectGitHubSheet.Context = .settings
-
-    var body: some View {
-        ZStack {
-            Theme.Colors.background.ignoresSafeArea()
-
-            if viewModel.cards.isEmpty {
-                emptyState
-            } else {
-                ScrollView(.vertical) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(viewModel.cards) { card in
-                            DecisionCardView(
-                                card: card,
-                                linkedRepository: appState.githubService.linkedRepository,
-                                isGitHubConnected: appState.githubService.isConnected,
-                                onAction: { action in
-                                    Task {
-                                        await viewModel.handle(action: action, for: card, appState: appState)
-                                    }
-                                },
-                                onShowDetails: {
-                                    viewModel.detailCard = card
-                                }
-                            )
-                            .containerRelativeFrame(.vertical)
-                            .id(card.id)
-                        }
-                    }
-                    .scrollTargetLayout()
-                }
-                .scrollTargetBehavior(.paging)
-                .scrollPosition(id: $viewModel.scrollPosition)
-                .scrollIndicators(.hidden)
-                .refreshable { await syncConnectors() }
-            }
-
-            if viewModel.isProcessing {
-                ProcessingOverlay(message: viewModel.processingMessage)
-            }
-
-            if viewModel.isDrafting {
-                VStack {
-                    DraftingBanner()
-                    Spacer()
-                }
-            }
-
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if showsChrome { topBar }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if showsChrome { bottomChrome }
-        }
-        .onChange(of: composeTick) { _, _ in
-            showAIInput = true
-        }
-        .onChange(of: push.pendingCardID) { _, cardID in
-            guard let cardID else { return }
-            viewModel.focus(cardID: cardID)
-            push.pendingCardID = nil
-        }
-        .onChange(of: captured) { _, request in
-            guard let request else { return }
-            viewModel.beginDraft(request.text, priority: .medium, appState: appState, videoURL: request.videoURL)
-        }
-        .task { await syncConnectors() }
-        .onChange(of: viewModel.cards.count) { _, count in cardCount.wrappedValue = count }
-        .onChange(of: viewModel.currentIndex) { _, index in currentCardIndex.wrappedValue = index }
-        .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
-        .onAppear {
-            cardCount.wrappedValue = viewModel.cards.count
-            currentCardIndex.wrappedValue = viewModel.currentIndex
-            guard let user = appState.currentUser else { return }
-            viewModel.bind(
-                to: appState.cardService,
-                user: user,
-                githubService: appState.githubService
-            )
-            Task { await viewModel.syncGitHub() }
-        }
-        .sheet(isPresented: $showOrgGraph) {
-            OrgGraphView()
-                .environmentObject(appState)
-        }
-        .sheet(isPresented: $showAIInput) {
-            AIInputSheet(
-                prompt: $aiPrompt,
-                isAIConfigured: appState.aiService.isConfigured,
-                onSubmit: { text, priority in
-                    viewModel.beginDraft(text, priority: priority, appState: appState)
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationBackground(Theme.Colors.surface)
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(item: $viewModel.reviewDraft) { draft in
-            DraftReviewSheet(draft: draft) { finalDraft in
-                Task {
-                    await viewModel.sendDraft(finalDraft, appState: appState)
-                    aiPrompt = ""
-                }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationBackground(Theme.Colors.surface)
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(item: $viewModel.detailCard) { card in
-            CardDetailSheet(card: card)
-                .presentationDetents([.medium, .large])
-        }
-        .sheet(item: $viewModel.reviseCard) { card in
-            ReviseSheet(card: card) { note in
-                Task {
-                    await viewModel.completeRevision(for: card, note: note, appState: appState)
-                }
-            }
-        }
-        .sheet(isPresented: $showConnectGitHub) {
-            ConnectGitHubSheet(context: connectContext)
-                .environmentObject(appState)
-                .presentationDetents([.medium, .large])
-                .presentationBackground(Theme.Colors.surface)
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showPaywall) {
-            ProPaywallSheet()
-                .environmentObject(subscriptions)
-        }
-        .sheet(item: $viewModel.delegateCard) { card in
-            DelegatePickerSheet(
-                card: card,
-                currentUserID: appState.currentUser?.id ?? ""
-            ) { user in
-                Task {
-                    await viewModel.completeDelegate(for: card, to: user, appState: appState)
-                }
-            }
-            .environmentObject(appState)
-        }
-        .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
-            Button("Organization") { showOrgGraph = true }
-            if !appState.githubService.isConnected {
-                Button("Connect GitHub") {
-                    connectContext = .settings
-                    showConnectGitHub = true
-                }
-            }
-            Button("Sign out", role: .destructive) { disconnect() }
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Error", isPresented: errorBinding) {
-            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
-        } message: {
-            Text(viewModel.errorMessage ?? "")
-        }
-    }
-
-    private var errorBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
-        )
-    }
-
-    private var connectionColor: Color {
-        switch appState.connectionState {
-        case .connected: Theme.Colors.approve
-        case .connecting: Theme.Colors.interactive
-        case .refused: Theme.Colors.reject
-        case .offline: Theme.Colors.textTertiary
-        }
-    }
-
-    private var connectionLabel: String? {
-        switch appState.connectionState {
-        case .connected: nil
-        case .connecting: String(localized: "Reconnecting…")
-        case .refused: String(localized: "No access")
-        case .offline: String(localized: "Offline")
-        }
-    }
-
-    private var topBar: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(connectionColor)
-                    .frame(width: 5, height: 5)
-                Text(appState.currentUser?.name ?? "")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                // The dot alone used to claim "live" whether or not the socket
-                // was, so a state that is not connected says what it is.
-                if let label = connectionLabel {
-                    Text(label)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
-
-            Spacer()
-
-            if viewModel.cards.count > 1 {
-                PageDots(count: viewModel.cards.count, index: viewModel.currentIndex)
-            }
-
-            Spacer()
-
-            Button { showMenu = true } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-        }
-        .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.top, Theme.Spacing.sm)
-        .padding(.bottom, Theme.Spacing.md)
-        .background(
-            Theme.Colors.background
-                .ignoresSafeArea(edges: .top)
-        )
-    }
-
-    private var bottomChrome: some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            if viewModel.quotaExceeded {
-                quotaNotice
-            }
-
-            if let repo = appState.githubService.connection?.repository {
-                Text(repo)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .lineLimit(1)
-            } else {
-                Button {
-                    connectContext = .settings
-                    showConnectGitHub = true
-                } label: {
-                    Text("Local mode · Connect GitHub")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                        .lineLimit(1)
-                }
-            }
-
-            ComposeBar(placeholder: "Tell your AI") {
-                showAIInput = true
-            }
-        }
-        .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.top, Theme.Spacing.sm)
-        .padding(.bottom, Theme.Spacing.md)
-        .background(
-            Theme.Colors.background
-                .ignoresSafeArea(edges: .bottom)
-        )
-    }
-
-    /// A single quiet line shown after a draft came back on the keyword fallback
-    /// because the free daily AI quota ran out. Tapping it opens the paywall;
-    /// tapping the ✕ dismisses it. It is deliberately not an alert — it must not
-    /// interrupt or repeat.
-    private var quotaNotice: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            Button {
-                viewModel.quotaExceeded = false
-                showPaywall = true
-            } label: {
-                HStack(spacing: 4) {
-                    Text("You've used today's AI routing.")
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                    Text("Upgrade")
-                        .foregroundStyle(Theme.Colors.accent)
-                }
-                .font(.system(size: 11))
-                .lineLimit(1)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                viewModel.quotaExceeded = false
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    /// An empty feed has three different causes and they need three different
-    /// sentences. "No decisions yet" in front of someone whose socket was
-    /// refused, or who has no network, is the app blaming the user for its own
-    /// state.
-    private var emptyState: some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            Text(emptyTitle)
-                .font(Theme.TypeScale.body)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, Theme.Spacing.md)
-
-            if case .offline = appState.connectionState {
-                Button(String(localized: "Try again")) {
-                    appState.webSocketService.reconnectIfNeeded()
-                }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Theme.Colors.interactive)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var emptyTitle: String {
-        switch appState.connectionState {
-        case .refused(let reason):
-            reason
-        case .offline:
-            String(localized: "You are offline. Decisions will appear when you reconnect.")
-        case .connecting:
-            String(localized: "Catching up…")
-        case .connected:
-            String(localized: "No decisions yet. Tell your AI something, or wait for a teammate.")
-        }
-    }
-
-    private func disconnect() {
-        appState.signOut()
-    }
-
-    private func syncConnectors() async {
-        guard let user = appState.currentUser,
-              let repository = appState.githubService.connection?.repository,
-              let base = appState.backendBaseURL else { return }
-        await ConnectorService.syncAll(
-            orgId: repository,
-            userId: user.id,
-            readerLanguage: appState.readerLanguageCode,
-            backendBaseURL: base
-        )
-    }
+    var body: some View { CardHomeContent(service: appState.cardService, onProfile: onProfile, onComposeToMember: onComposeToMember) }
 }
 
-#Preview {
-    FeedView()
-        .environmentObject(AppState())
-        .environmentObject(SubscriptionService.shared)
-        .environmentObject(PushService.shared)
+private struct CardHomeContent: View {
+    @ObservedObject var service: DecisionCardService
+    let onProfile: () -> Void
+    let onComposeToMember: (String) -> Void
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var push: PushService
+    @State private var classic = false
+    @State private var selectedID: String?
+    @State private var search = ""
+    @State private var highPriorityOnly = false
+    @State private var detailCard: DecisionCard?
+    @State private var noteCard: DecisionCard?
+    @State private var noteAction: CardActionKind = .reply
+    @State private var note = ""
+    @State private var delegateCard: DecisionCard?
+    @State private var pendingAction: CardActionKind?
+    @State private var confirmationCard: DecisionCard?
+    @State private var showConfirmation = false
+    @State private var isWorking = false
+    @State private var error: String?
+    @State private var lastDecision: DecisionCard?
+    @State private var confirmUndo = false
+    private var cards: [DecisionCard] { service.cards(for: appState.currentUser?.id ?? "").filter(\.isPending) }
+    private var selectedCard: DecisionCard? { cards.first { $0.id == selectedID } ?? cards.first }
+    private var filtered: [DecisionCard] {
+        cards.filter { card in (!highPriorityOnly || card.priority == .high || card.priority == .urgent) && (search.isEmpty || [card.title, card.summary, memberName(card.senderUserID)].joined(separator: " ").localizedCaseInsensitiveContains(search)) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if classic { classicWorkspaceHeader }
+            header
+            if classic { classicList }
+            else if cards.isEmpty { emptyState }
+            else {
+                TabView(selection: $selectedID) {
+                    ForEach(cards) { card in
+                        VStack(spacing: 0) {
+                            ScrollView {
+                                DecisionCardView(card: card, linkedRepository: appState.githubService.linkedRepository, isGitHubConnected: !appState.isGuest && appState.githubService.isConnected, showsActions: false, onAction: { handle($0, card: card) }, onShowDetails: { detailCard = card })
+                                    .disabled(isWorking).padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 8)
+                            }
+                            DecisionCardActions(card: card, onAction: { handle($0, card: card) })
+                                .disabled(isWorking).padding(.top, 12).padding(.bottom, 20)
+                        }.tag(Optional(card.id))
+                    }
+                }.tabViewStyle(.page(indexDisplayMode: .never))
+            }
+            if let lastDecision {
+                HStack(spacing: 10) {
+                    Text(service.awaitingDeliveryIDs.contains(lastDecision.id) ? String(localized: "Waiting for workspace sync") : lastDecision.status.label).font(.footnote)
+                    Spacer()
+                    Button("Undo") { if lastDecision.githubIssueNumber != nil { confirmUndo = true } else { undo(lastDecision) } }.font(.footnote.weight(.semibold)).disabled(isWorking)
+                }.padding(.horizontal, 22).padding(.vertical, 8).background(Theme.Colors.background)
+            }
+            if !appState.isGuest && appState.connectionState != .connected {
+                Text(connectionMessage).font(.caption).foregroundStyle(Theme.Colors.textSecondary).padding(.bottom, 8)
+            }
+        }
+        .background(Theme.Colors.surface)
+        .onAppear { selectedID = selectedCard?.id }
+        .onChange(of: service.revision) { _, _ in if !cards.contains(where: { $0.id == selectedID }) { selectedID = cards.first?.id } }
+        .onChange(of: push.pendingCardID) { _, id in
+            guard let id, let card = service.card(id: id) else { return }
+            detailCard = card; push.pendingCardID = nil
+        }
+        .sheet(item: $detailCard) { card in
+            NavigationStack {
+                RequestDetailView(cardID: card.id, service: service)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { detailCard = nil } } }
+            }
+        }
+        .sheet(item: $noteCard) { card in noteSheet(card) }
+        .sheet(item: $delegateCard) { card in delegateSheet(card) }
+        .confirmationDialog(pendingAction == .reject ? String(localized: "Decline this request?") : String(localized: "Approve and create a GitHub issue?"), isPresented: $showConfirmation, titleVisibility: .visible) {
+            if let card = confirmationCard, let action = pendingAction {
+                Button(action == .reject ? String(localized: "Decline") : String(localized: "Approve"), role: action == .reject ? .destructive : nil) { resolve(card, action: action) }
+            }
+        } message: {
+            if pendingAction == .createIssue { Text(appState.githubService.linkedRepository) }
+        }
+        .confirmationDialog("Undo this decision?", isPresented: $confirmUndo, titleVisibility: .visible) {
+            if let card = lastDecision { Button("Undo decision") { undo(card) } }
+        } message: { Text("This reopens the request. Changes already made in GitHub will remain.") }
+        .alert("Could not update request", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK") { error = nil }
+        } message: { Text(error ?? "") }
+    }
+
+    private var header: some View {
+        HStack {
+            HStack(spacing: 0) {
+                Button { classic = false } label: {
+                    HStack(spacing: 6) {
+                        Text("Cards").font(.system(size: 13, weight: .medium))
+                        Text("\(cards.count)").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.Colors.ctaText)
+                            .frame(minWidth: 20, minHeight: 20).background(Theme.Colors.ctaFill, in: Circle())
+                    }.padding(.horizontal, 10).frame(minHeight: 34)
+                        .background(!classic ? Theme.Colors.background : Color.clear, in: Capsule())
+                }
+                Button { classic = true } label: {
+                    Text("Classic").font(.system(size: 13, weight: .medium)).padding(.horizontal, 12).frame(minHeight: 34)
+                        .foregroundStyle(classic ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
+                        .background(classic ? Theme.Colors.background : Color.clear, in: Capsule())
+                }
+            }.padding(4).background(Theme.Colors.surfaceRaised, in: Capsule()).buttonStyle(.plain)
+            Spacer()
+            if !classic {
+                Button(action: onProfile) {
+                    RequestAvatar(name: appState.currentUser?.name ?? "?", url: appState.workspaceMembers.first { $0.id == appState.currentUser?.id }?.avatarUrl, size: 38)
+                }.buttonStyle(.plain).accessibilityLabel("Profile")
+            }
+        }
+        .foregroundStyle(Theme.Colors.textPrimary)
+        .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 12)
+    }
+
+    private var classicWorkspaceHeader: some View {
+        HStack(spacing: 10) {
+            AppLogo(size: 24)
+                .padding(4).background(.white, in: RoundedRectangle(cornerRadius: 6))
+            Text(appState.workspaceDisplayName)
+                .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onProfile) {
+                RequestAvatar(name: appState.currentUser?.name ?? "?", url: appState.workspaceMembers.first { $0.id == appState.currentUser?.id }?.avatarUrl, size: 30)
+                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1))
+                    .frame(width: 44, height: 44)
+            }.buttonStyle(.plain).accessibilityLabel("Profile")
+        }
+        .padding(.horizontal, 20).padding(.vertical, 6)
+        .background(Color(hex: 0x2B154B))
+        .padding(.bottom, 6)
+    }
+
+    private var classicList: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(Theme.Colors.textSecondary)
+                TextField("Search requests or people", text: $search).font(.subheadline)
+                Button { highPriorityOnly.toggle() } label: { Image(systemName: "slider.horizontal.3") }
+                    .foregroundStyle(highPriorityOnly ? Theme.Colors.accent : Theme.Colors.textSecondary).accessibilityLabel("High priority")
+            }.padding(12).background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.Colors.border)).padding(.horizontal, 20)
+            List {
+                Section(appState.isGuest ? String(localized: "Sample requests") : String(localized: "Requests")) {
+                    ForEach(filtered) { card in
+                        Button { detailCard = card } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "number").font(.title3).foregroundStyle(Theme.Colors.accent).frame(width: 36, height: 36).background(Theme.Colors.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.Colors.textPrimary).lineLimit(1)
+                                    Text(card.summary).font(.caption).foregroundStyle(Theme.Colors.textSecondary).lineLimit(1)
+                                }
+                            }.padding(.vertical, 4)
+                        }
+                    }
+                    if filtered.isEmpty { Text("No matching requests").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary) }
+                }
+                Section("Teammates") {
+                    ForEach(appState.workspaceMembers.filter { $0.id != appState.currentUser?.id }) { member in
+                        Button { onComposeToMember(member.id) } label: {
+                            HStack(spacing: 10) {
+                                RequestAvatar(name: member.name, url: member.avatarUrl, size: 32)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(member.name).font(.subheadline.weight(.medium)).foregroundStyle(Theme.Colors.textPrimary)
+                                    Text(member.role).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+                                }
+                            }.padding(.vertical, 3)
+                        }
+                    }
+                }
+            }.listStyle(.plain).scrollContentBackground(.hidden)
+        }
+    }
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "checkmark.circle").font(.system(size: 42, weight: .light)).foregroundStyle(Theme.Colors.textSecondary)
+            Text("You're all caught up").font(.title3.weight(.semibold))
+            Text("New requests from your teammates will appear here.").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary).multilineTextAlignment(.center)
+            Spacer()
+        }.padding(30)
+    }
+    private var connectionMessage: String {
+        switch appState.connectionState {
+        case .connected: ""
+        case .connecting: String(localized: "Reconnecting…")
+        case .offline: String(localized: "Offline")
+        case .refused: String(localized: "No access")
+        }
+    }
+    private func memberName(_ id: String) -> String { appState.workspaceMembers.first { $0.id == id }?.name ?? DisplayName.of(id, in: appState.organization) }
+    private func handle(_ action: CardActionKind, card: DecisionCard) {
+        if action == .reply || action == .requestRevision { noteAction = action; note = ""; noteCard = card }
+        else if action == .delegate { delegateCard = card }
+        else if action == .viewDetails { detailCard = card }
+        else if action == .reject || (action == .createIssue && !appState.isGuest && appState.githubService.isConnected) {
+            pendingAction = action; confirmationCard = card; showConfirmation = true
+        } else { resolve(card, action: action) }
+    }
+    private func resolve(_ card: DecisionCard, action: CardActionKind, text: String? = nil) {
+        guard let userID = appState.currentUser?.id else { return }
+        isWorking = true
+        Task {
+            do {
+                lastDecision = try await service.resolve(cardID: card.id, action: action, actorUserID: userID, revisionNote: action == .requestRevision ? text : nil, replyText: action == .reply ? text : nil, githubService: appState.githubService)
+                Haptics.success()
+            } catch { self.error = error.localizedDescription }
+            isWorking = false
+        }
+    }
+    private func undo(_ card: DecisionCard) {
+        guard let userID = appState.currentUser?.id else { return }
+        isWorking = true
+        Task {
+            do { try await service.undo(cardID: card.id, actorUserID: userID); selectedID = card.id; lastDecision = nil }
+            catch { self.error = error.localizedDescription }
+            isWorking = false
+        }
+    }
+    private func noteSheet(_ card: DecisionCard) -> some View {
+        NavigationStack {
+            Form {
+                Section { Text(card.title).font(.headline) }
+                Section { TextEditor(text: $note).frame(minHeight: 140) } footer: {
+                    Text(appState.isGuest ? String(localized: "This action stays in the demo. Nobody will be notified.") : (noteAction == .reply ? String(localized: "Sending a reply completes this request and notifies the sender.") : String(localized: "The sender will receive your revision request.")))
+                }
+            }
+            .navigationTitle(noteAction == .reply ? String(localized: "Reply") : String(localized: "Request revision"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { noteCard = nil } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") { resolve(card, action: noteAction, text: note); noteCard = nil }.disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+    private func delegateSheet(_ card: DecisionCard) -> some View {
+        NavigationStack {
+            List(appState.workspaceMembers.filter { $0.id != appState.currentUser?.id }) { member in
+                Button(member.name) {
+                    delegateCard = nil; isWorking = true
+                    Task {
+                        do { lastDecision = try await service.delegate(cardID: card.id, to: member.id, actorUserID: appState.currentUser?.id ?? "", organization: appState.organization, githubService: appState.githubService) }
+                        catch { self.error = error.localizedDescription }
+                        isWorking = false
+                    }
+                }
+            }.navigationTitle("Delegate to").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { delegateCard = nil } } }
+        }
+    }
 }
