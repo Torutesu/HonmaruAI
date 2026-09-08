@@ -128,7 +128,9 @@ fi
 # outside this machine needs. The reason is logged instead, and the reason is
 # the whole point of this step, so listen for it here rather than send someone
 # to a second terminal they will not open.
-tail_log=$(mktemp -t honmaru-tail)
+# An explicit template: `mktemp -t PREFIX` means different things on macOS and
+# GNU, and the GNU one refuses a template with no X's at all.
+tail_log=$(mktemp "${TMPDIR:-/tmp}/honmaru-tail.XXXXXX")
 trap 'rm -f "$tail_log"' EXIT
 "${WRANGLER[@]}" tail --format json >"$tail_log" 2>/dev/null &
 tail_pid=$!
@@ -146,7 +148,11 @@ payload=$(printf '%s' "$body" | sed '$d')
 sleep 3
 kill "$tail_pid" 2>/dev/null || true
 wait "$tail_pid" 2>/dev/null || true
-reason=$(grep -o 'mail refused by Resend[^"]*' "$tail_log" | head -1)
+# `|| true` on both halves, because `set -euo pipefail` is on and a grep that
+# matches nothing exits 1 — which, on a success, is exactly what it does. The
+# first version of this ended the script in silence at the moment it was
+# supposed to say "It works."
+reason=$( { grep -o 'mail refused by Resend[^"]*' "$tail_log" || true; } | head -1 || true)
 
 case "$code" in
   200)
