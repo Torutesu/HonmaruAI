@@ -98,6 +98,33 @@ await step('the welcome screen loads', async () => {
   await shot('01-welcome')
 })
 
+// The first thing anyone sees on a laptop, signed out. It was offset by the
+// width of a navigation rail that does not exist until you are signed in,
+// which left a bare white column down the left edge of the window.
+await step('the welcome screen is not offset by a rail that is not there', async () => {
+  const wide = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const w = await wide.newPage()
+  await w.goto(WEB, { waitUntil: 'load' })
+  await w.waitForSelector('.welcome', { timeout: 15000 })
+  await w.waitForTimeout(400)
+  await w.screenshot({ path: `${SHOTS}/20-desktop-welcome.png` })
+  const gap = await w.evaluate(() => {
+    const el = document.querySelector('.screen.welcome')
+    const r = el.getBoundingClientRect()
+    return { left: Math.round(r.left), width: Math.round(r.width) }
+  })
+  if (gap.left > 1) throw new Error(`the welcome screen starts ${gap.left}px in from the left`)
+  // And the column inside it is centred rather than pinned to an edge.
+  const column = await w.evaluate(() => {
+    const r = document.querySelector('.welcome-body').getBoundingClientRect()
+    return { mid: Math.round(r.left + r.width / 2), centre: Math.round(window.innerWidth / 2) }
+  })
+  if (Math.abs(column.mid - column.centre) > 24) {
+    throw new Error(`the welcome column sits at ${column.mid}, not near the centre ${column.centre}`)
+  }
+  await wide.close()
+})
+
 await step('an email gets a code sent to it', async () => {
   await page.click('text=Get started')
   await page.waitForSelector('#email')

@@ -423,10 +423,12 @@
     color: var(--onyx);
   }
 
-  /* Everything else starts to the right of the rail. */
-  .topbar { left: 216px; padding-left: 28px; }
-  .feed, .classic { left: 216px; }
-  .screen { left: 216px; }
+  /* Everything else starts to the right of the rail — but only where there
+     is one. Signed out there is no rail, and offsetting the welcome and
+     sign-in screens anyway left a bare white column down the left edge. */
+  .shell .topbar { left: 216px; padding-left: 28px; }
+  .shell .feed, .shell .classic { left: 216px; }
+  .shell .screen { left: 216px; }
 
   /* The feed becomes a queue: cards stack and scroll, instead of one filling
      the viewport and the next being a swipe away. The card itself is
@@ -443,17 +445,25 @@
   .page-empty { min-height: 60vh; align-items: center; }
 
   /* Screens are a column on the ground, not a full white wall. */
-  .screen { background: var(--plaster); }
+  .shell .screen { background: var(--plaster); }
   /* Left-aligned, on the same gutter as the feed and the Cards/Classic bar —
      a screen that centres itself while the feed does not makes the content
      jump sideways every time you open one. */
-  .screen-head, .screen-body, .screen-foot {
+  .shell .screen-head, .shell .screen-body, .shell .screen-foot {
     max-width: 668px;
     margin-left: 0;
     margin-right: 0;
     padding-left: 28px;
     padding-right: 28px;
   }
+
+  /* Signed out there is no rail to sit beside, so welcome and sign-in are a
+     centred column on the ground — wider than a phone, and not stranded at
+     one edge of a 1440px window. */
+  .screen:not(.shell .screen) { background: var(--plaster); }
+  .screen:not(.shell .screen) .screen-head,
+  .screen:not(.shell .screen) .screen-body,
+  .screen:not(.shell .screen) .screen-foot { max-width: 520px; }
   .screen-foot { background: transparent; border-top: none; }
 }
 
