@@ -105,6 +105,17 @@ async function closeEverything() {
   await page.waitForSelector('.tabbar', { timeout: 10000 })
 }
 
+/// A screen that is not a tab. On a phone the bar holds three — feed, compose,
+/// you — so History and Tools are reached the way a person reaches them:
+/// through You. On the rail they are tabs, and that route is tested there.
+async function openViaYou(rowText, marker) {
+  await closeEverything()
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click(`.screen .row:has-text("${rowText}")`)
+  await page.waitForSelector(marker, { timeout: 10000 })
+}
+
 const email = `e2e-${Date.now()}@example.com`
 let mate
 const shot = (n) => page.screenshot({ path: `${SHOTS}/${n}.png` })
@@ -199,7 +210,10 @@ await step('onboarding runs to the end and saves', async () => {
 // "tools". Every tab must carry the drawn icon instead.
 await step('the tab bar is drawn, not typed', async () => {
   const tabs = await page.evaluate(() =>
-    [...document.querySelectorAll('nav .tab')].map((el) => ({
+    [...document.querySelectorAll('nav .tab')]
+      // What the phone actually shows: the rail's extra two are display:none.
+      .filter((el) => el.offsetParent !== null)
+      .map((el) => ({
       tab: el.dataset.tab,
       svg: el.querySelectorAll('svg').length,
       // Any leftover glyph shows up as text content on the button itself.
@@ -208,7 +222,11 @@ await step('the tab bar is drawn, not typed', async () => {
         const r = s.getBoundingClientRect(); return `${Math.round(r.width)}x${Math.round(r.height)}` })(),
     }))
   )
-  if (tabs.length !== 5) throw new Error(`expected 5 tabs, found ${tabs.length}`)
+  // Three, as the design draws it — the other two are rows under You.
+  if (tabs.length !== 3) throw new Error(`expected 3 tabs on a phone, found ${tabs.length}`)
+  if (tabs.map((t) => t.tab).join(',') !== 'feed,compose,you') {
+    throw new Error(`the phone bar is ${tabs.map((t) => t.tab).join(',')}`)
+  }
   for (const t of tabs) {
     if (t.svg < 1) throw new Error(`the ${t.tab} tab has no icon`)
     if (t.text) throw new Error(`the ${t.tab} tab still shows a glyph: ${JSON.stringify(t.text)}`)
@@ -223,8 +241,9 @@ await step('the tab bar is drawn, not typed', async () => {
 // standing in for a drawing. A glyph is whatever the system font decides.
 await step('no screen falls back to a text glyph for an icon', async () => {
   const found = []
-  for (const [tab, marker] of [['tools', '.rows'], ['you', '.profile-stats']]) {
-    await page.click(`nav [data-tab="${tab}"]`)
+  for (const [tab, marker] of [['Tools', '.rows'], ['You', '.profile-stats']]) {
+    if (tab === 'You') { await closeEverything(); await page.click('nav [data-tab="you"]') }
+    else await openViaYou(tab, marker)
     await page.waitForSelector(marker, { timeout: 10000 })
     const bad = await page.evaluate(() =>
       [...document.querySelectorAll('.screen .row-icon')]
@@ -278,8 +297,7 @@ await step('the decision can be taken, and it sticks', async () => {
   await page.reload({ waitUntil: 'load' })
   await page.waitForSelector('.tabbar', { timeout: 20000 })
   // Approved, so it is off the pending feed and in history.
-  await page.click('[data-tab="history"]')
-  await page.waitForSelector('.seg', { timeout: 10000 })
+  await openViaYou('History', '.seg')
   const text = await page.evaluate(() => document.body.innerText)
   if (!/Approved|承認/.test(text)) throw new Error('the decision is not in history after a reload')
   await shot('11-history')
@@ -322,15 +340,13 @@ await step('the list view shows the same decisions', async () => {
 
 await step('every other screen opens', async () => {
   await closeEverything()
-  for (const [label, marker, name] of [
-    ['tools', '.rows', '12-tools'],
-    ['you', '.profile-stats', '13-profile'],
-  ]) {
-    await page.click(`nav [data-tab="${label}"]`)
-    await page.waitForSelector(marker, { timeout: 10000 })
-    await shot(name)
-    await page.click('.screen .back')
-  }
+  await openViaYou('Tools', '.rows')
+  await shot('12-tools')
+  await closeEverything()
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await shot('13-profile')
+  await page.click('.screen .back')
   await page.click('nav [data-tab="you"]')
   await page.click('text=Notifications')
   await page.waitForSelector('.switch', { timeout: 10000 })
@@ -356,8 +372,7 @@ await step('no request failed that was not meant to', async () => {
 await step('an unconfigured connector is said out loud, not hidden', async () => {
   // Close whatever is open, however many layers, and get back to the feed.
   await closeEverything()
-  await page.waitForSelector('nav [data-tab="tools"]', { timeout: 10000 })
-  await page.click('nav [data-tab="tools"]')
+  await openViaYou('Tools', '.rows')
   await page.waitForSelector('.screen .head-title:has-text("Tools")', { timeout: 10000 })
   await shot('16-tools-unconfigured')
   const text = await page.evaluate(() => document.querySelector('.screen').innerText)
@@ -403,8 +418,15 @@ await step('choosing a language changes the interface, and changing back returns
   // the kind of thing that survives a spot check.
   await page.click('.screen .back')
   await page.waitForTimeout(300)
-  for (const [label, marker] of [['history', '.seg'], ['tools', '.rows'], ['you', '.profile-stats']]) {
-    await page.click(`nav [data-tab="${label}"]`)
+  // The rows are Japanese now, so they are named in Japanese — which also
+  // checks that the route into them survived the translation.
+  for (const [label, row, marker] of [
+    ['history', '履歴', '.seg'],
+    ['tools', 'ツール', '.rows'],
+    ['you', null, '.profile-stats'],
+  ]) {
+    if (row) await openViaYou(row, marker)
+    else { await closeEverything(); await page.click('nav [data-tab="you"]') }
     await page.waitForSelector(marker, { timeout: 10000 })
     await page.screenshot({ path: `${SHOTS}/17-japanese-${label}.png` })
     // Chrome only. A card's title and summary are whatever language they were

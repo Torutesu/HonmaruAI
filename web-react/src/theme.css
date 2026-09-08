@@ -359,6 +359,15 @@
 /* A screen owns the phone's viewport, so the tab bar goes away under it.
    The rail on a laptop does not — see .shell.screen-open. */
 @media (max-width: 1079px) {
+  /* Three, as the design draws it: the feed, the thing you came to say, and
+     you. History and Tools are already rows under You — History is a place you
+     go to look something up, Tools is a place you go twice — and a tab bar
+     holding a configuration screen has quietly become a menu. The rail keeps
+     all five, because a column has room a thumb-width row does not. */
+  .tabbar .tab[data-tab="history"],
+  .tabbar .tab[data-tab="tools"] { display: none; }
+  /* With three, the gaps land where the design puts them. */
+  .tabbar { padding-left: 20px; padding-right: 20px; }
   .shell.screen-open .tabbar { display: none; }
 }
 
