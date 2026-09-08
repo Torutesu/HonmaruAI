@@ -101,12 +101,30 @@ if [ -z "$to" ]; then
   exit 0
 fi
 
+# The endpoint answers the internet, so it says only that the send failed —
+# naming an unverified domain to an unauthenticated caller is a detail nobody
+# outside this machine needs. The reason is logged instead, and the reason is
+# the whole point of this step, so listen for it here rather than send someone
+# to a second terminal they will not open.
+tail_log=$(mktemp -t honmaru-tail)
+trap 'rm -f "$tail_log"' EXIT
+"${WRANGLER[@]}" tail --format json >"$tail_log" 2>/dev/null &
+tail_pid=$!
+# `tail` takes a moment to attach, and a request sent before it does is a
+# request whose log line nobody hears.
+sleep 4
+
 body=$(curl -sS -X POST "https://$host/auth/otp/request" \
   -H 'content-type: application/json' \
   -d "{\"email\":\"$to\"}" \
   -w '\n%{http_code}')
 code=$(printf '%s' "$body" | tail -n1)
 payload=$(printf '%s' "$body" | sed '$d')
+
+sleep 3
+kill "$tail_pid" 2>/dev/null || true
+wait "$tail_pid" 2>/dev/null || true
+reason=$(grep -o 'mail refused by Resend[^"]*' "$tail_log" | head -1)
 
 case "$code" in
   200)
@@ -119,12 +137,25 @@ case "$code" in
     note "  also means the send path works. $payload"
     ;;
   502)
-    echo "Resend refused the send. Usually one of: the key is wrong, the From" >&2
-    echo "domain is not verified, or the recipient is not the address that owns" >&2
-    echo "the Resend account — the shared sender only delivers to that one." >&2
-    echo "The exact reason is in the Worker's log:" >&2
-    echo "    npx -y wrangler@4 tail --format pretty" >&2
-    echo "$payload" >&2
+    echo "Resend refused the send." >&2
+    if [ -n "$reason" ]; then
+      echo >&2
+      echo "  $reason" >&2
+      echo >&2
+      echo "That is Resend's own wording. The three it is almost always one of:" >&2
+    else
+      echo "The log did not reach us in time. Run this in one terminal:" >&2
+      echo "    npx -y wrangler@4 tail --format pretty" >&2
+      echo "and the curl below in another; the reason appears in the first." >&2
+      echo "    curl -sS -X POST https://$host/auth/otp/request \\" >&2
+      echo "      -H 'content-type: application/json' -d '{\"email\":\"$to\"}'" >&2
+      echo >&2
+      echo "It is almost always one of:" >&2
+    fi
+    echo "  * the API key is wrong, or is restricted to a domain" >&2
+    echo "  * NOTIFY_EMAIL_FROM names a domain not verified at Resend" >&2
+    echo "  * $to is not the address that owns the Resend account, and the" >&2
+    echo "    shared sender delivers only to that one" >&2
     exit 1
     ;;
   503)
