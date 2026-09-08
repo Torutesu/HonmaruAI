@@ -132,11 +132,16 @@ fi
 # GNU, and the GNU one refuses a template with no X's at all.
 tail_log=$(mktemp "${TMPDIR:-/tmp}/honmaru-tail.XXXXXX")
 trap 'rm -f "$tail_log"' EXIT
-"${WRANGLER[@]}" tail --format json >"$tail_log" 2>/dev/null &
+"${WRANGLER[@]}" tail --format json >"$tail_log" 2>&1 &
 tail_pid=$!
-# `tail` takes a moment to attach, and a request sent before it does is a
-# request whose log line nobody hears.
-sleep 4
+# Wait for the attach rather than guess at it. A fixed four seconds was not
+# enough on a real run, and the failure mode — "the log did not reach us in
+# time" — is the one message this step exists to avoid printing.
+note "  attaching to the Worker's log…"
+for _ in $(seq 1 30); do
+  grep -q "Connected to" "$tail_log" 2>/dev/null && break
+  sleep 1
+done
 
 body=$(curl -sS -X POST "https://$host/auth/otp/request" \
   -H 'content-type: application/json' \
@@ -170,7 +175,7 @@ case "$code" in
       echo >&2
       echo "  $reason" >&2
       echo >&2
-      echo "That is Resend's own wording. The three it is almost always one of:" >&2
+      echo "That is Resend's own wording." >&2
     else
       echo "The log did not reach us in time. Run this in one terminal:" >&2
       echo "    npx -y wrangler@4 tail --format pretty" >&2
@@ -178,12 +183,42 @@ case "$code" in
       echo "    curl -sS -X POST https://$host/auth/otp/request \\" >&2
       echo "      -H 'content-type: application/json' -d '{\"email\":\"$to\"}'" >&2
       echo >&2
-      echo "It is almost always one of:" >&2
+      echo "In the meantime, from the status code:" >&2
     fi
-    echo "  * the API key is wrong, or is restricted to a domain" >&2
-    echo "  * NOTIFY_EMAIL_FROM names a domain not verified at Resend" >&2
-    echo "  * $to is not the address that owns the Resend account, and the" >&2
-    echo "    shared sender delivers only to that one" >&2
+    # The status code narrows it to one line rather than three.
+    case "$payload" in
+      *'"providerStatus":401'*)
+        echo "  Resend said 401: the API key is wrong. Make a new one at" >&2
+        echo "  https://resend.com/api-keys and run this again." >&2
+        ;;
+      *'"providerStatus":403'*)
+        echo "  Resend said 403: the key does not have permission to send." >&2
+        echo "  Check its Permission at https://resend.com/api-keys — a key" >&2
+        echo "  limited to a domain cannot use the shared sender. Full access" >&2
+        echo "  is the fix." >&2
+        ;;
+      *'"providerStatus":422'*)
+        echo "  Resend said 422: it would not take the request. Almost always" >&2
+        echo "  this one, and it has nothing to do with the key:" >&2
+        echo >&2
+        echo "    Until a domain is verified, the shared sender delivers ONLY" >&2
+        echo "    to the address your Resend account is registered under." >&2
+        echo "    Check it at https://resend.com/settings and send the test" >&2
+        echo "    there — it is often not the address you expected, e.g. when" >&2
+        echo "    the account was made by signing in with GitHub." >&2
+        echo >&2
+        echo "  The other 422: NOTIFY_EMAIL_FROM names a domain not verified" >&2
+        echo "  at Resend. Clear it with" >&2
+        echo "      npx -y wrangler@4 secret delete NOTIFY_EMAIL_FROM" >&2
+        echo "  to fall back to the shared sender." >&2
+        ;;
+      *)
+        echo "  * the API key is wrong, or is restricted to a domain" >&2
+        echo "  * NOTIFY_EMAIL_FROM names a domain not verified at Resend" >&2
+        echo "  * $to is not the address the Resend account is registered" >&2
+        echo "    under, and the shared sender delivers only to that one" >&2
+        ;;
+    esac
     exit 1
     ;;
   503)
