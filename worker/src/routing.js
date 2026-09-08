@@ -1,5 +1,7 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
 
+import { cardText } from "./cardCopy.js";
+
 export const DEMO_USER_IDS = ["user-toru", "user-tanaka", "user-yui", "user-alex"];
 
 // Person node ids of the passed organization (the real members).
@@ -586,7 +588,7 @@ function isEchoOfInput(summary, input) {
   return false;
 }
 
-function summarizeInstruction(text, { sender, cardType, recipientUserID, organization }) {
+function summarizeInstruction(text, { sender, cardType, recipientUserID, organization, readerLanguage }) {
   let cleaned = String(text || "").trim();
   cleaned = cleaned.replace(
     /^(please\s+)?(tell|ask|notify|send|ping|remind)\s+(alice|bob|carol|dana|manager)\s+(to\s+)?/i,
@@ -607,23 +609,28 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID, organiz
   // card is talking to the person who wrote it. "Update for Alice · From Alice
   // · decision routed to Alice" is three ways of saying nothing.
   const toSelf = String(recipientUserID) === String(sender.id);
+  const say = (key, vars) => cardText(readerLanguage, key, vars);
   const titles = {
-    approval: "Approval needed",
-    delegation: toSelf ? "Your task" : `Task for ${recipientName}`,
-    revision: "Revision requested",
-    task: taskTitle(cleaned) || "New task",
-    notification: toSelf ? "Your note" : `Update for ${recipientName}`,
+    approval: say("Approval needed"),
+    delegation: toSelf ? say("Your task") : say("Task for {name}", { name: recipientName }),
+    revision: say("Revision requested"),
+    // The person's own words, not ours — so they are not translated, only cut.
+    task: taskTitle(cleaned) || say("New task"),
+    notification: toSelf ? say("Your note") : say("Update for {name}", { name: recipientName }),
   };
 
   const summary =
     cleaned.length > 180 ? `${cleaned.slice(0, 177).trim()}…` : cleaned;
 
   return {
-    title: titles[cardType] || "Decision needed",
-    summary: summary || "Decision requested.",
+    title: titles[cardType] || say("Decision needed"),
+    summary: summary || say("Decision requested."),
     context: toSelf
-      ? "From your own AI"
-      : `From ${sender.name} · decision routed to ${recipientName}`,
+      ? say("From your own AI")
+      : say("From {sender} · decision routed to {recipient}", {
+          sender: sender.name,
+          recipient: recipientName,
+        }),
   };
 }
 
@@ -675,7 +682,7 @@ function applyRoutingGuard(routing, sender, originalText, organization = null) {
   };
 }
 
-function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null) {
+function validateRouting(routingJSON, sender, originalText, toolCalls = [], organization = null, readerLanguage = undefined) {
   const members = memberIdsOf(organization);
   const allowedRecipients = new Set(members.length ? members : DEMO_USER_IDS);
   const allowedTypes = new Set([
@@ -713,6 +720,7 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       cardType,
       recipientUserID,
       organization,
+      readerLanguage,
     });
     title = rewritten.title;
     summary = rewritten.summary;
@@ -768,6 +776,7 @@ export function routeInstructionLocally({
   sender,
   organization,
   priorityOverride,
+  readerLanguage,
 }) {
   const lower = String(text || "").toLowerCase();
   const { recipientUserID, namedInInstruction, routingReason } = resolveRecipient(
@@ -789,6 +798,7 @@ export function routeInstructionLocally({
     cardType,
     recipientUserID,
     organization,
+    readerLanguage,
   });
   const recipientName = displayNameOf(organization, recipientUserID);
   const priority =
@@ -825,7 +835,8 @@ export function routeInstructionLocally({
         detail: `${recipientName} · ${cardType}`,
       },
     ],
-    organization
+    organization,
+    readerLanguage
   );
 }
 
@@ -905,7 +916,7 @@ async function routeInstructionWithOpenRouter({
         detail: priorityOverride,
       });
     }
-    return validateRouting(card, sender, text, steps, organization);
+    return validateRouting(card, sender, text, steps, organization, readerLanguage);
   }
 
   const content = message?.content;
@@ -924,7 +935,7 @@ async function routeInstructionWithOpenRouter({
       });
     }
     console.warn("OpenRouter returned empty routing response; using local fallback.");
-    return routeInstructionLocally({ text, sender, organization, priorityOverride });
+    return routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage });
   }
 
   const routingJSON = parseRoutingJSON(content);
@@ -939,7 +950,8 @@ async function routeInstructionWithOpenRouter({
         detail: `${displayNameOf(organization, routingJSON.recipientUserID)} · ${routingJSON.cardType}`,
       },
     ],
-    organization
+    organization,
+    readerLanguage
   );
   if (priorityOverride) {
     validated.priority = priorityOverride;
@@ -978,7 +990,7 @@ export async function routeInstruction({
     } catch (error) {
       console.warn("AI routing failed, using local fallback:", error.message);
       return {
-        ...routeInstructionLocally({ text, sender, organization, priorityOverride }),
+        ...routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage }),
         routedBy: "fallback",
         routingError: error.message,
         aiCalled: call.answered,
@@ -987,7 +999,7 @@ export async function routeInstruction({
   }
 
   return {
-    ...routeInstructionLocally({ text, sender, organization, priorityOverride }),
+    ...routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage }),
     routedBy: "fallback",
     aiCalled: false,
   };

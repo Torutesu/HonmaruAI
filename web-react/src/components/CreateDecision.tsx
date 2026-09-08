@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { properName } from '../utils/names'
 import { useT } from '../utils/i18n'
+import { getLocale } from '../utils/locale'
 
 interface Props {
   relayHttpUrl: string
@@ -37,6 +38,9 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
           // membership row, and a name derived here from the account id is
           // exactly what put "E2e-1788842127274" on a card.
           sender: { id: userId, role: 'member' },
+          // The Worker writes its own words on a card — the title, the routing
+          // line — and without this it writes them in English.
+          readerLanguage: getLocale(),
                   organization: {
             orgId,
             // The router reads members from `nodes` (kind: "person"). Sending

@@ -311,18 +311,69 @@ await step('choosing a language changes the interface, and changing back returns
   for (const [label, marker] of [['history', '.seg'], ['tools', '.rows'], ['you', '.profile-stats']]) {
     await page.click(`nav [data-tab="${label}"]`)
     await page.waitForSelector(marker, { timeout: 10000 })
-    const text = await page.evaluate(() => document.querySelector('.screen').innerText)
-    // Ignore the parts no language owns: the address, brand names, and digits.
-    const words = text
-      .replace(/[\w.+-]+@[\w.-]+/g, ' ')
-      .replace(/\b(Gmail|Slack|Notion|GitHub|AI|Honmaru|Pro|E2E Person)\b/g, ' ')
-      .replace(/[^\p{L}]/gu, '')
-    const japanese = (words.match(/[ぁ-んァ-ヶ一-龯]/g) || []).length
-    if (japanese < words.length * 0.5) {
-      throw new Error(`${label} is mostly untranslated in 日本語: ${text.replace(/\n/g, ' ').slice(0, 140)}`)
+    await page.screenshot({ path: `${SHOTS}/17-japanese-${label}.png` })
+    // Chrome only. A card's title and summary are whatever language they were
+    // written in and are not retranslated when you change yours — a decision
+    // already taken does not get rewritten under the person who took it.
+    const text = await page.evaluate(() =>
+      [...document.querySelectorAll(
+        '.screen .head-title, .screen .rows-title, .screen .seg button,'
+        + ' .screen .row-main, .screen .lede, .screen .empty, .screen .form-note'
+      )]
+        // History's rows are card titles wearing a chrome class.
+        .filter((el) => !el.closest('.hist-group'))
+        .map((el) => el.innerText)
+        .join('\n')
+    )
+    // A ratio of Japanese characters fights the proper nouns that stay in
+    // English on purpose — "GitHub", "Issue", "Pull Request". What actually
+    // means "untranslated" is a whole line with no Japanese in it at all.
+    const english = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /[A-Za-z]{4}/.test(line) && !/[ぁ-んァ-ヶ一-龯]/.test(line))
+      .filter((line) => !/^(Gmail|Slack|Notion|GitHub|AI|Pro|Free|E2E Person)\b/.test(line))
+      .filter((line) => !/^[\w.+-]+@[\w.-]+$/.test(line))
+    if (english.length) {
+      throw new Error(`${label} still shows English: ${english.slice(0, 3).join(' | ').slice(0, 160)}`)
     }
     await page.click('.screen .back')
     await page.waitForTimeout(300)
+  }
+  // A card written while this is the language must arrive in it: the title and
+  // the routing line are the Worker's own words, not the sender's. Compose
+  // from the feed — on a phone an open screen hides the tab bar, which is the
+  // point of it, so the nav is not clickable from under one.
+  await page.click('nav [data-tab="compose"]')
+  await page.waitForSelector('.sheet-bottom .create-decision input', { timeout: 10000 })
+  await page.fill('.sheet-bottom .create-decision input', '来週の値上げを承認してほしい')
+  await page.click('.sheet-bottom .create-decision button')
+  await page.waitForTimeout(2500)
+  for (let i = 0; i < 3; i++) {
+    const close = await page.$('.sheet .close, .screen .back')
+    if (!close) break
+    await close.click().catch(() => {})
+    await page.waitForTimeout(300)
+  }
+  await page.waitForSelector('.card-title', { timeout: 15000 })
+  await shot('17-japanese-card')
+  const cardTitle = await page.evaluate(() => document.querySelector('.card-title').innerText)
+  if (!/[ぁ-んァ-ヶ一-龯]/.test(cardTitle)) {
+    throw new Error(`a card made in 日本語 is titled in English: ${cardTitle}`)
+  }
+  // The feed is not a screen and was missed by the loop above: its own chrome
+  // — the Cards/Classic tabs, the card's kind and its priority legend, the
+  // role under a name — was still English behind a Japanese card.
+  const feedChrome = await page.evaluate(() =>
+    [...document.querySelectorAll(
+      '.mode-switch button, .card-kind, .priority-legend, .rb-label, .rb-meta, .ask-bar input'
+    )].map((el) => (el.placeholder || el.innerText || '').trim()).filter(Boolean)
+  )
+  const feedEnglish = feedChrome.filter(
+    (line) => /[A-Za-z]{4}/.test(line) && !/[ぁ-んァ-ヶ一-龯]/.test(line)
+  )
+  if (feedEnglish.length) {
+    throw new Error(`the feed's own chrome is still English: ${feedEnglish.slice(0, 4).join(' | ')}`)
   }
   await page.click('nav [data-tab="you"]')
   await page.waitForSelector('.profile-stats', { timeout: 10000 })

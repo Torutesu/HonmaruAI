@@ -17,6 +17,7 @@ import { syncLocale } from '../utils/push'
 import type { AppState, Business } from '../types/card'
 import './Dashboard.css'
 import { useT } from '../utils/i18n'
+import { getLocale } from '../utils/locale'
 
 interface Props {
   userId: string
@@ -160,6 +161,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           text: `About "${card.title}": ${text}`,
           orgId,
           sender: { id: userId, role: 'member' },
+          // The Worker writes its own words on a card — the title, the routing
+          // line — and without this it writes them in English.
+          readerLanguage: getLocale(),
         }),
       })
       const routed = await res.json()
@@ -250,7 +254,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             className={mode === 'cards' ? 'on' : ''}
             onClick={() => switchMode('cards')}
           >
-            Cards{pendingCards.length > 0 && <span className="mode-count">{pendingCards.length}</span>}
+            {t('Cards')}{pendingCards.length > 0 && <span className="mode-count">{pendingCards.length}</span>}
           </button>
           <button
             role="tab"

@@ -16,6 +16,16 @@ interface Props {
 
 const SWIPE_THRESHOLD = 96
 
+/// What kind of thing this card is. English keys, translated where they are
+/// read — the card wore the raw type ("notification") in any language before.
+const KIND: Record<string, string> = {
+  approval: 'Decisions',
+  notification: 'Notification',
+  task: 'Task',
+  delegation: 'Delegation',
+  revision: 'Revision',
+}
+
 function initials(name: string): string {
   const clean = name.trim()
   if (!clean) return '?'
@@ -174,11 +184,11 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
           style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? 'transform 160ms ease' : 'none' }}
         >
           <header className="card-top">
-            <span className="card-kind">{card.type === 'approval' ? t('Decisions') : card.type}</span>
-            <span className="priority-legend" aria-label={`Priority ${card.priority}`}>
+            <span className="card-kind">{t(KIND[card.type] || card.type)}</span>
+            <span className="priority-legend" aria-label={t('Priority')}>
               {(['low', 'medium', 'high'] as const).map((level) => (
                 <span key={level} className={`legend ${card.priority === level ? 'on' : ''} p-${level}`}>
-                  <i /> {level[0].toUpperCase() + level.slice(1)}
+                  <i /> {t(level[0].toUpperCase() + level.slice(1))}
                 </span>
               ))}
             </span>
@@ -213,7 +223,7 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
                 <div className="rb-who">
                   <strong>{whoName}</strong>
                   <span className="rb-meta">
-                    {ago(card.createdAt)}{who?.role ? ` · ${who.role}` : ''}
+                    {ago(card.createdAt)}{who?.role ? ` · ${t(who.role)}` : ''}
                   </span>
                 </div>
               </div>

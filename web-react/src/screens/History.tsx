@@ -96,7 +96,7 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
                     <span className="row-main">
                       {card.title}
                       <span className="row-sub">
-                        {byYou ? 'You' : (card.recipientUserID || '').replace(/^(u:|email:)/, '').split('@')[0]}
+                        {byYou ? t('You') : (card.recipientUserID || '').replace(/^(u:|email:)/, '').split('@')[0]}
                         {card.business ? ` · ${nameOf(card.business)}` : ''}
                         {card.decision?.decidedAt
                           ? ` · ${new Date(card.decision.decidedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`

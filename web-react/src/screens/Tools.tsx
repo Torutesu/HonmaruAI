@@ -154,7 +154,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             <span className="row-icon">⌥</span>
             <span className="row-main">
               GitHub
-              <span className="row-sub">{BLURB.github}</span>
+              <span className="row-sub">{t(BLURB.github)}</span>
             </span>
             <span className="pill-tag mint">{t('Built in')}</span>
           </div>

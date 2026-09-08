@@ -173,3 +173,36 @@ test("the sender's real name beats anything the client sent", async () => {
   expect(`${routed.context} ${routed.agentRoute}`).toContain("E2E Person");
   expect(`${routed.context} ${routed.agentRoute}`).not.toContain("1788841995270");
 });
+
+// A card's summary is the person's own sentence. Its title and routing line
+// are the Worker's own words, and with no AI key configured they went to a
+// Japanese reader in English — the half of "the language switch does nothing"
+// that lives on the server.
+test("the words nobody wrote are written in the reader's language", async () => {
+  const { routeInstruction } = await import("../src/routing.js");
+  const organization = {
+    nodes: [
+      { id: "u:mai@honmaru.jp", kind: "person", role: "founder", label: "Mai · founder" },
+      { id: "u:ken@honmaru.jp", kind: "person", role: "engineer", label: "Ken · engineer" },
+    ],
+  };
+  const ja = await routeInstruction({
+    text: "ask the engineer to approve the new supplier price",
+    sender: { id: "u:mai@honmaru.jp", name: "Mai", role: "founder" },
+    organization,
+    readerLanguage: "ja",
+  });
+  expect(ja.title).toBe("承認が必要です");
+  expect(ja.context).toContain("に振り分け");
+  // The instruction itself is untouched — it is not ours to translate.
+  expect(ja.summary).toContain("supplier price");
+
+  // And English is still English, including a tag like "en-GB".
+  const en = await routeInstruction({
+    text: "ask the engineer to approve the new supplier price",
+    sender: { id: "u:mai@honmaru.jp", name: "Mai", role: "founder" },
+    organization,
+    readerLanguage: "en-GB",
+  });
+  expect(en.title).toBe("Approval needed");
+});
