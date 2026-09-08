@@ -90,7 +90,16 @@ export async function requestCode(env, { email, locale }) {
     // The row would otherwise sit there refusing a resend for a minute over a
     // code that never left the building.
     await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
-    return { error: "We could not send the code. Try again in a moment.", status: 502 };
+    // The provider's status code travels with the refusal, and its message
+    // does not. A number is enough to tell a bad key (401) from a permission
+    // (403) from a malformed request (422), which is the whole question when
+    // mail is configured and nothing arrives — and unlike the message, it
+    // names no domain and no address to whoever is asking.
+    return {
+      error: "We could not send the code. Try again in a moment.",
+      status: 502,
+      providerStatus: sent.status || undefined,
+    };
   }
   return { ok: true, expiresInSeconds: Math.round(CODE_TTL_MS / 1000) };
 }

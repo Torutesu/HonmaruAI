@@ -138,11 +138,14 @@ test("asking again straight away is refused, and does not replace the live code"
 });
 
 test("mail that does not send leaves nothing behind to block a retry", async () => {
-  globalThis.fetch = async () => new Response("no", { status: 500 });
+  globalThis.fetch = async () => new Response("no", { status: 403 });
   const { requestCode } = await import("../src/otp.js");
   const result = await requestCode({ ...env, ...MAIL }, { email: "bounce@example.com" });
 
   expect(result.status).toBe(502);
+  // The provider's status travels; its message does not. A number tells a bad
+  // key from a permission from a malformed request, and names nobody.
+  expect(result.providerStatus).toBe(403);
   const row = await env.DB.prepare("SELECT email FROM login_codes WHERE email = ?1")
     .bind("bounce@example.com").first();
   expect(row).toBeNull();

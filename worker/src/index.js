@@ -136,7 +136,11 @@ async function handle(request, env, url) {
       });
       if (result.error) {
         const headers = result.retryAfter ? { "retry-after": String(result.retryAfter) } : undefined;
-        return json({ message: result.error }, result.status || 400, headers);
+        return json(
+          { message: result.error, ...(result.providerStatus ? { providerStatus: result.providerStatus } : {}) },
+          result.status || 400,
+          headers
+        );
       }
       return json(result);
     }
