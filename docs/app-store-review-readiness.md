@@ -66,36 +66,39 @@ invite, not only to the reviewer.
 
 ---
 
-## 2. Sign in with Apple — Guideline 4.8
+## 2. Sign in with Apple — Guideline 4.8 — resolved by removing the cause
 
-**A real risk, and a decision rather than a bug.** Not addressed here, because
-every way of addressing it is a product choice.
+**Settled: GitHub is no longer a way into the app on the phone.**
 
 4.8 applies to apps that use "a third-party or social login service" to set up
-the primary account. GitHub sign-in is one. When it applies, you must also offer
-an option that:
+the primary account, and then requires an alternative that lets a person keep
+their email address private. Our emailed code cannot do that — there is no
+relay — so offering GitHub sign-in meant owing Apple a Sign in with Apple we do
+not have.
 
-1. limits collection to name and email,
-2. **lets the user keep their email address private**,
-3. does not use the data for advertising.
+Rather than build one, the cause is gone. It was also the wrong default: GitHub
+is right for the engineer on the team and wrong for the six people who are not,
+and the phone is where those six are. The engineer sets the repository-backed
+workspace up on the web, where GitHub sign-in is untouched, and invites them; an
+invite code brings them into it from the phone.
 
-Our email-code sign-in meets 1 and 3 cleanly. It does not meet 2: it needs a
-real, reachable address, and there is no relay that hides it the way Apple's own
-does. Reviewers apply this inconsistently — plenty of apps ship with
-email/password as the alternative — but it is the clause that gets cited.
+What changed, precisely:
 
-Three ways out, in order of cost:
+- **Onboarding** ends on email, with "continue without signing in" underneath.
+  The GitHub step, its repository picker and its OAuth call are gone.
+- **The connect sheet** no longer signs anyone in. It is offered only to someone
+  who already has a GitHub token — a repository picker for an existing account,
+  not a door.
+- **You** shows the GitHub row only to those people, and **the feed's** local-mode
+  chip no longer offers a button that cannot finish.
+- **Anyone already signed in with GitHub stays signed in.** Session restore is
+  untouched; this removed the door, not the lock.
 
-- **Drop GitHub sign-in from the iOS app.** 4.8 then does not apply at all.
-  GitHub stays a *connector* — the thing it is actually load-bearing for — and
-  stops being an identity provider on the phone. Cheapest, and arguably the
-  right product call: the phone is for the six people who are not the engineer.
-- **Add Sign in with Apple.** Correct and unambiguous. Needs the capability, an
-  entitlement, and a Worker route that verifies Apple's identity token.
-- **Submit as is.** It may well pass. If it does not, the rejection costs a
-  review cycle and you end up doing one of the above anyway.
+GitHub remains what it is actually load-bearing for: decisions syncing to Issues
+and Pull Requests, for a workspace that has a repository.
 
----
+So 4.8 no longer applies. If GitHub sign-in ever returns to iOS, it comes back
+with Sign in with Apple beside it.
 
 ## 3. Push asks for a permission that cannot be honoured yet
 
@@ -137,8 +140,8 @@ Checked against the current tree, so a review does not spend time on them:
 ## The order to do it in
 
 1. Create the demo account and check `/auth/login` returns a token.
-2. Decide the 4.8 question. If you drop GitHub from iOS, do it before the
-   screenshots — the sign-in screen is usually one of them.
+2. Take the screenshots *after* pulling this branch — the sign-in screen
+   changed, and it is usually one of them.
 3. Verify a domain at Resend, or accept that only the demo account and your own
    address can sign in.
 4. Then follow `app-store-release.md` for the build and the submission.

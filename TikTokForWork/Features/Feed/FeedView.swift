@@ -171,7 +171,10 @@ struct FeedView: View {
         }
         .confirmationDialog("Account", isPresented: $showMenu, titleVisibility: .hidden) {
             Button("Organization") { showOrgGraph = true }
-            if !appState.githubService.isConnected {
+            // Only for someone who already signed in with GitHub. It is no
+            // longer a way *into* the app on the phone — see OnboardingView —
+            // so offering it to anyone else is a button that cannot finish.
+            if appState.githubService.hasToken, !appState.githubService.isConnected {
                 Button("Connect GitHub") {
                     connectContext = .settings
                     showConnectGitHub = true
@@ -268,7 +271,7 @@ struct FeedView: View {
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .lineLimit(1)
-            } else {
+            } else if appState.githubService.hasToken {
                 Button {
                     connectContext = .settings
                     showConnectGitHub = true
@@ -278,6 +281,14 @@ struct FeedView: View {
                         .foregroundStyle(Theme.Colors.textTertiary)
                         .lineLimit(1)
                 }
+            } else {
+                // Nothing to press: signing in lives under You, and a chip that
+                // opened a door we no longer offer was worse than saying where
+                // you are.
+                Text("Local mode")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .lineLimit(1)
             }
 
             ComposeBar(placeholder: "Tell your AI") {

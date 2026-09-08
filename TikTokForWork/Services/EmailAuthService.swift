@@ -26,7 +26,7 @@ enum EmailAuthService {
         var errorDescription: String? {
             switch self {
             case .mailNotConfigured:
-                String(localized: "This workspace cannot send email yet. Sign in with GitHub for now.")
+                String(localized: "This workspace cannot send email yet. Sign in with a password.")
             case .message(let text): text
             case .unreachable:
                 String(localized: "Could not reach the server. Check your connection and try again.")

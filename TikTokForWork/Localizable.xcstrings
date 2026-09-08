@@ -1838,6 +1838,17 @@
         }
       }
     },
+    "Local mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルモード"
+          }
+        }
+      }
+    },
     "Local mode · Connect GitHub": {
       "extractionState": "manual",
       "localizations": {
@@ -2916,6 +2927,17 @@
         }
       }
     },
+    "Set this up on the web, at honmaru-web.pages.dev — signing in with GitHub is not available on the phone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でのサインインはスマホでは提供していません。honmaru-web.pages.dev で設定してください。"
+          }
+        }
+      }
+    },
     "She can take more work this week or stop. Nothing is queued behind the current job.": {
       "extractionState": "manual",
       "localizations": {
@@ -2960,35 +2982,13 @@
         }
       }
     },
-    "Sign in with GitHub": {
+    "Sign in to see your team's history.": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub でサインイン"
-          }
-        }
-      }
-    },
-    "Sign in with GitHub to reach your team. Your teammates are your repo's collaborators, and every approval becomes an Issue you can track.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GitHub でサインインしてチームとつながりましょう。チームメイトはリポジトリのコラボレーターで、承認はすべて追跡できる Issue になります。"
-          }
-        }
-      }
-    },
-    "Sign in with GitHub to see your team's history.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チームの履歴を見るには GitHub でサインインしてください。"
+            "value": "チームの履歴を見るにはサインインしてください。"
           }
         }
       }
@@ -3011,17 +3011,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "メールでログイン"
-          }
-        }
-      }
-    },
-    "Sign in with email instead": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールでログインする"
           }
         }
       }
@@ -3554,17 +3543,6 @@
         }
       }
     },
-    "This workspace cannot send email yet. Sign in with GitHub for now.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このワークスペースはまだメールを送信できません。いまは GitHub でログインしてください。"
-          }
-        }
-      }
-    },
     "This workspace cannot send email yet. Sign in with a password.": {
       "extractionState": "manual",
       "localizations": {
@@ -3917,6 +3895,17 @@
         }
       }
     },
+    "We email you a six-digit code. Nothing to set up, nothing to remember, and it proves the address every notification from here depends on.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6桁のコードをメールでお送りします。設定も暗記も不要で、ここから届く通知の宛先を兼ねます。"
+          }
+        }
+      }
+    },
     "We send a six-digit code. Nothing to remember, and it proves where your decisions should reach you.": {
       "extractionState": "manual",
       "localizations": {
@@ -4199,6 +4188,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "契約も単価もあなたのものです"
+          }
+        }
+      }
+    },
+    "Your decisions, where you are": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの決定を、あなたのいる場所へ"
           }
         }
       }

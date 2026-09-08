@@ -162,12 +162,12 @@ struct HistoryView: View {
         defer { isLoading = false }
         guard let repository = appState.githubService.connection?.repository,
               let base = appState.backendBaseURL else {
-            message = String(localized: "Sign in with GitHub to see your team's history.")
+            message = String(localized: "Sign in to see your team's history.")
             return
         }
         let parts = repository.split(separator: "/")
         guard parts.count == 2 else {
-            message = String(localized: "Sign in with GitHub to see your team's history.")
+            message = String(localized: "Sign in to see your team's history.")
             return
         }
         do {
