@@ -2,6 +2,16 @@ import React from 'react'
 import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
+
+/// What was done, as a word rather than the verb the API uses — the same
+/// table History reads from, so one decision is not "approve" here and
+/// "Approved" one screen away. English keys, translated where they are read.
+const ACTION_WORD: Record<string, string> = {
+  approve: 'Approved', decline: 'Declined', revise: 'Revision asked',
+  choose: 'Chose', reply: 'Replied', acknowledge: 'Acknowledged',
+  delegate: 'Delegated', later: 'Deferred', pending: 'Waiting',
+}
+const actionWord = (value?: string) => (value ? ACTION_WORD[value] || value : '')
 import { useT } from '../utils/i18n'
 
 interface Props {
@@ -82,8 +92,8 @@ export const ClassicList: React.FC<Props> = ({ pending, sent, decided, businesse
                 key={c.id}
                 card={c}
                 meta={c.status === 'pending'
-                  ? `Waiting on ${displayName(c.recipientUserID)}`
-                  : `${displayName(c.recipientUserID)} · ${c.decision?.action || c.status}`}
+                  ? t('Waiting on {name}', { name: displayName(c.recipientUserID) })
+                  : `${displayName(c.recipientUserID)} · ${t(actionWord(c.decision?.action || c.status))}`}
                 action={c.status === 'pending'
                   ? <button className="cl-nudge" onClick={() => onNudge(c.id)}>{t('Nudge')}</button>
                   : undefined}
@@ -97,7 +107,7 @@ export const ClassicList: React.FC<Props> = ({ pending, sent, decided, businesse
           {decided.length === 0 && <p className="cl-empty">{t('No decisions yet.')}</p>}
           <ul>
             {decided.map((c) => (
-              <Row key={c.id} card={c} meta={`${c.decision?.action || c.status}${nameOf(c.business) ? ` · ${nameOf(c.business)}` : ''}`} />
+              <Row key={c.id} card={c} meta={`${t(actionWord(c.decision?.action || c.status))}${nameOf(c.business) ? ` · ${nameOf(c.business)}` : ''}`} />
             ))}
           </ul>
         </section>

@@ -92,6 +92,19 @@ page.on('response', (r) => {
 // key, web push needs a VAPID pair, and the screens for both say so out loud.
 const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/]
 
+/// Back to the feed, whatever is open on top of it. Several steps were each
+/// rolling their own version of this loop, and each one that got it slightly
+/// wrong failed for a reason that belonged to the step before it.
+async function closeEverything() {
+  for (let i = 0; i < 4; i++) {
+    const open = await page.$('.sheet .close, .screen .back')
+    if (!open) break
+    await open.click().catch(() => {})
+    await page.waitForTimeout(300)
+  }
+  await page.waitForSelector('.tabbar', { timeout: 10000 })
+}
+
 const email = `e2e-${Date.now()}@example.com`
 let mate
 const shot = (n) => page.screenshot({ path: `${SHOTS}/${n}.png` })
@@ -215,8 +228,43 @@ await step('the decision can be taken, and it sticks', async () => {
   await shot('11-history')
 })
 
+// The other half of the feed. Cards is one decision at a time; Classic is the
+// same decisions as a list, and it had never been opened by anything here.
+await step('the list view shows the same decisions', async () => {
+  await closeEverything()
+  await page.click('.mode-switch button >> nth=1')
+  await page.waitForSelector('.classic', { timeout: 10000 })
+  await shot('09b-classic')
+  const rows = await page.evaluate(() =>
+    [...document.querySelectorAll('.cl-row')].map((el) => el.innerText)
+  )
+  if (!rows.length) throw new Error('the list is empty although the feed is not')
+  const joined = rows.join(' ')
+  if (/u:|email:|@example\.com/.test(joined)) {
+    throw new Error(`the list shows a raw account id: ${joined.slice(0, 140)}`)
+  }
+  // Nothing may sit outside the phone here either.
+  const spill = await page.evaluate(() => {
+    const bad = []
+    for (const el of document.querySelectorAll('.classic *')) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      if (r.left < -1 || r.right > window.innerWidth + 1) bad.push(el.className || el.tagName)
+    }
+    return bad.slice(0, 5)
+  })
+  if (spill.length) throw new Error(`the list spills off the phone: ${spill.join(' ; ')}`)
+  // The same decision must not read as "approve" here and "Approved" in
+  // History — the list was showing the API's verb rather than the word.
+  if (/\b(approve|decline|revise|delegate)\b/.test(joined)) {
+    throw new Error(`the list shows the raw action verb: ${joined.slice(0, 140)}`)
+  }
+  await page.click('.mode-switch button >> nth=0')
+  await page.waitForSelector('.feed', { timeout: 10000 })
+})
+
 await step('every other screen opens', async () => {
-  await page.click('.screen .back')
+  await closeEverything()
   for (const [label, marker, name] of [
     ['tools', '.rows', '12-tools'],
     ['you', '.profile-stats', '13-profile'],
@@ -250,12 +298,7 @@ await step('no request failed that was not meant to', async () => {
 
 await step('an unconfigured connector is said out loud, not hidden', async () => {
   // Close whatever is open, however many layers, and get back to the feed.
-  for (let i = 0; i < 3; i++) {
-    const close = await page.$('.screen .back')
-    if (!close) break
-    await close.click()
-    await page.waitForTimeout(300)
-  }
+  await closeEverything()
   await page.waitForSelector('nav [data-tab="tools"]', { timeout: 10000 })
   await page.click('nav [data-tab="tools"]')
   await page.waitForSelector('.screen .head-title:has-text("Tools")', { timeout: 10000 })
@@ -271,12 +314,7 @@ await step('an unconfigured connector is said out loud, not hidden', async () =>
 // translated. Switching it must repaint the interface, and switching back
 // must return it — a one-way door would be worse than none.
 await step('choosing a language changes the interface, and changing back returns it', async () => {
-  for (let i = 0; i < 3; i++) {
-    const close = await page.$('.screen .back')
-    if (!close) break
-    await close.click()
-    await page.waitForTimeout(300)
-  }
+  await closeEverything()
   await page.click('nav [data-tab="you"]')
   await page.waitForSelector('.profile-stats', { timeout: 10000 })
 
@@ -349,12 +387,7 @@ await step('choosing a language changes the interface, and changing back returns
   await page.fill('.sheet-bottom .create-decision input', '来週の値上げを承認してほしい')
   await page.click('.sheet-bottom .create-decision button')
   await page.waitForTimeout(2500)
-  for (let i = 0; i < 3; i++) {
-    const close = await page.$('.sheet .close, .screen .back')
-    if (!close) break
-    await close.click().catch(() => {})
-    await page.waitForTimeout(300)
-  }
+  await closeEverything()
   await page.waitForSelector('.card-title', { timeout: 15000 })
   await shot('17-japanese-card')
   const cardTitle = await page.evaluate(() => document.querySelector('.card-title').innerText)
@@ -483,12 +516,7 @@ await step('the other screens hold up on a laptop', async () => {
 // this is one person talking to their own AI, which proves the plumbing but
 // not the point.
 await step('a second person joins by invite and the card reaches them', async () => {
-  for (let i = 0; i < 3; i++) {
-    const close = await page.$('.screen .back')
-    if (!close) break
-    await close.click()
-    await page.waitForTimeout(300)
-  }
+  await closeEverything()
 
   // A mints a code for an engineer.
   await page.click('nav [data-tab="you"]')
@@ -561,12 +589,7 @@ await step('a second person joins by invite and the card reaches them', async ()
   if (/u:|email:|@example\.com/.test(seen)) {
     throw new Error(`the card shows a raw account id: ${seen.slice(0, 140)}`)
   }
-  for (let i = 0; i < 4; i++) {
-    const close = await page.$('.sheet .close, .screen .back')
-    if (!close) break
-    await close.click().catch(() => {})
-    await page.waitForTimeout(300)
-  }
+  await closeEverything()
 })
 
 if (mate) await mate.close()

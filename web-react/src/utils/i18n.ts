@@ -114,6 +114,7 @@ const ja: Dict = {
   Declined: '却下',
   Waiting: '保留中',
   'Waiting on you': 'あなた待ち',
+  'Waiting on {name}': '{name}待ち',
   'Sent by you': 'あなたが送信',
   Decided: '決定済み',
   Everything: 'すべて',
