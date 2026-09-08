@@ -60,9 +60,9 @@ Secrets live only as Worker secrets (`npx wrangler secret put …`), never in th
 `OPENAI_API_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `COMPOSIO_API_KEY`,
 `REVENUECAT_SECRET_KEY`, the four APNs ones
 (`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_PRIVATE_KEY`), the three
-Web Push ones (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) and the
-two for email (`MAILGUN_API_KEY`, `MAILGUN_DOMAIN`) —
-see [docs/notifications.md](docs/notifications.md).
+Web Push ones (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`), and
+email's — either `RESEND_API_KEY` on its own, or `MAILGUN_API_KEY` +
+`MAILGUN_DOMAIN` — see [docs/notifications.md](docs/notifications.md).
 
 ## Access
 

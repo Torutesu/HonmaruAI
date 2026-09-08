@@ -19,7 +19,7 @@ import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount } from "./account.js";
 import { isConfigured } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
-import { isMailConfigured } from "./mailer.js";
+import { isMailConfigured, mailProvider } from "./mailer.js";
 import { SUPPORTED_LOCALES } from "./notifyCopy.js";
 import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
@@ -211,6 +211,9 @@ async function handle(request, env, url) {
         push: isConfigured(env),
         webPush: isWebPushConfigured(env),
         email: isMailConfigured(env),
+        // Which one, so "mail is on but nothing arrives" starts from a fact
+        // rather than from remembering what was set up months ago.
+        emailProvider: mailProvider(env),
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {

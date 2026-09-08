@@ -53,12 +53,24 @@ depends on. A deployment with no mail configured answers `503` on
 - written in the language of the browser that asked, because someone who has
   never signed in has no stored language yet.
 
-Turning it on is `./worker/scripts/setup-email.sh`: the two Mailgun secrets,
+Turning it on is `./worker/scripts/setup-email.sh`: a provider's credentials,
 the deploy that puts these endpoints and the `login_codes` table on the
 Worker, and then a real request for a code — because a wrong key, an
-unverified domain and an unauthorized sandbox recipient all look identical
-from outside (nothing arrives), and the person who notices is otherwise
-whoever was waiting for a code that never came.
+unverified domain and an unauthorized recipient all look identical from
+outside (nothing arrives), and the person who notices is otherwise whoever was
+waiting for a code that never came.
+
+Either provider will do (`worker/src/mailer.js`), because the choice is not
+really ours: whoever runs a deployment has to get credentials from somewhere,
+and "somewhere" keeps changing its free tier.
+
+| Secret | Provider | What it needs |
+|---|---|---|
+| `RESEND_API_KEY` | Resend | One key. No domain, no DNS — until a domain is verified it only delivers to the account owner's own address, which is enough to test with |
+| `MAILGUN_API_KEY` + `MAILGUN_DOMAIN` | Mailgun | A sending domain. Also what the inbound email connector uses |
+
+Resend wins when both are set. `/health` reports `emailProvider`, so "mail is
+on but nothing arrives" starts from a fact.
 
 An account created this way has **no password hash at all** rather than a
 placeholder — `login()` requires a hash, so it can never be talked into

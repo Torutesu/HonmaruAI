@@ -19,6 +19,11 @@
 #     the only way in for anyone who does not have GitHub
 #   * email as the notification floor, when no push channel reaches someone
 #
+# Two providers, because the choice is not really ours: whoever runs this has
+# to get credentials from somewhere, and "somewhere" keeps changing its free
+# tier. Resend needs one key and no DNS to start; Mailgun needs a domain and is
+# also what the inbound webhook uses. Either is enough.
+#
 # Needs `npx wrangler login` and nothing else.
 
 set -euo pipefail
@@ -54,31 +59,60 @@ if ! "${WRANGLER[@]}" whoami 2>&1 | grep -q "You are logged in"; then
 fi
 "${WRANGLER[@]}" whoami 2>/dev/null | grep -iE "account name|account id" || true
 
-say "1. Mailgun"
-note "Sending domain from Mailgun → Sending → Domains. A sandbox domain works"
-note "for testing, but only to recipients you have authorized there."
-domain=$(ask 'Mailgun sending domain (e.g. mg.example.com)' '')
-case "$domain" in
-  "") echo "Nothing to do without a domain." >&2; exit 1 ;;
-  # Anything else becomes part of a URL the Worker posts to on every send.
-  *[!A-Za-z0-9.-]*) echo "That is not a domain. Nothing was set." >&2; exit 1 ;;
+say "1. Who sends the mail?"
+note "  1) Resend   — one API key, no domain, no DNS. Free tier, and the"
+note "                quickest way to see this working. Until you verify a"
+note "                domain it only delivers to the address that owns the"
+note "                Resend account, which is enough to test with."
+note "  2) Mailgun  — needs a sending domain. Also what the inbound email"
+note "                connector uses, so pick this if you want that too."
+choice=$(ask 'Which? (1/2)' '1')
+
+case "$choice" in
+  1|resend|Resend)
+    note "API key from https://resend.com/api-keys — starts 're_'."
+    api_key=$(ask_secret 'Resend API key')
+    [ -n "$api_key" ] || { echo "No key given. Nothing was set." >&2; exit 1; }
+    note "From line. Leave blank to use Resend's shared sender, which needs no"
+    note "domain — mail then only reaches the address that owns the account."
+    from=$(ask 'From line (blank for the shared sender)' '')
+    printf '%s' "$api_key" | "${WRANGLER[@]}" secret put RESEND_API_KEY >/dev/null 2>&1 && echo "  RESEND_API_KEY — set"
+    if [ -n "$from" ]; then
+      printf '%s' "$from" | "${WRANGLER[@]}" secret put NOTIFY_EMAIL_FROM >/dev/null 2>&1 && echo "  NOTIFY_EMAIL_FROM — set"
+    fi
+    unset api_key
+    ;;
+  2|mailgun|Mailgun)
+    note "Sending domain from Mailgun → Sending → Domains. A sandbox domain works"
+    note "for testing, but only to recipients you have authorized there."
+    domain=$(ask 'Mailgun sending domain (e.g. mg.example.com)' '')
+    case "$domain" in
+      "") echo "Nothing to do without a domain." >&2; exit 1 ;;
+      # Anything else becomes part of a URL the Worker posts to on every send.
+      *[!A-Za-z0-9.-]*) echo "That is not a domain. Nothing was set." >&2; exit 1 ;;
+    esac
+
+    note "Private API key from Mailgun → Send → API keys. Starts 'key-' on older"
+    note "accounts; newer ones are a plain string. It is not the public key."
+    api_key=$(ask_secret 'Mailgun private API key')
+    [ -n "$api_key" ] || { echo "No key given. Nothing was set." >&2; exit 1; }
+
+    from=$(ask 'From line' "Honmaru AI <no-reply@$domain>")
+    base=$(ask 'API base (blank for US, https://api.eu.mailgun.net for EU)' '')
+
+    printf '%s' "$domain"  | "${WRANGLER[@]}" secret put MAILGUN_DOMAIN   >/dev/null 2>&1 && echo "  MAILGUN_DOMAIN — set"
+    printf '%s' "$api_key" | "${WRANGLER[@]}" secret put MAILGUN_API_KEY  >/dev/null 2>&1 && echo "  MAILGUN_API_KEY — set"
+    printf '%s' "$from"    | "${WRANGLER[@]}" secret put NOTIFY_EMAIL_FROM >/dev/null 2>&1 && echo "  NOTIFY_EMAIL_FROM — set"
+    if [ -n "$base" ]; then
+      printf '%s' "$base" | "${WRANGLER[@]}" secret put MAILGUN_API_BASE >/dev/null 2>&1 && echo "  MAILGUN_API_BASE — set"
+    fi
+    unset api_key
+    ;;
+  *)
+    echo "Pick 1 or 2. Nothing was set." >&2
+    exit 1
+    ;;
 esac
-
-note "Private API key from Mailgun → Send → API keys. Starts 'key-' on older"
-note "accounts; newer ones are a plain string. It is not the public key."
-api_key=$(ask_secret 'Mailgun private API key')
-[ -n "$api_key" ] || { echo "No key given. Nothing was set." >&2; exit 1; }
-
-from=$(ask 'From line' "Honmaru AI <no-reply@$domain>")
-base=$(ask 'API base (blank for US, https://api.eu.mailgun.net for EU)' '')
-
-printf '%s' "$domain"  | "${WRANGLER[@]}" secret put MAILGUN_DOMAIN   >/dev/null 2>&1 && echo "  MAILGUN_DOMAIN — set"
-printf '%s' "$api_key" | "${WRANGLER[@]}" secret put MAILGUN_API_KEY  >/dev/null 2>&1 && echo "  MAILGUN_API_KEY — set"
-printf '%s' "$from"    | "${WRANGLER[@]}" secret put NOTIFY_EMAIL_FROM >/dev/null 2>&1 && echo "  NOTIFY_EMAIL_FROM — set"
-if [ -n "$base" ]; then
-  printf '%s' "$base" | "${WRANGLER[@]}" secret put MAILGUN_API_BASE >/dev/null 2>&1 && echo "  MAILGUN_API_BASE — set"
-fi
-unset api_key
 
 say "2. Deploy"
 note "Secrets take effect immediately, but the sign-in code endpoints and the"
@@ -123,9 +157,12 @@ case "$code" in
     note "  also means the send path works. $payload"
     ;;
   502)
-    echo "Mailgun refused the send. The secrets are set but wrong, or the" >&2
-    echo "domain is not verified, or the recipient is not authorized on a" >&2
-    echo "sandbox domain. Mailgun → Sending → Logs says which." >&2
+    echo "The provider refused the send. Usually one of: the key is wrong, the" >&2
+    echo "From domain is not verified, or the recipient is not allowed yet —" >&2
+    echo "on Resend's shared sender only the account owner's address is, and" >&2
+    echo "on a Mailgun sandbox only addresses you authorized there." >&2
+    echo "The exact reason is in the Worker's log:" >&2
+    echo "    npx -y wrangler@4 tail --format pretty" >&2
     echo "$payload" >&2
     exit 1
     ;;

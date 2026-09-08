@@ -185,6 +185,23 @@ Web の **⋯ → You → Email** に住所を入れたときだけ。送るの�
 受信側（メールを Worker に流し込む webhook）は別の設定で、`MAILGUN_WEBHOOK_SIGNING_KEY`
 と `INBOUND_EMAIL_DOMAIN`。これは今回の範囲外（`PROGRESS.md` 参照）。
 
+### 3-c-2. Mailgun でなくてもいい（無料で続けたいなら Resend）
+
+メールは **Resend** でも送れる。API キー 1 本だけ、ドメインも DNS も要らない。
+無料枠があり、ドメインを検証するまでは「Resend アカウントの持ち主のアドレス」
+にしか届かないが、動作確認にはそれで足りる。
+
+```bash
+cd worker
+npx wrangler secret put RESEND_API_KEY      # https://resend.com/api-keys（re_ で始まる）
+npx wrangler secret put NOTIFY_EMAIL_FROM   # 任意。未設定なら Resend の共有送信元
+```
+
+両方入っていれば Resend が使われる。受信側（メールを Worker に流し込む
+webhook）だけは Mailgun 固定なので、そちらも使いたいなら Mailgun を選ぶこと。
+
+`/health` の `emailProvider` が、いまどちらで送っているかを返す。
+
 ### 3-d. まとめて 1 コマンドで
 
 秘密を入れるのは簡単なほうで、難しいのは「本当に送れているか」。鍵が違う・
@@ -195,17 +212,17 @@ Web の **⋯ → You → Email** に住所を入れたときだけ。送るの�
 ./worker/scripts/setup-email.sh
 ```
 
-Mailgun の 2 つを入れて → デプロイ（コードを送るエンドポイントと `login_codes`
-テーブルはデプロイされて初めて存在する）→ `/health` を見て → 指定した宛先に
-実際にサインインコードを送る。502 が返れば Mailgun 側の問題で、Mailgun →
-Sending → Logs に理由が出る。
+Resend か Mailgun かを選んで鍵を入れる → デプロイ（コードを送るエンドポイントと
+`login_codes` テーブルはデプロイされて初めて存在する）→ `/health` を見て →
+指定した宛先に実際にサインインコードを送る。502 が返れば送信側の問題で、
+`npx -y wrangler@4 tail --format pretty` に理由がそのまま出る。
 
-> **メールでのログインもこの 2 つに乗っている。**
+> **メールでのログインもここに乗っている。**
 > 「6桁のコードをメールで送る」サインイン（`POST /auth/otp/request`）は
-> `MAILGUN_API_KEY` と `MAILGUN_DOMAIN` が無いと 503 を返す。返された側は
-> パスワード欄に切り替わって理由を出すので、壊れはしない — が、GitHub を
-> 持っていない人にとっては、この 2 つを入れて初めて入口が開く。
-> `/health` の `"email": true` が入っている証拠。
+> 送信手段が無いと 503 を返す。返された側はパスワード欄に切り替わって理由を
+> 出すので壊れはしない — が、GitHub を持っていない人にとっては、Resend か
+> Mailgun のどちらかを入れて初めて入口が開く。`/health` の `"email": true` が
+> 入っている証拠で、`emailProvider` がどちらかを言う。
 
 ---
 

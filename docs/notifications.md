@@ -92,12 +92,38 @@ make it installable.
 
 ## Email — setup
 
+Either provider. The choice is not really ours: whoever runs a deployment has
+to get credentials from somewhere, and "somewhere" keeps changing its free
+tier. `./worker/scripts/setup-email.sh` asks which, sets it, deploys, and then
+sends a real message so a wrong key is found here rather than by whoever was
+waiting for a code.
+
+**Resend** — one key, no domain, no DNS. Until a domain is verified it only
+delivers to the address that owns the Resend account, which is enough to test
+with.
+
+```bash
+npx wrangler secret put RESEND_API_KEY     # https://resend.com/api-keys
+npx wrangler secret put NOTIFY_EMAIL_FROM  # optional; without it, Resend's shared sender
+```
+
+**Mailgun** — needs a sending domain, and is also what the inbound email
+connector uses, so pick it if you want mail to come *in* as well.
+
 ```bash
 npx wrangler secret put MAILGUN_API_KEY
 npx wrangler secret put MAILGUN_DOMAIN     # the sending domain, e.g. mg.example.com
 npx wrangler secret put NOTIFY_EMAIL_FROM  # optional: "Honmaru AI <no-reply@mg.example.com>"
 npx wrangler secret put MAILGUN_API_BASE   # optional: https://api.eu.mailgun.net for an EU domain
 ```
+
+Resend wins when both are set. `/health` reports `emailProvider`, so "mail is
+on but nothing arrives" starts from a fact rather than from remembering what
+was set up months ago; the refusal itself is in `wrangler tail`.
+
+The same credentials carry the **sign-in code** (`POST /auth/otp/request`),
+which is the only way in for someone without GitHub — see
+[screens.md](screens.md).
 
 Email accounts sign in with their address. A GitHub account adds one under
 ⋯ → **Email** in the web client (`PUT /me {email}`), and either can switch
@@ -138,4 +164,4 @@ did not throw.
 | A push arrives in the wrong language | check `GET /me` — the app toggle and the browser both write it; the last one wins |
 | A subscription stops delivering after a while | the push service answered 404/410 and the row was deleted; the client re-subscribes on the next visit |
 | Email arrives alongside a push | the push failed (not "was not registered"): APNs or the push service answered with an error |
-| No email at all | `MAILGUN_API_KEY`/`MAILGUN_DOMAIN` unset, the person has no `email`, or `notifyEmail` is off |
+| No email at all | No `RESEND_API_KEY` and no `MAILGUN_API_KEY`/`MAILGUN_DOMAIN`, the person has no `email`, or `notifyEmail` is off |
