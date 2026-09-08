@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useT } from '../utils/i18n'
 
 interface Props {
   relayHttpUrl: string
@@ -9,6 +10,7 @@ interface Props {
 const ROLES = ['member', 'designer', 'engineer', 'admin', 'triager']
 
 export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionToken }) => {
+  const t = useT()
   const [code, setCode] = useState<string | null>(null)
   const [role, setRole] = useState('member')
   const [busy, setBusy] = useState(false)
@@ -29,7 +31,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.message || 'Could not create invite.')
+        setError(data.message || t('Could not create invite.'))
         return
       }
       setCode(data.code)
@@ -49,7 +51,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
 
   return (
     <div className="info-panel">
-      <h3>Invite a teammate</h3>
+      <h3>{t('Invite a teammate')}</h3>
       {!code ? (
         <>
           <div style={{ marginBottom: '0.5rem' }}>
@@ -67,7 +69,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
             </select>
           </div>
           <button className="debug-toggle" onClick={handleInvite} disabled={busy}>
-            {busy ? 'Creating…' : 'Create invite code'}
+            {busy ? t('Creating…') : t('Create invite code')}
           </button>
           {error && <div className="create-error">{error}</div>}
         </>
@@ -81,7 +83,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
               {code}
             </code>
             <button className="debug-toggle" onClick={copyCode} style={{ padding: '0.4rem 0.8rem' }}>
-              {copied ? 'Copied!' : 'Copy'}
+              {copied ? t('Copied!') : t('Copy')}
             </button>
           </div>
           <button

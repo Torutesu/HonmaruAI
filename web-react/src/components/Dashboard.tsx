@@ -17,6 +17,7 @@ import { syncLocale } from '../utils/push'
 import type { AppState, Business } from '../types/card'
 import './Dashboard.css'
 import { properName } from '../utils/names'
+import { useT } from '../utils/i18n'
 
 interface Props {
   userId: string
@@ -37,6 +38,7 @@ type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 /// telling your AI something, what you sent, what you decided, the team —
 /// is a sheet over it that closes back to the feed.
 export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout }) => {
+  const t = useT()
   const [state, setState] = useState<AppState>({ cardsById: {} })
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -162,7 +164,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         }),
       })
       const routed = await res.json()
-      if (!res.ok) { setError(routed.message || 'Your AI could not route that.'); return }
+      if (!res.ok) { setError(routed.message || t('Your AI could not route that.')); return }
       wsClientRef.current!.sendCardCreated({
         id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         type: routed.cardType || 'notification',
@@ -242,7 +244,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       <header className="topbar">
-        <div className="mode-switch" role="tablist" aria-label="View">
+        <div className="mode-switch" role="tablist" aria-label={t('View')}>
           <button
             role="tab"
             aria-selected={mode === 'cards'}
@@ -257,13 +259,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             className={mode === 'classic' ? 'on' : ''}
             onClick={() => switchMode('classic')}
           >
-            Classic
+            {t('Classic')}
           </button>
         </div>
         <div className="topbar-right">
-          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? 'Connected' : 'Reconnecting…'} />
+          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} />
           <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
-          <button className="avatar-button" onClick={() => setScreen('profile')} aria-label="You">
+          <button className="avatar-button" onClick={() => setScreen('profile')} aria-label={t('You')}>
             {(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()}
           </button>
         </div>
@@ -274,26 +276,26 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       </div>
 
       {panel === null && (
-        <nav className="tabbar" aria-label="Main">
+        <nav className="tabbar" aria-label={t('Main')}>
           <button
             className={mode === 'cards' ? 'tab on' : 'tab'}
             onClick={() => switchMode('cards')}
-            aria-label="Feed"
+            aria-label={t('Feed')}
           >⌂</button>
-          <button className="tab" onClick={() => setScreen('history')} aria-label="History">↺</button>
-          <button className="tab compose" onClick={() => setPanel('compose')} aria-label="Tell your AI" aria-keyshortcuts="n">
+          <button className="tab" onClick={() => setScreen('history')} aria-label={t('History')}>↺</button>
+          <button className="tab compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} aria-keyshortcuts="n">
             <span className="ai-mark" />
           </button>
-          <button className="tab" onClick={() => setScreen('tools')} aria-label="Tools">⚯</button>
-          <button className="tab" onClick={() => setScreen('profile')} aria-label="You">◯</button>
+          <button className="tab" onClick={() => setScreen('tools')} aria-label={t('Tools')}>⚯</button>
+          <button className="tab" onClick={() => setScreen('profile')} aria-label={t('You')}>◯</button>
         </nav>
       )}
 
       {panel && <div className="scrim" onClick={() => setPanel(null)} />}
 
       {panel === 'compose' && (
-        <div className="sheet sheet-bottom" role="dialog" aria-label="Tell your AI">
-          <div className="sheet-title">Tell your AI</div>
+        <div className="sheet sheet-bottom" role="dialog" aria-label={t('Tell your AI')}>
+          <div className="sheet-title">{t('Tell your AI')}</div>
           <p className="sheet-hint">Who it is for, what they decide, and by when. Your AI writes the card and routes it.</p>
           <CreateDecision
             relayHttpUrl={relayHttpUrl}
@@ -309,9 +311,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel === 'sent' && (
-        <aside className="sheet sheet-side" role="dialog" aria-label="Sent by you">
-          <div className="sheet-title">Sent by you <button className="close" onClick={() => setPanel(null)} aria-label="Close">×</button></div>
-          {sentCards.length === 0 && <p className="sheet-empty">Nothing sent yet. Tell your AI something.</p>}
+        <aside className="sheet sheet-side" role="dialog" aria-label={t('Sent by you')}>
+          <div className="sheet-title">{t('Sent by you')} <button className="close" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
+          {sentCards.length === 0 && <p className="sheet-empty">{t('Nothing sent yet. Tell your AI something.')}</p>}
           {sentCards.map((card) => (
             <div key={card.id} className="sent-card">
               <div className="sent-card-head">
@@ -325,16 +327,16 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               {card.business && <span className="business-tag">{nameOf(card.business) || card.business}</span>}
               <p className="sent-summary">{card.summary}</p>
               {card.decision?.replyText && <p className="sent-reply">“{card.decision.replyText}”</p>}
-              {card.status === 'pending' && <button className="nudge-button" onClick={() => handleNudge(card.id)}>Nudge</button>}
+              {card.status === 'pending' && <button className="nudge-button" onClick={() => handleNudge(card.id)}>{t('Nudge')}</button>}
             </div>
           ))}
         </aside>
       )}
 
       {panel === 'done' && (
-        <aside className="sheet sheet-side" role="dialog" aria-label="Decided">
-          <div className="sheet-title">Decided <button className="close" onClick={() => setPanel(null)} aria-label="Close">×</button></div>
-          {decidedCards.length === 0 && <p className="sheet-empty">No decisions yet.</p>}
+        <aside className="sheet sheet-side" role="dialog" aria-label={t('Decided')}>
+          <div className="sheet-title">{t('Decided')} <button className="close" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
+          {decidedCards.length === 0 && <p className="sheet-empty">{t('No decisions yet.')}</p>}
           {decidedCards.map((card) => (
             <DecisionCard
               key={card.id}
@@ -355,10 +357,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel === 'invite' && (
-        <div className="sheet sheet-bottom" role="dialog" aria-label="Invite a teammate">
+        <div className="sheet sheet-bottom" role="dialog" aria-label={t('Invite a teammate')}>
           <div className="sheet-title">
-            Invite a teammate
-            <button className="close" onClick={() => setPanel(null)} aria-label="Close">×</button>
+            {t('Invite a teammate')}
+            <button className="close" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button>
           </div>
           <InviteTeammate relayHttpUrl={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} />
         </div>
@@ -407,7 +409,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       {showDebug && (
         <div className="debug-log">
-          <h3>Event log</h3>
+          <h3>{t('Event log')}</h3>
           <div className="log-entries">
             {debugLog.map((entry, i) => (
               <div key={i} className="log-entry"><span className="log-time">{entry.timestamp}</span><span className="log-message">{entry.message}</span></div>

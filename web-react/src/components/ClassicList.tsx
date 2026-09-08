@@ -2,6 +2,7 @@ import React from 'react'
 import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
+import { useT } from '../utils/i18n'
 
 interface Props {
   pending: DecisionCard[]
@@ -32,6 +33,7 @@ function when(iso?: string): string {
 /// feature with no backend yet, and inventing them here would be a screen
 /// that lies about what the product does.
 export const ClassicList: React.FC<Props> = ({ pending, sent, decided, businesses, onOpen, onNudge }) => {
+  const t = useT()
   const locale = getLocale()
   const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug || ''
   const titleOf = (c: DecisionCard) => c.localized?.[locale]?.title || c.title
@@ -57,8 +59,8 @@ export const ClassicList: React.FC<Props> = ({ pending, sent, decided, businesse
     <div className="classic">
       <div className="classic-inner">
         <section className="cl-section">
-          <h2>Waiting on you<span>{pending.length}</span></h2>
-          {pending.length === 0 && <p className="cl-empty">Nothing is waiting on you.</p>}
+          <h2>{t('Waiting on you')}<span>{pending.length}</span></h2>
+          {pending.length === 0 && <p className="cl-empty">{t('Nothing is waiting on you.')}</p>}
           <ul>
             {pending.map((c) => (
               <Row
@@ -72,8 +74,8 @@ export const ClassicList: React.FC<Props> = ({ pending, sent, decided, businesse
         </section>
 
         <section className="cl-section">
-          <h2>Sent by you<span>{sent.length}</span></h2>
-          {sent.length === 0 && <p className="cl-empty">You have not sent anything yet.</p>}
+          <h2>{t('Sent by you')}<span>{sent.length}</span></h2>
+          {sent.length === 0 && <p className="cl-empty">{t('You have not sent anything yet.')}</p>}
           <ul>
             {sent.map((c) => (
               <Row
@@ -83,7 +85,7 @@ export const ClassicList: React.FC<Props> = ({ pending, sent, decided, businesse
                   ? `Waiting on ${displayName(c.recipientUserID)}`
                   : `${displayName(c.recipientUserID)} · ${c.decision?.action || c.status}`}
                 action={c.status === 'pending'
-                  ? <button className="cl-nudge" onClick={() => onNudge(c.id)}>Nudge</button>
+                  ? <button className="cl-nudge" onClick={() => onNudge(c.id)}>{t('Nudge')}</button>
                   : undefined}
               />
             ))}
@@ -91,8 +93,8 @@ export const ClassicList: React.FC<Props> = ({ pending, sent, decided, businesse
         </section>
 
         <section className="cl-section">
-          <h2>Decided<span>{decided.length}</span></h2>
-          {decided.length === 0 && <p className="cl-empty">No decisions yet.</p>}
+          <h2>{t('Decided')}<span>{decided.length}</span></h2>
+          {decided.length === 0 && <p className="cl-empty">{t('No decisions yet.')}</p>}
           <ul>
             {decided.map((c) => (
               <Row key={c.id} card={c} meta={`${c.decision?.action || c.status}${nameOf(c.business) ? ` · ${nameOf(c.business)}` : ''}`} />

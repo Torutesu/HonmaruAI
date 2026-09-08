@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { enableWebPush, disableWebPush, pushSupport, currentSubscription } from '../utils/push'
+import { useT } from '../utils/i18n'
 
 interface Props {
   httpBase: string
@@ -20,6 +21,7 @@ interface Me {
 /// decision when no push channel could. Saying that on the screen is the
 /// difference between "why am I getting email?" and "of course I am".
 export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
+  const t = useT()
   const [me, setMe] = useState<Me | null>(null)
   const [pushOn, setPushOn] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -31,7 +33,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
     fetch(`${httpBase}/me`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => r.json())
       .then((data) => { setMe(data); setEmail(data.email || '') })
-      .catch(() => setError('Could not read your settings.'))
+      .catch(() => setError(t('Could not read your settings.')))
     currentSubscription().then((sub) => setPushOn(Boolean(sub)))
   }, [httpBase, sessionToken])
 
@@ -44,7 +46,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
       } else {
         const result = await enableWebPush(httpBase, sessionToken)
         if (result === 'denied') { setError('Your browser refused. Allow notifications for this site, then try again.'); return }
-        if (result === 'unavailable') { setError('This browser cannot receive push notifications here.'); return }
+        if (result === 'unavailable') { setError(t('This browser cannot receive push notifications here.')); return }
         setPushOn(true)
       }
     } finally { setBusy(false) }
@@ -58,7 +60,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
       body: JSON.stringify(body),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) { setError(data.message || 'That did not save.'); return false }
+    if (!res.ok) { setError(data.message || t('That did not save.')); return false }
     setMe((prev) => (prev ? { ...prev, ...data } : prev))
     return true
   }
@@ -66,23 +68,23 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
   return (
     <div className="screen">
       <div className="screen-head">
-        <button className="back" onClick={onClose} aria-label="Close">‹</button>
-        <span className="head-title">Notifications</span>
+        <button className="back" onClick={onClose} aria-label={t('Close')}>‹</button>
+        <span className="head-title">{t('Notifications')}</span>
       </div>
       <div className="screen-body">
         {error && <div className="form-error">{error}</div>}
 
-        <div className="rows-title">On this device</div>
+        <div className="rows-title">{t('On this device')}</div>
         <div className="rows">
           <div className="row static">
             <span className="row-icon">◉</span>
             <span className="row-main">
-              Push notifications
+              {t('Push notifications')}
               <span className="row-sub">
                 {support === 'needs-install'
                   ? 'On iPhone, add this to your home screen first — Safari only allows notifications for an installed web app.'
                   : support === 'unsupported'
-                    ? 'This browser cannot receive them.'
+                    ? t('This browser cannot receive them.')
                     : support === 'denied'
                       ? 'Blocked in your browser settings — allow notifications for this site to turn it on.'
                       : 'A decision that needs you arrives even when this tab is closed.'}
@@ -92,26 +94,26 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
               className="switch"
               role="switch"
               aria-checked={pushOn}
-              aria-label="Push notifications"
+              aria-label={t('Push notifications')}
               disabled={busy || support !== 'ready'}
               onClick={togglePush}
             />
           </div>
         </div>
 
-        <div className="rows-title">By email</div>
+        <div className="rows-title">{t('By email')}</div>
         <div className="rows">
           <div className="row static">
             <span className="row-icon">✉</span>
             <span className="row-main">
               Email as the fallback
-              <span className="row-sub">Only when no device of yours can be reached. Never a duplicate.</span>
+              <span className="row-sub">{t('Only when no device of yours can be reached. Never a duplicate.')}</span>
             </span>
             <button
               className="switch"
               role="switch"
               aria-checked={Boolean(me?.notifyEmail)}
-              aria-label="Email fallback"
+              aria-label={t('Email fallback')}
               disabled={!me}
               onClick={() => patch({ notifyEmail: !me?.notifyEmail })}
             />
@@ -120,7 +122,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
 
         {me && (
           <div className="field">
-            <label htmlFor="notify-email">Where it goes</label>
+            <label htmlFor="notify-email">{t('Where it goes')}</label>
             <input
               id="notify-email"
               type="email"
@@ -128,7 +130,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
               disabled={!me.emailEditable}
               onChange={(e) => setEmail(e.target.value)}
               onBlur={() => { if (me.emailEditable && email !== (me.email || '')) patch({ email }) }}
-              placeholder="you@company.com"
+              placeholder={t('you@company.com')}
             />
             <div className="hint">
               {me.emailEditable

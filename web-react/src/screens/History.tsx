@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import type { DecisionCard, Business } from '../types/card'
+import { useT } from '../utils/i18n'
 
 interface Props {
   decided: DecisionCard[]
@@ -12,6 +13,8 @@ interface Props {
 
 type Filter = 'all' | 'yours' | 'sent'
 
+// English keys, translated where they are read: a table built at module load
+// would be frozen in whatever language the app started in.
 const ACTION_WORD: Record<string, string> = {
   approve: 'Approved', decline: 'Declined', revise: 'Revision asked',
   choose: 'Chose', reply: 'Replied', acknowledge: 'Acknowledged',
@@ -38,6 +41,7 @@ function dayLabel(iso: string) {
 /// streams, so it is right the moment a decision lands rather than a refresh
 /// later.
 export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onOpen, onClose }) => {
+  const t = useT()
   const [filter, setFilter] = useState<Filter>('all')
   const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug
 
@@ -60,15 +64,15 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
   return (
     <div className="screen">
       <div className="screen-head">
-        <button className="back" onClick={onClose} aria-label="Close">‹</button>
-        <span className="head-title">History</span>
+        <button className="back" onClick={onClose} aria-label={t('Close')}>‹</button>
+        <span className="head-title">{t('History')}</span>
       </div>
       <div className="screen-body">
-        <div className="seg" role="tablist" aria-label="Filter">
+        <div className="seg" role="tablist" aria-label={t('Filter')}>
           {(['all', 'yours', 'sent'] as Filter[]).map((f) => (
             <button key={f} role="tab" aria-selected={filter === f}
               className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
-              {f === 'all' ? 'Everything' : f === 'yours' ? 'You decided' : 'You asked'}
+              {f === 'all' ? t('Everything') : f === 'yours' ? t('You decided') : t('You asked')}
             </button>
           ))}
         </div>
@@ -82,7 +86,7 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
 
         {groups.map((group) => (
           <section key={group.day} className="hist-group">
-            <div className="rows-title">{group.day}</div>
+            <div className="rows-title">{t(group.day)}</div>
             <div className="rows">
               {group.cards.map((card) => {
                 const action = card.decision?.action || (card.status === 'pending' ? '' : card.status)
@@ -101,7 +105,7 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
                     </span>
                     {action && (
                       <span className={`pill-tag ${ACTION_TONE[action] || ''}`}>
-                        {ACTION_WORD[action] || action}
+                        {t(ACTION_WORD[action] || action)}
                       </span>
                     )}
                   </button>

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { useT } from '../utils/i18n'
 
 interface Props {
   httpBase: string
@@ -19,6 +20,7 @@ const RESEND_SECONDS = 60
 /// the whole code from a mail app fills all six at once. Anything less and
 /// people retype a code they already have on the clipboard.
 export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVerified, onBack }) => {
+  const t = useT()
   const [digits, setDigits] = useState<string[]>(Array(LENGTH).fill(''))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -104,11 +106,11 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
   return (
     <div className="screen">
       <div className="screen-head">
-        <button className="back" onClick={onBack} aria-label="Back">‹</button>
-        <span className="head-title">Check your email</span>
+        <button className="back" onClick={onBack} aria-label={t('Back')}>‹</button>
+        <span className="head-title">{t('Check your email')}</span>
       </div>
       <div className="screen-body">
-        <h1 className="display" style={{ fontSize: 28 }}>Enter the code.</h1>
+        <h1 className="display" style={{ fontSize: 28 }}>{t('Enter the code.')}</h1>
         <p className="lede">
           We sent six digits to <b style={{ color: 'var(--ink-black)' }}>{email}</b>. It is
           good for ten minutes, once.

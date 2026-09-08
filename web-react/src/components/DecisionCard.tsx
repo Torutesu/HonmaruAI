@@ -2,6 +2,7 @@ import React from 'react'
 import type { DecisionCard as DecisionCardType } from '../types/card'
 import { getLocale } from '../utils/locale'
 import './DecisionCard.css'
+import { useT } from '../utils/i18n'
 
 interface Props {
   card: DecisionCardType
@@ -33,6 +34,7 @@ export const DecisionCard: React.FC<Props> = ({
   highlighted = false,
   businessName
 }) => {
+  const t = useT()
   const isRecipient = card.recipientUserID === currentUserId
   const isRequester = card.senderUserID === currentUserId
   const localized = card.localized?.[getLocale()]
@@ -84,7 +86,7 @@ export const DecisionCard: React.FC<Props> = ({
 
       {card.revisionNote && (
         <div className="card-revision-note">
-          <strong>Revision:</strong> {card.revisionNote}
+          <strong>{t('Revision:')}</strong> {card.revisionNote}
         </div>
       )}
 
@@ -98,7 +100,7 @@ export const DecisionCard: React.FC<Props> = ({
       {card.decision && (
         <div className="card-decision">
           <div className="decision-action">
-            <strong>Decision:</strong> {card.decision.action}
+            <strong>{t('Decision:')}</strong> {card.decision.action}
           </div>
           {card.decision.replyText && (
             <div className="decision-text">{card.decision.replyText}</div>
@@ -115,10 +117,10 @@ export const DecisionCard: React.FC<Props> = ({
       {isRecipient && card.status === 'pending' && (
         <div className="card-actions">
           <button onClick={onApprove} className="action-approve">
-            Approve
+            {t('Approve')}
           </button>
           <button onClick={onDecline} className="action-decline">
-            Decline
+            {t('Decline')}
           </button>
           <button onClick={onAcknowledge} className="action-acknowledge">
             Acknowledge

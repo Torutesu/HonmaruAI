@@ -3,6 +3,7 @@ import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import './Feed.css'
 import { displayName } from '../utils/names'
+import { useT, t } from '../utils/i18n'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -28,12 +29,12 @@ function ago(iso: string): string {
   const then = Date.parse(iso)
   if (!Number.isFinite(then)) return ''
   const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 1) return t('just now')
+  if (mins < 60) return t('{n}m ago', { n: mins })
   const hours = Math.round(mins / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return t('{n}h ago', { n: hours })
   const days = Math.round(hours / 24)
-  if (days <= 7) return `${days}d ago`
+  if (days <= 7) return t('{n}d ago', { n: days })
   return new Date(then).toLocaleDateString()
 }
 
@@ -49,6 +50,7 @@ function segments(context: string): Array<{ label: string; detail: string }> {
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
 export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, onDecide, onAsk }) => {
+  const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
   const nameOf = useMemo(() => {
@@ -96,8 +98,8 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
       {cards.length === 0 && (
         <section className="page page-empty">
           <div className="empty-mark">✓</div>
-          <h2>All clear</h2>
-          <p>Nothing is waiting on you. Your AI will tell you when something is.</p>
+          <h2>{t('All clear')}</h2>
+          <p>{t('Nothing is waiting on you. Your AI will tell you when something is.')}</p>
         </section>
       )}
       {cards.map((card) => (
@@ -126,6 +128,7 @@ interface PageProps {
 }
 
 const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) => {
+  const t = useT()
   const [dx, setDx] = useState(0)
   const [ask, setAsk] = useState('')
   const start = useRef<{ x: number; y: number } | null>(null)
@@ -171,7 +174,7 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
           style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? 'transform 160ms ease' : 'none' }}
         >
           <header className="card-top">
-            <span className="card-kind">{card.type === 'approval' ? 'Decisions' : card.type}</span>
+            <span className="card-kind">{card.type === 'approval' ? t('Decisions') : card.type}</span>
             <span className="priority-legend" aria-label={`Priority ${card.priority}`}>
               {(['low', 'medium', 'high'] as const).map((level) => (
                 <span key={level} className={`legend ${card.priority === level ? 'on' : ''} p-${level}`}>
@@ -204,7 +207,7 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
 
           {whoName && (
             <section className="requested-by">
-              <div className="rb-label">Requested By</div>
+              <div className="rb-label">{t('Requested By')}</div>
               <div className="rb-row">
                 <span className="avatar" aria-hidden="true">{initials(whoName)}</span>
                 <div className="rb-who">
@@ -235,24 +238,24 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
         </article>
 
         <div className="decide-row">
-          <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label="Decline" aria-keyshortcuts="d">✕</button>
-          <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label="Approve" aria-keyshortcuts="a">✓</button>
+          <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
+          <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
         </div>
 
         <form
           className="ask-bar"
           onSubmit={(e) => { e.preventDefault(); if (ask.trim()) { onAsk(ask.trim(), card); setAsk('') } }}
         >
-          <button type="button" className="ask-plus" aria-label="Reply with a note" onClick={() => {
+          <button type="button" className="ask-plus" aria-label={t('Reply with a note')} onClick={() => {
             if (ask.trim()) { onDecide(card.id, 'reply', { replyText: ask.trim() }); setAsk('') }
           }}>+</button>
           <input
             value={ask}
             onChange={(e) => setAsk(e.target.value)}
-            placeholder="Ask anything..."
-            aria-label="Ask your AI about this decision"
+            placeholder={t('Ask anything...')}
+            aria-label={t('Ask your AI about this decision')}
           />
-          <button type="submit" className="ask-send" aria-label="Send" disabled={!ask.trim()}>➤</button>
+          <button type="submit" className="ask-send" aria-label={t('Send')} disabled={!ask.trim()}>➤</button>
         </form>
       </div>
     </section>

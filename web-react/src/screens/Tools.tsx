@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { useT } from '../utils/i18n'
 
 interface Connector { id: string; label: string; status: string }
 
@@ -23,6 +24,7 @@ const ICON: Record<string, string> = { gmail: '✉', slack: '#', notion: 'N', gi
 /// of them puts a Slack channel or a Notion sidebar inside this app, because
 /// the point of the product is that you stopped going to those places.
 export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose }) => {
+  const t = useT()
   const [connectors, setConnectors] = useState<Connector[] | null>(null)
   const [unavailable, setUnavailable] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -100,8 +102,8 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   return (
     <div className="screen">
       <div className="screen-head">
-        <button className="back" onClick={onClose} aria-label="Close">‹</button>
-        <span className="head-title">Tools</span>
+        <button className="back" onClick={onClose} aria-label={t('Close')}>‹</button>
+        <span className="head-title">{t('Tools')}</span>
       </div>
       <div className="screen-body">
         <p className="lede" style={{ marginTop: 8 }}>
@@ -113,7 +115,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         {note && <div className="form-note">{note}</div>}
         {error && <div className="form-error">{error}</div>}
 
-        {connectors === null && <div className="empty">Loading…</div>}
+        {connectors === null && <div className="empty">{t('Loading…')}</div>}
 
         {connectors !== null && connectors.length > 0 && (
           <div className="rows">
@@ -125,7 +127,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
                   <span className="row-sub">{BLURB[c.id] || 'Feeds decisions into your feed.'}</span>
                 </span>
                 {c.status === 'active'
-                  ? <span className="pill-tag mint">Connected</span>
+                  ? <span className="pill-tag mint">{t('Connected')}</span>
                   : (
                     <button className="pill-btn" onClick={() => connect(c.id)} disabled={busy === c.id}>
                       {busy === c.id ? '…' : 'Connect'}
@@ -137,7 +139,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         )}
 
         {connectors !== null && connectors.length === 0 && !unavailable && (
-          <div className="empty">No connectors are available on this deployment.</div>
+          <div className="empty">{t('No connectors are available on this deployment.')}</div>
         )}
 
         {active.length > 0 && (
@@ -146,7 +148,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           </button>
         )}
 
-        <div className="rows-title">Always on</div>
+        <div className="rows-title">{t('Always on')}</div>
         <div className="rows">
           <div className="row static">
             <span className="row-icon">⌥</span>
@@ -154,7 +156,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
               GitHub
               <span className="row-sub">{BLURB.github}</span>
             </span>
-            <span className="pill-tag mint">Built in</span>
+            <span className="pill-tag mint">{t('Built in')}</span>
           </div>
         </div>
         <div style={{ height: 24 }} />

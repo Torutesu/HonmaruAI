@@ -234,6 +234,57 @@ await step('an unconfigured connector is said out loud, not hidden', async () =>
   }
 })
 
+// The setting the complaint named: choosing 日本語 wrote the preference and
+// changed nothing on the screen, because only card content was ever
+// translated. Switching it must repaint the interface, and switching back
+// must return it — a one-way door would be worse than none.
+await step('choosing a language changes the interface, and changing back returns it', async () => {
+  for (let i = 0; i < 3; i++) {
+    const close = await page.$('.screen [aria-label="Close"]')
+    if (!close) break
+    await close.click()
+    await page.waitForTimeout(300)
+  }
+  await page.click('nav [aria-label="You"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+
+  const pick = async (value) => {
+    const select = await page.$('select[aria-label="Language"], select[aria-label="言語"]')
+    if (!select) throw new Error('the language picker is not on the You screen')
+    await select.selectOption(value)
+    await page.waitForTimeout(600)
+  }
+
+  await pick('ja')
+  await shot('17-japanese')
+  const ja = await page.evaluate(() => ({
+    lang: document.documentElement.lang,
+    screen: document.querySelector('.screen')?.innerText || '',
+    rail: [...document.querySelectorAll('nav .tab')].map((b) => b.getAttribute('aria-label')).join(' '),
+  }))
+  if (ja.lang !== 'ja') throw new Error(`<html lang> stayed "${ja.lang}"`)
+  // Kana or kanji on the screen is the whole point; without it the setting
+  // is still doing nothing visible.
+  if (!/[ぁ-んァ-ン一-龯]/.test(ja.screen)) {
+    throw new Error(`the You screen is still English: ${ja.screen.slice(0, 120)}`)
+  }
+  if (!/[ぁ-んァ-ン一-龯]/.test(ja.rail)) {
+    throw new Error(`the tab bar is still English: ${ja.rail}`)
+  }
+
+  await pick('en');
+  const back = await page.evaluate(() => ({
+    lang: document.documentElement.lang,
+    screen: document.querySelector('.screen')?.innerText || '',
+  }))
+  if (back.lang !== 'en') throw new Error(`<html lang> stayed "${back.lang}"`)
+  if (!/Language|Role/.test(back.screen)) {
+    throw new Error(`English did not come back: ${back.screen.slice(0, 120)}`)
+  }
+  await page.click('.screen [aria-label="Close"]')
+  await page.waitForTimeout(300)
+})
+
 // The same account, on a laptop. This is the size the design was not drawn for
 // and the one the complaint was about, so it is signed in and photographed
 // rather than glanced at from the welcome screen.

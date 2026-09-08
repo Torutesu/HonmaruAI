@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { properName } from '../utils/names'
+import { useT } from '../utils/i18n'
 
 interface Props {
   relayHttpUrl: string
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, sessionToken, onSendCard, onLog, onDone, autoFocus }) => {
+  const t = useT()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -45,7 +47,7 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
       })
       const routed = await res.json()
       if (!res.ok) {
-        setError(routed.message || 'Routing failed')
+        setError(routed.message || t('Routing failed'))
         return
       }
 
@@ -84,12 +86,12 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         value={text}
         autoFocus={autoFocus}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Tell your AI — e.g. ask Yuki to approve the spring menu by Friday"
+        placeholder={t('Tell your AI — e.g. ask Yuki to approve the spring menu by Friday')}
         disabled={busy}
         onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
       />
       <button onClick={handleCreate} disabled={busy || !text.trim()}>
-        {busy ? 'Routing…' : 'Send'}
+        {busy ? t('Routing…') : t('Send')}
       </button>
       {error && <div className="create-error">{error}</div>}
     </div>

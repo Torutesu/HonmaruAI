@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useT } from '../utils/i18n'
 
 interface Props {
   httpBase: string
@@ -18,6 +19,7 @@ interface Props {
 /// A password still works — some deployments have no mail configured at all —
 /// so this screen carries both, with the code path in front.
 export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn, onBack, onSwitchMode }) => {
+  const t = useT()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [inviteCode, setInviteCode] = useState('')
@@ -77,7 +79,7 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
   return (
     <div className="screen">
       <div className="screen-head">
-        <button className="back" onClick={onBack} aria-label="Back">‹</button>
+        <button className="back" onClick={onBack} aria-label={t('Back')}>‹</button>
         <span className="head-title">{mode === 'signup' ? 'Create account' : 'Sign in'}</span>
       </div>
       <div className="screen-body">
@@ -93,33 +95,33 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
         <form onSubmit={(e) => { e.preventDefault(); if (canSubmit) (usePassword ? withPassword() : sendCode()) }}>
           {mode === 'signup' && (
             <div className="field">
-              <label htmlFor="name">Your name</label>
+              <label htmlFor="name">{t('Your name')}</label>
               <input id="name" value={name} onChange={(e) => setName(e.target.value)}
-                placeholder="What your team calls you" autoComplete="name" />
+                placeholder={t('What your team calls you')} autoComplete="name" />
             </div>
           )}
 
           <div className="field">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="email">{t('Email')}</label>
             <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com" autoComplete="email" autoFocus inputMode="email" />
+              placeholder={t('you@company.com')} autoComplete="email" autoFocus inputMode="email" />
           </div>
 
           {usePassword && (
             <div className="field">
-              <label htmlFor="password">Password</label>
+              <label htmlFor="password">{t('Password')}</label>
               <input id="password" type="password" value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
+                placeholder={t('At least 8 characters')}
                 autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
             </div>
           )}
 
           {mode === 'signup' && (
             <div className="field">
-              <label htmlFor="invite">Invite code <span style={{ color: 'var(--ash)' }}>(optional)</span></label>
+              <label htmlFor="invite">{t('Invite code')} <span style={{ color: 'var(--ash)' }}>(optional)</span></label>
               <input id="invite" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)}
-                placeholder="Paste one to join a team" />
+                placeholder={t('Paste one to join a team')} />
               <div className="hint">No code? You get a workspace of your own, and can invite people into it.</div>
             </div>
           )}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useT } from '../utils/i18n'
 
 interface Plan {
   id: string
@@ -35,6 +36,7 @@ interface Props {
 /// billing has no credentials the Worker says `purchasable: false` and the
 /// screen says so too — an inert button would be the dishonest version.
 export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
+  const t = useT()
   const [status, setStatus] = useState<Status | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [annual, setAnnual] = useState(true)
@@ -56,17 +58,17 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
   return (
     <div className="screen">
       <div className="screen-head">
-        <button className="back" onClick={onClose} aria-label="Close">‹</button>
-        <span className="head-title">Choose your plan</span>
+        <button className="back" onClick={onClose} aria-label={t('Close')}>‹</button>
+        <span className="head-title">{t('Choose your plan')}</span>
       </div>
       <div className="screen-body">
         {error && <div className="form-error">{error}</div>}
-        {!status && !error && <div className="empty">Loading…</div>}
+        {!status && !error && <div className="empty">{t('Loading…')}</div>}
 
         {status && (
           <>
             {status.pro ? (
-              <div className="form-note">You are on Pro. Unlimited routing, every business, the full record.</div>
+              <div className="form-note">{t('You are on Pro. Unlimited routing, every business, the full record.')}</div>
             ) : (
               <p className="lede" style={{ marginTop: 4 }}>
                 Free gives you {status.dailyLimit} AI-routed decisions a day
@@ -75,9 +77,9 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
               </p>
             )}
 
-            <div className="billing-toggle" role="tablist" aria-label="Billing period">
+            <div className="billing-toggle" role="tablist" aria-label={t('Billing period')}>
               <button role="tab" aria-selected={annual} className={annual ? 'on' : ''} onClick={() => setAnnual(true)}>
-                Annual <span className="save">save 20%</span>
+                {t('Annual')} <span className="save">{t('save 20%')}</span>
               </button>
               <button role="tab" aria-selected={!annual} className={!annual ? 'on' : ''} onClick={() => setAnnual(false)}>
                 Monthly
@@ -108,7 +110,7 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
               </button>
             ))}
 
-            <div className="rows-title">Free</div>
+            <div className="rows-title">{t('Free')}</div>
             <div className="rows">
               {(status.plans.find((p) => p.id === 'free')?.features || []).map((f) => (
                 <div key={f} className="row static"><span className="row-main">{f}</span></div>
