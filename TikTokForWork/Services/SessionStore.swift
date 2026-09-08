@@ -13,6 +13,7 @@ enum SessionStore {
         static let sessionToken = "sessionToken"
         static let orgId = "orgId"
         static let apiKey = "apiKey"
+        static let relayUserId = "relayUserId"
     }
 
     static var githubRepository: String? {
@@ -30,6 +31,18 @@ enum SessionStore {
     static var githubUserId: String? {
         get { read(Key.githubUserId) }
         set { write(newValue, key: Key.githubUserId) }
+    }
+
+    /// The id the Worker knows this person by, whichever door they came through.
+    ///
+    /// The Worker's column is called `github_id` for historical reasons and holds a
+    /// synthetic id for an email account, so this is the same value for both sign-in
+    /// methods — and it is what RevenueCat must be identified with, because
+    /// `entitlements.js` looks a subscriber up by exactly this string. Falls back to the
+    /// GitHub id so an install that predates this key keeps working.
+    static var relayUserID: String? {
+        get { read(Key.relayUserId) ?? read(Key.githubUserId) }
+        set { write(newValue, key: Key.relayUserId) }
     }
 
     static var githubRepositoryURL: String? {
@@ -116,7 +129,7 @@ enum SessionStore {
     /// `apiKey` is deliberately absent — it is the person's own OpenAI key,
     /// which belongs to the device and not to the session.
     static let clearedKeys = [
-        Key.githubRepository, Key.githubUsername, Key.githubUserId,
+        Key.githubRepository, Key.githubUsername, Key.githubUserId, Key.relayUserId,
         Key.githubRepositoryURL, Key.currentUserID, Key.sessionToken, Key.orgId,
     ]
 

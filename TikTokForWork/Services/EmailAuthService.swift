@@ -11,6 +11,10 @@ import Foundation
 enum EmailAuthService {
     struct Session {
         let token: String
+        /// The id the Worker keys this account by — the same value `entitlements.js`
+        /// looks a RevenueCat subscriber up with. Distinct from `login`, which is a
+        /// display handle; an account can share a handle shape with its email address.
+        let userId: String
         let login: String
         let orgId: String
         let created: Bool
@@ -89,6 +93,7 @@ enum EmailAuthService {
         }
         return Session(
             token: token,
+            userId: (json["userId"] as? String) ?? (json["login"] as? String) ?? email,
             login: (json["login"] as? String) ?? (json["userId"] as? String) ?? email,
             orgId: (json["orgId"] as? String) ?? "",
             created: false
@@ -107,6 +112,7 @@ enum EmailAuthService {
         }
         return Session(
             token: token,
+            userId: (json["userId"] as? String) ?? (json["login"] as? String) ?? email,
             login: (json["login"] as? String) ?? (json["userId"] as? String) ?? email,
             orgId: (json["orgId"] as? String) ?? "",
             created: (json["created"] as? Bool) ?? false

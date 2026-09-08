@@ -226,10 +226,13 @@ final class SubscriptionService: ObservableObject {
 
     // MARK: - Identity
 
-    /// Convenience the sign-in path calls with the numeric GitHub id. The Worker looks
-    /// entitlements up by that same id, so this is what keeps the two sides in agreement.
-    func identify(_ githubID: String) async {
-        await identify(userID: githubID)
+    /// Convenience both sign-in paths call with the Worker's id for this account — the
+    /// numeric GitHub id, or the `email:` one an email account gets. `entitlements.js`
+    /// looks a subscriber up by exactly that string, so this is what keeps the two sides
+    /// in agreement; without it a purchase lands on an anonymous subscriber the server
+    /// never asks about, and the person stays on the free tier having paid.
+    func identify(_ userID: String) async {
+        await identify(userID: userID)
     }
 
     /// Ties RevenueCat's app user ID to your own account ID so an entitlement follows the

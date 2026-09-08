@@ -101,7 +101,12 @@ final class AppState: ObservableObject {
         // repository to validate and no GitHub token to check.
         if SessionStore.hasSavedEmailSession,
            let login = SessionStore.currentUserID {
-            await activateEmailSession(login: login, orgId: SessionStore.orgId ?? "", name: nil)
+            await activateEmailSession(
+                userId: SessionStore.relayUserID,
+                login: login,
+                orgId: SessionStore.orgId ?? "",
+                name: nil
+            )
             return
         }
         guard SessionStore.hasSavedGitHubSession,
@@ -169,10 +174,16 @@ final class AppState: ObservableObject {
     /// Signed in with an email code. Same shape as a GitHub session minus the
     /// repository: the org comes from the server, and the person's teammates
     /// are whoever else is in it rather than a repo's collaborators.
-    func activateEmailSession(login: String, orgId: String, name: String?) async {
+    /// - Parameter userId: the id the Worker keys this account by, from the sign-in
+    ///   response. Kept because entitlements are looked up by exactly this string, and an
+    ///   email account that is never identified to RevenueCat can pay and stay on the free
+    ///   tier forever — the purchase lands on an anonymous subscriber the Worker never asks
+    ///   about. `nil` only on a restore that predates the stored key.
+    func activateEmailSession(userId: String?, login: String, orgId: String, name: String?) async {
         isGuest = false
         SessionStore.currentUserID = login
         SessionStore.orgId = orgId
+        if let userId, !userId.isEmpty { SessionStore.relayUserID = userId }
         let display = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let user = User(
             id: login,
@@ -196,6 +207,11 @@ final class AppState: ObservableObject {
         currentUser = user
         isAuthenticated = true
         PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
+        // RevenueCat's app_user_id must match what the Worker asks about — the same
+        // reason the GitHub path identifies with the numeric GitHub id.
+        if let billingID = SessionStore.relayUserID {
+            await SubscriptionService.shared.identify(billingID)
+        }
         // An email org is "owner/repo" only when an invite put this person in
         // a GitHub-backed team; a personal one has no graph to load, and
         // loadOrganization declines it rather than calling with empty parts.
@@ -230,6 +246,7 @@ final class AppState: ObservableObject {
         isAuthenticated = true
         // RevenueCat's app_user_id must match what the Worker asks about.
         if let githubId = SessionStore.githubUserId {
+            SessionStore.relayUserID = githubId
             await SubscriptionService.shared.identify(githubId)
         }
         // The device token is bound to a person on the server. Re-binding it on

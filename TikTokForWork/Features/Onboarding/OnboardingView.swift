@@ -47,7 +47,7 @@ struct OnboardingView: View {
         .sheet(isPresented: $showEmailSignIn) {
             EmailSignInSheet { session, name in
                 SessionStore.sessionToken = session.token
-                Task { await appState.activateEmailSession(login: session.login, orgId: session.orgId, name: name) }
+                Task { await appState.activateEmailSession(userId: session.userId, login: session.login, orgId: session.orgId, name: name) }
             }
         }
     }
