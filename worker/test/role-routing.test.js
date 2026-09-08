@@ -206,3 +206,39 @@ test("the words nobody wrote are written in the reader's language", async () => 
   });
   expect(en.title).toBe("Approval needed");
 });
+
+// iOS turns "u:mai@honmaru.jp" into "mai" when the person never typed a name,
+// which does not look like an id and so was accepted as one — even though the
+// membership row said "Mai Tanaka".
+test("the membership row beats a name the client derived from the id", async () => {
+  const { routeInstruction } = await import("../src/routing.js");
+  const routed = await routeInstruction({
+    text: "ask the engineer to fix the booking form",
+    sender: { id: "u:mai@honmaru.jp", name: "mai", role: "founder" },
+    organization: {
+      nodes: [
+        { id: "u:mai@honmaru.jp", kind: "person", role: "founder", label: "Mai Tanaka · founder" },
+        { id: "u:ken@honmaru.jp", kind: "person", role: "engineer", label: "Ken · engineer" },
+      ],
+    },
+  });
+  expect(routed.context).toContain("Mai Tanaka");
+});
+
+// …but a row that holds nothing better than the login must not overwrite a
+// name the person actually typed.
+test("a typed name survives a membership row that has none", async () => {
+  const { routeInstruction } = await import("../src/routing.js");
+  const routed = await routeInstruction({
+    text: "ask the engineer to fix the booking form",
+    sender: { id: "u:mai@honmaru.jp", name: "Mai Tanaka", role: "founder" },
+    organization: {
+      nodes: [
+        { id: "u:mai@honmaru.jp", kind: "person", role: "founder", label: "u:mai@honmaru.jp · founder" },
+        { id: "u:ken@honmaru.jp", kind: "person", role: "engineer", label: "Ken · engineer" },
+      ],
+    },
+  });
+  expect(routed.context).toContain("Mai Tanaka");
+  expect(routed.context).not.toContain("u:");
+});

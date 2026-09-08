@@ -461,18 +461,27 @@ function userNameFor(userID) {
 /// context into a fact chip labelled "From u". A display name is the card's
 /// business, not the caller's: normalise it here rather than trusting six
 /// call sites to.
+/// A name that is really an id — its own login, or an address — is no name.
+function looksLikeAnID(name, id) {
+  const value = String(name || "").trim();
+  return !value || value === id || /^(u:|email:)/.test(value) || value.includes("@");
+}
+
 function senderForCard(sender, organization) {
   const raw = sender || {};
   const id = raw.id || raw.name || "";
-  const given = String(raw.name || "").trim();
-  // A name that is really an id — its own login, or an address — is no name.
-  const looksLikeAnID = !given || given === id || /^(u:|email:)/.test(given) || given.includes("@");
-  if (!looksLikeAnID) return { ...raw, name: given };
-  // The membership row holds the name this person actually goes by, and the
-  // org is built here from that table rather than from the client. Deriving
-  // one from the id instead put "E2e-1788841995270" on a card belonging to
-  // someone whose name the server knew was "E2E Person".
-  return { ...raw, name: displayNameOf(organization, id) };
+  // The membership row first. The org is built here from that table rather
+  // than from the client, so it holds the name this person actually goes by —
+  // and every client derives a stand-in from the account id when it has none
+  // to hand, which is how "E2e-1788841995270" ended up on a card belonging to
+  // someone the server knew as "E2E Person". A derived name does not always
+  // look like an id — iOS turns "u:mai@honmaru.jp" into "mai" — so it cannot
+  // be caught after the fact: the row simply wins whenever it holds anything
+  // better than an id itself.
+  const known = displayNameOf(organization, id);
+  if (!looksLikeAnID(known, id)) return { ...raw, name: known };
+  if (!looksLikeAnID(raw.name, id)) return { ...raw, name: String(raw.name).trim() };
+  return { ...raw, name: userNameFor(id) };
 }
 
 function parseToolArguments(raw) {
