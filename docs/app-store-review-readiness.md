@@ -50,7 +50,13 @@ curl -sS -X POST https://tiktokforwork.torubj0904.workers.dev/auth/login \
   -d '{"email":"appreview@yourdomain.com","password":"<the same one>"}'
 ```
 
-The second must return a `token`. Then in App Store Connect →
+The second must return a `token`.
+
+A step-by-step Japanese walkthrough of the App Store Connect side — which
+screen, which checkbox, what to write in the notes — is in
+[app-review-signin-ja.md](app-review-signin-ja.md).
+
+Then in App Store Connect →
 **App Review Information** → *Sign-in required*, give that address and password,
 and in the notes:
 
