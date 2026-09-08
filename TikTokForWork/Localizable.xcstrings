@@ -359,7 +359,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "承認"
+            "value": "承認済み"
           }
         }
       }
@@ -4298,6 +4298,193 @@
           "stringUnit": {
             "state": "translated",
             "value": "「金曜までに認証の修正をレビューしてもらって」"
+          }
+        }
+      }
+    },
+    "Decisions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断する"
+          }
+        }
+      }
+    },
+    "Guest workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲストモード"
+          }
+        }
+      }
+    },
+    "Up to date": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期済み"
+          }
+        }
+      }
+    },
+    "Workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "Your next decision starts here": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の判断を、ここから。"
+          }
+        }
+      }
+    },
+    "Reconnect your workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースに再接続"
+          }
+        }
+      }
+    },
+    "You're offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインです"
+          }
+        }
+      }
+    },
+    "You're all caught up": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて確認できました"
+          }
+        }
+      }
+    },
+    "Connect a repository to bring your team's decisions into one place. You can explore settings first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリを連携すると、チームの判断がここに届きます。まずは設定から機能を確認できます。"
+          }
+        }
+      }
+    },
+    "Your saved decisions stay here. New updates will arrive when you reconnect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みのカードは引き続き確認できます。再接続すると新しい更新が届きます。"
+          }
+        }
+      }
+    },
+    "Connecting to your workspace and checking for updates.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースに接続し、新しい更新を確認しています。"
+          }
+        }
+      }
+    },
+    "No decisions waiting on you. Tell your AI what needs to happen next.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いま、あなたの判断を待つカードはありません。次に進めたいことをAIに伝えましょう。"
+          }
+        }
+      }
+    },
+    "Decision preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードのプレビュー"
+          }
+        }
+      }
+    },
+    "Ready for your decision": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの判断を待っています"
+          }
+        }
+      }
+    },
+    "· %lld / %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Configured": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定済み"
+          }
+        }
+      }
+    },
+    "Honmaru AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI"
           }
         }
       }

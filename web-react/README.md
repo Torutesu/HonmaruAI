@@ -1,209 +1,79 @@
-# Honmaru AI Web Client (Phase 8)
+# Honmaru AI web client
 
-A production-ready React + TypeScript web client for the Honmaru AI decision feed system, implementing the AG-UI protocol v1.
+React and TypeScript client for the Honmaru decision feed. It connects to the
+Cloudflare Worker in `../worker` for authentication, routing, live decisions,
+team invitations, notification preferences, and the decision record.
 
-## Features
+The interface has a desktop workspace and a mobile card feed, with automatic
+light/dark appearance. Requests remain visible until the server confirms the
+saved decision. Creating a request waits for the server's persisted-card echo;
+an offline or rejected request keeps its draft and shows an error.
 
-- **The feed is the screen**: one decision per page, snap-scrolled; swipe right to approve, left to decline; A / D / R on a keyboard; N to tell your AI
-- **Real-time decision feed** via WebSocket AG-UI protocol
-- **Full decision lifecycle**: receive, decide (approve/decline/choose/reply), rollback
-- **Multi-user sync**: see other users' online status and decisions in real-time
-- **AG-UI event stream** debug logger
-- **Responsive design** (desktop & mobile)
+## Run locally
 
-## Setup
+Use Node 20.19+ or Node 22.12+. Install the locked dependencies:
 
-```bash
-# Install dependencies
-npm install
-
-# Start dev server
+```sh
+npm ci --no-audit
 npm run dev
-
-# Build for production
-npm run build
 ```
 
-## Architecture
+The frontend opens at `http://127.0.0.1:3000`. Start the Worker separately on
+port 8787; the historical Node relay has a different authentication contract
+and is not this client's development backend.
 
-### Types
-- `src/types/agui.ts` — AG-UI event definitions
-- `src/types/card.ts` — Decision card types
+For a disposable local backend, from `../worker`:
 
-### Services
-- `src/services/WebSocketClient.ts` — AG-UI WebSocket client
-  - Parses AG-UI events (STATE_SNAPSHOT, STATE_DELTA, TOOL_CALL_*, TOOL_CALL_RESULT)
-  - Applies JSON Patch RFC 6902 operations
-  - Manages tool call ID tracking for decision correlation
-  - Sends outbound `tool_result` decisions
-
-### Components
-- `src/components/Dashboard.tsx` — Main feed layout (pending & decided sections)
-- `src/components/DecisionCard.tsx` — Individual card with actions
-
-### Main App
-- `src/App.tsx` — Login page, user selection, connection setup
-- `src/main.tsx` — React root
-
-## Environment Variables
-
-Copy `.env.example` to `.env.local` to override the defaults shown on the login screen:
-
-- `VITE_RELAY_URL` — default relay WebSocket URL (still editable on the login form)
-- `VITE_ORG_ID` — default organization id
-- `VITE_DEBUG` — set to `true` to have the debug event log open by default
-
-## Testing
-
-### Automated
-
-```bash
-npm test        # vitest, watches by default; CI=true npm test runs once and exits
-npm run build   # tsc --noEmit-equivalent type check + production build
+```sh
+npm ci --no-audit
+WRANGLER_SEND_METRICS=false npx --no-install wrangler d1 execute tiktokforwork --local --persist-to /tmp/honmaruai-web-qa --file schema.sql
+WRANGLER_SEND_METRICS=false npx --no-install wrangler dev --local --ip 127.0.0.1 --port 8787 --persist-to /tmp/honmaruai-web-qa
 ```
 
-`src/services/WebSocketClient.test.ts` covers the AG-UI event handling directly (join payload,
-state-reference identity after STATE_SNAPSHOT/tool-call-derived updates, toolCallId linking,
-reconnect-after-unexpected-close vs. no-reconnect-after-explicit-disconnect) against a fake
-WebSocket — no relay or browser needed.
+Use the account form to create a test account. A new account gets its own
+workspace; a valid invite code joins the corresponding existing workspace.
+No AI provider is required for local tests: the Worker uses its fallback router.
 
-### Manual Testing with Relay
+## Build configuration
 
-1. **Start the relay**:
-   ```bash
-   cd server
-   npm start
-   # Should output: Server running on port 8080
-   ```
+`VITE_API_HOST` accepts an HTTP(S) origin or bare host. Local development defaults
+to `localhost:8787`. Production defaults to the web page's origin, so a separately
+hosted Worker requires an explicit API origin at build time:
 
-2. **Start the web client dev server** (from `/web`):
-   ```bash
-   npm run dev
-   # Should output: http://localhost:3000
-   ```
-
-3. **Connect as first user** (Alice):
-   - Open http://localhost:3000
-   - Enter user ID: `alice`
-   - Relay URL: `ws://localhost:8080`
-   - Org: `core-team`
-   - Click "Connect"
-
-4. **Connect as second user** (Bob):
-   - Open another browser tab to http://localhost:3000
-   - Enter user ID: `bob`
-   - Same relay & org
-   - Click "Connect"
-
-5. **Send a decision from Alice to Bob** (via iOS or CLI):
-   ```bash
-   # From the relay, you can send a decision via the API
-   curl -X POST http://localhost:8080/api/route \
-     -H "Content-Type: application/json" \
-     -d '{
-       "text": "Approve the design proposal",
-       "sender": "alice",
-       "organization": "core-team",
-       "reader": "bob"
-     }'
-   ```
-
-6. **Observe**:
-   - Bob's web client shows a new card in "Pending Decisions"
-   - Bob clicks "Approve"
-   - Alice's web client sees the card move to "Decided" with decision recorded
-   - Event log shows `tool_result` event
-
-### Cross-Platform Testing (iOS ↔ Web)
-
-1. **iOS sends decision**:
-   - Open iOS app, connect as Alice
-   - Send an instruction (via AI composer)
-   - Relay routes to Bob
-   - Bob's iOS shows card
-
-2. **Web receives & approves**:
-   - Open web client as Bob in another browser
-   - Both iOS and web see the same card (synced via WebSocket)
-   - Click Approve on web
-   - iOS immediately shows card as approved
-   - Alice's iOS sees the decision result
-
-3. **Rollback from web**:
-   - Web shows "↩ Roll back" button on decided cards
-   - Click it
-   - Card returns to pending
-   - iOS reflects the change instantly
-
-## Debug Features
-
-- **Event Log**: Toggle "Show Debug Log" to see all AG-UI events in real-time
-- **Connection Info**: Displays current URL, user, org, and card counts
-- **Browser DevTools**: Full React/TypeScript debugging
-
-## Protocol Details
-
-### Inbound Events
-- `STATE_SNAPSHOT` — Initial card state on connection
-- `STATE_DELTA` — JSON Patch operations (RFC 6902)
-- `TOOL_CALL_START/ARGS/END` — Incoming decision request
-- `TOOL_CALL_RESULT` — Decision result echo from other clients
-- `CUSTOM presence` — User online/offline status
-
-### Outbound Events
-- `tool_result` — Send decision (approve/decline/choose/reply/acknowledge)
-  ```json
-  {
-    "type": "tool_result",
-    "payload": {
-      "toolCallId": "...",
-      "content": {
-        "cardId": "...",
-        "action": "approve|decline|choose|reply|acknowledge",
-        "actorUserID": "...",
-        "decidedAt": "2024-08-12T...",
-        "optionId": "...",
-        "replyText": "..."
-      }
-    }
-  }
-  ```
-
-- `rollback` — Undo a decision
-  ```json
-  {
-    "type": "rollback",
-    "payload": { "cardId": "..." }
-  }
-  ```
-
-## Deployment
-
-For production, build and serve the `dist/` output:
-
-```bash
-npm run build
-# Deploy dist/ to a static host (Vercel, Netlify, Cloudflare Pages, etc.)
+```sh
+VITE_API_HOST=https://your-api.example.com npm run build
 ```
 
-Or embed in a Node.js server:
+A secure page requires an HTTPS API. Invalid origins containing credentials,
+paths, queries, or fragments are rejected. Sessions are tied to their API origin.
+`VITE_DEBUG=true` enables a diagnostic event log; keep it off in production.
 
-```javascript
-import express from 'express'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+Serve `dist/` as static assets. Keep `sw.js`, the manifest, and icons at the
+origin root for installed-app and push support. A successful local build does
+not verify production deployment, configured push/email delivery, paid AI,
+connector credentials, or native iOS behavior.
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const app = express()
-app.use(express.static(join(__dirname, 'dist')))
-app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'dist', 'index.html'))
-})
-app.listen(3000)
+## Checks
+
+```sh
+npm run test:run   # deterministic transport and presentation regressions
+npm run build     # TypeScript check and production bundle
+npx --no-install playwright install chromium
+npm run test:browser
 ```
 
-## References
+The browser smoke test requires the disposable local Worker and frontend above.
+It signs up `.invalid` test accounts and exercises real request routing,
+persistence, approval, undo, reply, history, modal isolation, canceled gestures,
+responsive layout, and session reload. It rejects non-local HTTP requests.
+No production account or storage state is saved. Screenshots and a JSON checklist
+are written to `/tmp/honmaruai-web-qa/screenshots` by default.
 
-- [AG-UI Protocol Documentation](../docs/agui-protocol.md)
-- [Server Relay Implementation](../server/index.js)
-- [iOS App (Phase 8 implementation)](../TikTokForWork/)
+Optional `WEB_QA_URL` and `WEB_QA_OUTPUT` override the local URL and output path.
+`PLAYWRIGHT_MODULE` can point to an already provisioned Playwright installation.
+Checked local evidence is under `qa/2026-09-08/`.
+
+The locked Vite 8.2.2 and Vitest 4.1.11 toolchain replaces unsupported older
+versions. Public upstream advisories informed this update. A full `npm audit`
+was not completed because automatic approval review rejected sending the
+project's dependency metadata to the public advisory endpoint.

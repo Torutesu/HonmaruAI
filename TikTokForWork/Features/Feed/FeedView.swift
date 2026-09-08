@@ -9,6 +9,7 @@ struct FeedView: View {
     /// Incremented by the shell's ＋ button. The draft chain lives here with the
     /// view model, so the shell asks for it rather than rebuilding it.
     var composeTick: Int = 0
+    var onComposeConsumed: () -> Void = {}
     /// What the capture screen came back with. Arrives already uploaded, so the
     /// draft chain starts the moment it is set.
     var captured: CaptureRequest?
@@ -31,11 +32,12 @@ struct FeedView: View {
 
     var body: some View {
         ZStack {
-            Theme.Colors.background.ignoresSafeArea()
+            Theme.Colors.surface.ignoresSafeArea()
 
             if viewModel.cards.isEmpty {
                 emptyState
             } else {
+                GeometryReader { viewport in
                 ScrollView(.vertical) {
                     LazyVStack(spacing: 0) {
                         ForEach(viewModel.cards) { card in
@@ -52,16 +54,16 @@ struct FeedView: View {
                                     viewModel.detailCard = card
                                 }
                             )
-                            .containerRelativeFrame(.vertical)
+                            .frame(minHeight: viewport.size.height, alignment: .top)
                             .id(card.id)
                         }
                     }
                     .scrollTargetLayout()
                 }
-                .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $viewModel.scrollPosition)
                 .scrollIndicators(.hidden)
                 .refreshable { await syncConnectors() }
+                }
             }
 
             if viewModel.isProcessing {
@@ -80,10 +82,16 @@ struct FeedView: View {
             if showsChrome { topBar }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if showsChrome { bottomChrome }
+            bottomChrome
         }
-        .onChange(of: composeTick) { _, _ in
+        .onReceive(appState.webSocketService.$deliveryError) { message in
+            if let message { viewModel.errorMessage = message }
+        }
+        .onDisappear { viewModel.clearSheets() }
+        .onChange(of: composeTick) { _, request in
+            guard request > 0 else { return }
             showAIInput = true
+            onComposeConsumed()
         }
         .onChange(of: push.pendingCardID) { _, cardID in
             guard let cardID else { return }
@@ -99,6 +107,10 @@ struct FeedView: View {
         .onChange(of: viewModel.currentIndex) { _, index in currentCardIndex.wrappedValue = index }
         .animation(.easeOut(duration: 0.2), value: viewModel.isDrafting)
         .onAppear {
+            if composeTick > 0 {
+                showAIInput = true
+                onComposeConsumed()
+            }
             cardCount.wrappedValue = viewModel.cards.count
             currentCardIndex.wrappedValue = viewModel.currentIndex
             guard let user = appState.currentUser else { return }
@@ -181,7 +193,10 @@ struct FeedView: View {
             Button("Cancel", role: .cancel) {}
         }
         .alert("Error", isPresented: errorBinding) {
-            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
+            Button("OK", role: .cancel) {
+                viewModel.errorMessage = nil
+                appState.webSocketService.clearDeliveryError()
+            }
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
@@ -190,7 +205,12 @@ struct FeedView: View {
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
+            set: {
+                if !$0 {
+                    viewModel.errorMessage = nil
+                    appState.webSocketService.clearDeliveryError()
+                }
+            }
         )
     }
 
@@ -263,34 +283,14 @@ struct FeedView: View {
                 quotaNotice
             }
 
-            if let repo = appState.githubService.connection?.repository {
-                Text(repo)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .lineLimit(1)
-            } else {
-                Button {
-                    connectContext = .settings
-                    showConnectGitHub = true
-                } label: {
-                    Text("Local mode · Connect GitHub")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                        .lineLimit(1)
-                }
-            }
-
             ComposeBar(placeholder: "Tell your AI") {
                 showAIInput = true
             }
         }
-        .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.top, Theme.Spacing.sm)
-        .padding(.bottom, Theme.Spacing.md)
-        .background(
-            Theme.Colors.background
-                .ignoresSafeArea(edges: .bottom)
-        )
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(Theme.Colors.surface)
     }
 
     /// A single quiet line shown after a draft came back on the keyword fallback
@@ -330,34 +330,64 @@ struct FeedView: View {
     /// refused, or who has no network, is the app blaming the user for its own
     /// state.
     private var emptyState: some View {
-        VStack(spacing: Theme.Spacing.sm) {
+        ContentUnavailableView {
+            Label(emptyHeading, systemImage: emptyIcon)
+                .foregroundStyle(Theme.Colors.textPrimary)
+        } description: {
             Text(emptyTitle)
-                .font(Theme.TypeScale.body)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, Theme.Spacing.md)
-
-            if case .offline = appState.connectionState {
-                Button(String(localized: "Try again")) {
-                    appState.webSocketService.reconnectIfNeeded()
+                .foregroundStyle(Theme.Colors.textSecondary)
+        } actions: {
+            if appState.isGuest {
+                Button("Connect GitHub") {
+                    connectContext = .settings
+                    showConnectGitHub = true
                 }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Theme.Colors.interactive)
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.Colors.ctaFill)
+                .foregroundStyle(Theme.Colors.ctaText)
+            } else if case .refused = appState.connectionState {
+                Button("Connect GitHub") {
+                    connectContext = .settings
+                    showConnectGitHub = true
+                }
+            } else if case .offline = appState.connectionState {
+                Button("Try again") { appState.webSocketService.reconnectIfNeeded() }
+            } else if case .connected = appState.connectionState {
+                Button("Tell your AI") { showAIInput = true }
+                    .buttonStyle(.bordered)
             }
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    private var emptyHeading: String {
+        if appState.isGuest { return String(localized: "Your next decision starts here") }
+        switch appState.connectionState {
+        case .refused: return String(localized: "Reconnect your workspace")
+        case .offline: return String(localized: "You're offline")
+        case .connecting: return String(localized: "Catching up…")
+        case .connected: return String(localized: "You're all caught up")
+        }
+    }
+
+    private var emptyIcon: String {
+        if appState.isGuest { return "tray" }
+        switch appState.connectionState {
+        case .refused: return "lock.circle"
+        case .offline: return "wifi.slash"
+        case .connecting: return "arrow.triangle.2.circlepath"
+        case .connected: return "checkmark.circle"
+        }
     }
 
     private var emptyTitle: String {
+        if appState.isGuest {
+            return String(localized: "Connect a repository to bring your team's decisions into one place. You can explore settings first.")
+        }
         switch appState.connectionState {
-        case .refused(let reason):
-            reason
-        case .offline:
-            String(localized: "You are offline. Decisions will appear when you reconnect.")
-        case .connecting:
-            String(localized: "Catching up…")
-        case .connected:
-            String(localized: "No decisions yet. Tell your AI something, or wait for a teammate.")
+        case .refused(let reason): return reason
+        case .offline: return String(localized: "Your saved decisions stay here. New updates will arrive when you reconnect.")
+        case .connecting: return String(localized: "Connecting to your workspace and checking for updates.")
+        case .connected: return String(localized: "No decisions waiting on you. Tell your AI what needs to happen next.")
         }
     }
 

@@ -1,169 +1,109 @@
 import React, { useState, useEffect } from 'react'
 import { Dashboard } from './components/Dashboard'
+import { BrandMark, Icon } from './components/Icon'
 import { disableWebPush } from './utils/push'
+import { apiBase, readResponse } from './utils/api'
 import './App.css'
 
-// The web client talks to the backend over HTTP for auth and WebSocket for the
-// feed. We store one base host and derive both.
-const DEFAULT_HOST = import.meta.env.VITE_API_HOST || 'localhost:8787'
-
-// Derive the scheme from the page's own, so one build works in dev over http
-// and in production over https. Hardcoding http:// meant a deployed client
-// could not reach an https backend at all, and would have put the sign-in
-// email and password on the wire in cleartext if pointed at one.
-const secure = typeof location !== 'undefined' && location.protocol === 'https:'
-
-function httpBase(host: string) {
-  return `${secure ? 'https' : 'http'}://${host}`
-}
-function wsBase(host: string) {
-  return `${secure ? 'wss' : 'ws'}://${host}`
-}
+const HTTP_BASE = apiBase(import.meta.env.VITE_API_HOST, window.location, import.meta.env.DEV)
 
 function App() {
   const [userId, setUserId] = useState<string | null>(null)
-  const [orgId, setOrgId] = useState<string>('web-team')
-  const [sessionToken, setSessionToken] = useState<string>('')
-  const [host, setHost] = useState<string>(DEFAULT_HOST)
-  const [ready, setReady] = useState(false)
-
-  // Form state
+  const [orgId, setOrgId] = useState('')
+  const [sessionToken, setSessionToken] = useState('')
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-    const [inviteCode, setInviteCode] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const savedToken = localStorage.getItem('sessionToken')
-    const savedUser = localStorage.getItem('userId')
-    const savedOrg = localStorage.getItem('orgId')
-    const savedHost = localStorage.getItem('host')
-    if (savedHost) setHost(savedHost)
-    if (savedOrg) setOrgId(savedOrg)
-    if (savedToken && savedUser) {
-      setSessionToken(savedToken)
-      setUserId(savedUser)
-      setReady(true)
-    }
+    try {
+      const token = localStorage.getItem('sessionToken')
+      const user = localStorage.getItem('userId')
+      const org = localStorage.getItem('orgId')
+      const savedApi = localStorage.getItem('apiBase')
+      if (token && user && org && savedApi === HTTP_BASE) {
+        setSessionToken(token); setUserId(user); setOrgId(org)
+      }
+    } catch { /* Private browsing can disable persistence; sign-in still works. */ }
   }, [])
 
-  const finishAuth = (token: string, uid: string, org: string) => {
-    setSessionToken(token)
-    setUserId(uid)
-    setOrgId(org)
-    setReady(true)
-    localStorage.setItem('sessionToken', token)
-    localStorage.setItem('userId', uid)
-    localStorage.setItem('orgId', org)
-    localStorage.setItem('host', host)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (busy) return
+    setBusy(true); setError(null)
     try {
-      const path = mode === 'signup' ? '/auth/signup' : '/auth/login'
-            const body: any = { email: email.trim(), password }
-      if (mode === 'signup') {
-        body.name = name.trim()
-        // No orgId: the server decides the org from the invite code, or gives
-        // the user one of their own. A caller-named org is not authorization.
-        if (inviteCode.trim()) body.inviteCode = inviteCode.trim()
-      }
-      const res = await fetch(`${httpBase(host)}${path}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+      const body = { email: email.trim(), password, ...(mode === 'signup' ? { name: name.trim(), ...(inviteCode.trim() ? { inviteCode: inviteCode.trim() } : {}) } : {}) }
+      const response = await fetch(`${HTTP_BASE}/auth/${mode === 'signup' ? 'signup' : 'login'}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.message || 'Something went wrong.')
-        return
-      }
-            finishAuth(data.token, data.login || data.userId, data.orgId || orgId)
+      const data = await readResponse(response)
+      const uid = data.login || data.userId
+      if (!data.token || !uid || !data.orgId) throw new Error('Sign-in could not be completed. Please try again.')
+      setSessionToken(data.token); setUserId(uid); setOrgId(data.orgId); setPassword('')
+      try {
+        localStorage.setItem('sessionToken', data.token)
+        localStorage.setItem('userId', uid)
+        localStorage.setItem('orgId', data.orgId)
+        localStorage.setItem('apiBase', HTTP_BASE)
+      } catch { /* This session remains usable without local storage. */ }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
+      setError(err instanceof TypeError ? 'Unable to reach Honmaru. Check your connection and try again.' : err instanceof Error ? err.message : 'Sign-in failed. Please try again.')
+    } finally { setBusy(false) }
   }
 
-  const handleLogout = () => {
-    // This browser stops receiving this account's decisions before the
-    // session is dropped — the Worker needs the token to forget the subscription.
-    disableWebPush(httpBase(host), sessionToken).catch(() => {})
-    setUserId(null)
-    setReady(false)
-    setSessionToken('')
-    setEmail('')
-    setPassword('')
-    localStorage.removeItem('sessionToken')
-    localStorage.removeItem('userId')
+  const handleLogout = (reason?: string) => {
+    disableWebPush(HTTP_BASE, sessionToken).catch(() => {})
+    setUserId(null); setSessionToken(''); setPassword(''); setError(reason || null)
+    try { ['sessionToken', 'userId', 'orgId'].forEach((key) => localStorage.removeItem(key)) } catch {}
   }
 
-  if (!ready || !userId) {
-    return (
-      <div className="login-page">
-        <div className="login-container">
-          <h1>Honmaru AI</h1>
-          <p className="subtitle">{mode === 'signup' ? 'Create your account' : 'Welcome back'}</p>
-
-          <form onSubmit={handleSubmit}>
-            {mode === 'signup' && (
-              <div className="form-group">
-                <label htmlFor="name">Name:</label>
-                <input id="name" type="text" value={name}
-                  onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-              </div>
-            )}
-
-            <div className="form-group">
-              <label htmlFor="email">Email:</label>
-              <input id="email" type="email" value={email}
-                onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoFocus />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="password">Password:</label>
-              <input id="password" type="password" value={password}
-                onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" />
-            </div>
-
-                        {mode === 'signup' && (
-              <div className="form-group">
-                <label htmlFor="invite">Invite code (optional):</label>
-                <input id="invite" type="text" value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value)}
-                  placeholder="Paste a code to join a team, or leave blank" />
-              </div>
-            )}
-
-            {error && <div className="create-error">{error}</div>}
-
-            <button type="submit" className="connect-button" disabled={busy}>
-              {busy ? 'Please wait…' : mode === 'signup' ? 'Sign up' : 'Log in'}
-            </button>
-          </form>
-
-          <p className="switch-mode">
-            {mode === 'signup' ? 'Already have an account? ' : "Don't have an account? "}
-            <button className="link-button" onClick={() => { setError(null); setMode(mode === 'signup' ? 'login' : 'signup') }}>
-              {mode === 'signup' ? 'Log in' : 'Sign up'}
-            </button>
-          </p>
-        </div>
-      </div>
-    )
-  }
+  if (userId) return <div className="app"><Dashboard userId={userId} orgId={orgId} relayUrl={HTTP_BASE.replace(/^http/, 'ws')} sessionToken={sessionToken} onLogout={handleLogout} /></div>
 
   return (
-    <div className="app">
-      <Dashboard userId={userId} orgId={orgId} relayUrl={wsBase(host)} sessionToken={sessionToken} onLogout={handleLogout} />
-    </div>
+    <main className="login-page">
+      <section className="welcome-panel" aria-label="About Honmaru AI">
+        <a className="wordmark" href="/"><BrandMark /><span>Honmaru<span className="wordmark-ai">AI</span></span></a>
+        <div className="welcome-content">
+          <div className="eyebrow"><span className="eyebrow-dot" /> A clearer way to work</div>
+          <h1>Less back and forth.<br /><span>More moving forward.</span></h1>
+          <p>Your team’s requests, ready for a decision. Review the context, give an answer, and get on with your day.</p>
+          <div className="workflow-preview" aria-label="Example decision workflow">
+            <div className="preview-topline"><span><Icon name="sparkle" size={16} /> YOUR DECISION FEED</span><span className="example-label">Example</span></div>
+            <div className="preview-card">
+              <div className="preview-card-meta"><span className="kind kind-approval">Approval</span><span>Product launch</span></div>
+              <h2>Ready to move forward?</h2>
+              <p>The context you need. One clear next step.</p>
+              <div className="preview-context"><span>REQUEST</span><span>Review the launch proposal</span></div>
+              <div className="preview-actions"><span>Reply</span><span className="preview-approve"><Icon name="check" size={15} /> Approve</span></div>
+            </div>
+            <div className="preview-receipt"><span className="receipt-icon"><Icon name="check" size={14} /></span><span>A shared record of what was decided.</span><Icon name="arrow" size={16} /></div>
+          </div>
+        </div>
+        <div className="welcome-footer"><span>Context. Decision. Progress.</span><span>Honmaru AI</span></div>
+      </section>
+      <section className="login-form-panel">
+        <div className="mobile-wordmark wordmark"><BrandMark /> Honmaru AI</div>
+        <div className="login-container">
+          <span className="eyebrow">Your workspace, in focus</span>
+          <h2>{mode === 'signup' ? 'Make room for better work.' : 'Welcome back.'}</h2>
+          <p className="subtitle">{mode === 'signup' ? 'Create an account to start your decision feed.' : 'Sign in and pick up where your team left off.'}</p>
+          <form onSubmit={handleSubmit}>
+            {mode === 'signup' && <div className="form-group"><label htmlFor="name">Full name</label><input id="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" required maxLength={100} disabled={busy} /></div>}
+            <div className="form-group"><label htmlFor="email">Email address</label><input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required disabled={busy} /></div>
+            <div className="form-group"><label htmlFor="password">Password</label><input id="password" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === 'signup' ? 'At least 8 characters' : 'Enter your password'} required minLength={mode === 'signup' ? 8 : undefined} disabled={busy} /></div>
+            {mode === 'signup' && <div className="form-group"><label htmlFor="invite">Team invite code <span>Optional</span></label><input id="invite" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} placeholder="Join an existing workspace" autoComplete="off" disabled={busy} /><small>Leave this blank to create your own workspace.</small></div>}
+            {error && <div className="create-error auth-error" role="alert">{error}</div>}
+            <button type="submit" className="connect-button" disabled={busy}>{busy ? 'Connecting…' : mode === 'signup' ? 'Create your account' : 'Sign in'}{!busy && <Icon name="arrow" size={18} />}</button>
+          </form>
+          <p className="switch-mode">{mode === 'signup' ? 'Already have an account? ' : 'New to Honmaru? '}<button className="link-button" disabled={busy} onClick={() => { setError(null); setMode(mode === 'signup' ? 'login' : 'signup') }}>{mode === 'signup' ? 'Sign in' : 'Create an account'}</button></p>
+        </div>
+        <p className="login-footnote"><Icon name="lock" size={14} /> Your team. Your decisions. One shared space.</p>
+      </section>
+    </main>
   )
 }
 

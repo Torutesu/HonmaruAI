@@ -59,6 +59,7 @@ final class AppState: ObservableObject {
     let networkMonitor = NetworkMonitor()
 
     let relayURL = AppConfig.relayURL
+    private var sessionGeneration = UUID()
 
     var backendBaseURL: URL? {
         BackendURL.httpBase(from: relayURL)
@@ -97,18 +98,25 @@ final class AppState: ObservableObject {
     }
 
     func restoreSessionIfNeeded() async {
+        let generation = sessionGeneration
         guard SessionStore.hasSavedGitHubSession,
-              githubService.restoreSavedSession(),
-              let connection = githubService.connection else {
+              githubService.restoreSavedSession() else {
             return
         }
         do {
             try await githubService.validateSavedSession()
         } catch {
-            githubService.disconnect()
-            SessionStore.clear()
-            return
+            guard generation == sessionGeneration else { return }
+            if (error as? GitHubServiceError)?.invalidatesSavedSession == true {
+                githubService.disconnect()
+                SessionStore.clear()
+                return
+            }
+            // The saved identity and cached feed remain usable during an
+            // outage. The relay will validate membership again on reconnect.
         }
+        guard generation == sessionGeneration else { return }
+        guard let connection = githubService.connection else { return }
         await activateGitHubSession(connection: connection)
     }
 
@@ -141,6 +149,10 @@ final class AppState: ObservableObject {
     /// UI is fully explorable, and the user can sign in later from the account
     /// screen to get the real thing.
     func activateGuestSession() {
+        sessionGeneration = UUID()
+        webSocketService.disconnect()
+        webSocketService.clearPendingEvents()
+        cardService.reset()
         isGuest = true
         organization = OrganizationGraph(nodes: [], edges: [])
         let guest = User(id: "guest", name: "Guest", role: "Guest", teamID: nil, githubUsername: nil)
@@ -150,8 +162,15 @@ final class AppState: ObservableObject {
     }
 
     func activateGitHubSession(connection: GitHubConnection) async {
+        sessionGeneration = UUID()
+        let generation = sessionGeneration
         isGuest = false
         let user = AppState.user(from: connection)
+        if currentUser?.teamID != user.teamID {
+            organization = OrganizationGraph(nodes: [], edges: [])
+        }
+        currentUser = user
+        isAuthenticated = true
         SessionStore.currentUserID = user.id
         cardService.setActiveUser(user.id)
         let orgId = connection.repository            // "owner/repo"
@@ -169,12 +188,12 @@ final class AppState: ObservableObject {
         } catch {
             // Relay unreachable: still let the user in; the feed will be empty.
         }
-        currentUser = user
-        isAuthenticated = true
+        guard generation == sessionGeneration else { return }
         // RevenueCat's app_user_id must match what the Worker asks about.
         if let githubId = SessionStore.githubUserId {
             await SubscriptionService.shared.identify(githubId)
         }
+        guard generation == sessionGeneration else { return }
         // The device token is bound to a person on the server. Re-binding it on
         // sign-in is what stops a phone that changed hands from receiving the
         // previous account's decisions.
@@ -200,12 +219,16 @@ final class AppState: ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
+            guard isAuthenticated, !isGuest,
+                  currentUser?.teamID == "\(owner)/\(repo)",
+                  SessionStore.sessionToken == token else { return }
             organization = try JSONDecoder().decode(OrganizationGraph.self, from: data)
         } catch {
         }
     }
 
     func signOut() {
+        sessionGeneration = UUID()
         let sessionToken = SessionStore.sessionToken
         Task {
             // Drop back to an anonymous RevenueCat id so the next account on this
@@ -218,6 +241,7 @@ final class AppState: ObservableObject {
         }
         PushService.shared.setBadge(0)
         webSocketService.disconnect()
+        webSocketService.clearPendingEvents()
         githubService.disconnect()
         cardService.reset()
         SessionStore.clear()
@@ -225,6 +249,8 @@ final class AppState: ObservableObject {
         isGuest = false
         isAuthenticated = false
         currentUser = nil
+        organization = OrganizationGraph(nodes: [], edges: [])
+        userContext = ""
     }
 
     enum AccountError: LocalizedError {

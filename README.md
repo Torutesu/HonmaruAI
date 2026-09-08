@@ -1,4 +1,4 @@
-# TikTok for Work
+# Honmaru AI
 
 AI-native decision feed for teams. Humans talk to their own AI; agents route Decision Cards across the org in real time.
 
@@ -78,6 +78,14 @@ things it deliberately keeps are in [docs/privacy-policy.md](docs/privacy-policy
 
 Use `npx -y wrangler@4` for D1 and deploys — the pinned wrangler 3 fails `d1 execute --remote`
 with a misleading 7403 "account is not authorized" that is a stale-client bug, not an auth problem.
+
+## Release candidate review
+
+The September 2026 candidate modernizes the iOS and Web interfaces and hardens
+session isolation, queued decisions, and the authenticated relay. See the
+[evidence and remaining release gates](docs/release-evidence/2026-09-08/README.md)
+and [reproducible Web checks](web-react/qa/2026-09-08/README.md).
+Local validation is distinct from a production deploy or a signed TestFlight release.
 
 ## What is still missing
 

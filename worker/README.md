@@ -45,6 +45,11 @@ negotiable:
 - **`join` requires `sessionToken`.** No token, or a token whose session cannot
   prove write access to `orgId`, and the relay sends an error and closes with
   1008. There is no anonymous read.
+- **Opening a socket grants no read access.** Broadcasts and recipient prompts
+  require a completed authenticated join. Each subsequent read and mutation
+  checks the current session and D1 membership; expired/deleted sessions and
+  removed memberships are refused. Sockets hibernating across this release
+  reconnect with 1012 to establish the new attachment format.
 - **Identity is never taken from the client.** `payload.userId` is read only to
   be discarded; you act as the login on your session.
 - **Membership** is a `memberships` row, or — when there is none yet, because
@@ -54,11 +59,23 @@ negotiable:
   stranger.
 - **A created card is stamped with the sender the session proves.** You may
   route to anyone in the org, only ever as yourself.
+- **Creation cannot overwrite an existing decision.** Concurrent creates of
+  the same ID store one card. Updates preserve the original sender and creation
+  time and refuse deleted or concurrently changed cards.
 - **Only the recipient** can decide, delete or undo a card, and a decision is
   attributed to whoever made it. Delegation is a new card, not a moved one.
 - **`clear_store` does nothing.** It used to run `DELETE FROM cards` for the
   whole org, and the app sent it on every sign-out. It survives as a no-op so
   builds that still send it do not fail.
+- **Delayed AI enrichment cannot undo a decision.** Translation and filing
+  merge their fields atomically into a surviving card with matching source
+  text. They cannot restore deleted cards or replace a newer approval.
+
+These checks use the membership table; a GitHub permission change takes effect
+after membership refresh removes the row. Client sign-out currently clears the
+client's credentials and does not revoke its server session. WebSocket delivery
+also has no durable per-message acknowledgement yet: a successful transport send
+is not proof of persistence.
 
 Rate limits (fixed windows in D1, keyed by session where there is one and by IP
 where there is not; fails open): `/ai/route` 30/5min, `/oauth/github/token`
@@ -89,11 +106,26 @@ directly.
 
 ## Develop
 
+Use Node 20.19+ or 22.12+. The pinned test toolchain is Vitest 3.2.6,
+Cloudflare's Workers pool 0.12.21, and Wrangler 4.72.0. The pool's matching
+Miniflare/workerd versions are recorded in `package-lock.json`.
+
 ```bash
-npm install
-npm test          # 273 tests under @cloudflare/vitest-pool-workers (real workerd)
+npm ci --no-audit
+npm test          # under @cloudflare/vitest-pool-workers (local workerd + D1)
 npm run dev       # local wrangler dev
 ```
+
+Vitest 3.2.6 includes the fix for
+[GHSA-5xrq-8626-4rwp](https://github.com/advisories/GHSA-5xrq-8626-4rwp).
+Wrangler 4.72.0 also replaces the older pool's embedded Wrangler 3.100.0 and
+includes the fix for
+[GHSA-36p8-mvp6-cv38](https://github.com/cloudflare/workers-sdk/security/advisories/GHSA-36p8-mvp6-cv38).
+The Workers pool remains on the last release series compatible with Vitest 3
+to preserve the existing per-test storage isolation and `fetchMock` coverage.
+[Cloudflare's Vitest 4 migration](https://developers.cloudflare.com/workers/testing/vitest-integration/migration-guides/migrate-from-vitest-3-to-vitest-4/)
+changes those APIs and requires a separate test migration. These are targeted
+advisory fixes, not a claim that every transitive dependency has been audited.
 
 ## Deploy / operate
 

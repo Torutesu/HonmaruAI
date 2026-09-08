@@ -48,14 +48,22 @@ struct AppTabBar: View {
         Button {
             selection = tab
         } label: {
+            VStack(spacing: 4) {
             Image(systemName: selection == tab ? "\(systemImage).fill" : systemImage)
                 .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(selection == tab ? Theme.Colors.textPrimary : Theme.Colors.textTertiary)
-                .frame(width: 44, height: 44)
+                .frame(width: 44, height: 28)
                 .overlay(alignment: .topTrailing) {
                     if badge > 0 { badgeView(badge) }
                 }
+            Text(tab == .home ? String(localized: "Home") : String(localized: "You"))
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(selection == tab ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
+            }
+            .frame(minWidth: 56, minHeight: 48)
         }
+        .buttonStyle(PressFeedbackStyle())
+        .accessibilityAddTraits(selection == tab ? .isSelected : [])
         .accessibilityLabel(tab == .home ? Text("Home") : Text("You"))
         .accessibilityValue(badge > 0 ? Text("\(badge) waiting") : Text(""))
     }
@@ -83,9 +91,9 @@ struct AppTabBar: View {
                         .foregroundStyle(Theme.Colors.textPrimary)
                 }
         }
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.4).onEnded { _ in onComposeText?() }
-        )
+        .contextMenu {
+            Button("Type instead", systemImage: "keyboard") { onComposeText?() }
+        }
         .accessibilityLabel(Text("Create"))
         .accessibilityAction(named: Text("Type instead")) { onComposeText?() }
     }

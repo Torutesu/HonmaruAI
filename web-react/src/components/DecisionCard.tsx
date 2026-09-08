@@ -14,6 +14,7 @@ interface Props {
   onRollback: () => void
   onDelegate: (userId: string) => void
   isPending: boolean
+  disabled?: boolean
   highlighted?: boolean
   businessName?: string
 }
@@ -31,6 +32,7 @@ export const DecisionCard: React.FC<Props> = ({
   onDelegate,
   isPending,
   highlighted = false,
+  disabled = false,
   businessName
 }) => {
   const isRecipient = card.recipientUserID === currentUserId
@@ -112,7 +114,7 @@ export const DecisionCard: React.FC<Props> = ({
         </div>
       )}
 
-      {isRecipient && card.status === 'pending' && (
+      {isRecipient && isPending && card.status === 'pending' && (
         <div className="card-actions">
           <button onClick={onApprove} className="action-approve">
             Approve
@@ -131,9 +133,9 @@ export const DecisionCard: React.FC<Props> = ({
         </div>
       )}
 
-      {!card.status && card.decision && (
+      {isRecipient && !isPending && card.decision && card.status !== 'pending' && (
         <div className="card-actions">
-          <button onClick={onRollback} className="action-rollback">
+          <button disabled={disabled} onClick={onRollback} className="action-rollback">
             ↩ Roll back
           </button>
         </div>

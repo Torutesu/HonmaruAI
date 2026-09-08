@@ -37,6 +37,9 @@ SETTLE_SECONDS="${SMOKE_SETTLE_SECONDS:-12}"
 # Which simulator to build/run on. Default to a stable, widely-installed device;
 # override with SMOKE_SIMULATOR if that runtime isn't installed.
 SIMULATOR_NAME="${SMOKE_SIMULATOR:-iPhone 16 Pro}"
+# Reuse an isolated build cache for repeatable, fast candidate verification.
+# Both build and build-settings lookup must use the same location.
+SMOKE_BUILD_CACHE="${SMOKE_DERIVED_DATA:-$REPO_ROOT/build/ReleaseSmoke}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
@@ -102,6 +105,7 @@ xcodegen generate --spec "$REPO_ROOT/project.yml" >/dev/null
 # would make this gate depend on a provisioning profile it has no reason to.
 xcodebuild build \
   -project "$XCODE_PROJECT" \
+  -derivedDataPath "$SMOKE_BUILD_CACHE" \
   -scheme "$SCHEME" \
   -configuration Release \
   -sdk iphonesimulator \
@@ -114,6 +118,7 @@ xcodebuild build \
 step "Locating the built app"
 BUILD_SETTINGS="$(xcodebuild -showBuildSettings \
   -project "$XCODE_PROJECT" \
+  -derivedDataPath "$SMOKE_BUILD_CACHE" \
   -scheme "$SCHEME" \
   -configuration Release \
   -sdk iphonesimulator \

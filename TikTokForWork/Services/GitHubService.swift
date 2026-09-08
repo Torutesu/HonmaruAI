@@ -36,6 +36,16 @@ enum GitHubServiceError: LocalizedError {
     case network(Error)
     case api(statusCode: Int, message: String)
 
+    /// Only an explicit authentication failure revokes a saved login. Network
+    /// outages, rate limits and temporary relay failures must remain retryable.
+    var invalidatesSavedSession: Bool {
+        switch self {
+        case .unauthorized, .missingCredentials: true
+        case .api(let status, _): status == 401
+        default: false
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .missingCredentials:
@@ -68,6 +78,8 @@ final class GitHubService: NSObject, ObservableObject {
     /// the device — see `request(path:method:body:)`.
     private var token: String?
     private var repository = ""
+    private var repositoryRequestGeneration = UUID()
+    private var authorizationGeneration = UUID()
     private var authSession: ASWebAuthenticationSession?
     private let webAuthContext = WebAuthContextProvider()
 
@@ -76,6 +88,8 @@ final class GitHubService: NSObject, ObservableObject {
     var linkedRepository: String { repository }
 
     func disconnect() {
+        repositoryRequestGeneration = UUID()
+        authorizationGeneration = UUID()
         token = nil
         repository = ""
         connection = nil
@@ -128,26 +142,34 @@ final class GitHubService: NSObject, ObservableObject {
     }
 
     func signInWithOAuth(backendBaseURL: URL) async throws {
+        authorizationGeneration = UUID()
+        let generation = authorizationGeneration
         let config = try await fetchOAuthConfig(backendBaseURL: backendBaseURL)
+        guard generation == authorizationGeneration else { throw CancellationError() }
         // The nonce is issued by the server, put on the authorize URL, checked
         // on the way back, and spent at the exchange. `tiktokforwork://` is a
         // custom scheme, which iOS awards to any app that claims it — without
         // this, another app can hand us its own code and end up owning the
         // session we mint.
         let state = try await requestOAuthState(backendBaseURL: backendBaseURL)
+        guard generation == authorizationGeneration else { throw CancellationError() }
         let code = try await requestAuthorizationCode(config: config, state: state)
-        let sessionToken = try await exchangeCode(code, state: state, backendBaseURL: backendBaseURL)
+        guard generation == authorizationGeneration else { throw CancellationError() }
+        let sessionToken = try await exchangeCode(code, state: state, backendBaseURL: backendBaseURL, generation: generation)
         token = sessionToken
-        repositories = try await fetchRepositories()
+        let updated = try await fetchRepositories()
+        guard generation == authorizationGeneration else { throw CancellationError() }
+        repositories = updated
         lastError = nil
     }
 
     @discardableResult
     func refreshRepositories() async throws -> [GitHubRepository] {
-        guard token != nil else {
+        guard let token else {
             throw GitHubServiceError.missingCredentials
         }
         let updated = try await fetchRepositories()
+        guard self.token == token else { throw CancellationError() }
         repositories = updated
         lastError = nil
         return updated
@@ -164,17 +186,17 @@ final class GitHubService: NSObject, ObservableObject {
         }
 
         let previousRepo = repository
-        self.repository = trimmedRepo
+        repositoryRequestGeneration = UUID()
+        let generation = repositoryRequestGeneration
         lastError = nil
 
         let user = try await requestDictionary(path: "/user")
+        guard self.token == token, generation == repositoryRequestGeneration else { throw CancellationError() }
         guard let username = user["login"] as? String else {
             throw GitHubServiceError.unauthorized
         }
-        // The numeric GitHub id is what the Worker (and therefore RevenueCat) keys on.
-        if let ghId = user["id"] { SessionStore.githubUserId = String(describing: ghId) }
-
         let repo = try await requestDictionary(path: "/repos/\(trimmedRepo)")
+        guard self.token == token, generation == repositoryRequestGeneration else { throw CancellationError() }
         guard let fullName = repo["full_name"] as? String,
               let htmlURL = repo["html_url"] as? String else {
             throw GitHubServiceError.invalidRepository
@@ -185,10 +207,15 @@ final class GitHubService: NSObject, ObservableObject {
             repository: fullName,
             repositoryURL: htmlURL
         )
+        // Commit the new repository only after both requests have succeeded.
+        // A failed switch must not redirect future issue writes into a repo
+        // different from the one still shown in the UI.
+        self.repository = fullName
         self.connection = connection
-        SessionStore.saveGitHubConnection(connection, repository: trimmedRepo)
+        if let ghId = user["id"] { SessionStore.githubUserId = String(describing: ghId) }
+        SessionStore.saveGitHubConnection(connection, repository: fullName)
 
-        if !previousRepo.isEmpty, previousRepo != trimmedRepo {
+        if !previousRepo.isEmpty, previousRepo != fullName {
             onRepositoryChanged?()
         }
 
@@ -199,6 +226,7 @@ final class GitHubService: NSObject, ObservableObject {
         guard token != nil, !repository.isEmpty else {
             throw GitHubServiceError.missingCredentials
         }
+        let repository = self.repository
 
         let title = "[\(card.type.label)] \(card.title)"
         let body = issueBody(for: card)
@@ -341,7 +369,7 @@ final class GitHubService: NSObject, ObservableObject {
         }
     }
 
-    private func exchangeCode(_ code: String, state: String, backendBaseURL: URL) async throws -> String {
+    private func exchangeCode(_ code: String, state: String, backendBaseURL: URL, generation: UUID) async throws -> String {
         let url = backendBaseURL.appending(path: "oauth/github/token")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -350,6 +378,7 @@ final class GitHubService: NSObject, ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code, "state": state])
 
         let (data, response) = try await URLSession.shared.data(for: request)
+        guard generation == authorizationGeneration else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse else {
             throw GitHubServiceError.api(statusCode: 0, message: "No response from relay server.")
         }
@@ -446,6 +475,7 @@ final class GitHubService: NSObject, ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
+        request.timeoutInterval = 15
         request.setValue(token, forHTTPHeaderField: "x-session-token")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
@@ -456,11 +486,12 @@ final class GitHubService: NSObject, ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard self.token == token else { throw CancellationError() }
             guard let http = response as? HTTPURLResponse else {
                 throw GitHubServiceError.api(statusCode: 0, message: "No response from GitHub.")
             }
 
-            if http.statusCode == 401 || http.statusCode == 403 {
+            if http.statusCode == 401 {
                 throw GitHubServiceError.unauthorized
             }
 
@@ -475,9 +506,11 @@ final class GitHubService: NSObject, ObservableObject {
 
             return try JSONSerialization.jsonObject(with: data)
         } catch let error as GitHubServiceError {
+            guard self.token == token else { throw CancellationError() }
             lastError = error.localizedDescription
             throw error
         } catch {
+            guard self.token == token else { throw CancellationError() }
             let wrapped = GitHubServiceError.network(error)
             lastError = wrapped.localizedDescription
             throw wrapped

@@ -26,15 +26,16 @@ export const YouSheet: React.FC<Props> = ({ httpBase, orgId, userId, sessionToke
   const [email, setEmail] = useState('')
   const [saved, setSaved] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const auth = { 'content-type': 'application/json', 'x-session-token': sessionToken }
 
   useEffect(() => {
     fetch(`${httpBase}/me`, { headers: auth }).then(async (r) => {
-      if (!r.ok) return
+      if (!r.ok) { setError('Your settings could not be loaded. Close this panel and try again.'); return }
       const data = await r.json()
       setMe(data)
       setEmail(data.email || '')
-    }).catch(() => {})
+    }).catch(() => setError('Your settings could not be loaded. Check your connection.'))
   }, [httpBase, sessionToken])
 
   const changeLocale = async (value: string) => {
@@ -44,20 +45,33 @@ export const YouSheet: React.FC<Props> = ({ httpBase, orgId, userId, sessionToke
     onLocaleChange()
   }
 
+  const updateSettings = async (body: Record<string, unknown>) => {
+    const response = await fetch(`${httpBase}/me`, { method: 'PUT', headers: auth, body: JSON.stringify(body) })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.message || 'Your settings could not be saved.')
+    return data
+  }
+
   const saveEmail = async () => {
-    setError(null)
-    const res = await fetch(`${httpBase}/me`, { method: 'PUT', headers: auth, body: JSON.stringify({ email }) })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) { setError(data.message || 'Could not save.'); return }
-    setMe((m) => m ? { ...m, email: data.email } : m)
-    setSaved('Saved'); setTimeout(() => setSaved(null), 2000)
+    if (saving) return
+    setSaving(true); setError(null)
+    try {
+      const data = await updateSettings({ email })
+      setMe((current) => current ? { ...current, email: data.email } : current)
+      setSaved('Saved'); setTimeout(() => setSaved(null), 2000)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not save. Please try again.') }
+    finally { setSaving(false) }
   }
 
   const toggleEmail = async () => {
-    if (!me) return
-    const next = !me.notifyEmail
-    setMe({ ...me, notifyEmail: next })
-    await fetch(`${httpBase}/me`, { method: 'PUT', headers: auth, body: JSON.stringify({ notifyEmail: next }) }).catch(() => {})
+    if (!me || saving) return
+    setSaving(true); setError(null)
+    try {
+      const next = !me.notifyEmail
+      await updateSettings({ notifyEmail: next })
+      setMe((current) => current ? { ...current, notifyEmail: next } : current)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not save. Please try again.') }
+    finally { setSaving(false) }
   }
 
   return (
@@ -65,6 +79,7 @@ export const YouSheet: React.FC<Props> = ({ httpBase, orgId, userId, sessionToke
       <div className="sheet-title">You <button className="close" onClick={onClose} aria-label="Close">×</button></div>
       <p className="sheet-hint">{userId} · {orgId}</p>
 
+      {error && <div className="create-error" role="alert">{error}</div>}
       <button className="record-button" onClick={onOpenRecord}>
         <span>The record</span><small>Every decision, per business</small>
       </button>
@@ -83,15 +98,14 @@ export const YouSheet: React.FC<Props> = ({ httpBase, orgId, userId, sessionToke
           {me.emailEditable ? (
             <form className="you-row" onSubmit={(e) => { e.preventDefault(); saveEmail() }}>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" aria-label="Email" />
-              <button type="submit" className="ghost">{saved || 'Save'}</button>
+              <button type="submit" className="ghost" disabled={saving}>{saved || 'Save'}</button>
             </form>
           ) : (
             <p className="sheet-hint">{me.email}</p>
           )}
-          {error && <div className="create-error">{error}</div>}
           {me.email && (
             <label className="you-toggle">
-              <input type="checkbox" checked={me.notifyEmail} onChange={toggleEmail} /> Email me when nothing else reaches me
+              <input type="checkbox" disabled={saving} checked={me.notifyEmail} onChange={toggleEmail} /> Email me when nothing else reaches me
             </label>
           )}
         </>

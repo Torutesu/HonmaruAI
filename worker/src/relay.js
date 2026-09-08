@@ -4,7 +4,7 @@ import {
 } from "./agui/adapter.js";
 import { toolCallResult, runError } from "./agui/events.js";
 import {
-  loadStore, saveCard, removeCard, loadContexts, saveContext,
+  loadStore, saveCard, replaceCard, mergeCardEnrichment, removeCard, loadContexts, saveContext,
   getSession, getCard, getUserByLogin, upsertBusiness, businessSlug,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
@@ -51,8 +51,8 @@ export class OrgRelay {
       for (const card of cards) {
         if (!card?.id) continue;
         const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
-        for (const ev of forEveryone) this.broadcast(orgId, ev);
-        for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+        for (const ev of forEveryone) await this.broadcast(orgId, ev);
+        for (const ev of forRecipient) await this.sendTo(orgId, card.recipientUserID, ev);
       }
       return new Response(JSON.stringify({ announced: cards.length }), {
         status: 200, headers: { "content-type": "application/json" },
@@ -66,20 +66,57 @@ export class OrgRelay {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  broadcast(orgId, obj, exclude) {
+  async broadcast(orgId, obj, exclude) {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && ws !== exclude) ws.send(text);
+      if (att?.orgId === orgId && ws !== exclude && await this.socketIsAuthorized(ws, att)) {
+        try { ws.send(text); } catch { /* One closed socket must not interrupt delivery to others. */ }
+      }
     }
   }
 
-  sendTo(orgId, userId, obj) {
+  async sendTo(orgId, userId, obj) {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && att?.userId === userId) ws.send(text);
+      if (att?.orgId === orgId && att?.userId === userId && await this.socketIsAuthorized(ws, att)) {
+        try { ws.send(text); } catch { /* Continue delivering to the recipient's other devices. */ }
+      }
     }
+  }
+
+  // A socket outlives its login request. Every read and write must still have
+  // a live session and membership; deleting a session, deleting an account, or
+  // revoking membership cannot leave a connected device with permanent access.
+  async socketIsAuthorized(ws, att = ws.deserializeAttachment() || {}) {
+    if (!att.authed) return false;
+    // Hibernating sockets created by an older release have no session token
+    // in their attachment. Reconnect them so the existing client can join
+    // again, rather than treating a deployment as an invalid login.
+    if (!att.sessionToken) {
+      try { ws.close(1012, "Service updated. Please reconnect."); } catch {}
+      return false;
+    }
+    let active = null;
+    if (att.sessionToken && att.githubId && att.userId) {
+      try {
+        active = await this.db.prepare(
+          `SELECT 1 FROM sessions s
+           JOIN users u ON u.github_id = s.github_id
+           JOIN memberships m ON m.user_github_id = s.github_id
+           WHERE s.token = ?1 AND s.github_id = ?2 AND u.login = ?3 AND m.org_id = ?4
+             AND (s.expires_at IS NULL OR s.expires_at > ?5)`
+        ).bind(att.sessionToken, att.githubId, att.userId, att.orgId, new Date().toISOString()).first();
+      } catch {
+        // An authorization outage cannot become permission to read private
+        // data. 1011 lets clients retry once the service recovers.
+        try { ws.close(1011, "Cannot verify access. Please reconnect."); } catch {}
+        return false;
+      }
+    }
+    if (!active) this.refuse(ws, att.agui, "Your session or organization access has changed. Please sign in again.");
+    return Boolean(active);
   }
 
   /// Refuse a socket, in whichever dialect it was speaking.
@@ -88,6 +125,7 @@ export class OrgRelay {
   /// client can tell "you are not allowed in" apart from "the network died" and
   /// stop retrying a connection that will never be accepted.
   refuse(ws, agui, message) {
+    try { ws.serializeAttachment({ ...ws.deserializeAttachment(), authed: false }); } catch {}
     try {
       ws.send(JSON.stringify(agui ? runError(message) : { type: "error", payload: { message } }));
     } catch {}
@@ -177,6 +215,7 @@ export class OrgRelay {
     }
 
     try {
+    if (type !== "join" && !(await this.socketIsAuthorized(ws, att))) return;
     if (type === "join") {
       const agui = payload.protocol === "agui/1";
       // Identity is never taken from the client. `payload.userId` is read only
@@ -200,14 +239,14 @@ export class OrgRelay {
       }
 
       const userId = access.login;
-      ws.serializeAttachment({ orgId, userId, githubId: String(session.github_id), agui, authed: true });
+      ws.serializeAttachment({ orgId, userId, githubId: String(session.github_id), sessionToken: payload.sessionToken, agui, authed: true });
       const store = await loadStore(this.db, orgId);
       const contexts = await loadContexts(this.db, orgId);
       for (const ev of joinEvents(userId, store, contexts)) ws.send(JSON.stringify(ev));
       // Once, not twice. Presence went out in both dialects to every socket
       // regardless of which one it spoke, so every client received it as a
       // CUSTOM event and again as a legacy message.
-      for (const ev of presenceEvents(userId, "online")) this.broadcast(orgId, ev, ws);
+      for (const ev of presenceEvents(userId, "online")) await this.broadcast(orgId, ev, ws);
       return;
     }
 
@@ -228,8 +267,8 @@ export class OrgRelay {
       if (card.senderUserID !== att.userId) return;
       if (card.decision?.action) return;
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
-      for (const ev of forEveryone) this.sendTo(orgId, card.recipientUserID, ev);
-      for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      for (const ev of forEveryone) await this.sendTo(orgId, card.recipientUserID, ev);
+      for (const ev of forRecipient) await this.sendTo(orgId, card.recipientUserID, ev);
       // The socket only reaches someone with the app open — and a nudge is for
       // the person who has not opened it. This is what makes it reach them.
       if (anyChannelConfigured(this.env)) {
@@ -256,10 +295,17 @@ export class OrgRelay {
         return;
       }
       const existing = await getCard(this.db, orgId, card.id);
+      if (type === "card_created" && existing) {
+        ws.send(JSON.stringify(runError("This decision already exists. Refresh before changing it.")));
+        return;
+      }
+      if (type === "card_updated" && !existing) {
+        ws.send(JSON.stringify(runError("This decision no longer exists. Refresh your feed.")));
+        return;
+      }
       // A business is a slug on the card and a row in the table. A name nobody
       // has typed before becomes a business here — the taxonomy is built by
       // using it, not designed up front.
-      if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
       if (type === "card_created") {
         // You may route a decision to anyone in the org, but only ever as
         // yourself. This is the line that makes a forged sender impossible
@@ -269,12 +315,14 @@ export class OrgRelay {
         // A card belongs to whoever has to decide it. Only they may change it,
         // and rewriting the field must not be a way to hand it off — delegation
         // is a new card, not a moved one.
-        const owner = existing?.recipientUserID ?? card.recipientUserID;
+        const owner = existing.recipientUserID;
         if (owner !== att.userId) {
           ws.send(JSON.stringify(runError("Only the recipient can update this decision.")));
           return;
         }
         card.recipientUserID = owner;
+        card.senderUserID = existing.senderUserID;
+        card.createdAt = existing.createdAt;
         if (card.decision?.action) card.decision.actorUserID = att.userId;
         // The iOS client republishes its whole local copy on a decision, and
         // that copy does not carry what the relay added after the card was
@@ -286,7 +334,14 @@ export class OrgRelay {
           }
         }
       }
-      await saveCard(this.db, orgId, card);
+      if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
+      const saved = type === "card_created"
+        ? await saveCard(this.db, orgId, card, { createOnly: true })
+        : await replaceCard(this.db, orgId, card, existing);
+      if (!saved) {
+        ws.send(JSON.stringify(runError("This decision changed. Refresh your feed and try again.")));
+        return;
+      }
       // The iOS client decides locally and republishes the whole card, so a
       // card_updated that carries a decision IS a decision — recording it as a
       // bland "updated" would make the history useless.
@@ -318,8 +373,8 @@ export class OrgRelay {
         );
       }
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
-      for (const ev of forEveryone) this.broadcast(orgId, ev);
-      for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      for (const ev of forEveryone) await this.broadcast(orgId, ev);
+      for (const ev of forRecipient) await this.sendTo(orgId, card.recipientUserID, ev);
       // Whoever now has to act hears about it, wherever they are. Same rule as
       // the Notion write and for the same reason: deferred, never awaited, and
       // never able to break the decision it is reporting. A new card is first
@@ -355,7 +410,7 @@ export class OrgRelay {
         cardId: card.id, type: "filed", action: business || null, actorUserId: att.userId, snapshot: updated,
       });
       const { forEveryone } = upsertEvents(updated, { isNew: false });
-      for (const ev of forEveryone) this.broadcast(orgId, ev);
+      for (const ev of forEveryone) await this.broadcast(orgId, ev);
       return;
     }
 
@@ -372,7 +427,7 @@ export class OrgRelay {
           cardId: doomed.id, type: "deleted", actorUserId: att.userId, snapshot: doomed,
         });
       }
-      for (const ev of removeEvents(payload.cardId)) this.broadcast(orgId, ev);
+      for (const ev of removeEvents(payload.cardId)) await this.broadcast(orgId, ev);
       return;
     }
 
@@ -390,7 +445,7 @@ export class OrgRelay {
       const existing = await loadContexts(this.db, orgId);
       const isNew = !(userId in existing);
       await saveContext(this.db, orgId, userId, payload.context);
-      for (const ev of contextEvents(userId, payload.context, { isNew })) this.broadcast(orgId, ev);
+      for (const ev of contextEvents(userId, payload.context, { isNew })) await this.broadcast(orgId, ev);
       return;
     }
 
@@ -413,9 +468,9 @@ export class OrgRelay {
         actorUserId: att.userId,
         snapshot: before || card,
       });
-      this.broadcast(orgId, notice);
+      await this.broadcast(orgId, notice);
       const { forEveryone } = upsertEvents(card, { isNew: false });
-      for (const ev of forEveryone) this.broadcast(orgId, ev);
+      for (const ev of forEveryone) await this.broadcast(orgId, ev);
       return;
     }
 
@@ -483,9 +538,12 @@ export class OrgRelay {
         const localized = await localizeCard(current, { provider, locale, allowance });
         if (localized) { current = localized; changed = true; }
         if (changed) {
-          await saveCard(this.db, orgId, current);
-          const { forEveryone } = upsertEvents(current, { isNew: false });
-          for (const ev of forEveryone) this.broadcast(orgId, ev);
+          const merged = await mergeCardEnrichment(this.db, orgId, card, current);
+          if (merged) {
+            current = merged;
+            const { forEveryone } = upsertEvents(current, { isNew: false });
+            for (const ev of forEveryone) await this.broadcast(orgId, ev);
+          }
         }
       }
     } catch (err) {
@@ -494,6 +552,10 @@ export class OrgRelay {
       console.error("deliver enrichment failed", err?.message || err);
     }
     if (!canNotify) return;
+    // A delayed "new decision" alert must not describe a deleted or already
+    // answered card as still waiting. Read the surviving state for the alert.
+    current = await getCard(this.db, orgId, card.id);
+    if (!current || (kind === "created" && current.status && current.status !== "pending")) return;
     await notifyCard(this.env, {
       card: current,
       kind,
@@ -520,7 +582,7 @@ export class OrgRelay {
         cardId: out.card.id, type: "deleted", action: content.action,
         actorUserId: content.actorUserID, note: content.note, snapshot: out.card,
       });
-      for (const ev of removeEvents(out.card.id)) this.broadcast(orgId, ev);
+      for (const ev of removeEvents(out.card.id)) await this.broadcast(orgId, ev);
     } else if (!out.unchanged) {
       await saveCard(this.db, orgId, out.card);
       await this.log(orgId, {
@@ -554,15 +616,15 @@ export class OrgRelay {
         );
       }
       const { forEveryone } = upsertEvents(out.card, { isNew: false });
-      for (const ev of forEveryone) this.broadcast(orgId, ev);
+      for (const ev of forEveryone) await this.broadcast(orgId, ev);
     }
-    if (toolCallId) this.broadcast(orgId, toolCallResult(toolCallId, out.card));
+    if (toolCallId) await this.broadcast(orgId, toolCallResult(toolCallId, out.card));
   }
 
   async webSocketClose(ws) {
     const att = ws.deserializeAttachment() || {};
     if (att.userId) {
-      for (const ev of presenceEvents(att.userId, "offline")) this.broadcast(att.orgId, ev, ws);
+      for (const ev of presenceEvents(att.userId, "offline")) await this.broadcast(att.orgId, ev, ws);
     }
   }
 

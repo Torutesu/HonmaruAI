@@ -1,54 +1,27 @@
 :root {
-  color-scheme: light dark;
-  color: rgba(0, 0, 0, 0.87);
-  background-color: #f9f9f9;
-
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--ink); background: var(--canvas); line-height: 1.5; font-weight: 400;
+  font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
+  --canvas: #f8f9fb; --surface: #fff; --surface-soft: #f4f5f7; --surface-hover: #eeeff3;
+  --ink: #202126; --secondary: #686d79; --muted: #858b97; --border: #e7e9ee;
+  --violet: #6647f0; --violet-soft: #f0edff; --blue: #087ecc; --green: #167b5c; --green-soft: #e7f5ee;
+  --danger: #c34655; --danger-soft: #fff0f2; --primary: #202126; --on-primary: #fff;
+  --shadow: 0 4px 28px rgba(22,29,52,.045); color-scheme: light;
 }
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100%; }
+body { min-width: 320px; }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; color: inherit; border: 1px solid var(--border); background: var(--surface); border-radius: 9999px; padding: 10px 16px; font-size: 14px; font-weight: 550; transition: background 140ms ease, border-color 140ms ease, transform 120ms ease; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+button:not(:disabled):active { transform: scale(.98); }
+a { color: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #8d80f5; outline-offset: 3px; }
+input, textarea, select { color: var(--ink); background: var(--surface); border: 1px solid var(--border); }
+input::placeholder, textarea::placeholder { color: var(--muted); }
+svg { flex: none; }
+@media (hover: hover) { button:not(:disabled):hover { background: var(--surface-hover); } }
+@media (prefers-color-scheme: dark) {
+  :root { --canvas: #13151b; --surface: #1b1e26; --surface-soft: #222630; --surface-hover: #2b303c; --ink: #f0f1f4; --secondary: #a4abba; --muted: #8c94a3; --border: #303643; --violet: #b0a0ff; --violet-soft: #2d2846; --blue: #69bafa; --green: #74d3ad; --green-soft: #203a31; --danger: #f28b98; --danger-soft: #3e262e; --primary: #f0f1f4; --on-primary: #191c23; --shadow: 0 4px 28px rgba(0,0,0,.1); color-scheme: dark; }
 }
-
-html, body, #root {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-
-button:hover {
-  border-color: #646cff;
-}
-
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
-  button {
-    background-color: #f9f9f9;
-  }
-}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

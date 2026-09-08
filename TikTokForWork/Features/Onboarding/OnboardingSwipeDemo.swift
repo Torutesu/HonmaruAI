@@ -30,56 +30,62 @@ struct OnboardingSwipeDemo: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                Text("Try it")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                Text("This is a Decision Card. Swipe right to approve, left to decline.")
-                    .font(Theme.TypeScale.caption)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.top, Theme.Spacing.xl)
-
-            Spacer()
-
-            ZStack {
-                swipeHints
-
-                demoCard
-                    .offset(x: dragOffset)
-                    .rotationEffect(.degrees(Double(dragOffset) / 40))
-                    .gesture(swipeGesture)
-                    .opacity(resolution == nil ? 1 : 0)
-
-                if let resolution {
-                    VStack(spacing: Theme.Spacing.sm) {
-                        Image(systemName: resolution == .approved ? "checkmark.circle" : "xmark.circle")
-                            .font(.system(size: 32, weight: .regular))
-                            .foregroundStyle(resolution.color)
-                        Text(resolution.label)
-                            .font(.system(size: 15, weight: .medium))
+        VStack(spacing: 16) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Try it")
+                            .font(.title.weight(.semibold))
                             .foregroundStyle(Theme.Colors.textPrimary)
+                        Text("This is a Decision Card. Swipe right to approve, left to decline.")
+                            .font(Theme.TypeScale.caption)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .transition(.opacity)
+                    .padding(.top, 24)
+                    ZStack {
+                        swipeHints
+                        demoCard
+                            .offset(x: dragOffset)
+                            .rotationEffect(.degrees(Double(dragOffset) / 40))
+                            .gesture(swipeGesture)
+                            .opacity(resolution == nil ? 1 : 0)
+                        if let resolution {
+                            VStack(spacing: 8) {
+                                Image(systemName: resolution == .approved ? "checkmark.circle" : "xmark.circle")
+                                    .font(.largeTitle)
+                                    .foregroundStyle(resolution.color)
+                                Text(resolution.label)
+                                    .font(.headline)
+                                    .foregroundStyle(Theme.Colors.textPrimary)
+                            }
+                            .transition(.opacity)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 320)
+                    Text(resolution == nil
+                         ? String(localized: "In the real feed this records the decision — and syncs it to GitHub.")
+                         : String(localized: "Cards you clear move on. The next decision scrolls up."))
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 16)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 320)
-
-            Spacer()
-
-            Text(resolution == nil
-                 ? String(localized: "In the real feed this records the decision — and syncs it to GitHub.")
-                 : String(localized: "Cards you clear move on. The next decision scrolls up."))
-                .font(Theme.TypeScale.micro)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, Theme.Spacing.xl + Theme.Spacing.xl)
+            .scrollIndicators(.hidden)
+            if resolution == nil {
+                HStack(spacing: 12) {
+                    Button("Decline") { resolve(.declined, direction: -1) }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.large)
+                    PrimaryButton(title: String(localized: "Approve")) { resolve(.approved, direction: 1) }
+                }
+            } else {
+                PrimaryButton(title: String(localized: "Continue"), action: onFinished)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 24)
         .animation(.easeOut(duration: 0.2), value: resolution != nil)
     }
 
@@ -209,10 +215,6 @@ struct OnboardingSwipeDemo: View {
             resolution = outcome
         }
 
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1100))
-            onFinished()
-        }
     }
 }
 

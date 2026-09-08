@@ -1,5 +1,15 @@
 import Foundation
 
+@MainActor
+protocol DecisionGitHubSyncing {
+    var isConnected: Bool { get }
+    var linkedRepository: String { get }
+    func syncDecision(_ card: DecisionCard) async throws -> (number: Int, url: String)
+    func issueState(number: Int) async throws -> String
+}
+
+extension GitHubService: DecisionGitHubSyncing {}
+
 enum CardServiceError: LocalizedError {
     case githubSyncFailed(String)
     case cardNotFound
@@ -19,6 +29,7 @@ final class DecisionCardService: ObservableObject {
     private var activeUserID: String?
     private var orgID: String?
     private var persistTask: Task<Void, Never>?
+    private var scopeGeneration = UUID()
 
     /// How many decisions are waiting on the person using this device.
     ///
@@ -37,6 +48,7 @@ final class DecisionCardService: ObservableObject {
     }
 
     func setActiveUser(_ userID: String) {
+        if activeUserID != userID { scopeGeneration = UUID() }
         activeUserID = userID
     }
 
@@ -44,22 +56,22 @@ final class DecisionCardService: ObservableObject {
     /// socket has said anything. This is the difference between launching into
     /// your feed and launching into a blank screen.
     func adoptOrganization(_ orgID: String) {
+        scopeGeneration = UUID()
         self.orgID = orgID
         cardsByUser = CardCache.load(orgID: orgID)
         changed()
     }
 
     func applySnapshot(_ incoming: [String: [DecisionCard]]) {
-        // An empty snapshot is not the same as "there is nothing". It is what a
-        // relay sends before anything has been published, and adopting it would
-        // wipe a cache that is currently the only copy of the user's feed.
-        if incoming.isEmpty, !cardsByUser.isEmpty { return }
+        // A joined relay is authoritative even when its last card was deleted
+        // on another device. Ignoring an empty snapshot resurrected that card
+        // from the cache on every launch.
         cardsByUser = incoming
         changed()
     }
 
     func bootstrap(for user: User) {
-        activeUserID = user.id
+        setActiveUser(user.id)
         changed()
     }
 
@@ -69,6 +81,8 @@ final class DecisionCardService: ObservableObject {
     func seedDemoFeedIfNeeded() {}
 
     func reset() {
+        scopeGeneration = UUID()
+        activeUserID = nil
         cardsByUser = [:]
         orgID = nil
         persistTask?.cancel()
@@ -101,7 +115,8 @@ final class DecisionCardService: ObservableObject {
         }
     }
 
-    func syncGitHubStatus(githubService: GitHubService) async {
+    func syncGitHubStatus(githubService: any DecisionGitHubSyncing) async {
+        let generation = scopeGeneration
         guard githubService.isConnected else { return }
         // Only our own cards. The store holds the whole org so a second device
         // can stay in sync passively, but a card belongs to the person who has
@@ -111,6 +126,7 @@ final class DecisionCardService: ObservableObject {
 
         var didChange = false
         for index in userCards.indices {
+            guard generation == scopeGeneration else { return }
             guard let issueNumber = userCards[index].githubIssueNumber else { continue }
             guard userCards[index].githubRepository == githubService.linkedRepository else { continue }
 
@@ -121,14 +137,17 @@ final class DecisionCardService: ObservableObject {
 
             do {
                 let issueState = try await githubService.issueState(number: issueNumber)
+                guard generation == scopeGeneration else { return }
                 if issueState == "closed", status != .completed {
                     userCards[index].status = .completed
                     didChange = true
                     await webSocketService?.publishUpdated(userCards[index])
+                    guard generation == scopeGeneration else { return }
                 } else if issueState == "open", status == .completed {
                     userCards[index].status = .approved
                     didChange = true
                     await webSocketService?.publishUpdated(userCards[index])
+                    guard generation == scopeGeneration else { return }
                 }
             } catch {
                 continue
@@ -151,8 +170,10 @@ final class DecisionCardService: ObservableObject {
         action: CardActionKind,
         actorUserID: String,
         revisionNote: String? = nil,
-        githubService: GitHubService
+        githubService: any DecisionGitHubSyncing
     ) async throws -> DecisionCard {
+        let generation = scopeGeneration
+        guard activeUserID == actorUserID else { throw CancellationError() }
         guard var userCards = cardsByUser[actorUserID],
               let index = userCards.firstIndex(where: { $0.id == cardID }) else {
             throw CardServiceError.cardNotFound
@@ -182,6 +203,7 @@ final class DecisionCardService: ObservableObject {
         // recorded locally and can sync later once a repository is linked.
         if githubService.isConnected, action == .createIssue || card.githubIssueNumber != nil {
             let synced = try await githubService.syncDecision(card)
+            try ensureCurrentScope(generation)
             card.githubIssueNumber = synced.number
             card.githubIssueURL = synced.url
             card.githubRepository = githubService.linkedRepository
@@ -202,6 +224,7 @@ final class DecisionCardService: ObservableObject {
 
         let toolCallId = webSocketService?.toolCallID(for: cardID)
         await webSocketService?.publishToolResult(card, decision: decision, toolCallId: toolCallId)
+        try ensureCurrentScope(generation)
 
         let statusLabel: String = {
             switch card.status {
@@ -231,6 +254,7 @@ final class DecisionCardService: ObservableObject {
 
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
+        try ensureCurrentScope(generation)
         changed()
         return card
     }
@@ -241,8 +265,10 @@ final class DecisionCardService: ObservableObject {
         to recipientUserID: String,
         actorUserID: String,
         organization: OrganizationGraph,
-        githubService: GitHubService
+        githubService: any DecisionGitHubSyncing
     ) async throws -> DecisionCard {
+        let generation = scopeGeneration
+        guard activeUserID == actorUserID else { throw CancellationError() }
         guard var userCards = cardsByUser[actorUserID],
               let index = userCards.firstIndex(where: { $0.id == cardID }) else {
             throw CardServiceError.cardNotFound
@@ -257,6 +283,7 @@ final class DecisionCardService: ObservableObject {
         card.status = .delegated
         if githubService.isConnected {
             let synced = try await githubService.syncDecision(card)
+            try ensureCurrentScope(generation)
             card.githubIssueNumber = synced.number
             card.githubIssueURL = synced.url
             card.githubRepository = githubService.linkedRepository
@@ -277,6 +304,7 @@ final class DecisionCardService: ObservableObject {
 
         let toolCallId = webSocketService?.toolCallID(for: cardID)
         await webSocketService?.publishToolResult(card, decision: decision, toolCallId: toolCallId)
+        try ensureCurrentScope(generation)
 
         let actorName = DisplayName.of(actorUserID, in: organization)
         let recipientName = DisplayName.of(recipientUserID, in: organization)
@@ -300,6 +328,7 @@ final class DecisionCardService: ObservableObject {
 
         append(delegatedCard, for: recipientUserID)
         await webSocketService?.publishCreated(delegatedCard)
+        try ensureCurrentScope(generation)
 
         let responseCard = DecisionCard(
             id: UUID().uuidString,
@@ -321,11 +350,14 @@ final class DecisionCardService: ObservableObject {
 
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
+        try ensureCurrentScope(generation)
         changed()
         return card
     }
 
     func delete(cardID: String, actorUserID: String) async throws {
+        let generation = scopeGeneration
+        guard activeUserID == actorUserID else { throw CancellationError() }
         guard var userCards = cardsByUser[actorUserID],
               let index = userCards.firstIndex(where: { $0.id == cardID }) else {
             throw CardServiceError.cardNotFound
@@ -339,6 +371,7 @@ final class DecisionCardService: ObservableObject {
         userCards.remove(at: index)
         cardsByUser[actorUserID] = userCards
         await webSocketService?.publishDeleted(cardID: cardID, recipientUserID: actorUserID)
+        try ensureCurrentScope(generation)
         changed()
     }
 
@@ -349,6 +382,9 @@ final class DecisionCardService: ObservableObject {
         from sender: User,
         videoURL: String? = nil
     ) async throws -> DecisionCard {
+        let generation = scopeGeneration
+        guard activeUserID == sender.id else { throw CancellationError() }
+        if let orgID, sender.teamID != orgID { throw CancellationError() }
         let card = DecisionCard(
             id: UUID().uuidString,
             recipientUserID: routing.recipientID,
@@ -372,8 +408,13 @@ final class DecisionCardService: ObservableObject {
 
         append(card, for: routing.recipientID)
         await webSocketService?.publishCreated(card)
+        try ensureCurrentScope(generation)
         changed()
         return card
+    }
+
+    private func ensureCurrentScope(_ generation: UUID) throws {
+        guard scopeGeneration == generation else { throw CancellationError() }
     }
 
     private func handle(_ event: RealtimeEvent) {

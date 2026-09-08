@@ -40,11 +40,13 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
     }
   }
 
-  const copyCode = () => {
+  const copyCode = async () => {
     if (!code) return
-    navigator.clipboard?.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { setError('Copy is unavailable. Select the invite code and copy it manually.') }
   }
 
   return (
@@ -52,14 +54,14 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
       <h3>Invite a teammate</h3>
       {!code ? (
         <>
-          <div style={{ marginBottom: '0.5rem' }}>
-            <label style={{ fontSize: '0.85rem', color: '#666', display: 'block', marginBottom: '0.25rem' }}>
+          <div>
+            <label htmlFor="invite-role">
               Their role:
             </label>
             <select
+              id="invite-role"
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              style={{ padding: '0.4rem', borderRadius: '6px', width: '100%' }}
             >
               {ROLES.map((r) => (
                 <option key={r} value={r}>{r}</option>
@@ -69,30 +71,29 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
           <button className="debug-toggle" onClick={handleInvite} disabled={busy}>
             {busy ? 'Creating…' : 'Create invite code'}
           </button>
-          {error && <div className="create-error">{error}</div>}
         </>
       ) : (
         <div>
-          <p style={{ fontSize: '0.85rem', color: '#666' }}>
+          <p>
             Share this code. Anyone who signs up with it joins your team as <strong>{role}</strong>:
           </p>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <code style={{ background: '#f0f0f0', padding: '0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.9rem' }}>
+          <div className="invite-code">
+            <code>
               {code}
             </code>
-            <button className="debug-toggle" onClick={copyCode} style={{ padding: '0.4rem 0.8rem' }}>
+            <button className="debug-toggle" onClick={copyCode}>
               {copied ? 'Copied!' : 'Copy'}
             </button>
           </div>
           <button
             className="debug-toggle"
             onClick={() => { setCode(null); setError(null) }}
-            style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}
           >
             Create another
           </button>
         </div>
       )}
+      {error && <div className="create-error" role="alert">{error}</div>}
     </div>
   )
 }

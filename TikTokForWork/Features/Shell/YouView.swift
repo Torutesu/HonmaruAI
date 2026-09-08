@@ -19,9 +19,9 @@ struct YouView: View {
                 header
 
                 group {
-                    row(String(localized: "Your AI"), value: appState.aiService.isConfigured ? String(localized: "Connected") : String(localized: "Not set"))
+                    row(String(localized: "Your AI"), value: appState.aiService.isConfigured ? String(localized: "Configured") : String(localized: "Not set"))
                     rowSeparator
-                    row(String(localized: "Relay"), value: relayHost)
+                    row(String(localized: "Workspace"), value: appState.isGuest ? String(localized: "Guest workspace") : connectionDescription)
                     rowSeparator
                     row(String(localized: "GitHub"), value: appState.githubService.connection?.repository ?? String(localized: "Not connected")) {
                         showConnectGitHub = true
@@ -100,6 +100,8 @@ struct YouView: View {
             .padding(.top, Theme.Spacing.lg)
             .padding(.bottom, Theme.Spacing.xxl)
         }
+        .background(Theme.Colors.surface)
+        .navigationTitle("You")
         .sheet(isPresented: $showOrgGraph) {
             OrgGraphView()
                 .environmentObject(appState)
@@ -120,18 +122,21 @@ struct YouView: View {
         return "\(short) (\(build))"
     }
 
-    private var relayHost: String {
-        appState.relayURL
-            .replacingOccurrences(of: "ws://", with: "")
-            .replacingOccurrences(of: "wss://", with: "")
+    private var connectionDescription: String {
+        switch appState.connectionState {
+        case .connected: String(localized: "Up to date")
+        case .connecting: String(localized: "Reconnecting…")
+        case .offline: String(localized: "Offline")
+        case .refused: String(localized: "No access")
+        }
     }
 
     private var header: some View {
         HStack(spacing: Theme.Spacing.sm) {
             Text(String(appState.currentUser?.name.prefix(1) ?? "?"))
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .frame(width: 40, height: 40)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Theme.Colors.accent)
+                .frame(width: 56, height: 56)
                 .background(Theme.Colors.surfaceRaised)
                 .clipShape(Circle())
 
@@ -146,7 +151,7 @@ struct YouView: View {
 
             Spacer()
         }
-        .padding(Theme.Spacing.md)
+        .padding(20)
         .background(Theme.Colors.background)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
         .overlay {

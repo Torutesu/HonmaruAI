@@ -18,7 +18,7 @@ enum Theme {
         static let surfaceRaised = dyn(0xEEEEEE, 0x242428)
         static let textPrimary = dyn(0x202020, 0xEDEDED)
         static let textSecondary = dyn(0x646464, 0xA0A0A8)
-        static let textTertiary = dyn(0x838383, 0x6E6E76)
+        static let textTertiary = dyn(0x71717A, 0xA1A1AA)
         static let accent = dyn(0x6647F0, 0x8A6EFF)
         static let interactive = dyn(0x0091FF, 0x3AA9FF)
         static let approve = dyn(0x00C07A, 0x2BD69A)
@@ -26,14 +26,15 @@ enum Theme {
         static let reject = dyn(0xFA49A5, 0xFF6FB8)
         static let border = dyn(0xE8E8E8, 0x2E2E33)
         static let ctaFill = dyn(0x202020, 0xEDEDED)
+        static let ctaText = dyn(0xFFFFFF, 0x202020)
     }
 
     enum TypeScale {
-        static let title = Font.system(size: 26, weight: .medium, design: .default)
-        static let body = Font.system(size: 17, weight: .regular)
-        static let caption = Font.system(size: 13, weight: .regular)
-        static let label = Font.system(size: 12, weight: .regular)
-        static let micro = Font.system(size: 11, weight: .regular)
+        static let title = Font.system(.title2, design: .default, weight: .semibold)
+        static let body = Font.system(.body)
+        static let caption = Font.system(.footnote)
+        static let label = Font.system(.caption)
+        static let micro = Font.system(.caption2)
     }
 
     enum Spacing {

@@ -17,19 +17,35 @@ interface Section { slug: string; name: string | null; decided: Entry[]; open: E
 export const RecordSheet: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose }) => {
   const [sections, setSections] = useState<Section[] | null>(null)
   const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [copying, setCopying] = useState(false)
+  const [retry, setRetry] = useState(0)
   const locale = getLocale()
   const query = `orgId=${encodeURIComponent(orgId)}&locale=${encodeURIComponent(locale)}`
 
   useEffect(() => {
+    let active = true
+    setError(null); setSections(null)
     fetch(`${httpBase}/record?${query}`, { headers: { 'x-session-token': sessionToken } })
-      .then(async (r) => { if (r.ok) setSections((await r.json()).businesses || []) })
-      .catch(() => setSections([]))
-  }, [httpBase, query, sessionToken])
+      .then(async (response) => {
+        if (!response.ok) throw new Error('The record could not be loaded. Please try again.')
+        const data = await response.json()
+        if (active) setSections(data.businesses || [])
+      }).catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Could not load the record.') })
+    return () => { active = false }
+  }, [httpBase, query, sessionToken, retry])
 
   const copy = async () => {
-    const res = await fetch(`${httpBase}/record?${query}&format=md`, { headers: { 'x-session-token': sessionToken } })
-    const text = await res.text()
-    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { window.prompt('Copy the record', text) }
+    if (copying) return
+    setCopying(true); setError(null)
+    try {
+      const response = await fetch(`${httpBase}/record?${query}&format=md`, { headers: { 'x-session-token': sessionToken } })
+      if (!response.ok) throw new Error('The record could not be exported. Please try again.')
+      const text = await response.text()
+      await navigator.clipboard.writeText(text)
+      setCopied(true); setTimeout(() => setCopied(false), 2000)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Copying is unavailable. Please try again.') }
+    finally { setCopying(false) }
   }
 
   const day = (iso?: string | null) => (iso ? iso.slice(0, 10) : '')
@@ -38,8 +54,9 @@ export const RecordSheet: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
     <aside className="sheet sheet-side" role="dialog" aria-label="The record">
       <div className="sheet-title">The record <button className="close" onClick={onClose} aria-label="Close">×</button></div>
       <p className="sheet-hint">Every decision, per business, as it stands now. Nobody writes this; it is what happened.</p>
-      <button className="ghost record-copy" onClick={copy}>{copied ? 'Copied' : 'Copy as Markdown'}</button>
-      {sections === null && <p className="sheet-hint">Loading…</p>}
+      <button className="ghost record-copy" onClick={copy} disabled={copying || sections === null}>{copying ? 'Copying…' : copied ? 'Copied' : 'Copy as Markdown'}</button>
+      {error && <div className="create-error" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>Retry</button></div>}
+      {sections === null && !error && <p className="sheet-hint">Loading…</p>}
       {sections?.length === 0 && <p className="sheet-empty">Nothing decided yet.</p>}
       {sections?.map((s) => (
         <section key={s.slug || '-'} className="record-section">

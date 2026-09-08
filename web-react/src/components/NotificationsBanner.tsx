@@ -40,10 +40,12 @@ export const NotificationsButton: React.FC<Props> = ({ httpBase, sessionToken })
       return
     }
     setState('busy')
+    try {
     const result = await enableWebPush(httpBase, sessionToken)
     if (result === 'on') { setState('on'); setNote('You will be told when a decision is waiting — even with this tab closed.') }
     else if (result === 'denied') { setSupport('denied'); setState('off') }
     else { setState('failed'); setNote('Could not turn notifications on. Try again in a moment.') }
+    } catch { setState('failed'); setNote('Could not turn notifications on. Check your connection and try again.') }
   }
 
   return (

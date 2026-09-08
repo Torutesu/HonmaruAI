@@ -47,6 +47,11 @@ test("join uses the session's real user id, not the payload", async () => {
 });
 
 test("a decision broadcasts and is audited even while the Notion write is slow", async () => {
+  const { saveCard } = await import("../src/db.js");
+  await saveCard(env.DB, "notion-org", {
+    id: "c-decided", recipientUserID: "realdev", senderUserID: "watcher",
+    status: "pending", title: "Approve the deploy", priority: "high", createdAt: "2026-08-10T00:00:00Z",
+  });
   // The design's promise: a Notion failure — or a slow Notion — must never
   // break OR stall the decision. The interceptor below takes a full second; if
   // the relay awaited the write, the broadcast and the audit row would both
@@ -76,7 +81,7 @@ test("a decision broadcasts and is audited even while the Notion write is slow",
   // Bounded on purpose: 300ms, against a Notion reply held for a full second.
   // A generous budget would let a broadcast that *is* blocked on the write pass
   // anyway, which is the one thing this test exists to catch.
-  expect(await messageContaining(bMessages, "c-decided", 15)).toBeTruthy();
+  expect(await message(bMessages, (m) => m.type === "STATE_DELTA" && m.delta?.some((d) => d.value?.id === "c-decided" && d.value.status === "approved"), 15)).toBeTruthy();
 
   const eventRow = await until(async () =>
     env.DB.prepare("SELECT type, action FROM card_events WHERE org_id='notion-org' AND card_id='c-decided'").first()

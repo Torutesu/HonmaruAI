@@ -17,7 +17,9 @@ export class WebSocketClient {
   private currentUserId: string | null = null
   private lastConnectParams: { url: string; orgId: string; sessionToken?: string } | null = null
   private intentionalDisconnect = false
-   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private joined = false
+  private pendingCards = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   // Grows on each failed retry (2s → 4s → 8s … capped) so a server that is
   // down is not hammered every 2s, and resets to the minimum on a success.
   private reconnectDelay = RECONNECT_MIN_MS
@@ -30,6 +32,7 @@ export class WebSocketClient {
   onError?: (message: string) => void
   onToolCallResult?: (toolCallId: string, result: any) => void
   onConnectionChange?: (isConnected: boolean) => void
+  onAccessDenied?: (message: string) => void
 
   connect(
     url: string,
@@ -37,6 +40,13 @@ export class WebSocketClient {
     orgId: string = 'core-team',
     sessionToken?: string
   ): Promise<void> {
+    // Detach the previous socket before opening a new one. React StrictMode
+    // mounts effects twice; a late close from the old socket must not clear
+    // the new connection or schedule a duplicate retry.
+    this.disconnect()
+    if (this.currentUserId !== userId || this.lastConnectParams?.orgId !== orgId) this.state = { cardsById: {} }
+    this.pendingToolCalls = {}
+    this.toolCallIdsByCard = {}
     this.intentionalDisconnect = false
     this.currentUserId = userId
     this.lastConnectParams = { url, orgId, sessionToken }
@@ -63,7 +73,6 @@ export class WebSocketClient {
               }
             }
             ws.send(JSON.stringify(joinPayload))
-            this.onConnectionChange?.(true)
             resolve()
           } catch (error) {
             reject(error)
@@ -71,6 +80,7 @@ export class WebSocketClient {
         }
 
         ws.onmessage = (event) => {
+          if (this.ws !== ws) return
           try {
             const json = JSON.parse(event.data)
             this.handleEvent(json)
@@ -83,10 +93,17 @@ export class WebSocketClient {
           reject(error)
         }
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
+          if (this.ws !== ws) return
           this.ws = null
+          this.joined = false
+          this.rejectPendingCards('Connection lost. Check Sent before retrying your decision.')
           this.onConnectionChange?.(false)
-          this.scheduleReconnect()
+          reject(new Error(event?.reason || 'Connection closed.'))
+          if (event?.code === 1008) {
+            this.intentionalDisconnect = true
+            this.onAccessDenied?.(event.reason || 'Please sign in again to continue.')
+          } else this.scheduleReconnect()
         }
       } catch (error) {
         reject(error)
@@ -100,7 +117,7 @@ export class WebSocketClient {
 
     const { url, orgId, sessionToken } = this.lastConnectParams
     const userId = this.currentUserId
-        const delay = this.reconnectDelay
+    const delay = this.reconnectDelay
     // Next attempt waits longer, up to the cap.
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS)
     this.reconnectTimer = setTimeout(() => {
@@ -118,10 +135,17 @@ export class WebSocketClient {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
+    const previous = this.ws
+    this.ws = null
+    this.joined = false
+    if (previous) {
+      previous.onopen = null
+      previous.onmessage = null
+      previous.onerror = null
+      previous.onclose = null
+      previous.close()
     }
+    this.rejectPendingCards('Connection lost. Check Sent before retrying your decision.')
   }
 
   private handleEvent(json: any): void {
@@ -150,6 +174,7 @@ export class WebSocketClient {
         this.handleCustom(json)
         break
       case 'RUN_ERROR':
+        this.rejectPendingCards(json.message || 'The server could not save this decision.')
         this.onError?.(json.message)
         break
       default:
@@ -158,15 +183,18 @@ export class WebSocketClient {
     }
   }
 
-   private handleSnapshot(event: StateSnapshot): void {
+  private handleSnapshot(event: StateSnapshot): void {
     if (!event.snapshot?.cardsById) return
     // A successful join resets the backoff, so the next disconnect retries
     // quickly rather than inheriting a long delay from an earlier outage.
     this.reconnectDelay = RECONNECT_MIN_MS
+    this.joined = true
+    this.onConnectionChange?.(true)
     // New top-level object, not a mutation of the existing one — passing
     // the same reference to a React setState call gets dropped by
     // Object.is, so old cards would never clear (e.g. after clear_store).
     this.state = { ...this.state, cardsById: event.snapshot.cardsById }
+    this.confirmPendingCards()
     this.onStateChange?.(this.state)
   }
 
@@ -179,6 +207,7 @@ export class WebSocketClient {
       // handleSnapshot above.
       const result = applyPatch(this.state, event.delta as Operation[], false, false)
       this.state = result.newDocument
+      this.confirmPendingCards()
       this.onStateChange?.(this.state)
 
       // Extract card operations for detailed callbacks
@@ -242,6 +271,7 @@ export class WebSocketClient {
         this.toolCallIdsByCard[card.id] = id
         // Same reference-identity concern as handleSnapshot/handleDelta.
         this.state = { ...this.state, cardsById: { ...this.state.cardsById, [card.id]: card } }
+        this.confirmPendingCards()
         this.onCardCreated?.(card)
         this.onStateChange?.(this.state)
       }
@@ -279,8 +309,8 @@ export class WebSocketClient {
       replyText?: string
       note?: string
     }
-  ): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.currentUserId) return
+  ): boolean {
+    if (!this.canSend() || !this.currentUserId) return false
 
     const toolCallId = this.toolCallIdsByCard[cardId]
     const content = {
@@ -296,32 +326,65 @@ export class WebSocketClient {
       payload.toolCallId = toolCallId
     }
 
-    this.ws.send(JSON.stringify({
+    this.ws!.send(JSON.stringify({
       type: 'tool_result',
       payload
     }))
+    return true
   }
 
-    sendRollback(cardId: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+  sendRollback(cardId: string): boolean {
+    if (!this.canSend()) return false
 
-    this.ws.send(JSON.stringify({
+    this.ws!.send(JSON.stringify({
       type: 'rollback',
       payload: { cardId }
     }))
+    return true
   }
 
   // Send a newly created card into the org feed. The relay stamps the sender
   // from the session, persists it, and broadcasts it to every member.
-  sendCardCreated(card: any): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify({
-      type: 'card_created',
-      payload: { card }
-    }))
+  sendCardCreated(card: { id: string; [key: string]: unknown }): Promise<void> {
+    if (!this.canSend()) return Promise.reject(new Error('You are offline. Reconnect before sending.'))
+    if (this.pendingCards.has(card.id)) return Promise.reject(new Error('This decision is already being sent.'))
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingCards.delete(card.id)
+        reject(new Error('Delivery could not be confirmed. Check Sent before retrying.'))
+      }, 15000)
+      this.pendingCards.set(card.id, { resolve, reject, timer })
+      try {
+        this.ws!.send(JSON.stringify({ type: 'card_created', payload: { card } }))
+      } catch {
+        clearTimeout(timer)
+        this.pendingCards.delete(card.id)
+        reject(new Error('Could not send. Reconnect and try again.'))
+      }
+    })
   }
 
-  
+  private canSend(): boolean {
+    return this.joined && this.ws?.readyState === WebSocket.OPEN
+  }
+
+  private confirmPendingCards(): void {
+    for (const [id, pending] of this.pendingCards) {
+      if (!this.state.cardsById[id]) continue
+      clearTimeout(pending.timer)
+      this.pendingCards.delete(id)
+      pending.resolve()
+    }
+  }
+
+  private rejectPendingCards(message: string): void {
+    for (const pending of this.pendingCards.values()) {
+      clearTimeout(pending.timer)
+      pending.reject(new Error(message))
+    }
+    this.pendingCards.clear()
+  }
+
   // File a card under a business (a slug, or a new name), or null to clear.
   // The relay accepts this from the sender or the recipient.
   sendSetBusiness(cardId: string, business: string | null): void {
@@ -333,12 +396,13 @@ export class WebSocketClient {
   }
 
   // Re-alert the recipient of a card you sent that is still pending.
-  sendNudge(cardId: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify({
+  sendNudge(cardId: string): boolean {
+    if (!this.canSend()) return false
+    this.ws!.send(JSON.stringify({
       type: 'nudge',
       payload: { cardId }
     }))
+    return true
   }
 
   getState(): AppState {

@@ -26,7 +26,7 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: worker/package-lock.json
-      - run: npm ci
+      - run: npm ci --no-audit
       - run: npm test
 
   # The reference relay imports the Worker's AG-UI layer rather than keeping its
@@ -46,7 +46,7 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: server/package-lock.json
-      - run: npm ci
+      - run: npm ci --no-audit
       - run: npm test
 
   # The React reference client. Kept alongside the single-file demo the relay
@@ -66,9 +66,25 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: web-react/package-lock.json
-      - run: npm ci
+      - run: npm ci --no-audit
       - run: npm run build
-      - run: npx vitest run
+      - run: npm run test:run
+      - name: Install the local Worker dependencies
+        run: npm --prefix ../worker ci --no-audit
+      - name: Install Chromium
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Browser smoke against a disposable local Worker
+        env:
+          WEB_QA_OUTPUT: ${{ runner.temp }}/honmaru-web-browser
+        run: bash scripts/ci-browser-smoke.sh
+      - name: Upload local browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-browser-smoke
+          path: ${{ runner.temp }}/honmaru-web-browser
+          if-no-files-found: ignore
+          retention-days: 14
 
   # macOS minutes are expensive, so this runs on pull requests only. Pushing to
   # a branch gets the Worker suite; asking to merge gets the whole thing.
@@ -95,3 +111,8 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify
+      - name: Smoke test the Release build
+        env:
+          SMOKE_SIMULATOR: iPhone 16
+          SMOKE_DERIVED_DATA: ${{ runner.temp }}/honmaru-release-smoke
+        run: ./scripts/smoke-release.sh

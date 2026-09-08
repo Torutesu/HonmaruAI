@@ -45,7 +45,7 @@ struct OnboardingView: View {
             ))
             .id(step)
         }
-        .appBackground()
+        .background(Theme.Colors.surface.ignoresSafeArea())
         .animation(.easeOut(duration: 0.25), value: step)
     }
 
@@ -86,32 +86,63 @@ struct OnboardingView: View {
     // MARK: - 1. Welcome
 
     private var welcomeStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Spacer()
+        VStack(spacing: 16) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(spacing: 10) {
+                        AppLogo(size: 36)
+                        Text("Honmaru AI")
+                            .font(.headline)
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                    }
+                    .padding(.top, 28)
 
-            AppLogo(size: 64)
-                .padding(.bottom, Theme.Spacing.lg)
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Decisions,\nnot messages")
+                            .font(.system(.largeTitle, design: .default, weight: .bold))
+                            .tracking(-1)
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("A work feed where nothing needs reading twice. Your AI turns your team's asks, approvals, and tasks into cards you clear in seconds.")
+                            .font(.body)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .lineSpacing(4)
+                    }
 
-            Text("Decisions,\nnot messages")
-                .font(.system(size: 36, weight: .medium))
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .lineSpacing(2)
-                .padding(.bottom, Theme.Spacing.md)
-
-            Text("A work feed where nothing needs reading twice. Your AI turns your team's asks, approvals, and tasks into cards you clear in seconds.")
-                .font(Theme.TypeScale.body)
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .lineSpacing(5)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer()
-            Spacer()
-
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Label("Decision preview", systemImage: "rectangle.stack")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                            Spacer()
+                            Image(systemName: "sparkles").foregroundStyle(Theme.Colors.accent)
+                        }
+                        Text("Approve the Friday release?")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                        Text("QA passed on staging. Your AI batched 6 merged PRs into one release and checked the deploy window.")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Label("Ready for your decision", systemImage: "checkmark.circle")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Theme.Colors.accent)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Theme.Colors.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .padding(20)
+                    .background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 24))
+                    .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Theme.Colors.border, lineWidth: 1))
+                    .padding(.bottom, 8)
+                }
+            }
+            .scrollIndicators(.hidden)
             PrimaryButton(title: String(localized: "Get started")) {
                 Haptics.light()
                 advance()
             }
-            .padding(.bottom, Theme.Spacing.xl)
+            .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -120,6 +151,8 @@ struct OnboardingView: View {
 
     private var routingStep: some View {
         VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
             stepTitle(
                 "Talk only to your AI",
                 subtitle: "No channels, no DMs, no inbox. Say what you need — the AIs handle who hears it, and how."
@@ -152,7 +185,10 @@ struct OnboardingView: View {
             }
             .padding(.top, Theme.Spacing.lg)
 
-            Spacer()
+            .padding(.bottom, 16)
+            }
+            }
+            .scrollIndicators(.hidden)
 
             PrimaryButton(title: String(localized: "Continue")) {
                 Haptics.light()

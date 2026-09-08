@@ -24,6 +24,7 @@ struct AppShell: View {
                 FeedView(
                     showsChrome: false,
                     composeTick: composeTick,
+                    onComposeConsumed: { composeTick = 0 },
                     captured: captured,
                     cardCount: $feedCardCount,
                     currentCardIndex: $feedCardIndex
@@ -66,59 +67,74 @@ struct AppShell: View {
     /// routes on its text either way.
     private func handleCapture(text: String, video: URL?) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let userID = appState.currentUser?.id
+        let repository = appState.githubService.connection?.repository
+        let sessionToken = SessionStore.sessionToken
+        func isCurrentCapture() -> Bool {
+            appState.currentUser?.id == userID &&
+            appState.githubService.connection?.repository == repository &&
+            SessionStore.sessionToken == sessionToken
+        }
         var uploaded: String?
         if let video {
             let local = MediaStore.keep(video)
             // Compress before upload: R2 bills stored bytes, and a raw capture is
             // ~20x larger than a 960x540 export of the same talking-head clip.
             let toUpload = await MediaStore.compress(local ?? video)
+            guard isCurrentCapture() else { return }
             if let base = appState.backendBaseURL {
                 uploaded = try? await MediaUploader.upload(toUpload, to: base)
             }
             if uploaded == nil { uploaded = local?.absoluteString }
         }
+        guard isCurrentCapture() else { return }
         captured = CaptureRequest(text: text, videoURL: uploaded)
     }
 
     private var homeTopBar: some View {
-        ZStack(alignment: .center) {
-            HStack(spacing: Theme.Spacing.sm) {
-                // Connection status — matches FeedView.topBar which is hidden in shell mode.
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(connectionColor)
-                        .frame(width: 5, height: 5)
-                    if let label = connectionLabel {
-                        Text(label)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Colors.textTertiary)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text("Decisions")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                    if appState.pendingCount > 0 {
+                        Text("\(appState.pendingCount)")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .foregroundStyle(Theme.Colors.accent)
+                            .background(Theme.Colors.accent.opacity(0.09), in: Capsule())
                     }
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(Text(connectionLabel ?? String(localized: "Live")))
-
-                Spacer()
-
-                Button {
-                    tab = .you
-                } label: {
-                    Text(String(appState.currentUser?.name.prefix(1) ?? "?"))
-                        .font(.system(size: 12, weight: .semibold))
+                HStack(spacing: 6) {
+                    Circle().fill(connectionColor).frame(width: 6, height: 6)
+                    Text(appState.isGuest ? String(localized: "Guest workspace") : (connectionLabel ?? String(localized: "Up to date")))
+                        .font(.caption)
                         .foregroundStyle(Theme.Colors.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(Theme.Colors.surfaceRaised)
-                        .clipShape(Circle())
+                    if feedCardCount > 1 {
+                        Text("· \(feedCardIndex + 1) / \(feedCardCount)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
                 }
-                .accessibilityLabel(Text("You"))
             }
-
-            if feedCardCount > 1 {
-                PageDots(count: feedCardCount, index: feedCardIndex)
+            Spacer()
+            Button { tab = .you } label: {
+                Text(String(appState.currentUser?.name.prefix(1) ?? "?"))
+                    .font(.headline)
+                    .foregroundStyle(Theme.Colors.accent)
+                    .frame(width: 44, height: 44)
+                    .background(Theme.Colors.accent.opacity(0.08), in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.Colors.accent.opacity(0.12), lineWidth: 1))
             }
+            .buttonStyle(PressFeedbackStyle())
+            .accessibilityLabel(Text("You"))
         }
-        .padding(.horizontal, Theme.Spacing.md)
-        .padding(.vertical, Theme.Spacing.sm)
-        .background(Theme.Colors.background.ignoresSafeArea(edges: .top))
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+        .background(Theme.Colors.surface.ignoresSafeArea(edges: .top))
     }
 
     private var connectionColor: Color {

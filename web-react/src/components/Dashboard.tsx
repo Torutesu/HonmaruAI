@@ -8,6 +8,7 @@ import { RecordSheet } from './RecordSheet'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
+import { BrandMark, Icon } from './Icon'
 import type { AppState, Business } from '../types/card'
 import './Dashboard.css'
 
@@ -16,7 +17,7 @@ interface Props {
   orgId: string
   relayUrl: string
   sessionToken: string
-  onLogout: () => void
+  onLogout: (reason?: string) => void
 }
 
 type Panel = null | 'compose' | 'sent' | 'done' | 'more' | 'record'
@@ -27,9 +28,11 @@ type Panel = null | 'compose' | 'sent' | 'done' | 'more' | 'record'
 export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout }) => {
   const [state, setState] = useState<AppState>({ cardsById: {} })
   const [isConnected, setIsConnected] = useState(false)
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
+  const [displayName, setDisplayName] = useState(userId.replace(/^(u:|email:)/, '').split('@')[0])
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
   // Bumped when the language changes, so cards re-read their localized text.
@@ -58,7 +61,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     const wsClient = wsClientRef.current!
     let ignore = false
-    wsClient.onStateChange = (newState) => { if (!ignore) setState(newState) }
+    wsClient.onStateChange = (newState) => { if (!ignore) { setState(newState); setHasLoaded(true) } }
+    wsClient.onAccessDenied = (message) => { if (!ignore) onLogout(message) }
     wsClient.onCardCreated = (card) => {
       if (ignore) return
       addDebugLog(`Card created: ${card.id}`)
@@ -99,6 +103,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // What language this browser reads, so every notification arrives in it.
   useEffect(() => { syncLocale(relayHttpUrl, sessionToken) }, [relayHttpUrl, sessionToken])
 
+  useEffect(() => {
+    const request = new AbortController()
+    fetch(`${relayHttpUrl}/me`, { headers: { 'x-session-token': sessionToken }, signal: request.signal })
+      .then(async (response) => { if (!response.ok) return; const profile = await response.json(); if (!request.signal.aborted && profile.name) setDisplayName(profile.name) })
+      .catch(() => {})
+    return () => request.abort()
+  }, [relayHttpUrl, sessionToken])
+
   // The org's businesses, for turning a slug on a card into its name. Nobody
   // picks one; the AI files every card in the background.
   const loadBusinesses = useCallback(async () => {
@@ -119,23 +131,49 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setPanel(null)
-      else if (e.key === 'n' && !panel && !(e.target as HTMLElement)?.matches('input, textarea')) setPanel('compose')
+      else if (e.key === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !panel && !(e.target as HTMLElement)?.closest('input, textarea, select, [contenteditable="true"]')) setPanel('compose')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [panel])
 
+  // Sheets behave as modal dialogs for keyboard and assistive technology.
+  useEffect(() => {
+    if (!panel) return
+    const previous = document.activeElement as HTMLElement | null
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
+    if (!dialog) return
+    dialog.setAttribute('aria-modal', 'true')
+    dialog.setAttribute('tabindex', '-1')
+    const background = document.querySelectorAll<HTMLElement>('[data-workspace]')
+    background.forEach((el) => el.setAttribute('inert', ''))
+    const controls = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex="0"]')).filter((el) => el.getClientRects().length > 0)
+    if (!dialog.contains(document.activeElement)) (controls()[0] || dialog).focus()
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return
+      const items = controls()
+      const first = items[0], last = items[items.length - 1]
+      if (!first) { event.preventDefault(); dialog.focus() }
+      else if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', trap)
+    return () => { document.removeEventListener('keydown', trap); background.forEach((el) => el.removeAttribute('inert')); if (previous?.isConnected) previous.focus() }
+  }, [panel])
+
   const handleDecision = useCallback((cardId: string, action: string, options?: any) => {
-    wsClientRef.current!.sendDecision(cardId, action, options)
-    addDebugLog(`Sent decision: ${cardId} → ${action}`)
+    const sent = wsClientRef.current!.sendDecision(cardId, action, options)
+    if (!sent) setError('You are offline. Reconnect before saving a decision.')
+    else addDebugLog(`Sent decision: ${cardId} → ${action}`)
+    return sent
   }, [addDebugLog])
   const handleRollback = useCallback((cardId: string) => {
-    wsClientRef.current!.sendRollback(cardId)
-    addDebugLog(`Rolled back: ${cardId}`)
+    if (!wsClientRef.current!.sendRollback(cardId)) setError('You are offline. Reconnect before undoing a decision.')
+    else addDebugLog(`Undo requested: ${cardId}`)
   }, [addDebugLog])
   const handleNudge = useCallback((cardId: string) => {
-    wsClientRef.current!.sendNudge(cardId)
-    addDebugLog(`Nudged: ${cardId}`)
+    if (!wsClientRef.current!.sendNudge(cardId)) setError('You are offline. Reconnect before sending a reminder.')
+    else addDebugLog(`Nudge requested: ${cardId}`)
   }, [addDebugLog])
 
   const cards = Object.values(state.cardsById || {})
@@ -155,46 +193,45 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
   return (
     <div className="shell">
-      <Feed key={localeVersion} cards={pendingCards} userId={userId} businesses={businesses} focusCardId={focusCardId} onDecide={handleDecision} />
-
-      <header className="topbar">
-        <div className="topbar-left">
-          <span className="brand">Honmaru</span>
-          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? 'Connected' : 'Reconnecting…'} />
-          {pendingCards.length > 0 && <span className="pending-count">{pendingCards.length}</span>}
-        </div>
-        <nav className="topbar-right">
-          <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
-          <button className={panel === 'sent' ? 'active' : ''} onClick={() => setPanel(panel === 'sent' ? null : 'sent')}>
-            Sent{sentCards.filter((c) => c.status === 'pending').length > 0 && <span className="mini">{sentCards.filter((c) => c.status === 'pending').length}</span>}
-          </button>
-          <button className={panel === 'done' ? 'active' : ''} onClick={() => setPanel(panel === 'done' ? null : 'done')}>Done</button>
-          <button className={panel === 'more' ? 'active' : ''} onClick={() => setPanel(panel === 'more' ? null : 'more')} aria-label="More">⋯</button>
+      <aside className="workspace-sidebar" data-workspace aria-label="Workspace">
+        <a className="wordmark" href="/" aria-label="Honmaru home"><BrandMark /><span>Honmaru<span className="wordmark-ai">AI</span></span></a>
+        <div className="workspace-label">WORKSPACE</div>
+        <nav className="workspace-nav" aria-label="Main navigation">
+          <button className={panel === null ? 'selected' : ''} onClick={() => setPanel(null)}><Icon name="inbox" />Inbox<span className="nav-count">{pendingCards.length}</span></button>
+          <button className={panel === 'sent' ? 'selected' : ''} onClick={() => setPanel('sent')}><Icon name="send" />Sent<span className="nav-count">{sentCards.filter((card) => card.status === 'pending').length}</span></button>
+          <button className={panel === 'done' ? 'selected' : ''} onClick={() => setPanel('done')}><Icon name="check" />Done</button>
+          <button className={panel === 'record' ? 'selected' : ''} onClick={() => setPanel('record')}><Icon name="clock" />Decision record</button>
         </nav>
-      </header>
-
-      <div className="toasts">
-        {error && <div className="toast error" onClick={() => setError(null)}>{error}</div>}
-      </div>
-
-      {panel === null && (
-        <button className="compose-fab" onClick={() => setPanel('compose')} aria-keyshortcuts="n">
-          <span className="ai-mark" />Tell your AI
-        </button>
-      )}
+        <div className="sidebar-note"><span className="ai-orbit"><Icon name="sparkle" size={18} /></span><strong>One decision at a time.</strong><p>A little less noise.<br />A little more progress.</p></div>
+        <div className="sidebar-bottom"><span className={`connection-label ${isConnected ? 'online' : ''}`} role="status"><span className={`dot ${isConnected ? 'on' : 'off'}`} />{isConnected ? 'Live updates connected' : 'Reconnecting…'}</span><button className="account-button" onClick={() => setPanel('more')}><span className="user-avatar">{displayName.slice(0, 1).toUpperCase()}</span><span><strong>{displayName}</strong><small>Workspace settings</small></span><Icon name="settings" size={18} /></button></div>
+      </aside>
+      <main className="workspace-main" data-workspace>
+        <header className="topbar">
+          <div className="topbar-left"><span className="mobile-brand"><BrandMark /></span><span className="breadcrumb">Workspace <span>/</span></span><strong>Inbox</strong><span className="topbar-live"><span className={`dot ${isConnected ? 'on' : 'off'}`} />{isConnected ? 'Live' : 'Connecting'}</span></div>
+          <nav className="topbar-right" aria-label="Workspace tools"><NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} /><button className="mobile-nav-button" onClick={() => setPanel('sent')}>Sent</button><button className="mobile-nav-button" onClick={() => setPanel('done')}>Done</button><button className="mobile-nav-button" onClick={() => setPanel('more')} aria-label="Workspace settings"><Icon name="settings" size={18} /></button><button className="topbar-compose" onClick={() => setPanel('compose')}><Icon name="plus" size={17} />New request</button></nav>
+        </header>
+        <div className="inbox-heading"><div><span className="eyebrow">MAKE SPACE FOR WHAT MATTERS</span><h1>Your decisions.</h1><p>{!hasLoaded ? 'Connecting to your workspace…' : pendingCards.length ? `${pendingCards.length} ${pendingCards.length === 1 ? 'request needs' : 'requests need'} your attention. Take them one at a time.` : 'You’re up to date. Keep the good work moving.'}</p></div><div className="inbox-summary"><span><strong>{hasLoaded ? pendingCards.length : '—'}</strong>To review</span><span><strong>{hasLoaded ? decidedCards.length : '—'}</strong>Decided</span></div></div>
+        <div className="feed-toolbar"><span><Icon name="inbox" size={15} />For you <span className="toolbar-count">{pendingCards.length}</span></span><span>Priority first<Icon name="down" size={13} /></span></div>
+        <Feed key={localeVersion} cards={pendingCards} userId={userId} businesses={businesses} focusCardId={focusCardId} onDecide={handleDecision} active={!panel} connected={isConnected} loaded={hasLoaded} onCompose={() => setPanel('compose')} />
+        <footer className="workspace-footer"><span><Icon name="sparkle" size={13} /> Less coordination. More momentum.</span><span><kbd>↑</kbd><kbd>↓</kbd> navigate <kbd>N</kbd> new request</span></footer>
+      </main>
+      <div className="toasts">{error && <div className="toast error" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss error"><Icon name="close" size={16} /></button></div>}</div>
+      {panel === null && <button className="compose-fab" onClick={() => setPanel('compose')} aria-keyshortcuts="n"><Icon name="plus" size={19} />Tell your AI</button>}
 
       {panel && <div className="scrim" onClick={() => setPanel(null)} />}
 
       {panel === 'compose' && (
         <div className="sheet sheet-bottom" role="dialog" aria-label="Tell your AI">
-          <div className="sheet-title">Tell your AI</div>
+          <div className="sheet-title">Tell your AI<button className="close" onClick={() => setPanel(null)} aria-label="Close">×</button></div>
           <p className="sheet-hint">Who it is for, what they decide, and by when. Your AI writes the card and routes it.</p>
           <CreateDecision
             relayHttpUrl={relayHttpUrl}
             orgId={orgId}
             userId={userId}
+            userName={displayName}
             sessionToken={sessionToken}
             autoFocus
+            connected={isConnected}
             onSendCard={(card) => wsClientRef.current!.sendCardCreated(card)}
             onLog={addDebugLog}
             onDone={() => setPanel(null)}
@@ -219,7 +256,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               {card.business && <span className="business-tag">{nameOf(card.business) || card.business}</span>}
               <p className="sent-summary">{card.summary}</p>
               {card.decision?.replyText && <p className="sent-reply">“{card.decision.replyText}”</p>}
-              {card.status === 'pending' && <button className="nudge-button" onClick={() => handleNudge(card.id)}>Nudge</button>}
+              {card.status === 'pending' && <button className="nudge-button" disabled={!isConnected} onClick={() => handleNudge(card.id)}>Nudge</button>}
             </div>
           ))}
         </aside>
@@ -239,6 +276,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               onAcknowledge={() => {}} onDelegate={() => {}}
               onRollback={() => handleRollback(card.id)}
               isPending={false}
+              disabled={!isConnected}
             />
           ))}
         </aside>
@@ -252,7 +290,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           sessionToken={sessionToken}
           businesses={businesses}
           onOpenRecord={() => setPanel('record')}
-          onLogout={onLogout}
+          onLogout={() => onLogout()}
           onClose={() => setPanel(null)}
           onLocaleChange={() => setLocaleVersion((v) => v + 1)}
         />
