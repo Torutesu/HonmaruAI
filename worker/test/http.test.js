@@ -9,8 +9,5 @@ test("GET /health reports readiness", async () => {
   // No AI keys in the test env, so routing reports the keyword fallback.
   expect(body.aiRouting).toBe(false);
   expect(body.aiModel).toBe("fallback");
-  // No mail credentials either, and the provider is null rather than absent —
-  // the setup script reads this to tell "not set up" from "set up wrong".
   expect(body.email).toBe(false);
-  expect(body.emailProvider).toBeNull();
 });

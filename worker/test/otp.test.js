@@ -6,9 +6,9 @@ import schemaSql from "../schema.sql?raw";
 // that keep that from being a bad idea: it is never stored, it expires, it is
 // spent on first use, and it runs out of guesses.
 
-const MAIL = { MAILGUN_API_KEY: "key-test", MAILGUN_DOMAIN: "mail.example.com" };
+const MAIL = { RESEND_API_KEY: "re_test" };
 
-// Mailgun stands in for itself: the code we assert on is the one that was
+// Resend stands in for itself: the code we assert on is the one that was
 // actually put in an email, not one the test was handed by the code under test.
 let sent = [];
 const realFetch = globalThis.fetch;
@@ -21,9 +21,10 @@ beforeEach(() => {
   sent = [];
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    if (url.includes("api.mailgun.net")) {
-      sent.push(Object.fromEntries(new URLSearchParams(init.body)));
-      return new Response(JSON.stringify({ id: "<queued>" }), { status: 200 });
+    if (url.includes("api.resend.com")) {
+      const body = JSON.parse(init.body);
+      sent.push({ ...body, to: body.to[0] });
+      return new Response(JSON.stringify({ id: "queued" }), { status: 200 });
     }
     return realFetch(input, init);
   };

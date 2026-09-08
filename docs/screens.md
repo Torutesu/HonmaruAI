@@ -60,17 +60,11 @@ unverified domain and an unauthorized recipient all look identical from
 outside (nothing arrives), and the person who notices is otherwise whoever was
 waiting for a code that never came.
 
-Either provider will do (`worker/src/mailer.js`), because the choice is not
-really ours: whoever runs a deployment has to get credentials from somewhere,
-and "somewhere" keeps changing its free tier.
-
-| Secret | Provider | What it needs |
-|---|---|---|
-| `RESEND_API_KEY` | Resend | One key. No domain, no DNS — until a domain is verified it only delivers to the account owner's own address, which is enough to test with |
-| `MAILGUN_API_KEY` + `MAILGUN_DOMAIN` | Mailgun | A sending domain. Also what the inbound email connector uses |
-
-Resend wins when both are set. `/health` reports `emailProvider`, so "mail is
-on but nothing arrives" starts from a fact.
+The whole of it is `RESEND_API_KEY` (`worker/src/mailer.js`): no domain, no
+DNS records, and a free tier that is a free tier rather than a trial. Until a
+domain is verified at Resend, mail only reaches the address that owns the
+Resend account — enough to test with, and the difference between working in
+two minutes and working after a DNS change.
 
 An account created this way has **no password hash at all** rather than a
 placeholder — `login()` requires a hash, so it can never be talked into

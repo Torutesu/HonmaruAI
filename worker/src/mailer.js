@@ -6,91 +6,56 @@
 // also what carries a sign-in code, which is the only way in for someone who
 // does not have GitHub.
 //
-// Two providers, because the choice is not really ours to make: whoever runs
-// this deployment has to get credentials from somewhere, and "somewhere" keeps
-// changing its free tier. Both are one HTTP call; neither is worth a
-// dependency, and the caller cannot tell them apart.
+// Resend, and only Resend. One API key, no domain, no DNS records, and a free
+// tier that is a free tier rather than a trial — which matters for a channel
+// that is a fallback and a sign-in code rather than the product. One HTTP
+// call; there is nothing here worth a dependency.
 //
-//   RESEND_API_KEY                    → Resend. Nothing else needed to start.
-//   MAILGUN_API_KEY + MAILGUN_DOMAIN  → Mailgun. Also what the inbound
-//                                       webhook (connectors/email.js) uses.
-//
-// Resend is tried first when both exist, on the theory that someone who set it
-// up more recently meant it.
+// (The *inbound* side — mail arriving as decisions, connectors/email.js — is
+// still Mailgun's webhook, which is a separate feature with a separate secret
+// and no bearing on sending.)
 
-const RESEND_TEST_SENDER = "onboarding@resend.dev";
-
-/// Which provider this deployment can send with, or null.
-export function mailProvider(env) {
-  if (env.RESEND_API_KEY) return "resend";
-  if (env.MAILGUN_API_KEY && env.MAILGUN_DOMAIN) return "mailgun";
-  return null;
-}
+// Resend's shared sender: no domain, no DNS, and delivery only to the address
+// that owns the Resend account. A real limit, and the difference between
+// working in two minutes and working after a DNS change.
+const SHARED_SENDER = "onboarding@resend.dev";
 
 export function isMailConfigured(env) {
-  return mailProvider(env) !== null;
+  return Boolean(env.RESEND_API_KEY);
 }
 
-/// The From line. An explicit `NOTIFY_EMAIL_FROM` always wins.
-///
-/// Resend's fallback is its shared sender, which needs no domain and no DNS —
-/// and only delivers to the address that owns the Resend account. That is a
-/// real limit, but it is the difference between "works in two minutes" and
-/// "works after a DNS change", and the setup script says so out loud.
+/// The From line. An explicit `NOTIFY_EMAIL_FROM` — which needs a domain
+/// verified at Resend — always wins.
 export function mailFrom(env) {
-  if (env.NOTIFY_EMAIL_FROM) return env.NOTIFY_EMAIL_FROM;
-  if (env.MAILGUN_DOMAIN) return `Honmaru AI <no-reply@${env.MAILGUN_DOMAIN}>`;
-  return `Honmaru AI <${RESEND_TEST_SENDER}>`;
+  return env.NOTIFY_EMAIL_FROM || `Honmaru AI <${SHARED_SENDER}>`;
 }
 
 /// Send one message. Returns `{ ok, status }` and never throws — the same rule
 /// as every other channel: a notification that fails is a notification nobody
 /// got, not a decision nobody made.
 ///
-/// `detail` carries whatever the provider said about a refusal. Nothing reads
-/// it to make a decision; it exists so that "no mail arrived" has an answer
-/// other than shrugging.
+/// `detail` carries whatever Resend said about a refusal. Nothing reads it to
+/// make a decision; it exists so that "no mail arrived" has an answer other
+/// than a shrug. The usual causes — a wrong key, an unverified From domain, a
+/// recipient the shared sender may not reach — are indistinguishable from
+/// outside, and every one of them is a sentence in the response body.
 export async function sendMail(env, { to, subject, text }) {
-  const provider = mailProvider(env);
-  if (!provider) return { ok: false, status: 0, skipped: "mail not configured" };
+  if (!isMailConfigured(env)) return { ok: false, status: 0, skipped: "mail not configured" };
   try {
-    const res = provider === "resend"
-      ? await sendViaResend(env, { to, subject, text })
-      : await sendViaMailgun(env, { to, subject, text });
-    if (res.ok) return { ok: true, status: res.status, provider };
-    // Read the body only on a refusal, and only enough of it to be useful in a
-    // log line. Providers explain themselves here — an unverified domain, an
-    // unauthorized recipient — and that explanation is the whole difference
-    // between a two-minute fix and an afternoon.
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ from: mailFrom(env), to: [to], subject, text }),
+    });
+    if (res.ok) return { ok: true, status: res.status };
     const detail = (await res.text().catch(() => "")).slice(0, 300);
-    console.error(`mail refused by ${provider} (${res.status}): ${detail}`);
-    return { ok: false, status: res.status, provider, detail };
+    console.error(`mail refused by Resend (${res.status}): ${detail}`);
+    return { ok: false, status: res.status, detail };
   } catch (err) {
     console.error("mail send failed", err?.message || err);
-    return { ok: false, status: 0, provider };
+    return { ok: false, status: 0 };
   }
-}
-
-function sendViaResend(env, { to, subject, text }) {
-  return fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ from: mailFrom(env), to: [to], subject, text }),
-  });
-}
-
-function sendViaMailgun(env, { to, subject, text }) {
-  const base = (env.MAILGUN_API_BASE || "https://api.mailgun.net").replace(/\/$/, "");
-  const form = new URLSearchParams({ from: mailFrom(env), to, subject, text });
-  return fetch(`${base}/v3/${env.MAILGUN_DOMAIN}/messages`, {
-    method: "POST",
-    headers: {
-      authorization: `Basic ${btoa(`api:${env.MAILGUN_API_KEY}`)}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: form.toString(),
-  });
 }

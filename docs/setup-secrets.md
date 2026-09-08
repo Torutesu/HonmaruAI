@@ -1,8 +1,8 @@
 # セットアップ手順：デプロイと通知の秘密情報
 
 main にマージされたコードを本番に出し、通知の各経路を有効にするまでの手順。
-所要時間はおよそ 30 分。必要なのは Cloudflare、Mailgun、GitHub の各アカウントと、
-`node` が入った手元の端末。
+所要時間はおよそ 30 分。必要なのは Cloudflare、Resend、GitHub の各アカウントと、
+`node` が入った手元の端末。どれも無料枠で足りる。
 
 順番どおりに進めば、最後に `GET /health` がすべて `true` を返す。
 
@@ -41,7 +41,7 @@ D1 のマイグレーション、デプロイ、`/health` の確認。マイグ�
 |------|---------------------|-----------|
 | 1. Cloudflare | main への push で Worker が自動デプロイされる | API トークン、アカウント ID |
 | 2. Web Push | ブラウザ・Android・ホーム画面に追加した iPhone に通知が届く | VAPID 鍵ペア（自分で生成） |
-| 3. メール | プッシュがどこにも届かない人にメールが届く | Mailgun の API キーとドメイン |
+| 3. メール | プッシュがどこにも届かない人にメールが届く。GitHub を持たない人のログイン口が開く | Resend の API キー 1 本 |
 | 4. Web クライアント | フィードを URL で開ける。通知タップやメールのリンク先になる | Cloudflare Pages |
 | 5. 確認 | | |
 
@@ -149,80 +149,64 @@ npx wrangler secret put VAPID_SUBJECT        # mailto:you@example.com（プッ�
 
 ---
 
-## 3. メール：Mailgun
+## 3. メール：Resend
 
-### 3-a. アカウントとドメイン
+送信は Resend 一本。**API キー 1 本だけで、ドメインも DNS レコードも要らない。**
+無料枠が「試用期間」ではなく無料枠なのが選んだ理由で、通知のフォールバックと
+ログインコードという「製品そのものではない」チャンネルにはこの形が合う。
 
-1. https://signup.mailgun.com でアカウント作成（Free/Foundation どちらでも可）
-2. **Sending → Domains → Add New Domain**。`mg.あなたのドメイン` のようなサブドメインを推奨。
-   リージョンは **US** か **EU**（EU にした場合は後述の `MAILGUN_API_BASE` も要る）。
-3. 表示される DNS レコード（TXT 2 つ・MX 2 つ・CNAME 1 つ）を、ドメインの DNS
-   （Cloudflare で管理しているならそこ）に追加。
-4. Mailgun 側で **Verify DNS Settings**。緑になるまで数分〜数時間。
+### 3-a. API キー
 
-サンドボックスドメイン（`sandbox….mailgun.org`）は自分で承認した宛先にしか送れないので、
-試すだけならそれでも動く。
+1. https://resend.com でアカウント作成
+2. **API Keys → Create API Key**。`re_` で始まる文字列を一度だけ表示するので
+   その場でコピー
 
-### 3-b. API キー
+ドメインの検証は**しなくていい**。未検証のうちは Resend の共有送信元
+（`onboarding@resend.dev`）で送ることになり、その場合 **Resend アカウントの
+持ち主のアドレスにしか届かない**。動作確認にはそれで足りる。
 
-**Settings（歯車）→ API Keys → Add new key**（または既存の Private API key）。
-一度しか表示されないのでその場でコピー。
-
-### 3-c. Worker に入れる
+### 3-b. Worker に入れる
 
 ```bash
 cd worker
-npx wrangler secret put MAILGUN_API_KEY      # 3-b のキー
-npx wrangler secret put MAILGUN_DOMAIN       # 例: mg.example.com
-npx wrangler secret put NOTIFY_EMAIL_FROM    # 任意。例: Honmaru AI <no-reply@mg.example.com>（未設定なら no-reply@ドメイン）
-npx wrangler secret put MAILGUN_API_BASE     # EU リージョンのときだけ: https://api.eu.mailgun.net
+npx wrangler secret put RESEND_API_KEY      # 3-a のキー
+npx wrangler secret put NOTIFY_EMAIL_FROM   # 任意。例: Honmaru AI <no-reply@example.com>
 ```
+
+`NOTIFY_EMAIL_FROM` は、Resend でドメインを検証して**他の人にも届けたく
+なったとき**に入れる。それまでは未設定のままでいい。
 
 誰に届くか：メールでサインアップした人はその住所へ。GitHub でサインインした人は
-Web の **⋯ → You → Email** に住所を入れたときだけ。送るのはプッシュがどこにも
-届かなかったときだけ。
+Web の **You → 通知 → Where it goes** に住所を入れたときだけ。送るのはプッシュが
+どこにも届かなかったときだけ。
 
-受信側（メールを Worker に流し込む webhook）は別の設定で、`MAILGUN_WEBHOOK_SIGNING_KEY`
-と `INBOUND_EMAIL_DOMAIN`。これは今回の範囲外（`PROGRESS.md` 参照）。
+### 3-c. 受信は別の話
 
-### 3-c-2. Mailgun でなくてもいい（無料で続けたいなら Resend）
-
-メールは **Resend** でも送れる。API キー 1 本だけ、ドメインも DNS も要らない。
-無料枠があり、ドメインを検証するまでは「Resend アカウントの持ち主のアドレス」
-にしか届かないが、動作確認にはそれで足りる。
-
-```bash
-cd worker
-npx wrangler secret put RESEND_API_KEY      # https://resend.com/api-keys（re_ で始まる）
-npx wrangler secret put NOTIFY_EMAIL_FROM   # 任意。未設定なら Resend の共有送信元
-```
-
-両方入っていれば Resend が使われる。受信側（メールを Worker に流し込む
-webhook）だけは Mailgun 固定なので、そちらも使いたいなら Mailgun を選ぶこと。
-
-`/health` の `emailProvider` が、いまどちらで送っているかを返す。
+メールを Worker に流し込む webhook（届いたメールが決定カードになるほう）は
+Mailgun のままで、`MAILGUN_WEBHOOK_SIGNING_KEY` と `INBOUND_EMAIL_DOMAIN` を使う。
+送信とは別の機能・別の秘密で、Resend への切り替えとは関係しない。今回の範囲外
+（`PROGRESS.md` 参照）。
 
 ### 3-d. まとめて 1 コマンドで
 
 秘密を入れるのは簡単なほうで、難しいのは「本当に送れているか」。鍵が違う・
-ドメインが未検証・サンドボックスで宛先を承認していない、のどれも外からは
+From ドメインが未検証・宛先が共有送信元では届かないアドレス、のどれも外からは
 同じ（何も届かない）に見えるので、最後に本物の往復をして結果を出す。
 
 ```bash
 ./worker/scripts/setup-email.sh
 ```
 
-Resend か Mailgun かを選んで鍵を入れる → デプロイ（コードを送るエンドポイントと
-`login_codes` テーブルはデプロイされて初めて存在する）→ `/health` を見て →
-指定した宛先に実際にサインインコードを送る。502 が返れば送信側の問題で、
-`npx -y wrangler@4 tail --format pretty` に理由がそのまま出る。
+Resend の鍵を入れる → デプロイ（コードを送るエンドポイントと `login_codes`
+テーブルはデプロイされて初めて存在する）→ `/health` を見て → 指定した宛先に
+実際にサインインコードを送る。502 が返れば Resend が拒否していて、理由は
+`npx -y wrangler@4 tail --format pretty` にそのまま出る。
 
 > **メールでのログインもここに乗っている。**
 > 「6桁のコードをメールで送る」サインイン（`POST /auth/otp/request`）は
 > 送信手段が無いと 503 を返す。返された側はパスワード欄に切り替わって理由を
-> 出すので壊れはしない — が、GitHub を持っていない人にとっては、Resend か
-> Mailgun のどちらかを入れて初めて入口が開く。`/health` の `"email": true` が
-> 入っている証拠で、`emailProvider` がどちらかを言う。
+> 出すので壊れはしない — が、GitHub を持っていない人にとっては、`RESEND_API_KEY`
+> を入れて初めて入口が開く。`/health` の `"email": true` が入っている証拠。
 
 ---
 
@@ -275,7 +259,7 @@ curl -s https://tiktokforwork.torubj0904.workers.dev/health
 ```
 
 - `webPush: true` … VAPID 3 つが入っている
-- `email: true` … Mailgun 2 つが入っている
+- `email: true` … `RESEND_API_KEY` が入っている
 - `push` は iOS の APNs。Apple 側の作業が別途要る（`docs/push-notifications.md`）。当面 false でよい
 - `aiRouting: true` … `OPENAI_API_KEY` が入っている（翻訳と事業の振り分けもこれを使う）
 
@@ -290,5 +274,5 @@ Web を開いて右上のベルを押し、ブラウザの許可を出す。別�
 | `d1 execute` が 7403 "not authorized" | wrangler 3 のバグ。`npx -y wrangler@4` を使う |
 | `/health` が `webPush: false` | `npx wrangler secret list` で 3 つとも並んでいるか |
 | ベルを押しても何も起きない（iPhone） | Safari のタブではなくホーム画面から開いているか |
-| メールが来ない | 相手に住所があるか、`notifyEmail` がオンか、Mailgun のドメインが verified か、Mailgun の **Logs** に送信記録があるか |
+| メールが来ない | 相手に住所があるか、`notifyEmail` がオンか、宛先が共有送信元でも届くアドレス（＝Resend アカウントの持ち主）か。拒否理由は `npx -y wrangler@4 tail --format pretty` にそのまま出る |
 | 通知の言語が違う | Web の ⋯ → Language、iOS は You → Language。`GET /me` の `locale` が真実 |
