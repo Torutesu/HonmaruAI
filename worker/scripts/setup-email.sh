@@ -102,21 +102,26 @@ if [ -z "$to" ]; then
 fi
 # A prompt reading from /dev/tty will accept anything the clipboard had in it,
 # and this value goes into a JSON body unescaped. Refuse what is not an address
-# rather than send a malformed request and report Resend's confusion as if it
-# were an answer.
-case "$to" in
-  *[!A-Za-z0-9._%+-@]*|*' '*)
-    echo "That does not look like an email address. Nothing was sent." >&2
-    echo "Everything above is already set — run this again to test." >&2
-    exit 1
-    ;;
-  ?*@?*.?*) ;;
-  *)
-    echo "That does not look like an email address. Nothing was sent." >&2
-    echo "Everything above is already set — run this again to test." >&2
-    exit 1
-    ;;
-esac
+# rather than send a malformed request and report the provider's confusion
+# about it as if it were an answer about the setup.
+#
+# Surrounding whitespace is trimmed rather than refused: a trailing space off a
+# paste is not a typo worth a second run of the whole script.
+#
+# grep with an explicit regex, and LC_ALL=C, rather than a shell bracket
+# expression: `[!A-Za-z0-9._%+-@]` reads as a range from + to @ and does not
+# mean the same thing in every shell and locale this runs in. The first version
+# of this check refused a perfectly good address on the machine it was written
+# for, which is a worse failure than the paste it was guarding against.
+to=$(printf '%s' "$to" | tr -d '[:space:]')
+if ! printf '%s' "$to" | LC_ALL=C grep -qE '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
+  echo "That does not look like an email address: $to" >&2
+  echo "Nothing was sent. Everything above is already set — run this again" >&2
+  echo "to test, or send the request by hand:" >&2
+  echo "    curl -sS -X POST https://$host/auth/otp/request \\" >&2
+  echo "      -H 'content-type: application/json' -d '{\"email\":\"you@example.com\"}'" >&2
+  exit 1
+fi
 
 # The endpoint answers the internet, so it says only that the send failed —
 # naming an unverified domain to an unauthenticated caller is a detail nobody
