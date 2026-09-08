@@ -331,7 +331,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       {panel === null && <nav className="tabbar" aria-label={t('Main')}>
         <button className={`tab${!screen ? ' on' : ''}`} data-tab="feed" onClick={() => { setScreen(null); switchMode('cards') }} aria-label={t('Home')}><Home size={25} strokeWidth={1.9} /></button>
-        <button className="tab compose" data-tab="compose" onClick={() => { setComposeSeed({text:'',recipient:''}); setPanel('compose') }} aria-label={t('Tell your AI')}><PlusCircle size={27} strokeWidth={1.8} /></button>
+        <button className="tab compose" data-tab="compose" onClick={() => { setScreen(null); setComposeSeed({text:'',recipient:''}); setPanel('compose') }} aria-label={t('Tell your AI')}><PlusCircle size={27} strokeWidth={1.8} /></button>
         <button className={`tab${screen === 'profile' ? ' on' : ''}`} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><UserRound size={25} strokeWidth={1.8} /></button>
       </nav>}
 

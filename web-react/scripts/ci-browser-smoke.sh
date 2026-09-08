@@ -114,4 +114,5 @@ wait_for_server "http://127.0.0.1:$WEB_PORT" "$WEB_PID"
 
 cd "$WEB_ROOT"
 WEB_QA_URL="http://127.0.0.1:$WEB_PORT" WORKER_QA_URL="http://127.0.0.1:$WORKER_PORT" WEB_QA_OUTPUT="$OUTPUT" node scripts/browser-smoke.mjs
+WEB_QA_URL="http://127.0.0.1:$WEB_PORT" WEB_QA_OUTPUT="$OUTPUT/layout" node scripts/check-desktop-layout.mjs
 printf '\nLocal browser evidence: %s\n' "$OUTPUT"

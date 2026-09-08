@@ -16,7 +16,7 @@ The full pair was visually inspected at readable resolution; title, source, requ
 
 ## Findings and fixes
 
-No remaining actionable P0/P1/P2 issue was found in the final scoped decision comparison and listed responsive/interaction states. This is not a claim of a pixel-identical clone.
+The initial mobile comparison passed, but the subsequent PC review found a narrow summary, inconsistent screen widths, a short-height composer/navigation overlap and a Profile-to-compose layering bug. The desktop follow-up below supersedes the earlier desktop layout assessment. This is not a claim of a pixel-identical clone.
 
 - **Typography:** shared CSS from the older detail component originally reduced the decision title to 16px and overrode its summary color. Scoped feed selectors now preserve the 24px display title, restrained 12px summary, small requester metadata, and mono section/priority labels. Inter, Plus Jakarta Sans, and Sometype Mono are self-hosted; Japanese uses the system fallback. Optical/font-wrap differences from the raster remain a minor refinement, with the same heading/body hierarchy and number of major regions.
 - **Spacing/layout:** restored one bounded rounded card, two separate circular decisions, lower input pill, and Home/Add/You navigation. Desktop remains a centered readable column. Classic restores the reference's purple workspace header, mode switch, and search/filter area, backed by real waiting/sent/decided groups. Profile uses the same composition for sample and authenticated accounts. Web viewport edges replace device safe-area chrome; enlarged body content scrolls inside the card while actions remain reachable.
@@ -65,4 +65,10 @@ The capture script checks a single accessible decision, persistent Profile navig
 
 **Follow-up polish (P3):** exact font optical metrics and portrait/source artwork can be reconciled further when corresponding Figma assets and actual account/source data are available. This does not justify fabricated account imagery or unsupported source counts.
 
-final result: passed
+final result: passed for the original mobile comparison; see the desktop follow-up for the current PC review.
+
+## Desktop follow-up — 2026-09-08
+
+The PC layout now uses one 720px centered frame with readable desktop typography, a full-width summary, consistent Profile/Classic alignment and centered dialogs. Short-height layouts derive their content reservation from the actual navigation height. Profile closes before opening the composer. The original 390×844 mobile composition remains intact. The source screenshot and current mobile capture were visually compared; actual account/source artwork and browser/device chrome remain the documented adaptations.
+
+See [desktop review](docs/desktop-layout/2026-09-08/README.md) for the final viewport matrix, geometry evidence, screen captures and limitations. The shared responsive rules are in `web-react/src/responsive.css`; layout checks also run against the cold production bundle in the browser CI gate.

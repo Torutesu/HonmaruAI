@@ -1,0 +1,121 @@
+/* One centered frame for the Figma navigation and every content surface. */
+:root {
+  --app-width: 430px;
+  --app-nav-height: 88px;
+}
+
+@media (min-width: 700px) {
+  :root { --app-width: 520px; }
+}
+
+@media (min-width: 900px) {
+  :root { --app-width: 720px; }
+
+  .shell .topbar { top: 24px; height: 44px; padding-inline: 24px; }
+  .mode-switch button { padding: 7px 14px; font-size: 14px; }
+  .page-inner {
+    padding: 92px 24px calc(var(--app-nav-height) + 24px + env(safe-area-inset-bottom));
+    justify-content: center;
+  }
+  .feed .card { padding: 28px; border-radius: 24px; scrollbar-width: thin; }
+  .card-top { margin-bottom: 16px; }
+  .feed .card-title { font-size: 30px; line-height: 1.3; letter-spacing: -1px; }
+  .feed .card-summary { max-width: none; font-size: 16px; line-height: 1.65; margin-top: 16px; }
+  .card-kind, .rb-label, .legend { font-size: 11px; }
+  .source-chip { font-size: 13px; }
+  .source-business, .rb-meta { font-size: 12px; }
+  .card-sources, .requested-by { margin-top: 20px; }
+  .rb-label { margin-bottom: 12px; }
+  .rb-who strong { font-size: 14px; }
+  .rb-quote, .rec-reason, .card-background p { font-size: 14px; line-height: 1.65; }
+  .rb-expand, .rb-link, .card-background { font-size: 12px; }
+  .recommendation { margin-top: 20px; padding: 16px; border-radius: 12px; }
+  .rec-head { font-size: 16px; }
+  .decide-row { margin-top: 20px; gap: 16px; }
+  .decide { width: 56px; height: 56px; }
+  .ask-area { margin-top: 0; padding-top: 20px; }
+  .ask-bar { min-height: 54px; padding: 6px; }
+  .ask-bar input { font-size: 15px; padding-inline: 8px; }
+  .ask-plus, .ask-send { width: 40px; height: 40px; }
+  .ask-status, .ask-menu button { font-size: 13px; }
+  .page-indicator { right: calc((100vw - var(--app-width)) / 2 - 16px); font-size: 12px; }
+  .shell .tabbar { padding-inline: 96px; }
+
+  .classic { scroll-padding-block: 140px 112px; }
+  .classic-inner { padding: 152px 24px 112px; }
+  .classic::before {
+    content: '';
+    position: fixed;
+    inset: 0 auto auto 50%;
+    transform: translateX(-50%);
+    width: var(--app-width);
+    height: 140px;
+    background: inherit;
+    z-index: 19;
+    pointer-events: auto;
+  }
+  .cl-workspace-header { height: 68px; padding-inline: 24px; }
+  .cl-workspace-header strong { font-size: 15px; }
+  .shell.classic-mode .topbar { top: 84px; height: 44px; }
+  .cl-search { margin-bottom: 24px; }
+  .cl-search label { padding: 12px; }
+  .cl-search input { font-size: 14px; }
+  .cl-filters label, .cl-filters select { font-size: 13px; }
+  .cl-section { margin-bottom: 32px; }
+  .cl-section h2 { font-size: 14px; }
+  .cl-open { padding: 16px 8px; gap: 14px; }
+  .cl-mark { width: 36px; height: 36px; }
+  .cl-title { font-size: 15px; }
+  .cl-meta, .cl-when, .cl-nudge, .cl-badge { font-size: 12px; }
+  .cl-right { gap: 8px; }
+
+  .figma-profile-header { padding: 32px 64px 28px; }
+  .figma-profile-header h1 { font-size: 24px; }
+  .figma-profile-back { left: 16px; bottom: 20px; }
+  .figma-profile-body { padding-inline: 24px; }
+  .figma-profile-identity { padding: 20px; }
+  .figma-profile-person h2 { font-size: 18px; }
+  .figma-profile-person p, .figma-profile-assistant-copy small,
+  .figma-profile-plan small, .figma-profile-language > select { font-size: 13px; }
+  .figma-profile-assistant-copy b, .figma-profile-plan b { font-size: 15px; }
+  .figma-profile-group { padding-inline: 20px; }
+  .figma-profile-row { min-height: 60px; font-size: 15px !important; }
+  .figma-profile-account > summary { font-size: 14px; }
+
+  /* Desktop dialogs stay with the centered workspace instead of hugging an edge. */
+  .sheet-bottom, .sheet-side {
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: calc(var(--app-width) - 48px);
+    max-height: calc(100dvh - 64px);
+    padding: 28px;
+    border-radius: 24px;
+    box-shadow: 0 20px 80px #0003;
+  }
+  .figma-compose .compose-actions { bottom: -28px; padding-block: 16px; }
+  .screen-head { padding-top: 28px; padding-bottom: 16px; }
+  .screen-foot { padding-bottom: 28px; }
+
+  /* Keep the original welcome sequence together on a desktop or short laptop. */
+  .screen.figma-welcome { justify-content: center; gap: 40px; padding: 40px 24px; overflow-y: auto; }
+  .figma-welcome-main, .figma-welcome-actions {
+    position: static;
+    transform: none;
+    width: 100%;
+    max-width: 430px;
+    margin-inline: auto;
+    flex-shrink: 0;
+  }
+  .figma-welcome-main h1 { font-size: 36px; }
+  .figma-welcome-main p { font-size: 15px; max-width: 340px; }
+  .figma-welcome-actions .btn { min-height: 50px; font-size: 14px; }
+}
+
+@media (min-width: 900px) and (max-height: 760px) {
+  .shell .topbar { top: 16px; }
+  .page-inner { padding-top: 76px; }
+  .feed .card { padding: 24px; }
+  .decide-row { margin-top: 16px; }
+  .ask-area { padding-top: 16px; }
+  .screen.figma-welcome { justify-content: safe center; gap: 24px; }
+}

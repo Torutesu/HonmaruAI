@@ -59,13 +59,13 @@
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   width: 100%;
-  max-width: 430px;
+  max-width: var(--app-width);
   margin: 0 auto;
   padding: 0 24px;
 }
 .screen-foot {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--app-width);
   margin: 0 auto;
   padding: 12px 24px calc(20px + env(safe-area-inset-bottom));
   background: var(--signal-white);
@@ -76,7 +76,7 @@
 /* Header: a back chevron, a title nobody needs to read twice, a skip. */
 .screen-head {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--app-width);
   margin: 0 auto;
   padding: calc(14px + env(safe-area-inset-top)) 24px 8px;
   display: flex;
@@ -347,6 +347,5 @@
 /* Figma screens retain the same centered hierarchy on desktop. */
 .shell.screen-open .tabbar { display:none; }
 @media (min-width:700px) {
-  .screen-head,.screen-body,.screen-foot { max-width:520px; }
-  .sheet-bottom { width:520px; left:50%; right:auto; transform:translateX(-50%); }
+  .sheet-bottom { width:var(--app-width); left:50%; right:auto; transform:translateX(-50%); }
 }

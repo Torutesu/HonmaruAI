@@ -28,7 +28,7 @@ These are image-backed designs. The original Decision image was returned by Figm
 | Violet accent | `#6647F0` | `#B4A1FF` |
 | Primary action | `#111111` with white | Near-white with dark text |
 
-Keep the mobile reference hierarchy on desktop with a bounded readable width. Do not add a persistent sidebar. Use SF Symbols on native and the existing icon library on web. Use actual source imagery and avatars when available, a neutral person icon otherwise. Native `Theme.Colors.background` remains the card surface and `surface` the canvas for compatibility.
+Keep the mobile reference hierarchy on desktop with a bounded readable width. Do not add a persistent sidebar. Web uses a shared centered frame: up to 430px on phones, 520px from 700px viewport width, and 720px from 900px. Desktop content has 24px horizontal gutters, 30px decision headings and 16px body text; the summary uses the available card width. Header, card, composer, Classic and Profile share the same center. Reserve the 88px navigation height plus 24px desktop / 12px mobile clearance. At short heights, the card body scrolls while decisions and composer remain outside it. Desktop dialogs are centered in both axes; the Welcome introduction and entry buttons form one centered stack. These are web desktop adaptations, not an additional Figma desktop frame. Use SF Symbols on native and the existing icon library on web. Use actual source imagery and avatars when available, a neutral person icon otherwise. Native `Theme.Colors.background` remains the card surface and `surface` the canvas for compatibility.
 
 ## Functional requirements
 
