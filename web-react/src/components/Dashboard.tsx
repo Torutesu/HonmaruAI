@@ -16,7 +16,6 @@ import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
 import type { AppState, Business } from '../types/card'
 import './Dashboard.css'
-import { properName } from '../utils/names'
 import { useT } from '../utils/i18n'
 
 interface Props {
@@ -160,7 +159,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         body: JSON.stringify({
           text: `About "${card.title}": ${text}`,
           orgId,
-          sender: { id: userId, name: properName(userId), role: 'member' },
+          sender: { id: userId, role: 'member' },
         }),
       })
       const routed = await res.json()

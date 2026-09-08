@@ -33,7 +33,10 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         },
         body: JSON.stringify({
           text: text.trim(),
-          sender: { name: properName(userId), id: userId, role: 'member' },
+          // No name: the Worker knows this person's from the session and the
+          // membership row, and a name derived here from the account id is
+          // exactly what put "E2e-1788842127274" on a card.
+          sender: { id: userId, role: 'member' },
                   organization: {
             orgId,
             // The router reads members from `nodes` (kind: "person"). Sending

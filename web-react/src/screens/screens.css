@@ -311,3 +311,34 @@
   .row-select { background: #17171a; border-color: #2c2c33; color: #ededef; }
   .welcome-points li { border-top-color: #26262b; }
 }
+
+/* Inviting someone. The sheet above carries the title, so this is the row,
+   the button, and — once it exists — the code itself, which is the only
+   thing on this screen anybody needs to be able to read across a desk. */
+.invite { display: flex; flex-direction: column; gap: 14px; }
+.invite .row.static { border-radius: var(--radius-card); border: 1px solid var(--bone); }
+/* The code is 32 hex characters — nobody reads that across a desk, they copy
+   it. So it wraps in full rather than being set like a six-digit PIN, which
+   overflowed its box and pushed the Copy button off the screen entirely. */
+.invite-row { display: flex; flex-direction: column; gap: 10px; }
+.invite-code {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-align: center;
+  overflow-wrap: anywhere;
+  padding: 14px 12px;
+  border-radius: var(--radius-input);
+  border: 1px solid var(--bone);
+  background: var(--signal-white);
+  color: var(--ink-black);
+  user-select: all;
+}
+.invite-copy { width: 100%; }
+
+@media (prefers-color-scheme: dark) {
+  .invite-code { background: #17171a; border-color: #2c2c33; color: #ededef; }
+  .invite .row.static { border-color: #2c2c33; }
+}

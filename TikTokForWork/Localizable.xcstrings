@@ -78,6 +78,17 @@
         }
       }
     },
+    "APPROVAL": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
+          }
+        }
+      }
+    },
     "Account": {
       "extractionState": "manual",
       "localizations": {
@@ -1376,6 +1387,17 @@
         }
       }
     },
+    "Email": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールアドレス"
+          }
+        }
+      }
+    },
     "Email me a code": {
       "extractionState": "manual",
       "localizations": {
@@ -2003,6 +2025,17 @@
         }
       }
     },
+    "No teammates available. Connect GitHub to load your organization.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーがいません。GitHub を接続すると組織を読み込めます。"
+          }
+        }
+      }
+    },
     "North Inc. wants to extend three months": {
       "extractionState": "manual",
       "localizations": {
@@ -2230,6 +2263,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "その他のストア"
+          }
+        }
+      }
+    },
+    "PRO": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRO"
           }
         }
       }
@@ -3587,6 +3631,28 @@
         }
       }
     },
+    "Type instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードで入力"
+          }
+        }
+      }
+    },
+    "URGENT": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至急"
+          }
+        }
+      }
+    },
     "Undo": {
       "extractionState": "manual",
       "localizations": {
@@ -3814,6 +3880,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub Issue にする前に、何を直しますか？"
+          }
+        }
+      }
+    },
+    "What should change before this decision is sent?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送る前に、どこを直しますか？"
           }
         }
       }
@@ -4254,6 +4331,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "例：2 つの Issue に分割、受け入れ条件を追加…"
+          }
+        }
+      }
+    },
+    "e.g. split into two tasks, add acceptance criteria…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例：2つのタスクに分ける、受入条件を足す…"
           }
         }
       }

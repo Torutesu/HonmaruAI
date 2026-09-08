@@ -112,13 +112,14 @@
 }
 .source-chip.business { color: #6647f0; border-color: #e2dcff; background: #f7f5ff; }
 
+/* The facts wrap. As a horizontal scroller the last chip was clipped
+   mid-word against the card edge with nothing to say it could be scrolled,
+   which reads as a broken card rather than a scrollable one. */
 .card-context {
-  list-style: none; padding: 0 0 2px; margin: 14px 0 0;
+  list-style: none; padding: 0; margin: 14px 0 0;
   display: flex; gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-wrap: wrap;
 }
-.card-context::-webkit-scrollbar { display: none; }
 .card-context li {
   border: 1px solid #ececf0;
   border-radius: 9999px;
@@ -127,9 +128,11 @@
   display: flex;
   gap: 6px;
   align-items: baseline;
-  white-space: nowrap;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
+.card-context .ctx-detail { overflow-wrap: anywhere; }
 .ctx-label { color: #a0a0aa; text-transform: uppercase; font-size: 9px; letter-spacing: 0.05em; }
 .ctx-detail { color: #101014; }
 

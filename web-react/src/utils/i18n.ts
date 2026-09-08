@@ -126,6 +126,11 @@ const ja: Dict = {
   Notifications: '通知',
   'Where a decision reaches you.': '決定が届く場所。',
   'Invite a teammate': 'メンバーを招待',
+  'Their role': '相手の役割',
+  'What their AI puts in front of them first.': '相手のAIが最初に差し出すもの。',
+  'Anyone who signs up with this code joins your workspace as {role}.':
+    'このコードで登録した人は、{role}としてワークスペースに参加します。',
+  'Create another': 'もう一つ作る',
   'They get their own AI, in this workspace.': '相手にもこのワークスペースのAIが用意されます。',
   Plan: 'プラン',
   'What you are on, and what else there is.': '現在のプランと、ほかの選択肢。',

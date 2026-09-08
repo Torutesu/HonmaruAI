@@ -136,3 +136,40 @@ test("a card you routed to yourself does not introduce you to yourself", async (
   expect(routed.title).not.toContain("Mai");
   expect(routed.summary).toContain("invoice");
 });
+
+// "Ask the engineer to fix the" — six words flat, ending on a preposition,
+// which reads as a truncation bug rather than a title.
+test("a task title stops on a word that can end one", async () => {
+  const { routeInstruction } = await import("../src/routing.js");
+  const organization = {
+    nodes: [
+      { id: "u:mai@honmaru.jp", kind: "person", role: "founder", label: "Mai · founder" },
+      { id: "u:ken@honmaru.jp", kind: "person", role: "engineer", label: "Ken · engineer" },
+    ],
+  };
+  const routed = await routeInstruction({
+    text: "ask the engineer to fix the booking form before Friday because the cafe reopens",
+    sender: { id: "u:mai@honmaru.jp", name: "Mai", role: "founder" },
+    organization,
+  });
+  expect(routed.title).not.toMatch(/\b(the|to|a|an|of|for|before|and)…?$/i);
+  expect(routed.title.length).toBeLessThanOrEqual(56);
+});
+
+// The membership row holds the name this person goes by. Deriving one from the
+// account id put "E2e-1788841995270" on a card the server could have named.
+test("the sender's real name beats anything the client sent", async () => {
+  const { routeInstruction } = await import("../src/routing.js");
+  const routed = await routeInstruction({
+    text: "ask the engineer to fix the booking form",
+    sender: { id: "u:e2e-1788841995270@example.com", name: "u:e2e-1788841995270@example.com", role: "founder" },
+    organization: {
+      nodes: [
+        { id: "u:e2e-1788841995270@example.com", kind: "person", role: "founder", label: "E2E Person · founder" },
+        { id: "u:ken@honmaru.jp", kind: "person", role: "engineer", label: "Ken · engineer" },
+      ],
+    },
+  });
+  expect(`${routed.context} ${routed.agentRoute}`).toContain("E2E Person");
+  expect(`${routed.context} ${routed.agentRoute}`).not.toContain("1788841995270");
+});

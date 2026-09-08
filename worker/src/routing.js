@@ -459,13 +459,18 @@ function userNameFor(userID) {
 /// context into a fact chip labelled "From u". A display name is the card's
 /// business, not the caller's: normalise it here rather than trusting six
 /// call sites to.
-function senderForCard(sender) {
+function senderForCard(sender, organization) {
   const raw = sender || {};
   const id = raw.id || raw.name || "";
   const given = String(raw.name || "").trim();
   // A name that is really an id — its own login, or an address — is no name.
   const looksLikeAnID = !given || given === id || /^(u:|email:)/.test(given) || given.includes("@");
-  return { ...raw, name: looksLikeAnID ? userNameFor(id) : given };
+  if (!looksLikeAnID) return { ...raw, name: given };
+  // The membership row holds the name this person actually goes by, and the
+  // org is built here from that table rather than from the client. Deriving
+  // one from the id instead put "E2e-1788841995270" on a card belonging to
+  // someone whose name the server knew was "E2E Person".
+  return { ...raw, name: displayNameOf(organization, id) };
 }
 
 function parseToolArguments(raw) {
@@ -581,7 +586,7 @@ function isEchoOfInput(summary, input) {
   return false;
 }
 
-function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
+function summarizeInstruction(text, { sender, cardType, recipientUserID, organization }) {
   let cleaned = String(text || "").trim();
   cleaned = cleaned.replace(
     /^(please\s+)?(tell|ask|notify|send|ping|remind)\s+(alice|bob|carol|dana|manager)\s+(to\s+)?/i,
@@ -597,7 +602,7 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
     cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
 
-  const recipientName = userNameFor(recipientUserID);
+  const recipientName = displayNameOf(organization, recipientUserID);
   // On your own — a workspace of one, or a note you routed to yourself — the
   // card is talking to the person who wrote it. "Update for Alice · From Alice
   // · decision routed to Alice" is three ways of saying nothing.
@@ -606,7 +611,7 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
     approval: "Approval needed",
     delegation: toSelf ? "Your task" : `Task for ${recipientName}`,
     revision: "Revision requested",
-    task: cleaned.split(" ").slice(0, 6).join(" ").slice(0, 48) || "New task",
+    task: taskTitle(cleaned) || "New task",
     notification: toSelf ? "Your note" : `Update for ${recipientName}`,
   };
 
@@ -622,13 +627,38 @@ function summarizeInstruction(text, { sender, cardType, recipientUserID }) {
   };
 }
 
+/// A title out of the first sentence, cut at a word and never mid-phrase.
+///
+/// Six words flat produced "Ask the engineer to fix the" — a title that stops
+/// on a preposition and reads like a truncation bug. Take a whole short
+/// instruction as it is, and otherwise stop at the last word that fits and on
+/// a word that can end a line.
+function taskTitle(text) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const firstSentence = clean.split(/(?<=[.!?。！？])\s/)[0] || clean;
+  if (firstSentence.length <= 52) return firstSentence.replace(/[.。]$/, "");
+  const DANGLING = new Set([
+    "a", "an", "the", "to", "of", "for", "on", "in", "at", "by", "with",
+    "and", "or", "but", "before", "after", "from", "into", "about",
+  ]);
+  const words = firstSentence.split(" ");
+  const kept = [];
+  for (const word of words) {
+    if ([...kept, word].join(" ").length > 52) break;
+    kept.push(word);
+  }
+  while (kept.length > 1 && DANGLING.has(kept[kept.length - 1].toLowerCase())) kept.pop();
+  return `${kept.join(" ")}…`;
+}
+
 function applyRoutingGuard(routing, sender, originalText, organization = null) {
   const target = resolveRecipientTarget(originalText, sender.id, organization);
   if (!target.forceOverride || target.recipientUserID === routing.recipientUserID) {
     return routing;
   }
 
-  const recipientName = userNameFor(target.recipientUserID);
+  const recipientName = displayNameOf(organization, target.recipientUserID);
   return {
     ...routing,
     recipientUserID: target.recipientUserID,
@@ -682,13 +712,14 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       sender,
       cardType,
       recipientUserID,
+      organization,
     });
     title = rewritten.title;
     summary = rewritten.summary;
     context = rewritten.context;
   }
 
-  const recipientName = userNameFor(recipientUserID);
+  const recipientName = displayNameOf(organization, recipientUserID);
   const agentRoute =
     routingJSON.agentRoute || `${sender.name}'s AI → ${recipientName}'s AI`;
   const routingReason =
@@ -757,8 +788,9 @@ export function routeInstructionLocally({
     sender,
     cardType,
     recipientUserID,
+    organization,
   });
-  const recipientName = userNameFor(recipientUserID);
+  const recipientName = displayNameOf(organization, recipientUserID);
   const priority =
     priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)
       ? priorityOverride
@@ -924,7 +956,7 @@ export async function routeInstruction({
   readerLanguage,
   senderContext,
 }) {
-  const sender = senderForCard(rawSender);
+  const sender = senderForCard(rawSender, organization);
   if (openRouter?.apiKey) {
     // `aiCalled` is for the meter, not for clients: /ai/route strips it before
     // responding, so the wire format is unchanged. routedBy cannot stand in for

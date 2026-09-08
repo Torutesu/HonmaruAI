@@ -89,6 +89,7 @@ page.on('response', (r) => {
 const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/]
 
 const email = `e2e-${Date.now()}@example.com`
+let mate
 const shot = (n) => page.screenshot({ path: `${SHOTS}/${n}.png` })
 
 await step('the welcome screen loads', async () => {
@@ -365,6 +366,98 @@ await step('the other screens hold up on a laptop', async () => {
   await desk.close()
 })
 
+// The claim the whole product rests on: two people, and a card that crosses
+// between them without either of them touching a channel. Everything before
+// this is one person talking to their own AI, which proves the plumbing but
+// not the point.
+await step('a second person joins by invite and the card reaches them', async () => {
+  for (let i = 0; i < 3; i++) {
+    const close = await page.$('.screen [aria-label="Close"]')
+    if (!close) break
+    await close.click()
+    await page.waitForTimeout(300)
+  }
+
+  // A mints a code for an engineer.
+  await page.click('nav [aria-label="You"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('text=Invite a teammate')
+  // The invite is a sheet over the You screen, not a screen of its own, so
+  // its controls are inside .sheet — .screen would find the Role picker
+  // underneath it instead.
+  await page.waitForSelector('.sheet .invite select', { timeout: 10000 })
+  await page.selectOption('.sheet .invite select', 'engineer')
+  await page.click('.sheet .invite .btn-primary')
+  await page.waitForSelector('.sheet .invite-code', { timeout: 15000 })
+  await shot('18-invite')
+  const invite = (await page.textContent('.sheet .invite-code')).trim()
+  if (!invite) throw new Error('no invite code was minted')
+  // The code is 32 hex characters and was set like a six-digit PIN, so it ran
+  // out of its box and pushed the Copy button clean off the screen. Nothing
+  // in a sheet may sit outside the viewport.
+  const spill = await page.evaluate(() => {
+    const bad = []
+    for (const el of document.querySelectorAll('.sheet *')) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      if (r.left < -1 || r.right > window.innerWidth + 1) {
+        bad.push(`${el.className || el.tagName} @ ${Math.round(r.left)} ${Math.round(r.width)}w`)
+      }
+    }
+    return bad.slice(0, 5)
+  })
+  if (spill.length) throw new Error(`the invite sheet spills off the phone: ${spill.join(' ; ')}`)
+  await page.click('.sheet [aria-label="Close"]')
+  await page.waitForTimeout(400)
+
+  // B signs up with it, in their own browser.
+  const second = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  mate = second
+  const b = await second.newPage()
+  const mateEmail = `e2e-mate-${Date.now()}@example.com`
+  await b.goto(WEB, { waitUntil: 'load' })
+  await b.click('text=Get started')
+  await b.waitForSelector('#email')
+  await b.fill('#name', 'Kenji')
+  await b.fill('#email', mateEmail)
+  await b.fill('#invite', invite)
+  await b.click('text=Email me a code')
+  await b.waitForSelector('.otp-boxes', { timeout: 15000 })
+  await typeCode(b, await codeFor(mateEmail))
+  await b.waitForSelector('.ob-art', { timeout: 20000 })
+  await b.click('text=Next'); await b.waitForSelector('.ob-art-route')
+  await b.click('text=Next'); await b.waitForSelector('.ob-demo')
+  await b.click('text=Set me up'); await b.waitForSelector('.radio')
+  await b.click('text=Open my feed')
+  await b.waitForSelector('.dot.on', { timeout: 25000 })
+
+  // A tells their AI something meant for the engineer.
+  await page.click('nav [aria-label="Tell your AI"]')
+  await page.waitForSelector('.sheet-bottom textarea, .sheet-bottom input', { timeout: 10000 })
+  const box = (await page.$('.sheet-bottom textarea')) || (await page.$('.sheet-bottom input'))
+  await box.fill('ask the engineer to fix the booking form before Friday')
+  await page.click('.sheet-bottom .btn-primary, .sheet-bottom button:has-text("Send")')
+
+  // …and it turns up in B's feed, on its own, without a reload.
+  await b.waitForSelector('.card', { timeout: 25000 })
+  await b.screenshot({ path: `${SHOTS}/19-mate-received.png` })
+  const seen = await b.evaluate(() => document.querySelector('.card').innerText)
+  if (/booking/i.test(seen) === false) {
+    throw new Error(`the card that arrived is not the one that was sent: ${seen.slice(0, 140)}`)
+  }
+  // And it does not arrive wearing an account id.
+  if (/u:|email:|@example\.com/.test(seen)) {
+    throw new Error(`the card shows a raw account id: ${seen.slice(0, 140)}`)
+  }
+  for (let i = 0; i < 4; i++) {
+    const close = await page.$('.sheet [aria-label="Close"], .screen [aria-label="Close"]')
+    if (!close) break
+    await close.click().catch(() => {})
+    await page.waitForTimeout(300)
+  }
+})
+
+if (mate) await mate.close()
 await browser.close()
 
 const report = results.join('\n')
