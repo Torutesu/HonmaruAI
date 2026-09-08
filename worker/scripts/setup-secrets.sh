@@ -82,21 +82,18 @@ else
   note "  skipped"
 fi
 
-say "2. Email (Mailgun)"
-note "The floor: only used when no push reached the person. Blank to skip."
-mg_domain=$(ask 'Mailgun sending domain (e.g. mg.example.com)' '')
-case "$mg_domain" in
-  *[!A-Za-z0-9.-]*) echo "  Mailgun — skipped: that is not a domain." >&2; mg_domain="" ;;
-esac
-if [ -n "$mg_domain" ]; then
-  mg_key=$(ask_secret 'Mailgun private API key')
-  mg_from=$(ask 'From line' "Honmaru AI <no-reply@$mg_domain>")
-  mg_base=$(ask 'API base (blank for US, https://api.eu.mailgun.net for EU)' '')
-  put MAILGUN_DOMAIN "$mg_domain"
-  put MAILGUN_API_KEY "$mg_key"
-  put NOTIFY_EMAIL_FROM "$mg_from"
-  put MAILGUN_API_BASE "$mg_base"
-  unset mg_key
+say "2. Email (Resend)"
+note "The floor when no push reached the person, and what carries a sign-in"
+note "code. One key from https://resend.com/api-keys — no domain, no DNS."
+note "Blank to skip. ./scripts/setup-email.sh does this and proves it works."
+mail_key=$(ask_secret 'Resend API key (starts re_)')
+if [ -n "$mail_key" ]; then
+  note "Blank uses Resend's shared sender, which only reaches the address that"
+  note "owns the Resend account. Set one once you have verified a domain there."
+  mail_from=$(ask 'From line (blank for the shared sender)' '')
+  put RESEND_API_KEY "$mail_key"
+  put NOTIFY_EMAIL_FROM "$mail_from"
+  unset mail_key
 else
   note "  skipped"
 fi

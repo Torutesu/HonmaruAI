@@ -97,6 +97,13 @@ final class AppState: ObservableObject {
     }
 
     func restoreSessionIfNeeded() async {
+        // An email session restores first, and on its own path: it has no
+        // repository to validate and no GitHub token to check.
+        if SessionStore.hasSavedEmailSession,
+           let login = SessionStore.currentUserID {
+            await activateEmailSession(login: login, orgId: SessionStore.orgId ?? "", name: nil)
+            return
+        }
         guard SessionStore.hasSavedGitHubSession,
               githubService.restoreSavedSession(),
               let connection = githubService.connection else {
@@ -147,6 +154,56 @@ final class AppState: ObservableObject {
         cardService.setActiveUser(guest.id)
         currentUser = guest
         isAuthenticated = true
+    }
+
+    /// A relay login as something to put on a screen: "u:mai@honmaru.jp"
+    /// becomes "mai". Only a fallback — the name the person typed wins.
+    nonisolated static func readableLogin(_ login: String) -> String {
+        var value = login
+        for prefix in ["u:", "email:"] where value.hasPrefix(prefix) {
+            value = String(value.dropFirst(prefix.count))
+        }
+        return value.split(separator: "@").first.map(String.init) ?? value
+    }
+
+    /// Signed in with an email code. Same shape as a GitHub session minus the
+    /// repository: the org comes from the server, and the person's teammates
+    /// are whoever else is in it rather than a repo's collaborators.
+    func activateEmailSession(login: String, orgId: String, name: String?) async {
+        isGuest = false
+        SessionStore.currentUserID = login
+        SessionStore.orgId = orgId
+        let display = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let user = User(
+            id: login,
+            name: (display?.isEmpty == false ? display! : AppState.readableLogin(login)),
+            role: "Member",
+            teamID: orgId.isEmpty ? nil : orgId,
+            githubUsername: nil
+        )
+        cardService.setActiveUser(user.id)
+        if !orgId.isEmpty { cardService.adoptOrganization(orgId) }
+        do {
+            try await webSocketService.connect(
+                urlString: relayURL,
+                userId: user.id,
+                orgId: orgId,
+                sessionToken: SessionStore.sessionToken
+            )
+        } catch {
+            // Relay unreachable: still let them in; the feed will be empty.
+        }
+        currentUser = user
+        isAuthenticated = true
+        PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
+        // An email org is "owner/repo" only when an invite put this person in
+        // a GitHub-backed team; a personal one has no graph to load, and
+        // loadOrganization declines it rather than calling with empty parts.
+        let parts = orgId.split(separator: "/")
+        if parts.count == 2 {
+            Task { await loadOrganization(owner: String(parts[0]), repo: String(parts[1])) }
+        }
+        Task { await syncLanguageToBackend() }
     }
 
     func activateGitHubSession(connection: GitHubConnection) async {

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import './Feed.css'
+import { displayName } from '../utils/names'
+import { useT, t } from '../utils/i18n'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -9,28 +11,56 @@ interface Props {
   businesses: Business[]
   focusCardId: string | null
   onDecide: (cardId: string, action: string, options?: { replyText?: string }) => void
+  onAsk: (text: string, card: DecisionCard) => void
 }
 
 const SWIPE_THRESHOLD = 96
 
-
-function fromLine(card: DecisionCard, userId: string): string {
-  const sender = card.senderUserID
-  if (!sender || sender === userId || sender === 'deleted-user') return 'Your AI → you'
-  return `${sender.replace(/^(u:|email:)/, '').split('@')[0]}'s AI → you`
+/// What kind of thing this card is. English keys, translated where they are
+/// read — the card wore the raw type ("notification") in any language before.
+const KIND: Record<string, string> = {
+  approval: 'Decisions',
+  notification: 'Notification',
+  task: 'Task',
+  delegation: 'Delegation',
+  revision: 'Revision',
 }
 
-function segments(context: string): string[] {
-  return context.split(/\s+·\s+/).map((s) => s.trim()).filter(Boolean)
+function initials(name: string): string {
+  const clean = name.trim()
+  if (!clean) return '?'
+  // One character is enough at 40px, and it is right in every script.
+  return [...clean][0].toUpperCase()
 }
 
-/// One decision per screen. Scroll for the next one; swipe right to approve,
-/// left to decline; or use the buttons. The keyboard works too: ↑ ↓ to move,
-/// A to approve, D to decline, R to reply.
-///
-/// There is no filter and no folder. The business a card belongs to is a
-/// label the AI put there, and the order is the order the AI chose.
-export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, onDecide }) => {
+/// "12m ago", the way the design writes it. Anything past a week is a date,
+/// because "63d ago" is not something anyone reads as a duration.
+function ago(iso: string): string {
+  const then = Date.parse(iso)
+  if (!Number.isFinite(then)) return ''
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (mins < 1) return t('just now')
+  if (mins < 60) return t('{n}m ago', { n: mins })
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return t('{n}h ago', { n: hours })
+  const days = Math.round(hours / 24)
+  if (days <= 7) return t('{n}d ago', { n: days })
+  return new Date(then).toLocaleDateString()
+}
+
+function segments(context: string): Array<{ label: string; detail: string }> {
+  return context.split(/\s+·\s+/).map((seg) => {
+    const [label, ...rest] = seg.split(/[:：]/)
+    const detail = rest.join(':').trim()
+    return detail ? { label: label.trim(), detail } : { label: '', detail: seg.trim() }
+  }).filter((s) => s.detail)
+}
+
+/// One decision per screen. Scroll for the next; swipe right to approve, left
+/// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
+/// A to approve, D to decline.
+export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, onDecide, onAsk }) => {
+  const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
   const nameOf = useMemo(() => {
@@ -38,7 +68,6 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
     return (slug?: string) => (slug ? map.get(slug) || slug : '')
   }, [businesses])
 
-  // Which page is in view, from the scroll position.
   useEffect(() => {
     const el = container.current
     if (!el) return
@@ -54,7 +83,6 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
     el.scrollTo({ top: clamped * el.clientHeight, behavior: 'smooth' })
   }, [cards.length])
 
-  // A notification tap names a card: go there.
   useEffect(() => {
     if (!focusCardId) return
     const i = cards.findIndex((c) => c.id === focusCardId)
@@ -80,8 +108,8 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
       {cards.length === 0 && (
         <section className="page page-empty">
           <div className="empty-mark">✓</div>
-          <h2>All clear</h2>
-          <p>Nothing is waiting on you. Your AI will tell you when something is.</p>
+          <h2>{t('All clear')}</h2>
+          <p>{t('Nothing is waiting on you. Your AI will tell you when something is.')}</p>
         </section>
       )}
       {cards.map((card) => (
@@ -91,6 +119,7 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
           userId={userId}
           businessName={nameOf(card.business)}
           onDecide={onDecide}
+          onAsk={onAsk}
         />
       ))}
       {cards.length > 1 && (
@@ -105,17 +134,22 @@ interface PageProps {
   userId: string
   businessName: string
   onDecide: Props['onDecide']
+  onAsk: Props['onAsk']
 }
 
-const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide }) => {
+const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) => {
+  const t = useT()
   const [dx, setDx] = useState(0)
-  const [replying, setReplying] = useState(false)
-  const [reply, setReply] = useState('')
+  const [ask, setAsk] = useState('')
   const start = useRef<{ x: number; y: number } | null>(null)
   const localized = card.localized?.[getLocale()]
   const title = localized?.title || card.title
   const summary = localized?.summary || card.summary
   const context = localized?.context || card.context || ''
+  const who = card.requestedBy
+  const whoName = who?.name || displayName(card.senderUserID)
+  const quote = who?.quote || card.sourceInstruction || card.originalBody || ''
+  const sources = [card.sourceApp, businessName ? null : null].filter(Boolean) as string[]
 
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button, textarea, input, a')) return
@@ -125,7 +159,6 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide })
     if (!start.current) return
     const ddx = e.clientX - start.current.x
     const ddy = e.clientY - start.current.y
-    // Mostly horizontal, or it is a scroll.
     if (Math.abs(ddx) > Math.abs(ddy)) setDx(ddx)
   }
   const onPointerUp = () => {
@@ -135,7 +168,6 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide })
     else if (dx < -SWIPE_THRESHOLD) onDecide(card.id, 'decline')
     setDx(0)
   }
-
   const hint = dx > 24 ? 'approve' : dx < -24 ? 'decline' : null
 
   return (
@@ -146,67 +178,95 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide })
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
-      <div className="page-inner" style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? 'transform 160ms ease' : 'none' }}>
-        <header className="page-head">
-          <span className={`kind kind-${card.type}`}>{card.type}</span>
-          {businessName && <span className="business">{businessName}</span>}
-          {(card.priority === 'urgent' || card.priority === 'high') && (
-            <span className={`priority priority-${card.priority}`}>{card.priority}</span>
-          )}
-        </header>
-        <div className="page-from">{fromLine(card, userId)}</div>
+      <div className="page-inner">
+        <article
+          className="card"
+          style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? 'transform 160ms ease' : 'none' }}
+        >
+          <header className="card-top">
+            <span className="card-kind">{t(KIND[card.type] || card.type)}</span>
+            <span className="priority-legend" aria-label={t('Priority')}>
+              {(['low', 'medium', 'high'] as const).map((level) => (
+                <span key={level} className={`legend ${card.priority === level ? 'on' : ''} p-${level}`}>
+                  <i /> {t(level[0].toUpperCase() + level.slice(1))}
+                </span>
+              ))}
+            </span>
+          </header>
 
-        <h1 className="page-title">{title}</h1>
-        {summary && <p className="page-summary">{summary}</p>}
+          <h1 className="card-title">{title}</h1>
+          {summary && <p className="card-summary">{summary}</p>}
 
-        {context && (
-          <ul className="page-context">
-            {segments(context).map((seg, i) => {
-              const [label, ...rest] = seg.split(/[:：]/)
-              const detail = rest.join(':').trim()
-              return (
-                <li key={i}>
-                  {detail ? <><span className="ctx-label">{label.trim()}</span><span className="ctx-detail">{detail}</span></> : <span className="ctx-detail">{seg}</span>}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-
-        {card.originalBody && card.originalLanguage && (
-          <details className="page-original">
-            <summary>Translated from {card.originalLanguage}</summary>
-            <p>{card.originalBody}</p>
-          </details>
-        )}
-
-        {card.sourceApp && (
-          <div className="page-source">From {card.sourceApp}{card.sourceDetail ? ` · ${card.sourceDetail}` : ''}</div>
-        )}
-
-        <div className="page-spacer" />
-
-        {replying ? (
-          <form
-            className="page-reply"
-            onSubmit={(e) => { e.preventDefault(); if (reply.trim()) { onDecide(card.id, 'reply', { replyText: reply.trim() }); setReply(''); setReplying(false) } }}
-          >
-            <textarea autoFocus value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Your reply goes back to the sender's AI" rows={3} />
-            <div className="page-reply-actions">
-              <button type="button" className="ghost" onClick={() => setReplying(false)}>Cancel</button>
-              <button type="submit" className="primary" disabled={!reply.trim()}>Send reply</button>
+          {(sources.length > 0 || businessName) && (
+            <div className="card-sources">
+              {businessName && <span className="source-chip business">{businessName}</span>}
+              {sources.map((s) => <span key={s} className="source-chip">{s}</span>)}
             </div>
-          </form>
-        ) : (
-          <div className="page-actions">
-            <button className="decline" onClick={() => onDecide(card.id, 'decline')} aria-keyshortcuts="d">Decline</button>
-            <button className="ghost" onClick={() => setReplying(true)} aria-keyshortcuts="r">Reply</button>
-            {card.type === 'notification'
-              ? <button className="primary" onClick={() => onDecide(card.id, 'acknowledge')}>Got it</button>
-              : <button className="primary" onClick={() => onDecide(card.id, 'approve')} aria-keyshortcuts="a">Approve</button>}
-          </div>
-        )}
-        <div className="page-swipe-hint">swipe → approve · ← decline</div>
+          )}
+
+          {context && (
+            <ul className="card-context">
+              {segments(context).map((seg, i) => (
+                <li key={i}>
+                  {seg.label && <span className="ctx-label">{seg.label}</span>}
+                  <span className="ctx-detail">{seg.detail}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {whoName && (
+            <section className="requested-by">
+              <div className="rb-label">{t('Requested By')}</div>
+              <div className="rb-row">
+                <span className="avatar" aria-hidden="true">{initials(whoName)}</span>
+                <div className="rb-who">
+                  <strong>{whoName}</strong>
+                  <span className="rb-meta">
+                    {ago(card.createdAt)}{who?.role ? ` · ${t(who.role)}` : ''}
+                  </span>
+                </div>
+              </div>
+              {quote && <blockquote className="rb-quote">“{quote}”</blockquote>}
+              {who?.sourceUrl && (
+                <a className="rb-link" href={who.sourceUrl} target="_blank" rel="noopener noreferrer">
+                  View original{card.sourceApp ? ` in ${card.sourceApp}` : ''} ›
+                </a>
+              )}
+            </section>
+          )}
+
+          {card.recommendation && (
+            <section className={`recommendation rec-${card.recommendation.action}`}>
+              <div className="rec-head">
+                <span className="ai-spark" aria-hidden="true">✦</span>
+                Recommended: <strong>{card.recommendation.action}</strong>
+              </div>
+              {card.recommendation.reason && <p className="rec-reason">{card.recommendation.reason}</p>}
+            </section>
+          )}
+        </article>
+
+        <div className="decide-row">
+          <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
+          <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
+        </div>
+
+        <form
+          className="ask-bar"
+          onSubmit={(e) => { e.preventDefault(); if (ask.trim()) { onAsk(ask.trim(), card); setAsk('') } }}
+        >
+          <button type="button" className="ask-plus" aria-label={t('Reply with a note')} onClick={() => {
+            if (ask.trim()) { onDecide(card.id, 'reply', { replyText: ask.trim() }); setAsk('') }
+          }}>+</button>
+          <input
+            value={ask}
+            onChange={(e) => setAsk(e.target.value)}
+            placeholder={t('Ask anything...')}
+            aria-label={t('Ask your AI about this decision')}
+          />
+          <button type="submit" className="ask-send" aria-label={t('Send')} disabled={!ask.trim()}>➤</button>
+        </form>
       </div>
     </section>
   )

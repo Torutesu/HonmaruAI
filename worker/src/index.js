@@ -1,12 +1,14 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import { signup, login, createInvite, acceptInvite, isGitHubSession } from "./auth.js";
+import { requestCode, verifyCode } from "./otp.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
+  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
@@ -29,6 +31,7 @@ import { CONNECTORS, connectorById } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
 import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
+import { billingStatus } from "./plans.js";
 import { providerConfig } from "./provider.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { buildRecord, recordToMarkdown } from "./record.js";
@@ -116,6 +119,44 @@ async function handle(request, env, url) {
       const body = await request.json().catch(() => ({}));
       const result = await signup(env, { ...body, locale: body.locale || localeFromRequest(request) });
       if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    // Signing in with a code sent to your email. Two routes, both
+    // unauthenticated and both rate limited like the other credential paths:
+    // one mails a code, one trades it for a session. Together they are the
+    // only way in that needs nothing you had to have set up beforehand.
+    if (url.pathname === "/auth/otp/request" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const body = await request.json().catch(() => ({}));
+      const result = await requestCode(env, {
+        email: body.email,
+        locale: body.locale || localeFromRequest(request),
+      });
+      if (result.error) {
+        const headers = result.retryAfter ? { "retry-after": String(result.retryAfter) } : undefined;
+        return json(
+          { message: result.error, ...(result.providerStatus ? { providerStatus: result.providerStatus } : {}) },
+          result.status || 400,
+          headers
+        );
+      }
+      return json(result);
+    }
+
+    if (url.pathname === "/auth/otp/verify" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const body = await request.json().catch(() => ({}));
+      const result = await verifyCode(env, {
+        email: body.email,
+        code: body.code,
+        name: body.name,
+        inviteCode: body.inviteCode,
+        locale: body.locale || localeFromRequest(request),
+      });
+      if (result.error) return json({ message: result.error }, result.status || 400);
       return json(result);
     }
 
@@ -356,6 +397,14 @@ async function handle(request, env, url) {
       return json(record);
     }
 
+    // What this account can spend, and what there is to buy. Read by the
+    // plan screen; also what tells the feed how many free routes are left.
+    if (url.pathname === "/billing/status" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      return json(await billingStatus(env, session.github_id));
+    }
+
     // Who am I, and how do I want to be told. The locale here is the language
     // every notification to this person is written in, whichever channel
     // carries it — set explicitly by the app's language toggle or the browser,
@@ -375,6 +424,13 @@ async function handle(request, env, url) {
         emailEditable: !String(user.github_id).startsWith("email:"),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         supportedLocales: SUPPORTED_LOCALES,
+        // What the router will assume you decide, and what you may change it
+        // to. This is the description, not the standing: an admin who says
+        // they are a designer is still an admin.
+        role: url.searchParams.get("orgId")
+          ? await ownTitle(env.DB, url.searchParams.get("orgId"), session.github_id)
+          : null,
+        assignableRoles: SELF_ASSIGNABLE_ROLES,
       });
     }
     if (url.pathname === "/me" && request.method === "PUT") {
@@ -394,12 +450,22 @@ async function handle(request, env, url) {
         const result = await setUserEmail(env.DB, session.github_id, body.email);
         if (result.error) return json({ message: result.error }, 400);
       }
+      // What you do, as the router understands it. Scoped to one org because
+      // that is where it lives, and it changes no standing — see setOwnTitle.
+      let role;
+      if (body.role !== undefined) {
+        if (!body.orgId) return json({ message: "orgId is required to set a role" }, 400);
+        const result = await setOwnTitle(env.DB, body.orgId, session.github_id, body.role);
+        if (result.error) return json({ message: result.error }, 400);
+        role = result.role;
+      }
       const user = await getUserByGithubId(env.DB, session.github_id);
       return json({
         ok: true,
         locale: user?.locale || "en",
         email: user?.email || null,
         notifyEmail: Number(user?.notify_email ?? 1) !== 0,
+        ...(role ? { role } : {}),
       });
     }
 
@@ -776,10 +842,11 @@ async function handle(request, env, url) {
     return new Response("not found", { status: 404 });
 }
 
-export function json(body, status = 200) {
+export function json(body, status = 200, extraHeaders) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
+      ...(extraHeaders || {}),
       "content-type": "application/json",
       // Allow browser clients (the web app) to call this API. Native apps are
       // not subject to CORS, so this was never needed until the web client.

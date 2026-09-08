@@ -21,7 +21,7 @@ const apns = (over = {}) => ({
   ...over,
 });
 const mail = (over = {}) => ({
-  ...env, MAILGUN_API_KEY: "key-test", MAILGUN_DOMAIN: "mg.example.com", APP_WEB_URL: "https://app.example.com/",
+  ...env, RESEND_API_KEY: "re_test", APP_WEB_URL: "https://app.example.com/",
   ...over,
 });
 
@@ -108,10 +108,10 @@ test("a digest is a count in the reader's language, and names no card", async ()
 });
 
 test("someone with no device and no browser is emailed, in their language, once", async () => {
-  let form;
-  fetchMock.get("https://api.mailgun.net")
-    .intercept({ path: "/v3/mg.example.com/messages", method: "POST", body: (b) => { form = new URLSearchParams(b); return true; } })
-    .reply(200, { id: "<msg>" });
+  let mailed;
+  fetchMock.get("https://api.resend.com")
+    .intercept({ path: "/emails", method: "POST", body: (b) => { mailed = JSON.parse(b); return true; } })
+    .reply(200, { id: "msg" });
 
   const card = {
     id: "c-mail", recipientUserID: "u:kenji@example.com", senderUserID: "alice", status: "pending",
@@ -120,11 +120,12 @@ test("someone with no device and no browser is emailed, in their language, once"
   };
   const result = await notifyCard(mail(), { card, kind: "created", excludeLogin: "alice" });
   expect(result.channels).toEqual({ apns: 0, webpush: 0, email: 1 });
-  expect(form.get("to")).toBe("kenji@example.com");
-  expect(form.get("subject")).toBe("[Honmaru] ベンダー契約の承認");
-  expect(form.get("text")).toContain("3年契約、自動更新。");
-  expect(form.get("text")).toContain("https://app.example.com/?card=c-mail");
-  expect(form.get("from")).toContain("@mg.example.com");
+  expect(mailed.to).toEqual(["kenji@example.com"]);
+  expect(mailed.subject).toBe("[Honmaru] ベンダー契約の承認");
+  expect(mailed.text).toContain("3年契約、自動更新。");
+  expect(mailed.text).toContain("https://app.example.com/?card=c-mail");
+  // No domain set up, so the shared sender — which is the point of it.
+  expect(mailed.from).toContain("@resend.dev");
 });
 
 test("email is the floor, not a duplicate: a delivered push means no mail", async () => {
@@ -182,16 +183,16 @@ test("a mistyped APP_WEB_URL costs the link, not the notification", async () => 
   expect(bodies[0].aps.alert.title).toBe("Still arrives");
 
   // The email path builds the same link, and must survive it too.
-  let form;
-  fetchMock.get("https://api.mailgun.net")
-    .intercept({ path: "/v3/mg.example.com/messages", method: "POST", body: (b) => { form = new URLSearchParams(b); return true; } })
-    .reply(200, { id: "<msg>" });
+  let body;
+  fetchMock.get("https://api.resend.com")
+    .intercept({ path: "/emails", method: "POST", body: (b) => { body = JSON.parse(b); return true; } })
+    .reply(200, { id: "msg" });
   const mailed = await notifyCard(mail({ APP_WEB_URL: "not a url" }), {
     card: { id: "c-badlink-2", recipientUserID: "u:kenji@example.com", senderUserID: "alice", status: "pending", title: "Also arrives" },
     kind: "created", excludeLogin: "alice",
   });
   expect(mailed.channels.email).toBe(1);
-  expect(form.get("text")).not.toContain("not a url");
+  expect(body.text).not.toContain("not a url");
 
   // A good one still produces the link.
   const good = [];

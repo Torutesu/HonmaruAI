@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { getLocale } from '../utils/locale'
+import { useT } from '../utils/i18n'
 
 interface Props {
   httpBase: string
@@ -15,6 +16,7 @@ interface Section { slug: string; name: string | null; decided: Entry[]; open: E
 /// over the cards, so it is never stale — and one button to take it
 /// anywhere as Markdown.
 export const RecordSheet: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose }) => {
+  const t = useT()
   const [sections, setSections] = useState<Section[] | null>(null)
   const [copied, setCopied] = useState(false)
   const locale = getLocale()
@@ -35,21 +37,21 @@ export const RecordSheet: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
   const day = (iso?: string | null) => (iso ? iso.slice(0, 10) : '')
 
   return (
-    <aside className="sheet sheet-side" role="dialog" aria-label="The record">
-      <div className="sheet-title">The record <button className="close" onClick={onClose} aria-label="Close">×</button></div>
+    <aside className="sheet sheet-side" role="dialog" aria-label={t('The record')}>
+      <div className="sheet-title">{t('The record')} <button className="close" onClick={onClose} aria-label={t('Close')}>×</button></div>
       <p className="sheet-hint">Every decision, per business, as it stands now. Nobody writes this; it is what happened.</p>
-      <button className="ghost record-copy" onClick={copy}>{copied ? 'Copied' : 'Copy as Markdown'}</button>
-      {sections === null && <p className="sheet-hint">Loading…</p>}
-      {sections?.length === 0 && <p className="sheet-empty">Nothing decided yet.</p>}
+      <button className="ghost record-copy" onClick={copy}>{copied ? t('Copied') : t('Copy as Markdown')}</button>
+      {sections === null && <p className="sheet-hint">{t('Loading…')}</p>}
+      {sections?.length === 0 && <p className="sheet-empty">{t('Nothing decided yet.')}</p>}
       {sections?.map((s) => (
         <section key={s.slug || '-'} className="record-section">
-          <h3>{s.name || 'Not yet filed'}</h3>
+          <h3>{s.name || t('Not yet filed')}</h3>
           {s.open.length > 0 && (
             <ul className="record-open">
               {s.open.map((c) => <li key={c.id}><span className="record-box" />{c.title} <small>waiting on {c.recipient}</small></li>)}
             </ul>
           )}
-          {s.decided.length === 0 && s.open.length === 0 && <p className="sheet-hint">Nothing yet.</p>}
+          {s.decided.length === 0 && s.open.length === 0 && <p className="sheet-hint">{t('Nothing yet.')}</p>}
           <ul className="record-decided">
             {s.decided.map((c) => (
               <li key={c.id}>

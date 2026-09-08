@@ -22,6 +22,7 @@ struct OnboardingView: View {
     @State private var isConnecting = false
     @State private var isRefreshingRepos = false
     @State private var errorMessage: String?
+    @State private var showEmailSignIn = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,6 +48,12 @@ struct OnboardingView: View {
         }
         .appBackground()
         .animation(.easeOut(duration: 0.25), value: step)
+        .sheet(isPresented: $showEmailSignIn) {
+            EmailSignInSheet { session, name in
+                SessionStore.sessionToken = session.token
+                Task { await appState.activateEmailSession(login: session.login, orgId: session.orgId, name: name) }
+            }
+        }
     }
 
     // MARK: - Chrome
@@ -242,6 +249,19 @@ struct OnboardingView: View {
                         ProgressView().tint(Theme.Colors.background)
                     }
                 }
+
+                // GitHub is right for the engineer on the team and wrong for
+                // the six people who are not. An email code needs nothing set
+                // up beforehand, and proves the address every notification
+                // this app sends depends on.
+                Button {
+                    showEmailSignIn = true
+                } label: {
+                    Text("Sign in with email instead")
+                        .font(Theme.TypeScale.label)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                }
+                .disabled(isConnecting || isSigningIn)
 
                 Button {
                     appState.activateGuestSession()

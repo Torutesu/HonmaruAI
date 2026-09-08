@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useT } from '../utils/i18n'
 
 interface Props {
   relayHttpUrl: string
@@ -6,9 +7,24 @@ interface Props {
   sessionToken: string
 }
 
-const ROLES = ['member', 'designer', 'engineer', 'admin', 'triager']
+/// The roles an invite can grant. The label is what the person minting the
+/// code reads; the value is what the membership row gets.
+const ROLES: Array<{ id: string; label: string }> = [
+  { id: 'member', label: 'Member' },
+  { id: 'designer', label: 'Designer' },
+  { id: 'engineer', label: 'Engineer' },
+  { id: 'admin', label: 'Admin' },
+  { id: 'triager', label: 'Triager' },
+]
 
+/// One code, one role, one thing to hand over.
+///
+/// The sheet around this already carries the title, so this does not repeat
+/// it, and it borrows the same rows, buttons and type as every other screen
+/// rather than the hand-written styles it had — an invite is the first thing
+/// a new person sees of this product through somebody else.
 export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionToken }) => {
+  const t = useT()
   const [code, setCode] = useState<string | null>(null)
   const [role, setRole] = useState('member')
   const [busy, setBusy] = useState(false)
@@ -29,7 +45,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.message || 'Could not create invite.')
+        setError(data.message || t('Could not create invite.'))
         return
       }
       setCode(data.code)
@@ -47,52 +63,50 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
     setTimeout(() => setCopied(false), 1500)
   }
 
-  return (
-    <div className="info-panel">
-      <h3>Invite a teammate</h3>
-      {!code ? (
-        <>
-          <div style={{ marginBottom: '0.5rem' }}>
-            <label style={{ fontSize: '0.85rem', color: '#666', display: 'block', marginBottom: '0.25rem' }}>
-              Their role:
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              style={{ padding: '0.4rem', borderRadius: '6px', width: '100%' }}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </div>
-          <button className="debug-toggle" onClick={handleInvite} disabled={busy}>
-            {busy ? 'Creating…' : 'Create invite code'}
-          </button>
-          {error && <div className="create-error">{error}</div>}
-        </>
-      ) : (
-        <div>
-          <p style={{ fontSize: '0.85rem', color: '#666' }}>
-            Share this code. Anyone who signs up with it joins your team as <strong>{role}</strong>:
-          </p>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <code style={{ background: '#f0f0f0', padding: '0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.9rem' }}>
-              {code}
-            </code>
-            <button className="debug-toggle" onClick={copyCode} style={{ padding: '0.4rem 0.8rem' }}>
-              {copied ? 'Copied!' : 'Copy'}
-            </button>
-          </div>
-          <button
-            className="debug-toggle"
-            onClick={() => { setCode(null); setError(null) }}
-            style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}
-          >
-            Create another
+  if (code) {
+    return (
+      <div className="invite">
+        <p className="sheet-hint">
+          {t('Anyone who signs up with this code joins your workspace as {role}.', {
+            role: t(ROLES.find((r) => r.id === role)?.label || role),
+          })}
+        </p>
+        <div className="invite-row">
+          <code className="invite-code">{code}</code>
+          <button className="btn btn-quiet invite-copy" onClick={copyCode}>
+            {copied ? t('Copied!') : t('Copy')}
           </button>
         </div>
-      )}
+        <button
+          className="btn btn-quiet"
+          onClick={() => { setCode(null); setError(null) }}
+        >
+          {t('Create another')}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="invite">
+      <div className="row static">
+        <span className="row-main">
+          {t('Their role')}
+          <span className="row-sub">{t('What their AI puts in front of them first.')}</span>
+        </span>
+        <select
+          className="row-select"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          aria-label={t('Their role')}
+        >
+          {ROLES.map((r) => <option key={r.id} value={r.id}>{t(r.label)}</option>)}
+        </select>
+      </div>
+      <button className="btn btn-primary" onClick={handleInvite} disabled={busy}>
+        {busy ? t('Creating…') : t('Create invite code')}
+      </button>
+      {error && <div className="form-error">{error}</div>}
     </div>
   )
 }

@@ -42,7 +42,7 @@ function toHex(buffer) {
 }
 
 // Derive a hash from a password + salt using PBKDF2-SHA256.
-async function hashPassword(password, saltHex) {
+export async function hashPassword(password, saltHex) {
   const salt = Uint8Array.from(saltHex.match(/.{2}/g).map((h) => parseInt(h, 16)));
   const key = await crypto.subtle.importKey("raw", ENC.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
@@ -53,32 +53,36 @@ async function hashPassword(password, saltHex) {
   return toHex(bits);
 }
 
-async function sha256Hex(value) {
+export async function sha256Hex(value) {
   const digest = await crypto.subtle.digest("SHA-256", ENC.encode(value));
   return toHex(digest);
 }
 
-function newSaltHex() {
+export function newSaltHex() {
   return toHex(crypto.getRandomValues(new Uint8Array(16)));
 }
 
 // Constant-time-ish string compare to avoid leaking timing on the hash.
-function safeEqual(a, b) {
+export function safeEqual(a, b) {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
 
-function validEmail(email) {
+export function validEmail(email) {
   return typeof email === "string" && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
 }
 
 // Create an account: hash the password, store the user, put them in a default
 // org, and return a session token the client can use immediately.
-export async function signup(env, { email, password, name, inviteCode, locale }) {
+export async function signup(env, { email, password, name, inviteCode, locale, passwordless }) {
   if (!validEmail(email)) return { error: "Please enter a valid email." };
-  if (typeof password !== "string" || password.length < 8) {
+  // A passwordless sign-up has already proved the address by receiving a code
+  // there, which is the thing a password stands in for. It gets no password
+  // hash at all rather than a placeholder one, so `login()` — which requires a
+  // hash — can never be talked into accepting an empty string as the secret.
+  if (!passwordless && (typeof password !== "string" || password.length < 8)) {
     return { error: "Password must be at least 8 characters." };
   }
 
@@ -92,8 +96,8 @@ export async function signup(env, { email, password, name, inviteCode, locale })
   // Reuse the users table: the primary key is called github_id for historical
   // reasons, but it is just a stable user id. Email users get an "email:" id.
   const userId = `email:${normalizedEmail}`;
-  const salt = newSaltHex();
-  const hash = await hashPassword(password, salt);
+  const salt = passwordless ? null : newSaltHex();
+  const hash = passwordless ? null : await hashPassword(password, salt);
   // `login` is the relay's identity: sendTo() matches on exactly this string,
   // so it must be unique and must not be chosen by the caller. Derive it from
   // the email (already unique) and keep `name` as display text only.

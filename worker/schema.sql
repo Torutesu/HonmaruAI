@@ -36,10 +36,22 @@ CREATE TABLE IF NOT EXISTS orgs (
   created_at    TEXT NOT NULL
 );
 
+/* `role` is standing — who may invite whom, who may act for the org. It is
+   granted by an invite or by GitHub, never claimed.
+
+   `title` is description — what this person does, which is what the router
+   matches on when someone says "ask the designer to review". Anyone may set
+   their own, because saying you are a designer grants you nothing.
+
+   They were one column once, and that made the onboarding question unusable
+   for the commonest case: signing up alone makes you admin of your own org,
+   so every attempt to say "I am the founder" was refused as an attempt to
+   demote an admin. */
 CREATE TABLE IF NOT EXISTS memberships (
   org_id            TEXT NOT NULL,
   user_github_id    TEXT NOT NULL,
   role              TEXT NOT NULL DEFAULT 'member',
+  title             TEXT,
   created_at        TEXT NOT NULL,
   PRIMARY KEY (org_id, user_github_id)
 );
@@ -218,4 +230,18 @@ CREATE TABLE IF NOT EXISTS connector_config (
 CREATE TABLE IF NOT EXISTS webhook_nonces (
   token      TEXT PRIMARY KEY,
   expires_at TEXT NOT NULL
+);
+
+/* Email sign-in codes. A six-digit code is the whole credential, so the row
+   holds a hash of it (PBKDF2, same as a password) rather than the code, has a
+   short life, and counts its own wrong guesses. One row per address: asking
+   for a new code replaces the old one, so a code that was emailed twice is
+   only valid in its latest form. */
+CREATE TABLE IF NOT EXISTS login_codes (
+  email       TEXT PRIMARY KEY,
+  code_hash   TEXT NOT NULL,
+  code_salt   TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
 );

@@ -12,7 +12,7 @@ language, and on what.
 |---------|---------|-------|------|
 | **APNs** | the iOS app | the App ID entitlement and four secrets ([push-notifications.md](push-notifications.md)) | `apns.js` |
 | **Web Push** | any browser, Android, an iPhone with the site on its home screen (iOS 16.4+), a desktop shell around a browser | a VAPID key pair, three secrets | `webpush.js` |
-| **Email** | anyone with an address, when nothing above delivered | Mailgun, two secrets | `mailer.js` |
+| **Email** | anyone with an address, when nothing above delivered | Resend, one secret | `mailer.js` |
 
 The first two are pushes. Email is the floor: it goes out only when no push
 arrived — no device, no browser, or every one of them came back dead — and
@@ -92,12 +92,39 @@ make it installable.
 
 ## Email — setup
 
+**Resend.** One API key: no domain, no DNS records, and a free tier that is a
+free tier rather than a trial — the right shape for a channel that is a
+fallback and a sign-in code rather than the product.
+
 ```bash
-npx wrangler secret put MAILGUN_API_KEY
-npx wrangler secret put MAILGUN_DOMAIN     # the sending domain, e.g. mg.example.com
-npx wrangler secret put NOTIFY_EMAIL_FROM  # optional: "Honmaru AI <no-reply@mg.example.com>"
-npx wrangler secret put MAILGUN_API_BASE   # optional: https://api.eu.mailgun.net for an EU domain
+npx wrangler secret put RESEND_API_KEY     # https://resend.com/api-keys
+npx wrangler secret put NOTIFY_EMAIL_FROM  # optional; without it, Resend's shared sender
 ```
+
+Without a From line, mail goes out as Resend's shared sender
+(`onboarding@resend.dev`), which needs nothing set up and delivers **only to
+the address that owns the Resend account**. That is a real limit and the
+difference between working in two minutes and working after a DNS change;
+verify a domain at Resend and set `NOTIFY_EMAIL_FROM` when you want to reach
+anyone else.
+
+Or run `./worker/scripts/setup-email.sh`, which asks for the key, deploys —
+the endpoints and the `login_codes` table only exist in a deployed build — and
+then sends a real code, so a wrong key is found there rather than by whoever
+was waiting for one.
+
+A refusal carries what Resend said, in `npx -y wrangler@4 tail --format
+pretty`. The usual causes — wrong key, unverified From domain, a recipient the
+shared sender may not reach — are indistinguishable from outside, and every one
+of them is a sentence in the response body.
+
+The same key carries the **sign-in code** (`POST /auth/otp/request`), which is
+the only way in for someone without GitHub — see [screens.md](screens.md).
+
+> Mail arriving *inbound* (messages becoming decisions,
+> `worker/src/connectors/email.js`) is a separate feature on Mailgun's webhook,
+> with its own secrets (`MAILGUN_WEBHOOK_SIGNING_KEY`, `INBOUND_EMAIL_DOMAIN`)
+> and no bearing on sending.
 
 Email accounts sign in with their address. A GitHub account adds one under
 ⋯ → **Email** in the web client (`PUT /me {email}`), and either can switch
@@ -138,4 +165,4 @@ did not throw.
 | A push arrives in the wrong language | check `GET /me` — the app toggle and the browser both write it; the last one wins |
 | A subscription stops delivering after a while | the push service answered 404/410 and the row was deleted; the client re-subscribes on the next visit |
 | Email arrives alongside a push | the push failed (not "was not registered"): APNs or the push service answered with an error |
-| No email at all | `MAILGUN_API_KEY`/`MAILGUN_DOMAIN` unset, the person has no `email`, or `notifyEmail` is off |
+| No email at all | `RESEND_API_KEY` unset, the person has no `email`, or `notifyEmail` is off |

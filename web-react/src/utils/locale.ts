@@ -24,3 +24,10 @@ export function setLocale(code: string | null): void {
     else localStorage.removeItem('locale')
   } catch { /* a preference, not a record */ }
 }
+
+/// The languages a notification can be written in, as their own names. Kept
+/// beside SUPPORTED so adding a language is adding one line in one place.
+export const LOCALE_NAMES: Record<string, string> = {
+  en: 'English',
+  ja: '日本語',
+}

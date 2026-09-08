@@ -82,16 +82,36 @@ jobs:
         # xcbeautify is not preinstalled on every runner image, and with
         # `pipefail` set a missing one fails the step in a way that looks like a
         # build error.
-        run: brew install xcodegen xcbeautify
+        run: |
+          brew install xcodegen xcbeautify
+          command -v jq >/dev/null || brew install jq
       - name: Generate the project
         run: xcodegen generate
+      - name: Pick a simulator
+        # Naming a device model pins this job to whatever the runner image
+        # happened to ship the day it was written. It stopped shipping an
+        # "iPhone 16", and xcodebuild then failed at destination resolution —
+        # before compiling a single file — which reads in the checks list as
+        # the app failing to build. Ask the machine what it actually has:
+        # an iPhone if there is one, otherwise any device with an iOS runtime.
+        id: sim
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json | jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.isAvailable)] | (map(select(.name | startswith("iPhone"))) + .) | .[0].udid // empty')
+          if [ -z "$udid" ]; then
+            echo "This runner has no iOS simulator. What it does have:" >&2
+            xcrun simctl list devices available >&2
+            exit 1
+          fi
+          xcrun simctl list devices available | grep -F "$udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
       - name: Test
         run: |
           set -o pipefail
           xcodebuild test \
             -project TikTokForWork.xcodeproj \
             -scheme TikTokForWork \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify
