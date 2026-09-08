@@ -69,9 +69,46 @@ note "Resend account, which is enough to test with. Set one only once you have"
 note "verified a domain at Resend."
 from=$(ask 'From line (blank for the shared sender)' '')
 
+# Answering this prompt with your own address is the obvious thing to do and
+# the one thing that cannot work: Resend sends only from a domain you have
+# verified there, and nobody verifies gmail.com. It refuses with a 422 that
+# reads like a problem with the API key, which is where an hour goes.
+case "$from" in
+  "") ;;
+  *@*)
+    from_domain=$(printf '%s' "$from" | sed -e 's/.*@//' -e 's/[>[:space:]].*//' | tr 'A-Z' 'a-z')
+    case "$from_domain" in
+      gmail.com|googlemail.com|yahoo.*|ymail.com|outlook.*|hotmail.*|live.*|msn.com|icloud.com|me.com|mac.com|aol.com|gmx.*|proton.me|protonmail.com)
+        echo >&2
+        echo "  $from_domain is a mailbox provider, not a domain you can verify" >&2
+        echo "  at Resend — so Resend would refuse every send from it. Using the" >&2
+        echo "  shared sender instead; that reaches the address your Resend" >&2
+        echo "  account is registered under, which is what you want for a test." >&2
+        from=""
+        ;;
+      *)
+        note "  $from_domain must be verified at https://resend.com/domains, or"
+        note "  Resend refuses the send. The test below will say if it is not."
+        ;;
+    esac
+    ;;
+  *)
+    echo "  That has no address in it. Using the shared sender." >&2
+    from=""
+    ;;
+esac
+
 printf '%s' "$api_key" | "${WRANGLER[@]}" secret put RESEND_API_KEY >/dev/null 2>&1 && echo "  RESEND_API_KEY — set"
 if [ -n "$from" ]; then
   printf '%s' "$from" | "${WRANGLER[@]}" secret put NOTIFY_EMAIL_FROM >/dev/null 2>&1 && echo "  NOTIFY_EMAIL_FROM — set"
+else
+  # Not deleted from here: `secret delete` wants a confirmation, and a prompt
+  # answered by nobody inside a script is a script that hangs with its output
+  # redirected away. Said out loud instead, because a leftover From from an
+  # earlier run is exactly what broke this once.
+  note "  NOTIFY_EMAIL_FROM — not set by this run. If an earlier run left one,"
+  note "  it still applies; clear it with"
+  note "      npx -y wrangler@4 secret delete NOTIFY_EMAIL_FROM"
 fi
 unset api_key
 
