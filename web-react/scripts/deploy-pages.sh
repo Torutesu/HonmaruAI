@@ -42,6 +42,29 @@ note "Baked into the build. The page has no field to change it later."
 default_host=$(sed -n 's/^VITE_API_HOST=//p' .env.example 2>/dev/null | head -1)
 host=$(ask 'Worker host, no scheme' "${default_host:-tiktokforwork.torubj0904.workers.dev}")
 [ -n "$host" ] || { echo "A host is required." >&2; exit 1; }
+# This becomes the backend for every copy of the page, and there is no field on
+# the sign-in screen to correct it afterwards. A prompt reading from /dev/tty
+# takes whatever the clipboard had in it, and the check below — "is the host in
+# the bundle?" — passes happily for a wrong host, because it is the wrong host
+# that got built in. So check the shape here, where it is still a question.
+host=$(printf '%s' "$host" | tr -d '[:space:]')
+case "$host" in
+  http://*|https://*)
+    echo "No scheme: the page adds http/https itself, from its own URL." >&2
+    echo "Use just the hostname, e.g. tiktokforwork.torubj0904.workers.dev" >&2
+    exit 1
+    ;;
+esac
+# A dot is required, or the name is localhost. Without that, "git pull" with
+# its space stripped is a valid hostname as far as a regex is concerned.
+if ! printf '%s' "$host" | LC_ALL=C grep -qE '^(localhost|[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+)(:[0-9]{1,5})?$'; then
+  echo "That is not a hostname: $host" >&2
+  echo "Nothing was built. Expected something like" >&2
+  echo "    tiktokforwork.torubj0904.workers.dev" >&2
+  echo "or  localhost:8787" >&2
+  exit 1
+fi
+note "  backend: $host"
 
 say "2. Build"
 [ -d node_modules ] || npm ci
