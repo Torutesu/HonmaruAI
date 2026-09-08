@@ -398,18 +398,100 @@ Dependencies, not preference. Each stage lands as its own commit with tests.
 
 # Release checklist
 
-Before `scripts/release.sh all`:
+Ordered by dependency, not by importance. Each step is blocked by the one above
+it, and the first three are the only ones that cannot be done from this
+repository — they need a Cloudflare dashboard, an Apple Developer account and
+App Store Connect.
+
+## 1 · Make deploying possible
+
+Nothing else reaches a user until this works. The Deploy Worker workflow has run
+twice and failed twice, both times at `Check credentials`, so **no code merged
+since the production release has ever run in production.**
+
+- [ ] `CLOUDFLARE_ACCOUNT_ID` — Workers & Pages sidebar, or the 32 hex characters
+      in the dashboard URL
+- [ ] `CLOUDFLARE_API_TOKEN` — start from the *Edit Cloudflare Workers* template,
+      then **add D1:Edit by hand**; the template does not include it and
+      `wrangler d1 execute --remote` is what fails without it. R2:Edit too, for
+      `tiktokforwork-media`
+- [ ] Both under Settings → Secrets and variables → Actions, as **repository**
+      secrets, named exactly
+- [ ] Run Actions → Deploy Worker → Run workflow, leaving `migrate_only`
+      unchecked. `schema.sql` is `CREATE … IF NOT EXISTS` throughout, so it is
+      safe on an existing database
+- [ ] The run ends green, having checked `/health` for `"ok":true`
+
+## 2 · Give the Worker what it needs to work
+
+`wrangler secret put <NAME>` for each, or the dashboard. `/health` reports three
+of these as booleans (`githubOAuth`, `aiRouting`, `push`), which is the fastest
+way to see what actually landed.
+
+- [ ] `OPENAI_API_KEY` — without it routing falls back to the keyword router and
+      connector triage stops entirely
+- [ ] `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — sign-in does not work without
+      them, and `/oauth/github/config` answers 503
+- [ ] `COMPOSIO_API_KEY` — every connector route answers 503 without it
+- [ ] `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY` — needed before step 3
+- [ ] `REVENUECAT_SECRET_KEY` — **only when billing is meant to be live.** The
+      free tier drops to three routes a day the moment this exists, which will
+      strand TestFlight testers on day one. The AI gate no longer depends on it,
+      so leaving it unset is a complete and safe state
+
+## 3 · Turn on push, in this order
+
+iOS grants an app **exactly one** notification prompt, ever. A build that asks
+before it can deliver spends that prompt for nothing, and the person is never
+asked again. Full detail in [push-notifications.md](push-notifications.md).
+
+- [ ] App ID carries the Push Notifications capability, with `aps-environment`
+- [ ] Provisioning profile reissued *after* that change and downloaded
+- [ ] APNs secrets from step 2 confirmed present (`/health` reports `push: true`)
+- [ ] Only now: `PushService.isEnabledInThisBuild` → `true`
+- [ ] A TestFlight build actually delivers a notification to a real device
+
+## 4 · Prove the build
 
 - [ ] `cd worker && npm test` green
-- [ ] `xcodebuild test` green
-- [ ] `scripts/smoke-release.sh` passes (Release build, launched, no fatal)
-- [ ] Worker secrets set: `OPENAI_API_KEY`, `GITHUB_CLIENT_ID`,
-      `GITHUB_CLIENT_SECRET`, `COMPOSIO_API_KEY`, `APNS_KEY_ID`,
-      `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`
-- [ ] `REVENUECAT_SECRET_KEY` set only when billing is meant to be live
-- [ ] D1 migrated: `npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql`
-- [ ] Privacy policy URL reachable and set in App Store Connect
+- [ ] `cd server && npm test` green
+- [ ] `cd web-react && npm run build && npx vitest run` green
+- [ ] `xcodebuild test` green — or the CI run on the PR, which does all four
+- [ ] `scripts/smoke-release.sh` passes: a Release build, launched, no fatal.
+      Release is the configuration that has caught things Debug did not
+
+## 5 · Satisfy the reviewer
+
+- [ ] Privacy policy URL reachable, and set in App Store Connect
 - [ ] `PrivacyInfo.xcprivacy` present in the built `.ipa`
 - [ ] Account deletion reachable within three taps of the account screen
+      (Guideline 5.1.1(v))
 - [ ] Screenshots and metadata committed under `metadata/` and `screenshots/`
 - [ ] `asc review doctor` clean
+- [ ] The demo account, if one is supplied, can sign in and see a card — the
+      reviewer will not have a GitHub repository to connect
+
+## 6 · Ship
+
+- [ ] `scripts/release.sh all`
+
+---
+
+## Deliberately not in this release
+
+Written here so they are decisions rather than omissions.
+
+- **The OAuth scope is `repo`.** The token no longer reaches the device, but
+  narrowing what we ask for means becoming a GitHub App — install flow, token
+  refresh, and re-authentication for everyone already signed in. See Known
+  compromises.
+- **Inbound email is built but not connected.** `POST /webhooks/email` is
+  finished and tested; no Mailgun account points at it, so no real message has
+  ever arrived. Needs `MAILGUN_WEBHOOK_SIGNING_KEY` and `INBOUND_EMAIL_DOMAIN`,
+  a domain routed to the webhook, and somewhere in the app to show a person
+  their address (`GET /connectors/email/address` returns it).
+- **The name is three names.** Honmaru AI ships from a Worker called
+  `tiktokforwork`, with a Keychain service string of
+  `com.tangle.tiktokforwork.session`. Renaming the Worker changes the URL the
+  app points at, and renaming the Keychain service signs everyone out — both
+  are 1.0.x work, not pre-submission work.
