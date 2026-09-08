@@ -43,10 +43,25 @@ ask() {
   printf '%s' "${answer:-$default}"
 }
 
+# A key is read with the echo off, so nothing appears as it is typed or
+# pasted. That silence reads as a dead prompt: someone presses Enter to see
+# whether it is alive, gets "No key given", and then pastes the key into the
+# shell — where it becomes a command, lands in ~/.zsh_history, and has to be
+# rotated. Happened on a real run. So the prompt says the input is hidden,
+# confirms the length once something is entered, and offers the empty answer
+# again rather than treating the first one as final.
 ask_secret() {
   local prompt="$1" answer
-  read -r -s -p "$prompt: " answer </dev/tty
-  printf '\n' >&2
+  while :; do
+    printf '%s (input is hidden — paste it and press Enter): ' "$prompt" >&2
+    read -r -s answer </dev/tty
+    printf '\n' >&2
+    if [ -n "$answer" ]; then
+      printf '  got %d characters\n' "${#answer}" >&2
+      break
+    fi
+    printf '  nothing received. Paste it again, or press Ctrl-C to stop.\n' >&2
+  done
   printf '%s' "$answer"
 }
 
@@ -62,6 +77,14 @@ say "1. Resend"
 note "API key from https://resend.com/api-keys — it starts 're_'."
 api_key=$(ask_secret 'Resend API key')
 [ -n "$api_key" ] || { echo "No key given. Nothing was set." >&2; exit 1; }
+# A key pasted with a stray newline or a leading space is stored verbatim and
+# then rejected by Resend as if it were the wrong key.
+api_key=$(printf '%s' "$api_key" | tr -d '[:space:]')
+case "$api_key" in
+  re_*) ;;
+  *) echo "That does not look like a Resend key: expected one starting 're_'." >&2
+     echo "Nothing was set." >&2; exit 1 ;;
+esac
 
 note "From line. Leave it blank to use Resend's shared sender, which needs no"
 note "domain and no DNS — mail then only reaches the address that owns the"
