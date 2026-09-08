@@ -70,7 +70,7 @@ iOS App
 
 | 欄 | 入れる値 |
 | --- | --- |
-| **ユーザ名**（User Name） | `appreview@honmaru.ai` |
+| **ユーザ名**（User Name） | `appreview@honmaruai.com` |
 | **パスワード**（Password） | セッションで発行したもの（この文書には書きません） |
 
 ### 7. 「メモ」欄にこれを貼る
@@ -117,7 +117,7 @@ A GitHub account is not required and GitHub sign-in is not offered in this app.
 ## このアカウントについて
 
 - **メールは一切届きません。** パスワードで入るアカウントなので、
-  `honmaru.ai` を所有していなくても問題ありません。
+  このアドレス宛の受信設定は不要です。
 - 個人ワークスペースが 1 つ付いています。審査員には**空のフィード**が見え
   ます。それでも審査は通りますが、カードが数枚あったほうがアプリの意図は
   伝わります。
