@@ -30,8 +30,8 @@ enum RevenueCatConfig {
 
     /// Store product identifiers attached to the offering's packages.
     enum ProductID {
-        static let yearly = "yearly"
-        static let monthly = "monthly"
+        static let yearly = "com.honmaru.ai.pro.yearly"
+        static let monthly = "com.honmaru.ai.pro.monthly"
     }
 
     /// AI routes a free account gets per day before the paywall appears.

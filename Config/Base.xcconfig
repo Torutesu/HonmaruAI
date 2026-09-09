@@ -19,4 +19,4 @@ RELAY_HOST = tiktokforwork.torubj0904.workers.dev
 // A `test_…` key is the RevenueCat Test Store: useful on the simulator, and the
 // SDK refuses to configure with one in a Release build (its own safeguard), so
 // billing stays unavailable until this says `appl_…`.
-REVENUECAT_API_KEY = test_aOieMtugDnVbuliAwBJkfQKazZd
+REVENUECAT_API_KEY = appl_kormOogQnvoMfwcoCizBzuSjeMi

@@ -8,6 +8,10 @@ The icon comes from Figma Final Screen **Logo 590:143**, with parent **Frame 590
 
 Privacy policy updated against current email authentication, account deletion and connector implementations. Added public Japanese privacy/support pages and in-app links. Expanded the privacy manifest beyond the obsolete four-type list to include name, email, messages, photos/videos and device identifier data. The App Store privacy questionnaire still requires a separate publication step.
 
+## Billing update
+
+Build 36 (1.0) archive and export succeeded with the App Store public SDK key embedded. RevenueCat current offering was verified through the public SDK endpoint: `$rc_monthly` maps to `com.honmaru.ai.pro.monthly`, and `$rc_annual` maps to `com.honmaru.ai.pro.yearly`. Both are attached to `honmaruai Pro`. No Apple price changes were made.
+
 ## Verification
 
 - iOS Debug tests: 60 passed; Release simulator smoke: launched and survived the fatal-log gate.
@@ -29,15 +33,15 @@ Privacy policy updated against current email authentication, account deletion an
 
 ## Remaining before App Store submission
 
-- RevenueCat dashboard login, verify production app key, default offering and `honmaruai Pro` entitlement, then sandbox purchase and server `/plans` identity agreement. Current build keeps purchases unavailable without a production key.
+- RevenueCat App Store app is configured with a validated In-App Purchase key. The public Apple SDK key and full App Store product IDs are now configured in source. Both monthly/yearly products are attached to `default` and `honmaruai Pro`; public SDK API readback confirms the package mapping. Sandbox purchase and server `/plans` identity agreement remain to be tested.
 - Apple Web login to verify Paid Applications agreement/bank/tax status and publish App Privacy. Public API cannot prove either state; local `asc web auth status` is unauthenticated.
-- Third-party content rights remain to be confirmed. Owner selected worldwide distribution; all 175 Apple territories are enabled and new-territory availability is true (verified by API readback).
+- Third-party content declaration is saved as `USES_THIRD_PARTY_CONTENT` at the owner's request. Owner selected worldwide distribution; all 175 Apple territories are enabled and new-territory availability is true (verified by API readback).
 - Submit first subscriptions together with the app version after purchase readiness is confirmed. Build 35 is already selected; submission remains pending.
 - Real-device push arrival and voice transcription remain physical-device checks. Signed APNs entitlement and registered device token alone are not delivery proof.
 - No App Store review submission performed.
 
 Privacy declaration reference: https://developer.apple.com/app-store/app-privacy-details/ . Declarations must follow actual data handling, not copy the earlier four-type checklist.
 
-Earlier public-API readiness check had 2 blocking items. Territory availability has since been configured worldwide; content rights remains unresolved. The separate Web-only privacy/contract and physical-device/billing checks above still apply.
+Earlier public-API readiness check had 2 blocking items. Territory availability and content rights have since been configured. The separate Web-only privacy/contract and physical-device/billing checks above still apply.
 
-Dia access attempt: native window unavailable; browser automation inventory exposes Chrome and the in-app browser only. Apple/RevenueCat Web authentication remains pending.
+Dia native UI access now works; Apple and RevenueCat authenticated sessions were used to configure the In-App Purchase key. RevenueCat app: `appa8322cb3b9`; key ID: `D739NA2D46` (private key is not stored in the repository). Existing App Store pricing was read back unchanged: USD 10 monthly and USD 96 yearly. Products remain READY_TO_SUBMIT. Automatic product import/status checking has not been configured; the separate App Store Connect API key was not uploaded.
