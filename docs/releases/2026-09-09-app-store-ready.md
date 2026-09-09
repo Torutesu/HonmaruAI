@@ -64,3 +64,20 @@ Negative entitlement cache entries are now bypassed, so the next server request 
 App Privacy remains in progress: 9 data types saved, Name still needs adding, followed by purpose/linkage/tracking answers and publication. Dia was switched to another window during setup; waiting for owner to return to App Privacy. EU trader declaration awaits owner-approved public contact details.
 
 Cable-free physical validation: owner operates TestFlight build 36; compare RevenueCat and authenticated server billing status for the same account. No real purchase/restore is verified yet.
+
+## Latest verified status — 2026-09-09 13:40 JST
+
+This section supersedes earlier incomplete configuration states above.
+
+- Apple Business: Paid Apps Agreement, bank account, W-8BEN, and Certificate of Foreign Status of Beneficial Owner are all Active. EU DSA remains In Review. Personal banking/tax identifiers are intentionally excluded from this record.
+- App Privacy published successfully in Apple UI. Ten data types: Name, Email Address, Emails or Text Messages, Photos or Videos, Audio Data, Other User Content, User ID, Device ID, Purchase History, Product Interaction. Purposes: App Functionality; linked to identity; no tracking.
+- App download price was previously missing and blocked Add for Review. Configured free download across territories. Existing subscription prices remain unchanged.
+- App Store version 1.0 now uses build 36 (`72b40a0d-bc58-474e-85e3-e992407ab62a`), verified by API attachment and UI readback.
+- Draft submission contains four ready items: iOS 1.0 (36), Pro subscription group, Pro Monthly, Pro Yearly. Submit for Review is enabled. Final review submission has NOT been sent.
+- Owner reported a RevenueCat configuration error before contract activation. Public SDK offerings returned the correct monthly/yearly identifiers and archived build 36 embeds the correct Apple SDK key. Retest after contract activation remains necessary; purchase/restore and same-account server `/billing/status` Pro recognition are not yet verified.
+
+## Build 37 follow-up
+
+Owner still could not use subscriptions in build 36 and requested a fresh TestFlight release. Removed the fallback paywall's automatic fetch: loading removes that view, so a failed fetch can recreate it and trigger another request repeatedly. The parent paywall owns initial loading; the fallback's explicit retry remains. Concurrent offering requests are ignored, and retries clear stale error messages. Configuration failures now include the RevenueCat numeric error code so a device report can distinguish product configuration, identity, and credential errors.
+
+Native tests passed: 60 tests, zero failures (`/tmp/honmaru-build37-tests.log`). Live RevenueCat offering IDs match Apple. Apple Japan pricing readback: JPY 1,500 monthly, JPY 15,000 yearly; no subscription price changes. These checks do not prove a successful StoreKit purchase on the owner's iPhone.

@@ -82,8 +82,7 @@ struct FallbackPaywallView: View {
             }
         }
         .appBackground()
-        .task {
-            await subscriptions.loadOfferings(force: true)
+        .onChange(of: subscriptions.availablePackages.map(\.identifier), initial: true) {
             selectedPackage = selectedPackage
                 ?? subscriptions.annualPackage
                 ?? subscriptions.availablePackages.first

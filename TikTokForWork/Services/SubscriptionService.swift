@@ -200,9 +200,10 @@ final class SubscriptionService: ObservableObject {
     /// Offerings are cached by the SDK, so this is cheap to call on appear.
     /// Pass `force: true` after a config change in the dashboard.
     func loadOfferings(force: Bool = false) async {
-        guard Purchases.isConfigured else { return }
+        guard Purchases.isConfigured, !isLoadingOfferings else { return }
         guard force || offerings == nil else { return }
 
+        errorMessage = nil
         isLoadingOfferings = true
         defer { isLoadingOfferings = false }
 
@@ -379,7 +380,7 @@ final class SubscriptionService: ObservableObject {
         case .ineligibleError:
             return String(localized: "This account isn't eligible for that offer.")
         case .configurationError, .invalidAppUserIdError, .invalidCredentialsError, .invalidAppleSubscriptionKeyError:
-            return String(localized: "Subscriptions aren't configured correctly for this build. Check the RevenueCat API key, entitlement, and products.")
+            return String(localized: "Subscriptions aren't configured correctly for this build. Check the RevenueCat API key, entitlement, and products.") + " (RC \(code.rawValue))"
         case .unsupportedError:
             return String(localized: "Subscriptions aren't supported on this device.")
         default:
