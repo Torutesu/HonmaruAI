@@ -1,3 +1,5 @@
+> Historical handoff: current integration and verified remaining work are recorded in [2026-09-09 release status](releases/2026-09-09-app-store-ready.md). Build 32 and the four-data-type checklist below are superseded.
+
 # Can this app pass review?
 
 `app-store-release.md` covers how to *ship* a build. This is the other half:

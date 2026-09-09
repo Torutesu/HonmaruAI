@@ -1,3 +1,5 @@
+> Historical handoff: current integration and verified remaining work are recorded in [2026-09-09 release status](releases/2026-09-09-app-store-ready.md). Build 32 and the four-data-type checklist below are superseded.
+
 # What is left, and who does what
 
 Written for whoever picks this up next. Everything here is outside the Swift
