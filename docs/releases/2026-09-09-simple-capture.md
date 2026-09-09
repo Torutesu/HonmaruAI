@@ -32,3 +32,9 @@ Source: `527462a3949d9dbba4f5ccd7075d494196ed8faf`.
 ## Limits
 
 Real microphone recognition, authenticated invite/join across two users, and physical iPhone notification delivery have not been re-qualified. Browser/native UI access later timed out, so production screen interaction was not re-verified after the public-file checks. Sample/browser and simulator results do not prove those external flows.
+
+## TestFlight
+
+Build 34 / version 1.0 uploaded and processed as `VALID`.
+Build ID: `e813ad8c-0745-4f93-ab59-d6b1c1aeaf62`.
+Assigned to Internal Testers (`12726632-2dd9-4d64-bbac-40d888fec47a`).
