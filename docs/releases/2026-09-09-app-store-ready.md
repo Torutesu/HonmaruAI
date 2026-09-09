@@ -10,7 +10,7 @@ Privacy policy updated against current email authentication, account deletion an
 
 ## Billing update
 
-Build 36 (1.0) archive and export succeeded with the App Store public SDK key embedded. RevenueCat current offering was verified through the public SDK endpoint: `$rc_monthly` maps to `com.honmaru.ai.pro.monthly`, and `$rc_annual` maps to `com.honmaru.ai.pro.yearly`. Both are attached to `honmaruai Pro`. No Apple price changes were made.
+Build 36 (1.0), ID `72b40a0d-bc58-474e-85e3-e992407ab62a`, is VALID in TestFlight and assigned to Internal Testers. Archive/export and the Release simulator launch gate passed with the App Store public SDK key embedded. RevenueCat current offering was verified through the public SDK endpoint: `$rc_monthly` maps to `com.honmaru.ai.pro.monthly`, and `$rc_annual` maps to `com.honmaru.ai.pro.yearly`. Both are attached to `honmaruai Pro`. No Apple price changes were made.
 
 ## Verification
 
