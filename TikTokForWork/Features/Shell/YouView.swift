@@ -114,7 +114,6 @@ struct YouView: View {
                 Section {
                     Text("Sample teammates for trying the workflow.").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
                     Button("Sign in with email") { showEmail = true }
-                    Button("Connect GitHub") { showGitHub = true }
                 }
             }
             Section("People") {
@@ -129,8 +128,12 @@ struct YouView: View {
                 }
             }
             Section("Connections") {
-                Button("GitHub") { showGitHub = true }
+                if appState.githubService.hasToken { Button("GitHub") { showGitHub = true } }
                 if !appState.isGuest { NavigationLink("Connected tools") { ConnectorsView().environmentObject(appState) } }
+            }
+            Section {
+                Link("Privacy Policy", destination: URL(string: "https://honmaru-web.pages.dev/privacy.html")!)
+                Link("Support", destination: URL(string: "https://honmaru-web.pages.dev/support.html")!)
             }
             Section("Appearance") {
                 Picker("Appearance", selection: $appState.appearance) { ForEach(AppAppearance.allCases) { Text($0.label).tag($0) } }

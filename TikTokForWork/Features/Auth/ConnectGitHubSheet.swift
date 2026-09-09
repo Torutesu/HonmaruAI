@@ -32,7 +32,6 @@ struct ConnectGitHubSheet: View {
 
     @State private var selectedRepository: GitHubRepository?
     @State private var isConnecting = false
-    @State private var isSigningInWithGitHub = false
     @State private var isRefreshingRepos = false
     @State private var errorMessage: String?
 
@@ -61,7 +60,15 @@ struct ConnectGitHubSheet: View {
                 if appState.githubService.hasToken {
                     repositoryPicker
                 } else {
-                    githubSignInButton
+                    // No token, and no way to get one here any more: GitHub
+                    // stopped being a way into this app on the phone, so this
+                    // sheet is only reachable by someone who already has one.
+                    // Reached anyway, it says where the door is rather than
+                    // showing a button that cannot finish.
+                    Text("Set this up on the web, at honmaru-web.pages.dev — signing in with GitHub is not available on the phone.")
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if appState.githubService.isConnected, let connection = appState.githubService.connection {
@@ -78,7 +85,7 @@ struct ConnectGitHubSheet: View {
 
                 PrimaryButton(
                     title: appState.githubService.isConnected ? String(localized: "Done") : String(localized: "Connect"),
-                    enabled: canConnect && !isConnecting && !isSigningInWithGitHub
+                    enabled: canConnect && !isConnecting
                 ) {
                     connect()
                 }
@@ -103,29 +110,6 @@ struct ConnectGitHubSheet: View {
                 selectedRepository = appState.githubService.repositories.first { $0.fullName == repository }
             }
         }
-    }
-
-    private var githubSignInButton: some View {
-        Button(action: signInWithGitHub) {
-            HStack(spacing: 10) {
-                if isSigningInWithGitHub {
-                    ProgressView().tint(Theme.Colors.textPrimary)
-                } else {
-                    Image("GitHubMark")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
-                    Text("Sign in with GitHub")
-                        .font(.system(size: 15, weight: .medium))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(Theme.Colors.surfaceRaised)
-            .foregroundStyle(Theme.Colors.textPrimary)
-            .clipShape(Capsule())
-        }
-        .disabled(isSigningInWithGitHub)
     }
 
     private func connectedBanner(_ connection: GitHubConnection) -> some View {
@@ -221,24 +205,6 @@ struct ConnectGitHubSheet: View {
                 errorMessage = error.localizedDescription
             }
             isRefreshingRepos = false
-        }
-    }
-
-    private func signInWithGitHub() {
-        errorMessage = nil
-        isSigningInWithGitHub = true
-
-        Task {
-            do {
-                guard let backendBaseURL = appState.backendBaseURL else {
-                    throw URLError(.badURL)
-                }
-                try await appState.githubService.signInWithOAuth(backendBaseURL: backendBaseURL)
-                selectedRepository = appState.githubService.repositories.first
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isSigningInWithGitHub = false
         }
     }
 

@@ -1,4 +1,5 @@
 import { executeTool } from "./composio.js";
+import { toolSlugFor } from "./connectors/index.js";
 import { triageMessage } from "./triage.js";
 import { isIngested, markIngested, saveCard, getConnectorConfig } from "./db.js";
 import { checkAIAllowance } from "./gate.js";
@@ -17,7 +18,7 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
 
   const payload = await executeTool(
     env.COMPOSIO_API_KEY,
-    connector.toolSlug,
+    toolSlugFor(env, connector),
     // Always the caller's own Composio identity. A shared id here would mean
     // every user reading one person's messages.
     String(session.github_id),

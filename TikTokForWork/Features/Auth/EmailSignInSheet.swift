@@ -12,14 +12,15 @@ struct EmailSignInSheet: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focus: Field?
 
-    private enum Field: Hashable { case email, name, invite, code }
-    private enum Step { case address, code }
+    private enum Field: Hashable { case email, name, invite, code, password }
+    private enum Step { case address, code, password }
 
     @State private var step: Step = .address
     @State private var email = ""
     @State private var name = ""
     @State private var inviteCode = ""
     @State private var code = ""
+    @State private var password = ""
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var resendIn = 0
@@ -39,6 +40,7 @@ struct EmailSignInSheet: View {
                 switch step {
                 case .address: addressStep
                 case .code: codeStep
+                case .password: passwordStep
                 }
 
                 if let errorMessage {
@@ -55,6 +57,22 @@ struct EmailSignInSheet: View {
                     requestTask = Task { await primaryAction() }
                 }
                 .overlay { if busy { ProgressView().tint(Theme.Colors.background) } }
+
+                if step == .address {
+                    Button {
+                        requestGeneration = UUID()
+                        requestTask?.cancel()
+                        busy = false
+                        step = .password
+                        errorMessage = nil
+                        focus = .password
+                    } label: {
+                        Text("Use a password instead")
+                            .font(Theme.TypeScale.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
 
                 if step == .code {
                     Button {
@@ -76,11 +94,11 @@ struct EmailSignInSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(step == .code ? String(localized: "Back") : String(localized: "Cancel")) {
+                    Button(step == .address ? String(localized: "Cancel") : String(localized: "Back")) {
                         requestGeneration = UUID()
                         requestTask?.cancel()
                         busy = false
-                        if step == .code { step = .address; errorMessage = nil } else { dismiss() }
+                        if step == .address { dismiss() } else { step = .address; errorMessage = nil; password = "" }
                     }
                 }
             }
@@ -166,6 +184,42 @@ struct EmailSignInSheet: View {
         }
     }
 
+    private var passwordStep: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            Text("Sign in with a password")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(Theme.Colors.textPrimary)
+            Text("For an account that already has one. If you do not, go back and we will email you a code instead.")
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            field(String(localized: "Email"), text: $email, field: .email)
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Password")
+                    .font(Theme.TypeScale.label)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                SecureField("", text: $password)
+                    .font(Theme.TypeScale.body)
+                    .textContentType(.password)
+                    .focused($focus, equals: .password)
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .frame(height: 48)
+                    .background(Theme.Colors.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.input, style: .continuous)
+                            .stroke(Theme.Colors.border, lineWidth: 1)
+                    )
+            }
+        }
+    }
+
     private func field(_ label: String, text: Binding<String>, field: Field) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
@@ -188,14 +242,45 @@ struct EmailSignInSheet: View {
     // MARK: - Actions
 
     private var primaryTitle: String {
-        step == .address ? String(localized: "Email me a code") : String(localized: "Continue")
+        switch step {
+        case .address: String(localized: "Email me a code")
+        case .code: String(localized: "Continue")
+        case .password: String(localized: "Sign in")
+        }
     }
     private var primaryEnabled: Bool {
-        step == .address ? emailLooksReal : code.count == 6
+        switch step {
+        case .address: emailLooksReal
+        case .code: code.count == 6
+        case .password: emailLooksReal && !password.isEmpty
+        }
     }
 
     private func primaryAction() async {
-        step == .address ? await sendCode() : await verify()
+        switch step {
+        case .address: await sendCode()
+        case .code: await verify()
+        case .password: await signInWithPassword()
+        }
+    }
+
+    private func signInWithPassword() async {
+        let generation = requestGeneration
+        busy = true
+        errorMessage = nil
+        defer { if requestGeneration == generation { busy = false } }
+        do {
+            let session = try await EmailAuthService.signIn(
+                email: email.trimmingCharacters(in: .whitespaces),
+                password: password
+            )
+            guard requestGeneration == generation, !Task.isCancelled else { return }
+            onSignedIn(session, name.trimmingCharacters(in: .whitespaces))
+            dismiss()
+        } catch {
+            guard requestGeneration == generation, !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func sendCode() async {
@@ -209,6 +294,13 @@ struct EmailSignInSheet: View {
             step = .code
             focus = .code
             startResendCountdown()
+        } catch EmailAuthService.Failure.mailNotConfigured {
+            guard requestGeneration == generation, !Task.isCancelled else { return }
+            // This deployment cannot send mail at all. Sending them to GitHub
+            // is a dead end for precisely the people this door was added for.
+            step = .password
+            focus = .password
+            errorMessage = String(localized: "This workspace cannot send email yet. Sign in with a password.")
         } catch {
             guard requestGeneration == generation, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
@@ -243,6 +335,7 @@ struct EmailSignInSheet: View {
                 name: name.trimmingCharacters(in: .whitespaces),
                 inviteCode: inviteCode.trimmingCharacters(in: .whitespaces)
             )
+            guard requestGeneration == generation, !Task.isCancelled else { return }
             guard requestGeneration == generation, !Task.isCancelled else { return }
             onSignedIn(session, name.trimmingCharacters(in: .whitespaces))
             dismiss()

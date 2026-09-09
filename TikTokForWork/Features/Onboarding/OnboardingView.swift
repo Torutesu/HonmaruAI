@@ -5,7 +5,6 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showEmail = false
-    @State private var showGitHub = false
     @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 32
 
     var body: some View {
@@ -33,7 +32,6 @@ struct OnboardingView: View {
                                 .overlay(Capsule().stroke(Theme.Colors.border, lineWidth: 1))
                         }.buttonStyle(.plain)
                         HStack(spacing: 24) {
-                            Button("Continue with GitHub") { showGitHub = true }
                             Button("Try the demo") { appState.activateGuestSession() }
                         }.font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
                             .frame(minHeight: 44)
@@ -46,9 +44,7 @@ struct OnboardingView: View {
                 Task { await appState.activateEmailSession(login: session.login, orgId: session.orgId, name: name, sessionToken: session.token, accountID: session.userID) }
             }.environmentObject(appState).presentationDetents([.large])
         }
-        .sheet(isPresented: $showGitHub) {
-            ConnectGitHubSheet(context: .settings).environmentObject(appState).presentationDetents([.large])
-        }
+
         .tint(Theme.Colors.textPrimary)
     }
 }

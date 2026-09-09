@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { enableWebPush, disableWebPush, pushSupport, currentSubscription } from '../utils/push'
 import { useT } from '../utils/i18n'
+import { Icon } from '../components/Icon'
 
 interface Props {
   httpBase: string
@@ -77,7 +78,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
         <div className="rows-title">{t('On this device')}</div>
         <div className="rows">
           <div className="row static">
-            <span className="row-icon">◉</span>
+            <span className="row-icon"><Icon name="bell" size={18} /></span>
             <span className="row-main">
               {t('Push notifications')}
               <span className="row-sub">
@@ -104,7 +105,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
         <div className="rows-title">{t('By email')}</div>
         <div className="rows">
           <div className="row static">
-            <span className="row-icon">✉</span>
+            <span className="row-icon"><Icon name="mail" size={18} /></span>
             <span className="row-main">
               {t('Email as the fallback')}
               <span className="row-sub">{t('Only when no device of yours can be reached. Never a duplicate.')}</span>

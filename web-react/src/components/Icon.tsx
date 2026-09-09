@@ -1,6 +1,8 @@
 import type { CSSProperties } from 'react'
 
 const paths = {
+  bell: "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4",
+  mail: "M3 5h18v14H3V5Zm0 0 9 7 9-7",
   inbox: 'M4 4h16v16H4V4Zm0 10h5l2 3h2l2-3h5',
   send: 'm21 3-7 18-4-7-7-4 18-7ZM10 14 21 3',
   check: 'm5 12 4 4L19 6',

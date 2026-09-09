@@ -7,7 +7,11 @@ test("every connector satisfies the contract", () => {
     expect(typeof c.id).toBe("string");
     expect(typeof c.label).toBe("string");
     expect(typeof c.toolSlug).toBe("string");
-    expect(typeof c.authConfigId).toBe("string");
+    // A connector either ships an auth config created at Composio, or declares
+    // null — "not offered on a deployment that has not named one". Both are
+    // the contract; anything else is a typo that reaches Composio as a request
+    // it answers with something about a malformed body.
+    expect(c.authConfigId === null || typeof c.authConfigId === "string").toBe(true);
     expect(typeof c.buildArgs).toBe("function");
     expect(typeof c.parse).toBe("function");
     expect(c.parse({})).toEqual([]);

@@ -1,16 +1,1 @@
-{
-  "images" : [
-    {
-      "filename" : "honmaru-mark.png",
-      "idiom" : "universal",
-      "scale" : "2x"
-    }
-  ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
-  },
-  "properties" : {
-    "template-rendering-intent" : "original"
-  }
-}
+{"images":[{"filename":"app-mark.svg","idiom":"universal"}],"info":{"author":"xcode","version":1},"properties":{"preserves-vector-representation":true,"template-rendering-intent":"original"}}

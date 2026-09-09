@@ -66,6 +66,16 @@ final class SubscriptionService: ObservableObject {
 
     var isConfigured: Bool { Purchases.isConfigured }
 
+    /// Whether the app can actually take money right now.
+    ///
+    /// The same fact as `isConfigured`, named for what the UI needs to decide. A build
+    /// without a production RevenueCat key never configures the SDK (see
+    /// `RevenueCatConfig.isConfigurable`), and every purchase path then answers
+    /// "not configured" — so an Upgrade button in that build is a button that can only
+    /// produce an error alert. App Review reads that as a broken app, not as a feature
+    /// that is switched off, so the views ask this before offering to sell anything.
+    var canSell: Bool { Purchases.isConfigured }
+
     /// The `honmaruai Pro` entitlement, active or not (expired ones stay readable).
     var proEntitlement: EntitlementInfo? {
         guard isIdentityReady else { return nil }
@@ -266,10 +276,13 @@ final class SubscriptionService: ObservableObject {
 
     // MARK: - Identity
 
-    /// Convenience the sign-in path calls with the numeric GitHub id. The Worker looks
-    /// entitlements up by that same id, so this is what keeps the two sides in agreement.
-    func identify(_ githubID: String) async {
-        await identify(userID: githubID)
+    /// Convenience both sign-in paths call with the Worker's id for this account — the
+    /// numeric GitHub id, or the `email:` one an email account gets. `entitlements.js`
+    /// looks a subscriber up by exactly that string, so this is what keeps the two sides
+    /// in agreement; without it a purchase lands on an anonymous subscriber the server
+    /// never asks about, and the person stays on the free tier having paid.
+    func identify(_ userID: String) async {
+        await identify(userID: userID)
     }
 
     /// Ties RevenueCat's app user ID to your own account ID so an entitlement follows the

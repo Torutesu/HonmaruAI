@@ -8,11 +8,19 @@ import RevenueCat
 enum RevenueCatConfig {
     /// Public SDK key (RevenueCat → Project settings → API keys).
     ///
+    /// Read from `Info.plist`, which takes it from `REVENUECAT_API_KEY` in
+    /// `Config/Base.xcconfig`. It lives there rather than in this file so that turning
+    /// billing on is a one-line config change — the same place `RELAY_HOST` lives — and so
+    /// nobody has to edit Swift to swap a key.
+    ///
     /// A `test_…` key targets the RevenueCat Test Store, which serves products without any
     /// App Store Connect setup — useful on the simulator and in CI. Swap in the `appl_…`
     /// production key before shipping. Public SDK keys are safe to ship in the binary; the
     /// secret key never belongs in the app.
-    static let apiKey = "test_aOieMtugDnVbuliAwBJkfQKazZd"
+    static let apiKey: String = {
+        let value = Bundle.main.object(forInfoDictionaryKey: "RevenueCatAPIKey") as? String
+        return (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }()
 
     /// Entitlement that unlocks the paid tier (RevenueCat → Entitlements).
     static let proEntitlementID = "honmaruai Pro"
@@ -49,6 +57,9 @@ enum RevenueCatConfig {
     /// still launches — the same stance the Worker takes when `REVENUECAT_SECRET_KEY` is
     /// unset. Swapping in the `appl_…` key is the single switch that turns purchasing on.
     static var isConfigurable: Bool {
+        // An unset build setting resolves to the empty string, and configuring the SDK
+        // with one traps. Nothing below this line runs without a key of some kind.
+        guard !apiKey.isEmpty else { return false }
         #if DEBUG
         return true
         #else

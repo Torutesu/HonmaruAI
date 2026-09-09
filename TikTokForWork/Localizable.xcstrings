@@ -1486,6 +1486,17 @@
         }
       }
     },
+    "For an account that already has one. If you do not, go back and we will email you a code instead.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにパスワードを設定しているアカウント用です。無い場合は戻ると、コードをメールでお送りします。"
+          }
+        }
+      }
+    },
     "Free plan": {
       "extractionState": "manual",
       "localizations": {
@@ -1695,6 +1706,17 @@
         }
       }
     },
+    "Invalid email or password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールアドレスかパスワードが違います。"
+          }
+        }
+      }
+    },
     "Invite code (optional)": {
       "extractionState": "manual",
       "localizations": {
@@ -1812,6 +1834,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "リポジトリを読み込んでいます…"
+          }
+        }
+      }
+    },
+    "Local mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルモード"
           }
         }
       }
@@ -2285,6 +2318,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "参加者"
+          }
+        }
+      }
+    },
+    "Password": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード"
           }
         }
       }
@@ -2889,6 +2933,17 @@
         }
       }
     },
+    "Set this up on the web, at honmaru-web.pages.dev — signing in with GitHub is not available on the phone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でのサインインはスマホでは提供していません。honmaru-web.pages.dev で設定してください。"
+          }
+        }
+      }
+    },
     "She can take more work this week or stop. Nothing is queued behind the current job.": {
       "extractionState": "manual",
       "localizations": {
@@ -2911,6 +2966,16 @@
         }
       }
     },
+    "Sign in": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
     "Sign in before deleting your account.": {
       "extractionState": "manual",
       "localizations": {
@@ -2922,35 +2987,24 @@
         }
       }
     },
-    "Sign in with GitHub": {
+    "Sign in to see your team's history.": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub でサインイン"
+            "value": "チームの履歴を見るにはサインインしてください。"
           }
         }
       }
     },
-    "Sign in with GitHub to reach your team. Your teammates are your repo's collaborators, and every approval becomes an Issue you can track.": {
+    "Sign in with a password": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub でサインインしてチームとつながりましょう。チームメイトはリポジトリのコラボレーターで、承認はすべて追跡できる Issue になります。"
-          }
-        }
-      }
-    },
-    "Sign in with GitHub to see your team's history.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チームの履歴を見るには GitHub でサインインしてください。"
+            "value": "パスワードでサインイン"
           }
         }
       }
@@ -2962,17 +3016,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "メールでログイン"
-          }
-        }
-      }
-    },
-    "Sign in with email instead": {
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールでログインする"
           }
         }
       }
@@ -3417,6 +3460,17 @@
         }
       }
     },
+    "The free routing limit above still applies.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上に記載の無料ルーティング上限はそのまま適用されます。"
+          }
+        }
+      }
+    },
     "The old site has a booking form nobody mentioned. Rebuilding it is roughly three extra days.": {
       "extractionState": "manual",
       "localizations": {
@@ -3505,13 +3559,13 @@
         }
       }
     },
-    "This workspace cannot send email yet. Sign in with GitHub for now.": {
+    "This workspace cannot send email yet. Sign in with a password.": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このワークスペースはまだメールを送信できません。いまは GitHub でログインしてください。"
+            "value": "このワークスペースはまだメールを送れません。パスワードでサインインしてください。"
           }
         }
       }
@@ -3747,6 +3801,17 @@
         }
       }
     },
+    "Upgrading isn't available in this version.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンではアップグレードはご利用いただけません。"
+          }
+        }
+      }
+    },
     "Urgent": {
       "extractionState": "manual",
       "localizations": {
@@ -3765,6 +3830,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "下の「AI に伝える」から送れます"
+          }
+        }
+      }
+    },
+    "Use a password instead": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードでサインイン"
           }
         }
       }
@@ -3842,6 +3917,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "録画を見る"
+          }
+        }
+      }
+    },
+    "We email you a six-digit code. Nothing to set up, nothing to remember, and it proves the address every notification from here depends on.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6桁のコードをメールでお送りします。設定も暗記も不要で、ここから届く通知の宛先を兼ねます。"
           }
         }
       }
@@ -4128,6 +4214,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "契約も単価もあなたのものです"
+          }
+        }
+      }
+    },
+    "Your decisions, where you are": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの決定を、あなたのいる場所へ"
           }
         }
       }
@@ -7375,16 +7472,6 @@
         }
       }
     },
-    "Sign in": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サインイン"
-          }
-        }
-      }
-    },
     "Stop voice input": {
       "localizations": {
         "ja": {
@@ -7491,16 +7578,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "回答を取り消しますか？"
-          }
-        }
-      }
-    },
-    "Use a password instead": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスワードでサインイン"
           }
         }
       }
@@ -8275,6 +8352,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "下書きに戻る"
+          }
+        }
+      }
+    },
+    "Privacy Policy": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシーポリシー"
+          }
+        }
+      }
+    },
+    "Support": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サポート"
           }
         }
       }
