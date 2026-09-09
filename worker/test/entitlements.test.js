@@ -47,6 +47,26 @@ test("a stale cache is refreshed", async () => {
   expect(await isPro(ENV(), "501")).toBe(true);
 });
 
+test("a purchase or restore bypasses a fresh free cache on the next request", async () => {
+  const userID = "email:billing-regression";
+  await writeEntitlement(env.DB, userID, false);
+  fetchMock.get("https://api.revenuecat.com")
+    .intercept({ path: `/v1/subscribers/${encodeURIComponent(userID)}` })
+    .reply(200, subscriber(true));
+
+  expect(await isPro(ENV(), userID)).toBe(true);
+  expect(await isPro(ENV(), userID)).toBe(true);
+});
+
+test("a failed lookup does not delay a subsequent successful purchase lookup", async () => {
+  fetchMock.get("https://api.revenuecat.com")
+    .intercept({ path: "/v1/subscribers/504" }).reply(500, "unavailable");
+  expect(await isPro(ENV(), "504")).toBe(false);
+  fetchMock.get("https://api.revenuecat.com")
+    .intercept({ path: "/v1/subscribers/504" }).reply(200, subscriber(true));
+  expect(await isPro(ENV(), "504")).toBe(true);
+});
+
 test("RevenueCat being down means free, never blocked", async () => {
   fetchMock.get("https://api.revenuecat.com")
     .intercept({ path: (p) => p.includes("/v1/subscribers/502") })

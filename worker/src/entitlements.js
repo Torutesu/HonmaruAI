@@ -3,15 +3,15 @@ import { readEntitlement, writeEntitlement } from "./db.js";
 const PRO_ENTITLEMENT = "honmaruai Pro";
 const CACHE_MS = 60 * 60 * 1000;
 
-// Asked on demand and cached for an hour. Webhooks would be more immediate but
-// need an endpoint to secure and can be missed; one call per user per hour is
-// cheaper than either failure mode.
+// Cache active access for an hour. Always recheck a free account so a purchase
+// or restore made through StoreKit is recognized on the next server request.
+// This also bypasses negative entries written by earlier deployments.
 export async function isPro(env, githubId) {
   if (!env.REVENUECAT_SECRET_KEY) return false;
 
   const cached = await readEntitlement(env.DB, githubId);
-  if (cached && Date.now() - Date.parse(cached.checked_at) < CACHE_MS) {
-    return cached.is_pro === 1;
+  if (cached?.is_pro === 1 && Date.now() - Date.parse(cached.checked_at) < CACHE_MS) {
+    return true;
   }
 
   let active = false;

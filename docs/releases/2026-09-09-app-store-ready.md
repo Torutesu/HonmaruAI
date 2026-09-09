@@ -45,3 +45,22 @@ Privacy declaration reference: https://developer.apple.com/app-store/app-privacy
 Earlier public-API readiness check had 2 blocking items. Territory availability and content rights have since been configured. The separate Web-only privacy/contract and physical-device/billing checks above still apply.
 
 Dia native UI access now works; Apple and RevenueCat authenticated sessions were used to configure the In-App Purchase key. RevenueCat app: `appa8322cb3b9`; key ID: `D739NA2D46` (private key is not stored in the repository). Existing App Store pricing was read back unchanged: USD 10 monthly and USD 96 yearly. Products remain READY_TO_SUBMIT. Automatic product import/status checking has not been configured; the separate App Store Connect API key was not uploaded.
+
+## Billing verification — 2026-09-09 12:30 JST
+
+- Existing RevenueCat v1 secret registered as `REVENUECAT_SECRET_KEY` on production Worker with owner approval; secret-name readback passed. Secret value is not in source.
+- Existing entitlement tests: 4 passed (mocked RevenueCat responses; not a real purchase).
+- Apple public API validation: 0 errors / 0 blocking, but it does not verify the Web-only requirements below.
+- Apple Business UI: Paid Apps Agreement is New / requires agreement; EU trader declaration is incomplete. No contract accepted.
+- App Privacy UI: Get Started is shown and Publish disabled; questionnaire is not completed/published.
+- No physical iPhone is visible through devicectl or xctrace. Purchase, restore, and real-account server Pro reflection remain unverified.
+- Code review finding: free and paid entitlement results are both cached for one hour, so a pre-purchase free result can delay server Pro recognition after purchase. This behavior is not fixed by registering the secret.
+- App Store draft still selects build 35; select the qualified billing build before submission.
+
+## Follow-up remediation — 2026-09-09
+
+Negative entitlement cache entries are now bypassed, so the next server request checks RevenueCat after purchase/restore or an API failure. Active entitlements keep the existing one-hour cache. Free-account requests now make more RevenueCat calls in exchange for prompt purchase recognition. All 372 Worker tests passed, including regression tests for fresh free caches and API recovery. Deployed version `a061dd93-1260-4d85-8ada-01a39d159233`; production health passed. No new iOS build is required.
+
+App Privacy remains in progress: 9 data types saved, Name still needs adding, followed by purpose/linkage/tracking answers and publication. Dia was switched to another window during setup; waiting for owner to return to App Privacy. EU trader declaration awaits owner-approved public contact details.
+
+Cable-free physical validation: owner operates TestFlight build 36; compare RevenueCat and authenticated server billing status for the same account. No real purchase/restore is verified yet.
