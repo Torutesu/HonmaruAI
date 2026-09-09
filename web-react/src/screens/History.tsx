@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import type { DecisionCard, Business } from '../types/card'
+import { getLocale } from '../utils/locale'
 import { useT } from '../utils/i18n'
 
 interface Props {
@@ -7,6 +8,7 @@ interface Props {
   sent: DecisionCard[]
   businesses: Business[]
   userId: string
+  memberName: (id:string) => string
   onOpen: (cardId: string) => void
   onClose: () => void
 }
@@ -16,7 +18,7 @@ type Filter = 'all' | 'yours' | 'sent'
 // English keys, translated where they are read: a table built at module load
 // would be frozen in whatever language the app started in.
 const ACTION_WORD: Record<string, string> = {
-  approve: 'Approved', decline: 'Declined', revise: 'Revision asked',
+  approve: 'Approved', decline: 'Declined', revise: 'Revision asked', revised: 'Revision asked',
   choose: 'Chose', reply: 'Replied', acknowledge: 'Acknowledged',
   delegate: 'Delegated', later: 'Deferred',
 }
@@ -30,8 +32,8 @@ function dayLabel(iso: string) {
   const days = Math.floor((+new Date(today.toDateString()) - +new Date(then.toDateString())) / 86400000)
   if (days <= 0) return 'Today'
   if (days === 1) return 'Yesterday'
-  if (days < 7) return then.toLocaleDateString(undefined, { weekday: 'long' })
-  return then.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  if (days < 7) return then.toLocaleDateString(getLocale(), { weekday: 'long' })
+  return then.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric' })
 }
 
 /// Everything already settled, newest first.
@@ -40,7 +42,7 @@ function dayLabel(iso: string) {
 /// was decided, by whom, and when. It reads from the state the socket already
 /// streams, so it is right the moment a decision lands rather than a refresh
 /// later.
-export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onOpen, onClose }) => {
+export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onOpen, onClose, memberName }) => {
   const t = useT()
   const [filter, setFilter] = useState<Filter>('all')
   const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug
@@ -79,7 +81,7 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
 
         {groups.length === 0 && (
           <div className="empty">
-            Nothing settled yet.<br />
+            {t('Nothing settled yet.')}<br />
             {t('history.blurb')}
           </div>
         )}
@@ -96,10 +98,10 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
                     <span className="row-main">
                       {card.title}
                       <span className="row-sub">
-                        {byYou ? t('You') : (card.recipientUserID || '').replace(/^(u:|email:)/, '').split('@')[0]}
+                        {byYou ? t('You') : memberName(card.recipientUserID)}
                         {card.business ? ` · ${nameOf(card.business)}` : ''}
                         {card.decision?.decidedAt
-                          ? ` · ${new Date(card.decision.decidedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                          ? ` · ${new Date(card.decision.decidedAt).toLocaleTimeString(getLocale(), { hour: 'numeric', minute: '2-digit' })}`
                           : ''}
                       </span>
                     </span>

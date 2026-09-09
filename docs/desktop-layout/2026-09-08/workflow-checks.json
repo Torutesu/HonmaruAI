@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-09-08T08:49:51.741Z",
+  "environment": "Local Worker, disposable D1, Chromium; sample workspace isolated in memory; all external providers disabled",
+  "checks": [
+    "Sample Cards and Classic share five incoming, one sent, and one completed request",
+    "Sample task completion, confirmed Undo, and response change only local state",
+    "Mobile sample Profile Plus, preview/create/reset/exit, unobscured navigation, and zero backend requests or sockets",
+    "Real password signup, onboarding title/language, current membership, and authenticated socket join",
+    "Desktop real Profile Plus, actual recipient, honest fallback drafting, editable preview, no premature save, and modal isolation",
+    "Persisted delivery and approval, delayed confirmation does not claim success, Classic detail and server-confirmed Undo",
+    "Real mobile reply, History, and completed request survive reload",
+    "Profile real identity, Japanese language persistence, descriptive role update, and isolated background",
+    "Sign-out and password re-login restore the actual workspace and saved decision",
+    "Closing pending preparation cancels the stale preview without creating another request",
+    "Notion still requires a persisted database before sync (local HTTP fixtures only)",
+    "No browser runtime errors or external network requests"
+  ]
+}

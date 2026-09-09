@@ -1,483 +1,189 @@
 import SwiftUI
 
+/// The card surface and two decisions follow the approved Figma frame. Content
+/// stays natural-height at accessibility sizes instead of being clipped.
 struct DecisionCardView: View {
     let card: DecisionCard
     let linkedRepository: String
-    var isGitHubConnected: Bool = true
+    var isGitHubConnected = true
+    var showsActions = true
     let onAction: (CardActionKind) -> Void
     let onShowDetails: () -> Void
-
     @EnvironmentObject private var appState: AppState
-    @State private var dragOffset: CGFloat = 0
-    @State private var showsSource = false
+    @Environment(\.locale) private var locale
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title2) private var titleSize = 23.0
+    @ScaledMetric(relativeTo: .body) private var bodySize = 12.0
+    @ScaledMetric(relativeTo: .caption) private var captionSize = 9.5
+    @State private var showSource = false
 
-    private let swipeThreshold: CGFloat = 96
-
+    private var sender: WorkspaceMember? { appState.workspaceMembers.first { $0.id == card.senderUserID } }
+    private var senderName: String { card.requestedBy?.name ?? sender?.name ?? DisplayName.of(card.senderUserID, in: appState.organization) }
+    private var senderRole: String? { card.requestedBy?.role ?? sender?.role }
+    private var quote: String? { card.requestedBy?.quote ?? card.originalBody ?? card.sourceInstruction }
     var body: some View {
-        ZStack {
-            Theme.Colors.background.ignoresSafeArea()
-
-            swipeHintLayer
-
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                    .padding(.bottom, Theme.Spacing.lg)
-
+        VStack(spacing: 26) {
+            VStack(alignment: .leading, spacing: 14) {
+                cardHeader
                 Button(action: onShowDetails) {
-                    VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                        Text(card.title)
-                            .font(Theme.TypeScale.title)
-                            .foregroundStyle(Theme.Colors.textPrimary)
-                            .lineSpacing(2)
-                            .multilineTextAlignment(.leading)
-                            // A long title at a large text size otherwise
-                            // pushes everything below it off the page.
-                            .minimumScaleFactor(0.8)
-
-                        Text(card.summary)
-                            .font(Theme.TypeScale.body)
-                            .foregroundStyle(Theme.Colors.textSecondary)
-                            .lineSpacing(5)
-                            .multilineTextAlignment(.leading)
-                            .minimumScaleFactor(0.85)
-
-                        if let original = card.originalBody,
-                           let language = card.originalLanguage {
-                            TranslatedFrom(language: language, original: original)
-                        }
-
-                        // Blocks the agent's own facts justify, then the rest of
-                        // the context as prose.
-                        GeneratedBlocks(card: card)
-
-                        if !card.context.isEmpty {
-                            ContextInsightView(context: card.context, compact: true)
-                        }
-
-                        Text("View details")
-                            .font(Theme.TypeScale.label)
-                            .foregroundStyle(Theme.Colors.accent)
-                            .padding(.top, Theme.Spacing.xs)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-
-                if let videoURL = card.videoURL {
-                    CardVideoView(urlString: videoURL)
-                        .frame(height: 220)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
-                }
-
-                if card.showsGitHubLink(for: linkedRepository),
-                   let issueURL = card.githubIssueURL,
-                   let url = URL(string: issueURL) {
-                    Link(destination: url) {
-                        HStack(spacing: 4) {
-                            Text(issueLabel)
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 10))
-                        }
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.accent)
-                    }
-                    .padding(.top, Theme.Spacing.md)
-                }
-
-                Spacer(minLength: Theme.Spacing.lg)
-
-                if !card.isPending {
-                    Text(card.status.label)
-                        .font(Theme.TypeScale.label)
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                        .padding(.bottom, Theme.Spacing.sm)
-                }
-
-                actionBlock
-
-                // A3 replies to a card in free text. It opens the revision flow,
-                // which is what a reply means here: the card goes back to the
-                // sender with what you said attached.
-                if card.isPending {
-                    replyComposer
-                        .padding(.top, Theme.Spacing.sm)
-                }
-            }
-            .padding(.horizontal, Theme.Spacing.screen)
-            .padding(.top, Theme.Spacing.md)
-            .padding(.bottom, Theme.Spacing.md)
-            .offset(x: dragOffset)
-        }
-        .contentShape(Rectangle())
-        // One card fills one page and cannot scroll — that is the whole feed
-        // gesture. At the accessibility text sizes the content grew past the
-        // page and took the action row with it, off-screen, with no way to
-        // reach it. Nesting a scroll view inside a paging one to fix that
-        // fights the gesture the product is built on, so the text is allowed to
-        // grow to the largest size the layout survives and stops there.
-        //
-        // This is a compromise, and it is only tolerable because the actions do
-        // not depend on it: the rotor actions below reach approve, decline,
-        // revise and delegate at any size, including the ones clamped here.
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .simultaneousGesture(swipeGesture)
-        // VoiceOver owns horizontal swipes, so the card's primary gesture does
-        // not exist for anyone using it. The action row below is reachable, but
-        // only after paging through the whole card — these put approve and
-        // decline on the rotor, where the swipe would have been.
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(accessibilitySummary))
-        .accessibilityActions {
-            if card.isPending {
-                Button(String(localized: "Approve")) {
-                    Haptics.success()
-                    onAction(.createIssue)
-                }
-                Button(String(localized: "Decline")) {
-                    Haptics.light()
-                    onAction(.reject)
-                }
-                Button(String(localized: "Request revision")) { onAction(.requestRevision) }
-                Button(String(localized: "Delegate")) { onAction(.delegate) }
-            }
-            Button(String(localized: "View details")) { onShowDetails() }
-        }
-        .sheet(isPresented: $showsSource) {
-            if let app = card.sourceApp {
-                SourceSheet(app: app, detail: card.sourceDetail, card: card)
-                    .presentationDetents([.medium, .large])
-            }
-        }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            HStack(alignment: .center, spacing: Theme.Spacing.sm) {
-                KindTag(type: card.type)
-
-                // Which business this is about. The slug is the name folded
-                // to lowercase, which reads fine as a chip.
-                if let business = card.business, !business.isEmpty {
-                    Text(business)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .tracking(0.5)
-                        .lineLimit(1)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Theme.Colors.textSecondary.opacity(0.10))
-                        .clipShape(Capsule())
-                        .accessibilityLabel(Text("Business \(business)"))
-                }
-
-                // How long this has sat. A card looks identical on day six and
-                // day one, which is how decisions rot without anyone deciding
-                // to let them.
-                if let days = card.waitingDays {
-                    HStack(spacing: 5) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 9, weight: .medium))
-                        Text("Waiting \(days)d")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .tracking(0.5)
-                    }
-                    .foregroundStyle(card.isStale ? Theme.Colors.reject : Theme.Colors.textTertiary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background((card.isStale ? Theme.Colors.reject : Theme.Colors.textTertiary).opacity(0.10))
-                    .clipShape(Capsule())
-                    .accessibilityLabel(Text("Waiting \(days) days"))
-                }
-
-                Spacer(minLength: Theme.Spacing.sm)
-
-                // Priority reads as a dot plus a mono label, so the colour
-                // carries the urgency and the word confirms it.
-                if card.priority == .urgent || card.priority == .high {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(priorityColor)
-                            .frame(width: 5, height: 5)
-                        Text(card.priorityLabel.uppercased())
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .tracking(0.7)
-                            .foregroundStyle(priorityColor)
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                HStack(spacing: Theme.Spacing.sm) {
-                    SenderAvatar(name: card.senderName)
-
-                    Text("\(card.senderName) · \(DateFormatting.relative(card.createdAt))")
-                        .font(Theme.TypeScale.caption)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .lineLimit(1)
-
-                    Spacer(minLength: Theme.Spacing.xs)
-
-                    if let app = card.sourceApp {
-                        Button { showsSource = true } label: {
-                            SourceChip(app: app, detail: card.sourceDetail)
-                        }
-                        .buttonStyle(.plain)
-                    } else if let route = card.agentRoute {
-                        Text(route)
-                            .font(.system(size: 10))
-                            .foregroundStyle(Theme.Colors.textTertiary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            if let reason = card.routingReason {
-                // The AI marker is one of the few sanctioned uses of brand
-                // violet: a badge, never a fill on a primary action.
-                HStack(alignment: .top, spacing: 7) {
-                    Image(systemName: "sparkle")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.Colors.accent)
-
-                    Text(reason)
-                        .font(Theme.TypeScale.caption)
-                        .foregroundStyle(Theme.Colors.textPrimary)
+                    Text(card.title).font(.system(size: titleSize, weight: .bold)).tracking(-0.5)
+                        .foregroundStyle(Theme.Colors.textPrimary).frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
+                }.buttonStyle(.plain)
+                Text(card.summary).font(.system(size: bodySize)).lineSpacing(3)
+                    .foregroundStyle(Theme.Colors.textSecondary).fixedSize(horizontal: false, vertical: true)
+                if let source = card.sourceApp {
+                    Button { showSource = true } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: sourceSymbol(source)).font(.system(size: 17)).frame(width: 26, height: 26)
+                                .background(Theme.Colors.surface, in: Circle())
+                            Text(sourceDisplay(source)).font(.system(size: bodySize, weight: .semibold))
+                            Text(appState.isGuest ? String(localized: "Sample source") : String(localized: "Source")).font(.system(size: captionSize))
+                        }
+                        .foregroundStyle(Theme.Colors.textPrimary).padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Theme.Colors.background, in: Capsule()).overlay(Capsule().stroke(Theme.Colors.border, lineWidth: 1))
+                    }.buttonStyle(.plain)
                 }
-                .padding(.horizontal, Theme.Spacing.md)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.Colors.accent.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
-            }
-        }
-    }
-
-    private var swipeHintLayer: some View {
-        ZStack {
-            if dragOffset > 24 {
-                HStack {
-                    swipeLabel(
-                        isGitHubConnected ? String(localized: "Create issue") : String(localized: "Approve"),
-                        color: isGitHubConnected ? Theme.Colors.issueGreen : Theme.Colors.approve
-                    )
-                    Spacer()
-                }
-                .padding(.leading, Theme.Spacing.screen)
-            }
-
-            if dragOffset < -24 {
-                HStack {
-                    Spacer()
-                    swipeLabel(String(localized: "Reject"), color: Theme.Colors.reject)
-                }
-                .padding(.trailing, Theme.Spacing.screen)
-            }
-        }
-        .opacity(min(abs(dragOffset) / swipeThreshold, 1))
-        .allowsHitTesting(false)
-    }
-
-    private func swipeLabel(_ title: String, color: Color) -> some View {
-        Text(title)
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(color)
-            .padding(.horizontal, Theme.Spacing.md)
-            .padding(.vertical, Theme.Spacing.sm)
-            .background(color.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm))
-    }
-
-    /// What the card is, said once, in the order a person would ask: what has to
-    /// be decided, how urgent, who it came from, and whether it is still open.
-    private var accessibilitySummary: String {
-        [
-            card.type.label,
-            card.priorityLabel,
-            card.title,
-            card.summary,
-            card.isPending ? nil : card.status.label,
-        ]
-        .compactMap { $0 }
-        .filter { !$0.isEmpty }
-        .joined(separator: ". ")
-    }
-
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 20, coordinateSpace: .local)
-            .onChanged { value in
-                guard card.isPending else { return }
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                guard abs(horizontal) > abs(vertical) else { return }
-                dragOffset = horizontal
-            }
-            .onEnded { value in
-                guard card.isPending else {
-                    resetDrag()
-                    return
-                }
-
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                guard abs(horizontal) > abs(vertical) else {
-                    resetDrag()
-                    return
-                }
-
-                if horizontal > swipeThreshold {
-                    Haptics.success()
-                    onAction(.createIssue)
-                } else if horizontal < -swipeThreshold {
-                    Haptics.light()
-                    onAction(.reject)
-                }
-
-                resetDrag()
-            }
-    }
-
-    private func resetDrag() {
-        withAnimation(.easeOut(duration: 0.18)) {
-            dragOffset = 0
-        }
-    }
-
-    private var replyComposer: some View {
-        Button {
-            Haptics.light()
-            onAction(.requestRevision)
-        } label: {
-            HStack(spacing: Theme.Spacing.sm) {
-                Text("Reply…")
-                    .font(Theme.TypeScale.caption)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                Spacer()
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Colors.textSecondary)
-            }
-            .padding(.horizontal, Theme.Spacing.md)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Radius.input)
-                    .strokeBorder(Theme.Colors.border, lineWidth: 1)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// The priority stripe from docs/design-system.md: urgent pink, high blue,
-    /// everything quieter than that a neutral cloud.
-    private var priorityColor: Color {
-        switch card.priority {
-        case .urgent: Theme.Colors.reject
-        case .high: Theme.Colors.interactive
-        default: Color(hex: 0xD4D4D4)
-        }
-    }
-
-    private var issueLabel: String {
-        if let number = card.githubIssueNumber {
-            return "Issue #\(number)"
-        }
-        return "View on GitHub"
-    }
-
-    private var actionBlock: some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            if card.isPending {
-                if isGitHubConnected {
-                    GitHubPrimaryButton(title: String(localized: "Create issue"), enabled: true) {
-                        Haptics.light()
-                        onAction(.createIssue)
-                    }
-                } else {
-                    Button {
-                        Haptics.light()
-                        onAction(.createIssue)
-                    } label: {
-                        // Filled dark pill. docs/design-system.md lists "violet
-                        // never fills a primary CTA" under Don'ts (enforced),
-                        // and every button in the system is a pill.
-                        Text("Approve")
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Theme.Colors.ctaFill)
-                            .foregroundStyle(Color.white)
-                            .clipShape(Capsule())
-                    }
-                }
-
-                HStack(spacing: 0) {
-                    SecondaryAction(title: String(localized: "Decline"), tint: Theme.Colors.reject) {
-                        Haptics.light()
-                        onAction(.reject)
-                    }
-
-                    SecondaryAction(title: String(localized: "Revise")) {
-                        Haptics.light()
-                        onAction(.requestRevision)
-                    }
-
-                    SecondaryAction(title: String(localized: "Delegate")) {
-                        Haptics.light()
-                        onAction(.delegate)
-                    }
-                }
-
-                Text(isGitHubConnected
-                     ? String(localized: "Swipe right to create issue · left to decline")
-                     : String(localized: "Swipe right to approve · left to decline"))
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, Theme.Spacing.xs)
-            } else {
-                HStack(spacing: 0) {
-                    Button(String(localized: "Undo")) {
-                        Task { await appState.webSocketService.publishRollback(cardID: card.id) }
-                    }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Theme.Colors.interactive)
-
-                    if card.canDelete {
-                        Spacer()
-                        SecondaryAction(title: String(localized: "Delete"), tint: Theme.Colors.reject) {
-                            Haptics.light()
-                            onAction(.delete)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Requested By").font(.system(size: captionSize, design: .monospaced)).foregroundStyle(Theme.Colors.textSecondary)
+                    HStack(alignment: .top, spacing: 9) {
+                        RequestAvatar(name: senderName, url: card.requestedBy?.avatarUrl ?? sender?.avatarUrl, size: 32)
+                        VStack(alignment: .leading, spacing: 8) {
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 8) { Text(senderName).font(.system(size: bodySize, weight: .semibold)); requesterMeta }
+                                VStack(alignment: .leading, spacing: 4) { Text(senderName).font(.system(size: bodySize, weight: .semibold)); requesterMeta }
+                            }
+                            if let quote, !quote.isEmpty {
+                                Text("“\(quote)”").font(.system(size: captionSize)).lineSpacing(2).foregroundStyle(Theme.Colors.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Button { if card.sourceApp != nil { showSource = true } else { onShowDetails() } } label: {
+                                HStack(spacing: 5) { Text("View original"); Image(systemName: "chevron.right") }.font(.system(size: captionSize, weight: .semibold))
+                            }.buttonStyle(.plain).foregroundStyle(Theme.Colors.textSecondary)
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                if let recommendation = card.recommendation, let label = recommendationLabel(recommendation.action) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles").foregroundStyle(Theme.Colors.accent)
+                            (Text("Recommended: ") + Text(label).foregroundColor(Theme.Colors.accent))
+                                .font(.system(size: bodySize + 2, weight: .medium))
+                        }
+                        if let reason = recommendation.reason, !reason.isEmpty {
+                            Text(reason).font(.system(size: captionSize)).lineSpacing(3).foregroundStyle(Theme.Colors.textSecondary)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(13)
+                        .background(Theme.Colors.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                }
             }
+            .padding(18)
+            .background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.Colors.border, lineWidth: 1))
+            .contextMenu {
+                Button("View details", systemImage: "doc.text", action: onShowDetails)
+                if card.type != .notification {
+                    Button("Reply", systemImage: "arrowshape.turn.up.left") { onAction(.reply) }
+                    Button("Request revision", systemImage: "pencil") { onAction(.requestRevision) }
+                    Button("Delegate", systemImage: "person.badge.plus") { onAction(.delegate) }
+                }
+            }
+            if showsActions, card.isPending { DecisionCardActions(card: card, onAction: onAction) }
+        }
+        .sheet(isPresented: $showSource) {
+            if let app = card.sourceApp { SourceSheet(app: app, detail: card.sourceDetail, card: card).presentationDetents([.medium, .large]) }
+        }
+    }
+    @ViewBuilder private var cardHeader: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                kindLabel
+                priorities
+            }.foregroundStyle(Theme.Colors.textSecondary)
+        } else {
+            HStack(spacing: 6) {
+                kindLabel
+                Spacer(minLength: 4)
+                priorities
+            }.foregroundStyle(Theme.Colors.textSecondary)
+        }
+    }
+    private var kindLabel: some View {
+        Text(appState.isGuest ? String(localized: "Decisions · Demo") : String(localized: "Decisions"))
+            .font(.system(size: captionSize, design: .monospaced)).fixedSize(horizontal: false, vertical: true)
+    }
+    private var priorities: some View {
+        HStack(spacing: 6) {
+            priorityLegend("Low", color: Theme.Colors.approve)
+            priorityLegend("Medium", color: .orange)
+            priorityLegend("High", color: Theme.Colors.reject)
+        }
+    }
+    private var requesterMeta: some View {
+        HStack(spacing: 5) { Text(relativeTime); if let role = senderRole, !role.isEmpty { Text("•"); Text(role) } }
+            .font(.system(size: captionSize - 1)).foregroundStyle(Theme.Colors.textSecondary)
+    }
+    private var relativeTime: String {
+        let formatter = RelativeDateTimeFormatter(); formatter.unitsStyle = .short; formatter.locale = locale
+        let minutes = max(1, Int(Date().timeIntervalSince(card.createdAt) / 60))
+        return formatter.localizedString(from: minutes < 60 ? DateComponents(minute: -minutes) : minutes < 1440 ? DateComponents(hour: -(minutes / 60)) : DateComponents(day: -(minutes / 1440)))
+    }
+    private func priorityLegend(_ text: LocalizedStringKey, color: Color) -> some View {
+        HStack(spacing: 3) { Circle().fill(color).frame(width: 5, height: 5); Text(text).font(.system(size: captionSize, design: .monospaced)).fixedSize() }
+    }
+    private func recommendationLabel(_ action: String) -> String? {
+        switch action { case "approve": String(localized: "Approve"); case "decline": String(localized: "Decline"); case "revise": String(localized: "Request revision"); default: nil }
+    }
+    private func sourceSymbol(_ source: String) -> String { switch source.lowercased() { case "github": "chevron.left.forwardslash.chevron.right"; case "slack": "number"; case "notion": "doc.text"; case "gmail", "email": "envelope"; default: "link" } }
+    private func sourceDisplay(_ source: String) -> String { switch source.lowercased() { case "github": "GitHub"; case "slack": "Slack"; case "notion": "Notion"; case "gmail": "Gmail"; default: source.capitalized } }
+}
+
+
+/// Kept outside the card scroll region in Home so both decisions remain
+/// reachable on a small screen or with accessibility text sizes.
+struct DecisionCardActions: View {
+    let card: DecisionCard
+    let onAction: (CardActionKind) -> Void
+    @EnvironmentObject private var appState: AppState
+    var body: some View {
+        HStack(spacing: 14) {
+            decisionButton(String(localized: "Decline"), symbol: "xmark", primary: false) { onAction(.reject) }
+            decisionButton(primaryTitle, symbol: card.type == .revision ? "arrowshape.turn.up.left" : "checkmark", primary: true) { onAction(primaryAction) }
+        }
+        .disabled(!appState.isGuest && appState.connectionState != .connected)
+    }
+    private func decisionButton(_ title: String, symbol: String, primary: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 25, weight: .medium)).frame(width: 60, height: 60)
+                .foregroundStyle(primary ? Theme.Colors.ctaText : Theme.Colors.textSecondary)
+                .background(primary ? Theme.Colors.ctaFill : Theme.Colors.background, in: Circle())
+                .overlay(Circle().stroke(primary ? Color.clear : Theme.Colors.border, lineWidth: 1.5))
+        }.buttonStyle(PressFeedbackStyle()).accessibilityLabel(title)
+    }
+    private var primaryAction: CardActionKind { card.type == .approval ? .createIssue : card.type == .revision ? .reply : .acknowledge }
+    private var primaryTitle: String {
+        switch card.type {
+        case .approval: String(localized: "Approve")
+        case .revision: String(localized: "Reply")
+        case .notification: String(localized: "Acknowledge")
+        case .task, .delegation: String(localized: "Mark complete")
         }
     }
 }
 
-#Preview {
-    DecisionCardView(
-        card: DecisionCard(
-            id: "preview",
-            recipientUserID: "user-toru",
-            senderUserID: "agent-accounting",
-            type: .task,
-            title: "Auth latency regression",
-            summary: "p95 on auth endpoint up 18% after last deploy.",
-                context: "deadline: Friday demo · action: hotfix branch · metric: p95 +18%",
-            status: .pending,
-            priority: .urgent,
-            createdAt: .now.addingTimeInterval(-3600),
-            githubIssueNumber: nil,
-            githubIssueURL: nil,
-            agentRoute: "Bob's AI → Alice's AI",
-            routingReason: "You are Bob's manager"
-        ),
-        linkedRepository: "owner/repo",
-        onAction: { _ in },
-        onShowDetails: {}
-    )
-    .environmentObject(AppState())
+struct RequestAvatar: View {
+    let name: String
+    let url: String?
+    var size: CGFloat = 38
+    var body: some View {
+        Group {
+            if let url, let imageURL = URL(string: url), ["https", "http"].contains(imageURL.scheme ?? "") {
+                AsyncImage(url: imageURL) { image in image.resizable().scaledToFill() } placeholder: { initials }
+            } else { initials }
+        }.frame(width: size, height: size).clipShape(Circle())
+    }
+    private var initials: some View {
+        Text(String(name.prefix(1))).font(.system(size: size * 0.4, weight: .medium)).foregroundStyle(Theme.Colors.textSecondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.Colors.surfaceRaised)
+    }
 }

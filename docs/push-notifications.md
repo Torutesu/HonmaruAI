@@ -1,22 +1,10 @@
 # Push notifications (APNs)
 
-> This page is the **APNs** channel. It is one of three: Web Push and email
-> live behind the same hub and are documented in
-> [notifications.md](notifications.md), which is also where the language a
-> notification is written in is explained. Until the App ID work below is
-> done, those two are the channels that actually deliver.
-
-> **Switched off in the shipping build.** `PushService.isEnabledInThisBuild` is
-> `false`. Everything below is built, tested and deployed on the server side —
-> it is the *client* that is not asking for permission or registering, because
-> `aps-environment` has to be in the provisioning profile and "HonmaruAI
-> AppStore" was issued before push existed. An archive carrying that entitlement
-> fails to sign. Turning it on is the four steps under
-> [Setup](#setup) plus flipping that constant; all four have to land together.
->
-> The constant exists rather than a runtime check because **iOS grants exactly
-> one notification prompt, ever**. Asking in a build that cannot deliver is how
-> you end up permanently unable to notify someone who would have said yes.
+> iOS Push is enabled in the client with matching signing entitlements.
+> On 2026-09-08, Apple API verification confirmed Push Notifications on
+> `com.honmaru.ai` and `aps-environment: production` in the active
+> `HonmaruAI AppStore` profile. Real-device delivery still requires verification.
+> Web Push and email are documented in [notifications.md](notifications.md).
 
 A decision feed nobody is told about is a to-do list you have to remember to
 open. The pitch — *open the app and the decision is already there* — assumes the
@@ -68,11 +56,8 @@ and opens Settings instead.
 
 ## Setup
 
-> **The entitlements file already exists.** `TikTokForWork/HonmaruAI.entitlements`
-> is in the repo, unwired. It is not referenced from `project.yml`, so it
-> changes nothing until step 1 is done — pointing at it before the App ID
-> carries the capability makes every build fail to sign, local ones included.
-> Wiring it is two lines, listed in step 6.
+> The entitlement is generated from `project.yml`; edit its properties there.
+> Debug and Release each select their matching APNs signing environment.
 
 ### 1. The App ID and the profile
 
@@ -88,11 +73,10 @@ asc profiles download --id "$PROFILE_ID" \
   --output ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
 ```
 
-Then restore `TikTokForWork/HonmaruAI.entitlements` with `aps-environment` set
-to `development` — Apple rewrites it to production when it re-signs for
-distribution, and hardcoding `production` breaks local builds — point
-`project.yml` at it under the target's `entitlements:` key, and add it to the
-sources `excludes` so it is not also compiled as a resource.
+Set the entitlement in `project.yml` under `entitlements.properties` so XcodeGen
+preserves it when regenerating. `APNS_ENVIRONMENT` is `development` for Debug
+and `production` for the manually signed Release configuration. Exclude the
+entitlements file from sources.
 
 ### 2. The APNs key
 
@@ -138,9 +122,8 @@ Sending a sandbox token to the production host fails with `BadDeviceToken`,
 which looks exactly like a bug in the code. If notifications work on a
 development build and stop on TestFlight, this is why.
 
-The entitlement (`TikTokForWork/HonmaruAI.entitlements`) says `development` on
-purpose. Apple rewrites it to production when it re-signs for distribution, and
-hardcoding `production` breaks local builds.
+The generated entitlement uses `$(APNS_ENVIRONMENT)` to match the signing
+configuration: development for Debug and production for Release.
 
 ### 5. Migrate D1
 
@@ -158,6 +141,8 @@ Both, in the same commit, after steps 1–3. In `project.yml`, under the
 ```yaml
     entitlements:
       path: TikTokForWork/HonmaruAI.entitlements
+      properties:
+        aps-environment: $(APNS_ENVIRONMENT)
     sources:
       - path: TikTokForWork
         excludes:

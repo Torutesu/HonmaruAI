@@ -1,107 +1,99 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Dashboard } from './components/Dashboard'
 import { Welcome } from './screens/Welcome'
 import { SignIn } from './screens/SignIn'
 import { Otp } from './screens/Otp'
 import { Onboarding } from './screens/Onboarding'
 import { disableWebPush } from './utils/push'
+import { useT } from './utils/i18n'
+import { sampleUser } from './utils/sampleWorkspace'
+import { apiBase, readResponse } from './utils/api'
 import './theme.css'
 import './App.css'
 
-// The web client talks to the backend over HTTP for auth and WebSocket for the
-// feed. We store one base host and derive both.
-const DEFAULT_HOST = import.meta.env.VITE_API_HOST || 'localhost:8787'
-
-// Derive the scheme from the page's own, so one build works in dev over http
-// and in production over https. Hardcoding http:// meant a deployed client
-// could not reach an https backend at all, and would have put the sign-in
-// email and password on the wire in cleartext if pointed at one.
-const secure = typeof location !== 'undefined' && location.protocol === 'https:'
-
-function httpBase(host: string) {
-  return `${secure ? 'https' : 'http'}://${host}`
-}
-function wsBase(host: string) {
-  return `${secure ? 'wss' : 'ws'}://${host}`
-}
+const HTTP_BASE = apiBase(import.meta.env.VITE_API_HOST, window.location, import.meta.env.DEV)
 
 // Where someone is in getting into the product. `app` is the only stage with a
 // session behind it; everything before it is the way in.
 type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'app'
 
 function App() {
+  const [demo, setDemo] = useState(() => new URLSearchParams(location.search).get('demo') || '')
   const [stage, setStage] = useState<Stage>('welcome')
   const [mode, setMode] = useState<'signup' | 'login'>('signup')
   const [userId, setUserId] = useState<string | null>(null)
-  const [orgId, setOrgId] = useState<string>('web-team')
+  const [orgId, setOrgId] = useState<string>('')
   const [sessionToken, setSessionToken] = useState<string>('')
-  const [host, setHost] = useState<string>(DEFAULT_HOST)
   // Carried from the email screen to the code screen and nowhere else.
   const [pending, setPending] = useState({ email: '', name: '', inviteCode: '' })
 
   useEffect(() => {
-    const savedToken = localStorage.getItem('sessionToken')
-    const savedUser = localStorage.getItem('userId')
-    const savedOrg = localStorage.getItem('orgId')
-    const savedHost = localStorage.getItem('host')
-    if (savedHost) setHost(savedHost)
-    if (savedOrg) setOrgId(savedOrg)
-    if (savedToken && savedUser) {
-      setSessionToken(savedToken)
-      setUserId(savedUser)
-      setStage('app')
-    }
+    try {
+      const savedToken = localStorage.getItem('sessionToken')
+      const savedUser = localStorage.getItem('userId')
+      const savedOrg = localStorage.getItem('orgId')
+      const savedApi = localStorage.getItem('apiBase')
+      if (savedApi === HTTP_BASE && savedToken && savedUser) {
+        setSessionToken(savedToken); setUserId(savedUser); setOrgId(savedOrg || ''); setStage('app')
+      }
+    } catch { /* Sign-in works without persistence. */ }
   }, [])
 
   const finishAuth = (token: string, uid: string, org: string, firstTime: boolean) => {
-    const workspace = org || orgId
+    if (!token || !uid) return
+    const workspace = org || ''
     setSessionToken(token)
     setUserId(uid)
     setOrgId(workspace)
-    localStorage.setItem('sessionToken', token)
-    localStorage.setItem('userId', uid)
-    localStorage.setItem('orgId', workspace)
-    localStorage.setItem('host', host)
+    try {
+      localStorage.setItem('sessionToken', token); localStorage.setItem('userId', uid)
+      localStorage.setItem('orgId', workspace); localStorage.setItem('apiBase', HTTP_BASE)
+    } catch { /* Keep this session usable in memory. */ }
     // Onboarding is for a new account, and once. Someone signing in on a
     // second browser has already answered these questions.
     let seen = false
-    try { seen = localStorage.getItem('onboarded') === 'yes' } catch { /* private mode */ }
-    setStage(!seen && firstTime ? 'onboarding' : 'app')
+    try { seen = localStorage.getItem(`onboarded:${uid}`) === 'yes' } catch { /* private mode */ }
+    setStage(workspace && !seen && firstTime ? 'onboarding' : 'app')
   }
 
   const finishOnboarding = () => {
-    try { localStorage.setItem('onboarded', 'yes') } catch { /* a preference, not a record */ }
+    try { localStorage.setItem(`onboarded:${userId}`, 'yes') } catch { /* a preference, not a record */ }
     setStage('app')
   }
 
   const handleLogout = () => {
     // This browser stops receiving this account's decisions before the
     // session is dropped — the Worker needs the token to forget the subscription.
-    disableWebPush(httpBase(host), sessionToken).catch(() => {})
+    disableWebPush(HTTP_BASE, sessionToken).catch(() => {})
     setUserId(null)
     setSessionToken('')
     setStage('welcome')
-    localStorage.removeItem('sessionToken')
-    localStorage.removeItem('userId')
+    try { ['sessionToken', 'userId', 'orgId'].forEach((key) => localStorage.removeItem(key)) } catch {}
   }
+
+  if (demo) return <Dashboard key={demo} sample figmaFixture={demo === 'figma'} userId={sampleUser} orgId="sample" sessionToken="" relayUrl={HTTP_BASE.replace(/^http/, 'ws')} onLogout={() => { setDemo(''); history.replaceState(null, '', location.pathname) }} />
+
+  if (userId && !orgId && stage === 'app') return <WorkspaceRecovery key={sessionToken} token={sessionToken} onJoined={(org) => { setOrgId(org); try { localStorage.setItem('orgId', org) } catch {} }} onLogout={handleLogout} />
 
   if (stage === 'welcome') {
     return (
       <Welcome
         onStart={() => { setMode('signup'); setStage('auth') }}
         onSignIn={() => { setMode('login'); setStage('auth') }}
+        onDemo={() => { setDemo('true'); history.replaceState(null, '', '?demo=true') }}
       />
     )
   }
 
   if (stage === 'auth') {
     return (
-      <SignIn
-        httpBase={httpBase(host)}
+      <SignIn key={`${HTTP_BASE}:${mode}`}
+        httpBase={HTTP_BASE}
         mode={mode}
         onBack={() => setStage('welcome')}
         onSwitchMode={setMode}
         onCodeSent={(email, name, inviteCode) => { setPending({ email, name, inviteCode }); setStage('otp') }}
+        onDemo={() => { setDemo('true'); history.replaceState(null, '', '?demo=true') }}
         onSignedIn={(token, uid, org) => finishAuth(token, uid, org, mode === 'signup')}
       />
     )
@@ -110,7 +102,7 @@ function App() {
   if (stage === 'otp') {
     return (
       <Otp
-        httpBase={httpBase(host)}
+        httpBase={HTTP_BASE}
         email={pending.email}
         name={pending.name}
         inviteCode={pending.inviteCode}
@@ -123,7 +115,7 @@ function App() {
   if (stage === 'onboarding' && userId) {
     return (
       <Onboarding
-        httpBase={httpBase(host)}
+        httpBase={HTTP_BASE}
         orgId={orgId}
         sessionToken={sessionToken}
         onDone={finishOnboarding}
@@ -140,9 +132,16 @@ function App() {
 
   return (
     <div className="app">
-      <Dashboard userId={userId} orgId={orgId} relayUrl={wsBase(host)} sessionToken={sessionToken} onLogout={handleLogout} />
+      <Dashboard key={`${HTTP_BASE}:${userId}:${sessionToken}`} userId={userId} orgId={orgId} relayUrl={HTTP_BASE.replace(/^http/, 'ws')} sessionToken={sessionToken} onLogout={handleLogout} onJoined={(org) => { setOrgId(org); try { localStorage.setItem("orgId", org) } catch {} }} />
     </div>
   )
+}
+
+function WorkspaceRecovery({ token, onJoined, onLogout }: { token: string; onJoined: (org: string) => void; onLogout: () => void }) {
+  const t = useT(), [code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''), scope=useRef(0), request=useRef<AbortController|null>(null)
+  useEffect(() => { scope.current++;return () => {scope.current++;request.current?.abort()} },[token])
+  const join=async(event:React.FormEvent) => { event.preventDefault();if(busy)return;const current=scope.current;request.current=new AbortController();setBusy(true);setError('');try{const result=await readResponse(await fetch(`${HTTP_BASE}/invites/accept`,{method:'POST',signal:request.current.signal,headers:{'content-type':'application/json','x-session-token':token},body:JSON.stringify({code:code.trim()})}));if(current===scope.current&&typeof result.orgId==='string'&&result.orgId)onJoined(result.orgId)}catch(e){if(current===scope.current)setError(e instanceof Error?e.message:t('Could not join workspace.'))}finally{if(current===scope.current)setBusy(false)}}
+  return <div className="screen"><div className="screen-body"><h1>{t('Join your workspace')}</h1><p>{t('You are signed in. Enter a teammate’s invite code to restore workspace access.')}</p><form onSubmit={join}><label className="field">{t('Invite code')}<input value={code} onChange={e=>setCode(e.target.value)} required autoComplete="off" /></label>{error&&<p className="form-error" role="alert">{error}</p>}<button className="btn btn-primary" disabled={busy||!code.trim()}>{t(busy?'Joining…':'Join workspace')}</button></form><button className="btn btn-quiet" onClick={onLogout}>{t('Sign out')}</button></div></div>
 }
 
 export default App

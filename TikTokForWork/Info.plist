@@ -18,6 +18,11 @@
 	     xcconfig and cannot appear in a value there. -->
 	<key>RelayURL</key>
 	<string>$(RELAY_SCHEME)://$(RELAY_HOST)</string>
+	<!-- RevenueCat's public SDK key, also from Config/Base.xcconfig. Public keys
+	     are safe to ship; keeping it here means swapping the Test Store key for
+	     the production one is a config change, not a code edit. -->
+	<key>RevenueCatAPIKey</key>
+	<string>$(REVENUECAT_API_KEY)</string>
 	<!-- The relay speaks plain ws:// on the LAN, which App Transport Security
 	     blocks by default. NSAllowsLocalNetworking exempts private and
 	     link-local addresses only — public hosts still require HTTPS, so this

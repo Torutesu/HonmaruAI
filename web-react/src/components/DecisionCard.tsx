@@ -1,5 +1,6 @@
 import React from 'react'
 import type { DecisionCard as DecisionCardType } from '../types/card'
+import { requestContext } from '../utils/cardPresentation'
 import { getLocale } from '../utils/locale'
 import './DecisionCard.css'
 import { useT } from '../utils/i18n'
@@ -15,6 +16,7 @@ interface Props {
   onRollback: () => void
   onDelegate: (userId: string) => void
   isPending: boolean
+  disabled?: boolean
   highlighted?: boolean
   businessName?: string
 }
@@ -32,6 +34,7 @@ export const DecisionCard: React.FC<Props> = ({
   onDelegate,
   isPending,
   highlighted = false,
+  disabled = false,
   businessName
 }) => {
   const t = useT()
@@ -40,7 +43,7 @@ export const DecisionCard: React.FC<Props> = ({
   const localized = card.localized?.[getLocale()]
   const title = localized?.title || card.title
   const summary = localized?.summary || card.summary
-  const context = localized?.context || card.context
+  const context = requestContext(card, localized?.context || card.context).join('\n')
 
   const getStatusColor = (): string => {
     switch (card.status) {
@@ -100,7 +103,7 @@ export const DecisionCard: React.FC<Props> = ({
       {card.decision && (
         <div className="card-decision">
           <div className="decision-action">
-            <strong>{t('Decision:')}</strong> {card.decision.action}
+            <strong>{t('Decision:')}</strong> {t(({approve:'Approved',decline:'Declined',reply:'Replied',acknowledge:card.type === 'task' || card.type === 'revision' ? 'Completed' : 'Acknowledged',revised:'Revision asked',delegate:'Delegated'} as Record<string,string>)[card.decision.action] || card.status)}
           </div>
           {card.decision.replyText && (
             <div className="decision-text">{card.decision.replyText}</div>
@@ -109,12 +112,12 @@ export const DecisionCard: React.FC<Props> = ({
             <div className="decision-note">{card.decision.note}</div>
           )}
           <div className="decision-time">
-            {new Date(card.decision.decidedAt).toLocaleString()}
+            {new Date(card.decision.decidedAt).toLocaleString(getLocale())}
           </div>
         </div>
       )}
 
-      {isRecipient && card.status === 'pending' && (
+      {isRecipient && isPending && card.status === 'pending' && (
         <div className="card-actions">
           <button onClick={onApprove} className="action-approve">
             {t('Approve')}
@@ -133,10 +136,10 @@ export const DecisionCard: React.FC<Props> = ({
         </div>
       )}
 
-      {!card.status && card.decision && (
+      {isRecipient && !isPending && card.decision && card.status !== 'pending' && (
         <div className="card-actions">
-          <button onClick={onRollback} className="action-rollback">
-            ↩ Roll back
+          <button disabled={disabled} onClick={onRollback} className="action-rollback">
+            {t('Undo')}
           </button>
         </div>
       )}

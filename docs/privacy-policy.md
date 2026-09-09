@@ -1,101 +1,35 @@
-# Privacy Policy — Honmaru AI
+# Honmaru AI プライバシーポリシー
 
-Last updated: 2026-08-15
+最終更新日: 2026年9月9日
 
-Honmaru AI turns what you tell your AI into decisions routed to the right person
-on your team. This page says exactly what that involves handling, why, where it
-goes, and how to get rid of it.
+## 取り扱う情報
 
-We do not sell data, run advertising, or track you across other apps or
-websites. There is no advertising SDK in the app and no third-party analytics.
+メールアドレス、氏名、アカウントID、プロフィール、ワークスペースへの所属を、ログインとチーム機能のために取り扱います。パスワードはハッシュ化して保存します。決定カードの件名・本文・背景情報・コメント・操作履歴、AIへの入力、接続したサービスから取得した情報を、依頼の整理、担当者への共有、履歴の表示に使用します。通知を有効にした場合は端末のプッシュトークンや通知設定を保存します。購入機能を利用する場合は購入履歴と購読状態を取り扱います。
 
----
+## 音声と添付ファイル
 
-## What we handle
+音声入力にはAppleの音声認識を使用します。対応する端末では端末上で処理し、それ以外はAppleの音声認識サービスを利用する場合があります。文字起こしした内容は、送信操作後にAIへの入力やカードとして取り扱います。カードに添付された画像・動画などは、共有と表示のために保存されます。
 
-| What | Why | Where it is stored |
-|------|-----|--------------------|
-| GitHub login, numeric id, avatar URL | This is your identity in the app; your repository's collaborators are your organization | Cloudflare D1 |
-| GitHub access token | To read your repositories and collaborators, and to create the issues your approvals produce | Cloudflare D1, tied to your session |
-| Decision cards — titles, summaries, context, notes | They are the product | Cloudflare D1 |
-| The instructions you type or dictate | To route them to the right person | Sent to the model provider; the text of the instruction is stored on the card it produces |
-| Video you attach to a decision | To show a teammate what you mean | Cloudflare R2 |
-| Your context ("how I work") | So your AI routes the way you would | Cloudflare D1 |
-| Connector settings (which Notion database, which accounts are linked) | So a sync knows where to read and write | Cloudflare D1; the connections themselves live at Composio |
-| Daily AI call count | To meter the free tier | Cloudflare D1 |
-| Subscription status | To know whether Pro is active | RevenueCat, keyed by your GitHub id |
-| Device push token | To tell you a decision is waiting | Cloudflare D1 |
+## 外部サービスとAI
 
-We do not collect location, contacts, health data, browsing history, or
-advertising identifiers.
+Cloudflareをホスティング、データ保存、通信に使用します。AIによるカード生成や分類では、入力文、必要なチーム情報や文脈、接続サービスから取得したメッセージ等をOpenAIに送信します。AIの結果は誤ることがあるため、共有前に確認してください。メールのログインコードと通知はResend、プッシュ通知はAppleを通じて配信します。購入機能が有効な場合はAppleおよびRevenueCatで購読状態を管理し、RevenueCatのアカウント識別子を当サービスのIDと対応付けます。クレジットカード番号は当サービスでは取り扱いません。
 
-## Who else sees it
+## 接続サービス
 
-- **OpenAI** — the text of an instruction, and the sender/subject/preview of a
-  message a connector is triaging, are sent to the model that turns them into a
-  card. If you supply your own API key in the app, the request goes on your key
-  and never touches ours.
-- **GitHub** — the issue an approval creates, and the reads needed to build your
-  organization graph.
-- **Composio** — the intermediary that holds your Gmail, Slack and Notion
-  connections. Each connection is authorized by you, per user, and can be
-  revoked at Composio or by disconnecting in the app.
-- **RevenueCat** — subscription state, keyed by your GitHub id.
-- **Cloudflare** — hosting, storage, and the realtime relay.
-- **Apple** — push notification delivery.
+利用者が接続を許可したGmail、Slack、Notion、Google Calendar、Google Driveなどの情報を、許可された範囲で取得し、依頼の抽出やカードの作成に使用します。これらの接続はComposioを介して管理します。GitHub連携を使うワークスペースでは、リポジトリ情報や協力者情報の取得、承認後のIssue作成などを行います。接続の解除はアプリの接続設定、または各サービスの権限設定から行えます。
 
-Nobody else. No data broker, no advertiser.
+## チーム内での共有
 
-## Who inside your team sees it
+同じワークスペースのメンバーには、そのワークスペースのカード、関連する内容、決定履歴が共有されます。カードの宛先指定は、他のメンバーから内容を非公開にする設定ではありません。共有する権限がある情報だけを入力してください。
 
-Your organization is the collaborators on the GitHub repository you connect.
-Everyone in it can see the decision cards in that organization — that is what
-makes it a shared feed rather than four private inboxes. A decision is
-attributed to whoever made it, and the history of what was decided is visible to
-the team.
+## 保存と削除
 
-The relay refuses any connection that cannot prove write access to that
-repository, and a card can only be decided by the person it was routed to.
+アカウント、カード、履歴はサービス提供に必要な期間保存します。アプリのプロフィールからワークスペース設定を開き、「アカウントを削除」で削除を実行できます。削除時はアカウント、セッション、所属、保存した設定、通知用トークンなどを削除します。あなた宛てのカードは削除し、他のメンバーに送ったカードと共有の操作履歴は、送信者・操作者のIDを匿名化して残す場合があります。カード本文に記載された氏名などが自動的にすべて除去されるわけではありません。外部サービスに作成されたIssue等や購読は、各サービスでも管理してください。追加の削除依頼は下記窓口で受け付けます。
 
-## Audio and video
+## 広告・トラッキング
 
-Dictation runs through Apple's speech recognition to turn what you say into an
-instruction. Recorded video is uploaded only when you attach it to a decision,
-and is served back from a random, unguessable URL.
+広告配信、個人データの販売、他社のアプリやウェブサイトをまたぐ広告目的のトラッキングは行いません。通知やマイクの権限は端末の設定から変更できます。
 
-## Retention
+## お問い合わせ
 
-- Decision cards and their history are kept until deleted.
-- Sessions expire after 30 days.
-- Rate-limit counters are swept hourly; sign-in nonces expire in 10 minutes.
-- Deleting your account removes everything listed under "What we handle", with
-  the two exceptions below.
-
-## Deleting your account
-
-**Account → Delete account**, inside the app. It is immediate.
-
-Two things survive, and it is worth being plain about why:
-
-1. **A decision a teammate has not made yet** stays in their feed, with your
-   name replaced by "deleted-user". Removing it would delete their pending work,
-   not yours.
-2. **The team's audit history** — what was decided, when — stays, with your name
-   replaced by "deleted-user". It is the organization's record of what happened,
-   and a record with holes in it is worse than no record.
-
-Issues already created on GitHub are GitHub's; delete them there.
-
-## Children
-
-Honmaru AI is a workplace tool and is not directed at children under 13.
-
-## Changes
-
-Material changes will be announced in the app's release notes before they take
-effect.
-
-## Contact
-
-Questions, or a data request that this page does not cover:
-**support@honmaruai.com**
+個人情報の確認・訂正・削除や本ポリシーに関するお問い合わせは support@honmaruai.com へお送りください。Honmaru AIは仕事のためのサービスであり、13歳未満の子どもを対象としていません。変更がある場合は本ページを更新します。

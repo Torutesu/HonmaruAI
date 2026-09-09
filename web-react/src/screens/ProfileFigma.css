@@ -1,0 +1,80 @@
+.screen.figma-profile { background: #fafafa; color: #171717; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.figma-profile button, .figma-profile select, .figma-profile summary { font: inherit; }
+.figma-profile button, .figma-profile summary { cursor: pointer; }
+.figma-profile button:disabled, .figma-profile select:disabled { cursor: wait; opacity: .6; }
+.figma-profile-header { position: relative; flex: 0 0 auto; width: min(100%, var(--app-width)); margin: 0 auto; padding: calc(26px + env(safe-area-inset-top)) 52px 24px; text-align: center; }
+.figma-profile-header h1 { margin: 0; font-size: 20px; font-weight: 650; line-height: 28px; letter-spacing: -.5px; }
+.figma-profile-back { position: absolute; bottom: 16px; left: 12px; width: 44px; height: 44px; display: grid; place-items: center; border: 0; color: inherit; background: none; border-radius: 50%; }
+.figma-profile-body { width: min(100%, var(--app-width)); margin: 0 auto; padding: 0 20px calc(32px + env(safe-area-inset-bottom)); overflow: auto; flex: 1; scrollbar-width: thin; }
+.figma-profile-identity, .figma-profile-group { background: #fff; border: 1px solid #e9e9e9; border-radius: 24px; margin-bottom: 12px; }
+.figma-profile-identity { padding: 14px; }
+.figma-profile-person { display: flex; gap: 11px; align-items: center; padding: 0 0 17px; }
+.figma-profile-person > div { min-width: 0; }
+.figma-profile-avatar { width: 48px; height: 48px; flex-shrink: 0; border-radius: 50%; background: #f2f2f2; color: #646464; display: grid; place-items: center; }
+.figma-profile-person h2 { font-size: 16px; font-weight: 650; letter-spacing: -.3px; line-height: 22px; margin: 0 0 3px; overflow-wrap: anywhere; }
+.figma-profile-person p { font-size: 11.5px; line-height: 17px; color: #777; margin: 0; overflow-wrap: anywhere; }
+.figma-profile-person p span { padding: 0 3px; }
+.figma-profile-assistant { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 58px; border: 0; border-radius: 17px; background: #f7f7f7; color: inherit; text-align: left; padding: 9px 11px; }
+.figma-profile-assistant-icon, .figma-profile-plan-icon { width: 35px; height: 35px; flex-shrink: 0; border: 1px solid #ececec; border-radius: 50%; display: grid; place-items: center; }
+.figma-profile-assistant-icon { color: #be7059; background: #faf8f7; }
+.figma-profile-assistant-copy { flex: 1; min-width: 0; }
+.figma-profile-assistant-copy b { display: block; font-size: 13px; font-weight: 500; line-height: 18px; overflow-wrap: anywhere; }
+.figma-profile-assistant-copy small { display: block; color: #777; font-size: 11.5px; line-height: 17px; margin-top: 1px; }
+.figma-profile-status { background: #171717; color: white; font-size: 10px; padding: 7px 10px; border-radius: 20px; flex-shrink: 0; }
+.figma-profile-group { padding: 5px 14px; }
+.figma-profile-row { min-height: 54px; display: flex; align-items: center; gap: 14px; width: 100%; border: 0; background: transparent; color: inherit; text-align: left; padding: 12px 0; font-size: 13.5px !important; }
+.figma-profile-row > svg { width: 22px; height: 22px; stroke-width: 1.5; flex-shrink: 0; }
+.figma-profile-row > span { flex: 1; }
+.figma-profile-row > .figma-profile-chevron { width: 16px; height: 16px; margin-left: auto; color: #7c7c7c; }
+.figma-profile-group > .figma-profile-row + .figma-profile-row, .figma-profile-group > details + .figma-profile-row { border-top: 1px solid #f0f0f0; }
+.figma-profile summary { list-style: none; }
+.figma-profile summary::-webkit-details-marker { display: none; }
+.figma-profile-ai[open] > summary .figma-profile-chevron { transform: rotate(90deg); }
+.figma-profile-language { cursor: pointer; gap: 10px; }
+.figma-profile-language > select { max-width: 48%; min-width: 0; appearance: none; text-align: right; border: 0; padding: 8px 0 8px 8px; background: transparent; color: #777; font-size: 11.5px; cursor: pointer; }
+.figma-profile-language > .figma-profile-chevron { margin-left: -7px; }
+.figma-profile-disclosure { margin: 0 0 8px 36px; padding: 0 0 8px; font-size: 12px; color: #777; line-height: 1.5; }
+.figma-profile-disclosure b { color: #303030; font-weight: 500; }
+.figma-profile-disclosure p { margin: 6px 0; }
+.figma-profile-disclosure button { color: #272727; border: 0; background: none; display: flex; gap: 7px; align-items: center; min-height: 36px; padding: 0; }
+.figma-profile-plan-group { padding-top: 13px; padding-bottom: 11px; }
+.figma-profile-plan { display: flex; align-items: center; gap: 11px; border: 0; width: 100%; background: #f7f7f7; text-align: left; padding: 11px; min-height: 68px; border-radius: 17px; color: inherit; }
+.figma-profile-plan-icon { color: #7658d6; background: #f4f1fa; }
+.figma-profile-plan > span:nth-child(2) { flex: 1; min-width: 0; }
+.figma-profile-plan b, .figma-profile-plan small { display: block; }
+.figma-profile-plan b { font-size: 13px; font-weight: 500; line-height: 18px; }
+.figma-profile-plan small { font-size: 11.5px; color: #777; line-height: 17px; margin-top: 2px; }
+.figma-profile-plan > .figma-profile-chevron { width: 16px; height: 16px; color: #777; }
+.figma-profile-plan-group > .figma-profile-row { padding-left: 0; padding-bottom: 2px; }
+.figma-profile-account { margin-top: 6px; color: #747474; }
+.figma-profile-account > summary { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 14px; font-size: 12px; }
+.figma-profile-account > summary > span { flex: 1; }
+.figma-profile-account-body { padding: 4px 14px 16px; font-size: 13px; color: #303030; }
+.figma-profile-email { margin: 0 0 16px; color: #777; overflow-wrap: anywhere; }
+.figma-profile-role { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.figma-profile-role > span { flex: 1; }
+.figma-profile-role select { max-width: 65%; min-height: 36px; color: #303030; border: 1px solid #e6e6e6; background: white; border-radius: 8px; padding: 6px; }
+.figma-profile-hint { color: #777; font-size: 11.5px; margin: 0 0 13px; }
+.figma-profile-account-body > button { display: flex; width: 100%; min-height: 44px; align-items: center; justify-content: space-between; padding: 10px 0; border: 0; border-top: 1px solid #e9e9e9; background: transparent; color: inherit; text-align: left; }
+.figma-profile-account-body > .figma-profile-delete { color: #a02b43; }
+.figma-profile-confirm { background: #fff5f5; padding: 12px; border-radius: 12px; line-height: 1.5; }
+.figma-profile-confirm p { margin: 0 0 12px; }
+.figma-profile-confirm > div { display: flex; gap: 8px; }
+.figma-profile-confirm button { min-height: 40px; padding: 8px 14px; border: 1px solid #e1caca; border-radius: 9px; color: inherit; background: white; }
+.figma-profile button:hover, .figma-profile summary:hover { filter: brightness(.97); }
+.figma-profile :focus-visible { outline: 2px solid #7658d6; outline-offset: 3px; }
+@media (min-width: 1080px) { .shell .screen.figma-profile { background: #fafafa; } }
+
+@media(prefers-color-scheme:dark) {
+  .shell .screen.figma-profile { background:#0e0e11; color:#f1f1f3; }
+  .figma-profile-identity,.figma-profile-group { background:#17171a; border-color:#2c2c33; }
+  .figma-profile-avatar,.figma-profile-assistant,.figma-profile-plan { background:#25252b; color:inherit; }
+  .figma-profile-person p,.figma-profile-assistant-copy small,.figma-profile-language>select,.figma-profile-disclosure,.figma-profile-plan small,.figma-profile-account,.figma-profile-hint,.figma-profile-email { color:#aaaab4; }
+  .figma-profile-assistant-icon { background:#2d2626; border-color:#473434; color:#df9a83; }
+  .figma-profile-plan-icon { background:#2a233b; border-color:#3d3057; color:#b4a1f2; }
+  .figma-profile-account-body,.figma-profile-disclosure b,.figma-profile-disclosure button { color:#e5e5eb; }
+  .figma-profile-status { background:#eeeef4; color:#111; }
+  .figma-profile-group>.figma-profile-row+.figma-profile-row,.figma-profile-group>details+.figma-profile-row,.figma-profile-account-body>button { border-color:#2c2c33; }
+  .figma-profile-role select,.figma-profile-language select option { background:#25252b; color:#eee; border-color:#3b3b43; }
+  .figma-profile-confirm { background:#342126; }.figma-profile-confirm button { background:#211c21; border-color:#563340; color:#eee; }.figma-profile-account-body>.figma-profile-delete { color:#f590a3; }
+}

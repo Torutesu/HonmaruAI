@@ -1,0 +1,5 @@
+{
+  "description": "Honmaru AIは、チームの依頼と判断をカードにまとめる仕事のためのアプリです。\n\n音声またはテキストで伝えたいことを入力すると、AIが依頼の下書きを整理します。内容を確認し、担当者を選んで共有できます。\n\n・音声とテキストでかんたんに依頼を作成\n・背景情報と判断内容をひとつのカードで確認\n・承認、見送り、コメントでチームの仕事を前へ\n・チームへの招待と参加\n・決定の履歴を確認\n・通知で届いた依頼を確認\n\nメールアドレスでサインインできます。サインイン前にデモを試すこともできます。AIによる下書きは、送信前にご確認ください。\n\nプライバシーポリシー: https://honmaru-web.pages.dev/privacy.html\n利用規約（Apple標準EULA）: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+  "keywords": "仕事,チーム,承認,依頼,意思決定,タスク,音声入力,業務,共有,AI",
+  "supportUrl": "https://honmaru-web.pages.dev/support.html"
+}

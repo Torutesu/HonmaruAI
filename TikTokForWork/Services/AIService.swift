@@ -27,6 +27,8 @@ private struct RouteInstructionRequest: Encodable {
     let readerLanguage: String
     /// What the sender told their AI about how they work.
     let senderContext: String?
+    let orgId: String
+    let recipientUserID: String?
 }
 
 private struct RouteInstructionResponse: Decodable {
@@ -106,7 +108,8 @@ final class AIService: ObservableObject {
         organization: OrganizationGraph,
         priorityOverride: CardPriority? = nil,
         readerLanguage: String,
-        senderContext: String?
+        senderContext: String?,
+        recipientUserID: String? = nil
     ) async throws -> InstructionDraft {
         let routing = try await routeInstruction(
             text: text,
@@ -114,7 +117,8 @@ final class AIService: ObservableObject {
             organization: organization,
             priorityOverride: priorityOverride,
             readerLanguage: readerLanguage,
-            senderContext: senderContext
+            senderContext: senderContext,
+            recipientUserID: recipientUserID
         )
 
         return InstructionDraft(
@@ -140,9 +144,10 @@ final class AIService: ObservableObject {
         organization: OrganizationGraph,
         priorityOverride: CardPriority? = nil,
         readerLanguage: String,
-        senderContext: String?
+        senderContext: String?,
+        recipientUserID: String? = nil
     ) async throws -> InstructionRouting {
-        guard let backendBaseURL else {
+        guard let backendBaseURL, let orgID = sender.teamID, !orgID.isEmpty else {
             throw AIServiceError.notConfigured
         }
         guard let url = URL(string: "/ai/route", relativeTo: backendBaseURL) else {
@@ -151,6 +156,8 @@ final class AIService: ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        if let token = SessionStore.sessionToken { request.setValue(token, forHTTPHeaderField: "x-session-token") }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let key = SessionStore.apiKey, !key.isEmpty {
             request.setValue(key, forHTTPHeaderField: "x-ai-key")
@@ -162,7 +169,9 @@ final class AIService: ObservableObject {
                 organization: organization,
                 priorityOverride: priorityOverride?.rawValue,
                 readerLanguage: readerLanguage,
-                senderContext: senderContext
+                senderContext: senderContext,
+                orgId: orgID,
+                recipientUserID: recipientUserID
             )
         )
 

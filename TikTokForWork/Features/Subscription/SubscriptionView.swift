@@ -22,8 +22,10 @@ struct SubscriptionView: View {
 
                     if subscriptions.isPro {
                         proActions
-                    } else {
+                    } else if subscriptions.canSell {
                         freeActions
+                    } else {
+                        billingUnavailable
                     }
 
                     footer
@@ -147,6 +149,21 @@ struct SubscriptionView: View {
         }
     }
 
+    /// Shown instead of the upgrade and restore buttons in a build that cannot take
+    /// money. Saying so plainly beats a button that opens a paywall with no plans in it:
+    /// the app is free and complete in that state, and nothing here is broken.
+    private var billingUnavailable: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Text("Upgrading isn't available in this version.")
+                .font(Theme.TypeScale.caption)
+                .foregroundStyle(Theme.Colors.textSecondary)
+            Text("The free routing limit above still applies.")
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var footer: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             if let appUserID = subscriptions.appUserID {
@@ -155,9 +172,11 @@ struct SubscriptionView: View {
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .textSelection(.enabled)
             }
-            Text("Subscriptions renew automatically until cancelled.")
-                .font(Theme.TypeScale.micro)
-                .foregroundStyle(Theme.Colors.textTertiary)
+            if subscriptions.canSell {
+                Text("Subscriptions renew automatically until cancelled.")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
         }
     }
 

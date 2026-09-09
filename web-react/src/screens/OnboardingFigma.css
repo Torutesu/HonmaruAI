@@ -1,0 +1,10 @@
+.onboarding-figma { background: var(--paper); }
+.onboarding-figma-body { padding-top: clamp(34px, 9vh, 76px); text-align: center; }
+.onboarding-figma-body h1 { max-width: 300px; margin: 0 auto 20px; font: 600 24px/1.25 var(--font-display); letter-spacing: -.8px; }
+.onboarding-figma-body > p { max-width: 300px; margin: 0 auto; color: var(--slate); font-size: 13px; line-height: 1.5; }
+.onboarding-choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 44px auto 24px; max-width: 320px; }
+.onboarding-choices button { min-height: 46px; padding: 12px 20px; border: 1px solid var(--bone); border-radius: 99px; background: transparent; color: var(--ink-black); font: 500 13px/1.4 var(--font-body); }
+.onboarding-choices button.selected { background: var(--ink-black); color: var(--signal-white); border-color: var(--ink-black); }
+.onboarding-choices button:focus-visible { outline: 2px solid var(--brand-violet); outline-offset: 3px; }
+.onboarding-figma-foot { padding-bottom: max(20px, env(safe-area-inset-bottom)); text-align: center; }
+.onboarding-figma-foot > span { display: block; margin-top: 12px; color: var(--slate); font-size: 12px; }

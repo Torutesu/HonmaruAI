@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-09-08T04:12:12.141Z",
+  "environment": "Local Worker, disposable D1, Chromium",
+  "checks": [
+    "Sign up, authenticated WebSocket join, and honest empty state",
+    "Route request, persist created card, acknowledge delivery, and show incoming card",
+    "Modal sheets disable feed shortcuts and background focus",
+    "Canceled swipe does not submit a decision",
+    "Approve is persisted and appears in decision history",
+    "Undo restores the pending card via live state",
+    "Mobile has no horizontal overflow or composer/action overlap",
+    "Reply is persisted and removes the card from pending",
+    "Shared decision record loads the persisted reply",
+    "Session and completed state survive reload",
+    "Notification keyboard action acknowledges instead of approving",
+    "Closing a pending composer cancels delivery before the route returns",
+    "No browser runtime errors"
+  ]
+}

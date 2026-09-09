@@ -12,7 +12,7 @@ class FakeWebSocket {
   onopen: (() => void) | null = null
   onmessage: ((event: { data: string }) => void) | null = null
   onerror: ((error: unknown) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((event?: { code?: number; reason?: string }) => void) | null = null
   sent: any[] = []
 
   constructor(public url: string) {
@@ -55,6 +55,7 @@ async function connectedClient(userId = 'user-alice') {
   const socket = FakeWebSocket.instances[0]
   socket.onopen?.()
   await connectPromise
+  socket.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
   return { client, socket }
 }
 
@@ -150,9 +151,122 @@ describe('WebSocketClient', () => {
     expect(FakeWebSocket.instances.length).toBe(2)
   })
 
+  it('reports connected only after an authenticated state snapshot', async () => {
+    const client = new WebSocketClient()
+    const changes = vi.fn()
+    client.onConnectionChange = changes
+    const connection = client.connect('ws://test', 'alice', 'org-a', 'token')
+    const socket = FakeWebSocket.instances[0]
+    socket.onopen?.()
+    await connection
+    expect(changes).not.toHaveBeenCalled()
+    expect(client.sendDecision('c1', 'approve')).toBe(false)
+    socket.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
+    expect(changes).toHaveBeenLastCalledWith(true)
+  })
+
+  it('does not let an old socket close or message override a replacement connection', async () => {
+    vi.useFakeTimers()
+    const { client, socket: first } = await connectedClient()
+    const staleClose = first.onclose
+    const staleMessage = first.onmessage
+    const connection = client.connect('ws://test', 'bob', 'org-b', 'bob-token')
+    const second = FakeWebSocket.instances[1]
+    second.onopen?.()
+    await connection
+    second.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: { safe: { id: 'safe' } } } })
+    staleClose?.()
+    staleMessage?.({ data: JSON.stringify({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: { wrong: { id: 'wrong' } } } }) })
+    expect(client.getCard('safe')).not.toBeNull()
+    expect(client.getCard('wrong')).toBeNull()
+    expect(client.sendDecision('safe', 'approve')).toBe(true)
+    expect(second.sent[second.sent.length - 1].payload.content.actorUserID).toBe('bob')
+    await vi.advanceTimersByTimeAsync(31000)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+  })
+
+  it('clears old organization state and tool correlations when switching identity', async () => {
+    const { client, socket } = await connectedClient()
+    socket.emit({ type: 'TOOL_CALL_START', toolCallId: 'alice-call', toolCallName: 'request_decision' })
+    socket.emit({ type: 'TOOL_CALL_ARGS', toolCallId: 'alice-call', delta: JSON.stringify({ card: { id: 'same-id', title: 'Private request' } }) })
+    socket.emit({ type: 'TOOL_CALL_END', toolCallId: 'alice-call' })
+    const changed = client.connect('ws://test', 'bob', 'org-b', 'bob-token')
+    expect(client.getCard('same-id')).toBeNull()
+    const replacement = FakeWebSocket.instances[1]
+    replacement.onopen?.()
+    await changed
+    replacement.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: { 'same-id': { id: 'same-id' } } } })
+    client.sendDecision('same-id', 'approve')
+    expect(replacement.sent[replacement.sent.length - 1].payload.toolCallId).toBeUndefined()
+  })
+
+  it('stops retrying a policy refusal and requests sign-in', async () => {
+    vi.useFakeTimers()
+    const { client, socket } = await connectedClient()
+    const denied = vi.fn()
+    client.onAccessDenied = denied
+    socket.onclose?.({ code: 1008, reason: 'Sign in to join this organization.' })
+    expect(denied).toHaveBeenCalledWith('Sign in to join this organization.')
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
+  it('confirms a created card only after the server echoes its persisted state', async () => {
+    const { client, socket } = await connectedClient()
+    const saved = vi.fn()
+    const delivery = client.sendCardCreated({ id: 'new-card', title: 'Review launch' }).then(saved)
+    await Promise.resolve()
+    expect(saved).not.toHaveBeenCalled()
+    expect(socket.sent[socket.sent.length - 1].type).toBe('card_created')
+    socket.emit({ type: 'STATE_DELTA', delta: [{ op: 'add', path: '/cardsById/new-card', value: { id: 'new-card', title:'Review launch', senderUserID:'user-alice' } }] })
+    await delivery
+    expect(saved).toHaveBeenCalledOnce()
+  })
+
+  it('does not confirm a previous version of a same-id draft from a late echo', async () => {
+    const { client, socket } = await connectedClient()
+    const draft = { id:'edited-card', title:'Updated request', summary:'Review current proposal', context:'Final version', type:'approval', priority:'high', recipientUserID:'user-bob', sourceInstruction:'Original instruction', videoURL:'https://media.invalid/current.mp4' }
+    const saved=vi.fn(), delivery=client.sendCardCreated(draft).then(saved)
+    socket.emit({type:'STATE_SNAPSHOT',snapshot:{cardsById:{'edited-card':{...draft,title:'Previous request',senderUserID:'user-alice'}}}})
+    await Promise.resolve(); expect(saved).not.toHaveBeenCalled()
+    socket.emit({type:'STATE_DELTA',delta:[{op:'replace',path:'/cardsById/edited-card',value:{...draft,videoURL:'https://media.invalid/old.mp4',senderUserID:'user-alice'}}]})
+    await Promise.resolve(); expect(saved).not.toHaveBeenCalled()
+    socket.emit({type:'STATE_DELTA',delta:[{op:'replace',path:'/cardsById/edited-card',value:{...draft,senderUserID:'user-alice',requestedBy:{name:'Alice'},localized:{ja:{title:'依頼'}}}}]})
+    await delivery; expect(saved).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an offline creation and a server-rejected creation', async () => {
+    await expect(new WebSocketClient().sendCardCreated({ id: 'offline' })).rejects.toThrow('offline')
+    const { client, socket } = await connectedClient()
+    const delivery = client.sendCardCreated({ id: 'invalid' })
+    const result = expect(delivery).rejects.toThrow('Recipient does not exist')
+    socket.emit({ type: 'RUN_ERROR', message: 'Recipient does not exist' })
+    await result
+  })
+
+  it('rejects outstanding delivery when the identity changes and does not resend it', async () => {
+    const { client } = await connectedClient()
+    const delivery = client.sendCardCreated({ id: 'alice-draft' })
+    const rejected = expect(delivery).rejects.toThrow('Connection lost')
+    const changed = client.connect('ws://test', 'bob', 'org-b', 'bob-token')
+    const socket = FakeWebSocket.instances[1]
+    socket.onopen?.()
+    await changed
+    socket.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
+    await rejected
+    expect(socket.sent.some((message) => message.type === 'card_created')).toBe(false)
+  })
+
+  it('times out unconfirmed creation instead of reporting successful delivery', async () => {
+    vi.useFakeTimers()
+    const { client } = await connectedClient()
+    const result = expect(client.sendCardCreated({ id: 'unconfirmed' })).rejects.toThrow('Check Sent')
+    await vi.advanceTimersByTimeAsync(15000)
+    await result
+  })
+
   it('does not send a decision when not connected', async () => {
     const client = new WebSocketClient()
-    // Never connected — sendDecision must no-op, not throw.
-    expect(() => client.sendDecision('card-1', 'approve')).not.toThrow()
+    expect(client.sendDecision('card-1', 'approve')).toBe(false)
   })
 })

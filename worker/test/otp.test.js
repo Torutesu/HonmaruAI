@@ -95,9 +95,74 @@ test("a second sign-in with a fresh code reuses the same account", async () => {
 
   expect(second.created).toBe(false);
   expect(second.userId).toBe(first.userId);
+  expect(second.orgId).toBe(first.orgId);
   // A later sign-in must not rewrite the account it is signing in to.
   const user = await env.DB.prepare("SELECT name FROM users WHERE email = ?1").bind("again@example.com").first();
   expect(user.name).toBe("Original");
+});
+
+test("concurrent correct-code verification spends one code and creates exactly one session", async () => {
+  const { signup } = await import("../src/auth.js");
+  const { requestCode, verifyCode } = await import("../src/otp.js");
+  const account = await signup(env, { email: "concurrent@example.test", password: "long-password" });
+  await requestCode({ ...env, ...MAIL }, { email: "concurrent@example.test" });
+  const code = codeFrom(sent[0]);
+  const results = await Promise.all(Array.from({ length: 3 }, () => verifyCode(env, { email: "concurrent@example.test", code })));
+  expect(results.filter((result) => result.token)).toHaveLength(1);
+  expect(results.filter((result) => result.error)).toHaveLength(2);
+  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM sessions WHERE github_id = ?1").bind(account.userId).first();
+  expect(row.n).toBe(2); // Signup session, plus the one successful OTP sign-in.
+});
+
+test.each(["correct", "incorrect"])("an in-flight %s guess cannot consume or penalize a replacement code", async (kind) => {
+  const { requestCode, verifyCode } = await import("../src/otp.js");
+  const { hashPassword, newSaltHex } = await import("../src/auth.js");
+  const email = "replaced@example.test";
+  await requestCode({ ...env, ...MAIL }, { email });
+  const original = codeFrom(sent[0]);
+  const replacement = original === "123456" ? "654321" : "123456";
+  const replacementSalt = newSaltHex();
+  const replacementHash = await hashPassword(replacement, replacementSalt);
+  const racedDB = {
+    prepare(sql) {
+      const statement = env.DB.prepare(sql);
+      if (!sql.startsWith("SELECT code_hash, code_salt")) return statement;
+      return { bind(...args) { return { async first() {
+        const row = await statement.bind(...args).first();
+        // A resend replaces the credential after this verification read it.
+        await env.DB.prepare("UPDATE login_codes SET code_hash = ?1, code_salt = ?2, attempts = 0 WHERE email = ?3")
+          .bind(replacementHash, replacementSalt, email).run();
+        return row;
+      } }; } };
+    },
+  };
+  const guess = kind === "correct" ? original : (original === "000000" ? "111111" : "000000");
+  const stale = await verifyCode({ ...env, DB: racedDB }, { email, code: guess });
+  expect(stale.error).toBeTruthy();
+  const row = await env.DB.prepare("SELECT code_hash, attempts FROM login_codes WHERE email = ?1").bind(email).first();
+  expect(row).toMatchObject({ code_hash: replacementHash, attempts: 0 });
+  expect((await verifyCode(env, { email, code: replacement })).token).toBeTruthy();
+});
+
+test("OTP sign-in for a memberless account returns no invented workspace", async () => {
+  const { signup } = await import("../src/auth.js");
+  const { requestCode, verifyCode } = await import("../src/otp.js");
+  const account = await signup(env, { email: "removed@example.test", password: "long-password" });
+  await env.DB.prepare("DELETE FROM memberships WHERE user_github_id = ?1").bind(account.userId).run();
+  await requestCode({ ...env, ...MAIL }, { email: "removed@example.test" });
+  const result = await verifyCode(env, { email: "removed@example.test", code: codeFrom(sent[0]), orgId: account.orgId });
+  expect(result.token).toBeTruthy();
+  expect(result.orgId).toBeNull();
+});
+
+test("public signup cannot opt into verified passwordless account creation", async () => {
+  const res = await SELF.fetch("https://example.com/auth/signup", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "unverified@example.test", passwordless: true }),
+  });
+  expect(res.status).toBe(400);
+  expect((await res.json()).message).toMatch(/password/i);
+  expect(await env.DB.prepare("SELECT github_id FROM users WHERE email = 'unverified@example.test'").first()).toBeNull();
 });
 
 test("five wrong guesses burn the code", async () => {

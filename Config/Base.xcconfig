@@ -10,3 +10,13 @@
 // a dev machine's LAN address into TestFlight, so every request hung.)
 RELAY_SCHEME = wss
 RELAY_HOST = tiktokforwork.torubj0904.workers.dev
+
+// RevenueCat's public SDK key. Public keys are safe in a binary; this is here
+// so swapping the Test Store key for the production one is a config change
+// rather than a code edit, and so a real key is never typed into a .swift file
+// that a screenshot or a paste can carry off.
+//
+// A `test_…` key is the RevenueCat Test Store: useful on the simulator, and the
+// SDK refuses to configure with one in a Release build (its own safeguard), so
+// billing stays unavailable until this says `appl_…`.
+REVENUECAT_API_KEY = appl_kormOogQnvoMfwcoCizBzuSjeMi
