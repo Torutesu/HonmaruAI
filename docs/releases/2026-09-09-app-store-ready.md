@@ -31,11 +31,13 @@ Privacy policy updated against current email authentication, account deletion an
 
 - RevenueCat dashboard login, verify production app key, default offering and `honmaruai Pro` entitlement, then sandbox purchase and server `/plans` identity agreement. Current build keeps purchases unavailable without a production key.
 - Apple Web login to verify Paid Applications agreement/bank/tax status and publish App Privacy. Public API cannot prove either state; local `asc web auth status` is unauthenticated.
-- Confirm distribution territories and third-party content rights with owner. Neither has been guessed.
+- Third-party content rights remain to be confirmed. Owner selected worldwide distribution; all 175 Apple territories are enabled and new-territory availability is true (verified by API readback).
 - Submit first subscriptions together with the app version after purchase readiness is confirmed. Build 35 is already selected; submission remains pending.
 - Real-device push arrival and voice transcription remain physical-device checks. Signed APNs entitlement and registered device token alone are not delivery proof.
 - No App Store review submission performed.
 
 Privacy declaration reference: https://developer.apple.com/app-store/app-privacy-details/ . Declarations must follow actual data handling, not copy the earlier four-type checklist.
 
-Final public-API readiness check: 2 blocking items (content rights and territory availability). The separate Web-only privacy/contract and physical-device/billing checks above still apply.
+Earlier public-API readiness check had 2 blocking items. Territory availability has since been configured worldwide; content rights remains unresolved. The separate Web-only privacy/contract and physical-device/billing checks above still apply.
+
+Dia access attempt: native window unavailable; browser automation inventory exposes Chrome and the in-app browser only. Apple/RevenueCat Web authentication remains pending.
