@@ -28,6 +28,7 @@ interface Props {
   relayUrl: string
   sessionToken: string
   onLogout: () => void
+  onJoined?: (org: string) => void
   sample?: boolean
   figmaFixture?: boolean
 }
@@ -42,7 +43,7 @@ type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
 /// is a sheet over it that closes back to the feed.
-export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, sample = false, figmaFixture = false }) => {
+export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onJoined, sample = false, figmaFixture = false }) => {
   const t = useT()
   const [state, setState] = useState<AppState>(() => ({ cardsById: sample ? Object.fromEntries(sampleCards(figmaFixture).map((card) => [card.id, card])) : {} }))
   const [isConnected, setIsConnected] = useState(sample)
@@ -103,6 +104,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     if (sample) return
     const wsClient = wsClientRef.current!
     let ignore = false
+    setState({cardsById:{}}); setLoaded(false); setIsConnected(false); setBusinesses([]); setMembers([]); clearPending(); setFeedback(null);
     wsClient.onAccessDenied = () => { if (!ignore) onLogout() }
     wsClient.onStateChange = (newState) => {
       if (ignore) return
@@ -341,7 +343,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {(
         <div hidden={panel !== 'compose'} className="sheet sheet-bottom" aria-modal={panel === 'compose' ? true : undefined} role={panel === 'compose' ? 'dialog' : undefined} aria-label={t('Tell your AI')}>
           <div className="sheet-title">{t('Tell your AI')}<button className="close" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
-          <p className="sheet-hint">{t(sample ? 'Create a sample request. Choose a teammate and review the details.' : 'Choose a teammate and review your request before sending.')}</p>
+
           <CreateDecision
             relayHttpUrl={relayHttpUrl}
             orgId={orgId}
@@ -352,6 +354,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             onSendCard={sendCreated}
             members={members}
             membersError={membersError}
+            onTeam={sample ? undefined : () => setPanel('invite')}
             onReloadMembers={() => setMembersVersion((version) => version + 1)}
             initialText={composeSeed.text}
             initialRecipient={composeSeed.recipient}
@@ -414,12 +417,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel === 'invite' && (
-        <div className="sheet sheet-bottom" role="dialog" aria-label={t('Invite a teammate')}>
+        <div className="sheet sheet-bottom" role="dialog" aria-label={t('Team')}>
           <div className="sheet-title">
-            {t('Invite a teammate')}
+            {t('Team')}
             <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button>
           </div>
-          <InviteTeammate relayHttpUrl={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} />
+          <InviteTeammate relayHttpUrl={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} members={members} sample={sample} onJoined={onJoined} onBack={() => setPanel("compose")} />
         </div>
       )}
 

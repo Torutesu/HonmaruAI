@@ -38,7 +38,7 @@ final class FeedViewModel: ObservableObject {
     }
 
     var hasDraft: Bool { !sourceText.isEmpty || !title.isEmpty || attachmentURL != nil }
-    var canReview: Bool { !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !recipientID.isEmpty && !isDrafting && !isSending }
+    var canReview: Bool { !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isDrafting && !isSending }
     var canSend: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !recipientID.isEmpty && !isSending && !isDrafting }
 
     func bind(to appState: AppState) {
@@ -59,20 +59,21 @@ final class FeedViewModel: ObservableObject {
         if let video { attachmentURL = MediaStore.keep(video) ?? video }
     }
 
+    func teamChanged() {
+        generation = UUID(); recipientID = ""; isDrafting = false
+        lastQueuedDraft = nil
+    }
+
     func removeAttachment() { attachmentURL = nil }
 
     func prepare(appState: AppState) async {
         guard canReview, let user = appState.currentUser else { return }
-        guard appState.workspaceMembers.contains(where: { $0.id == recipientID }) else {
-            errorMessage = String(localized: "Choose someone in this workspace.")
-            return
-        }
         let operation = generation
         let session = appState.activeSessionID
-        let selectedRecipient = recipientID
+        let selectedRecipient = appState.workspaceMembers.contains(where: { $0.id == recipientID }) ? recipientID : ""
         let selectedType = cardType
         let text = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let manual = OfflineRouter.draft(text: text, sender: user, priority: priority, recipientUserID: selectedRecipient)
+        let manual = OfflineRouter.draft(text: text, sender: user, priority: priority, recipientUserID: selectedRecipient.isEmpty ? nil : selectedRecipient)
         title = manual.title; summary = manual.summary; context = ""
         errorMessage = nil; preparationNote = nil
         isDrafting = true
@@ -82,9 +83,11 @@ final class FeedViewModel: ObservableObject {
             preparationNote = String(localized: "Manual draft · reconnect before sending")
         } else {
             do {
-                let draft = try await appState.aiService.draftInstruction(text: text, sender: user, organization: appState.organization, priorityOverride: priority, readerLanguage: appState.readerLanguageCode, senderContext: appState.userContext, recipientUserID: selectedRecipient)
+                let draft = try await appState.aiService.draftInstruction(text: text, sender: user, organization: appState.organization, priorityOverride: nil, readerLanguage: appState.readerLanguageCode, senderContext: appState.userContext, recipientUserID: selectedRecipient.isEmpty ? nil : selectedRecipient)
                 guard generation == operation, appState.activeSessionID == session, appState.currentUser == user else { return }
-                guard draft.recipientUserID == selectedRecipient else { throw AIServiceError.invalidResponse }
+                if !selectedRecipient.isEmpty && draft.recipientUserID != selectedRecipient { throw AIServiceError.invalidResponse }
+                if selectedRecipient.isEmpty, appState.workspaceMembers.contains(where: { $0.id == draft.recipientUserID }) { recipientID = draft.recipientUserID }
+                cardType = draft.cardType; priority = draft.priority
                 title = draft.title; summary = draft.summary; context = draft.context
                 preparationNote = draft.quotaExceeded ? String(localized: "AI limit reached. Review this manual draft before sending.") : String(localized: "Review every detail before sending.")
             } catch {
@@ -93,8 +96,8 @@ final class FeedViewModel: ObservableObject {
             }
         }
         guard generation == operation, appState.activeSessionID == session, appState.currentUser == user else { return }
-        cardType = selectedType
-        recipientID = selectedRecipient
+        if appState.isGuest { cardType = selectedType }
+        if !selectedRecipient.isEmpty { recipientID = selectedRecipient }
         isDrafting = false
         isReviewing = true
     }

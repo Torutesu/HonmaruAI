@@ -137,7 +137,8 @@ export const Profile: React.FC<Props> = ({ httpBase, orgId, userId, sessionToken
         </section>
         {error && <div className="form-error" role="alert">{error}</div>}
         <section className="figma-profile-group" aria-label={t('How your AI treats you')}>
-          <details className="figma-profile-ai" open={aiOpen} onToggle={(event) => setAIOpen(event.currentTarget.open)}>
+          <button type="button" className="row" onClick={() => onOpen('invite')}>{t('Team')}<ChevronRight size={16} /></button>
+        <details className="figma-profile-ai" open={aiOpen} onToggle={(event) => setAIOpen(event.currentTarget.open)}>
             <summary className="figma-profile-row"><Sparkles /><span>{t('AI')}</span><ChevronRight className="figma-profile-chevron" /></summary>
             <div id="profile-ai-details" className="figma-profile-disclosure">
               <b>{model}</b>{sample && <p>{t('Changes stay in this browser. No messages or notifications are sent.')}</p>}{ai && <p>{t(ai.aiRouting ? 'The AI model is configured by your workspace.' : 'This deployment uses keyword routing.')}</p>}
@@ -174,7 +175,6 @@ export const Profile: React.FC<Props> = ({ httpBase, orgId, userId, sessionToken
             <p className="figma-profile-hint">{t('What gets routed to you first.')}</p>
             <button type="button" disabled={sample} onClick={() => onOpen('tools')}>{t('Tools')}<ChevronRight size={16} /></button>
             <button type="button" onClick={() => onOpen('record')}>{t('The record')}<ChevronRight size={16} /></button>
-            <button type="button" onClick={() => onOpen('invite')}>{t('Invite a teammate')}<ChevronRight size={16} /></button>
             <button type="button" className="figma-profile-delete" onClick={() => setConfirmDelete(true)}>{t('Delete account')}</button>
             {confirmDelete && <div className="figma-profile-confirm" role="alert">
               <p>{t('This removes your account and your cards. Decisions other people made stay in their record.')}</p>

@@ -19,6 +19,8 @@ struct YouView: View {
                 VStack(spacing: 14) {
                     identityCard
                     group {
+                        NavigationLink { TeamSettingsView().environmentObject(appState) } label: { row("Team", icon: "person.2") }
+                        separator
                         NavigationLink { APIKeyView().environmentObject(appState) } label: { row("AI", icon: "sparkles") }
                         separator
                         Menu {

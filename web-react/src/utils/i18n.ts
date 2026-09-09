@@ -15,6 +15,24 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  "What’s on your mind?": "何を伝えますか？",
+  "Speak": "話す",
+  "Write": "書く",
+  "AI will turn your words into a card.": "AIが内容をカードにまとめます。",
+  "Edit details": "編集",
+  "Set up team": "チームを設定",
+  "Invite a teammate or join a team. Your draft stays here.": "チームに招待するか、参加してください。下書きはここに残ります。",
+  "Team": "チーム",
+  "Your team": "参加中のチーム",
+  "Share invite code": "招待コードを共有",
+  "People with this code can join your team and access its shared work.": "このコードを受け取った人はチームに参加し、共有された業務を閲覧できます。",
+  "Join team": "参加する",
+  "Join a team": "チームに参加",
+  "Team joined. Your draft is still available.": "チームに参加しました。下書きは残っています。",
+  "Enter a code from your teammate to switch to their team.": "メンバーから受け取ったコードを入力して、そのチームに切り替えます。",
+  "Back to draft": "下書きに戻る",
+  "Send to": "宛先",
+
   "That code is not valid.": "コードが正しくありません。",
   "We could not send another code.": "コードを再送できませんでした。",
   "Sent. Check your email again.": "送信しました。メールをご確認ください。",

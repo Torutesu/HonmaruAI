@@ -132,7 +132,7 @@ function App() {
 
   return (
     <div className="app">
-      <Dashboard key={`${HTTP_BASE}:${userId}:${orgId}:${sessionToken}`} userId={userId} orgId={orgId} relayUrl={HTTP_BASE.replace(/^http/, 'ws')} sessionToken={sessionToken} onLogout={handleLogout} />
+      <Dashboard key={`${HTTP_BASE}:${userId}:${sessionToken}`} userId={userId} orgId={orgId} relayUrl={HTTP_BASE.replace(/^http/, 'ws')} sessionToken={sessionToken} onLogout={handleLogout} onJoined={(org) => { setOrgId(org); try { localStorage.setItem("orgId", org) } catch {} }} />
     </div>
   )
 }

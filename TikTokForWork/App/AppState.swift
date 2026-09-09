@@ -23,6 +23,22 @@ final class AppState: ObservableObject {
         isGuest ? String(localized: "Demo workspace") : (currentUser?.teamID ?? String(localized: "Workspace"))
     }
 
+    /// Switch only after the server accepts an invite. Keep the same login
+    /// session so the shell's unsent draft survives; discard old relay events.
+    func switchToJoinedTeam(_ orgID: String) async throws {
+        guard var user = currentUser, let token = SessionStore.sessionToken, let base = backendBaseURL, !isGuest else { return }
+        let members = try await WorkspaceMemberService.fetch(orgID: orgID, baseURL: base, sessionToken: token)
+        guard currentUser?.id == user.id, SessionStore.sessionToken == token else { return }
+        webSocketService.disconnect()
+        webSocketService.clearPendingEvents()
+        cardService.reset()
+        user.teamID = orgID; currentUser = user; SessionStore.orgId = orgID
+        workspaceMembers = members
+        organization = OrganizationGraph(nodes: members.map { OrgNode(id: $0.id, kind: .person, label: "\($0.name) · \($0.role)") }, edges: [])
+        cardService.setActiveUser(user.id); cardService.adoptOrganization(orgID)
+        try await webSocketService.connect(urlString: relayURL, userId: user.id, orgId: orgID, sessionToken: token)
+    }
+
     func refreshWorkspaceMembers() async {
         let generation = sessionGeneration
         if isGuest { workspaceMembers = DemoWorkspace.members; return }
@@ -166,7 +182,11 @@ final class AppState: ObservableObject {
         }
         guard generation == sessionGeneration else { return }
         guard let connection = githubService.connection else { return }
+        let savedTeam = SessionStore.orgId
         await activateGitHubSession(connection: connection)
+        if let savedTeam, savedTeam != connection.repository, currentUser?.id == connection.username {
+            try? await switchToJoinedTeam(savedTeam)
+        }
     }
 
     static func user(from connection: GitHubConnection) -> User {

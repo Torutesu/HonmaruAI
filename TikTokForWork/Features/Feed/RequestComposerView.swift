@@ -7,6 +7,8 @@ struct RequestComposerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var captureMode: CaptureMode?
     @State private var confirmDiscard = false
+    @State private var inputMode = false
+    @State private var showTeam = false
     @FocusState private var writing: Bool
 
     var body: some View {
@@ -17,8 +19,17 @@ struct RequestComposerView: View {
                         Label("Demo workspace · sample data only", systemImage: "square.stack.3d.up")
                             .font(.footnote).foregroundStyle(Theme.Colors.accent)
                     }
-                    if model.isReviewing { reviewFields } else { writeFields }
-                    recipientPicker
+                    if model.isReviewing {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(model.title).font(.title2.weight(.semibold))
+                            Text(model.summary).font(.body)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(20)
+                            .background(Theme.Colors.surface, in: RoundedRectangle(cornerRadius: 22))
+                    } else { writeFields }
+                    if model.isReviewing {
+                        recipientPicker
+                        DisclosureGroup("Edit details") {
+                            reviewFields
                     HStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 9) {
                             fieldLabel("Request type")
@@ -34,6 +45,8 @@ struct RequestComposerView: View {
                         }
                     }
                     .padding(16).background(Theme.Colors.surface, in: RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
                     if let url = model.attachmentURL {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
@@ -92,6 +105,7 @@ struct RequestComposerView: View {
             .fullScreenCover(item: $captureMode) { mode in
                 CaptureView(mode: mode) { text, video in model.useCapture(text: text, video: video) }
             }
+            .sheet(isPresented: $showTeam) { NavigationStack { TeamSettingsView().environmentObject(appState).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { showTeam = false } } } } }
             .task { await appState.refreshWorkspaceMembers() }
         }
         .interactiveDismissDisabled(model.isSending || model.isDrafting)
@@ -101,23 +115,27 @@ struct RequestComposerView: View {
     private var canSend: Bool { model.canSend && model.validationMessage == nil && (appState.isGuest || appState.connectionState == .connected) }
 
     private var writeFields: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("What do you need from your teammate?").font(.title3.weight(.semibold))
-            Text("Describe the request, the context, and when you need a response.").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $model.sourceText).font(.body).frame(minHeight: 150).focused($writing).scrollContentBackground(.hidden)
-                    .padding(10).accessibilityLabel("Request description")
-                if model.sourceText.isEmpty {
-                    Text("For example: Please review the launch copy before Friday. We need approval on the headline and customer quote.")
-                        .font(.body).foregroundStyle(Theme.Colors.textTertiary).padding(15).allowsHitTesting(false)
+        VStack(alignment: .leading, spacing: 24) {
+            Text("What’s on your mind?").font(.largeTitle.weight(.semibold))
+            HStack(spacing: 16) {
+                Button { writing = false; captureMode = .dictation } label: {
+                    VStack(spacing: 16) { Image(systemName: "mic.fill").font(.system(size: 36)); Text("Speak").font(.headline) }
+                        .frame(maxWidth: .infinity).frame(minHeight: 140)
+                        .background(Theme.Colors.surface, in: RoundedRectangle(cornerRadius: 24))
                 }
+                Button { inputMode = true; writing = true } label: {
+                    VStack(spacing: 16) { Image(systemName: "text.cursor").font(.system(size: 36)); Text("Write").font(.headline) }
+                        .frame(maxWidth: .infinity).frame(minHeight: 140)
+                        .background(Theme.Colors.surface, in: RoundedRectangle(cornerRadius: 24))
+                }
+            }.buttonStyle(.plain)
+            if inputMode || !model.sourceText.isEmpty {
+                TextEditor(text: $model.sourceText).font(.title3).frame(minHeight: 180).focused($writing)
+                    .scrollContentBackground(.hidden).padding(16)
+                    .background(Theme.Colors.surface, in: RoundedRectangle(cornerRadius: 20))
+                    .accessibilityLabel("Request description")
             }
-            .background(Theme.Colors.surface, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.Colors.border, lineWidth: 1))
-            HStack(spacing: 20) {
-                Button { writing = false; captureMode = .dictation } label: { Label("Dictate", systemImage: "mic") }
-                Button { writing = false; captureMode = .video } label: { Label("Record video", systemImage: "video") }
-            }.font(.subheadline.weight(.medium)).frame(minHeight: 36)
+            Text("AI will turn your words into a card.").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
         }
     }
 
@@ -166,6 +184,11 @@ struct RequestComposerView: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.Colors.border, lineWidth: 1))
             }
             .disabled(appState.workspaceMembers.isEmpty)
+            Button("Set up team") { showTeam = true }
+                .font(.subheadline)
+            if appState.workspaceMembers.filter({ $0.id != appState.currentUser?.id }).isEmpty {
+                Text("Invite a teammate or join a team. Your draft stays here.").font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
+            }
             if appState.membersLoading { ProgressView("Loading teammates…").font(.caption) }
             else if appState.workspaceMembers.isEmpty {
                 Text(appState.membersError ?? String(localized: "Connect to load your workspace members.")).font(.footnote).foregroundStyle(Theme.Colors.textSecondary)

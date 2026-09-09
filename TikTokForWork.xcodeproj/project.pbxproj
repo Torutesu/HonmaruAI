@@ -75,6 +75,7 @@
 		B5366DC8771C647880F5F221 /* OnboardingSwipeDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E20E71BDCF8D85D17A57B2D /* OnboardingSwipeDemo.swift */; };
 		BA8DFD51160FF62D51FD6028 /* AGUIEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A20C47088BD0E9C4A863DBE /* AGUIEvent.swift */; };
 		BAAB141A7F64E597E716A38D /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A79579E123395F8C8DBED15 /* AgentModels.swift */; };
+		C07E09D97DC9A4D26078E3AC /* TeamSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF58305200439B773B75BB0 /* TeamSettingsView.swift */; };
 		C13135613DBDE03107A9D13C /* YouView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D546AFB5C9B071037C5E9D9 /* YouView.swift */; };
 		C14C2ACA5652A41F1C4A7BA3 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69B5345A61A32B333C0FD4DC /* Outbox.swift */; };
 		C5441FBAB2065DE8FEE863BD /* ConnectorsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B33B38EE581FB742F9D87CD /* ConnectorsView.swift */; };
@@ -129,6 +130,7 @@
 		25118BB93999691339E80C91 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		2E5DA40629B98A94601F06DC /* DecisionCardService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardService.swift; sourceTree = "<group>"; };
 		2E87DCC57193FEC4D70357DC /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		2EF58305200439B773B75BB0 /* TeamSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamSettingsView.swift; sourceTree = "<group>"; };
 		2F1C39E5BEABD558A524E5BC /* DecisionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCard.swift; sourceTree = "<group>"; };
 		2FE01A8DEA5C1C23E8DF9CC2 /* FeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewModel.swift; sourceTree = "<group>"; };
 		3682961C072107DA8A4887AB /* MediaStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStore.swift; sourceTree = "<group>"; };
@@ -248,6 +250,7 @@
 				41D5E4302BE3E11D598E9989 /* ContextView.swift */,
 				8809E61F75031670AB52EEDC /* DeleteAccountView.swift */,
 				CD16C3A78AF733A527188E4F /* HistoryView.swift */,
+				2EF58305200439B773B75BB0 /* TeamSettingsView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -663,6 +666,7 @@
 				1C9605FE899A8B2E0BE19F0A /* SourceSheet.swift in Sources */,
 				0D260D45B6FA0AA03A35660B /* SubscriptionService.swift in Sources */,
 				574B9D27E549E5D56333A3FD /* SubscriptionView.swift in Sources */,
+				C07E09D97DC9A4D26078E3AC /* TeamSettingsView.swift in Sources */,
 				657DDCB6385E9FB249AA8FC2 /* Theme.swift in Sources */,
 				1935A4A91354E1D372E35B4F /* TikTokForWorkApp.swift in Sources */,
 				1F16AB9C37F593A86B996D5C /* TranslatedFrom.swift in Sources */,

@@ -3,6 +3,39 @@ import XCTest
 
 final class RequestComposerTests: XCTestCase {
     @MainActor
+    func testCaptureCanBeReviewedWithoutATeamOrRecipient() async {
+        let app = AppState(startServices: false)
+        app.currentUser = User(id: "alice", name: "Alice", role: "Member", teamID: nil, githubUsername: nil)
+        let composer = FeedViewModel()
+        composer.bind(to: app)
+        composer.sourceText = "Please review the launch copy"
+        XCTAssertTrue(composer.canReview)
+        await composer.prepare(appState: app)
+        XCTAssertTrue(composer.isReviewing)
+        XCTAssertFalse(composer.summary.isEmpty)
+        XCTAssertTrue(composer.recipientID.isEmpty)
+        XCTAssertFalse(composer.canSend)
+        let sent = await composer.send(appState: app)
+        XCTAssertNil(sent)
+    }
+
+    @MainActor
+    func testTeamSwitchKeepsWordsButRequiresANewRecipient() {
+        let composer = FeedViewModel()
+        composer.sourceText = "Original request"
+        composer.title = "Edited title"
+        composer.summary = "Edited summary"
+        composer.recipientID = "old-team-person"
+        composer.isReviewing = true
+        composer.teamChanged()
+        XCTAssertEqual(composer.sourceText, "Original request")
+        XCTAssertEqual(composer.title, "Edited title")
+        XCTAssertTrue(composer.isReviewing)
+        XCTAssertTrue(composer.recipientID.isEmpty)
+        XCTAssertFalse(composer.canSend)
+    }
+
+    @MainActor
     func testDemoPreviewAndSendPreserveEditedFieldsAndExplicitRecipient() async throws {
         let app = AppState(startServices: false)
         app.activateGuestSession()

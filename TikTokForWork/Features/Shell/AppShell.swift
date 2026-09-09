@@ -53,6 +53,7 @@ struct AppShell: View {
                 try? await Task.sleep(for: .seconds(30))
             }
         }
+        .onChange(of: appState.currentUser?.teamID) { _, _ in composer.teamChanged() }
         .onChange(of: push.pendingCardID) { _, id in if id != nil { tab = .home } }
         .onReceive(appState.webSocketService.$deliveryError) { if let message = $0 { composer.restoreRejectedDraft(appState: appState); deliveryError = message } }
         .alert("Delivery needs attention", isPresented: Binding(get: { deliveryError != nil }, set: { if !$0 { deliveryError = nil } })) {
@@ -68,7 +69,7 @@ struct AppShell: View {
         HStack(spacing: 10) {
             Menu {
                 Button("New request", systemImage: "square.and.pencil") { promptFocused = false; showCompose = true }
-                Button("Record video", systemImage: "video") { promptFocused = false; captureMode = .video }
+                Button("Speak", systemImage: "mic") { promptFocused = false; captureMode = .dictation }
             } label: {
                 Image(systemName: "plus").font(.system(size: 20, weight: .regular)).foregroundStyle(Theme.Colors.textSecondary)
                     .frame(width: 36, height: 36).background(Theme.Colors.surfaceRaised, in: Circle())
