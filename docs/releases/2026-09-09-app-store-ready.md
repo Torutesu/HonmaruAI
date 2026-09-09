@@ -15,7 +15,7 @@ Privacy policy updated against current email authentication, account deletion an
 - Worker: 370 tests passed.
 - Simulator manually verified Japanese welcome, password sign-in entry, decision feed and voice/text composer.
 - 3 original Japanese screenshots at 1320 × 2868 uploaded to App Store Connect, all asset states COMPLETE. Screenshots use the built-in sample workspace, not a real customer account.
-- Signed build 35 (1.0) archive/export succeeded. APNs entitlement is `production`, `get-task-allow` is false.
+- Build 35 (1.0), ID `85ea147a-6506-4661-85c1-0629429f74bb`, is VALID in TestFlight and assigned to Internal Testers. Selected for the App Store 1.0 draft. Signed archive/export succeeded. APNs entitlement is `production`, `get-task-allow` is false.
 - IPA SHA-256: `5aec3da037abd2fce23857f78f3651945e82057899b52cf457f8861540e73615`.
 
 ## Published configuration
@@ -32,8 +32,10 @@ Privacy policy updated against current email authentication, account deletion an
 - RevenueCat dashboard login, verify production app key, default offering and `honmaruai Pro` entitlement, then sandbox purchase and server `/plans` identity agreement. Current build keeps purchases unavailable without a production key.
 - Apple Web login to verify Paid Applications agreement/bank/tax status and publish App Privacy. Public API cannot prove either state; local `asc web auth status` is unauthenticated.
 - Confirm distribution territories and third-party content rights with owner. Neither has been guessed.
-- Attach processed build; submit first subscriptions together with the app version after purchase readiness is confirmed.
+- Submit first subscriptions together with the app version after purchase readiness is confirmed. Build 35 is already selected; submission remains pending.
 - Real-device push arrival and voice transcription remain physical-device checks. Signed APNs entitlement and registered device token alone are not delivery proof.
 - No App Store review submission performed.
 
 Privacy declaration reference: https://developer.apple.com/app-store/app-privacy-details/ . Declarations must follow actual data handling, not copy the earlier four-type checklist.
+
+Final public-API readiness check: 2 blocking items (content rights and territory availability). The separate Web-only privacy/contract and physical-device/billing checks above still apply.
