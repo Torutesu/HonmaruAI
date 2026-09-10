@@ -7,6 +7,7 @@ interface Plan {
   monthly: number
   annualMonthly: number
   perSeat?: boolean
+  available?: boolean
   tagline: string
   features: string[]
 }
@@ -51,8 +52,15 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [httpBase, sessionToken])
 
+  // Two lists, because they are two different things. `buyable` is what a tap
+  // can actually start; `preview` is a tier the Worker prices but nothing
+  // sells yet. They were one list, so Business — which no store product backs —
+  // was selectable, and choosing it put its price under a trial button that
+  // would have charged for Pro or for nothing at all.
   const paid = (status?.plans || []).filter((p) => p.monthly > 0)
-  const selected = paid.find((p) => p.id === chosen)
+  const buyable = paid.filter((p) => p.available !== false)
+  const preview = paid.filter((p) => p.available === false)
+  const selected = buyable.find((p) => p.id === chosen) || buyable[0]
   const price = (p: Plan) => (annual ? p.annualMonthly : p.monthly)
 
   return (
@@ -86,12 +94,12 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
               </button>
             </div>
 
-            {paid.map((p) => (
+            {buyable.map((p) => (
               <button
                 key={p.id}
-                className={`plan-card${chosen === p.id ? ' on' : ''}`}
+                className={`plan-card${selected?.id === p.id ? ' on' : ''}`}
                 onClick={() => setChosen(p.id)}
-                aria-pressed={chosen === p.id}
+                aria-pressed={selected?.id === p.id}
               >
                 <div className="plan-head">
                   <div>
@@ -108,6 +116,25 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
                 </ul>
                 {annual && <span className="pill-tag blue">Billed yearly · ${price(p) * 12}</span>}
               </button>
+            ))}
+
+            {preview.map((p) => (
+              <div key={p.id} className="plan-card" aria-disabled="true">
+                <div className="plan-head">
+                  <div>
+                    <b>{p.name}</b>
+                    <span className="plan-tagline">{p.tagline}</span>
+                  </div>
+                  <div className="plan-price">
+                    <b>${price(p)}</b>
+                    <span>/{p.perSeat ? 'user/' : ''}mo</span>
+                  </div>
+                </div>
+                <ul className="plan-features">
+                  {p.features.map((f) => <li key={f}>{f}</li>)}
+                </ul>
+                <span className="pill-tag">{t('Not for sale yet')}</span>
+              </div>
             ))}
 
             <div className="rows-title">{t('Free')}</div>

@@ -74,3 +74,18 @@ test("a Notion outage does not throw", async () => {
     writeDecisionToNotion({ env: ENV(), orgId: "acme/web", login: "octocat", card })
   ).resolves.toBe(false);
 });
+
+test("the echo is suppressed on the other shape Composio answers with", async () => {
+  // Composio wraps a payload two ways depending on the execution path — every
+  // inbound parser in connectors/ says so and handles both. This one read
+  // `data.id` alone, so on the wrapped path the page id was never found, the
+  // row was never recorded, and the decision came back on the next sync as a
+  // fresh card about itself with a model call to triage it.
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.includes("NOTION_INSERT_ROW_DATABASE"), method: "POST" })
+    .reply(200, { successful: true, results: [{ response: { data: { id: "page-echo-2" } } }] });
+
+  const wrote = await writeDecisionToNotion({ env: ENV(), orgId: "acme/web", login: "octocat", card });
+  expect(wrote).toBe(true);
+  expect(await isIngested(env.DB, "notion", "page-echo-2", "800")).toBe(true);
+});

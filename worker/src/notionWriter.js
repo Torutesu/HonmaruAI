@@ -18,6 +18,22 @@ function childBlocksFor(card) {
   return lines.map((content) => ({ block_property: "paragraph", content }));
 }
 
+/// Where the new page's id is, either way Composio wrapped the answer.
+///
+/// Every inbound parser in connectors/ handles both shapes, with the same
+/// comment: the payload arrives under `data` on one execution path and under
+/// `results[0].response.data` on the other. This one read `data.id` alone, and
+/// the id is what suppresses the echo — so on the wrapped path the decision we
+/// had just written came back on the next sync as a brand new card about
+/// itself, complete with a model call to triage it. Nothing reports that; it
+/// looks like the AI inventing work.
+function pageIdFrom(payload) {
+  return payload?.data?.id
+    || payload?.results?.[0]?.response?.data?.id
+    || payload?.id
+    || null;
+}
+
 // Returns true when a row was written. Never throws: recording a decision
 // elsewhere must not be able to break the decision itself.
 export async function writeDecisionToNotion({ env, orgId, login, card }) {
@@ -46,7 +62,7 @@ export async function writeDecisionToNotion({ env, orgId, login, card }) {
     // returns. Recording it in ingested_items (the table inbound dedups against)
     // stops the decision we just wrote from echoing back in as a fresh card, and
     // a wasted AI call, on the next sync.
-    const pageId = payload?.data?.id;
+    const pageId = pageIdFrom(payload);
     if (pageId && orgId) {
       await markIngested(env.DB, {
         connector: "notion", externalId: pageId,

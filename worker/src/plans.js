@@ -4,6 +4,14 @@
 // them (the web app and iOS) and a price that disagrees between them is worse
 // than no price at all. The App Store is still the seller on iOS — this is the
 // catalog and the current standing, not a checkout.
+//
+// Which is exactly why every line of it has to be true. A price list is the
+// one screen where a claim the code does not honour is not a rough edge, and
+// there were two here: Pro advertised "Priority notification delivery", and
+// nothing anywhere delivers a paying subscriber's notification differently —
+// urgency is read off the card, never off the payer. And Business was priced,
+// listed and selectable although nothing sells it. `available` marks the tiers
+// a person can actually buy today.
 
 import { isPro } from "./entitlements.js";
 import { usedToday } from "./db.js";
@@ -19,6 +27,7 @@ export const PLANS = [
     name: "Free",
     monthly: 0,
     annualMonthly: 0,
+    available: true,
     tagline: "See how it works",
     features: [
       `${FREE_DAILY_ROUTES} AI-routed decisions a day`,
@@ -31,12 +40,13 @@ export const PLANS = [
     name: "Pro",
     monthly: 10,
     annualMonthly: 8,
+    available: true,
     tagline: "For one person running several things",
     features: [
       "Unlimited AI routing",
       "Every business, filed automatically",
+      "Every connector: Gmail, Slack, Notion, Calendar, Drive",
       "The record: every decision, written by nobody",
-      "Priority notification delivery",
     ],
   },
   {
@@ -45,12 +55,18 @@ export const PLANS = [
     monthly: 15,
     annualMonthly: 12,
     perSeat: true,
+    // Nothing sells this. There is one entitlement in RevenueCat — `honmaruai
+    // Pro` — and one pair of store products behind it, so a person who picked
+    // Business was shown a price, a trial and a button for a tier that could
+    // not be bought and would have unlocked nothing if it had been. It stays
+    // in the catalog because it is where per-seat billing is going, and it
+    // says so now rather than pretending.
+    available: false,
     tagline: "For a team of under ten running ten businesses",
     features: [
       "Everything in Pro, per person",
-      "Shared org graph and roles",
-      "Gmail, Slack and Notion connectors",
-      "GitHub sync for decisions and tasks",
+      "One bill for the whole team",
+      "Seats you can add and remove yourself",
     ],
   },
 ];

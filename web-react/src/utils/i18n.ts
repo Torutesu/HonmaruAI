@@ -335,6 +335,7 @@ const ja: Dict = {
   Filter: '絞り込み',
   Main: 'メイン',
   'Billing period': '請求期間',
+  'Not for sale yet': 'まだ販売していません',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
