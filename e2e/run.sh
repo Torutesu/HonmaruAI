@@ -26,6 +26,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Wait for something to answer, and say so plainly when it never does.
+#
+# The loops here used to give up in silence. When the preview server did not
+# start on CI, every one of the 24 steps failed with a timeout or a refused
+# connection, and not one line of the output said which server was missing —
+# the harness knew, and threw the answer away.
+wait_for() {
+  local name=$1 url=$2 tries=$3 log=$4
+  for _ in $(seq 1 "$tries"); do
+    if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then return 0; fi
+    printf '.'
+    sleep 1
+  done
+  echo
+  echo "the $name never came up at $url after ${tries}s" >&2
+  echo "--- $log ---" >&2
+  tail -40 "$log" >&2 || true
+  exit 1
+}
+
 say "1. Mail sink"
 node e2e/mail-sink.mjs >/tmp/e2e-sink.log 2>&1 & pids+=($!)
 
@@ -43,11 +63,9 @@ npx -y wrangler@4 dev --local --port "$WORKER_PORT" \
 cd ..
 
 printf 'waiting for the Worker'
-for _ in $(seq 1 60); do
-  if curl -fsS --max-time 2 "http://127.0.0.1:$WORKER_PORT/health" >/tmp/e2e-health.json 2>/dev/null; then break; fi
-  printf '.'; sleep 1
-done
+wait_for "Worker" "http://127.0.0.1:$WORKER_PORT/health" 60 /tmp/e2e-worker.log
 echo
+curl -fsS "http://127.0.0.1:$WORKER_PORT/health" >/tmp/e2e-health.json
 python3 -m json.tool /tmp/e2e-health.json
 # Parsed, not grepped: curl returns compact JSON and the pretty-print above is
 # a different string. The first version of this check looked for `"email": true`
@@ -69,12 +87,17 @@ else
 fi
 VITE_API_HOST="127.0.0.1:$WORKER_PORT" npm run build >/tmp/e2e-build.log 2>&1
 grep -q "127.0.0.1:$WORKER_PORT" dist/assets/*.js || { echo "the backend host did not make it into the build" >&2; exit 1; }
-npx vite preview --port "$WEB_PORT" --strictPort >/tmp/e2e-preview.log 2>&1 & pids+=($!)
+# --host 127.0.0.1, explicitly. Vite's default is `localhost`, which is a name
+# and not an address: on a machine with IPv6 it can resolve to ::1, and the
+# preview server then listens there and nowhere else — while the spec, the
+# Worker's APP_WEB_URL and the mail sink all speak 127.0.0.1. That is exactly
+# what happened the first time this ran on a CI runner, and nothing in this
+# container reproduces it, because IPv6 is switched off here.
+npx vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort >/tmp/e2e-preview.log 2>&1 & pids+=($!)
 cd ..
-for _ in $(seq 1 30); do
-  curl -fsS --max-time 2 "http://127.0.0.1:$WEB_PORT/" >/dev/null 2>&1 && break
-  sleep 1
-done
+printf 'waiting for the web client'
+wait_for "web client" "http://127.0.0.1:$WEB_PORT/" 30 /tmp/e2e-preview.log
+echo
 
 say "4. Clear the rate-limit window"
 # The credential routes are rate limited per caller, which is right, and this
