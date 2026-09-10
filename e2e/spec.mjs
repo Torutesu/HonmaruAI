@@ -67,8 +67,12 @@ async function typeCode(p, code) {
   }
 }
 
+// A browser this machine already has, when it has one: some images ship
+// Chromium at a fixed path and skip the download. Everywhere else — a clean
+// clone, a CI runner — fall through to the one Playwright installed for
+// itself, rather than launching nothing and calling the product broken.
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium',
+  ...(process.env.E2E_CHROMIUM ? { executablePath: process.env.E2E_CHROMIUM } : {}),
   ignoreDefaultArgs: ['--headless=old'],
   args: ['--headless=new'],
 })
@@ -118,6 +122,8 @@ async function openViaYou(rowText, marker) {
 
 const email = `e2e-${Date.now()}@example.com`
 let mate
+// Browser contexts the later steps open, closed together at the end.
+const extras = []
 const shot = (n) => page.screenshot({ path: `${SHOTS}/${n}.png` })
 
 await step('the welcome screen loads', async () => {
@@ -671,6 +677,136 @@ await step('a second person joins by invite and the card reaches them', async ()
   await closeEverything()
 })
 
+// Everything above is somebody's first day. These are the second: an account
+// that already exists, on a machine that has never seen it. Each one of these
+// used to fail — the invite code was read and dropped, and a sign-in reply
+// that named no workspace sent the client to a placeholder org nobody is a
+// member of, so the feed simply never connected.
+
+/// A whole browser that has never been here, signing in with a code.
+async function freshSignIn(email, { inviteCode } = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  extras.push(ctx)
+  const p = await ctx.newPage()
+  const before = (await (await fetch(`${SINK}/sent`)).json())
+    .filter((m) => (m.to || []).includes(email)).length
+  await p.goto(WEB, { waitUntil: 'load' })
+  await p.click('text=I already have an account')
+  await p.waitForSelector('#email')
+  await p.fill('#email', email)
+  if (inviteCode) await p.fill('#invite', inviteCode)
+  await p.click('text=Email me a code')
+  await p.waitForSelector('.otp-boxes', { timeout: 15000 })
+  await typeCode(p, await codeFor(email, { after: before }))
+  return p
+}
+
+await step('signing in on a machine that has never seen you reaches the feed', async () => {
+  // No localStorage, and the sign-in reply used to carry no org either, so the
+  // client fell back to a hardcoded `web-team` — an org nobody belongs to. The
+  // relay refused the socket and this dot never came on.
+  const p = await freshSignIn(email)
+  await p.waitForSelector('.dot.on', { timeout: 25000 })
+  await p.screenshot({ path: `${SHOTS}/23-second-browser.png` })
+})
+
+await step('an invite reaches someone who already has an account', async () => {
+  await closeEverything()
+
+  // A mints a code.
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('text=Invite a teammate')
+  await page.waitForSelector('.sheet .invite select', { timeout: 10000 })
+  await page.selectOption('.sheet .invite select', 'designer')
+  await page.click('.sheet .invite .btn-primary')
+  await page.waitForSelector('.sheet .invite-code', { timeout: 15000 })
+  const invite = (await page.textContent('.sheet .invite-code')).trim()
+  await page.click('.sheet .close')
+  await page.waitForTimeout(400)
+
+  // C already has an account of their own, made before the invite existed.
+  const already = `e2e-already-${Date.now()}@example.com`
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  extras.push(ctx)
+  const c = await ctx.newPage()
+  await c.goto(WEB, { waitUntil: 'load' })
+  await c.click('text=Get started')
+  await c.waitForSelector('#email')
+  await c.fill('#name', 'Aya')
+  await c.fill('#email', already)
+  await c.click('text=Email me a code')
+  await c.waitForSelector('.otp-boxes', { timeout: 15000 })
+  await typeCode(c, await codeFor(already))
+  await c.waitForSelector('.ob-art', { timeout: 20000 })
+  await c.click('text=Next'); await c.waitForSelector('.ob-art-route')
+  await c.click('text=Next'); await c.waitForSelector('.ob-demo')
+  await c.click('text=Set me up'); await c.waitForSelector('.radio')
+  await c.click('text=Open my feed')
+  await c.waitForSelector('.dot.on', { timeout: 25000 })
+
+  // Now they are handed a code. They are already signed in, so the place to
+  // put it is You → Join a team — which is the surface that did not exist.
+  await c.click('nav [data-tab="you"]')
+  await c.waitForSelector('.profile-stats', { timeout: 10000 })
+  await c.click('.screen .row.join-team')
+  await c.waitForSelector('.join-code', { timeout: 10000 })
+  await c.fill('.join-code', invite)
+  await c.click('.screen .row.static .pill-btn')
+
+  // Landed in the team: the switcher now lists more than one workspace, and
+  // the one they just joined is the one they are in.
+  await c.waitForSelector('nav [data-tab="you"]', { timeout: 15000 })
+  await c.waitForSelector('.dot.on', { timeout: 25000 })
+  await c.click('nav [data-tab="you"]')
+  await c.waitForSelector('.profile-stats', { timeout: 10000 })
+  await c.waitForSelector('[data-org][aria-current="true"]', { timeout: 10000 })
+  await c.screenshot({ path: `${SHOTS}/24-joined-a-team.png` })
+  const workspaces = await c.$$eval('[data-org]', (els) => els.length)
+  if (workspaces < 2) throw new Error(`joining a team left ${workspaces} workspace(s) to choose from`)
+  await c.click('.screen .back')
+
+  // And a card A sends now arrives, which is the whole point of joining.
+  await page.click('nav [data-tab="compose"]')
+  await page.waitForSelector('.sheet-bottom textarea, .sheet-bottom input', { timeout: 10000 })
+  const box = (await page.$('.sheet-bottom textarea')) || (await page.$('.sheet-bottom input'))
+  await box.fill('ask the designer to sign off on the new menu photography')
+  await page.click('.sheet-bottom .btn-primary, .sheet-bottom button:has-text("Send")')
+
+  await c.waitForSelector('.card', { timeout: 25000 })
+  const seen = await c.evaluate(() => document.querySelector('.card').innerText)
+  if (/photograph|menu/i.test(seen) === false) {
+    throw new Error(`the card that arrived is not the one that was sent: ${seen.slice(0, 140)}`)
+  }
+  await closeEverything()
+})
+
+await step('a code that is not a code is said out loud, not swallowed', async () => {
+  // The same surface, given something that is not an invite. Silence here is
+  // the failure that started all of this: a code was read and nothing
+  // happened to it, with no error and no membership.
+  //
+  // Driven from the signed-in screen rather than through sign-in, because a
+  // second code for one address inside a minute is refused by the resend
+  // cooldown — the product being right, and the test being impatient. The
+  // sign-in variant is pinned in worker/test/join-a-team.test.js.
+  await closeEverything()
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row.join-team')
+  await page.waitForSelector('.join-code', { timeout: 10000 })
+  await page.fill('.join-code', '0'.repeat(32))
+  await page.click('.screen .row.static .pill-btn')
+
+  await page.waitForSelector('.screen .form-error', { timeout: 15000 })
+  const said = (await page.textContent('.screen .form-error')) || ''
+  if (!said.trim()) throw new Error('a rejected invite code said nothing')
+  // And it did not move them anywhere: still the same feed, still connected.
+  await page.click('.screen .back')
+  await page.waitForSelector('.dot.on', { timeout: 20000 })
+})
+
+for (const ctx of extras) await ctx.close()
 if (mate) await mate.close()
 await browser.close()
 

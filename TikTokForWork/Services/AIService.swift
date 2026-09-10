@@ -152,6 +152,16 @@ final class AIService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Who is asking. Every other service here sends this; this one did not,
+        // and /ai/route reads it to decide whether the caller may spend the
+        // model at all — an anonymous caller cannot be metered, so it is
+        // refused the model and answered by the keyword router instead. The app
+        // was therefore never once routed by the AI, silently, and none of it
+        // was counted against anyone's allowance. A guest has no token and
+        // still gets the fallback, which is the intended behaviour for a guest.
+        if let token = SessionStore.sessionToken, !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "x-session-token")
+        }
         if let key = SessionStore.apiKey, !key.isEmpty {
             request.setValue(key, forHTTPHeaderField: "x-ai-key")
         }

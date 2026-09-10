@@ -104,6 +104,46 @@ unprivileged screen, so `setOwnRole` (`worker/src/db.js`) refuses two things:
 `triager`, `maintainer` and `admin` are granted by an invite or by GitHub.
 They are never claimed.
 
+## Teams, and getting into one
+
+An invite code is minted under **You → Invite a teammate** (`POST
+/invites/create`) and redeemed in three places, which between them cover the
+three states a person can be in:
+
+| They are… | Where the code goes | What redeems it |
+|-----------|--------------------|-----------------|
+| New here | Sign in / Create account → **Invite code** | `POST /auth/signup`, or `/auth/otp/verify` creating the account |
+| Signed out, but they have an account | The same field, in **Sign in** mode too | `/auth/otp/verify` or `/auth/login`, which now redeem one |
+| Already signed in | **You → Join a team** | `POST /invites/accept` |
+
+The middle and bottom rows did not work at all. The field was drawn only in
+sign-up mode, `verifyCode` read `inviteCode` and used it only when it was
+creating an account, and `/invites/accept` had no caller in either client —
+so an invite reached exactly the people who did not have an account yet, and
+silently did nothing for everyone else. There was no error, and the code was
+not even spent.
+
+A code that fails never costs the sign-in: the emailed six digits were the
+credential and they were right, so the session stands and the reply carries
+`inviteError` for the screen to show.
+
+### Which workspace you land in
+
+`GET /me` returns `orgs`: every workspace this person belongs to, with the
+role they hold and — for a `personal:<hash>` org, which has no readable name —
+whoever created it, so the switcher can say "Dana's team" rather than an id.
+More than one, and **You → Where you work** lists them.
+
+Every sign-in reply (`/auth/signup`, `/auth/login`, `/auth/otp/verify`) names
+an `orgId`. Only sign-up used to: signing in as an existing account returned
+none, and the web client fell back to a hardcoded `web-team` — an org nobody
+is a member of, so the relay refused the socket and a second browser simply
+never showed a feed. Where there is no stored preference the server picks
+`primaryOrgId`: a workspace with other people in it beats a solo one, ties to
+the earliest join. Not "is it a `personal:` org" — an inviter's own workspace
+is a personal one too, and that test sent everyone they invited back to their
+own empty feed.
+
 ## Plans
 
 `worker/src/plans.js` is the catalog, and it is the catalog for both clients —

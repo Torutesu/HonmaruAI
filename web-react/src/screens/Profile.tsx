@@ -14,8 +14,19 @@ interface Props {
   decidedCount: number
   onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'invite') => void
   onLocaleChange: () => void
+  onSwitchOrg: (orgId: string) => void
   onLogout: () => void
   onClose: () => void
+}
+
+/// One workspace this person belongs to. `founder` stands in for a name a
+/// workspace made at sign-up does not have — `personal:8f3a…` is an id, not
+/// something to put on a screen.
+interface Org {
+  id: string
+  role: string
+  founder: string | null
+  mine: boolean
 }
 
 interface Me {
@@ -25,6 +36,7 @@ interface Me {
   locale: string
   role: string | null
   assignableRoles: string[]
+  orgs?: Org[]
 }
 
 // English keys, translated where they are read — see utils/i18n.
@@ -37,13 +49,19 @@ const ROLE_LABEL: Record<string, string> = {
 /// You: who your AI thinks you are, what it has done for you, and the way out.
 export const Profile: React.FC<Props> = ({
   httpBase, orgId, userId, sessionToken, businesses, pendingCount, decidedCount,
-  onOpen, onLocaleChange, onLogout, onClose,
+  onOpen, onLocaleChange, onSwitchOrg, onLogout, onClose,
 }) => {
   const t = useT()
   const [me, setMe] = useState<Me | null>(null)
   const [locale, setLocaleState] = useState(getLocale())
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // Redeeming a code from inside the app. Until this existed, an invite only
+  // worked on the day you made your account: the sign-in screen took a code,
+  // and nothing anywhere took one from a person who was already signed in.
+  const [joining, setJoining] = useState(false)
+  const [joinCode, setJoinCode] = useState('')
+  const [joinError, setJoinError] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`${httpBase}/me?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
@@ -72,6 +90,35 @@ export const Profile: React.FC<Props> = ({
     applyLocale(code)
     patch({ locale: code })
     onLocaleChange()
+  }
+
+  const join = async () => {
+    setJoinError(null)
+    const code = joinCode.trim()
+    if (!code) return
+    try {
+      const res = await fetch(`${httpBase}/invites/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ code }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setJoinError(data.message || t('That invite code is not valid.')); return }
+      setJoinCode('')
+      setJoining(false)
+      onSwitchOrg(data.orgId)
+    } catch (err) {
+      setJoinError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  /// What to call a workspace. A repository org is already readable; one made
+  /// at sign-up is `personal:<hash>`, so whoever started it stands in for a
+  /// name — "yours", or "Dana's team".
+  const orgLabel = (org: Org) => {
+    if (org.id.includes('/')) return org.id
+    if (org.mine) return t('Your workspace')
+    return org.founder ? t("{name}'s team", { name: org.founder }) : t('A team you joined')
   }
 
   const deleteAccount = async () => {
@@ -142,6 +189,29 @@ export const Profile: React.FC<Props> = ({
           </div>
         </div>
 
+        {(me?.orgs?.length || 0) > 1 && (
+          <>
+            <div className="rows-title">{t('Where you work')}</div>
+            <div className="rows">
+              {me!.orgs!.map((org) => (
+                <button
+                  key={org.id}
+                  className="row"
+                  data-org={org.id}
+                  aria-current={org.id === orgId}
+                  onClick={() => { if (org.id !== orgId) onSwitchOrg(org.id) }}
+                >
+                  <span className="row-main">
+                    {orgLabel(org)}
+                    <span className="row-sub">{t(ROLE_LABEL[org.role] || org.role)}</span>
+                  </span>
+                  <span className="row-value">{org.id === orgId ? '✓' : '›'}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
         <div className="rows-title">{t('Your workspace')}</div>
         <div className="rows">
           <button className="row" onClick={() => onOpen('history')}>
@@ -169,6 +239,25 @@ export const Profile: React.FC<Props> = ({
             <span className="row-main">{t('Invite a teammate')}<span className="row-sub">{t('They get their own AI, in this workspace.')}</span></span>
             <span className="row-value">›</span>
           </button>
+          <button className="row join-team" onClick={() => { setJoining(!joining); setJoinError(null) }}>
+            <span className="row-icon"><Icon name="invite" size={18} /></span>
+            <span className="row-main">{t('Join a team')}<span className="row-sub">{t('Paste a code somebody sent you.')}</span></span>
+            <span className="row-value">{joining ? '⌄' : '›'}</span>
+          </button>
+          {joining && (
+            <div className="row static">
+              <input
+                className="join-code"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') join() }}
+                placeholder={t('Invite code')}
+                aria-label={t('Invite code')}
+              />
+              <button className="pill-btn" onClick={join} disabled={!joinCode.trim()}>{t('Join')}</button>
+            </div>
+          )}
+          {joinError && <div className="form-error">{joinError}</div>}
           <button className="row" onClick={() => onOpen('plans')}>
             <span className="row-icon"><Icon name="plan" size={18} /></span>
             <span className="row-main">{t('Plan')}<span className="row-sub">{t('What you are on, and what else there is.')}</span></span>

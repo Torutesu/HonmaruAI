@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-09-07
+Last updated: 2026-09-10
 
 ## Where this is
 
@@ -9,10 +9,14 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 273 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 332 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
+  client and a browser signing up with a code it reads out of the message the
+  Worker actually sent. 23 steps
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
-- **CI:** `.github/workflows/ci.yml` — Worker, the reference relay and the
-  reference web client on every push, iOS on pull requests
+- **CI:** `.github/workflows/ci.yml` — Worker, the reference relay, the
+  reference web client and the end-to-end suite on every push, iOS on pull
+  requests
 - **Deployed:** `https://tiktokforwork.torubj0904.workers.dev`
 - **Ships as:** Honmaru AI, `com.honmaru.ai`
 
@@ -70,6 +74,20 @@ The list of what is still missing, and why each item matters, is
       [docs/record.md](docs/record.md)
 - [x] ⋯ → You: the language every card and notification is written in, and
       an email address for a GitHub account so the email floor reaches it
+- [x] An invite works on any day, not only the day you made your account. The
+      code field is on both sign-in modes, `/auth/otp/verify` and `/auth/login`
+      redeem one, and **You → Join a team** takes one from someone who is
+      already signed in — `/invites/accept` had no caller in either client
+      before, so an invite handed to an existing account did nothing at all,
+      with no error and without even spending the code
+- [x] Every sign-in reply names the workspace to open, and `GET /me` lists
+      every workspace a person belongs to. Only sign-up used to say: signing in
+      as an existing account named none, and the web client fell back to a
+      hardcoded `web-team` — an org nobody is a member of — so the relay
+      refused the socket and a second browser never showed a feed
+- [x] **You → Where you work**, once there is more than one: your own
+      workspace and any team you were invited into, named after whoever
+      started it rather than by `personal:<hash>`
 - [x] A client that republishes a card (iOS does, on a decision) can no
       longer erase the translation or the business the relay added to it
 - [x] The web client is the feed: one decision per screen, snap-scrolled,
@@ -87,6 +105,11 @@ The list of what is still missing, and why each item matters, is
       does not read the person's source
 - [x] Rate limits on routing, token exchange, sync and uploads, and on how fast
       one socket may talk
+- [x] `/ai/route` checks membership like every other route that reads an
+      organization. It did not, and it answers with a recipient and an agent
+      route built from that org's real membership rows — so any signed-in
+      account could name a team it had no part in (a repository org is just
+      `owner/repo`) and be told, by name, who is on it
 - [x] Account deletion, in the app
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
 
@@ -121,6 +144,22 @@ The list of what is still missing, and why each item matters, is
       synthetic posts shaped like Mailgun's. Needs `MAILGUN_WEBHOOK_SIGNING_KEY`
       and `INBOUND_EMAIL_DOMAIN` as Worker secrets, and the app has nowhere yet
       to show a person their address (`GET /connectors/email/address` returns it)
+- [ ] Seeing a team, not just adding to it: there is no member list for a
+      workspace made at sign-up, no way to remove someone from one, and no way
+      to list or revoke the invite codes you have minted.
+      `/orgs/:owner/:repo/graph` answers this for a repository-backed org and
+      needs a GitHub session, so it answers it for nobody who signed in with
+      an email address
+- [ ] **Tools** shows GitHub as "Always on · Built in" to everyone, including
+      an email account in a `personal:` workspace, where issue sync cannot run
+      at all — there is no repository and no GitHub token
+- [ ] iOS `AIService` now sends its session token, so the app is routed by the
+      model rather than the keyword fallback. Not compiled here — no macOS in
+      this environment; the iOS job on a pull request is what builds it
+- [ ] A new account whose invite code has a typo is refused outright, and the
+      emailed sign-in code has already been spent by then — so they start over
+      rather than landing in a workspace of their own with the invite reported
+      as failed, which is what an existing account now gets
 - [ ] A sent-items view — without one there is nowhere to nudge someone whose
       decision is overdue, which is why the SLA work shipped as a chip only
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have

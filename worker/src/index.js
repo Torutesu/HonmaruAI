@@ -8,7 +8,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
-  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES,
+  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards } from "./announce.js";
@@ -164,7 +164,7 @@ async function handle(request, env, url) {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
-      const result = await login(env, body);
+      const result = await login(env, { email: body.email, password: body.password, inviteCode: body.inviteCode });
       if (result.error) return json({ message: result.error }, 401);
       return json(result);
     }
@@ -239,6 +239,14 @@ async function handle(request, env, url) {
       let organization = body.organization;
       const routeOrgId = body.organization?.orgId || body.orgId;
       if (session && routeOrgId) {
+        // Naming an org is not belonging to it. Everything else that reads an
+        // organization checks this; this route did not, and it answers with a
+        // recipient and an agent route built from that org's real membership
+        // rows — so any signed-in account could name a team it had no part in
+        // (a repository org is just "owner/repo") and be told, by name, who is
+        // on it. The reply is small; the list it is drawn from is not public.
+        const denied = await requireMember(env, request, routeOrgId);
+        if (denied) return denied;
         const nodes = await listOrgNodes(env.DB, routeOrgId);
         if (nodes.length) {
           organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
@@ -431,6 +439,12 @@ async function handle(request, env, url) {
           ? await ownTitle(env.DB, url.searchParams.get("orgId"), session.github_id)
           : null,
         assignableRoles: SELF_ASSIGNABLE_ROLES,
+        // Where this person works. Without it a client that has lost its
+        // stored orgId — a second browser, a cleared cache, a sign-in on a
+        // borrowed laptop — had nothing to ask and fell back to a placeholder
+        // nobody is a member of, so the relay refused the socket and the feed
+        // never arrived.
+        orgs: await listUserOrgs(env.DB, session.github_id),
       });
     }
     if (url.pathname === "/me" && request.method === "PUT") {

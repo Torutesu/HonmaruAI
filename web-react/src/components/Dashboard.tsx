@@ -26,6 +26,7 @@ interface Props {
   relayUrl: string
   sessionToken: string
   onLogout: () => void
+  onSwitchOrg: (orgId: string) => void
 }
 
 type Panel = null | 'compose' | 'sent' | 'done' | 'record' | 'invite'
@@ -38,7 +39,7 @@ type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
 /// is a sheet over it that closes back to the feed.
-export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout }) => {
+export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg }) => {
   const t = useT()
   const [state, setState] = useState<AppState>({ cardsById: {} })
   const [isConnected, setIsConnected] = useState(false)
@@ -407,6 +408,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             else setScreen(where)
           }}
           onLocaleChange={() => setLocaleVersion((v) => v + 1)}
+          onSwitchOrg={(next) => { setScreen(null); onSwitchOrg(next) }}
           onLogout={onLogout}
           onClose={() => setScreen(null)}
         />

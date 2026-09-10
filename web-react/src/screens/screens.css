@@ -285,6 +285,22 @@
 }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 
+/* Redeeming a code from inside the app. It sits in a row next to its own
+   button, and an invite code is 32 hex characters — so it shrinks rather than
+   pushing the button off a phone, the way the minted code once did. */
+.join-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--bone);
+  border-radius: var(--radius-pill);
+  background: var(--signal-white);
+  color: var(--ink-black);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 8px 12px;
+  margin-right: 8px;
+}
+
 @media (prefers-color-scheme: dark) {
   .brandmark span { background: #0e0e11; }
   .otp-box { background: #17171a; border-color: #2c2c33; color: #ededef; }
@@ -308,7 +324,7 @@
   .profile-avatar { background: #ededef; color: #17171a; }
   .profile-stats { border-color: #2c2c33; }
   .profile-stats div { border-right-color: #2c2c33; }
-  .row-select { background: #17171a; border-color: #2c2c33; color: #ededef; }
+  .row-select, .join-code { background: #17171a; border-color: #2c2c33; color: #ededef; }
   .welcome-points li { border-top-color: #26262b; }
 }
 

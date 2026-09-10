@@ -26,6 +26,8 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [wait, setWait] = useState(RESEND_SECONDS)
+  // A session that is good, held back only by an invite code that was not.
+  const [pending, setPending] = useState<{ token: string; uid: string; org: string; created: boolean } | null>(null)
   const inputs = useRef<Array<HTMLInputElement | null>>([])
   const code = digits.join('')
 
@@ -49,6 +51,15 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
         setError(data.message || 'That code is not valid.')
         setDigits(Array(LENGTH).fill(''))
         inputs.current[0]?.focus()
+        return
+      }
+      // Signed in, but the invite code they pasted did not work. The emailed
+      // code was right so the session stands; saying nothing would drop them
+      // into their own workspace wondering where the team went.
+      if (data.inviteError) {
+        setError(data.inviteError)
+        setDigits(Array(LENGTH).fill(''))
+        setPending({ token: data.token, uid: data.login || data.userId, org: data.orgId || '', created: Boolean(data.created) })
         return
       }
       onVerified(data.token, data.login || data.userId, data.orgId || '', Boolean(data.created))
@@ -136,6 +147,19 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
 
         {note && <div className="form-note">{note}</div>}
         {error && <div className="form-error">{error}</div>}
+
+        {/* Quiet, and second: the primary action on this screen is still the
+            six digits. This is the way out for someone whose sign-in worked
+            and whose invite code did not — they are already signed in, and
+            You → Join a team takes another attempt at the code. */}
+        {pending && (
+          <button
+            className="btn btn-quiet"
+            onClick={() => onVerified(pending.token, pending.uid, pending.org, pending.created)}
+          >
+            {t('Continue without the code')}
+          </button>
+        )}
 
         <button className="btn btn-primary" disabled={code.length !== LENGTH || busy} onClick={() => verify(code)}>
           {busy ? 'Checking…' : 'Continue'}

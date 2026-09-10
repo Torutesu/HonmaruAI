@@ -70,6 +70,28 @@ jobs:
       - run: npm run build
       - run: npx vitest run
 
+  # The one suite that runs the product rather than its parts: a real Worker on
+  # real workerd, a real D1, the built web client, and a browser signing up with
+  # a code it reads out of the message the Worker actually sent. It existed and
+  # nothing ran it — not here, and not from a clean clone either, because the
+  # browser driver it imports was in nobody's package.json.
+  e2e:
+    name: End to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: ./e2e/run.sh
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: /tmp/e2e-shots
+          if-no-files-found: ignore
+
   # macOS minutes are expensive, so this runs on pull requests only. Pushing to
   # a branch gets the Worker suite; asking to merge gets the whole thing.
   ios:

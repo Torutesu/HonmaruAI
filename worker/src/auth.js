@@ -2,7 +2,7 @@
 // into the Workers runtime — no external dependency). This is intentionally
 // simple; stronger token handling is a later concern.
 
-import { createSession, upsertUser, upsertMembership } from "./db.js";
+import { createSession, upsertUser, upsertMembership, primaryOrgId } from "./db.js";
 
 const ENC = new TextEncoder();
 
@@ -141,7 +141,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
 }
 
 // Log in: look up by email, verify the password, return a session token.
-export async function login(env, { email, password }) {
+export async function login(env, { email, password, inviteCode }) {
   if (!validEmail(email) || typeof password !== "string") {
     return { error: "Invalid email or password." };
   }
@@ -156,7 +156,24 @@ export async function login(env, { email, password }) {
   if (!safeEqual(attempt, row.password_hash)) return { error: "Invalid email or password." };
 
   const token = await createSession(env.DB, row.github_id, EMAIL_AUTH_TOKEN);
-  return { token, userId: row.github_id, login: row.login };
+  // An invite means the same thing on both ways in. A wrong one does not cost
+  // the sign-in — the password was right — it is reported alongside it.
+  let joined = null;
+  let inviteError;
+  if (inviteCode?.trim()) {
+    const redeemed = await acceptInvite(env, { code: inviteCode.trim(), userId: row.github_id });
+    if (redeemed.error) inviteError = redeemed.error;
+    else joined = redeemed.orgId;
+  }
+  return {
+    token,
+    userId: row.github_id,
+    login: row.login,
+    // Signing in says nothing about where you work, so this does. Without it a
+    // client with no stored org had only a placeholder to guess at.
+    orgId: joined || (await primaryOrgId(env.DB, row.github_id)) || undefined,
+    ...(inviteError ? { inviteError } : {}),
+  };
 }
 
 
