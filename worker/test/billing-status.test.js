@@ -53,3 +53,30 @@ test("routing a decision spends the free allowance the screen reports", async ()
   expect(body.usedToday).toBe(1);
   expect(body.remainingToday).toBe(body.dailyLimit - 1);
 });
+
+test("a plan the screen offers is a plan somebody can actually buy", async () => {
+  // There is one entitlement in RevenueCat — `honmaruai Pro` — and one pair of
+  // store products behind it. Business was priced at $12 a seat, listed beside
+  // Pro and selectable, and choosing it put its price under a "start your free
+  // trial" button that could not have sold it. A tier nothing sells says so.
+  const body = await (await SELF.fetch("https://example.com/billing/status", {
+    headers: { "x-session-token": token },
+  })).json();
+  const buyable = body.plans.filter((p) => p.monthly > 0 && p.available !== false);
+  expect(buyable.map((p) => p.id)).toEqual(["pro"]);
+  expect(body.plans.find((p) => p.id === "business").available).toBe(false);
+  // Free is not bought, but it is offered, and it is real.
+  expect(body.plans.find((p) => p.id === "free").available).toBe(true);
+});
+
+test("no plan sells a feature the Worker does not implement", async () => {
+  // Pro advertised "Priority notification delivery". Nothing anywhere reads a
+  // subscriber's plan when sending one: notify.js picks urgency off the card's
+  // own priority and APNs gets the same headers for everybody. A paid feature
+  // that exists only on the price list is the one bug a customer pays for.
+  const body = await (await SELF.fetch("https://example.com/billing/status", {
+    headers: { "x-session-token": token },
+  })).json();
+  const features = body.plans.flatMap((p) => p.features).join(" ").toLowerCase();
+  expect(features).not.toContain("priority notification");
+});
