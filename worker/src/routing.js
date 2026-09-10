@@ -22,22 +22,45 @@ function membersWithRoles(organization) {
     }));
 }
 
+// Whole words only: includes("dev") also fires on "deviation" and "device",
+// and includes("lead") on "leading".
+//
+// \b is defined over ASCII word characters, so \bデザイナー\b can never match:
+// neither デ nor ー is a \w, so there is no boundary to find. Word boundaries
+// are what stop "dev" firing on "deviation"; that problem only exists for
+// terms written in a script that has them. Japanese terms are unambiguous
+// enough that substring matching is correct for them — with a floor on length,
+// because a one-character name is inside half the words in the language (健 is
+// in 保健, 明 is in 説明).
+//
+// The term can be a person's name, so it is escaped: a name is not a pattern.
+const MIN_MENTION_LENGTH = 2;
+
+function isAsciiTerm(word) {
+  return /^[\x00-\x7F]+$/.test(word);
+}
+
+function escapeForRegExp(word) {
+  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/// Does `lower` (already lowercased) name `term` as a term of its own, rather
+/// than carry it inside a longer word?
+export function mentions(lower, term) {
+  const word = String(term || "").trim().toLowerCase();
+  if (word.length < MIN_MENTION_LENGTH) return false;
+  return isAsciiTerm(word)
+    ? new RegExp(`\\b${escapeForRegExp(word)}\\b`, "i").test(lower)
+    : lower.includes(word);
+}
+
 // Route by a role word in the instruction to a real teammate who holds that
 // role. "ask the designer to review" -> the person whose role is "designer".
 // Uses the actual team, so it works for any org instead of hardcoded demo ids.
 function matchRealRole(text, senderID, organization) {
   const lower = String(text || "").toLowerCase();
   const members = membersWithRoles(organization);
-  // Whole words only: includes("dev") also fires on "deviation" and "device",
-  // and includes("lead") on "leading".
-  // \b is defined over ASCII word characters, so \bデザイナー\b can never match:
-  // neither デ nor ー is a \w, so there is no boundary to find. Word boundaries
-  // are what stop "dev" firing on "deviation"; that problem only exists for
-  // terms written in a script that has them. Japanese terms are unambiguous
-  // enough that substring matching is correct for them.
-  const isAscii = (word) => /^[\x00-\x7F]+$/.test(word);
-  const says = (word) =>
-    isAscii(word) ? new RegExp(`\\b${word}\\b`, "i").test(lower) : lower.includes(word.toLowerCase());
+  const says = (word) => mentions(lower, word);
   // "manager" and "lead" are deliberately absent: escalation is handled by the
   // manages edge below, which knows who a specific person reports to, and this
   // rule would shadow it with whoever happens to hold the admin role.
@@ -151,8 +174,13 @@ export function resolveRecipientTarget(text, senderID, organization) {
   for (const userID of candidateIds) {
     if (userID === senderID) continue;
     const displayName = displayNameOf(organization, userID);
-    const nameLower = displayName.toLowerCase();
-    if (nameLower && lower.includes(nameLower)) {
+    // The same whole-word rule the role words get, and for a sharper reason:
+    // this branch is `forceOverride`, so a name found inside another word does
+    // not merely mis-route — it overrules a correct answer from the model, and
+    // then tells the recipient they were "Mentioned". A team with a Ken had
+    // "the deploy is broken" routed to him; one with a Sam had "keep the same
+    // pricing", "taken", "broken", "already".
+    if (mentions(lower, displayName)) {
       return {
         recipientUserID: userID,
         routingReason: `Mentioned ${displayName}`,

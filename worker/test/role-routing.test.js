@@ -242,3 +242,78 @@ test("a typed name survives a membership row that has none", async () => {
   expect(routed.context).toContain("Mai Tanaka");
   expect(routed.context).not.toContain("u:");
 });
+
+// A name is matched the same way a role word is, and for a sharper reason: the
+// name branch sets forceOverride, so a name found inside another word does not
+// just mis-route — it overrules the model's own correct answer and then tells
+// the recipient they were "Mentioned".
+const NAMED_ORG = {
+  orgId: "acme/app",
+  nodes: [
+    { id: "mai", kind: "person", role: "founder", label: "Mai · founder" },
+    { id: "ken", kind: "person", role: "engineer", label: "Ken · engineer" },
+    { id: "sam", kind: "person", role: "designer", label: "Sam · designer" },
+  ],
+  edges: [],
+};
+const asMai = (text) => resolveRecipientTarget(text, "mai", NAMED_ORG);
+
+test("a name inside another word is not a mention", () => {
+  // Every one of these routed, with the card reading "Mentioned Ken" or
+  // "Mentioned Sam" to somebody who was never named.
+  for (const text of [
+    "the deploy is broken, please look at it",
+    "this needs to be taken care of today",
+    "keep the same pricing as last month",
+  ]) {
+    expect(asMai(text).routingReason).not.toMatch(/^Mentioned /);
+    // And it must not overrule whatever the model decided.
+    expect(asMai(text).forceOverride).toBe(false);
+  }
+});
+
+test("naming somebody still reaches them", () => {
+  expect(asMai("ask Ken to look at the deploy").recipientUserID).toBe("ken");
+  expect(asMai("Sam, can you redo the banner?").recipientUserID).toBe("sam");
+  // Case does not matter; the sentence position does not either.
+  expect(asMai("ken should decide this").recipientUserID).toBe("ken");
+});
+
+test("a Japanese name is matched by substring, above a length floor", () => {
+  const jp = {
+    orgId: "acme/app",
+    nodes: [
+      { id: "mai", kind: "person", role: "founder", label: "舞 · founder" },
+      { id: "kenji", kind: "person", role: "engineer", label: "健二 · engineer" },
+    ],
+    edges: [],
+  };
+  // \b cannot help here, so the substring rule stays — さん and に are not
+  // word characters and there is no boundary to find.
+  expect(resolveRecipientTarget("健二さんに確認をお願いして", "mai", jp).routingReason).toBe("Mentioned 健二");
+  // …but one character is inside half the words in the language, so it never
+  // force-routes on its own. 明 is in 説明, 健 is in 保健.
+  const oneChar = {
+    orgId: "acme/app",
+    nodes: [
+      { id: "yui", kind: "person", role: "founder", label: "結衣 · founder" },
+      { id: "akira", kind: "person", role: "engineer", label: "明 · engineer" },
+    ],
+    edges: [],
+  };
+  expect(resolveRecipientTarget("説明を書き直してほしい", "yui", oneChar).routingReason).not.toMatch(/^Mentioned/);
+});
+
+test("a name with regex punctuation in it is a name, not a pattern", () => {
+  const org = {
+    orgId: "acme/app",
+    nodes: [
+      { id: "mai", kind: "person", role: "founder", label: "Mai · founder" },
+      { id: "jr", kind: "person", role: "engineer", label: "J.R. Smith · engineer" },
+    ],
+    edges: [],
+  };
+  // Unescaped, "." matches anything and "J.R. Smith" would match "JxRy Smith".
+  expect(() => resolveRecipientTarget("ask J.R. Smith to review", "mai", org)).not.toThrow();
+  expect(resolveRecipientTarget("JxRy Smith should look", "mai", org).routingReason).not.toMatch(/^Mentioned/);
+});
