@@ -2,7 +2,7 @@ import { CONNECTORS } from "./connectors/index.js";
 import { syncAll } from "./sync.js";
 import { notifyCard } from "./notify.js";
 import { sweepRateLimits } from "./ratelimit.js";
-import { cardsCreatedSince } from "./db.js";
+import { cardsCreatedSince, primaryOrgId } from "./db.js";
 import { announceCards } from "./announce.js";
 import { providerConfig } from "./provider.js";
 
@@ -23,8 +23,7 @@ const MAX_USERS_PER_RUN = 50;
 async function candidates(db) {
   const { results } = await db
     .prepare(
-      `SELECT s.token, s.github_id, s.github_access_token, u.login, u.locale,
-              (SELECT org_id FROM memberships m WHERE m.user_github_id = s.github_id LIMIT 1) AS org_id
+      `SELECT s.token, s.github_id, s.github_access_token, u.login, u.locale
        FROM sessions s
        JOIN users u ON u.github_id = s.github_id
        WHERE (s.expires_at IS NULL OR s.expires_at > ?1)
@@ -35,7 +34,15 @@ async function candidates(db) {
     )
     .bind(new Date().toISOString(), MAX_USERS_PER_RUN)
     .all();
-  return (results || []).filter((row) => row.org_id && row.login);
+  // Where each of them works, by the same rule a sign-in uses. This was a
+  // `LIMIT 1` with no ordering inside the query above, which picked whichever
+  // membership row the database reached first — invisible while almost
+  // everybody was in exactly one organization, and wrong the moment joining a
+  // team became ordinary. One extra read per user, at most fifty a run.
+  const withOrg = await Promise.all(
+    (results || []).map(async (row) => ({ ...row, org_id: await primaryOrgId(db, row.github_id) }))
+  );
+  return withOrg.filter((row) => row.org_id && row.login);
 }
 
 export async function runScheduledSync(env) {

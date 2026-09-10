@@ -78,6 +78,17 @@ export function apnsHost(env) {
     : "https://api.sandbox.push.apple.com";
 }
 
+/// An APNs device token is hexadecimal. Sixty-four characters is the usual
+/// length; some push types are longer, so the ceiling is generous and the
+/// alphabet is the part that matters.
+///
+/// Checked where a client hands one over, because from there it goes into the
+/// path of a request to Apple signed with our provider token — and `fetch`
+/// resolves `..` in a path exactly the way a browser does.
+export function isDeviceToken(value) {
+  return typeof value === "string" && /^[0-9a-fA-F]{64,200}$/.test(value);
+}
+
 export function isConfigured(env) {
   return Boolean(env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_PRIVATE_KEY && env.APNS_TOPIC);
 }
@@ -100,9 +111,18 @@ export async function sendPush(env, { deviceToken, payload, collapseId, priority
       "apns-priority": String(priority),
       "content-type": "application/json",
     };
-    if (collapseId) headers["apns-collapse-id"] = collapseId.slice(0, 64);
+    // Stripped, not just cut. This is a card's id, which is length-capped and
+    // not charset-checked, and in a header value a newline is not a character:
+    // the Headers constructor throws, the catch below swallows it, and that
+    // card's push silently never goes out. webpush.js has always stripped its
+    // equivalent field; this one only trimmed the length.
+    const collapse = collapseId ? String(collapseId).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) : "";
+    if (collapse) headers["apns-collapse-id"] = collapse;
 
-    const res = await fetch(`${apnsHost(env)}/3/device/${deviceToken}`, {
+    // Encoded even though the route now refuses anything but hex: a token that
+    // predates that check is still in the table, and this is the line where a
+    // path would be walked rather than sent.
+    const res = await fetch(`${apnsHost(env)}/3/device/${encodeURIComponent(deviceToken)}`, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),

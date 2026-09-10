@@ -8,7 +8,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
-  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs,
+  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards, evictMember } from "./announce.js";
@@ -19,7 +19,7 @@ import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount } from "./account.js";
 import { listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
-import { isConfigured } from "./apns.js";
+import { isConfigured, isDeviceToken } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
 import { isMailConfigured } from "./mailer.js";
 import { SUPPORTED_LOCALES } from "./notifyCopy.js";
@@ -606,6 +606,11 @@ async function handle(request, env, url) {
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json();
       if (!body.deviceToken) return json({ message: "deviceToken is required" }, 400);
+      // Shape-checked here rather than trusted: this string ends up in the path
+      // of a request to Apple, signed with our provider token.
+      if (!isDeviceToken(body.deviceToken)) {
+        return json({ message: "That is not an APNs device token." }, 400);
+      }
       const user = await getUserByGithubId(env.DB, session.github_id);
       if (!user?.login) return json({ message: "unknown user" }, 409);
       await registerDevice(env.DB, {
@@ -917,11 +922,14 @@ async function handle(request, env, url) {
       const user = await getUserByGithubId(env.DB, githubId);
       if (!user?.login) return json({ status: "unknown recipient" });
 
-      const orgRow = await env.DB
-        .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 LIMIT 1")
-        .bind(String(githubId)).first();
-      if (!orgRow?.org_id) return json({ status: "no organization" });
-      const orgId = orgRow.org_id;
+      // Where this person works, by the same rule a sign-in uses. `LIMIT 1`
+      // with no ordering picked whichever membership row the database reached
+      // first — invisible while almost everybody was in exactly one
+      // organization, and wrong the moment joining a team became ordinary: a
+      // forwarded email would land in a workspace by accident of insertion
+      // order rather than in the one they actually work in.
+      const orgId = await primaryOrgId(env.DB, githubId);
+      if (!orgId) return json({ status: "no organization" });
 
       // A redelivered webhook is the same mail, not a second decision.
       if (await isIngested(env.DB, "email", message.id, githubId)) {

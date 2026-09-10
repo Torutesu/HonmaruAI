@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 360 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 380 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 27 steps
@@ -132,6 +132,23 @@ The list of what is still missing, and why each item matters, is
       does not read the person's source
 - [x] Rate limits on routing, token exchange, sync and uploads, and on how fast
       one socket may talk
+- [x] A card may only be addressed to somebody in the workspace it is created
+      in. The relay stamps the sender — "only ever as yourself" — and took the
+      recipient on trust, so a card could name anyone with an account: stored
+      in an org they can never join to decide it, and `notifyCard` resolves a
+      recipient by login with no idea which org asked, so its title and summary
+      went out as a push, a web push and an email to a stranger
+- [x] `/media` is a video store, not a file host. The served object comes back
+      from the Worker's own origin *as whatever the upload claimed* — so a
+      session could store HTML and have this origin serve it as HTML, cached
+      `public, immutable` by everything in between. Video types only on the way
+      in, clamped again on the way out for what is already in the bucket, and
+      `nosniff` on both
+- [x] Cards from outside the app land where the person actually works. The
+      email webhook and the connector cron both chose an org with `LIMIT 1` and
+      no ordering — insertion order, invisible while almost everybody was in
+      exactly one organization and wrong the moment joining a team became
+      ordinary
 - [x] `/ai/route` checks membership like every other route that reads an
       organization. It did not, and it answers with a recipient and an agent
       route built from that org's real membership rows — so any signed-in
@@ -148,7 +165,10 @@ The list of what is still missing, and why each item matters, is
       retried against the refusal for as long as the tab was open. The refusal
       carries a `code` (`not-a-member`, `sign-in-required`, `client-too-old`)
       so the decision is not made by matching on English prose
-- [x] Account deletion, in the app
+- [x] Account deletion, in the app — and it now names every table that names a
+      person. `invites` left a live way into the organization minted by an
+      account that no longer existed; `businesses.created_by` and `login_codes`
+      kept the address somewhere a teammate could still read it
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
 
 ### Reliability
@@ -172,12 +192,17 @@ The list of what is still missing, and why each item matters, is
 
 ## Still open
 
-- [ ] Turn APNs on: App ID capability, reissued profile, APNs secrets, and the
-      constant — [docs/push-notifications.md](docs/push-notifications.md).
-      Until then Web Push and email are the channels that actually deliver
-- [ ] Set the Web Push and Mailgun secrets on the deployment
-      (`VAPID_*`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`) —
-      [docs/notifications.md](docs/notifications.md#web-push--setup)
+- [ ] Turn APNs on **in the app**. The four Worker secrets are set — the
+      deployment reports `push: true` — so the server side is done; what is
+      left is the App ID capability, a reissued profile, and flipping
+      `PushService.isEnabledInThisBuild`, which is still `false` —
+      [docs/push-notifications.md](docs/push-notifications.md)
+- [ ] Set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as **GitHub
+      Actions repository secrets**. This is the one piece of configuration that
+      is genuinely missing, and it is not a Worker secret — those are all in
+      place. Without it `Deploy Worker` stops at "Check credentials" on every
+      push, which it has since before 2026-09-08, so `main` is ahead of what is
+      actually running — [docs/setup-secrets.md](docs/setup-secrets.md#1-cloudflare自動デプロイを動かす)
 - [ ] First App Store submission (TestFlight internal works today)
 - [ ] Point a Mailgun domain at the inbound webhook. Email is a connector on
       the Worker now — `POST /webhooks/email`, signature verified (HMAC over
@@ -186,8 +211,9 @@ The list of what is still missing, and why each item matters, is
       same triage, card, announcement and notification as Gmail and Slack. What
       is missing is the account: no real message has ever reached it, only
       synthetic posts shaped like Mailgun's. Needs `MAILGUN_WEBHOOK_SIGNING_KEY`
-      and `INBOUND_EMAIL_DOMAIN` as Worker secrets, and the app has nowhere yet
-      to show a person their address (`GET /connectors/email/address` returns it)
+      and `INBOUND_EMAIL_DOMAIN` as Worker secrets. Both clients show a person
+      their address now, under Tools/Connectors, and hide the row on the 503
+      that says this deployment has no inbound domain
 
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have
       to be clamped at `accessibility1`

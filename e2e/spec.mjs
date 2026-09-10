@@ -597,18 +597,29 @@ await step('the app is usable on a laptop', async () => {
 
   // Navigation has to be reachable with a pointer, which on a laptop means
   // labelled and to the side rather than a row of glyphs under the thumb.
-  const rail = await d.$('.tabbar')
+  //
+  // Waited for here rather than at the top of the step: `$()` does not wait,
+  // and there is a compose, a send and a render between the two. On a slower
+  // machine it returned null and the step failed as `Cannot read properties
+  // of null` — which names the line and not the reason.
+  const rail = await d.waitForSelector('.tabbar', { state: 'visible', timeout: 15000 })
   const box = await rail.boundingBox()
   if (!box || box.width > 400 || box.height < 400) {
     throw new Error(`the tab bar is not a rail on a laptop: ${JSON.stringify(box)}`)
   }
-  const labelled = await d.evaluate(() =>
-    [...document.querySelectorAll('.tab')].every((t) => {
+  const tabs = await d.$$eval('.tab', (els) =>
+    els.map((t) => {
       const after = getComputedStyle(t, '::after').content
-      return after && after !== 'none' && after !== '""'
+      return { name: t.getAttribute('data-tab') || t.className, after }
     })
   )
-  if (!labelled) throw new Error('the rail buttons have no words on them')
+  // `every` on an empty list is true, so a rail with no buttons at all used to
+  // pass this as "all of them are labelled".
+  if (!tabs.length) throw new Error('the rail has no buttons on it')
+  const bare = tabs.filter((t) => !t.after || t.after === 'none' || t.after === '""')
+  if (bare.length) {
+    throw new Error(`rail buttons with no words on them: ${bare.map((t) => t.name).join(', ')}`)
+  }
 })
 
 await step('the other screens hold up on a laptop', async () => {

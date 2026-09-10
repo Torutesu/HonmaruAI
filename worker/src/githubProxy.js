@@ -34,6 +34,23 @@ function matches(pattern, segments) {
   return pattern.every((p, i) => (p.startsWith(":") ? segments[i].length > 0 : p === segments[i]));
 }
 
+/// A dot-segment is not a repository name.
+///
+/// `:owner` and `:repo` match any non-empty segment, and `encodeURIComponent`
+/// leaves ".." exactly as it found it — so `/github/repos/../gists` would build
+/// `https://api.github.com/repos/../gists`, which `new URL()` then *normalises*
+/// to `/gists`. That is the six-call allowlist escaped, with a `repo`-scoped
+/// token, into the person's private gists and issues.
+///
+/// It is not reachable today: `index.js` reaches this through
+/// `new URL(request.url)`, and the URL parser collapses every dot-segment form
+/// — `..`, `%2E%2E`, `%2e.` — before `pathname` is ever read. That is an
+/// invariant of the caller, though, not of this file, and the promise at the
+/// top of this one is too load-bearing to rest on it.
+function isSafeSegment(segment) {
+  return segment !== "." && segment !== "..";
+}
+
 function allow(method, segments) {
   return ALLOWED.find((rule) => rule.method === method && matches(rule.pattern, segments)) || null;
 }
@@ -45,7 +62,7 @@ function allow(method, segments) {
 /// does not get to choose what we send GitHub on its behalf.
 export async function proxyGitHub(request, env, url, session) {
   const segments = url.pathname.replace(/^\/github\/?/, "").split("/").filter(Boolean);
-  const rule = allow(request.method, segments);
+  const rule = segments.every(isSafeSegment) ? allow(request.method, segments) : null;
   if (!rule) {
     return new Response(JSON.stringify({ message: "That GitHub call is not available here." }), {
       status: 404, headers: { "content-type": "application/json" },

@@ -85,6 +85,64 @@ test("someone else's pending decision survives, with the name taken off it", asy
   expect(event).toMatchObject({ actor_user_id: "deleted-user" });
 });
 
+test("nothing the account minted or is named on outlives it", async () => {
+  // The rule this module writes down is: what is *about* this person goes,
+  // what is someone else's record of a shared event stays with the name off.
+  // Three tables were named by neither half and so by nothing.
+  const { createInvite, acceptInvite } = await import("../src/auth.js");
+  const { upsertBusiness, listBusinesses, upsertUser, upsertMembership, createSession } =
+    await import("../src/db.js");
+  const { requestCode } = await import("../src/otp.js");
+
+  await upsertUser(env.DB, {
+    githubId: "email:leaving@honmaru.test", login: "u:leaving@honmaru.test",
+    name: "Leaving", avatarUrl: null, locale: "en",
+  });
+  await env.DB.prepare("UPDATE users SET email = ?1 WHERE github_id = ?2")
+    .bind("leaving@honmaru.test", "email:leaving@honmaru.test").run();
+  await upsertMembership(env.DB, "acme/app", "email:leaving@honmaru.test", "admin");
+  const token = await createSession(env.DB, "email:leaving@honmaru.test", "email-auth");
+
+  const { code } = await createInvite(env, {
+    orgId: "acme/app", createdBy: "email:leaving@honmaru.test", role: "member",
+  });
+  await upsertBusiness(env.DB, "acme/app", { name: "Hotel Honmaru", createdBy: "email:leaving@honmaru.test" });
+  // An outstanding sign-in code, keyed by the address rather than the account.
+  await requestCode({ ...env, RESEND_API_KEY: "" }, { email: "leaving@honmaru.test", locale: "en" })
+    .catch(() => {});
+  await env.DB.prepare(
+    "INSERT OR REPLACE INTO login_codes (email, code_hash, code_salt, expires_at, attempts, created_at) VALUES (?1,'h','s',?2,0,?2)"
+  ).bind("leaving@honmaru.test", new Date(Date.now() + 600000).toISOString()).run();
+
+  const res = await SELF.fetch("https://example.com/account", {
+    method: "DELETE", headers: { "x-session-token": token },
+  });
+  expect(res.status).toBe(200);
+
+  // A credential minted by an account that no longer exists must not go on
+  // letting people in — it had seven days left on it.
+  expect((await acceptInvite(env, { code, userId: "9002" })).error).toBeTruthy();
+
+  // The business is the organization's, so it stays; the name on it does not.
+  const businesses = await listBusinesses(env.DB, "acme/app");
+  const hotel = businesses.find((b) => b.name === "Hotel Honmaru");
+  expect(hotel).toBeTruthy();
+  expect(hotel.createdBy).toBe("deleted-user");
+
+  const codeRow = await env.DB
+    .prepare("SELECT email FROM login_codes WHERE email = ?1").bind("leaving@honmaru.test").first();
+  expect(codeRow).toBeNull();
+
+  // And the point of all three: the address is not left anywhere a teammate
+  // can still read it.
+  const { listInvites } = await import("../src/team.js");
+  const left = JSON.stringify({
+    businesses,
+    invites: await listInvites(env, { orgId: "acme/app", viewerId: "9002" }),
+  });
+  expect(left).not.toContain("leaving@honmaru.test");
+});
+
 test("deletion needs a session", async () => {
   const res = await SELF.fetch("https://example.com/account", { method: "DELETE" });
   expect(res.status).toBe(401);

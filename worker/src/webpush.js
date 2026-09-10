@@ -144,6 +144,17 @@ export async function encryptPayload({ p256dh, auth, plaintext, salt, localKeyPa
 
   // One record: the message, then the 0x02 delimiter that marks the last record.
   const padded = concat(encoder.encode(plaintext), new Uint8Array([2]));
+  // …and one record has a size, which is the `rs` written into the header four
+  // lines down. A record whose ciphertext exceeds it is malformed: the push
+  // service does not decrypt, so it relays the bytes and answers 201, and the
+  // browser silently fails to open them. Nothing on either side reports that,
+  // which is the worst shape a bug can take in a channel whose only symptom is
+  // absence. Today's payload is a title and a link, nowhere near this; the
+  // check is here so that adding a summary to it is a loud failure and not a
+  // notification that quietly stops arriving.
+  if (padded.length + 16 > RECORD_SIZE) {
+    throw new Error(`web push payload is ${padded.length + 16} bytes, over the ${RECORD_SIZE}-byte record size`);
+  }
   const aesKey = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
   const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, aesKey, padded));
 

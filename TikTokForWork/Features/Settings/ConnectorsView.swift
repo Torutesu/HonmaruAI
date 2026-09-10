@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import AuthenticationServices
 
 /// Each person connects their own accounts. The app never sees a credential —
@@ -11,6 +12,13 @@ struct ConnectorsView: View {
     @State private var busy: String?
     @State private var databases: [NotionDatabase] = []
     @State private var chosenDatabase: String?
+    // The address that turns a forwarded email into a card. The Worker has
+    // answered with it since inbound mail was built and nothing ever showed it
+    // to anyone, so the connector existed with no way to use it. `nil` when
+    // this deployment has no inbound domain — then there is simply nothing to
+    // hand out, which is not an error to put in front of somebody.
+    @State private var inboundAddress: String?
+    @State private var copiedAddress = false
     private let webAuth = WebAuthContextProvider()
 
     var body: some View {
@@ -22,6 +30,37 @@ struct ConnectorsView: View {
 
                 ForEach(connectors) { connector in
                     row(connector)
+                }
+
+                if let inboundAddress {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                        Text(String(localized: "Forward anything here"))
+                            .font(Theme.TypeScale.micro)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                        Text(inboundAddress)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                            .textSelection(.enabled)
+                        HStack {
+                            Text(String(localized: "Mail sent here becomes a card, triaged the way your inbox is."))
+                                .font(Theme.TypeScale.micro)
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                            Spacer()
+                            Button(copiedAddress ? String(localized: "Copied") : String(localized: "Copy")) {
+                                UIPasteboard.general.string = inboundAddress
+                                copiedAddress = true
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Theme.Colors.interactive)
+                        }
+                    }
+                    .padding(Theme.Spacing.md)
+                    .background(Theme.Colors.background)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Radius.image)
+                            .strokeBorder(Theme.Colors.border, lineWidth: 1)
+                    }
                 }
 
                 if let message {
@@ -110,6 +149,7 @@ struct ConnectorsView: View {
         } catch {
             message = String(localized: "Could not load your connectors.")
         }
+        inboundAddress = await TeamService.inboundAddress(backendBaseURL: base)
         if connectors.contains(where: { $0.id == "notion" && $0.isConnected }) {
             databases = (try? await ConnectorService.notionDatabases(backendBaseURL: base)) ?? []
             chosenDatabase = try? await ConnectorService.notionDatabaseConfig(backendBaseURL: base)
