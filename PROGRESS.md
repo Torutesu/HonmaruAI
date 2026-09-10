@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 374 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 380 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 27 steps
@@ -165,7 +165,10 @@ The list of what is still missing, and why each item matters, is
       retried against the refusal for as long as the tab was open. The refusal
       carries a `code` (`not-a-member`, `sign-in-required`, `client-too-old`)
       so the decision is not made by matching on English prose
-- [x] Account deletion, in the app
+- [x] Account deletion, in the app — and it now names every table that names a
+      person. `invites` left a live way into the organization minted by an
+      account that no longer existed; `businesses.created_by` and `login_codes`
+      kept the address somewhere a teammate could still read it
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
 
 ### Reliability

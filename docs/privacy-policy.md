@@ -75,7 +75,7 @@ and is served back from a random, unguessable URL.
 
 **Account → Delete account**, inside the app. It is immediate.
 
-Two things survive, and it is worth being plain about why:
+Three things survive, and it is worth being plain about why:
 
 1. **A decision a teammate has not made yet** stays in their feed, with your
    name replaced by "deleted-user". Removing it would delete their pending work,
@@ -83,6 +83,13 @@ Two things survive, and it is worth being plain about why:
 2. **The team's audit history** — what was decided, when — stays, with your name
    replaced by "deleted-user". It is the organization's record of what happened,
    and a record with holes in it is worse than no record.
+3. **The businesses your team files decisions under** stay, with your name
+   replaced by "deleted-user" where you were the first to name one. They are
+   the team's own filing, and every decision already filed under one would lose
+   its heading.
+
+Everything else goes, including any invite code you had outstanding — it stops
+working the moment the account does, rather than running out its week.
 
 Issues already created on GitHub are GitHub's; delete them there.
 
