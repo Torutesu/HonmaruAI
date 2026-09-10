@@ -5,6 +5,9 @@ interface Props {
   relayHttpUrl: string
   orgId: string
   sessionToken: string
+  /// A code was minted. The team screen around this one lists the codes that
+  /// are still out, and a new one belongs in that list straight away.
+  onMinted?: () => void
 }
 
 /// The roles an invite can grant. The label is what the person minting the
@@ -23,7 +26,7 @@ const ROLES: Array<{ id: string; label: string }> = [
 /// it, and it borrows the same rows, buttons and type as every other screen
 /// rather than the hand-written styles it had — an invite is the first thing
 /// a new person sees of this product through somebody else.
-export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionToken }) => {
+export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionToken, onMinted }) => {
   const t = useT()
   const [code, setCode] = useState<string | null>(null)
   const [role, setRole] = useState('member')
@@ -49,6 +52,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
         return
       }
       setCode(data.code)
+      onMinted?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

@@ -107,6 +107,21 @@ function App() {
     try { localStorage.setItem('orgId', next) } catch { /* private mode */ }
   }
 
+  /// They left the workspace that was on screen. There is nothing there to
+  /// show them now, so ask where they still belong — the same question a
+  /// sign-in asks — and go there.
+  const leftOrg = async () => {
+    try {
+      const res = await fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken } })
+      if (res.ok) {
+        const me = await res.json()
+        const next = me.orgs?.find((o: { id: string }) => o.id !== orgId)?.id
+        if (next) { switchOrg(next); return }
+      }
+    } catch { /* nothing to fall back to but the way out */ }
+    handleLogout()
+  }
+
   const finishOnboarding = () => {
     try { localStorage.setItem('onboarded', 'yes') } catch { /* a preference, not a record */ }
     setStage('app')
@@ -178,7 +193,15 @@ function App() {
 
   return (
     <div className="app">
-      <Dashboard userId={userId} orgId={orgId} relayUrl={wsBase(host)} sessionToken={sessionToken} onLogout={handleLogout} onSwitchOrg={switchOrg} />
+      <Dashboard
+        userId={userId}
+        orgId={orgId}
+        relayUrl={wsBase(host)}
+        sessionToken={sessionToken}
+        onLogout={handleLogout}
+        onSwitchOrg={switchOrg}
+        onLeft={() => { void leftOrg() }}
+      />
     </div>
   )
 }

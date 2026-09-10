@@ -92,20 +92,27 @@ test("two users cannot share a relay identity", async () => {
 // The account row used to be written before the invite was checked, so one
 // typo left a real account with no org — and the address could never be used
 // again, because the retry answered "an account with this email already exists".
-test("a bad invite code does not consume the email address", async () => {
+test("a bad invite code does not cost you the account", async () => {
   const { signup } = await import("../src/auth.js");
 
-  const failed = await signup(env, {
+  // This used to refuse outright, so that a mistyped code could not leave a
+  // real account behind with no org. It left something worse: on the code
+  // sign-in path the emailed six digits are already spent by the time signup
+  // runs, so one wrong character cost the account *and* the credential, and
+  // the only way on was to ask for another code and type everything again.
+  const typo = await signup(env, {
     email: "typo@example.com", password: "password123", name: "Typo", inviteCode: "not-a-real-code",
   });
-  expect(failed.error).toBeTruthy();
+
+  expect(typo.error).toBeUndefined();
+  expect(typo.token).toBeTruthy();
+  // Told what did not happen, rather than left to notice the team is missing.
+  expect(typo.inviteError).toBeTruthy();
+  // And placed exactly where a sign-up with no code at all would have put
+  // them — never in an org the code failed to name.
+  expect(typo.orgId).toMatch(/^personal:/);
 
   const row = await env.DB
     .prepare("SELECT github_id FROM users WHERE email = ?1").bind("typo@example.com").first();
-  expect(row).toBeNull();
-
-  // And the second attempt, with no code, works.
-  const ok = await signup(env, { email: "typo@example.com", password: "password123", name: "Typo" });
-  expect(ok.error).toBeUndefined();
-  expect(ok.token).toBeTruthy();
+  expect(row).not.toBeNull();
 });

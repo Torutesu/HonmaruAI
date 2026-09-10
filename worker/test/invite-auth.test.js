@@ -122,10 +122,20 @@ test("signup will not redeem an expired invite either", async () => {
     .run();
 
   const { signup } = await import("../src/auth.js");
+  const { isMember } = await import("../src/db.js");
   const result = await signup(env, {
     email: "late@example.com", password: "password123", name: "Late", inviteCode: code,
   });
-  expect(result.error).toBeTruthy();
+
+  // Reported, not fatal. Refusing the whole sign-up also spent the emailed
+  // six digits, which are gone by the time this runs — so one wrong character
+  // cost the account and the credential both, and the only way on was to ask
+  // for another code. They get the workspace they would have got with no code
+  // at all, and are told the invite did not work.
+  expect(result.error).toBeUndefined();
+  expect(result.inviteError).toBeTruthy();
+  expect(result.orgId).toMatch(/^personal:/);
+  expect(await isMember(env.DB, VICTIM_ORG, result.userId)).toBe(false);
 });
 
 test("a code is spent after its permitted number of uses", async () => {

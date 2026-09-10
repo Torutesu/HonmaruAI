@@ -12,7 +12,7 @@ interface Props {
   businesses: Business[]
   pendingCount: number
   decidedCount: number
-  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'invite') => void
+  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team') => void
   onLocaleChange: () => void
   onSwitchOrg: (orgId: string) => void
   onLogout: () => void
@@ -234,9 +234,9 @@ export const Profile: React.FC<Props> = ({
             <span className="row-main">{t('Notifications')}<span className="row-sub">{t('Where a decision reaches you.')}</span></span>
             <span className="row-value">›</span>
           </button>
-          <button className="row" onClick={() => onOpen('invite')}>
+          <button className="row" onClick={() => onOpen('team')}>
             <span className="row-icon"><Icon name="invite" size={18} /></span>
-            <span className="row-main">{t('Invite a teammate')}<span className="row-sub">{t('They get their own AI, in this workspace.')}</span></span>
+            <span className="row-main">{t('Your team')}<span className="row-sub">{t('Who is here, the codes you have out, and one more way in.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row join-team" onClick={() => { setJoining(!joining); setJoinError(null) }}>

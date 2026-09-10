@@ -143,6 +143,35 @@ const ja: Dict = {
   "{name}'s team": '{name}さんのチーム',
   'A team you joined': '参加しているチーム',
   'Join a team': 'チームに参加',
+  'Your team': 'あなたのチーム',
+  'Who is here, the codes you have out, and one more way in.':
+    '誰がいるか、発行済みのコード、そしてもう一人招く方法。',
+  'Who is here': 'メンバー',
+  'Codes you have out': '発行中のコード',
+  'Could not read your team.': 'チームを読み込めませんでした。',
+  'That did not work.': 'うまくいきませんでした。',
+  'One moment…': '少々お待ちください…',
+  Remove: '外す',
+  Leave: '抜ける',
+  Keep: 'やめる',
+  // Not "Cancel": that key is already the one on a dismiss button, and this
+  // is a code being killed. The English key is the string, so two meanings
+  // cannot share one word.
+  Revoke: '無効化',
+  you: 'あなた',
+  yours: 'あなたの発行',
+  'from {name}': '{name}さんの発行',
+  "This workspace's members come from a GitHub repository. Change who can push to it there.":
+    'このワークスペースのメンバーはGitHubリポジトリから来ています。変更はGitHub側で行ってください。',
+  'Everyone here gets their own AI': '全員が自分のAIを持ちます',
+  'A decision reaches them wherever they read, in their own language.':
+    '決定は、その人が読む場所に、その人の言語で届きます。',
+  'Not in this workspace': 'このワークスペースでは使えません',
+  Off: 'オフ',
+  'This workspace is not backed by a GitHub repository, so there is nowhere to open an issue.':
+    'このワークスペースはGitHubリポジトリに紐づいていないため、Issueを立てる先がありません。',
+  'Decisions sync as your GitHub account. Sign in with GitHub to turn this on.':
+    '決定はあなたのGitHubアカウントとして同期されます。有効にするにはGitHubでサインインしてください。',
   'Paste a code somebody sent you.': '誰かから受け取ったコードを貼り付けてください。',
   Join: '参加',
   'That invite code is not valid.': 'その招待コードは使えません。',

@@ -6,7 +6,7 @@ import { Icon } from './Icon'
 import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { RecordSheet } from './RecordSheet'
-import { InviteTeammate } from './InviteTeammate'
+import { Team } from '../screens/Team'
 import { Tools } from '../screens/Tools'
 import { History } from '../screens/History'
 import { NotificationSettings } from '../screens/NotificationSettings'
@@ -27,19 +27,22 @@ interface Props {
   sessionToken: string
   onLogout: () => void
   onSwitchOrg: (orgId: string) => void
+  /// This account is no longer in the workspace on screen. The shell finds
+  /// them another one.
+  onLeft: () => void
 }
 
-type Panel = null | 'compose' | 'sent' | 'done' | 'record' | 'invite'
+type Panel = null | 'compose' | 'sent' | 'done' | 'record'
 type Mode = 'cards' | 'classic'
 // A full screen over the feed, as opposed to a sheet. These are the design's
 // own screens — Tools, History, Notifications, Plan, You — and each one owns
 // the viewport while it is open.
-type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
+type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team'
 
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
 /// is a sheet over it that closes back to the feed.
-export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg }) => {
+export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg, onLeft }) => {
   const t = useT()
   const [state, setState] = useState<AppState>({ cardsById: {} })
   const [isConnected, setIsConnected] = useState(false)
@@ -362,18 +365,20 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         <RecordSheet httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setPanel(null)} />
       )}
 
-      {panel === 'invite' && (
-        <div className="sheet sheet-bottom" role="dialog" aria-label={t('Invite a teammate')}>
-          <div className="sheet-title">
-            {t('Invite a teammate')}
-            <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button>
-          </div>
-          <InviteTeammate relayHttpUrl={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} />
-        </div>
-      )}
-
       {/* The design's own screens. Each takes the viewport while it is open,
           which is what makes them screens and not sheets. */}
+      {screen === 'team' && (
+        <Team
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          sessionToken={sessionToken}
+          // They just walked out of this workspace, so there is nothing left
+          // here to show them. Asking the server where they still belong is
+          // the same question a sign-in asks.
+          onLeft={() => { setScreen(null); onLeft() }}
+          onClose={() => setScreen(null)}
+        />
+      )}
       {screen === 'tools' && (
         <Tools httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
       )}
@@ -404,7 +409,6 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           decidedCount={decidedCards.length}
           onOpen={(where) => {
             if (where === 'record') { setScreen(null); setPanel('record') }
-            else if (where === 'invite') { setScreen(null); setPanel('invite') }
             else setScreen(where)
           }}
           onLocaleChange={() => setLocaleVersion((v) => v + 1)}

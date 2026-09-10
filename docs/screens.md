@@ -127,6 +127,42 @@ A code that fails never costs the sign-in: the emailed six digits were the
 credential and they were right, so the session stands and the reply carries
 `inviteError` for the screen to show.
 
+### Seeing a team, not only adding to it
+
+**You → Your team** is the whole of it: who is here, the codes still out, and
+the form that mints another. Before it there was no member list at all — the
+only endpoint that answered "who is here" was `/orgs/:owner/:repo/graph`,
+which reads a GitHub repository's collaborators and needs a GitHub session, so
+for every account the web client can sign in it answered nothing.
+
+| Route | Who may call it | What it refuses |
+|-------|-----------------|-----------------|
+| `GET /members?orgId=` | any member | a non-member, with 403 |
+| `DELETE /members` | any member | removing someone at or above your own role; the last person leaving; any change at all to a repository-backed org |
+| `GET /invites?orgId=` | any member | showing, in full, a code minted above your own role |
+| `DELETE /invites` | the code's creator, or standing at or above what it grants | anyone else's, with 403 |
+
+Three of those deserve their reasons written down:
+
+- **A repository-backed org is not ours to edit.** `retainMemberships` deletes
+  anyone GitHub no longer lists on the next org-graph load, so a row deleted
+  here comes straight back. `editable: false` says where membership is really
+  decided instead of offering a button that quietly undoes itself.
+- **A code above your own role is listed by reference, not in full.** Reading
+  an admin code is a promotion — redeem it and you are one — and the same
+  ladder that stops you *minting* one has to stop you reading one. A code at
+  or below your role you could mint yourself, so showing it hands you nothing.
+  The reference is `sha256(code)` cut to 16 characters: derived, not stored,
+  because one more column on `invites` is a migration for a computable string.
+- **The last person cannot leave.** An org with nobody in it is a row nothing
+  can ever reach again, its cards included, and no invite can be minted to get
+  back in.
+
+Removing someone takes nothing of theirs but the membership. What was decided
+is the organization's record, not the decider's belongings —
+[the privacy policy](privacy-policy.md) draws the same line for account
+deletion.
+
 ### Which workspace you land in
 
 `GET /me` returns `orgs`: every workspace this person belongs to, with the
@@ -145,6 +181,19 @@ is a personal one too, and that test sent everyone they invited back to their
 own empty feed.
 
 ## Plans
+
+## Tools, and what this workspace can actually do
+
+`GET /connectors/github?orgId=` answers one question: can a decision made here
+become a GitHub Issue? It is a route of its own rather than a field on
+`GET /connectors` because that one refuses outright without a Composio key,
+and this answer has nothing to do with Composio.
+
+It says no twice: a workspace that is not `owner/repo` has nowhere to open an
+issue, and an email session has no GitHub token to write with. The Tools
+screen printed **Always on · Built in** to everybody, which for an email
+account in the `personal:` workspace it was given at sign-up was true of
+nothing at all.
 
 `worker/src/plans.js` is the catalog, and it is the catalog for both clients —
 a price that disagrees between the web app and the phone is worse than no

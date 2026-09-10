@@ -32,7 +32,7 @@ export function isGitHubSession(session) {
 /// directions: `roleName()` hands it out for GitHub's `maintain` permission, so
 /// a person could hold it — and then rank 0, unable to invite a triager — while
 /// an admin asking to invite one was told "That is not a role."
-const ROLE_RANK = new Map([
+export const ROLE_RANK = new Map([
   ["member", 0], ["designer", 0], ["engineer", 0],
   ["triager", 1], ["maintainer", 2], ["admin", 3],
 ]);
@@ -109,20 +109,28 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
   // body.orgId let anyone write a membership row for a private org, and
   // authorizeOrgAccess treats that row as proof of access.
   //
-  // Settled before the account is written. The other order left a mistyped
-  // invite code behind as a real account with no org — and that address could
-  // then never sign up again, because the retry was answered with "an account
-  // with this email already exists".
+  // Settled before the account is written, so a mistyped code cannot leave a
+  // real account behind with no org at all.
+  //
+  // A code that does not work no longer refuses the sign-up, though. It used
+  // to, and the emailed six digits have already been spent by the time this
+  // runs — so one wrong character cost the account *and* the credential, and
+  // the only way on was to start over and ask for another code. They get the
+  // workspace they would have got with no code at all, `inviteError` says what
+  // did not happen, and You → Join a team takes another attempt at it.
   let org;
   let joinRole = "member";
+  let inviteError;
   if (inviteCode?.trim()) {
     const invite = await readInvite(env.DB, inviteCode.trim());
-    if (!invite || !(await spendInvite(env.DB, inviteCode.trim()))) {
-      return { error: "That invite code is not valid." };
+    if (invite && (await spendInvite(env.DB, inviteCode.trim()))) {
+      org = invite.org_id;
+      joinRole = invite.role || "member";
+    } else {
+      inviteError = "That invite code is not valid.";
     }
-    org = invite.org_id;
-    joinRole = invite.role || "member";
-  } else {
+  }
+  if (!org) {
     // Their own org. Derived from the user id so no one else can claim it, but
     // hashed: this id travels in the socket's query string, and a URL is the
     // classic place an address ends up somewhere it was never meant to be.
@@ -137,7 +145,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
     .run();
   await upsertMembership(env.DB, org, userId, joinRole);
   const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
-  return { token, userId, login, orgId: org };
+  return { token, userId, login, orgId: org, ...(inviteError ? { inviteError } : {}) };
 }
 
 // Log in: look up by email, verify the password, return a session token.

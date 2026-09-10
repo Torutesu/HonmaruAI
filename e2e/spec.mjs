@@ -109,6 +109,42 @@ async function closeEverything() {
   await page.waitForSelector('.tabbar', { timeout: 10000 })
 }
 
+/// Mint an invite code from the team screen, and hand it back.
+///
+/// The code is 32 hex characters and was once set like a six-digit PIN, so it
+/// ran out of its box and pushed the Copy button clean off the screen —
+/// hence the overflow check on the way past. Nothing here may sit outside the
+/// viewport.
+async function mintInvite(role, shotName) {
+  await closeEverything()
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row:has-text("Your team")')
+  await page.waitForSelector('.screen .invite select', { timeout: 10000 })
+  await page.selectOption('.screen .invite select', role)
+  await page.click('.screen .invite .btn-primary')
+  await page.waitForSelector('.screen .invite-code', { timeout: 15000 })
+  if (shotName) await shot(shotName)
+
+  const spill = await page.evaluate(() => {
+    const bad = []
+    for (const el of document.querySelectorAll('.screen *')) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      if (r.left < -1 || r.right > window.innerWidth + 1) {
+        bad.push(`${el.className || el.tagName} @ ${Math.round(r.left)} ${Math.round(r.width)}w`)
+      }
+    }
+    return bad.slice(0, 5)
+  })
+  if (spill.length) throw new Error(`the team screen spills off the phone: ${spill.join(' ; ')}`)
+
+  const code = (await page.textContent('.screen .invite-code')).trim()
+  if (!code) throw new Error('no invite code was minted')
+  await closeEverything()
+  return code
+}
+
 /// A screen that is not a tab. On a phone the bar holds three — feed, compose,
 /// you — so History and Tools are reached the way a person reaches them:
 /// through You. On the rail they are tabs, and that route is tested there.
@@ -603,37 +639,7 @@ await step('the other screens hold up on a laptop', async () => {
 await step('a second person joins by invite and the card reaches them', async () => {
   await closeEverything()
 
-  // A mints a code for an engineer.
-  await page.click('nav [data-tab="you"]')
-  await page.waitForSelector('.profile-stats', { timeout: 10000 })
-  await page.click('text=Invite a teammate')
-  // The invite is a sheet over the You screen, not a screen of its own, so
-  // its controls are inside .sheet — .screen would find the Role picker
-  // underneath it instead.
-  await page.waitForSelector('.sheet .invite select', { timeout: 10000 })
-  await page.selectOption('.sheet .invite select', 'engineer')
-  await page.click('.sheet .invite .btn-primary')
-  await page.waitForSelector('.sheet .invite-code', { timeout: 15000 })
-  await shot('18-invite')
-  const invite = (await page.textContent('.sheet .invite-code')).trim()
-  if (!invite) throw new Error('no invite code was minted')
-  // The code is 32 hex characters and was set like a six-digit PIN, so it ran
-  // out of its box and pushed the Copy button clean off the screen. Nothing
-  // in a sheet may sit outside the viewport.
-  const spill = await page.evaluate(() => {
-    const bad = []
-    for (const el of document.querySelectorAll('.sheet *')) {
-      const r = el.getBoundingClientRect()
-      if (r.width === 0 || r.height === 0) continue
-      if (r.left < -1 || r.right > window.innerWidth + 1) {
-        bad.push(`${el.className || el.tagName} @ ${Math.round(r.left)} ${Math.round(r.width)}w`)
-      }
-    }
-    return bad.slice(0, 5)
-  })
-  if (spill.length) throw new Error(`the invite sheet spills off the phone: ${spill.join(' ; ')}`)
-  await page.click('.sheet .close')
-  await page.waitForTimeout(400)
+  const invite = await mintInvite('engineer', '18-invite')
 
   // B signs up with it, in their own browser.
   const second = await browser.newContext({ viewport: { width: 390, height: 844 } })
@@ -711,19 +717,7 @@ await step('signing in on a machine that has never seen you reaches the feed', a
 })
 
 await step('an invite reaches someone who already has an account', async () => {
-  await closeEverything()
-
-  // A mints a code.
-  await page.click('nav [data-tab="you"]')
-  await page.waitForSelector('.profile-stats', { timeout: 10000 })
-  await page.click('text=Invite a teammate')
-  await page.waitForSelector('.sheet .invite select', { timeout: 10000 })
-  await page.selectOption('.sheet .invite select', 'designer')
-  await page.click('.sheet .invite .btn-primary')
-  await page.waitForSelector('.sheet .invite-code', { timeout: 15000 })
-  const invite = (await page.textContent('.sheet .invite-code')).trim()
-  await page.click('.sheet .close')
-  await page.waitForTimeout(400)
+  const invite = await mintInvite('designer')
 
   // C already has an account of their own, made before the invite existed.
   const already = `e2e-already-${Date.now()}@example.com`
@@ -804,6 +798,88 @@ await step('a code that is not a code is said out loud, not swallowed', async ()
   // And it did not move them anywhere: still the same feed, still connected.
   await page.click('.screen .back')
   await page.waitForSelector('.dot.on', { timeout: 20000 })
+})
+
+await step('the team screen shows who is here, and Kenji is', async () => {
+  // Inviting was the whole of team management: you could add somebody and
+  // then never see them again. /orgs/:owner/:repo/graph answered "who is
+  // here" only for a repository-backed org and only to a GitHub session — so
+  // for every account the web client can sign in, it answered nothing.
+  await closeEverything()
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row:has-text("Your team")')
+  await page.waitForSelector('.screen .team-member', { timeout: 15000 })
+  await shot('25-team')
+
+  const names = await page.$$eval('.screen .team-member .row-main', (els) =>
+    els.map((e) => e.textContent || ''))
+  if (names.length < 2) throw new Error(`the team lists ${names.length} people`)
+  if (!names.some((n) => /Kenji/.test(n))) {
+    throw new Error(`the person who joined by invite is not in the team: ${names.join(' | ')}`)
+  }
+  // Nobody is listed by the id they sign in with.
+  const raw = names.filter((n) => /u:|email:|@example\.com/.test(n))
+  if (raw.length) throw new Error(`the team shows raw account ids: ${raw.join(' | ')}`)
+  // And exactly one of them is you.
+  const you = names.filter((n) => /you/.test(n))
+  if (you.length !== 1) throw new Error(`${you.length} people on this team are you`)
+  await closeEverything()
+})
+
+await step('a code you have out can be found and revoked', async () => {
+  // There was no way to see a code you had already handed over, and no way to
+  // close it — the only way to stop one was to wait a week for it to expire.
+  const doomed = await mintInvite('member')
+
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row:has-text("Your team")')
+  await page.waitForSelector('.screen .team-invite', { timeout: 15000 })
+  const listed = await page.$$eval('.screen .team-invite .invite-code', (els) =>
+    els.map((e) => (e.textContent || '').trim()))
+  if (!listed.includes(doomed)) {
+    throw new Error(`the code just minted is not listed: ${listed.join(' | ')}`)
+  }
+  await shot('26-codes-out')
+
+  const before = listed.length
+  await page.click(`.screen .team-invite:has-text("${doomed.slice(0, 8)}") .btn-text.danger`)
+  await page.waitForFunction(
+    (n) => document.querySelectorAll('.screen .team-invite').length < n,
+    before,
+    { timeout: 15000 }
+  )
+  const after = await page.$$eval('.screen .team-invite .invite-code', (els) =>
+    els.map((e) => (e.textContent || '').trim()))
+  if (after.includes(doomed)) throw new Error('a revoked code is still listed')
+  await closeEverything()
+
+  // And it no longer opens anything. Through the screen a person would use,
+  // not a bare request: an unauthenticated POST is refused whether or not the
+  // code is dead, which would have made this assertion prove nothing.
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row.join-team')
+  await page.waitForSelector('.join-code', { timeout: 10000 })
+  await page.fill('.join-code', doomed)
+  await page.click('.screen .row.static .pill-btn')
+  await page.waitForSelector('.screen .form-error', { timeout: 15000 })
+  await closeEverything()
+})
+
+await step('GitHub is not claimed where it cannot run', async () => {
+  // The Tools screen printed "Always on · Built in" for everyone. In a
+  // workspace made at sign-up there is no repository to open an issue in and
+  // no GitHub token to write with, so that was simply not true.
+  await openViaYou('Tools', '.screen')
+  await page.waitForSelector('[data-github]', { timeout: 15000 })
+  const state = await page.getAttribute('[data-github]', 'data-github')
+  if (state !== 'off') throw new Error(`GitHub is claimed as "${state}" in a workspace with no repository`)
+  const said = await page.textContent('[data-github] .row-sub')
+  if (!said || !said.trim()) throw new Error('GitHub is switched off without saying why')
+  await shot('27-github-off')
+  await closeEverything()
 })
 
 for (const ctx of extras) await ctx.close()

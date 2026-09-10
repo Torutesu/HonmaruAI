@@ -38,6 +38,11 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   const [busy, setBusy] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  // Whether the GitHub sync this row advertises can run in *this* workspace.
+  // It used to be printed as "Built in" for everyone, and for an email account
+  // in the workspace it was given at sign-up it is not built into anything:
+  // there is no repository to open an issue in and no token to write with.
+  const [github, setGithub] = useState<{ builtIn: boolean; reason: string | null } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -56,6 +61,17 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     }
   }, [httpBase, sessionToken])
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    let ignore = false
+    fetch(`${httpBase}/connectors/github?orgId=${encodeURIComponent(orgId)}`, {
+      headers: { 'x-session-token': sessionToken },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!ignore && data) setGithub(data) })
+      .catch(() => { /* the row simply says nothing until it knows */ })
+    return () => { ignore = true }
+  }, [httpBase, orgId, sessionToken])
 
   // The window is opened before the await, not after: a popup opened from a
   // resolved promise is not a user gesture any more, and every browser blocks it.
@@ -154,17 +170,23 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           </button>
         )}
 
-        <div className="rows-title">{t('Always on')}</div>
-        <div className="rows">
-          <div className="row static">
-            <span className="row-icon"><Icon name="github" size={18} /></span>
-            <span className="row-main">
-              GitHub
-              <span className="row-sub">{t(BLURB.github)}</span>
-            </span>
-            <span className="pill-tag mint">{t('Built in')}</span>
-          </div>
-        </div>
+        {github && (
+          <>
+            <div className="rows-title">{github.builtIn ? t('Always on') : t('Not in this workspace')}</div>
+            <div className="rows">
+              <div className="row static" data-github={github.builtIn ? 'on' : 'off'}>
+                <span className="row-icon"><Icon name="github" size={18} /></span>
+                <span className="row-main">
+                  GitHub
+                  <span className="row-sub">{github.builtIn ? t(BLURB.github) : t(github.reason || '')}</span>
+                </span>
+                {github.builtIn
+                  ? <span className="pill-tag mint">{t('Built in')}</span>
+                  : <span className="pill-tag quiet">{t('Off')}</span>}
+              </div>
+            </div>
+          </>
+        )}
         <div style={{ height: 24 }} />
       </div>
     </div>
