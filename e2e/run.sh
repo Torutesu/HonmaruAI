@@ -55,6 +55,22 @@ cd worker
 # The schema has to exist before anything signs in. --local keeps it on disk
 # under .wrangler, so this is the same database the dev server will open.
 npx -y wrangler@4 d1 execute tiktokforwork --local --file schema.sql --yes >/tmp/e2e-d1.log 2>&1
+# …and then the migrations, exactly the way the deploy applies them: statement
+# by statement, tolerating "duplicate column name" as the already-applied
+# signal. Without this the harness only ever built a database from schema.sql,
+# which on a second run is a no-op for a table that already exists — so a
+# column added by a migration was missing here and present in production, and
+# the suite that exists to catch that could not see it.
+while IFS= read -r stmt; do
+  [ -z "$stmt" ] && continue
+  if ! npx -y wrangler@4 d1 execute tiktokforwork --local --command "$stmt" --yes >>/tmp/e2e-d1.log 2>&1; then
+    grep -qi "duplicate column name" /tmp/e2e-d1.log || {
+      echo "migration failed: $stmt" >&2
+      tail -20 /tmp/e2e-d1.log >&2
+      exit 1
+    }
+  fi
+done < <(grep -E '^(ALTER TABLE|CREATE )' migrations.sql)
 npx -y wrangler@4 dev --local --port "$WORKER_PORT" \
   --var RESEND_API_KEY:re_e2e \
   --var RESEND_API_BASE:http://127.0.0.1:9099 \

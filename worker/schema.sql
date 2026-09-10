@@ -69,8 +69,19 @@ CREATE TABLE IF NOT EXISTS invites (
   /* A code is a bearer credential: whoever holds it joins. The TTL bounds how
      long a leaked one lasts, the cap bounds how many strangers it admits. */
   max_uses       INTEGER NOT NULL DEFAULT 1,
-  uses           INTEGER NOT NULL DEFAULT 0
+  uses           INTEGER NOT NULL DEFAULT 0,
+  /* A non-secret name for this code, so a member of the team can be shown that
+     it exists — and cancel it — without being shown the credential itself. It
+     is sha256(code) cut short, so it is derivable; it is stored so that
+     cancelling one is an indexed lookup rather than a scan of every invite in
+     the workspace, hashing each. */
+  ref            TEXT
 );
+/* The index for `ref` is in migrations.sql, not here. This file runs first and
+   `CREATE TABLE IF NOT EXISTS` is a no-op on a database that already has the
+   table without the column — so an index on it here would be built against a
+   column that does not exist yet, and D1 aborts a file at its first error,
+   taking everything below this line with it. */
 
 CREATE INDEX IF NOT EXISTS idx_invites_org ON invites (org_id);
 

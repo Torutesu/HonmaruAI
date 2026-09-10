@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 350 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 360 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 27 steps
@@ -88,6 +88,11 @@ The list of what is still missing, and why each item matters, is
 - [x] **You → Where you work**, once there is more than one: your own
       workspace and any team you were invited into, named after whoever
       started it rather than by `personal:<hash>`
+- [x] A pending decision does not die with the person it was for. Only its
+      recipient may decide a card, so somebody leaving left theirs unanswerable
+      in a feed nobody opens. They go back to whoever asked, `pending`, saying
+      why — in the reader's language — and are dropped with a snapshot in
+      `card_events` when the sender is gone too
 - [x] **You → Your team**: who is here, the codes still out, and the form that
       mints another. Inviting used to be the whole of team management — no
       member list, no way to take anyone out, and no way to find or revoke a
@@ -156,6 +161,12 @@ The list of what is still missing, and why each item matters, is
 - [x] VoiceOver rotor actions on the card; approve and decline no longer need a swipe
 - [x] "Waiting 3d" on a pending card, red at five days
 - [x] Search and filter over history
+- [x] Sent by you, on the phone as well as the web — and the nudge iOS never
+      had, so an overdue decision can be asked about from where you see it
+- [x] A name is never an address. `DisplayName.of` fell back to the account id,
+      which for an email account is the whole address, so a colleague's inbox
+      appeared on cards, routing lines and history throughout the app. The web
+      client has stripped exactly this since the feed was built
 - [x] Pending badge on the tab bar, from the same count as the app icon
 - [x] Sessions extend with use, so an active user is never signed out
 
@@ -177,8 +188,7 @@ The list of what is still missing, and why each item matters, is
       synthetic posts shaped like Mailgun's. Needs `MAILGUN_WEBHOOK_SIGNING_KEY`
       and `INBOUND_EMAIL_DOMAIN` as Worker secrets, and the app has nowhere yet
       to show a person their address (`GET /connectors/email/address` returns it)
-- [ ] A sent-items view — without one there is nowhere to nudge someone whose
-      decision is overdue, which is why the SLA work shipped as a chip only
+
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have
       to be clamped at `accessibility1`
 

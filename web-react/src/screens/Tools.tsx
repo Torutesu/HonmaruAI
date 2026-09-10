@@ -43,6 +43,11 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   // in the workspace it was given at sign-up it is not built into anything:
   // there is no repository to open an issue in and no token to write with.
   const [github, setGithub] = useState<{ builtIn: boolean; reason: string | null } | null>(null)
+  // The address that turns an email into a card. The Worker has answered with
+  // it since inbound mail was built, and nothing has ever shown it to anyone —
+  // so the connector existed and there was no way to use it.
+  const [inbox, setInbox] = useState<string | null>(null)
+  const [copiedInbox, setCopiedInbox] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -61,6 +66,17 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     }
   }, [httpBase, sessionToken])
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    let ignore = false
+    // 503 is this deployment having no inbound domain configured, which is not
+    // an error to show — there is simply nothing to hand out.
+    fetch(`${httpBase}/connectors/email/address`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!ignore && data?.address) setInbox(data.address) })
+      .catch(() => { /* the row simply does not appear */ })
+    return () => { ignore = true }
+  }, [httpBase, sessionToken])
 
   useEffect(() => {
     let ignore = false
@@ -168,6 +184,31 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           <button className="btn btn-ghost" onClick={pull} disabled={syncing}>
             {syncing ? t('Pulling…') : t('Pull now')}
           </button>
+        )}
+
+        {inbox && (
+          <>
+            <div className="rows-title">{t('Forward anything here')}</div>
+            <div className="rows">
+              <div className="row static" data-inbox="1">
+                <span className="row-icon"><Icon name="mail" size={18} /></span>
+                <span className="row-main">
+                  <code className="invite-code sm">{inbox}</code>
+                  <span className="row-sub">{t('Mail sent here becomes a card, triaged the way your inbox is.')}</span>
+                </span>
+                <button
+                  className="pill-btn"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(inbox)
+                    setCopiedInbox(true)
+                    setTimeout(() => setCopiedInbox(false), 1500)
+                  }}
+                >
+                  {copiedInbox ? t('Copied!') : t('Copy')}
+                </button>
+              </div>
+            </div>
+          </>
         )}
 
         {github && (

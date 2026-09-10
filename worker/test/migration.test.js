@@ -60,6 +60,28 @@ test("a deploy onto a database predating the auth columns still succeeds", async
   expect(idx).toBeTruthy();
 });
 
+test("a deploy onto a database predating the invite ref still succeeds", async () => {
+  // The same shape as the users case above, and the reason this one exists:
+  // the index for `ref` was written into schema.sql first, where it would have
+  // been built against a column the deployed database does not have yet. D1
+  // aborts a file at its first error, so that would have taken every statement
+  // below it in schema.sql with it — while the deploy reported success.
+  await env.DB.exec("DROP TABLE IF EXISTS invites");
+  await env.DB.exec(
+    "CREATE TABLE invites (code TEXT PRIMARY KEY, org_id TEXT NOT NULL, created_by TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TEXT NOT NULL)"
+  );
+  await applyDeploy(env.DB);
+
+  const { results } = await env.DB.prepare("PRAGMA table_info(invites)").all();
+  const columns = results.map((r) => r.name);
+  expect(columns).toContain("ref");
+  expect(columns).toContain("max_uses");
+  const idx = await env.DB
+    .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_invites_ref'")
+    .first();
+  expect(idx).toBeTruthy();
+});
+
 test("replaying the deploy is safe", async () => {
   // It runs on every push, so a second pass must not throw.
   await applyDeploy(env.DB);

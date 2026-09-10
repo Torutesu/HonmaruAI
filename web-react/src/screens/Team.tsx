@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { InviteTeammate } from '../components/InviteTeammate'
-import { properName } from '../utils/names'
 
 interface Props {
   httpBase: string
@@ -15,8 +14,10 @@ interface Props {
 }
 
 interface Member {
-  userId: string
-  login: string
+  /// The handle a client is given. Not the login and not the account id —
+  /// both of those are the person's email address for anyone who signed in
+  /// with one, and this list is read by the whole team.
+  ref: string
   name: string
   role: string
   title: string | null
@@ -84,13 +85,13 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
   useEffect(() => { load() }, [load])
 
   const remove = async (member: Member) => {
-    setBusy(member.userId)
+    setBusy(member.ref)
     setError(null)
     try {
       const res = await fetch(`${httpBase}/members`, {
         method: 'DELETE',
         headers: { ...headers, 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId, userId: member.userId }),
+        body: JSON.stringify({ orgId, ref: member.ref }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError(data.message || t('That did not work.')); return }
@@ -135,25 +136,25 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
         {members === null && <div className="empty">{t('One moment…')}</div>}
         <div className="rows">
           {(members || []).map((m) => (
-            <div className="row static team-member" key={m.userId} data-member={m.userId}>
-              <span className="profile-avatar sm">{(m.name || properName(m.login))[0]?.toUpperCase() || '?'}</span>
+            <div className="row static team-member" key={m.ref} data-member={m.ref}>
+              <span className="profile-avatar sm">{(m.name || '?')[0]?.toUpperCase() || '?'}</span>
               <span className="row-main">
-                {m.name || properName(m.login)}
+                {m.name}
                 <span className="row-sub">
                   {t(ROLE_LABEL[m.role] || m.role)}
                   {m.mine && ` · ${t('you')}`}
                 </span>
               </span>
               {editable && (
-                confirm === m.userId ? (
+                confirm === m.ref ? (
                   <span className="team-confirm">
-                    <button className="pill-btn" disabled={busy === m.userId} onClick={() => remove(m)}>
+                    <button className="pill-btn" disabled={busy === m.ref} onClick={() => remove(m)}>
                       {m.mine ? t('Leave') : t('Remove')}
                     </button>
                     <button className="btn-text" onClick={() => setConfirm(null)}>{t('Keep')}</button>
                   </span>
                 ) : (
-                  <button className="btn-text" onClick={() => { setError(null); setConfirm(m.userId) }}>
+                  <button className="btn-text" onClick={() => { setError(null); setConfirm(m.ref) }}>
                     {m.mine ? t('Leave') : t('Remove')}
                   </button>
                 )

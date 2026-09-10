@@ -242,11 +242,15 @@ export async function createInvite(env, { orgId, createdBy, role, uses }) {
   const maxUses = Math.min(Math.max(parseInt(uses, 10) || 1, 1), 50);
   const now = new Date();
   const expires = new Date(now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+  // The non-secret name for this code, written now rather than derived on
+  // every read: cancelling one by reference otherwise means reading every
+  // invite in the workspace and hashing each until one matches.
+  const ref = (await sha256Hex(code)).slice(0, 16);
   await env.DB
-    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
-    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses)
+    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, ref) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
+    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses, ref)
     .run();
-  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses };
+  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses, ref };
 }
 
 // Redeem an invite code: look it up, add the user to that org.

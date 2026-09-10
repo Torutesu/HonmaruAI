@@ -17,7 +17,7 @@ import { triageMessage } from "./triage.js";
 import { notifyCard } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount } from "./account.js";
-import { listMembers, removeMember, listInvites, revokeInvite, membershipIsOurs } from "./team.js";
+import { listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
@@ -207,6 +207,8 @@ async function handle(request, env, url) {
     // requiring membership of it — the team is not public, and neither is the
     // list of ways into it.
     if (url.pathname === "/members" && request.method === "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const orgId = url.searchParams.get("orgId");
@@ -214,7 +216,7 @@ async function handle(request, env, url) {
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
       return json({
-        members: await listMembers(env.DB, orgId, session.github_id),
+        members: await listMembersForClient(env.DB, orgId, session.github_id),
         // Whether this list is ours to change. A repository-backed org's
         // members are its collaborators, so the screen shows them and says
         // where they are actually decided rather than offering a button that
@@ -235,7 +237,10 @@ async function handle(request, env, url) {
       const result = await removeMember(env, {
         orgId: body.orgId,
         actorId: session.github_id,
+        // `ref` is what a client holds; `userId` is what the server itself
+        // has, and the iOS build in the field still sends it.
         targetId: body.userId,
+        ref: body.ref,
       });
       if (result.error) return json({ message: result.error }, result.status || 400);
       // Out of the table is not out of the room. A socket is authorized once,
@@ -246,6 +251,8 @@ async function handle(request, env, url) {
     }
 
     if (url.pathname === "/invites" && request.method === "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const orgId = url.searchParams.get("orgId");
@@ -667,7 +674,12 @@ async function handle(request, env, url) {
       // once, at join, so somebody removed from the repository kept receiving
       // this org's cards on the connection they already had — the table said
       // they were gone and the open socket never asked it again.
-      for (const login of pruned.logins) await evictMember(env, orgId, login);
+      for (const login of pruned.logins) {
+        await evictMember(env, orgId, login);
+        // Their pending decisions go back to whoever asked for them. GitHub
+        // removing somebody orphans a card exactly the way leaving does.
+        await returnOrphanedCards(env, orgId, login);
+      }
       return json(graph);
     }
     const cardEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/cards\/([^/]+)\/events$/);

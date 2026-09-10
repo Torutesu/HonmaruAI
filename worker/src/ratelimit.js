@@ -22,6 +22,11 @@ export const LIMITS = {
   // Each of these is a call we make to GitHub on someone's behalf, against our
   // OAuth app's quota. Generous, because the app makes several per screen.
   github: { max: 300, windowSeconds: 300 },
+  // Reading a team is cheap per call and answers with who is in a private
+  // workspace and what codes are open into it. Generous, because the team
+  // screen makes two of these on open and a person may reload it; bounded,
+  // because an unbounded read of that is a scraper's endpoint.
+  team: { max: 120, windowSeconds: 300 },
   // Anyone can post here — that is what a webhook is. Every accepted message
   // costs a model call, so the ceiling is what stops a flood of forged posts
   // becoming a bill. Counted per IP, since a webhook carries no session.

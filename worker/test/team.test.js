@@ -77,6 +77,49 @@ test("a workspace made at sign-up can say who is in it", async () => {
   expect(editable).toBe(true);
 });
 
+test("the member list does not hand out everybody's email address", async () => {
+  // The obvious handle for a member is the login, and for every account that
+  // signed in with an email that login *is* the address — `u:dana@…`, with
+  // `user_github_id` as `email:dana@…`. A member list is read by the whole
+  // team, so naming people that way puts the address in all of their browsers
+  // in order to serve a Remove button.
+  const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "email:dana@honmaru.test", login: "u:dana@honmaru.test", name: "Dana", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, TEAM, "email:dana@honmaru.test", "member");
+  const dana = await createSession(env.DB, "email:dana@honmaru.test", "email-auth");
+
+  const res = await get(`/members?orgId=${encodeURIComponent(TEAM)}`, dana);
+  const body = await res.text();
+  expect(body).not.toContain("dana@honmaru.test");
+  expect(body).toContain("Dana");
+
+  const { members } = JSON.parse(body);
+  const row = members.find((m) => m.name === "Dana");
+  expect(row.userId).toBeUndefined();
+  expect(row.login).toBeUndefined();
+  expect(row.ref).toMatch(/^[0-9a-f]{16}$/);
+});
+
+test("a ref is enough to remove somebody, and only in its own workspace", async () => {
+  const { isMember, upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "9300", login: "temp", name: "Temp", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, TEAM, "9300", "member");
+  await upsertMembership(env.DB, "personal:elsewhere", "9300", "member");
+
+  const { members } = await (await get(`/members?orgId=${encodeURIComponent(TEAM)}`, adminToken)).json();
+  const ref = members.find((m) => m.name === "Temp").ref;
+
+  // The same person in another workspace carries a different handle, so a
+  // list taken from one team cannot be used to reach into another.
+  const { memberRef } = await import("../src/team.js");
+  expect(await memberRef("personal:elsewhere", "9300")).not.toBe(ref);
+
+  const res = await del("/members", adminToken, { orgId: TEAM, ref });
+  expect(res.status).toBe(200);
+  expect(await isMember(env.DB, TEAM, "9300")).toBe(false);
+  expect(await isMember(env.DB, "personal:elsewhere", "9300")).toBe(true);
+});
+
 test("a team is not public", async () => {
   const res = await get(`/members?orgId=${encodeURIComponent(TEAM)}`, outsiderToken);
   expect(res.status).toBe(403);
@@ -232,6 +275,41 @@ test("an admin cancels one by reference, without ever being shown it", async () 
   expect(res.status).toBe(200);
   const { acceptInvite } = await import("../src/auth.js");
   expect((await acceptInvite(env, { code: minted.code, userId: "9502" })).error).toBeTruthy();
+});
+
+test("a code minted before refs were stored is still listed and revocable", async () => {
+  // The column arrived after the codes did. A row with no ref must not become
+  // one nobody can see or cancel — listing writes it back, so the set needing
+  // the fallback only ever shrinks.
+  const minted = await (await mint(adminToken, { orgId: TEAM, role: "member" })).json();
+  await env.DB.prepare("UPDATE invites SET ref = NULL WHERE code = ?1").bind(minted.code).run();
+
+  const { invites } = await (await get(`/invites?orgId=${encodeURIComponent(TEAM)}`, adminToken)).json();
+  const listed = invites.find((i) => i.code === minted.code);
+  expect(listed.ref).toMatch(/^[0-9a-f]{16}$/);
+
+  const backfilled = await env.DB
+    .prepare("SELECT ref FROM invites WHERE code = ?1").bind(minted.code).first();
+  expect(backfilled.ref).toBe(listed.ref);
+
+  const res = await del("/invites", adminToken, { orgId: TEAM, ref: listed.ref });
+  expect(res.status).toBe(200);
+  const { acceptInvite } = await import("../src/auth.js");
+  expect((await acceptInvite(env, { code: minted.code, userId: "9600" })).error).toBeTruthy();
+});
+
+test("a ref that was never written can still be revoked", async () => {
+  // The window between the deploy and the first person opening the team
+  // screen: nothing has backfilled yet, and cancelling still has to work.
+  const minted = await (await mint(adminToken, { orgId: TEAM, role: "member" })).json();
+  const { inviteRef } = await import("../src/team.js");
+  const ref = await inviteRef(minted.code);
+  await env.DB.prepare("UPDATE invites SET ref = NULL WHERE code = ?1").bind(minted.code).run();
+
+  const res = await del("/invites", adminToken, { orgId: TEAM, ref });
+  expect(res.status).toBe(200);
+  const { acceptInvite } = await import("../src/auth.js");
+  expect((await acceptInvite(env, { code: minted.code, userId: "9601" })).error).toBeTruthy();
 });
 
 test("GitHub sync is claimed only where it can actually run", async () => {

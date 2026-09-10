@@ -167,6 +167,9 @@ const ja: Dict = {
   'A decision reaches them wherever they read, in their own language.':
     '決定は、その人が読む場所に、その人の言語で届きます。',
   'Not in this workspace': 'このワークスペースでは使えません',
+  'Forward anything here': 'ここに転送してください',
+  'Mail sent here becomes a card, triaged the way your inbox is.':
+    'ここに届いたメールは、受信箱と同じように仕分けられてカードになります。',
   Off: 'オフ',
   'This workspace is not backed by a GitHub repository, so there is nowhere to open an issue.':
     'このワークスペースはGitHubリポジトリに紐づいていないため、Issueを立てる先がありません。',
