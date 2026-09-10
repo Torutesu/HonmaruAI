@@ -21,6 +21,15 @@ private struct RouteInstructionRequest: Encodable {
     let text: String
     let sender: User
     let organization: OrganizationGraph
+    /// Which workspace this instruction is inside.
+    ///
+    /// `OrganizationGraph` carries nodes and edges and has never carried this,
+    /// so the app named no organization at all — and the relay rebuilds the
+    /// org from its own membership rows only when it is told which one, and
+    /// hands the router that org's businesses at the same time. Without it the
+    /// app was routed against whatever graph it happened to be holding, and no
+    /// card it produced could be filed under a business.
+    let orgId: String?
     let priorityOverride: String?
     /// The language the person deciding reads in. The sender's language is
     /// theirs; the card is written for whoever has to act on it.
@@ -152,6 +161,16 @@ final class AIService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Who is asking. Every other service here sends this; this one did not,
+        // and /ai/route reads it to decide whether the caller may spend the
+        // model at all — an anonymous caller cannot be metered, so it is
+        // refused the model and answered by the keyword router instead. The app
+        // was therefore never once routed by the AI, silently, and none of it
+        // was counted against anyone's allowance. A guest has no token and
+        // still gets the fallback, which is the intended behaviour for a guest.
+        if let token = SessionStore.sessionToken, !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "x-session-token")
+        }
         if let key = SessionStore.apiKey, !key.isEmpty {
             request.setValue(key, forHTTPHeaderField: "x-ai-key")
         }
@@ -160,6 +179,10 @@ final class AIService: ObservableObject {
                 text: text,
                 sender: sender,
                 organization: organization,
+                // Read here rather than threaded through every caller, the
+                // same way the session token and the API key above are: it is
+                // one value, stored in one place, and every call wants it.
+                orgId: SessionStore.orgId,
                 priorityOverride: priorityOverride?.rawValue,
                 readerLanguage: readerLanguage,
                 senderContext: senderContext

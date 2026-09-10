@@ -332,7 +332,7 @@ export async function ownTitle(db, orgId, githubId) {
 /// organization.
 export async function retainMemberships(db, orgId, keep) {
   const ids = [...new Set((keep || []).map(String))].filter(Boolean);
-  if (!ids.length) return { removed: 0 };
+  if (!ids.length) return { removed: 0, logins: [] };
   const holes = ids.map((_, i) => `?${i + 2}`).join(", ");
   // GitHub is authoritative only for the members it issued. A collaborator list
   // says nothing about someone who joined by invite, so pruning against it
@@ -344,6 +344,20 @@ export async function retainMemberships(db, orgId, keep) {
   // match a future id scheme that happened to begin with a digit, and the
   // whole point here is to delete only what GitHub issued.
   const githubOnly = "AND user_github_id NOT GLOB '*[^0-9]*'";
+  // Who is about to go, before they go. The relay stamps a login on a socket
+  // and knows nothing about `user_github_id`, so a caller that wants to close
+  // the connections these rows were holding needs the names, and a count
+  // cannot be turned back into them once the rows are gone.
+  const { results: going } = await db
+    .prepare(
+      `SELECT COALESCE(u.login, m.user_github_id) AS login
+         FROM memberships m
+         LEFT JOIN users u ON u.github_id = m.user_github_id
+        WHERE m.org_id = ?1 AND m.user_github_id NOT IN (${holes})
+          AND m.user_github_id NOT GLOB '*[^0-9]*'`
+    )
+    .bind(orgId, ...ids)
+    .all();
   const { meta } = await db
     .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
@@ -353,7 +367,7 @@ export async function retainMemberships(db, orgId, keep) {
     .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
     .run();
-  return { removed: meta?.changes ?? 0 };
+  return { removed: meta?.changes ?? 0, logins: (going || []).map((r) => r.login).filter(Boolean) };
 }
 
 export async function upsertAgent(db, orgId, githubId, displayName) {
@@ -637,4 +651,71 @@ export async function getMemberProfile(db, orgId, login) {
     .first();
   if (!row) return null;
   return { login, name: row.name || login, role: row.role || "member" };
+}
+
+/// Every organization this person belongs to, oldest membership first.
+///
+/// Nothing asked this before: `/me` described a person and never said where
+/// they worked, so a client that had lost its stored `orgId` — a second
+/// browser, a cleared cache — had no way to find out and fell back to a
+/// placeholder nobody is a member of.
+///
+/// `founder` is the org's oldest member, which is whoever created it. A
+/// workspace made at sign-up is named `personal:<hash>` and that is not a name
+/// anyone can read, so the person who started it stands in for one.
+export async function listUserOrgs(db, githubId) {
+  const rows = await db
+    .prepare(
+      `SELECT m.org_id AS id,
+              m.role   AS role,
+              (SELECT COALESCE(u.name, u.login, om.user_github_id)
+                 FROM memberships om
+                 LEFT JOIN users u ON u.github_id = om.user_github_id
+                WHERE om.org_id = m.org_id
+                ORDER BY om.created_at ASC, om.user_github_id ASC
+                LIMIT 1)              AS founder,
+              (SELECT om.user_github_id
+                 FROM memberships om
+                WHERE om.org_id = m.org_id
+                ORDER BY om.created_at ASC, om.user_github_id ASC
+                LIMIT 1)              AS founder_id
+         FROM memberships m
+        WHERE m.user_github_id = ?1
+        ORDER BY m.created_at ASC, m.org_id ASC`
+    )
+    .bind(String(githubId))
+    .all();
+  return (rows?.results || []).map((r) => ({
+    id: r.id,
+    role: r.role || "member",
+    // A repository-backed org is already readable as "owner/repo"; only a
+    // personal workspace needs a person's name to stand in for its id.
+    founder: String(r.id).includes("/") ? null : r.founder || null,
+    mine: String(r.founder_id) === String(githubId),
+  }));
+}
+
+/// Where to put someone who did not say.
+///
+/// A workspace with other people in it beats one with only you: the solo org
+/// handed out at sign-up is a starting point, and anywhere with a second
+/// person is where the work is. Ties go to the earliest join, so the answer
+/// does not move under a returning user.
+///
+/// Not "is it a personal: org" — the id says who made it, not whether anyone
+/// else is there. An inviter's own workspace is a `personal:` one too, so that
+/// test sent everyone they invited back to their own empty feed.
+export async function primaryOrgId(db, githubId) {
+  const row = await db
+    .prepare(
+      `SELECT m.org_id AS id,
+              (SELECT COUNT(*) FROM memberships om WHERE om.org_id = m.org_id) AS people
+         FROM memberships m
+        WHERE m.user_github_id = ?1
+        ORDER BY (people > 1) DESC, m.created_at ASC, m.org_id ASC
+        LIMIT 1`
+    )
+    .bind(String(githubId))
+    .first();
+  return row?.id || null;
 }

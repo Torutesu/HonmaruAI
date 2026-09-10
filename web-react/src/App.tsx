@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Dashboard } from './components/Dashboard'
 import { Welcome } from './screens/Welcome'
 import { SignIn } from './screens/SignIn'
@@ -33,7 +33,11 @@ function App() {
   const [stage, setStage] = useState<Stage>('welcome')
   const [mode, setMode] = useState<'signup' | 'login'>('signup')
   const [userId, setUserId] = useState<string | null>(null)
-  const [orgId, setOrgId] = useState<string>('web-team')
+  // No placeholder. `web-team` used to sit here as the default, and a returning
+  // person on a second browser — nothing in localStorage, and a sign-in reply
+  // that carried no org — landed in it: an org nobody is a member of, so the
+  // relay refused the socket and the feed simply never arrived.
+  const [orgId, setOrgId] = useState<string>('')
   const [sessionToken, setSessionToken] = useState<string>('')
   const [host, setHost] = useState<string>(DEFAULT_HOST)
   // Carried from the email screen to the code screen and nowhere else.
@@ -50,11 +54,38 @@ function App() {
       setSessionToken(savedToken)
       setUserId(savedUser)
       setStage('app')
+      // A session restored without a workspace — signed in before this client
+      // knew to store one, or storage half cleared — has to ask where it is
+      // before the feed can connect to anything.
+      if (!savedOrg) {
+        fetch(`${httpBase(savedHost || DEFAULT_HOST)}/me`, { headers: { 'x-session-token': savedToken } })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((me) => {
+            const first = me?.orgs?.[0]?.id
+            if (first) { setOrgId(first); localStorage.setItem('orgId', first) }
+          })
+          .catch(() => { /* the Dashboard will surface the failed connection */ })
+      }
     }
   }, [])
 
-  const finishAuth = (token: string, uid: string, org: string, firstTime: boolean) => {
-    const workspace = org || orgId
+  /// Which workspace to open. The sign-in reply names one; when it does not —
+  /// an older backend, or an account in no org at all — ask, rather than
+  /// guessing at a name.
+  const resolveOrg = async (token: string, org: string) => {
+    if (org) return org
+    try {
+      const res = await fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': token } })
+      if (res.ok) {
+        const me = await res.json()
+        if (me.orgs?.length) return me.orgs[0].id as string
+      }
+    } catch { /* fall through to whatever is stored */ }
+    return orgId
+  }
+
+  const finishAuth = async (token: string, uid: string, org: string, firstTime: boolean) => {
+    const workspace = await resolveOrg(token, org)
     setSessionToken(token)
     setUserId(uid)
     setOrgId(workspace)
@@ -68,6 +99,38 @@ function App() {
     try { seen = localStorage.getItem('onboarded') === 'yes' } catch { /* private mode */ }
     setStage(!seen && firstTime ? 'onboarding' : 'app')
   }
+
+  /// Moving between the workspaces someone belongs to — their own, and any
+  /// team they were invited into. Stored, because it is where they work.
+  const switchOrg = (next: string) => {
+    setOrgId(next)
+    try { localStorage.setItem('orgId', next) } catch { /* private mode */ }
+  }
+
+  /// They are out of the workspace that was on screen — they left it, or
+  /// somebody removed them, or the session behind it stopped being valid.
+  /// There is nothing there to show them now, so ask where they still belong
+  /// — the same question a sign-in asks — and go there.
+  const leftOrg = async () => {
+    try {
+      const res = await fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken } })
+      if (res.ok) {
+        const me = await res.json()
+        const next = me.orgs?.find((o: { id: string }) => o.id !== orgId)?.id
+        if (next) { switchOrg(next); return }
+      }
+    } catch { /* nothing to fall back to but the way out */ }
+    handleLogout()
+  }
+
+  // The Dashboard holds this in the effect that owns the socket, so it has to
+  // keep the same identity across renders — a new function every render is a
+  // new dependency every render, which would tear the connection down and
+  // build it again on each one. The ref keeps the callback stable while the
+  // body it calls stays current.
+  const leftOrgRef = useRef(leftOrg)
+  leftOrgRef.current = leftOrg
+  const onLeft = useCallback(() => { void leftOrgRef.current() }, [])
 
   const finishOnboarding = () => {
     try { localStorage.setItem('onboarded', 'yes') } catch { /* a preference, not a record */ }
@@ -102,7 +165,7 @@ function App() {
         onBack={() => setStage('welcome')}
         onSwitchMode={setMode}
         onCodeSent={(email, name, inviteCode) => { setPending({ email, name, inviteCode }); setStage('otp') }}
-        onSignedIn={(token, uid, org) => finishAuth(token, uid, org, mode === 'signup')}
+        onSignedIn={(token, uid, org) => { void finishAuth(token, uid, org, mode === 'signup') }}
       />
     )
   }
@@ -115,7 +178,7 @@ function App() {
         name={pending.name}
         inviteCode={pending.inviteCode}
         onBack={() => setStage('auth')}
-        onVerified={(token, uid, org, created) => finishAuth(token, uid, org, created)}
+        onVerified={(token, uid, org, created) => { void finishAuth(token, uid, org, created) }}
       />
     )
   }
@@ -140,7 +203,15 @@ function App() {
 
   return (
     <div className="app">
-      <Dashboard userId={userId} orgId={orgId} relayUrl={wsBase(host)} sessionToken={sessionToken} onLogout={handleLogout} />
+      <Dashboard
+        userId={userId}
+        orgId={orgId}
+        relayUrl={wsBase(host)}
+        sessionToken={sessionToken}
+        onLogout={handleLogout}
+        onSwitchOrg={switchOrg}
+        onLeft={onLeft}
+      />
     </div>
   )
 }

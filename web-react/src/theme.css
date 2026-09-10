@@ -318,6 +318,9 @@
 .pill-tag.blue { background: rgba(0, 145, 255, 0.1); color: var(--signal-blue); }
 .pill-tag.mint { background: var(--mint); color: #04563a; }
 .pill-tag.pink { background: rgba(250, 73, 165, 0.12); color: #a11258; }
+/* Something this deployment or this workspace cannot do. Grey rather than red:
+   it is not broken, it is simply not here. */
+.pill-tag.quiet { background: var(--bone); color: var(--ash); }
 
 .empty {
   text-align: center;

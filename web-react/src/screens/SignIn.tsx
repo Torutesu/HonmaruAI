@@ -61,12 +61,16 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
     try {
       const path = mode === 'signup' ? '/auth/signup' : '/auth/login'
       const body: Record<string, unknown> = { email: email.trim(), password }
-      if (mode === 'signup') {
-        body.name = name.trim()
-        if (inviteCode.trim()) body.inviteCode = inviteCode.trim()
-      }
+      if (mode === 'signup') body.name = name.trim()
+      // An invite means the same thing on both ways in. Sending it only on
+      // sign-up meant a person who already had an account had nowhere to put
+      // the code they were handed.
+      if (inviteCode.trim()) body.inviteCode = inviteCode.trim()
       const { res, data } = await post(path, body)
       if (!res.ok) { setError(data.message || 'Something went wrong.'); return }
+      // Signed in, but the code did not work: say so, rather than dropping
+      // them into their own workspace wondering where the team went.
+      if (data.inviteError) { setError(data.inviteError); return }
       onSignedIn(data.token, data.login || data.userId, data.orgId || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -117,14 +121,16 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
             </div>
           )}
 
-          {mode === 'signup' && (
-            <div className="field">
-              <label htmlFor="invite">{t('Invite code')} <span style={{ color: 'var(--ash)' }}>(optional)</span></label>
-              <input id="invite" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)}
-                placeholder={t('Paste one to join a team')} />
-              <div className="hint">No code? You get a workspace of your own, and can invite people into it.</div>
+          <div className="field">
+            <label htmlFor="invite">{t('Invite code')} <span style={{ color: 'var(--ash)' }}>(optional)</span></label>
+            <input id="invite" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)}
+              placeholder={t('Paste one to join a team')} />
+            <div className="hint">
+              {mode === 'signup'
+                ? t('No code? You get a workspace of your own, and can invite people into it.')
+                : t('Joining a team? Paste the code you were sent and this signs you into it.')}
             </div>
-          )}
+          </div>
 
           {note && <div className="form-note">{note}</div>}
           {error && <div className="form-error">{error}</div>}

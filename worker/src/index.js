@@ -8,15 +8,17 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
-  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES,
+  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
-import { announceCards } from "./announce.js";
+import { announceCards, evictMember } from "./announce.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, githubIdFromAddress, inboundAddressFor } from "./connectors/email.js";
 import { triageMessage } from "./triage.js";
 import { notifyCard } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount } from "./account.js";
+import { listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
+import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
 import { isMailConfigured } from "./mailer.js";
@@ -164,7 +166,7 @@ async function handle(request, env, url) {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
-      const result = await login(env, body);
+      const result = await login(env, { email: body.email, password: body.password, inviteCode: body.inviteCode });
       if (result.error) return json({ message: result.error }, 401);
       return json(result);
     }
@@ -198,6 +200,84 @@ async function handle(request, env, url) {
       const body = await request.json().catch(() => ({}));
       const result = await acceptInvite(env, { code: body.code, userId: session.github_id });
       if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    // Who is here, and what is still out. Both scoped to one org and both
+    // requiring membership of it — the team is not public, and neither is the
+    // list of ways into it.
+    if (url.pathname === "/members" && request.method === "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({
+        members: await listMembersForClient(env.DB, orgId, session.github_id),
+        // Whether this list is ours to change. A repository-backed org's
+        // members are its collaborators, so the screen shows them and says
+        // where they are actually decided rather than offering a button that
+        // the next org-graph load would undo.
+        editable: membershipIsOurs(orgId),
+      });
+    }
+
+    if (url.pathname === "/members" && request.method === "DELETE") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      const result = await removeMember(env, {
+        orgId: body.orgId,
+        actorId: session.github_id,
+        // `ref` is what a client holds; `userId` is what the server itself
+        // has, and the iOS build in the field still sends it.
+        targetId: body.userId,
+        ref: body.ref,
+      });
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      // Out of the table is not out of the room. A socket is authorized once,
+      // at join, so the one they are already holding keeps receiving this
+      // org's cards until something else drops it.
+      await evictMember(env, body.orgId, result.login);
+      return json(result);
+    }
+
+    if (url.pathname === "/invites" && request.method === "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ invites: await listInvites(env, { orgId, viewerId: session.github_id }) });
+    }
+
+    if (url.pathname === "/invites" && request.method === "DELETE") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      const result = await revokeInvite(env, {
+        orgId: body.orgId,
+        viewerId: session.github_id,
+        code: body.code,
+        ref: body.ref,
+      });
+      if (result.error) return json({ message: result.error }, result.status || 400);
       return json(result);
     }
 
@@ -239,6 +319,20 @@ async function handle(request, env, url) {
       let organization = body.organization;
       const routeOrgId = body.organization?.orgId || body.orgId;
       if (session && routeOrgId) {
+        // Naming an org is not belonging to it. Everything else that reads an
+        // organization checks this; this route did not, and it answers with a
+        // recipient and an agent route built from that org's real membership
+        // rows — so any signed-in account could name a team it had no part in
+        // (a repository org is just "owner/repo") and be told, by name, who is
+        // on it. The reply is small; the list it is drawn from is not public.
+        //
+        // Through authorizeOrgAccess rather than the membership table alone,
+        // for the reason that function documents: the table is written when
+        // somebody loads the org graph, so a GitHub account routing before it
+        // has ever done so is a member GitHub knows about and this database
+        // does not. Asking GitHub is what the socket does on join.
+        const allowed = await authorizeOrgAccess(env, session, routeOrgId);
+        if (!allowed.ok) return json({ message: "not a member of this org" }, 403);
         const nodes = await listOrgNodes(env.DB, routeOrgId);
         if (nodes.length) {
           organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
@@ -431,6 +525,12 @@ async function handle(request, env, url) {
           ? await ownTitle(env.DB, url.searchParams.get("orgId"), session.github_id)
           : null,
         assignableRoles: SELF_ASSIGNABLE_ROLES,
+        // Where this person works. Without it a client that has lost its
+        // stored orgId — a second browser, a cleared cache, a sign-in on a
+        // borrowed laptop — had nothing to ask and fell back to a placeholder
+        // nobody is a member of, so the relay refused the socket and the feed
+        // never arrived.
+        orgs: await listUserOrgs(env.DB, session.github_id),
       });
     }
     if (url.pathname === "/me" && request.method === "PUT") {
@@ -527,7 +627,12 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       const user = await getUserByGithubId(env.DB, session.github_id);
+      // Where they were, before the rows saying so are deleted. A socket is
+      // authorized once, at join, so a deleted account's open connection would
+      // otherwise go on receiving its old team's cards.
+      const wasIn = await listUserOrgs(env.DB, session.github_id);
       await deleteAccount(env.DB, session.github_id, user?.login || null);
+      for (const org of wasIn) await evictMember(env, org.id, user?.login || null);
       return json({ ok: true });
     }
     const orgGraphMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/graph$/);
@@ -564,7 +669,17 @@ async function handle(request, env, url) {
       // removed from the repository did not remove you from the organization.
       // This is the moment we have the authoritative answer, so it is the
       // moment to act on it.
-      await retainMemberships(env.DB, orgId, collaborators.map((c) => c.id));
+      const pruned = await retainMemberships(env.DB, orgId, collaborators.map((c) => c.id));
+      // And out of the room, not only out of the table. A socket is authorized
+      // once, at join, so somebody removed from the repository kept receiving
+      // this org's cards on the connection they already had — the table said
+      // they were gone and the open socket never asked it again.
+      for (const login of pruned.logins) {
+        await evictMember(env, orgId, login);
+        // Their pending decisions go back to whoever asked for them. GitHub
+        // removing somebody orphans a card exactly the way leaving does.
+        await returnOrphanedCards(env, orgId, login);
+      }
       return json(graph);
     }
     const cardEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/cards\/([^/]+)\/events$/);
@@ -596,6 +711,34 @@ async function handle(request, env, url) {
           id: c.id, label: c.label, status: active.has(c.id) ? "active" : "none",
         })),
       });
+    }
+
+    // Whether the GitHub sync this deployment advertises can actually run here.
+    //
+    // The Tools screen listed it as "Always on · Built in" for everybody, and
+    // for most people it is neither: syncing a decision to an Issue needs a
+    // repository to put it in and a GitHub token to write with, and an email
+    // account in the `personal:` workspace it was given at sign-up has
+    // neither. Saying so is the whole of this route — it is separate from
+    // GET /connectors because that one refuses outright without a Composio
+    // key, and this answer does not depend on Composio at all.
+    if (url.pathname === "/connectors/github" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId.includes("/")) {
+        return json({
+          builtIn: false,
+          reason: "This workspace is not backed by a GitHub repository, so there is nowhere to open an issue.",
+        });
+      }
+      if (!isGitHubSession(session)) {
+        return json({
+          builtIn: false,
+          reason: "Decisions sync as your GitHub account. Sign in with GitHub to turn this on.",
+        });
+      }
+      return json({ builtIn: true, reason: null });
     }
 
     const connectMatch = url.pathname.match(/^\/connectors\/([^/]+)\/connect$/);

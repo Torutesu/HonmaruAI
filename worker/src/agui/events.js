@@ -29,8 +29,14 @@ export function runFinished(threadId, runId) {
   return { ...base(EventType.RUN_FINISHED), threadId, runId };
 }
 
-export function runError(message) {
-  return { ...base(EventType.RUN_ERROR), message };
+/// `code` is optional and machine-readable, where `message` is for a person.
+///
+/// A refusal closes the socket with 1008, and the client has to decide what to
+/// do next — find another workspace, sign in again, or simply stop and say so.
+/// Deciding that by matching on English prose is how a copy edit becomes a
+/// bug, so the reason travels as a token beside it.
+export function runError(message, code) {
+  return { ...base(EventType.RUN_ERROR), message, ...(code ? { code } : {}) };
 }
 
 export function stateSnapshot(snapshot) {

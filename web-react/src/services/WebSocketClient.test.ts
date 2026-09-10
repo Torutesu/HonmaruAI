@@ -12,7 +12,9 @@ class FakeWebSocket {
   onopen: (() => void) | null = null
   onmessage: ((event: { data: string }) => void) | null = null
   onerror: ((error: unknown) => void) | null = null
-  onclose: (() => void) | null = null
+  // A real CloseEvent carries the code and reason, and the client reads them:
+  // 1008 is the relay refusing, which is not something to retry.
+  onclose: ((event?: { code?: number; reason?: string }) => void) | null = null
   sent: any[] = []
 
   constructor(public url: string) {
@@ -148,6 +150,26 @@ describe('WebSocketClient', () => {
     client.disconnect()
     await vi.advanceTimersByTimeAsync(5000)
     expect(FakeWebSocket.instances.length).toBe(2)
+  })
+
+  it('stops retrying when the relay says the door will not open', async () => {
+    vi.useFakeTimers()
+    const { client, socket } = await connectedClient()
+    const refusals: Array<[string, string | undefined]> = []
+    client.onRefused = (message, code) => refusals.push([message, code])
+
+    // The relay refuses, then closes with 1008 — policy, not a dead network.
+    // Nothing read that code before, so being removed from a workspace meant a
+    // browser retrying against the refusal for as long as the tab was open.
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'RUN_ERROR', message: 'You are no longer a member of this workspace.', code: 'not-a-member' }),
+    } as MessageEvent)
+    socket.onclose?.({ code: 1008, reason: 'You are no longer a member of this workspace.' })
+
+    expect(refusals).toEqual([['You are no longer a member of this workspace.', 'not-a-member']])
+    const before = FakeWebSocket.instances.length
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(FakeWebSocket.instances.length).toBe(before)
   })
 
   it('does not send a decision when not connected', async () => {

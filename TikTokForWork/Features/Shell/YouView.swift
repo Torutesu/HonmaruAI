@@ -58,10 +58,21 @@ struct YouView: View {
                 group {
                     navRow(String(localized: "History")) { HistoryView() }
                     rowSeparator
+                    // What you asked of other people. The feed answers the
+                    // other question, and until this row there was nowhere on
+                    // a phone to see a decision of yours going unanswered.
+                    navRow(String(localized: "Sent by you")) { SentView() }
+                    rowSeparator
                     notificationsRow
                 }
 
                 group {
+                    // Who is here, the codes still open, and one more way in.
+                    // A guest has no workspace for any of that to be about.
+                    if !appState.isGuest {
+                        navRow(String(localized: "Your team")) { TeamView() }
+                        rowSeparator
+                    }
                     row(String(localized: "Organization"), value: "") { showOrgGraph = true }
                 }
 

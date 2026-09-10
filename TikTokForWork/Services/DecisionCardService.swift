@@ -145,6 +145,22 @@ final class DecisionCardService: ObservableObject {
         cardsByUser[userID, default: []].sorted { $0.createdAt > $1.createdAt }
     }
 
+    /// What this person asked of everybody else, newest first.
+    ///
+    /// The store is keyed by recipient, which is the question the feed asks —
+    /// "what is waiting on me". Nothing has ever asked the other one, so there
+    /// was nowhere on a phone to see that a decision you are waiting on has
+    /// been sitting unanswered for a week, and nowhere to nudge from.
+    ///
+    /// A card someone sent to themselves is already in their feed, so it is
+    /// not also in the list of things they are waiting on other people for.
+    func sent(by userID: String) -> [DecisionCard] {
+        cardsByUser.values
+            .flatMap { $0 }
+            .filter { $0.senderUserID == userID && $0.recipientUserID != userID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
     @discardableResult
     func resolve(
         cardID: String,

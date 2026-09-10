@@ -21,6 +21,8 @@ const JA = {
   "From your own AI": "あなた自身のAIから",
   "From {sender} · decision routed to {recipient}": "{sender}から · {recipient}に振り分け",
   "Decision requested.": "判断をお願いします。",
+  "{name} has left this workspace, so this came back to you.":
+    "{name}さんはこのワークスペースを離れたため、これはあなたに戻されました。",
 };
 
 const TABLES = { ja: JA };

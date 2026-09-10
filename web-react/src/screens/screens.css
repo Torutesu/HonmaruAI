@@ -285,6 +285,58 @@
 }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 
+/* Your team: people, then the codes still out, then the way to make another.
+   The rows borrow the profile's, so a member and a setting look like the same
+   kind of thing — which they are, to the person reading. */
+.team-member .profile-avatar.sm {
+  width: 30px; height: 30px;
+  font-size: 13px;
+  margin-right: 10px;
+  flex: 0 0 auto;
+}
+.team-confirm { display: flex; align-items: center; gap: 8px; }
+.btn-text {
+  border: none;
+  background: none;
+  color: var(--slate);
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 6px 4px;
+  cursor: pointer;
+}
+.btn-text:hover { color: var(--ink-black); }
+.btn-text.danger { color: #a11258; }
+.btn-text[disabled] { opacity: 0.5; cursor: default; }
+.team-hint { margin: 8px 4px 20px; color: var(--ash); font-size: 12.5px; }
+.team-invite .invite-code.sm {
+  font-size: 12px;
+  /* The handed-over code is centred, which is right when it is the one thing
+     on screen. In a list it wraps to two lines, and a centred second line
+     reads as a different value from the first. */
+  text-align: left;
+  /* A code is 32 hex characters and the row is not. It wraps inside its own
+     width rather than pushing Copy and Cancel off the side of a phone. */
+  word-break: break-all;
+  display: block;
+}
+.team-invite-form { padding: 0 4px; }
+
+/* Redeeming a code from inside the app. It sits in a row next to its own
+   button, and an invite code is 32 hex characters — so it shrinks rather than
+   pushing the button off a phone, the way the minted code once did. */
+.join-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--bone);
+  border-radius: var(--radius-pill);
+  background: var(--signal-white);
+  color: var(--ink-black);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 8px 12px;
+  margin-right: 8px;
+}
+
 @media (prefers-color-scheme: dark) {
   .brandmark span { background: #0e0e11; }
   .otp-box { background: #17171a; border-color: #2c2c33; color: #ededef; }
@@ -308,7 +360,9 @@
   .profile-avatar { background: #ededef; color: #17171a; }
   .profile-stats { border-color: #2c2c33; }
   .profile-stats div { border-right-color: #2c2c33; }
-  .row-select { background: #17171a; border-color: #2c2c33; color: #ededef; }
+  .row-select, .join-code { background: #17171a; border-color: #2c2c33; color: #ededef; }
+  .btn-text { color: #a2a2ab; }
+  .btn-text:hover { color: #ededef; }
   .welcome-points li { border-top-color: #26262b; }
 }
 

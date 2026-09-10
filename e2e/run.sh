@@ -26,6 +26,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Wait for something to answer, and say so plainly when it never does.
+#
+# The loops here used to give up in silence. When the preview server did not
+# start on CI, every one of the 24 steps failed with a timeout or a refused
+# connection, and not one line of the output said which server was missing —
+# the harness knew, and threw the answer away.
+wait_for() {
+  local name=$1 url=$2 tries=$3 log=$4
+  for _ in $(seq 1 "$tries"); do
+    if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then return 0; fi
+    printf '.'
+    sleep 1
+  done
+  echo
+  echo "the $name never came up at $url after ${tries}s" >&2
+  echo "--- $log ---" >&2
+  tail -40 "$log" >&2 || true
+  exit 1
+}
+
 say "1. Mail sink"
 node e2e/mail-sink.mjs >/tmp/e2e-sink.log 2>&1 & pids+=($!)
 
@@ -35,6 +55,22 @@ cd worker
 # The schema has to exist before anything signs in. --local keeps it on disk
 # under .wrangler, so this is the same database the dev server will open.
 npx -y wrangler@4 d1 execute tiktokforwork --local --file schema.sql --yes >/tmp/e2e-d1.log 2>&1
+# …and then the migrations, exactly the way the deploy applies them: statement
+# by statement, tolerating "duplicate column name" as the already-applied
+# signal. Without this the harness only ever built a database from schema.sql,
+# which on a second run is a no-op for a table that already exists — so a
+# column added by a migration was missing here and present in production, and
+# the suite that exists to catch that could not see it.
+while IFS= read -r stmt; do
+  [ -z "$stmt" ] && continue
+  if ! npx -y wrangler@4 d1 execute tiktokforwork --local --command "$stmt" --yes >>/tmp/e2e-d1.log 2>&1; then
+    grep -qi "duplicate column name" /tmp/e2e-d1.log || {
+      echo "migration failed: $stmt" >&2
+      tail -20 /tmp/e2e-d1.log >&2
+      exit 1
+    }
+  fi
+done < <(grep -E '^(ALTER TABLE|CREATE )' migrations.sql)
 npx -y wrangler@4 dev --local --port "$WORKER_PORT" \
   --var RESEND_API_KEY:re_e2e \
   --var RESEND_API_BASE:http://127.0.0.1:9099 \
@@ -43,11 +79,9 @@ npx -y wrangler@4 dev --local --port "$WORKER_PORT" \
 cd ..
 
 printf 'waiting for the Worker'
-for _ in $(seq 1 60); do
-  if curl -fsS --max-time 2 "http://127.0.0.1:$WORKER_PORT/health" >/tmp/e2e-health.json 2>/dev/null; then break; fi
-  printf '.'; sleep 1
-done
+wait_for "Worker" "http://127.0.0.1:$WORKER_PORT/health" 60 /tmp/e2e-worker.log
 echo
+curl -fsS "http://127.0.0.1:$WORKER_PORT/health" >/tmp/e2e-health.json
 python3 -m json.tool /tmp/e2e-health.json
 # Parsed, not grepped: curl returns compact JSON and the pretty-print above is
 # a different string. The first version of this check looked for `"email": true`
@@ -58,14 +92,28 @@ python3 -c 'import json,sys; d=json.load(open("/tmp/e2e-health.json")); sys.exit
 say "3. Web client, built against that Worker"
 cd web-react
 [ -d node_modules ] || npm ci
+# The browser the spec drives. Some images ship one at a fixed path and set
+# PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, in which case `install` is a no-op that
+# would fail; everywhere else this is what makes a clean clone runnable at all.
+if [ -n "${E2E_CHROMIUM:-}" ] || [ -x /opt/pw-browsers/chromium ]; then
+  export E2E_CHROMIUM="${E2E_CHROMIUM:-/opt/pw-browsers/chromium}"
+else
+  npx playwright install --with-deps chromium >/tmp/e2e-browser.log 2>&1 \
+    || npx playwright install chromium >>/tmp/e2e-browser.log 2>&1
+fi
 VITE_API_HOST="127.0.0.1:$WORKER_PORT" npm run build >/tmp/e2e-build.log 2>&1
 grep -q "127.0.0.1:$WORKER_PORT" dist/assets/*.js || { echo "the backend host did not make it into the build" >&2; exit 1; }
-npx vite preview --port "$WEB_PORT" --strictPort >/tmp/e2e-preview.log 2>&1 & pids+=($!)
+# --host 127.0.0.1, explicitly. Vite's default is `localhost`, which is a name
+# and not an address: on a machine with IPv6 it can resolve to ::1, and the
+# preview server then listens there and nowhere else — while the spec, the
+# Worker's APP_WEB_URL and the mail sink all speak 127.0.0.1. That is exactly
+# what happened the first time this ran on a CI runner, and nothing in this
+# container reproduces it, because IPv6 is switched off here.
+npx vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort >/tmp/e2e-preview.log 2>&1 & pids+=($!)
 cd ..
-for _ in $(seq 1 30); do
-  curl -fsS --max-time 2 "http://127.0.0.1:$WEB_PORT/" >/dev/null 2>&1 && break
-  sleep 1
-done
+printf 'waiting for the web client'
+wait_for "web client" "http://127.0.0.1:$WEB_PORT/" 30 /tmp/e2e-preview.log
+echo
 
 say "4. Clear the rate-limit window"
 # The credential routes are rate limited per caller, which is right, and this

@@ -38,6 +38,16 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   const [busy, setBusy] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  // Whether the GitHub sync this row advertises can run in *this* workspace.
+  // It used to be printed as "Built in" for everyone, and for an email account
+  // in the workspace it was given at sign-up it is not built into anything:
+  // there is no repository to open an issue in and no token to write with.
+  const [github, setGithub] = useState<{ builtIn: boolean; reason: string | null } | null>(null)
+  // The address that turns an email into a card. The Worker has answered with
+  // it since inbound mail was built, and nothing has ever shown it to anyone —
+  // so the connector existed and there was no way to use it.
+  const [inbox, setInbox] = useState<string | null>(null)
+  const [copiedInbox, setCopiedInbox] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -56,6 +66,28 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     }
   }, [httpBase, sessionToken])
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    let ignore = false
+    // 503 is this deployment having no inbound domain configured, which is not
+    // an error to show — there is simply nothing to hand out.
+    fetch(`${httpBase}/connectors/email/address`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!ignore && data?.address) setInbox(data.address) })
+      .catch(() => { /* the row simply does not appear */ })
+    return () => { ignore = true }
+  }, [httpBase, sessionToken])
+
+  useEffect(() => {
+    let ignore = false
+    fetch(`${httpBase}/connectors/github?orgId=${encodeURIComponent(orgId)}`, {
+      headers: { 'x-session-token': sessionToken },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!ignore && data) setGithub(data) })
+      .catch(() => { /* the row simply says nothing until it knows */ })
+    return () => { ignore = true }
+  }, [httpBase, orgId, sessionToken])
 
   // The window is opened before the await, not after: a popup opened from a
   // resolved promise is not a user gesture any more, and every browser blocks it.
@@ -154,17 +186,48 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           </button>
         )}
 
-        <div className="rows-title">{t('Always on')}</div>
-        <div className="rows">
-          <div className="row static">
-            <span className="row-icon"><Icon name="github" size={18} /></span>
-            <span className="row-main">
-              GitHub
-              <span className="row-sub">{t(BLURB.github)}</span>
-            </span>
-            <span className="pill-tag mint">{t('Built in')}</span>
-          </div>
-        </div>
+        {inbox && (
+          <>
+            <div className="rows-title">{t('Forward anything here')}</div>
+            <div className="rows">
+              <div className="row static" data-inbox="1">
+                <span className="row-icon"><Icon name="mail" size={18} /></span>
+                <span className="row-main">
+                  <code className="invite-code sm">{inbox}</code>
+                  <span className="row-sub">{t('Mail sent here becomes a card, triaged the way your inbox is.')}</span>
+                </span>
+                <button
+                  className="pill-btn"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(inbox)
+                    setCopiedInbox(true)
+                    setTimeout(() => setCopiedInbox(false), 1500)
+                  }}
+                >
+                  {copiedInbox ? t('Copied!') : t('Copy')}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {github && (
+          <>
+            <div className="rows-title">{github.builtIn ? t('Always on') : t('Not in this workspace')}</div>
+            <div className="rows">
+              <div className="row static" data-github={github.builtIn ? 'on' : 'off'}>
+                <span className="row-icon"><Icon name="github" size={18} /></span>
+                <span className="row-main">
+                  GitHub
+                  <span className="row-sub">{github.builtIn ? t(BLURB.github) : t(github.reason || '')}</span>
+                </span>
+                {github.builtIn
+                  ? <span className="pill-tag mint">{t('Built in')}</span>
+                  : <span className="pill-tag quiet">{t('Off')}</span>}
+              </div>
+            </div>
+          </>
+        )}
         <div style={{ height: 24 }} />
       </div>
     </div>

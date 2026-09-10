@@ -15,7 +15,7 @@ import { localizeCard } from "./localize.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { providerConfig } from "./provider.js";
 import { checkAIAllowance } from "./gate.js";
-import { ANNOUNCE_PATH } from "./announce.js";
+import { ANNOUNCE_PATH, EVICT_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 
 // One socket's allowance. Well above anything the app does — it sends a message
@@ -59,6 +59,27 @@ export class OrgRelay {
       });
     }
 
+    // Somebody was taken out of this workspace. The membership row is already
+    // gone, so they cannot join again — this is about the socket they are
+    // holding right now, which no later check would ever look at.
+    if (url.pathname === EVICT_PATH && request.headers.get("Upgrade") !== "websocket") {
+      if (request.method !== "POST") return new Response("not found", { status: 404 });
+      let login = null;
+      try { ({ login = null } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
+      let evicted = 0;
+      if (login) {
+        for (const ws of this.state.getWebSockets()) {
+          const att = ws.deserializeAttachment();
+          if (att?.orgId !== orgId || att?.userId !== login) continue;
+          this.refuse(ws, att.agui, "You are no longer a member of this workspace.", "not-a-member");
+          evicted += 1;
+        }
+      }
+      return new Response(JSON.stringify({ evicted }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server); // hibernation API
@@ -87,9 +108,9 @@ export class OrgRelay {
   /// The close code is 1008 (policy violation) rather than a silent drop so the
   /// client can tell "you are not allowed in" apart from "the network died" and
   /// stop retrying a connection that will never be accepted.
-  refuse(ws, agui, message) {
+  refuse(ws, agui, message, code) {
     try {
-      ws.send(JSON.stringify(agui ? runError(message) : { type: "error", payload: { message } }));
+      ws.send(JSON.stringify(agui ? runError(message, code) : { type: "error", payload: { message, code } }));
     } catch {}
     try {
       ws.close(1008, message);
@@ -184,11 +205,11 @@ export class OrgRelay {
       // session, in the org that session can prove it belongs to.
       const session = payload.sessionToken ? await getSession(this.db, payload.sessionToken) : null;
       if (!session) {
-        return this.refuse(ws, agui, "Sign in to join this organization.");
+        return this.refuse(ws, agui, "Sign in to join this organization.", "sign-in-required");
       }
       const access = await authorizeOrgAccess(this.env, session, orgId);
       if (!access.ok) {
-        return this.refuse(ws, agui, "You are not a member of this organization.");
+        return this.refuse(ws, agui, "You are not a member of this organization.", "not-a-member");
       }
       // The legacy dialect is refused rather than half-served. A client that
       // joined without `agui/1` used to get a snapshot and then silence: every
@@ -196,7 +217,7 @@ export class OrgRelay {
       // moment it connected and looked, from the inside, exactly like a quiet
       // team. Saying "update the app" is the honest version of that.
       if (!agui) {
-        return this.refuse(ws, false, "This version is too old to connect. Please update the app.");
+        return this.refuse(ws, false, "This version is too old to connect. Please update the app.", "client-too-old");
       }
 
       const userId = access.login;

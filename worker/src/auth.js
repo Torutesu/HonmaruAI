@@ -2,7 +2,7 @@
 // into the Workers runtime — no external dependency). This is intentionally
 // simple; stronger token handling is a later concern.
 
-import { createSession, upsertUser, upsertMembership } from "./db.js";
+import { createSession, upsertUser, upsertMembership, primaryOrgId } from "./db.js";
 
 const ENC = new TextEncoder();
 
@@ -32,7 +32,7 @@ export function isGitHubSession(session) {
 /// directions: `roleName()` hands it out for GitHub's `maintain` permission, so
 /// a person could hold it — and then rank 0, unable to invite a triager — while
 /// an admin asking to invite one was told "That is not a role."
-const ROLE_RANK = new Map([
+export const ROLE_RANK = new Map([
   ["member", 0], ["designer", 0], ["engineer", 0],
   ["triager", 1], ["maintainer", 2], ["admin", 3],
 ]);
@@ -109,20 +109,28 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
   // body.orgId let anyone write a membership row for a private org, and
   // authorizeOrgAccess treats that row as proof of access.
   //
-  // Settled before the account is written. The other order left a mistyped
-  // invite code behind as a real account with no org — and that address could
-  // then never sign up again, because the retry was answered with "an account
-  // with this email already exists".
+  // Settled before the account is written, so a mistyped code cannot leave a
+  // real account behind with no org at all.
+  //
+  // A code that does not work no longer refuses the sign-up, though. It used
+  // to, and the emailed six digits have already been spent by the time this
+  // runs — so one wrong character cost the account *and* the credential, and
+  // the only way on was to start over and ask for another code. They get the
+  // workspace they would have got with no code at all, `inviteError` says what
+  // did not happen, and You → Join a team takes another attempt at it.
   let org;
   let joinRole = "member";
+  let inviteError;
   if (inviteCode?.trim()) {
     const invite = await readInvite(env.DB, inviteCode.trim());
-    if (!invite || !(await spendInvite(env.DB, inviteCode.trim()))) {
-      return { error: "That invite code is not valid." };
+    if (invite && (await spendInvite(env.DB, inviteCode.trim()))) {
+      org = invite.org_id;
+      joinRole = invite.role || "member";
+    } else {
+      inviteError = "That invite code is not valid.";
     }
-    org = invite.org_id;
-    joinRole = invite.role || "member";
-  } else {
+  }
+  if (!org) {
     // Their own org. Derived from the user id so no one else can claim it, but
     // hashed: this id travels in the socket's query string, and a URL is the
     // classic place an address ends up somewhere it was never meant to be.
@@ -137,11 +145,11 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
     .run();
   await upsertMembership(env.DB, org, userId, joinRole);
   const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
-  return { token, userId, login, orgId: org };
+  return { token, userId, login, orgId: org, ...(inviteError ? { inviteError } : {}) };
 }
 
 // Log in: look up by email, verify the password, return a session token.
-export async function login(env, { email, password }) {
+export async function login(env, { email, password, inviteCode }) {
   if (!validEmail(email) || typeof password !== "string") {
     return { error: "Invalid email or password." };
   }
@@ -156,7 +164,24 @@ export async function login(env, { email, password }) {
   if (!safeEqual(attempt, row.password_hash)) return { error: "Invalid email or password." };
 
   const token = await createSession(env.DB, row.github_id, EMAIL_AUTH_TOKEN);
-  return { token, userId: row.github_id, login: row.login };
+  // An invite means the same thing on both ways in. A wrong one does not cost
+  // the sign-in — the password was right — it is reported alongside it.
+  let joined = null;
+  let inviteError;
+  if (inviteCode?.trim()) {
+    const redeemed = await acceptInvite(env, { code: inviteCode.trim(), userId: row.github_id });
+    if (redeemed.error) inviteError = redeemed.error;
+    else joined = redeemed.orgId;
+  }
+  return {
+    token,
+    userId: row.github_id,
+    login: row.login,
+    // Signing in says nothing about where you work, so this does. Without it a
+    // client with no stored org had only a placeholder to guess at.
+    orgId: joined || (await primaryOrgId(env.DB, row.github_id)) || undefined,
+    ...(inviteError ? { inviteError } : {}),
+  };
 }
 
 
@@ -217,11 +242,15 @@ export async function createInvite(env, { orgId, createdBy, role, uses }) {
   const maxUses = Math.min(Math.max(parseInt(uses, 10) || 1, 1), 50);
   const now = new Date();
   const expires = new Date(now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+  // The non-secret name for this code, written now rather than derived on
+  // every read: cancelling one by reference otherwise means reading every
+  // invite in the workspace and hashing each until one matches.
+  const ref = (await sha256Hex(code)).slice(0, 16);
   await env.DB
-    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
-    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses)
+    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, ref) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
+    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses, ref)
     .run();
-  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses };
+  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses, ref };
 }
 
 // Redeem an invite code: look it up, add the user to that org.

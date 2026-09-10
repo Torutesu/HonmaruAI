@@ -12,9 +12,9 @@
 
 import {
   hashPassword, newSaltHex, safeEqual, validEmail,
-  signup, EMAIL_AUTH_TOKEN,
+  signup, acceptInvite, EMAIL_AUTH_TOKEN,
 } from "./auth.js";
-import { createSession } from "./db.js";
+import { createSession, primaryOrgId } from "./db.js";
 import { isMailConfigured, sendMail } from "./mailer.js";
 import { composeCodeEmail } from "./notifyCopy.js";
 
@@ -156,5 +156,35 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
   // keeps the name and language they chose; `upsertUser` overwrites `name`
   // with what it is given, and this path is given none.
   const token = await createSession(env.DB, user.github_id, EMAIL_AUTH_TOKEN);
-  return { token, userId: user.github_id, login: user.login, created: false };
+
+  // An invite handed to someone who already has an account used to be dropped
+  // on the floor: `signup` redeems one, this branch did not, and the sign-in
+  // screen offers the field to everyone. So the person pasted the code they
+  // were sent, was signed in, and landed back in their own empty workspace
+  // with no error and no way to try again — the code was never spent, and
+  // nothing in either client redeems one.
+  //
+  // The emailed code is a credential and it was correct, so a bad invite never
+  // costs the session: they are signed in either way, and `inviteError` says
+  // what did not happen. Anything else burns a single-use sign-in code on a
+  // typo in a different field.
+  let joined = null;
+  let inviteError;
+  if (inviteCode?.trim()) {
+    const redeemed = await acceptInvite(env, { code: inviteCode.trim(), userId: user.github_id });
+    if (redeemed.error) inviteError = redeemed.error;
+    else joined = redeemed.orgId;
+  }
+
+  return {
+    token,
+    userId: user.github_id,
+    login: user.login,
+    created: false,
+    // Where to put them. The org they just joined if they joined one, and
+    // otherwise where they already work — a returning person on a second
+    // browser has nothing stored to fall back on.
+    orgId: joined || (await primaryOrgId(env.DB, user.github_id)) || undefined,
+    ...(inviteError ? { inviteError } : {}),
+  };
 }

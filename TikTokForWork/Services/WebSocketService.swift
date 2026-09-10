@@ -101,6 +101,10 @@ enum OutboundEvent {
     case cardUpdated(DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
     case rollback(cardID: String)
+    /// Ask again, for a decision that has been waiting. The relay checks that
+    /// the asker is the card's sender and notifies the person it is waiting
+    /// on — through whichever channel actually reaches them.
+    case nudge(cardID: String)
     case contextUpdated(text: String)
     case toolResult(card: DecisionCard, decision: Decision, toolCallId: String?)
     /// An envelope replayed from the outbox. It was built by one of the cases
@@ -135,6 +139,8 @@ enum OutboundEvent {
             ]
         case .rollback(let cardID):
             return ["type": "rollback", "payload": ["cardId": cardID]]
+        case .nudge(let cardID):
+            return ["type": "nudge", "payload": ["cardId": cardID]]
         case .contextUpdated(let text):
             return ["type": "context_updated", "payload": ["context": ["text": text]]]
         case .toolResult(let card, let decision, let toolCallId):
@@ -307,6 +313,15 @@ final class WebSocketService: ObservableObject {
 
     func publishRollback(cardID: String) async {
         await publish(.rollback(cardID: cardID))
+    }
+
+    /// Ask again about a decision that has been waiting.
+    ///
+    /// Sent, not queued: a reminder that arrives when the network comes back
+    /// is a reminder about a moment that has passed, and the outbox exists for
+    /// decisions, which must not be lost. This one may be.
+    func nudge(cardID: String) async {
+        try? await send(.nudge(cardID: cardID))
     }
 
     func publishContext(_ text: String) async {

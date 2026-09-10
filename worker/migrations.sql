@@ -17,8 +17,13 @@ ALTER TABLE invites ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE invites ADD COLUMN uses INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN notify_email INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE memberships ADD COLUMN title TEXT;
+ALTER TABLE invites ADD COLUMN ref TEXT;
 
 /* After the ALTER above, and never in schema.sql: that file runs first, so on a
    database predating the column this index would be created against a column
    that does not exist yet and fail the deploy. */
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+/* Same reasoning, for the column added just above: on a database predating it,
+   an index in schema.sql would be built against a column that does not exist
+   yet and would fail the deploy. */
+CREATE INDEX IF NOT EXISTS idx_invites_ref ON invites(org_id, ref);
