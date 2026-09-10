@@ -210,6 +210,31 @@ the earliest join. Not "is it a `personal:` org" — an inviter's own workspace
 is a personal one too, and that test sent everyone they invited back to their
 own empty feed.
 
+## Where a card is allowed to go
+
+A card names two people. The relay stamps the **sender** from the socket's own
+session — a client may not claim to be somebody else — and the **recipient**
+comes off the wire, because routing a decision to a colleague is the product.
+
+The part that was missing is that "a colleague" means *in this workspace*.
+Without that check a card could be addressed to any login with an account:
+stored in an org the recipient can never join, so nobody can ever decide it,
+and `notifyCard` resolves a recipient by login with no idea which org asked —
+so the title and summary on that card went out as a push notification, a web
+push and an email to somebody who had never heard of the team that sent it.
+
+`isOrgMemberLogin` is the check, and it is by login on purpose: the
+memberships table is keyed by account id, so neither `isMember` nor
+`getMemberProfile` answers this question — the latter LEFT JOINs memberships
+and returns a row for any user at all.
+
+Cards that arrive from outside the app — a forwarded email, a connector sync —
+are addressed to the person who owns that connector, in the workspace
+`primaryOrgId` says they work in. Both paths used to take `LIMIT 1` off the
+memberships table with no ordering, which is insertion order: invisible while
+almost everybody was in exactly one organization, and wrong the moment joining
+a team became ordinary.
+
 ## Tools, and what this workspace can actually do
 
 `GET /connectors/github?orgId=` answers one question: can a decision made here

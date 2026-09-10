@@ -6,6 +6,7 @@ import { toolCallResult, runError } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, loadContexts, saveContext,
   getSession, getCard, getUserByLogin, upsertBusiness, businessSlug, getMemberProfile,
+  isOrgMemberLogin,
 } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { writeDecisionToNotion } from "./notionWriter.js";
@@ -282,6 +283,18 @@ export class OrgRelay {
       // using it, not designed up front.
       if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
       if (type === "card_created") {
+        // Anyone in the org — and the org is the part that was never checked.
+        // The sender is stamped below and cannot be forged; the recipient came
+        // straight off the wire, so a card could be addressed to somebody in a
+        // different workspace entirely. It would sit in this one, where they
+        // can never join to decide it, and `notifyCard` resolves a recipient by
+        // login with no idea which org asked — so the title and summary on that
+        // card go out as a push, a web push and an email to a person who has
+        // never heard of this team.
+        if (!(await isOrgMemberLogin(this.db, orgId, card.recipientUserID))) {
+          ws.send(JSON.stringify(runError("That person is not in this workspace.")));
+          return;
+        }
         // You may route a decision to anyone in the org, but only ever as
         // yourself. This is the line that makes a forged sender impossible
         // rather than merely impolite.

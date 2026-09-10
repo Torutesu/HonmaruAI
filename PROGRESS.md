@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 360 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 374 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 27 steps
@@ -132,6 +132,23 @@ The list of what is still missing, and why each item matters, is
       does not read the person's source
 - [x] Rate limits on routing, token exchange, sync and uploads, and on how fast
       one socket may talk
+- [x] A card may only be addressed to somebody in the workspace it is created
+      in. The relay stamps the sender — "only ever as yourself" — and took the
+      recipient on trust, so a card could name anyone with an account: stored
+      in an org they can never join to decide it, and `notifyCard` resolves a
+      recipient by login with no idea which org asked, so its title and summary
+      went out as a push, a web push and an email to a stranger
+- [x] `/media` is a video store, not a file host. The served object comes back
+      from the Worker's own origin *as whatever the upload claimed* — so a
+      session could store HTML and have this origin serve it as HTML, cached
+      `public, immutable` by everything in between. Video types only on the way
+      in, clamped again on the way out for what is already in the bucket, and
+      `nosniff` on both
+- [x] Cards from outside the app land where the person actually works. The
+      email webhook and the connector cron both chose an org with `LIMIT 1` and
+      no ordering — insertion order, invisible while almost everybody was in
+      exactly one organization and wrong the moment joining a team became
+      ordinary
 - [x] `/ai/route` checks membership like every other route that reads an
       organization. It did not, and it answers with a recipient and an agent
       route built from that org's real membership rows — so any signed-in

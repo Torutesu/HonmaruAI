@@ -637,6 +637,26 @@ export async function removeBusiness(db, orgId, slug) {
 /// hold. The card carries this so every client can render "Requested by" from
 /// the card alone, rather than each one loading the org graph to turn a login
 /// into a person.
+/// Whether this login belongs to somebody in this organization.
+///
+/// By login, because that is what a card names its recipient by — the
+/// memberships table is keyed by account id, so neither `isMember` nor
+/// `getMemberProfile` answers this question: the latter LEFT JOINs
+/// memberships and so returns a row for any user at all.
+export async function isOrgMemberLogin(db, orgId, login) {
+  if (!orgId || !login) return false;
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok
+         FROM memberships m
+         JOIN users u ON u.github_id = m.user_github_id
+        WHERE m.org_id = ?1 AND u.login = ?2`
+    )
+    .bind(orgId, String(login))
+    .first();
+  return Boolean(row);
+}
+
 export async function getMemberProfile(db, orgId, login) {
   if (!orgId || !login) return null;
   const row = await db

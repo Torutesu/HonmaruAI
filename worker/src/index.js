@@ -8,7 +8,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
-  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs,
+  setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards, evictMember } from "./announce.js";
@@ -917,11 +917,14 @@ async function handle(request, env, url) {
       const user = await getUserByGithubId(env.DB, githubId);
       if (!user?.login) return json({ status: "unknown recipient" });
 
-      const orgRow = await env.DB
-        .prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1 LIMIT 1")
-        .bind(String(githubId)).first();
-      if (!orgRow?.org_id) return json({ status: "no organization" });
-      const orgId = orgRow.org_id;
+      // Where this person works, by the same rule a sign-in uses. `LIMIT 1`
+      // with no ordering picked whichever membership row the database reached
+      // first — invisible while almost everybody was in exactly one
+      // organization, and wrong the moment joining a team became ordinary: a
+      // forwarded email would land in a workspace by accident of insertion
+      // order rather than in the one they actually work in.
+      const orgId = await primaryOrgId(env.DB, githubId);
+      if (!orgId) return json({ status: "no organization" });
 
       // A redelivered webhook is the same mail, not a second decision.
       if (await isIngested(env.DB, "email", message.id, githubId)) {
