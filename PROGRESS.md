@@ -189,12 +189,17 @@ The list of what is still missing, and why each item matters, is
 
 ## Still open
 
-- [ ] Turn APNs on: App ID capability, reissued profile, APNs secrets, and the
-      constant — [docs/push-notifications.md](docs/push-notifications.md).
-      Until then Web Push and email are the channels that actually deliver
-- [ ] Set the Web Push and Mailgun secrets on the deployment
-      (`VAPID_*`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`) —
-      [docs/notifications.md](docs/notifications.md#web-push--setup)
+- [ ] Turn APNs on **in the app**. The four Worker secrets are set — the
+      deployment reports `push: true` — so the server side is done; what is
+      left is the App ID capability, a reissued profile, and flipping
+      `PushService.isEnabledInThisBuild`, which is still `false` —
+      [docs/push-notifications.md](docs/push-notifications.md)
+- [ ] Set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as **GitHub
+      Actions repository secrets**. This is the one piece of configuration that
+      is genuinely missing, and it is not a Worker secret — those are all in
+      place. Without it `Deploy Worker` stops at "Check credentials" on every
+      push, which it has since before 2026-09-08, so `main` is ahead of what is
+      actually running — [docs/setup-secrets.md](docs/setup-secrets.md#1-cloudflare自動デプロイを動かす)
 - [ ] First App Store submission (TestFlight internal works today)
 - [ ] Point a Mailgun domain at the inbound webhook. Email is a connector on
       the Worker now — `POST /webhooks/email`, signature verified (HMAC over
@@ -203,8 +208,9 @@ The list of what is still missing, and why each item matters, is
       same triage, card, announcement and notification as Gmail and Slack. What
       is missing is the account: no real message has ever reached it, only
       synthetic posts shaped like Mailgun's. Needs `MAILGUN_WEBHOOK_SIGNING_KEY`
-      and `INBOUND_EMAIL_DOMAIN` as Worker secrets, and the app has nowhere yet
-      to show a person their address (`GET /connectors/email/address` returns it)
+      and `INBOUND_EMAIL_DOMAIN` as Worker secrets. Both clients show a person
+      their address now, under Tools/Connectors, and hide the row on the 503
+      that says this deployment has no inbound domain
 
 - [ ] A card layout that scrolls within its page, so Dynamic Type does not have
       to be clamped at `accessibility1`
