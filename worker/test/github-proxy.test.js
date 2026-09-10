@@ -66,6 +66,40 @@ test("anything the app does not do is refused, not forwarded", async () => {
   }
 });
 
+test("a dot-segment cannot walk out of the allowlist", async () => {
+  // `:owner` and `:repo` match any non-empty segment and encodeURIComponent
+  // leaves ".." alone, so `/repos/../gists` would build a URL that `new URL()`
+  // normalises to `/gists` — the allowlist escaped, with a `repo`-scoped token,
+  // into somebody's private gists and issues.
+  //
+  // Two things stop it, and this pins both. The URL parser collapses every
+  // dot-segment form before `pathname` is read, so these arrive here already
+  // rewritten and match no rule; and `isSafeSegment` refuses them outright, so
+  // the file does not depend on a caller for that. No interceptor is
+  // registered: `assertNoPendingInterceptors` in afterEach means a forwarded
+  // call would be an unmatched request, not a silent pass.
+  for (const path of [
+    "/repos/../gists",
+    "/repos/%2E%2E/gists",
+    "/repos/%2e./notifications",
+    "/repos/../issues",
+    "/repos/acme/../../gists",
+  ]) {
+    const res = await call(path);
+    expect(res.status, `GET ${path}`).toBe(404);
+  }
+
+  // And directly, against the segments the parser would otherwise have hidden.
+  const { proxyGitHub } = await import("../src/githubProxy.js");
+  const raw = await proxyGitHub(
+    new Request("https://example.com/github"),
+    env,
+    { pathname: "/github/repos/../gists", searchParams: new URLSearchParams() },
+    { github_access_token: "gho_secret" }
+  );
+  expect(raw.status).toBe(404);
+});
+
 test("a query parameter the rule does not name is dropped", async () => {
   let sentPath = null;
   fetchMock.get("https://api.github.com")
