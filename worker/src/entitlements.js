@@ -14,23 +14,39 @@ export async function isPro(env, githubId) {
     return cached.is_pro === 1;
   }
 
-  let active = false;
+  // Three outcomes, not two. `true` and `false` are things RevenueCat said
+  // about this subscriber; `null` is RevenueCat not having said anything, and
+  // that is not a fact about whether somebody is paying.
+  let answer = null;
   try {
     const res = await fetch(
       `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(String(githubId))}`,
       { headers: { Authorization: `Bearer ${env.REVENUECAT_SECRET_KEY}` } }
     );
-    if (res.ok) {
+    if (res.status === 404) {
+      // An answer about the subscriber: never heard of them, so not Pro.
+      answer = false;
+    } else if (res.ok) {
       const body = await res.json();
       const entitlement = body?.subscriber?.entitlements?.[PRO_ENTITLEMENT];
-      active = Boolean(entitlement) &&
+      answer = Boolean(entitlement) &&
         (!entitlement.expires_date || Date.parse(entitlement.expires_date) > Date.now());
     }
   } catch {
-    // Fall through: a billing outage must never block the product.
-    active = false;
+    // A network failure, or a body that would not parse. Either way nothing
+    // was learned.
+    answer = null;
   }
 
-  await writeEntitlement(env.DB, githubId, active);
-  return active;
+  if (answer === null) {
+    // A billing outage must never block the product — and writing `false` here
+    // is exactly how it did. One failed request downgraded a paying subscriber
+    // to the free tier's three routes a day, and the cache write was what
+    // stopped it retrying for the next hour. Say what was last known, and
+    // leave the cache alone so the next request asks again.
+    return cached?.is_pro === 1;
+  }
+
+  await writeEntitlement(env.DB, githubId, answer);
+  return answer;
 }
