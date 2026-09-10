@@ -335,15 +335,29 @@ await step('telling your AI something produces a decision', async () => {
 })
 
 await step('the decision can be taken, and it sticks', async () => {
+  const title = await page.$eval('.card-title', (el) => el.textContent.trim())
   await page.click('.decide.approve')
-  await page.waitForTimeout(1200)
+  // A decision goes out over the socket and comes back as the updated card;
+  // only then does it leave the pending feed. So this waits for the round trip
+  // to finish rather than for 1200ms to pass — the reload below is what proves
+  // the write is on the server, and a fixed sleep raced it. It held on this
+  // machine and lost on a loaded CI runner, where the whole suite then reported
+  // a decision that "does not stick".
+  await page.waitForFunction(
+    (t) => ![...document.querySelectorAll('.card-title')].some((el) => el.textContent.trim() === t),
+    title,
+    { timeout: 20000 }
+  ).catch(() => { throw new Error('the approved card never left the pending feed') })
   await shot('10-after-decision')
   await page.reload({ waitUntil: 'load' })
   await page.waitForSelector('.tabbar', { timeout: 20000 })
-  // Approved, so it is off the pending feed and in history.
+  // Approved, so it is off the pending feed and in history. `.seg` is the
+  // segmented control, which is drawn before the history behind it has loaded,
+  // so reading innerText the moment it appears is the same race one screen
+  // further on.
   await openViaYou('History', '.seg')
-  const text = await page.evaluate(() => document.body.innerText)
-  if (!/Approved|承認/.test(text)) throw new Error('the decision is not in history after a reload')
+  await page.waitForFunction(() => /Approved|承認/.test(document.body.innerText), null, { timeout: 20000 })
+    .catch(() => { throw new Error('the decision is not in history after a reload') })
   await shot('11-history')
 })
 
