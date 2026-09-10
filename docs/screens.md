@@ -180,8 +180,6 @@ the earliest join. Not "is it a `personal:` org" — an inviter's own workspace
 is a personal one too, and that test sent everyone they invited back to their
 own empty feed.
 
-## Plans
-
 ## Tools, and what this workspace can actually do
 
 `GET /connectors/github?orgId=` answers one question: can a decision made here
@@ -194,6 +192,8 @@ issue, and an email session has no GitHub token to write with. The Tools
 screen printed **Always on · Built in** to everybody, which for an email
 account in the `personal:` workspace it was given at sign-up was true of
 nothing at all.
+
+## Plans
 
 `worker/src/plans.js` is the catalog, and it is the catalog for both clients —
 a price that disagrees between the web app and the phone is worse than no
