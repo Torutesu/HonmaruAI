@@ -147,22 +147,26 @@ test("nothing is attempted when APNs is not configured", async () => {
 });
 
 test("registering a device needs a session", async () => {
+  // A real token shape, because the route checks it now — this test is about
+  // where the *login* comes from, and `tok-new` was only ever a stand-in.
+  const NEW_TOKEN = "b".repeat(64);
   const anonymous = await SELF.fetch("https://example.com/devices", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ deviceToken: "tok-new" }),
+    body: JSON.stringify({ deviceToken: NEW_TOKEN }),
   });
   expect(anonymous.status).toBe(401);
 
   const res = await SELF.fetch("https://example.com/devices", {
     method: "POST",
     headers: { "content-type": "application/json", "x-session-token": globalThis.__aliceSession },
-    body: JSON.stringify({ deviceToken: "tok-new" }),
+    body: JSON.stringify({ deviceToken: NEW_TOKEN }),
   });
   expect(res.status).toBe(200);
 
   const row = await env.DB
-    .prepare("SELECT login FROM device_tokens WHERE device_token = 'tok-new'")
+    .prepare("SELECT login FROM device_tokens WHERE device_token = ?1")
+    .bind(NEW_TOKEN)
     .first();
   // The login is taken from the session, never from the request.
   expect(row).toMatchObject({ login: "alice" });

@@ -19,7 +19,7 @@ import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount } from "./account.js";
 import { listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
-import { isConfigured } from "./apns.js";
+import { isConfigured, isDeviceToken } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
 import { isMailConfigured } from "./mailer.js";
 import { SUPPORTED_LOCALES } from "./notifyCopy.js";
@@ -606,6 +606,11 @@ async function handle(request, env, url) {
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json();
       if (!body.deviceToken) return json({ message: "deviceToken is required" }, 400);
+      // Shape-checked here rather than trusted: this string ends up in the path
+      // of a request to Apple, signed with our provider token.
+      if (!isDeviceToken(body.deviceToken)) {
+        return json({ message: "That is not an APNs device token." }, 400);
+      }
       const user = await getUserByGithubId(env.DB, session.github_id);
       if (!user?.login) return json({ message: "unknown user" }, 409);
       await registerDevice(env.DB, {

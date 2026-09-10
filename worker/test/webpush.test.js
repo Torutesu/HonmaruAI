@@ -98,6 +98,27 @@ test("a payload encrypted to a subscription decrypts with the subscriber's key, 
   })).rejects.toThrow();
 });
 
+test("a payload too big for one record is refused, not sent unopenable", async () => {
+  // The push service does not decrypt, so a record over `rs` is relayed and
+  // answered 201 while the browser silently fails to open it — an absence with
+  // no error on either side. The header says 4096; the encryptor has to mean it.
+  const sub = await subscriber("https://push.example.com/send/big");
+  const room = { p256dh: sub.keys.p256dh, auth: sub.keys.auth };
+
+  // 4079 bytes of message plus the 0x02 delimiter plus the 16-byte GCM tag is
+  // exactly the record size, and still fits.
+  const exact = "x".repeat(4096 - 1 - 16);
+  const { body } = await encryptPayload({ ...room, plaintext: exact });
+  expect(body.length).toBeGreaterThan(4096);
+  const back = await decryptPayload({
+    body, uaPrivateKey: sub.privateKey, uaPublicRaw: sub.publicRaw, auth: sub.keys.auth,
+  });
+  expect(back).toBe(exact);
+
+  // One byte more is not a smaller notification, it is an unopenable one.
+  await expect(encryptPayload({ ...room, plaintext: `${exact}x` })).rejects.toThrow(/record size/);
+});
+
 test("sendWebPush posts encrypted bytes with VAPID and content-coding headers", async () => {
   const sub = await subscriber("https://push.example.com/send/headers");
   let seen;
