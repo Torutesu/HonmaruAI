@@ -99,6 +99,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     wsClient.onCardDeleted = (cardId) => { if (!ignore) addDebugLog(`Card deleted: ${cardId}`) }
     wsClient.onPresence = (who, status) => { if (!ignore) addDebugLog(`Presence: ${who} → ${status}`) }
     wsClient.onError = (message) => { if (!ignore) { setError(message); addDebugLog(`Error: ${message}`) } }
+    // The relay will not have this socket, and will not have the next one
+    // either. Retrying is not the answer to any of these — where the answer is
+    // "you belong somewhere else now", go there; otherwise say so and stop.
+    wsClient.onRefused = (message, code) => {
+      if (ignore) return
+      setError(message)
+      addDebugLog(`Refused: ${code || 'no code'} — ${message}`)
+      if (code === 'not-a-member' || code === 'sign-in-required') onLeft()
+    }
     wsClient.onToolCallResult = (toolCallId) => { if (!ignore) addDebugLog(`Tool result: ${toolCallId}`) }
     wsClient.onConnectionChange = (connected) => {
       if (ignore) return
@@ -112,7 +121,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       setError(`Failed to connect: ${message}`)
     })
     return () => { ignore = true; wsClient.disconnect() }
-  }, [relayUrl, userId, orgId, sessionToken, addDebugLog])
+  }, [relayUrl, userId, orgId, sessionToken, addDebugLog, onLeft])
 
   // A notification tapped while a tab is open: the service worker tells us
   // which card, rather than opening a second tab.

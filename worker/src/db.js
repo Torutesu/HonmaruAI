@@ -332,7 +332,7 @@ export async function ownTitle(db, orgId, githubId) {
 /// organization.
 export async function retainMemberships(db, orgId, keep) {
   const ids = [...new Set((keep || []).map(String))].filter(Boolean);
-  if (!ids.length) return { removed: 0 };
+  if (!ids.length) return { removed: 0, logins: [] };
   const holes = ids.map((_, i) => `?${i + 2}`).join(", ");
   // GitHub is authoritative only for the members it issued. A collaborator list
   // says nothing about someone who joined by invite, so pruning against it
@@ -344,6 +344,20 @@ export async function retainMemberships(db, orgId, keep) {
   // match a future id scheme that happened to begin with a digit, and the
   // whole point here is to delete only what GitHub issued.
   const githubOnly = "AND user_github_id NOT GLOB '*[^0-9]*'";
+  // Who is about to go, before they go. The relay stamps a login on a socket
+  // and knows nothing about `user_github_id`, so a caller that wants to close
+  // the connections these rows were holding needs the names, and a count
+  // cannot be turned back into them once the rows are gone.
+  const { results: going } = await db
+    .prepare(
+      `SELECT COALESCE(u.login, m.user_github_id) AS login
+         FROM memberships m
+         LEFT JOIN users u ON u.github_id = m.user_github_id
+        WHERE m.org_id = ?1 AND m.user_github_id NOT IN (${holes})
+          AND m.user_github_id NOT GLOB '*[^0-9]*'`
+    )
+    .bind(orgId, ...ids)
+    .all();
   const { meta } = await db
     .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
@@ -353,7 +367,7 @@ export async function retainMemberships(db, orgId, keep) {
     .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
     .run();
-  return { removed: meta?.changes ?? 0 };
+  return { removed: meta?.changes ?? 0, logins: (going || []).map((r) => r.login).filter(Boolean) };
 }
 
 export async function upsertAgent(db, orgId, githubId, displayName) {

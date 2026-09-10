@@ -163,6 +163,36 @@ is the organization's record, not the decider's belongings —
 [the privacy policy](privacy-policy.md) draws the same line for account
 deletion.
 
+### Out of the table is not out of the room
+
+A socket is authorized once, in `join`, and `att.authed` is never looked at
+again. That was right while nothing could revoke a membership. It stopped
+being right the moment a workspace could: the connection somebody was already
+holding kept receiving every card broadcast in that org, and they could keep
+acting on it, until something else happened to drop it.
+
+So every path that deletes a membership row now closes the sockets that row
+was holding — `evictMember` in `worker/src/announce.js`, through the relay's
+`/internal/evict`. There are three, and the first two predate the member list:
+
+- loading the org graph, where `retainMemberships` drops anyone GitHub no
+  longer lists (it returns their logins now, because the relay keys a socket
+  by login and a count cannot be turned back into names);
+- deleting your account;
+- removing someone, or leaving, from **You → Your team**.
+
+The refusal closes with 1008 and carries a `code` — `not-a-member`,
+`sign-in-required`, `client-too-old` — beside the sentence written for a
+person. The code exists because the client has to decide what to do next, and
+deciding that by matching on English prose is how a copy edit becomes a bug.
+
+The web client reads it. It did not: `onclose` ignored the close code
+entirely and scheduled a reconnect, so a refusal the relay sends *precisely
+so a client can stop* produced a browser retrying against it for as long as
+the tab stayed open. On `not-a-member` or `sign-in-required` it now asks
+`/me` where else this person belongs and goes there, falling back to signing
+them out.
+
 ### Which workspace you land in
 
 `GET /me` returns `orgs`: every workspace this person belongs to, with the

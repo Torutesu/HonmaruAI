@@ -160,6 +160,8 @@ const email = `e2e-${Date.now()}@example.com`
 let mate
 // Browser contexts the later steps open, closed together at the end.
 const extras = []
+// The teammate who joins by code, kept so a later step can take them out.
+let joiner
 const shot = (n) => page.screenshot({ path: `${SHOTS}/${n}.png` })
 
 await step('the welcome screen loads', async () => {
@@ -724,6 +726,7 @@ await step('an invite reaches someone who already has an account', async () => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
   extras.push(ctx)
   const c = await ctx.newPage()
+  joiner = c
   await c.goto(WEB, { waitUntil: 'load' })
   await c.click('text=Get started')
   await c.waitForSelector('#email')
@@ -879,6 +882,44 @@ await step('GitHub is not claimed where it cannot run', async () => {
   const said = await page.textContent('[data-github] .row-sub')
   if (!said || !said.trim()) throw new Error('GitHub is switched off without saying why')
   await shot('27-github-off')
+  await closeEverything()
+})
+
+await step('removing someone takes them out of the room, not just the table', async () => {
+  // A socket is authorized once, at join, and never asked again — so before
+  // this, taking somebody out of a workspace left them holding a live
+  // connection to it: every card broadcast there still reached them. And the
+  // relay closes a refused socket with 1008 precisely so a client can stop
+  // retrying, which nothing on this side had ever read.
+  if (!joiner) throw new Error('no teammate to remove')
+  const was = await joiner.evaluate(() => localStorage.getItem('orgId'))
+
+  await closeEverything()
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row:has-text("Your team")')
+  await page.waitForSelector('.screen .team-member', { timeout: 15000 })
+
+  const before = await page.$$eval('.screen .team-member', (els) => els.length)
+  await page.click('.screen .team-member:has-text("Aya") .btn-text')
+  await page.click('.screen .team-member:has-text("Aya") .pill-btn')
+  await page.waitForFunction(
+    (n) => document.querySelectorAll('.screen .team-member').length < n,
+    before,
+    { timeout: 15000 }
+  )
+  await shot('28-removed')
+
+  // And on their side: the socket is closed, not retried, and they are put
+  // back in a workspace they still belong to rather than left staring at a
+  // feed that will never reconnect.
+  await joiner.waitForFunction(
+    (previous) => localStorage.getItem('orgId') && localStorage.getItem('orgId') !== previous,
+    was,
+    { timeout: 30000 }
+  )
+  await joiner.waitForSelector('.dot.on', { timeout: 25000 })
+  await joiner.screenshot({ path: `${SHOTS}/29-evicted.png` })
   await closeEverything()
 })
 

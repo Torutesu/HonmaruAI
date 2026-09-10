@@ -103,7 +103,11 @@ export async function removeMember(env, { orgId, actorId, targetId }) {
     .run();
   // Their decisions stay. What was decided is the organization's record, not
   // the decider's belongings — account deletion draws the same line.
-  return { ok: true, removed: target.userId, left: leaving };
+  //
+  // `login` travels back because the relay stamps that on a socket, and the
+  // caller has to close the one they are holding: the row is gone, but nothing
+  // re-reads it for a connection that is already open.
+  return { ok: true, removed: target.userId, login: target.login, left: leaving };
 }
 
 /// The codes this workspace has out, and which of them you may read.

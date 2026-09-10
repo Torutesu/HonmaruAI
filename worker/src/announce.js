@@ -12,6 +12,7 @@
 // cannot be reached from the internet; the DO checks the header again anyway,
 // because "unreachable" is a property of code someone can change.
 export const ANNOUNCE_PATH = "/internal/announce";
+export const EVICT_PATH = "/internal/evict";
 
 export async function announceCards(env, orgId, cards) {
   if (!cards?.length) return { announced: 0 };
@@ -32,5 +33,36 @@ export async function announceCards(env, orgId, cards) {
     // the sync that produced them.
     console.error("announce failed", orgId, err?.message || err);
     return { announced: 0, error: true };
+  }
+}
+
+
+/// Take somebody out of the room they are already standing in.
+///
+/// `att.authed` is written once, at join, and never looked at again — which
+/// was right while nothing could revoke a membership. Now that a workspace
+/// can, a socket opened a moment earlier is the whole of someone's continued
+/// access: every card broadcast in that org keeps reaching them, and they can
+/// keep acting, until something else happens to drop the connection.
+///
+/// Keyed by login, because that is what the relay stamps on a socket — the
+/// membership row's `user_github_id` names the same person and matches nothing
+/// in this object.
+export async function evictMember(env, orgId, login) {
+  if (!login || !env.ORG_RELAY) return { evicted: 0 };
+  try {
+    const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
+    const res = await stub.fetch(`https://relay.internal${EVICT_PATH}?orgId=${encodeURIComponent(orgId)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ login }),
+    });
+    return await res.json();
+  } catch (err) {
+    // The membership row is already gone, so they cannot join again. Failing
+    // here means the socket they are holding outlives the removal — worth a
+    // log, never worth failing the removal that produced it.
+    console.error("evict failed", orgId, err?.message || err);
+    return { evicted: 0, error: true };
   }
 }

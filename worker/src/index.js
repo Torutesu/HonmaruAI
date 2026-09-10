@@ -11,7 +11,7 @@ import {
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
-import { announceCards } from "./announce.js";
+import { announceCards, evictMember } from "./announce.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, githubIdFromAddress, inboundAddressFor } from "./connectors/email.js";
 import { triageMessage } from "./triage.js";
 import { notifyCard } from "./notify.js";
@@ -238,6 +238,10 @@ async function handle(request, env, url) {
         targetId: body.userId,
       });
       if (result.error) return json({ message: result.error }, result.status || 400);
+      // Out of the table is not out of the room. A socket is authorized once,
+      // at join, so the one they are already holding keeps receiving this
+      // org's cards until something else drops it.
+      await evictMember(env, body.orgId, result.login);
       return json(result);
     }
 
@@ -616,7 +620,12 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       const user = await getUserByGithubId(env.DB, session.github_id);
+      // Where they were, before the rows saying so are deleted. A socket is
+      // authorized once, at join, so a deleted account's open connection would
+      // otherwise go on receiving its old team's cards.
+      const wasIn = await listUserOrgs(env.DB, session.github_id);
       await deleteAccount(env.DB, session.github_id, user?.login || null);
+      for (const org of wasIn) await evictMember(env, org.id, user?.login || null);
       return json({ ok: true });
     }
     const orgGraphMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/graph$/);
@@ -653,7 +662,12 @@ async function handle(request, env, url) {
       // removed from the repository did not remove you from the organization.
       // This is the moment we have the authoritative answer, so it is the
       // moment to act on it.
-      await retainMemberships(env.DB, orgId, collaborators.map((c) => c.id));
+      const pruned = await retainMemberships(env.DB, orgId, collaborators.map((c) => c.id));
+      // And out of the room, not only out of the table. A socket is authorized
+      // once, at join, so somebody removed from the repository kept receiving
+      // this org's cards on the connection they already had — the table said
+      // they were gone and the open socket never asked it again.
+      for (const login of pruned.logins) await evictMember(env, orgId, login);
       return json(graph);
     }
     const cardEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/cards\/([^/]+)\/events$/);

@@ -9,10 +9,10 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 347 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 350 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
-  Worker actually sent. 26 steps
+  Worker actually sent. 27 steps
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **CI:** `.github/workflows/ci.yml` — Worker, the reference relay, the
   reference web client and the end-to-end suite on every push, iOS on pull
@@ -132,6 +132,17 @@ The list of what is still missing, and why each item matters, is
       route built from that org's real membership rows — so any signed-in
       account could name a team it had no part in (a repository org is just
       `owner/repo`) and be told, by name, who is on it
+- [x] Losing a membership closes the socket it was holding. A socket is
+      authorized once, in `join`, and never asked again — so being removed
+      from a repository, deleting your account, or being taken out of a
+      workspace left a live connection that went on receiving that org's
+      cards. All three paths evict now
+- [x] The web client stops retrying a refusal. The relay closes with 1008 so a
+      client can tell "you are not allowed in" from "the network died", and
+      `onclose` ignored the code entirely — so a removed person's browser
+      retried against the refusal for as long as the tab was open. The refusal
+      carries a `code` (`not-a-member`, `sign-in-required`, `client-too-old`)
+      so the decision is not made by matching on English prose
 - [x] Account deletion, in the app
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
 

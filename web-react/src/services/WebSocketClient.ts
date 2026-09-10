@@ -21,6 +21,11 @@ export class WebSocketClient {
   // Grows on each failed retry (2s → 4s → 8s … capped) so a server that is
   // down is not hammered every 2s, and resets to the minimum on a success.
   private reconnectDelay = RECONNECT_MIN_MS
+  // Set when the relay closes with 1008. It means "you are not allowed in",
+  // not "the network died", and reconnecting to it is a loop that can only
+  // ever end the same way.
+  private refused = false
+  private refusal: { message: string; code?: string } | null = null
 
   onStateChange?: (state: AppState) => void
   onCardCreated?: (card: DecisionCard) => void
@@ -28,6 +33,10 @@ export class WebSocketClient {
   onCardDeleted?: (cardId: string) => void
   onPresence?: (userId: string, status: string) => void
   onError?: (message: string) => void
+  /// The relay refused this socket and will refuse the next one too. `code` is
+  /// the machine-readable reason — `not-a-member`, `sign-in-required`,
+  /// `client-too-old` — and retrying is not the answer to any of them.
+  onRefused?: (message: string, code?: string) => void
   onToolCallResult?: (toolCallId: string, result: any) => void
   onConnectionChange?: (isConnected: boolean) => void
 
@@ -38,6 +47,10 @@ export class WebSocketClient {
     sessionToken?: string
   ): Promise<void> {
     this.intentionalDisconnect = false
+    // A fresh connect is a fresh verdict: joining a different workspace after
+    // being refused by one must not inherit the refusal.
+    this.refused = false
+    this.refusal = null
     this.currentUserId = userId
     this.lastConnectParams = { url, orgId, sessionToken }
 
@@ -83,9 +96,25 @@ export class WebSocketClient {
           reject(error)
         }
 
-        ws.onclose = () => {
+        // The event is optional here on purpose. A browser always supplies a
+        // CloseEvent, but this handler is also called directly — by tests, and
+        // by any harness standing in for a socket — and a close handler that
+        // throws on a missing argument turns a disconnect into an unhandled
+        // error instead of a reconnect.
+        ws.onclose = (event?: { code?: number; reason?: string }) => {
           this.ws = null
           this.onConnectionChange?.(false)
+          // 1008 is the relay saying the door will not open: not a member, no
+          // valid session, a client too old to speak to it. It sends that code
+          // precisely so this is distinguishable from a dead network — and
+          // until now nothing here read it, so being removed from a workspace
+          // meant a browser retrying, forever, against a refusal.
+          if (event?.code === 1008) {
+            this.refused = true
+            const said = this.refusal || { message: event?.reason || 'This workspace is no longer open to you.' }
+            this.onRefused?.(said.message, said.code)
+            return
+          }
           this.scheduleReconnect()
         }
       } catch (error) {
@@ -95,6 +124,7 @@ export class WebSocketClient {
   }
 
   private scheduleReconnect(): void {
+    if (this.refused) return
     if (this.intentionalDisconnect || !this.lastConnectParams || !this.currentUserId) return
     if (this.reconnectTimer) return // already scheduled
 
@@ -150,6 +180,9 @@ export class WebSocketClient {
         this.handleCustom(json)
         break
       case 'RUN_ERROR':
+        // Held, not acted on: the refusal arrives just before the close, and
+        // the close is what says whether this was fatal.
+        this.refusal = { message: json.message, code: json.code }
         this.onError?.(json.message)
         break
       default:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Dashboard } from './components/Dashboard'
 import { Welcome } from './screens/Welcome'
 import { SignIn } from './screens/SignIn'
@@ -107,9 +107,10 @@ function App() {
     try { localStorage.setItem('orgId', next) } catch { /* private mode */ }
   }
 
-  /// They left the workspace that was on screen. There is nothing there to
-  /// show them now, so ask where they still belong — the same question a
-  /// sign-in asks — and go there.
+  /// They are out of the workspace that was on screen — they left it, or
+  /// somebody removed them, or the session behind it stopped being valid.
+  /// There is nothing there to show them now, so ask where they still belong
+  /// — the same question a sign-in asks — and go there.
   const leftOrg = async () => {
     try {
       const res = await fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken } })
@@ -121,6 +122,15 @@ function App() {
     } catch { /* nothing to fall back to but the way out */ }
     handleLogout()
   }
+
+  // The Dashboard holds this in the effect that owns the socket, so it has to
+  // keep the same identity across renders — a new function every render is a
+  // new dependency every render, which would tear the connection down and
+  // build it again on each one. The ref keeps the callback stable while the
+  // body it calls stays current.
+  const leftOrgRef = useRef(leftOrg)
+  leftOrgRef.current = leftOrg
+  const onLeft = useCallback(() => { void leftOrgRef.current() }, [])
 
   const finishOnboarding = () => {
     try { localStorage.setItem('onboarded', 'yes') } catch { /* a preference, not a record */ }
@@ -200,7 +210,7 @@ function App() {
         sessionToken={sessionToken}
         onLogout={handleLogout}
         onSwitchOrg={switchOrg}
-        onLeft={() => { void leftOrg() }}
+        onLeft={onLeft}
       />
     </div>
   )
