@@ -107,6 +107,7 @@ struct FallbackPaywallView: View {
                         .foregroundStyle(Theme.Colors.textTertiary)
                         .frame(width: 32, height: 32)
                 }
+                .accessibilityLabel(Text("Close"))
             }
 
             Text("honmaruai Pro")

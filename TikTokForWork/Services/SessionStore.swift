@@ -12,7 +12,16 @@ enum SessionStore {
         static let currentUserID = "currentUserID"
         static let sessionToken = "sessionToken"
         static let orgId = "orgId"
+        static let accountId = "accountId"
         static let apiKey = "apiKey"
+    }
+
+    /// The server's id for this account (`email:…` for an email sign-in).
+    /// Distinct from `currentUserID`, which is the relay login (`u:…`); the
+    /// Worker meters and looks entitlements up by this one.
+    static var accountId: String? {
+        get { read(Key.accountId) }
+        set { write(newValue, key: Key.accountId) }
     }
 
     static var githubRepository: String? {
@@ -118,6 +127,7 @@ enum SessionStore {
     static let clearedKeys = [
         Key.githubRepository, Key.githubUsername, Key.githubUserId,
         Key.githubRepositoryURL, Key.currentUserID, Key.sessionToken, Key.orgId,
+        Key.accountId,
     ]
 
     static func clear() {

@@ -61,6 +61,17 @@ test("a decision broadcasts and is audited even while the Notion write is slow",
     .reply(200, { successful: true, data: { id: "page-relay-1" } })
     .delay(1000);
 
+  // The card exists before it is decided. An update naming an id the relay
+  // has never seen is refused now — it used to be a second way to create a
+  // card, one that stamped no sender — so the test seeds what a real client
+  // would have created first.
+  const { saveCard } = await import("../src/db.js");
+  await saveCard(env.DB, "notion-org", {
+    id: "c-decided", recipientUserID: "realdev", senderUserID: "watcher",
+    status: "pending", title: "Approve the deploy", priority: "high",
+    createdAt: "2026-08-10T00:00:00Z",
+  });
+
   const { ws: a } = await joined("notion-org", globalThis.__tokenA);   // realdev, who configured Notion
   const { messages: bMessages } = await joined("notion-org", globalThis.__tokenB);
 

@@ -76,8 +76,16 @@ export function validEmail(email) {
 
 // Create an account: hash the password, store the user, put them in a default
 // org, and return a session token the client can use immediately.
+export const MAX_NAME_CHARS = 120;
+export const MAX_EMAIL_CHARS = 254;
+
 export async function signup(env, { email, password, name, inviteCode, locale, passwordless }) {
-  if (!validEmail(email)) return { error: "Please enter a valid email." };
+  if (!validEmail(email) || email.length > MAX_EMAIL_CHARS) return { error: "Please enter a valid email." };
+  // The name lands on every card this account creates, in every member's
+  // join snapshot, and in `/members`. Text, and not a page of it.
+  if (name !== undefined && name !== null && typeof name !== "string") {
+    return { error: "Name must be text." };
+  }
   // A passwordless sign-up has already proved the address by receiving a code
   // there, which is the thing a password stands in for. It gets no password
   // hash at all rather than a placeholder one, so `login()` — which requires a
@@ -102,7 +110,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
   // so it must be unique and must not be chosen by the caller. Derive it from
   // the email (already unique) and keep `name` as display text only.
   const login = `u:${normalizedEmail}`;
-  const displayName = name?.trim() || normalizedEmail.split("@")[0];
+  const displayName = (name || "").trim().slice(0, MAX_NAME_CHARS) || normalizedEmail.split("@")[0];
 
   // A caller-supplied orgId is not authorization. Signup may only place a user
   // in an org a valid invite names, or in a fresh org of their own. Trusting

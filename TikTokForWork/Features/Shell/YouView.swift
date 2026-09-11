@@ -138,6 +138,7 @@ struct YouView: View {
         .sheet(isPresented: $showEmailSignIn) {
             EmailSignInSheet { session, name in
                 SessionStore.sessionToken = session.token
+                SessionStore.accountId = session.accountId
                 Task { await appState.activateEmailSession(login: session.login, orgId: session.orgId, name: name) }
             }
                 .environmentObject(appState)

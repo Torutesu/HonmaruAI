@@ -278,11 +278,30 @@ export class OrgRelay {
         return;
       }
       const existing = await getCard(this.db, orgId, card.id);
-      // A business is a slug on the card and a row in the table. A name nobody
-      // has typed before becomes a business here — the taxonomy is built by
-      // using it, not designed up front.
-      if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
       if (type === "card_created") {
+        // A new card is new. `saveCard` is an upsert, and nothing here asked
+        // whether the id was already taken — so any member could replace any
+        // card in the org, decision and all, by reusing its id: "approved by
+        // alice", written by somebody else, logged as `created`. The same
+        // sender re-sending the same id is an outbox replaying after a lost
+        // ack, and that is answered with silence rather than an error.
+        if (existing) {
+          if (existing.senderUserID !== att.userId) {
+            ws.send(JSON.stringify(runError("That card already exists.")));
+          }
+          return;
+        }
+        // And a new card arrives undecided. A decision is the recipient's to
+        // make, over `tool_result` or `card_updated`, after the card exists.
+        if (card.decision !== undefined || (card.status !== undefined && card.status !== "pending")) {
+          ws.send(JSON.stringify(runError("A new card cannot arrive already decided.")));
+          return;
+        }
+        // A business is a slug on the card and a row in the table. A name
+        // nobody has typed before becomes a business here — the taxonomy is
+        // built by using it, not designed up front. Filed only once the card
+        // has passed the checks above, so a refused card creates nothing.
+        if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
         // Anyone in the org — and the org is the part that was never checked.
         // The sender is stamped below and cannot be forged; the recipient came
         // straight off the wire, so a card could be addressed to somebody in a
@@ -311,15 +330,29 @@ export class OrgRelay {
           console.error("requester lookup failed", err?.message || err);
         }
       } else {
+        // An update names a card the relay has. Without this, an unknown id
+        // made `card_updated` a second way to create a card — one that did
+        // not stamp the sender or check the recipient, so a "decided" card
+        // could carry any login on the platform as its sender and have the
+        // relay push, web-push and email that person, in any org, with text
+        // the attacker wrote.
+        if (!existing) {
+          ws.send(JSON.stringify(runError("Unknown card.")));
+          return;
+        }
+        if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
         // A card belongs to whoever has to decide it. Only they may change it,
         // and rewriting the field must not be a way to hand it off — delegation
         // is a new card, not a moved one.
-        const owner = existing?.recipientUserID ?? card.recipientUserID;
+        const owner = existing.recipientUserID;
         if (owner !== att.userId) {
           ws.send(JSON.stringify(runError("Only the recipient can update this decision.")));
           return;
         }
         card.recipientUserID = owner;
+        // Who asked is a fact about the card's creation; it does not change
+        // on an update, and it is not the updater's to set.
+        card.senderUserID = existing.senderUserID;
         if (card.decision?.action) card.decision.actorUserID = att.userId;
         // The iOS client republishes its whole local copy on a decision, and
         // that copy does not carry what the relay added after the card was

@@ -31,8 +31,16 @@ final class DictationService: ObservableObject {
     private lazy var recognizer = SFSpeechRecognizer(locale: Locale.current)
         ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
 
+    /// Set before the first await in `start()`. Two callers arrive at once —
+    /// the screen's `.task` and the record button — and `isRecording` is only
+    /// true after the permission prompt, so both used to get past the guard
+    /// and the second installed a second tap on the input bus, which traps.
+    private var isStarting = false
+
     func start() async {
-        guard !isRecording else { return }
+        guard !isRecording, !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
         transcript = ""
         errorMessage = nil
 

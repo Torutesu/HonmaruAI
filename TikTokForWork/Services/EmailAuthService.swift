@@ -12,6 +12,9 @@ enum EmailAuthService {
     struct Session {
         let token: String
         let login: String
+        /// The account id the Worker knows this person by — what billing is
+        /// keyed on. Empty on a backend that does not send one.
+        let accountId: String
         let orgId: String
         let created: Bool
     }
@@ -90,6 +93,7 @@ enum EmailAuthService {
         return Session(
             token: token,
             login: (json["login"] as? String) ?? (json["userId"] as? String) ?? email,
+            accountId: (json["userId"] as? String) ?? "",
             orgId: (json["orgId"] as? String) ?? "",
             created: false
         )
@@ -108,6 +112,7 @@ enum EmailAuthService {
         return Session(
             token: token,
             login: (json["login"] as? String) ?? (json["userId"] as? String) ?? email,
+            accountId: (json["userId"] as? String) ?? "",
             orgId: (json["orgId"] as? String) ?? "",
             created: (json["created"] as? Bool) ?? false
         )

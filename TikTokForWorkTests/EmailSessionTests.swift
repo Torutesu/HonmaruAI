@@ -45,6 +45,9 @@ final class EmailSessionTests: XCTestCase {
         XCTAssertTrue(SessionStore.clearedKeys.contains("sessionToken"))
         XCTAssertTrue(SessionStore.clearedKeys.contains("currentUserID"))
         XCTAssertTrue(SessionStore.clearedKeys.contains("githubRepository"))
+        // The account id is what billing is keyed on. Left behind, the next
+        // person's purchase would be identified as the previous account.
+        XCTAssertTrue(SessionStore.clearedKeys.contains("accountId"))
         // The person's own OpenAI key belongs to the device, not the session.
         XCTAssertFalse(SessionStore.clearedKeys.contains("apiKey"))
     }

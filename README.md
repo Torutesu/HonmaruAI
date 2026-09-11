@@ -48,7 +48,7 @@ sign-in (skippable). Rationale in [onboarding.md](onboarding.md).
 ```bash
 cd worker
 npm install
-npm test        # 147 tests, real workerd via @cloudflare/vitest-pool-workers
+npm test        # 403 tests, real workerd via @cloudflare/vitest-pool-workers
 npx wrangler dev
 ```
 

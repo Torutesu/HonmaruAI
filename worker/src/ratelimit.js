@@ -106,7 +106,13 @@ export async function enforce(env, request, bucket) {
       status: 429,
       headers: {
         "content-type": "application/json",
+        "cache-control": "no-store",
         "retry-after": String(Math.max(1, retryAfter)),
+        // Without these a browser client is not allowed to read the body —
+        // it sees a network failure where the server said "in 40 seconds".
+        "access-control-allow-origin": "*",
+        "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+        "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
       },
     }
   );

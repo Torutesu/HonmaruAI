@@ -8,7 +8,7 @@ is something that ran, not something that was read.
 
 | Suite | Before | After |
 |-------|--------|-------|
-| Worker (`worker/`, real workerd) | 391 pass | 391 pass |
+| Worker (`worker/`, real workerd) | 391 pass | 403 pass |
 | Web unit (`web-react/`, vitest) | 8 pass | 11 pass |
 | Web typecheck + build | clean | clean |
 | End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 28 steps pass |
@@ -82,13 +82,144 @@ and what changed:
 
 ## The Worker
 
-See the findings section below, filled in from the security and correctness
-review of `worker/src`.
+A read of every route and the relay against the questions a paying customer's
+security review would ask: who can write what, what happens when the input is
+wrong, and what a browser can read. Every finding below was reproduced against
+the code, fixed, and pinned by a test in `worker/test/card-forgery.test.js`
+(plus the two existing tests whose expectations changed).
+
+### Fixed — security
+
+- **Any member could overwrite any card in the org** (P1). `saveCard` is an
+  upsert, and `card_created` never asked whether the id was taken. Reusing a
+  card's id replaced it — status, decision, title — and logged it as
+  `created`; the forged `decision.actorUserID` was whoever the attacker named.
+  An existing id from another sender is refused. The same sender re-sending
+  the same id is an outbox replaying after a lost ack, and is answered with
+  silence rather than an error. A new card cannot arrive already decided.
+- **`card_updated` with an unknown id created a card with a forged sender**
+  (P1). The update branch stamped no sender and checked no recipient, so a
+  self-addressed "decided" card could name any login on the platform as its
+  sender, and the relay would push, web-push and email that person — in any
+  org — with text the attacker wrote. An update must name a card the relay
+  has, and it can no longer rewrite who asked.
+- **The sign-in code's five guesses were check-then-increment** (P2). Guesses
+  arriving together all read "0 attempts" and were all evaluated. The counter
+  is now spent by the same `UPDATE … RETURNING` that reads the code, so a
+  row with no guesses left never comes back.
+- **`?limit=-1` on the events route returned every event the org ever
+  logged**, each with a full card snapshot (SQLite reads a negative LIMIT as
+  none). Only a positive limit is honoured.
+- **Forgetting a push subscription or a device was not scoped to the caller.**
+  Both deletes now require the row to be the caller's.
+- **Nothing marked session-bearing responses uncacheable.** Every JSON
+  response is `cache-control: no-store`.
+
+### Fixed — correctness and robustness
+
+- A 429 from the rate limiter carried no CORS headers, so the web client saw a
+  network failure instead of "try again in 40 seconds". It carries them now.
+- A body that was not JSON was a 500 ("something went wrong on our side") on
+  six routes. It is a 400 that says so.
+- `/ai/route` accepted an instruction of any length as prompt material. It is
+  capped at 4000 characters, and `text` is required to be text.
+- A sign-up name had no type or length check, and landed on every card the
+  account created and in every member's join snapshot. Text, at most 120
+  characters; email at most 254.
+
+### Caught by the end-to-end suite, not the unit suite
+
+- The instruction cap was first written as an exported constant from the
+  Worker's main module. All 403 unit tests passed; `wrangler dev` refused to
+  start — workerd rejects a main-module export that is not a handler or a
+  function — and the end-to-end run reported the Worker never came up. The
+  constant is module-private now. This is the argument for the e2e job being
+  on every push: it is the only suite that starts the Worker the way
+  production does.
+
+### Left as documented follow-ups
+
+- The connector cron only picks up people who configured Notion, because that
+  is the only connector that writes a `connector_config` row. A Gmail-only
+  person is synced only when they pull by hand. The fix wants a marker written
+  when `/connectors` lists an ACTIVE account; dropping the predicate instead
+  would pay Composio for every session every 15 minutes.
+
+### Checked and solid
+
+Membership checks on every org route and on the relay join; sender stamping
+and recipient-only decide/delete/rollback; invite minting, ceilings and
+single-use redemption; OAuth state consumed atomically and the GitHub token
+never leaving the server; the `/github` proxy allowlist; PBKDF2 for passwords
+and codes with constant-time comparison; Mailgun HMAC with nonce replay
+protection; every SQL statement parameterised; secrets redacted from logs;
+media byte-capped and video-only in both directions; third-party failures
+degrading rather than throwing; the UTC quota day.
 
 ## iOS
 
-Read-only review (no macOS here). Findings below; anything that needs a
-compiler is listed as a follow-up rather than applied blind.
+Read-only review — there is no macOS here, so nothing below was compiled. What
+was applied is small, local, and written to the surrounding code's own
+conventions; the pull-request CI job builds and runs the iOS suite, and that
+is the gate before any of it ships.
+
+### Applied
+
+- **Reconnect loop** (P1). `connect()` cancelled the old receive loop and then
+  cleared `intentionalDisconnect` for the new socket, so the old loop's error
+  scheduled a reconnect over the healthy connection — which replaced it, whose
+  old loop erred, and so on: a fresh join and snapshot every second, with the
+  status dot flickering, whenever the repository changed or the app woke
+  mid-connect. The loop now stops if it was cancelled or its socket replaced.
+- **Outbox lost everything behind a failed send** (P1). `drain()` empties the
+  queue; on a throw only the failing event was put back and the loop broke,
+  so decisions two and three of three made offline vanished. Everything from
+  the failing event on goes back, in order.
+- **Email subscribers were metered as free** (P1). An email sign-in never
+  identified RevenueCat, so a purchase sat under an anonymous id and the
+  Worker's lookup found nothing. The sign-in reply's account id is stored
+  (and cleared on sign-out) and used to identify.
+- **Sign-out left two things for the next account on the phone**: the outbox
+  (replayed as the new session's sender) and "how I work" (sent as
+  `senderContext` on every route). Both cleared.
+- **The quota notice never rendered in the shipped shell**, so after the free
+  routes ran out the feed fell back to keyword routing with nothing on screen
+  to say so. It renders regardless of whose chrome is on.
+- **The capture screen said "recording" before anything recorded**, and Send
+  then did nothing; with no video connection `startRecording` raised an
+  Objective-C exception. Guarded on both sides, and `stop` answers at once
+  when nothing was recording. Dictation could be started twice across its
+  permission prompt and install a second tap on the input bus; guarded.
+- **App Store**: the logo's VoiceOver label said "TikTok for Work"; three
+  icon-only buttons had no label; four navigation titles and labels had no
+  Japanese.
+- **You → Plan** no longer offers an Upgrade that opens an empty paywall and a
+  Restore that answers "not ready yet" when RevenueCat is not configured. It
+  says plans are not on sale in this version.
+
+### Still the owner's — needs a decision, not a patch
+
+- **The Release build carries the RevenueCat Test Store key** (P0 for a paid
+  submission). The app refuses to configure the SDK with it in Release, which
+  is correct — the SDK would crash — but it means nothing is for sale in the
+  binary. The screen says so honestly now; selling requires the `appl_…` key
+  in `RevenueCatConfig.apiKey` ([docs/revenuecat.md](revenuecat.md)).
+- English baked into card content and routing sentences on iOS
+  (`OrganizationGraph.routingReason`, `DecisionCardService` status/route
+  text, `GitHubService` error copy — one of which mentions localhost). Moving
+  these to `String(localized:)` is mechanical but wide; the relay already
+  composes notification copy in the reader's language and could compose these.
+
+### Checked and solid
+
+Tokens in the Keychain, never logged; stock ATS, `wss://` in production, the
+relay override is DEBUG-only; camera, microphone and speech usage strings
+present; `PrivacyInfo.xcprivacy` declares the required-reason APIs; account
+deletion reachable and requires typing DELETE; no `try!`, no `fatalError`, no
+unguarded indexing; every service on the main actor with delegate callbacks
+hopping to it; backoff with jitter and a terminal refused state; the outbox
+bounded, ordered and on disk; the feed distinguishes offline, refused and
+empty.
 
 ## Still the owner's to do
 

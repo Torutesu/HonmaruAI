@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
 
 ## Where this is
 
@@ -9,11 +9,14 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 380 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 403 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
-  Worker actually sent. 27 steps
+  Worker actually sent. 28 steps
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
+- **Web unit suite:** 11 tests over the AG-UI client, including the outbox
+- **QA report:** [docs/qa-report.md](docs/qa-report.md) — what was checked
+  before calling this sellable, what was found, what was fixed
 - **CI:** `.github/workflows/ci.yml` — Worker, the reference relay, the
   reference web client and the end-to-end suite on every push, iOS on pull
   requests
@@ -123,6 +126,26 @@ The list of what is still missing, and why each item matters, is
       and desktop sizes against a fake relay
 
 ### Access and safety
+- [x] A card cannot be overwritten by reusing its id. `saveCard` is an upsert
+      and `card_created` never asked whether the id was taken, so any member
+      could replace any card in the org — decision included — and have it
+      logged as `created`. An existing id from another sender is refused; the
+      same sender re-sending it is an outbox replay and is answered with
+      silence. A new card cannot arrive already decided
+- [x] `card_updated` names a card the relay has. With an unknown id it used
+      to create one through the update path, which stamped no sender and
+      checked no recipient — so a "decided" card could carry any login on
+      the platform as its sender and have the relay push, web-push and email
+      that person the attacker's words. Refused now, and an update can no
+      longer rewrite who asked
+- [x] The sign-in code's guess counter is spent in the same statement that
+      reads the code, so guesses arriving together cannot all read "0 tries"
+- [x] `?limit=-1` on the events route no longer means "everything"; JSON
+      responses are `no-store`; a 429 carries CORS headers so a browser can
+      read when to come back; a body that is not JSON is a 400, not a 500;
+      an instruction longer than 4000 characters is refused before it
+      reaches a model; a sign-up name is text and at most 120 characters;
+      forgetting a push subscription or a device only works on your own
 - [x] Relay requires a session with write access to the repository; identity comes off the session
 - [x] Only the recipient can decide, delete or undo a card
 - [x] OAuth `state`, single-use and expiring
@@ -172,6 +195,19 @@ The list of what is still missing, and why each item matters, is
 - [x] `PrivacyInfo.xcprivacy` and a published privacy policy
 
 ### Reliability
+- [x] The web client holds a decision made offline and delivers it after the
+      next accepted join; it says it is opening rather than "All clear"
+      before the relay has answered; every decision leaves six seconds of
+      Undo, and History keeps Undo on anything you decided
+- [x] iOS: a receive loop whose socket was replaced no longer schedules a
+      reconnect over the healthy one (a fresh join and snapshot every second,
+      with the dot flickering, whenever the repository changed or the app
+      woke mid-connect); the outbox puts back everything behind a failed
+      send rather than only the failing event; sign-out clears the outbox
+      and "how I work", which used to reach the next account on the phone;
+      an email sign-in identifies RevenueCat with the account id the Worker
+      meters by; the quota notice shows in the shell that ships; the capture
+      screen no longer says "recording" when nothing is
 - [x] Auto-reconnect with backoff, on foreground and on regaining a network
 - [x] Cards cached per organization, so a cold launch is not a blank feed
 - [x] Outbox: a decision made offline is delivered on reconnect, in order
@@ -192,6 +228,20 @@ The list of what is still missing, and why each item matters, is
 
 ## Still open
 
+- [ ] **The Release build carries the RevenueCat Test Store key.** `RevenueCatConfig.apiKey`
+      is `test_…`, which the app refuses to configure in Release (the SDK
+      would crash), so nothing is for sale in the binary. **You → Plan** says
+      so now instead of offering an Upgrade that opens an empty paywall and a
+      Restore that answers "not ready" — the two taps a reviewer makes first.
+      Swap in the `appl_…` key before a paid submission
+      ([docs/revenuecat.md](docs/revenuecat.md))
+- [ ] The connector cron only syncs people who configured **Notion**:
+      `candidates()` in `worker/src/scheduled.js` requires a `connector_config`
+      row, and only Notion writes one. Gmail/Slack/Calendar/Drive connections
+      live in Composio, so a Gmail-only person is never picked up between
+      manual pulls. The fix is a `connected` marker written when `/connectors`
+      lists an ACTIVE account, so the cron stops paying Composio for people
+      with nothing connected
 - [ ] Turn APNs on **in the app**. The four Worker secrets are set — the
       deployment reports `push: true` — so the server side is done; what is
       left is the App ID capability, a reissued profile, and flipping

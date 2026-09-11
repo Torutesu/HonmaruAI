@@ -507,8 +507,18 @@ export async function devicesForLogin(db, login) {
   return results || [];
 }
 
-export async function removeDevice(db, deviceToken) {
-  await db.prepare("DELETE FROM device_tokens WHERE device_token = ?1").bind(deviceToken).run();
+/// Forget a device — the caller's own. A token is the push service's secret
+/// for one phone, but the delete was keyed on it alone, so knowing one was
+/// enough to silence it from any account.
+export async function removeDevice(db, deviceToken, githubId) {
+  if (githubId === undefined) {
+    await db.prepare("DELETE FROM device_tokens WHERE device_token = ?1").bind(deviceToken).run();
+    return;
+  }
+  await db
+    .prepare("DELETE FROM device_tokens WHERE device_token = ?1 AND user_github_id = ?2")
+    .bind(deviceToken, String(githubId))
+    .run();
 }
 
 // The relay knows a person by their github LOGIN; config is keyed by the numeric
@@ -554,8 +564,17 @@ export async function subscriptionsForLogin(db, login) {
   return results || [];
 }
 
-export async function removeSubscription(db, endpoint) {
-  await db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1").bind(endpoint).run();
+/// Forget a browser's subscription. With a `githubId`, only if it is theirs;
+/// without one — the push service said the endpoint is gone — whoever's it was.
+export async function removeSubscription(db, endpoint, githubId) {
+  if (githubId === undefined) {
+    await db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1").bind(endpoint).run();
+    return;
+  }
+  await db
+    .prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1 AND user_github_id = ?2")
+    .bind(endpoint, String(githubId))
+    .run();
 }
 
 

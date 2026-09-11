@@ -80,7 +80,17 @@ struct FeedView: View {
             if showsChrome { topBar }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if showsChrome { bottomChrome }
+            if showsChrome {
+                bottomChrome
+            } else if viewModel.quotaExceeded {
+                // The shell draws its own chrome and none of this view's, which
+                // is where the notice used to live — so after the free routes
+                // ran out the feed quietly fell back to keyword routing with
+                // nothing on screen to say so, and nothing that led to Plan.
+                quotaNotice
+                    .padding(.horizontal, Theme.Spacing.screen)
+                    .padding(.bottom, Theme.Spacing.sm)
+            }
         }
         .onChange(of: composeTick) { _, _ in
             showAIInput = true
@@ -250,6 +260,7 @@ struct FeedView: View {
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
+            .accessibilityLabel(Text("More"))
         }
         .padding(.horizontal, Theme.Spacing.screen)
         .padding(.top, Theme.Spacing.sm)
@@ -333,6 +344,7 @@ struct FeedView: View {
                     .foregroundStyle(Theme.Colors.textTertiary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text("Dismiss"))
         }
     }
 

@@ -195,6 +195,13 @@ final class AppState: ObservableObject {
         }
         currentUser = user
         isAuthenticated = true
+        // RevenueCat's app user id must be the id the Worker meters by — the
+        // account id, `email:…`, not the relay login. Without this an email
+        // subscriber's purchase sat under an anonymous id, the Worker's
+        // lookup found nothing, and a paying person stayed on the free tier.
+        if let accountId = SessionStore.accountId, !accountId.isEmpty {
+            await SubscriptionService.shared.identify(userID: accountId)
+        }
         PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
         // An email org is "owner/repo" only when an invite put this person in
         // a GitHub-backed team; a personal one has no graph to load, and
@@ -274,10 +281,17 @@ final class AppState: ObservableObject {
             await PushService.shared.unregister(sessionToken: sessionToken)
         }
         PushService.shared.setBadge(0)
+        // Two things that used to survive a sign-out and reach the next
+        // account on this phone: the outbox, whose queued decisions the relay
+        // would have stamped with the new session's sender, and "how I work",
+        // which went out as senderContext on every route the next person made.
+        webSocketService.clearOutbox()
         webSocketService.disconnect()
         githubService.disconnect()
         cardService.reset()
         SessionStore.clear()
+        userContext = ""
+        UserDefaults.standard.removeObject(forKey: "userContext")
         UserDefaults.standard.removeObject(forKey: FirstRunFlags.promptedGitHubConnect)
         isGuest = false
         isAuthenticated = false

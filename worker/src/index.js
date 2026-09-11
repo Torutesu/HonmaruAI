@@ -38,6 +38,13 @@ import { providerConfig } from "./provider.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { buildRecord, recordToMarkdown } from "./record.js";
 
+// The longest thing `/ai/route` will read as one instruction. A sentence, a
+// paragraph, a pasted email — not a document. Not exported: workerd refuses
+// to start a Worker whose main module exports anything that is not a handler
+// or a function — a number here took the whole deployment down, and the test
+// runner (which imports the module differently) never noticed.
+const MAX_INSTRUCTION_CHARS = 4000;
+
 export { OrgRelay } from "./relay.js";
 
 /// The language a request was made in, from the header every client sends
@@ -303,7 +310,20 @@ async function handle(request, env, url) {
     if (url.pathname === "/ai/route" && request.method === "POST") {
       const limited = await enforce(env, request, "ai/route");
       if (limited) return limited;
-      const body = await request.json();
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      // The whole body becomes a prompt. An instruction is a sentence or a
+      // paragraph; anything longer is not one, and on a paid, unmetered tier
+      // it is somebody else's model context on our key.
+      if (typeof body.text !== "string" || !body.text.trim()) {
+        return json({ message: "text is required." }, 400);
+      }
+      if (body.text.length > MAX_INSTRUCTION_CHARS) {
+        return json({ message: `That instruction is too long (over ${MAX_INSTRUCTION_CHARS} characters).` }, 400);
+      }
+      if (typeof body.senderContext === "string" && body.senderContext.length > MAX_INSTRUCTION_CHARS) {
+        return json({ message: "senderContext is too long." }, 400);
+      }
       const userKey = request.headers.get("x-ai-key") || undefined;
       // The route is usable without a session (guests), but only a session can
       // be metered — and an unmetered guest must not spend our AI budget.
@@ -385,7 +405,7 @@ async function handle(request, env, url) {
     if (url.pathname === "/oauth/github/token" && request.method === "POST") {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
-      const { code, state } = await request.json();
+      const { code, state } = await request.json().catch(() => ({}));
       if (!(await consumeOAuthState(env.DB, state))) {
         return json({ message: "This sign-in has expired. Try again." }, 400);
       }
@@ -596,7 +616,10 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json().catch(() => ({}));
-      if (typeof body.endpoint === "string") await removeSubscription(env.DB, body.endpoint);
+      // Yours, not anyone's. The endpoint is high-entropy, but the query was
+      // keyed on it alone, so a signed-in account that learned another's could
+      // unsubscribe them.
+      if (typeof body.endpoint === "string") await removeSubscription(env.DB, body.endpoint, session.github_id);
       return json({ ok: true });
     }
     // Registered after the user grants permission, and re-registered on every
@@ -604,7 +627,7 @@ async function handle(request, env, url) {
     if (url.pathname === "/devices" && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      const body = await request.json();
+      const body = await request.json().catch(() => ({}));
       if (!body.deviceToken) return json({ message: "deviceToken is required" }, 400);
       // Shape-checked here rather than trusted: this string ends up in the path
       // of a request to Apple, signed with our provider token.
@@ -624,8 +647,8 @@ async function handle(request, env, url) {
     if (url.pathname === "/devices" && request.method === "DELETE") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      const body = await request.json();
-      if (body.deviceToken) await removeDevice(env.DB, body.deviceToken);
+      const body = await request.json().catch(() => ({}));
+      if (typeof body.deviceToken === "string") await removeDevice(env.DB, body.deviceToken, session.github_id);
       return json({ ok: true });
     }
     if (url.pathname === "/account" && request.method === "DELETE") {
@@ -801,8 +824,8 @@ async function handle(request, env, url) {
     if (url.pathname === "/connectors/notion/config" && request.method === "PUT") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      const body = await request.json();
-      if (!body.databaseId) return json({ message: "databaseId is required" }, 400);
+      const body = await request.json().catch(() => ({}));
+      if (typeof body.databaseId !== "string" || !body.databaseId) return json({ message: "databaseId is required" }, 400);
       await setConnectorConfig(env.DB, session.github_id, "notion", { databaseId: body.databaseId });
       return json({ ok: true });
     }
@@ -827,7 +850,7 @@ async function handle(request, env, url) {
       const limited = await enforce(env, request, "connectors/sync");
       if (limited) return limited;
 
-      const body = await request.json();
+      const body = await request.json().catch(() => ({}));
       if (!body.orgId) return json({ message: "orgId is required" }, 400);
 
       // Membership is checked here for the same reason the relay checks it on
@@ -873,7 +896,11 @@ async function handle(request, env, url) {
       const orgId = `${owner}/${repo}`;
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
-      const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
+      // Positive, or the default. `Number("-1") || 50` is -1, and SQLite
+      // reads a negative LIMIT as "no limit" — every event the org has ever
+      // logged, each with a full card snapshot, in one response.
+      const asked = Number.parseInt(url.searchParams.get("limit") || "", 10);
+      const limit = Number.isFinite(asked) && asked > 0 ? Math.min(asked, 200) : 50;
       return json({ events: await listOrgEvents(env.DB, orgId, limit) });
     }
     // GitHub, reached through us. The app used to hold the access token and
@@ -999,17 +1026,27 @@ async function handle(request, env, url) {
     return new Response("not found", { status: 404 });
 }
 
+// Allow browser clients (the web app) to call this API. Native apps are not
+// subject to CORS, so this was never needed until the web client. Every JSON
+// response carries these — including the ones that are not built here, like a
+// rate limiter's 429, or a browser cannot read the body that says when to
+// come back.
+export const CORS_HEADERS = Object.freeze({
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+});
+
 export function json(body, status = 200, extraHeaders) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
+      // Nothing this API answers with JSON is for a cache: session tokens,
+      // a person's settings, a team's invite codes. `/media` sets its own.
+      "cache-control": "no-store",
       ...(extraHeaders || {}),
       "content-type": "application/json",
-      // Allow browser clients (the web app) to call this API. Native apps are
-      // not subject to CORS, so this was never needed until the web client.
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
-      "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+      ...CORS_HEADERS,
     },
   });
 } 

@@ -43,8 +43,16 @@ final class VideoRecorder: NSObject, ObservableObject {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("capture-\(UUID().uuidString).mov")
 
-        queue.async { [output, session] in
-            guard session.isRunning else { return }
+        queue.async { [weak self, output, session] in
+            // No running session, or a session with no camera on it (the
+            // input could not be added, another app holds the device): nothing
+            // will record. Saying "recording" anyway left Send with a
+            // completion that never fired, and calling startRecording with no
+            // video connection raises an Objective-C exception.
+            guard session.isRunning, output.connection(with: .video) != nil else {
+                Task { @MainActor in self?.isRecording = false }
+                return
+            }
             // Mirror the file to match the preview. A clip where you reach left
             // and the video reaches right reads as someone else.
             if let connection = output.connection(with: .video),
@@ -52,13 +60,23 @@ final class VideoRecorder: NSObject, ObservableObject {
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = true
             }
-            DispatchQueue.main.async { output.startRecording(to: url, recordingDelegate: self.delegateProxy) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isRecording else { return }
+                output.startRecording(to: url, recordingDelegate: self.delegateProxy)
+            }
         }
         isRecording = true
     }
 
     func stop(completion: @escaping (URL?) -> Void) {
-        guard isRecording else { completion(recordedFile); return }
+        // "Recording" that never started has nothing to stop, and waiting on
+        // a delegate that will never be called is a Send button that does
+        // nothing. Answer now with whatever there is.
+        guard isRecording, output.isRecording else {
+            isRecording = false
+            completion(recordedFile)
+            return
+        }
         finished = completion
         output.stopRecording()
     }

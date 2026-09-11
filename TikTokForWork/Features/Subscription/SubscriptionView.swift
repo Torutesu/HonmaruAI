@@ -131,12 +131,24 @@ struct SubscriptionView: View {
 
     private var freeActions: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            PrimaryButton(title: String(localized: "Upgrade to Pro")) {
-                showPaywall = true
-            }
+            // Nothing is for sale until RevenueCat is configured with a
+            // production key. An "Upgrade" that opens a paywall with no plans
+            // and a "Restore" that answers "not ready yet" are the two taps an
+            // App Store reviewer makes first; say the true thing instead.
+            if subscriptions.isConfigured {
+                PrimaryButton(title: String(localized: "Upgrade to Pro")) {
+                    showPaywall = true
+                }
 
-            SecondaryAction(title: subscriptions.isRestoring ? String(localized: "Restoring…") : String(localized: "Restore purchases")) {
-                Task { await subscriptions.restorePurchases() }
+                SecondaryAction(title: subscriptions.isRestoring ? String(localized: "Restoring…") : String(localized: "Restore purchases")) {
+                    Task { await subscriptions.restorePurchases() }
+                }
+            } else {
+                Text("Plans are not on sale in this version yet. Everything here is free for now.")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
 
             // Customer Center also covers "I already paid" support paths for people whose

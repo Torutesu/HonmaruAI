@@ -348,16 +348,28 @@ final class WebSocketService: ObservableObject {
     }
 
     private func flushOutbox() async {
-        for event in outbox.drain() {
+        let queued = outbox.drain()
+        for (index, event) in queued.enumerated() {
             do {
                 try await send(event)
             } catch {
-                // Still down. Put it back, in order, and stop — the next
-                // reconnect will try again rather than reordering the queue.
-                outbox.prepend(event)
+                // Still down. Put back everything from this one on, in order,
+                // and stop — the next reconnect will try again rather than
+                // reordering the queue. Only the failing event went back
+                // before this, and every decision behind it was dropped on
+                // the floor: three approvals made offline, one flaky
+                // reconnect, and two of them never reached anyone.
+                for undelivered in queued[index...].reversed() { outbox.prepend(undelivered) }
                 break
             }
         }
+    }
+
+    /// Forget what this account never managed to send. Called on sign-out:
+    /// the relay stamps the sender from whichever session the socket joins
+    /// with, so a queue left behind would be delivered as the next person.
+    func clearOutbox() {
+        outbox.clear()
     }
 
     /// Goes through `publish`, not `send`, for the same reason every other
@@ -395,6 +407,14 @@ final class WebSocketService: ObservableObject {
                     break
                 }
             } catch {
+                // A loop whose socket has been replaced or torn down owns
+                // nothing now. `connect()` cancels the old loop and then clears
+                // `intentionalDisconnect` for the new socket, so without this
+                // the old loop's error scheduled a reconnect over a healthy
+                // connection — which replaced it, whose old loop erred, which
+                // scheduled the next: a fresh join and snapshot every second,
+                // with the "reconnecting" dot flickering the whole time.
+                guard !Task.isCancelled, task === self.task else { break }
                 // 1008 is the relay refusing this session for this organization
                 // — a permanent answer, not a dropped connection. Telling them
                 // apart is the difference between showing "reconnecting…" once
