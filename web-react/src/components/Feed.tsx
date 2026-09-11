@@ -10,6 +10,13 @@ interface Props {
   userId: string
   businesses: Business[]
   focusCardId: string | null
+  /// The relay has sent what it knows. Before that, the feed is not empty —
+  /// it is not here yet, and the two look nothing alike to the person who
+  /// opened the app to see what is waiting on them.
+  ready: boolean
+  /// Whether the feed is the thing on screen. A sheet or a screen over it
+  /// takes the keyboard: A and D must not decide a card nobody is looking at.
+  active: boolean
   onDecide: (cardId: string, action: string, options?: { replyText?: string }) => void
   onAsk: (text: string, card: DecisionCard) => void
 }
@@ -59,7 +66,7 @@ function segments(context: string): Array<{ label: string; detail: string }> {
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
-export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, onDecide, onAsk }) => {
+export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk }) => {
   const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -90,9 +97,11 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
   }, [focusCardId, cards, scrollTo])
 
   useEffect(() => {
+    if (!active) return
     const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
       const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      if (target && target.closest('input, textarea, select, [contenteditable]')) return
       const card = cards[index]
       if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); scrollTo(index + 1) }
       else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); scrollTo(index - 1) }
@@ -101,18 +110,25 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [cards, index, scrollTo, onDecide])
+  }, [active, cards, index, scrollTo, onDecide])
 
   return (
     <div className="feed" ref={container}>
-      {cards.length === 0 && (
+      {!ready && (
+        <section className="page page-empty page-loading" aria-busy="true" aria-live="polite">
+          <div className="empty-mark loading-mark" aria-hidden="true" />
+          <h2>{t('Opening your feed…')}</h2>
+          <p>{t('Asking your AI what is waiting on you.')}</p>
+        </section>
+      )}
+      {ready && cards.length === 0 && (
         <section className="page page-empty">
           <div className="empty-mark">✓</div>
           <h2>{t('All clear')}</h2>
           <p>{t('Nothing is waiting on you. Your AI will tell you when something is.')}</p>
         </section>
       )}
-      {cards.map((card) => (
+      {ready && cards.map((card) => (
         <FeedPage
           key={card.id}
           card={card}
@@ -149,11 +165,19 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
   const who = card.requestedBy
   const whoName = who?.name || displayName(card.senderUserID)
   const quote = who?.quote || card.sourceInstruction || card.originalBody || ''
-  const sources = [card.sourceApp, businessName ? null : null].filter(Boolean) as string[]
+  const sources = card.sourceApp ? [card.sourceApp] : []
+  // The legend draws three levels. "urgent" is the fourth the API can send,
+  // and it used to light nothing at all — the one priority that most needed
+  // to be seen was the one with no mark. It lights the top of the scale and
+  // says so.
+  const level = card.priority === 'urgent' ? 'high' : card.priority
 
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button, textarea, input, a')) return
     start.current = { x: e.clientX, y: e.clientY }
+    // Keep receiving moves after the pointer leaves the page, or a fast swipe
+    // that ends off the card ends with no pointerup and a card stuck mid-drag.
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch { /* not every pointer can be captured */ }
   }
   const onPointerMove = (e: React.PointerEvent) => {
     if (!start.current) return
@@ -181,14 +205,15 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
       <div className="page-inner">
         <article
           className="card"
+          aria-label={title}
           style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? 'transform 160ms ease' : 'none' }}
         >
           <header className="card-top">
             <span className="card-kind">{t(KIND[card.type] || card.type)}</span>
             <span className="priority-legend" aria-label={t('Priority')}>
-              {(['low', 'medium', 'high'] as const).map((level) => (
-                <span key={level} className={`legend ${card.priority === level ? 'on' : ''} p-${level}`}>
-                  <i /> {t(level[0].toUpperCase() + level.slice(1))}
+              {(['low', 'medium', 'high'] as const).map((step) => (
+                <span key={step} className={`legend ${level === step ? 'on' : ''} p-${step}${card.priority === 'urgent' && step === 'high' ? ' urgent' : ''}`}>
+                  <i /> {card.priority === 'urgent' && step === 'high' ? t('Urgent') : t(step[0].toUpperCase() + step.slice(1))}
                 </span>
               ))}
             </span>
@@ -230,7 +255,7 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
               {quote && <blockquote className="rb-quote">“{quote}”</blockquote>}
               {who?.sourceUrl && (
                 <a className="rb-link" href={who.sourceUrl} target="_blank" rel="noopener noreferrer">
-                  View original{card.sourceApp ? ` in ${card.sourceApp}` : ''} ›
+                  {card.sourceApp ? t('View original in {app}', { app: card.sourceApp }) : t('View original')} ›
                 </a>
               )}
             </section>
@@ -240,7 +265,7 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
             <section className={`recommendation rec-${card.recommendation.action}`}>
               <div className="rec-head">
                 <span className="ai-spark" aria-hidden="true">✦</span>
-                Recommended: <strong>{card.recommendation.action}</strong>
+                {t('Recommended:')} <strong>{t(card.recommendation.action)}</strong>
               </div>
               {card.recommendation.reason && <p className="rec-reason">{card.recommendation.reason}</p>}
             </section>
@@ -256,7 +281,7 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
           className="ask-bar"
           onSubmit={(e) => { e.preventDefault(); if (ask.trim()) { onAsk(ask.trim(), card); setAsk('') } }}
         >
-          <button type="button" className="ask-plus" aria-label={t('Reply with a note')} onClick={() => {
+          <button type="button" className="ask-plus" aria-label={t('Reply with a note')} title={t('Reply with a note')} disabled={!ask.trim()} onClick={() => {
             if (ask.trim()) { onDecide(card.id, 'reply', { replyText: ask.trim() }); setAsk('') }
           }}>+</button>
           <input
@@ -264,6 +289,7 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
             onChange={(e) => setAsk(e.target.value)}
             placeholder={t('Ask anything...')}
             aria-label={t('Ask your AI about this decision')}
+            enterKeyHint="send"
           />
           <button type="submit" className="ask-send" aria-label={t('Send')} disabled={!ask.trim()}>➤</button>
         </form>

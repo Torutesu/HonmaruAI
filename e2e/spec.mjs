@@ -334,6 +334,28 @@ await step('telling your AI something produces a decision', async () => {
   await shot('09-card')
 })
 
+// A swipe is fast and the card is gone the moment it is decided, so a slip of
+// the thumb used to be an approval nobody meant, with no way back. Deciding
+// now leaves six seconds of Undo on the screen, and Undo brings the card back.
+await step('a decision can be taken back in the moment', async () => {
+  const title = await page.$eval('.card-title', (el) => el.textContent.trim())
+  await page.click('.decide.decline')
+  await page.waitForSelector('.toast.undo', { timeout: 10000 })
+  await page.waitForFunction(
+    (t) => ![...document.querySelectorAll('.card-title')].some((el) => el.textContent.trim() === t),
+    title,
+    { timeout: 20000 }
+  ).catch(() => { throw new Error('the declined card never left the pending feed') })
+  await shot('09c-undo')
+  await page.click('.undo-button')
+  await page.waitForFunction(
+    (t) => [...document.querySelectorAll('.card-title')].some((el) => el.textContent.trim() === t),
+    title,
+    { timeout: 20000 }
+  ).catch(() => { throw new Error('Undo did not bring the card back') })
+  if (await page.$('.toast.undo')) throw new Error('the Undo toast is still up after being used')
+})
+
 await step('the decision can be taken, and it sticks', async () => {
   const title = await page.$eval('.card-title', (el) => el.textContent.trim())
   await page.click('.decide.approve')
@@ -359,6 +381,14 @@ await step('the decision can be taken, and it sticks', async () => {
   await page.waitForFunction(() => /Approved|承認/.test(document.body.innerText), null, { timeout: 20000 })
     .catch(() => { throw new Error('the decision is not in history after a reload') })
   await shot('11-history')
+  // A settled decision is not in the feed any more, so a row here used to
+  // close History and open a feed that did not contain it. It opens in place
+  // now, with what was decided and the way to take it back.
+  await page.click('.hist-row .row')
+  await page.waitForSelector('.hist-detail', { timeout: 10000 })
+    .catch(() => { throw new Error('a history row does not open') })
+  if (!(await page.$('.hist-undo'))) throw new Error('a decision you made has no Undo in History')
+  await shot('11b-history-open')
 })
 
 // The other half of the feed. Cards is one decision at a time; Classic is the

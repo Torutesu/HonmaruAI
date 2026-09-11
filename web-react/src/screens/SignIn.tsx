@@ -46,10 +46,10 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
         // This deployment has no mail. Say so once and show the password form,
         // rather than leaving someone waiting for an email nobody can send.
         setUsePassword(true)
-        setNote('This workspace cannot send email yet — use a password for now.')
+        setNote(t('This workspace cannot send email yet — use a password for now.'))
         return
       }
-      if (!res.ok) { setError(data.message || 'We could not send a code.'); return }
+      if (!res.ok) { setError(data.message || t('We could not send a code.')); return }
       onCodeSent(email.trim(), name.trim(), inviteCode.trim())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -67,7 +67,7 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
       // the code they were handed.
       if (inviteCode.trim()) body.inviteCode = inviteCode.trim()
       const { res, data } = await post(path, body)
-      if (!res.ok) { setError(data.message || 'Something went wrong.'); return }
+      if (!res.ok) { setError(data.message || t('Something went wrong.')); return }
       // Signed in, but the code did not work: say so, rather than dropping
       // them into their own workspace wondering where the team went.
       if (data.inviteError) { setError(data.inviteError); return }
@@ -84,16 +84,16 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
     <div className="screen">
       <div className="screen-head">
         <button className="back" onClick={onBack} aria-label={t('Back')}>‹</button>
-        <span className="head-title">{mode === 'signup' ? 'Create account' : 'Sign in'}</span>
+        <span className="head-title">{mode === 'signup' ? t('Create account') : t('Sign in')}</span>
       </div>
       <div className="screen-body">
         <h1 className="display" style={{ fontSize: 28 }}>
-          {mode === 'signup' ? 'Your AI needs an address.' : 'Welcome back.'}
+          {mode === 'signup' ? t('Your AI needs an address.') : t('Welcome back.')}
         </h1>
         <p className="lede">
           {usePassword
-            ? 'Email and password.'
-            : 'We send a six-digit code. Nothing to remember, and it proves where your decisions should reach you.'}
+            ? t('Email and password.')
+            : t('signin.code.lede')}
         </p>
 
         <form onSubmit={(e) => { e.preventDefault(); if (canSubmit) (usePassword ? withPassword() : sendCode()) }}>
@@ -122,7 +122,7 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
           )}
 
           <div className="field">
-            <label htmlFor="invite">{t('Invite code')} <span style={{ color: 'var(--ash)' }}>(optional)</span></label>
+            <label htmlFor="invite">{t('Invite code')} <span style={{ color: 'var(--ash)' }}>{t('(optional)')}</span></label>
             <input id="invite" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)}
               placeholder={t('Paste one to join a team')} />
             <div className="hint">
@@ -136,15 +136,15 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
           {error && <div className="form-error">{error}</div>}
 
           <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
-            {busy ? 'One moment…' : usePassword ? (mode === 'signup' ? 'Create account' : 'Sign in') : 'Email me a code'}
+            {busy ? t('One moment…') : usePassword ? (mode === 'signup' ? t('Create account') : t('Sign in')) : t('Email me a code')}
           </button>
         </form>
 
         <button className="btn btn-quiet" onClick={() => { setError(null); setUsePassword(!usePassword) }}>
-          {usePassword ? 'Email me a code instead' : 'Use a password instead'}
+          {usePassword ? t('Email me a code instead') : t('Use a password instead')}
         </button>
         <button className="btn btn-quiet" onClick={() => { setError(null); onSwitchMode(mode === 'signup' ? 'login' : 'signup') }}>
-          {mode === 'signup' ? 'I already have an account' : 'Create an account'}
+          {mode === 'signup' ? t('I already have an account') : t('Create an account')}
         </button>
         <div style={{ height: 24 }} />
       </div>

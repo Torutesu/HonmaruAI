@@ -51,7 +51,7 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
           // The Worker writes its own words on a card — the title, the routing
           // line — and without this it writes them in English.
           readerLanguage: getLocale(),
-                  organization: {
+          organization: {
             orgId,
             // The router reads members from `nodes` (kind: "person"). Sending
             // the real org member here makes it route to a real user instead of
@@ -73,7 +73,7 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         type: routed.cardType || 'notification',
         status: 'pending',
         recipientUserID: routed.recipientUserID,
-        title: routed.title || 'Decision needed',
+        title: routed.title || t('Decision needed'),
         summary: routed.summary || '',
         context: routed.context || '',
         priority: routed.priority || 'medium',

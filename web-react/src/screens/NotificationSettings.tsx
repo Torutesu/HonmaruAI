@@ -46,7 +46,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
         setPushOn(false)
       } else {
         const result = await enableWebPush(httpBase, sessionToken)
-        if (result === 'denied') { setError('Your browser refused. Allow notifications for this site, then try again.'); return }
+        if (result === 'denied') { setError(t('Your browser refused. Allow notifications for this site, then try again.')); return }
         if (result === 'unavailable') { setError(t('This browser cannot receive push notifications here.')); return }
         setPushOn(true)
       }

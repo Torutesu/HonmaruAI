@@ -84,6 +84,18 @@
 .legend.on.p-low i { background: #22c55e; }
 .legend.on.p-medium i { background: #f59e0b; }
 .legend.on.p-high i { background: #ef4444; }
+.legend.on.urgent { color: #d64545; }
+
+/* Not yet: the feed before the relay has answered. */
+.loading-mark {
+  border-color: transparent;
+  background: conic-gradient(from 0deg, #e4e4ea 0 270deg, #101014 270deg 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  animation: loading-turn 0.9s linear infinite;
+}
+@keyframes loading-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .loading-mark { animation: none; } }
 
 .card-title {
   margin: 0;

@@ -3,7 +3,6 @@ import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { ClassicList } from './ClassicList'
 import { Icon } from './Icon'
-import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { RecordSheet } from './RecordSheet'
 import { Team } from '../screens/Team'
@@ -19,6 +18,7 @@ import type { AppState, Business } from '../types/card'
 import './Dashboard.css'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
+import { displayName } from '../utils/names'
 
 interface Props {
   userId: string
@@ -32,12 +32,18 @@ interface Props {
   onLeft: () => void
 }
 
-type Panel = null | 'compose' | 'sent' | 'done' | 'record'
+type Panel = null | 'compose' | 'record'
 type Mode = 'cards' | 'classic'
 // A full screen over the feed, as opposed to a sheet. These are the design's
 // own screens — Tools, History, Notifications, Plan, You — and each one owns
 // the viewport while it is open.
 type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team'
+
+// What just happened, said back. English keys, translated where read.
+const DECIDED_WORD: Record<string, string> = {
+  approve: 'Approved', decline: 'Declined', reply: 'Replied', revise: 'Revision asked',
+  choose: 'Chose', acknowledge: 'Acknowledged', delegate: 'Delegated', later: 'Deferred',
+}
 
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
@@ -46,7 +52,19 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const t = useT()
   const [state, setState] = useState<AppState>({ cardsById: {} })
   const [isConnected, setIsConnected] = useState(false)
+  // The relay has sent its snapshot at least once. Before that the feed says
+  // it is opening, not that it is empty — "All clear" on a cold start, half a
+  // second before three cards arrive, is a lie told to exactly the person who
+  // opened the app to see what is waiting.
+  const [synced, setSynced] = useState(false)
+  // Messages this browser could not deliver yet — a decision made while the
+  // relay was unreachable. Shown, so the person knows it is on its way.
+  const [unsent, setUnsent] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // The decision just made, for six seconds: long enough to take it back. A
+  // swipe is fast and a card leaves the screen the moment it is decided, so
+  // without this a slip of the thumb is an approval nobody meant.
+  const [undo, setUndo] = useState<{ cardId: string; action: string; title: string } | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
   const [screen, setScreen] = useState<Screen>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
@@ -88,11 +106,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     const wsClient = wsClientRef.current!
     let ignore = false
     wsClient.onStateChange = (newState) => { if (!ignore) setState(newState) }
+    wsClient.onSynced = () => { if (!ignore) setSynced(true) }
+    wsClient.onOutboxChange = (n) => { if (!ignore) setUnsent(n) }
     wsClient.onCardCreated = (card) => {
       if (ignore) return
       addDebugLog(`Card created: ${card.id}`)
       if (card.recipientUserID === userId && card.status === 'pending') {
-        notifyNewDecision(card.title || 'A decision is waiting', card.senderUserID || 'a teammate')
+        notifyNewDecision(card.localized?.[getLocale()]?.title || card.title || t('A decision is waiting'), card.requestedBy?.name || displayName(card.senderUserID) || t('a teammate'))
       }
     }
     wsClient.onCardUpdated = (card) => { if (!ignore) addDebugLog(`Card updated: ${card.id}`) }
@@ -115,6 +135,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (connected) setError(null)
       addDebugLog(connected ? `Connected to ${relayUrl}` : 'Disconnected — will retry')
     }
+    setSynced(false)
     wsClient.connect(relayUrl, userId, orgId, sessionToken).catch((err) => {
       if (ignore) return
       const message = err instanceof Error ? err.message : String(err)
@@ -163,6 +184,18 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => window.removeEventListener('keydown', onKey)
   }, [panel, screen])
 
+  // A toast that stays until clicked is a banner. Errors clear themselves.
+  useEffect(() => {
+    if (!error) return
+    const id = setTimeout(() => setError(null), 8000)
+    return () => clearTimeout(id)
+  }, [error])
+  useEffect(() => {
+    if (!undo) return
+    const id = setTimeout(() => setUndo(null), 6000)
+    return () => clearTimeout(id)
+  }, [undo])
+
   /// "Ask anything" on a card: the same thing telling your AI does, with the
   /// card it is about named, so the router has the context a bare sentence
   /// would be missing.
@@ -187,7 +220,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         type: routed.cardType || 'notification',
         status: 'pending',
         recipientUserID: routed.recipientUserID,
-        title: routed.title || 'Decision needed',
+        title: routed.title || t('Decision needed'),
         summary: routed.summary || '',
         context: routed.context || '',
         priority: routed.priority || 'medium',
@@ -202,15 +235,19 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
-  }, [relayHttpUrl, orgId, userId, sessionToken, addDebugLog])
+  }, [relayHttpUrl, orgId, userId, sessionToken, addDebugLog, t])
 
   const handleDecision = useCallback((cardId: string, action: string, options?: any) => {
     wsClientRef.current!.sendDecision(cardId, action, options)
     addDebugLog(`Sent decision: ${cardId} → ${action}`)
+    const card = wsClientRef.current!.getCard(cardId)
+    const title = card?.localized?.[getLocale()]?.title || card?.title || ''
+    setUndo({ cardId, action, title })
   }, [addDebugLog])
   const handleRollback = useCallback((cardId: string) => {
     wsClientRef.current!.sendRollback(cardId)
     addDebugLog(`Rolled back: ${cardId}`)
+    setUndo(null)
   }, [addDebugLog])
   const handleNudge = useCallback((cardId: string) => {
     wsClientRef.current!.sendNudge(cardId)
@@ -230,7 +267,6 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const sentCards = cards
     .filter((c) => c.senderUserID === userId && c.recipientUserID !== userId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name
 
   return (
     // `screen-open` is what lets the rail stay on a laptop while a screen is
@@ -245,6 +281,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           userId={userId}
           businesses={businesses}
           focusCardId={focusCardId}
+          ready={synced}
+          active={!panel && !screen}
           onDecide={handleDecision}
           onAsk={handleAsk}
         />
@@ -280,7 +318,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           </button>
         </div>
         <div className="topbar-right">
-          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} />
+          {(!isConnected || unsent > 0) && synced && (
+            <span className="link-state" role="status">
+              {unsent > 0 ? t('{n} waiting to send', { n: unsent }) : t('Reconnecting…')}
+            </span>
+          )}
+          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} aria-hidden="true" />
           <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
           <button className="avatar-button" onClick={() => setScreen('profile')} aria-label={t('You')}>
             {(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()}
@@ -289,7 +332,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       </header>
 
       <div className="toasts">
-        {error && <div className="toast error" onClick={() => setError(null)}>{error}</div>}
+        {error && <div className="toast error" role="alert" onClick={() => setError(null)}>{error}</div>}
+        {undo && !error && (
+          <div className="toast undo" role="status">
+            <span className="undo-text">{t(DECIDED_WORD[undo.action] || 'Done')}{undo.title ? ` · ${undo.title}` : ''}</span>
+            <button className="undo-button" onClick={() => handleRollback(undo.cardId)}>{t('Undo')}</button>
+          </div>
+        )}
       </div>
 
       {panel === null && (
@@ -312,7 +361,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {panel && <div className="scrim" onClick={() => setPanel(null)} />}
 
       {panel === 'compose' && (
-        <div className="sheet sheet-bottom" role="dialog" aria-label={t('Tell your AI')}>
+        <div className="sheet sheet-bottom" role="dialog" aria-modal="true" aria-label={t('Tell your AI')}>
           <div className="sheet-title">{t('Tell your AI')}</div>
           <p className="sheet-hint">{t('compose.hint')}</p>
           <CreateDecision
@@ -326,48 +375,6 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             onDone={() => setPanel(null)}
           />
         </div>
-      )}
-
-      {panel === 'sent' && (
-        <aside className="sheet sheet-side" role="dialog" aria-label={t('Sent by you')}>
-          <div className="sheet-title">{t('Sent by you')} <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
-          {sentCards.length === 0 && <p className="sheet-empty">{t('Nothing sent yet. Tell your AI something.')}</p>}
-          {sentCards.map((card) => (
-            <div key={card.id} className="sent-card">
-              <div className="sent-card-head">
-                <strong>{card.title}</strong>
-                <span className={`sent-status ${card.status === 'pending' ? 'waiting' : 'done'}`}>
-                  {card.status === 'pending'
-                    ? `Waiting on ${card.recipientUserID.replace(/^(u:|email:)/, '').split('@')[0]}`
-                    : (card.decision?.action || 'decided')}
-                </span>
-              </div>
-              {card.business && <span className="business-tag">{nameOf(card.business) || card.business}</span>}
-              <p className="sent-summary">{card.summary}</p>
-              {card.decision?.replyText && <p className="sent-reply">“{card.decision.replyText}”</p>}
-              {card.status === 'pending' && <button className="nudge-button" onClick={() => handleNudge(card.id)}>{t('Nudge')}</button>}
-            </div>
-          ))}
-        </aside>
-      )}
-
-      {panel === 'done' && (
-        <aside className="sheet sheet-side" role="dialog" aria-label={t('Decided')}>
-          <div className="sheet-title">{t('Decided')} <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
-          {decidedCards.length === 0 && <p className="sheet-empty">{t('No decisions yet.')}</p>}
-          {decidedCards.map((card) => (
-            <DecisionCard
-              key={card.id}
-              card={card}
-              currentUserId={userId}
-              businessName={nameOf(card.business)}
-              onApprove={() => {}} onDecline={() => {}} onChoose={() => {}} onReply={() => {}}
-              onAcknowledge={() => {}} onDelegate={() => {}}
-              onRollback={() => handleRollback(card.id)}
-              isPending={false}
-            />
-          ))}
-        </aside>
       )}
 
       {panel === 'record' && (
@@ -397,7 +404,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           sent={sentCards}
           businesses={businesses}
           userId={userId}
-          onOpen={(id) => { setScreen(null); setFocusCardId(id); switchMode('cards') }}
+          onUndo={handleRollback}
           onClose={() => setScreen(null)}
         />
       )}

@@ -1,3 +1,5 @@
+import { t } from './i18n'
+
 // In-tab notifications for incoming decisions, for a browser that has granted
 // permission but not subscribed to push. Web Push (utils/push.ts) is the real
 // channel — it works with the tab closed and is written in the reader's
@@ -17,8 +19,8 @@ export function notifyNewDecision(title: string, from: string): void {
   // Don't notify if the user is already looking at the tab.
   if (typeof document !== 'undefined' && document.visibilityState === 'visible') return
   try {
-    new Notification('New decision for you', {
-      body: `${title}\nFrom ${from}`,
+    new Notification(t('New decision for you'), {
+      body: `${title}\n${t('From {name}', { name: from })}`,
       tag: 'honmaru-decision',
     })
   } catch {
@@ -29,6 +31,6 @@ export function notifyNewDecision(title: string, from: string): void {
 // Show an unread count in the browser tab title, e.g. "(2) Honmaru".
 export function setTabBadge(count: number): void {
   if (typeof document === 'undefined') return
-  const base = 'Honmaru Decision Feed'
+  const base = 'Honmaru AI'
   document.title = count > 0 ? `(${count}) ${base}` : base
 }

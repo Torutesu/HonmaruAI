@@ -288,8 +288,7 @@ export const Profile: React.FC<Props> = ({
 
         {confirmDelete && (
           <div className="form-error">
-            This removes your account and your cards. Decisions other people
-            made stay in their record — those are theirs, not yours.
+            {t('delete.body')}
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>{t('Keep it')}</button>
               <button className="btn btn-primary" onClick={deleteAccount}>{t('Delete')}</button>

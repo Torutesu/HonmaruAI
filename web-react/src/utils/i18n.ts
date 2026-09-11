@@ -336,6 +336,85 @@ const ja: Dict = {
   Main: 'メイン',
   'Billing period': '請求期間',
   'Not for sale yet': 'まだ販売していません',
+
+  // Sign-in, in full
+  'Create account': 'アカウント作成',
+  'Sign in': 'サインイン',
+  'Your AI needs an address.': 'AIにあなたの連絡先を。',
+  'Welcome back.': 'おかえりなさい。',
+  'Email and password.': 'メールアドレスとパスワードで。',
+  'signin.code.lede': '6桁のコードをお送りします。覚えるものはなく、決定がどこに届くべきかの証明にもなります。',
+  '(optional)': '（任意）',
+  'Email me a code instead': 'コードをメールで受け取る',
+  'Use a password instead': 'パスワードを使う',
+  'Create an account': 'アカウントを作る',
+  'This workspace cannot send email yet — use a password for now.': 'このワークスペースはまだメールを送れません。今はパスワードを使ってください。',
+  'We could not send a code.': 'コードを送信できませんでした。',
+  'Something went wrong.': '問題が発生しました。',
+  'That code is not valid.': 'そのコードは無効です。',
+  'We could not send another code.': 'コードを再送できませんでした。',
+  'Sent. Check your email again.': '送信しました。もう一度メールを確認してください。',
+  'We sent six digits to': '6桁のコードを送りました：',
+  '. It is good for ten minutes, once.': '。有効期限は10分、一度だけ使えます。',
+  'Digit {n}': '{n}桁目',
+  'Checking…': '確認中…',
+  'Send another code in {n}s': '{n}秒後に再送できます',
+  'Your AI routes by role. This is the only thing it cannot guess on day one.': 'AIは役割で振り分けます。初日に推測できない唯一のことです。',
+
+  // The feed, opening and undoing
+  'Opening your feed…': 'フィードを開いています…',
+  'Asking your AI what is waiting on you.': 'あなたを待っているものをAIに確認しています。',
+  '{n} waiting to send': '送信待ち {n}件',
+  Undo: '元に戻す',
+  Urgent: '至急',
+  'Recommended:': 'おすすめ:',
+  approve: '承認',
+  decline: '却下',
+  revise: '修正依頼',
+  'View original': '元のメッセージを見る',
+  'View original in {app}': '{app}で元のメッセージを見る',
+  'Decision needed': '判断が必要です',
+  'A decision is waiting': '決定があなたを待っています',
+  'a teammate': 'チームメイト',
+  'New decision for you': '新しい決定が届きました',
+  'From {name}': '{name}から',
+
+  // History
+  'Nothing settled yet.': 'まだ決着したものはありません。',
+  'GitHub issue #{n}': 'GitHub Issue #{n}',
+
+  // You
+  'delete.body': 'アカウントとあなたのカードが削除されます。他の人が下した決定はその人の記録に残ります。それはその人のものだからです。',
+
+  // Plans
+  'Could not load plans.': 'プランを読み込めませんでした。',
+  'Free gives you {n} AI-routed decisions a day': '無料プランでは1日{n}件までAIが振り分けます',
+  '{n} left today': '今日はあと{n}件',
+  'Paid removes the limit and turns on everything the AI does in the background.': '有料プランでは上限がなくなり、AIが裏側で行うすべてが有効になります。',
+  '/user/mo': '/人/月',
+  '/mo': '/月',
+  'Billed yearly · ${n}': '年払い · ${n}',
+  'Subscriptions are bought in the iOS app, through the App Store.': 'サブスクリプションはiOSアプリからApp Store経由で購入できます。',
+  'Start {n}-day free trial': '{n}日間の無料トライアルを始める',
+  'Billing is not switched on yet': '課金はまだ有効になっていません',
+  'plans.trial': '{days}日間無料、その後は月${price}。いつでも解約できます。',
+  'plans.trial.seat': '{days}日間無料、その後は1人あたり月${price}。いつでも解約できます。',
+  'plans.notForSale': 'この環境ではまだ何も販売していません。その間、全員が1日{n}件までAIの振り分けを使えます。',
+
+  // The record
+  'record.hint': '事業ごとの決定を、今の状態のまま。誰も書いていません。起きたことそのものです。',
+  'Copy the record': '記録をコピー',
+
+  // Notifications
+  'On iPhone: tap Share → Add to Home Screen, then open Honmaru from there to get notified.': 'iPhoneでは、共有 → ホーム画面に追加 のあと、ホーム画面からHonmaruを開くと通知を受け取れます。',
+  'Notifications are blocked for this site. Allow them in your browser settings.': 'このサイトの通知はブロックされています。ブラウザの設定で許可してください。',
+  'You will be told when a decision is waiting — even with this tab closed.': 'このタブを閉じていても、決定が待っているときにお知らせします。',
+  'Your browser refused. Allow notifications for this site, then try again.': 'ブラウザが拒否しました。このサイトの通知を許可してからもう一度お試しください。',
+
+  // When it breaks
+  'crash.body': 'この画面を表示できませんでした。再読み込みすれば、あなたの決定はそのまま残っています。',
+  Details: '詳細',
+  Reload: '再読み込み',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -362,6 +441,17 @@ const en: Dict = {
     'Approve, decline, ask for a revision, or hand it to someone else. The answer goes straight back to the person who asked — and to GitHub, if it belongs there.',
   'welcome.lede':
     'You talk to your own AI. It works out who needs to decide what, and their AI puts it in front of them as a card they can clear in a swipe. No channels. No inbox. No “did you see my message?”.',
+  'signin.code.lede':
+    'We send a six-digit code. Nothing to remember, and it proves where your decisions should reach you.',
+  'delete.body':
+    'This removes your account and your cards. Decisions other people made stay in their record — those are theirs, not yours.',
+  'plans.trial': 'Free for {days} days, then ${price} a month. Cancel any time.',
+  'plans.trial.seat': 'Free for {days} days, then ${price} per person a month. Cancel any time.',
+  'plans.notForSale':
+    'Nothing is for sale on this deployment yet. Everyone gets {n} AI-routed decisions a day in the meantime.',
+  'record.hint': 'Every decision, per business, as it stands now. Nobody writes this; it is what happened.',
+  'crash.body':
+    'This screen could not be drawn. Reloading is safe — your decisions are on the relay, not in this tab.',
 }
 
 const TABLES: Record<string, Dict> = { en, ja }

@@ -3,7 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <title>Honmaru AI</title>
+    <meta name="description" content="AI-native decision feed for teams. Tell your AI; the decision reaches whoever makes it, as a card they clear in one swipe." />
+    <meta property="og:title" content="Honmaru AI" />
+    <meta property="og:description" content="The decision you need to make is already waiting." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/icon.svg" />
+    <meta name="twitter:card" content="summary" />
     <!-- Installable, which is what lets Safari on iOS deliver a push at all
          (16.4+, from the home screen). Chrome and Firefox do not need it,
          but a home-screen icon costs nothing. -->
@@ -11,11 +18,19 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon.svg" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Honmaru" />
-    <meta name="theme-color" content="#202020" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0e0e11" media="(prefers-color-scheme: dark)" />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <p style="font-family: system-ui, sans-serif; padding: 24px; max-width: 40ch">
+        Honmaru AI needs JavaScript to show your feed. Turn it on and reload.
+      </p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

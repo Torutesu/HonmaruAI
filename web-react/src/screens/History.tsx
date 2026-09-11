@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import type { DecisionCard, Business } from '../types/card'
+import { getLocale } from '../utils/locale'
+import { displayName } from '../utils/names'
 import { useT } from '../utils/i18n'
 
 interface Props {
@@ -7,7 +9,10 @@ interface Props {
   sent: DecisionCard[]
   businesses: Business[]
   userId: string
-  onOpen: (cardId: string) => void
+  /// Take a decision back. Only the person who made it can, and only the
+  /// relay knows whether it still stands — so this sends, and the row
+  /// updates when the relay answers.
+  onUndo: (cardId: string) => void
   onClose: () => void
 }
 
@@ -39,10 +44,14 @@ function dayLabel(iso: string) {
 /// This is the personal view of the same truth the org-wide record holds: what
 /// was decided, by whom, and when. It reads from the state the socket already
 /// streams, so it is right the moment a decision lands rather than a refresh
-/// later.
-export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onOpen, onClose }) => {
+/// later. A row opens to show the whole card — a settled decision is not in
+/// the feed any more, so this is the only place to read it back — and, for a
+/// decision you made, to take it back.
+export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onUndo, onClose }) => {
   const t = useT()
+  const locale = getLocale()
   const [filter, setFilter] = useState<Filter>('all')
+  const [open, setOpen] = useState<string | null>(null)
   const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug
 
   const groups = useMemo(() => {
@@ -79,7 +88,7 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
 
         {groups.length === 0 && (
           <div className="empty">
-            Nothing settled yet.<br />
+            {t('Nothing settled yet.')}<br />
             {t('history.blurb')}
           </div>
         )}
@@ -91,24 +100,51 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
               {group.cards.map((card) => {
                 const action = card.decision?.action || (card.status === 'pending' ? '' : card.status)
                 const byYou = card.recipientUserID === userId
+                const expanded = open === card.id
+                const localized = card.localized?.[locale]
+                const title = localized?.title || card.title
+                const summary = localized?.summary || card.summary
                 return (
-                  <button key={card.id} className="row" onClick={() => onOpen(card.id)}>
-                    <span className="row-main">
-                      {card.title}
-                      <span className="row-sub">
-                        {byYou ? t('You') : (card.recipientUserID || '').replace(/^(u:|email:)/, '').split('@')[0]}
-                        {card.business ? ` · ${nameOf(card.business)}` : ''}
-                        {card.decision?.decidedAt
-                          ? ` · ${new Date(card.decision.decidedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-                          : ''}
+                  <div key={card.id} className={`hist-row${expanded ? ' open' : ''}`} data-card={card.id}>
+                    <button
+                      className="row"
+                      aria-expanded={expanded}
+                      onClick={() => setOpen(expanded ? null : card.id)}
+                    >
+                      <span className="row-main">
+                        {title}
+                        <span className="row-sub">
+                          {byYou ? t('You') : displayName(card.recipientUserID)}
+                          {card.business ? ` · ${nameOf(card.business)}` : ''}
+                          {card.decision?.decidedAt
+                            ? ` · ${new Date(card.decision.decidedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                            : ''}
+                        </span>
                       </span>
-                    </span>
-                    {action && (
-                      <span className={`pill-tag ${ACTION_TONE[action] || ''}`}>
-                        {t(ACTION_WORD[action] || action)}
-                      </span>
+                      {action && (
+                        <span className={`pill-tag ${ACTION_TONE[action] || ''}`}>
+                          {t(ACTION_WORD[action] || action)}
+                        </span>
+                      )}
+                    </button>
+                    {expanded && (
+                      <div className="hist-detail">
+                        {summary && <p className="hist-summary">{summary}</p>}
+                        {card.decision?.replyText && <blockquote className="hist-quote">“{card.decision.replyText}”</blockquote>}
+                        {card.decision?.note && <p className="hist-note">{card.decision.note}</p>}
+                        {card.githubIssueURL && (
+                          <a className="hist-link" href={card.githubIssueURL} target="_blank" rel="noopener noreferrer">
+                            {t('GitHub issue #{n}', { n: card.githubIssueNumber ?? '' })} ›
+                          </a>
+                        )}
+                        {byYou && card.decision && (
+                          <button className="pill-btn hist-undo" onClick={() => { onUndo(card.id); setOpen(null) }}>
+                            {t('Undo')}
+                          </button>
+                        )}
+                      </div>
                     )}
-                  </button>
+                  </div>
                 )
               })}
             </div>

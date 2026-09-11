@@ -43,6 +43,14 @@ function App() {
   // Carried from the email screen to the code screen and nowhere else.
   const [pending, setPending] = useState({ email: '', name: '', inviteCode: '' })
 
+  // A stage that needs a session, reached without one — storage cleared
+  // under a running tab, say — goes back to the start. Setting state during
+  // render was how this used to be done, which React warns about and which
+  // re-renders the tree twice for every frame it happens on.
+  useEffect(() => {
+    if ((stage === 'onboarding' || stage === 'app') && !userId) setStage('welcome')
+  }, [stage, userId])
+
   useEffect(() => {
     const savedToken = localStorage.getItem('sessionToken')
     const savedUser = localStorage.getItem('userId')
@@ -196,8 +204,8 @@ function App() {
 
   if (!userId) {
     // A stage that needs a session and has none: back to the start rather than
-    // a blank screen.
-    setStage('welcome')
+    // a blank screen. The effect above does the setting; rendering nothing for
+    // one frame is the whole cost.
     return null
   }
 
