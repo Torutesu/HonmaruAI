@@ -12,7 +12,7 @@ is something that ran, not something that was read.
 | Web unit (`web-react/`, vitest) | 8 pass | 11 pass |
 | Web typecheck + build | clean | clean |
 | End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 28 steps pass |
-| iOS (`xcodebuild test`) | not runnable here (Linux) — runs on pull requests in CI | — |
+| iOS (`xcodebuild test`, macOS CI) | not runnable here (Linux) | pass — [CI run #287](https://github.com/Torutesu/HonmaruAI/actions/runs/34561892140), dispatched by hand |
 
 ## The web client, screen by screen
 
@@ -158,10 +158,11 @@ degrading rather than throwing; the UTC quota day.
 
 ## iOS
 
-Read-only review — there is no macOS here, so nothing below was compiled. What
-was applied is small, local, and written to the surrounding code's own
-conventions; the pull-request CI job builds and runs the iOS suite, and that
-is the gate before any of it ships.
+Read-only review — there is no macOS here. What was applied is small, local,
+and written to the surrounding code's own conventions, and it was then built
+and tested on a macOS runner: the CI workflow now accepts `workflow_dispatch`
+so the iOS job can run for a branch before a pull request exists, and run
+#287 passed on this branch.
 
 ### Applied
 
