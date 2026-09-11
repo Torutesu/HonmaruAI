@@ -8,7 +8,7 @@ is something that ran, not something that was read.
 
 | Suite | Before | After |
 |-------|--------|-------|
-| Worker (`worker/`, real workerd) | 391 pass | 403 pass |
+| Worker (`worker/`, real workerd) | 391 pass | 404 pass |
 | Web unit (`web-react/`, vitest) | 8 pass | 11 pass |
 | Web typecheck + build | clean | clean |
 | End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 28 steps pass |
@@ -137,13 +137,13 @@ the code, fixed, and pinned by a test in `worker/test/card-forgery.test.js`
   on every push: it is the only suite that starts the Worker the way
   production does.
 
-### Left as documented follow-ups
-
-- The connector cron only picks up people who configured Notion, because that
-  is the only connector that writes a `connector_config` row. A Gmail-only
-  person is synced only when they pull by hand. The fix wants a marker written
-  when `/connectors` lists an ACTIVE account; dropping the predicate instead
-  would pay Composio for every session every 15 minutes.
+- **The connector cron only synced people who had configured Notion.** It
+  picked people up by the existence of a `connector_config` row, and only the
+  Notion writer wrote one — so a Gmail-only person was synced only when they
+  pulled by hand. `GET /connectors` now remembers what Composio lists as
+  ACTIVE (a `connected` flag beside any configuration the connector keeps,
+  dropped when the account goes away), and the cron runs only the connectors
+  the deployment offers rather than the whole catalogue.
 
 ### Checked and solid
 

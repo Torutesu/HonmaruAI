@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 403 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 404 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 28 steps
@@ -46,7 +46,10 @@ The list of what is still missing, and why each item matters, is
       it rather than keeping the near-identical copy it used to — the copies had
       already drifted far enough for a fix to land in the backend nobody runs
 - [x] RevenueCat subscriptions, metered server-side (off until `REVENUECAT_SECRET_KEY` exists)
-- [x] A cron that syncs connectors every 15 minutes
+- [x] A cron that syncs connectors every 15 minutes — for everyone who has
+      one connected, not only the people who configured Notion. `GET
+      /connectors` remembers what Composio listed as ACTIVE, and the cron
+      runs only the connectors this deployment offers
 - [~] Push notifications — built and tested end to end, switched off in the client
       (`PushService.isEnabledInThisBuild`) until the App ID carries `aps-environment`
 - [x] Notifications that reach people who do not have the iOS app: one hub
@@ -235,13 +238,6 @@ The list of what is still missing, and why each item matters, is
       Restore that answers "not ready" — the two taps a reviewer makes first.
       Swap in the `appl_…` key before a paid submission
       ([docs/revenuecat.md](docs/revenuecat.md))
-- [ ] The connector cron only syncs people who configured **Notion**:
-      `candidates()` in `worker/src/scheduled.js` requires a `connector_config`
-      row, and only Notion writes one. Gmail/Slack/Calendar/Drive connections
-      live in Composio, so a Gmail-only person is never picked up between
-      manual pulls. The fix is a `connected` marker written when `/connectors`
-      lists an ACTIVE account, so the cron stops paying Composio for people
-      with nothing connected
 - [ ] Turn APNs on **in the app**. The four Worker secrets are set — the
       deployment reports `push: true` — so the server side is done; what is
       left is the App ID capability, a reissued profile, and flipping

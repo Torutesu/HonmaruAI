@@ -22,6 +22,14 @@ beforeAll(async () => {
   await upsertMembership(env.DB, "acme/app", "7002", "Engineer");
   await createSession(env.DB, "7002", "gho_bare");
 
+  // Connected Gmail through Composio and never touched Notion: the shape the
+  // cron missed entirely, because only the Notion writer wrote the row it
+  // looks for. `GET /connectors` remembers the connection now.
+  await upsertUser(env.DB, { githubId: "7004", login: "mailer", name: null, avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "acme/app", "7004", "Member");
+  await setConnectorConfig(env.DB, "7004", "gmail", { connected: true });
+  await createSession(env.DB, "7004", "gho_mailer");
+
   // Connector, but no org — their cards have nowhere to go.
   await upsertUser(env.DB, { githubId: "7003", login: "orphan", name: null, avatarUrl: null, locale: "en" });
   await setConnectorConfig(env.DB, "7003", "notion", { databaseId: "db-orphan" });
@@ -34,18 +42,18 @@ afterEach(() => fetchMock.deactivate());
 const cronEnv = (over = {}) => ({ ...env, COMPOSIO_API_KEY: "cmp_test", ...over });
 
 test("only users with a session, an org and a connector are picked up", async () => {
-  // One Composio call, for the one qualifying user. Anyone else being synced
-  // would show up as an unmatched request.
+  // One Composio call per qualifying user — the Notion person and the Gmail
+  // person. Anyone else being synced would show up as an unmatched request.
   let calls = 0;
   fetchMock.get("https://backend.composio.dev")
     .intercept({ path: (p) => p.includes("/tools/execute/"), method: "POST" })
     .reply(200, () => { calls += 1; return { successful: true, data: { results: [] } }; })
-    .times(1);
+    .times(2);
 
   const result = await runScheduledSync(cronEnv());
-  expect(result.users).toBe(1);
-  expect(result.synced).toBe(1);
-  expect(calls).toBe(1);
+  expect(result.users).toBe(2);
+  expect(result.synced).toBe(2);
+  expect(calls).toBe(2);
 });
 
 test("one user's broken connector does not stop the run", async () => {
@@ -56,7 +64,8 @@ test("one user's broken connector does not stop the run", async () => {
   // syncAll already swallows a single connector's outage; this pins that the
   // scheduled wrapper does not turn it back into a thrown run.
   const result = await runScheduledSync(cronEnv());
-  expect(result.synced).toBe(1);
+  // Both qualifying people were walked; neither produced anything.
+  expect(result.synced).toBe(2);
   expect(result.created).toBe(0);
 });
 

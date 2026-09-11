@@ -482,6 +482,37 @@ export async function setConnectorConfig(db, githubId, connector, config) {
     .run();
 }
 
+export async function deleteConnectorConfig(db, githubId, connector) {
+  await db
+    .prepare("DELETE FROM connector_config WHERE user_github_id = ?1 AND connector = ?2")
+    .bind(String(githubId), connector)
+    .run();
+}
+
+/// Record which connectors Composio says this person has, so the cron can
+/// find them without asking Composio about everyone with a session.
+///
+/// The cron picks people up by the existence of a `connector_config` row,
+/// and until this existed only the Notion writer ever wrote one — so a
+/// person who connected Gmail was synced only when they pulled by hand, and
+/// "your AI triaged three decisions overnight" was true for exactly the
+/// people who had also configured Notion. A `connected` flag lives beside
+/// whatever configuration the connector already keeps; a row that carried
+/// nothing else is dropped when the account goes away.
+export async function rememberConnections(db, githubId, connectorIds, activeIds) {
+  for (const id of connectorIds) {
+    const existing = await getConnectorConfig(db, githubId, id);
+    if (activeIds.has(id)) {
+      if (!existing?.connected) await setConnectorConfig(db, githubId, id, { ...(existing || {}), connected: true });
+      continue;
+    }
+    if (!existing) continue;
+    const { connected, ...rest } = existing;
+    if (Object.keys(rest).length === 0) await deleteConnectorConfig(db, githubId, id);
+    else if (connected) await setConnectorConfig(db, githubId, id, rest);
+  }
+}
+
 export async function registerDevice(db, { deviceToken, githubId, login, environment }) {
   await db
     .prepare(

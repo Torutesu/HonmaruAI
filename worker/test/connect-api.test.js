@@ -43,6 +43,29 @@ test("status reports which connectors this user has", async () => {
   const { connectors } = await res.json();
   expect(connectors.find((c) => c.id === "gmail").status).toBe("active");
   expect(connectors.find((c) => c.id === "slack").status).toBe("none");
+
+  // And it is remembered, which is what lets the cron find this person
+  // between visits — the row it looks for used to be written by Notion only.
+  const { getConnectorConfig } = await import("../src/db.js");
+  expect(await getConnectorConfig(env.DB, "900", "gmail")).toMatchObject({ connected: true });
+  expect(await getConnectorConfig(env.DB, "900", "slack")).toBeNull();
+});
+
+test("a connection that went away is forgotten, and a configuration is kept", async () => {
+  const { getConnectorConfig, setConnectorConfig } = await import("../src/db.js");
+  // Notion: configured with a database and connected. Gmail: connected only.
+  await setConnectorConfig(env.DB, "900", "notion", { databaseId: "db-1", connected: true });
+  await setConnectorConfig(env.DB, "900", "gmail", { connected: true });
+
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.startsWith("/api/v3/connected_accounts") })
+    .reply(200, { items: [] });
+  const res = await call("/connectors", { headers: { "x-session-token": token } });
+  expect(res.status).toBe(200);
+
+  expect(await getConnectorConfig(env.DB, "900", "gmail")).toBeNull();
+  // The database they chose is theirs; only the flag is dropped.
+  expect(await getConnectorConfig(env.DB, "900", "notion")).toEqual({ databaseId: "db-1" });
 });
 
 test("both endpoints need a session", async () => {

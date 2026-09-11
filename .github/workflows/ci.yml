@@ -4,6 +4,10 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # On demand, for a branch that changed Swift and has no pull request yet:
+  # the iOS job below runs on pull requests only, so this is the one way to
+  # compile a branch's Swift before opening one.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -96,7 +100,7 @@ jobs:
   # a branch gets the Worker suite; asking to merge gets the whole thing.
   ios:
     name: iOS
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4

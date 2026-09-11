@@ -8,6 +8,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
+  rememberConnections,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
@@ -734,6 +735,13 @@ async function handle(request, env, url) {
           .filter((a) => String(a.status).toUpperCase() === "ACTIVE")
           .map((a) => (typeof a.toolkit === "string" ? a.toolkit : a.toolkit?.slug))
       );
+      // What this person has connected, remembered, so the cron syncs them
+      // between visits. Both clients load this list on the Tools screen.
+      try {
+        await rememberConnections(env.DB, session.github_id, availableConnectors(env).map((c) => c.id), active);
+      } catch (err) {
+        console.error("remembering connections failed", err?.message || err);
+      }
       return json({
         connectors: availableConnectors(env).map((c) => ({
           id: c.id, label: c.label, status: active.has(c.id) ? "active" : "none",
