@@ -99,6 +99,16 @@ final class SubscriptionService: ObservableObject {
         return SubscriptionSummary(entitlement: proEntitlement, managementURL: customerInfo?.managementURL)
     }
 
+    /// Store-localized price for the product that currently grants Pro.
+    ///
+    /// This deliberately resolves through the live RevenueCat offering instead of keeping
+    /// a currency amount in the app. App Store pricing can differ by storefront and can be
+    /// changed without an app release, so the status screen must use StoreKit's value.
+    var activePlanPrice: String? {
+        guard let productIdentifier = summary?.productIdentifier else { return nil }
+        return package(forProductID: productIdentifier)?.storeProduct.localizedPriceString
+    }
+
     var managementURL: URL? { customerInfo?.managementURL }
 
     /// RevenueCat's view of who is signed in. Useful in support tickets and debug screens.

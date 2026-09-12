@@ -85,6 +85,9 @@ struct SubscriptionView: View {
 
             if let summary = subscriptions.summary {
                 detailRow(String(localized: "Plan"), summary.planName)
+                if let price = subscriptions.activePlanPrice {
+                    detailRow(String(localized: "Price"), price)
+                }
                 detailRow(String(localized: "Status"), summary.renewalDescription)
                 detailRow(String(localized: "Billed via"), summary.storeDescription)
 

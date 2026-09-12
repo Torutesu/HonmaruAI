@@ -2476,6 +2476,17 @@
         }
       }
     },
+    "Price": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "価格"
+          }
+        }
+      }
+    },
     "Plans aren't available right now": {
       "extractionState": "manual",
       "localizations": {
