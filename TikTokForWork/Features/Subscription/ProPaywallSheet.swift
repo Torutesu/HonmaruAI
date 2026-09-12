@@ -1,13 +1,11 @@
 import RevenueCat
-import RevenueCatUI
 import SwiftUI
 
 /// The paywall the app presents everywhere.
 ///
-/// Layout, copy, pricing, and A/B tests come from RevenueCat → Paywalls, so the offer can
-/// change without an app release. If offerings can't be fetched (offline, or the dashboard
-/// has no offering yet) we fall back to a native list built from the same packages, so the
-/// user always has a way to subscribe or restore.
+/// Products, prices, purchases, and entitlements come from RevenueCat. The presentation is
+/// first-party so App Review and customers always see the plan title, renewal period, price,
+/// restore control, and legal links together regardless of a remotely edited paywall template.
 struct ProPaywallSheet: View {
     @EnvironmentObject private var subscriptions: SubscriptionService
     @Environment(\.dismiss) private var dismiss
@@ -24,28 +22,8 @@ struct ProPaywallSheet: View {
 
     @ViewBuilder
     private var content: some View {
-        if let offering = subscriptions.currentOffering {
-            PaywallView(offering: offering, displayCloseButton: true)
-                .onPurchaseCompleted { customerInfo in
-                    subscriptions.apply(customerInfo)
-                    Haptics.success()
-                    dismiss()
-                }
-                .onPurchaseFailure { error in
-                    subscriptions.report(error)
-                }
-                .onRestoreCompleted { customerInfo in
-                    subscriptions.apply(customerInfo)
-                    // Only leave if the restore actually unlocked Pro — otherwise the user
-                    // stays on the paywall with the plans still in front of them.
-                    if customerInfo.entitlements[RevenueCatConfig.proEntitlementID]?.isActive == true {
-                        Haptics.success()
-                        dismiss()
-                    }
-                }
-                .onRequestedDismissal {
-                    dismiss()
-                }
+        if subscriptions.currentOffering != nil {
+            FallbackPaywallView()
         } else if subscriptions.isLoadingOfferings {
             loadingState
         } else {
@@ -170,7 +148,7 @@ struct FallbackPaywallView: View {
                     Text(RevenueCatConfig.planName(forProductID: package.storeProduct.productIdentifier))
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Theme.Colors.textPrimary)
-                    Text(package.storeProduct.localizedDescription)
+                    Text(subscriptionPeriodText(for: package))
                         .font(Theme.TypeScale.micro)
                         .foregroundStyle(Theme.Colors.textTertiary)
                         .lineLimit(1)
@@ -191,6 +169,24 @@ struct FallbackPaywallView: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
         }
         .buttonStyle(.plain)
+    }
+
+    private func subscriptionPeriodText(for package: Package) -> String {
+        guard let period = package.storeProduct.subscriptionPeriod else {
+            return package.storeProduct.localizedDescription
+        }
+
+        return switch (period.value, period.unit) {
+        case (1, .day): String(localized: "1 day")
+        case (1, .week): String(localized: "1 week")
+        case (1, .month): String(localized: "1 month")
+        case (1, .year): String(localized: "1 year")
+        case (_, .day): String(format: String(localized: "%lld days"), Int64(period.value))
+        case (_, .week): String(format: String(localized: "%lld weeks"), Int64(period.value))
+        case (_, .month): String(format: String(localized: "%lld months"), Int64(period.value))
+        case (_, .year): String(format: String(localized: "%lld years"), Int64(period.value))
+        @unknown default: package.storeProduct.localizedDescription
+        }
     }
 
     private var purchaseControls: some View {
