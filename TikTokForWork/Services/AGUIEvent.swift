@@ -61,7 +61,7 @@ final class AGUIEventAssembler {
             for key in cardsByUser.keys {
                 cardsByUser[key]?.sort { $0.createdAt > $1.createdAt }
             }
-            return [.snapshot(cardsByUser: cardsByUser)]
+            return [.snapshot(cardsByUser: cardsByUser, onlineUserIds: [])]
 
         case "STATE_DELTA":
             guard let delta = json["delta"] as? [[String: Any]] else { return [] }

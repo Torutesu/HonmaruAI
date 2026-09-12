@@ -43,11 +43,27 @@ const ROLE_ROUTES = [
 ];
 
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// \b only understands ASCII word characters — Japanese has no word boundaries
+// in that sense, so non-ASCII phrases stay plain substring matches while ASCII
+// phrases get real word boundaries ("author" must not match "auth").
+function phraseMatches(text, phrase) {
+  const needle = String(phrase || "").trim();
+  if (!needle) return false;
+  if (!/^[\x00-\x7F]+$/.test(needle)) {
+    return String(text || "").toLowerCase().includes(needle.toLowerCase());
+  }
+  return new RegExp(`\\b${escapeRegExp(needle)}\\b`, "i").test(text);
+}
+
 function matchTeamRoute(text, senderID) {
-  const lower = String(text || "").toLowerCase();
+  const raw = String(text || "");
   for (const route of TEAM_ROUTES) {
     if (route.userID === senderID) continue;
-    if (route.phrases.some((phrase) => lower.includes(phrase))) {
+    if (route.phrases.some((phrase) => phraseMatches(raw, phrase))) {
       return route;
     }
   }
@@ -55,10 +71,10 @@ function matchTeamRoute(text, senderID) {
 }
 
 function matchRoleRoute(text, senderID) {
-  const lower = String(text || "").toLowerCase();
+  const raw = String(text || "");
   for (const route of ROLE_ROUTES) {
     if (route.userID === senderID) continue;
-    if (route.phrases.some((phrase) => lower.includes(phrase))) {
+    if (route.phrases.some((phrase) => phraseMatches(raw, phrase))) {
       return route;
     }
   }
@@ -70,8 +86,8 @@ export function resolveRecipientTarget(text, senderID, organization) {
 
   for (const userID of DEMO_USER_IDS) {
     if (userID === senderID) continue;
-    const name = userNameFor(userID).toLowerCase();
-    if (lower.includes(name)) {
+    const name = userNameFor(userID);
+    if (phraseMatches(text, name)) {
       return {
         recipientUserID: userID,
         routingReason: "Named in your instruction",
@@ -98,7 +114,7 @@ export function resolveRecipientTarget(text, senderID, organization) {
     };
   }
 
-  if (lower.includes("manager")) {
+  if (/\bmanagers?\b/i.test(lower)) {
     const edge = organization?.edges?.find(
       (item) => item.toID === senderID && item.kind === "manages"
     );
@@ -622,6 +638,7 @@ async function routeInstructionWithOpenRouter({
 
   const response = await fetch(endpoint, {
     method: "POST",
+    signal: AbortSignal.timeout(20_000),
     headers,
     body: JSON.stringify({
       model: openRouter.model,
@@ -670,6 +687,7 @@ async function routeInstructionWithOpenRouter({
         organization,
         priorityOverride,
         openRouter,
+        readerLanguage,
         attempt: attempt + 1,
       });
     }
@@ -691,7 +709,7 @@ async function routeInstructionWithOpenRouter({
     ],
     organization
   );
-  if (priorityOverride) {
+  if (priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)) {
     validated.priority = priorityOverride;
   }
   return validated;

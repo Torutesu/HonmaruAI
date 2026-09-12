@@ -1,7 +1,7 @@
 import Foundation
 
 enum RealtimeEvent: Codable {
-    case snapshot(cardsByUser: [String: [DecisionCard]])
+    case snapshot(cardsByUser: [String: [DecisionCard]], onlineUserIds: [String])
     case cardCreated(card: DecisionCard)
     case cardUpdated(card: DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
@@ -18,7 +18,7 @@ enum RealtimeEvent: Codable {
         switch type {
         case "snapshot":
             let payload = try container.decode(SnapshotPayload.self, forKey: .payload)
-            self = .snapshot(cardsByUser: payload.cardsByUser)
+            self = .snapshot(cardsByUser: payload.cardsByUser, onlineUserIds: payload.onlineUserIds ?? [])
         case "card_created":
             let payload = try container.decode(CardPayload.self, forKey: .payload)
             self = .cardCreated(card: payload.card)
@@ -42,9 +42,9 @@ enum RealtimeEvent: Codable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .snapshot(let cardsByUser):
+        case .snapshot(let cardsByUser, let onlineUserIds):
             try container.encode("snapshot", forKey: .type)
-            try container.encode(SnapshotPayload(cardsByUser: cardsByUser), forKey: .payload)
+            try container.encode(SnapshotPayload(cardsByUser: cardsByUser, onlineUserIds: onlineUserIds), forKey: .payload)
         case .cardCreated(let card):
             try container.encode("card_created", forKey: .type)
             try container.encode(CardPayload(card: card), forKey: .payload)
@@ -65,6 +65,7 @@ enum RealtimeEvent: Codable {
 
     private struct SnapshotPayload: Codable {
         let cardsByUser: [String: [DecisionCard]]
+        let onlineUserIds: [String]?
     }
 
     private struct CardPayload: Codable {
@@ -468,12 +469,17 @@ final class WebSocketService: ObservableObject {
         // explanation to show instead of a generic one when the close lands.
         if case .error(let message) = event { lastRefusal = message }
 
-        if case .presence(let userId, let status) = event {
+        switch event {
+        case .snapshot(_, let onlineUserIds):
+            onlineUserIDs = Set(onlineUserIds)
+        case .presence(let userId, let status):
             if status == "online" {
                 onlineUserIDs.insert(userId)
             } else {
                 onlineUserIDs.remove(userId)
             }
+        default:
+            break
         }
 
         onEvent?(event)
@@ -481,7 +487,7 @@ final class WebSocketService: ObservableObject {
 
     private func trackOwnership(of event: RealtimeEvent) {
         switch event {
-        case .snapshot(let cardsByUser):
+        case .snapshot(let cardsByUser, _):
             cardOwners = [:]
             for (userID, cards) in cardsByUser {
                 for card in cards {

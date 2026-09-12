@@ -14,7 +14,7 @@ struct AIInputSheet: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                 Text(isAIConfigured
                      ? String(localized: "Your AI drafts a decision card in the background — keep scrolling while it works.")
-                     : String(localized: "Offline mode — local routing with your priority setting."))
+                     : String(localized: "No AI model configured — the relay will route this by keyword."))
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textTertiary)
 

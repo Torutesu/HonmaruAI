@@ -394,7 +394,7 @@ final class DecisionCardService: ObservableObject {
 
     private func handle(_ event: RealtimeEvent) {
         switch event {
-        case .snapshot(let cardsByUser):
+        case .snapshot(let cardsByUser, _):
             applySnapshot(cardsByUser)
         case .cardCreated(let card):
             upsert(card)
@@ -408,6 +408,13 @@ final class DecisionCardService: ObservableObject {
     }
 
     private func upsert(_ card: DecisionCard) {
+        // A card that moved to a new recipient must leave the old bucket or it
+        // keeps showing up for the previous recipient.
+        for key in Array(cardsByUser.keys) where key != card.recipientUserID {
+            if let cards = cardsByUser[key], cards.contains(where: { $0.id == card.id }) {
+                cardsByUser[key] = cards.filter { $0.id != card.id }
+            }
+        }
         var cards = cardsByUser[card.recipientUserID, default: []]
         if let index = cards.firstIndex(where: { $0.id == card.id }) {
             cards[index] = card

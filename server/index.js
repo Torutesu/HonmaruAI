@@ -12,7 +12,6 @@ import {
   joinEvents,
   upsertEvents,
   removeEvents,
-  clearEvents,
   presenceEvents,
   contextEvents,
   applyDecision,
@@ -155,17 +154,22 @@ function publishRemove(orgId, cardId, recipientUserID) {
   broadcastEvents(orgId, removeEvents(cardId));
 }
 
-function publishClear(orgId) {
-  broadcast(orgId, "snapshot", { cardsByUser: {} });
-  broadcastEvents(orgId, clearEvents());
-}
-
 function publishPresence(orgId, userId, status, except) {
   broadcast(orgId, "presence", { userId, status }, except);
   broadcastEvents(orgId, presenceEvents(userId, status), { except });
 }
 
 function upsertCard(store, card) {
+  // A card that changed recipients is the same card under a new key — leaving
+  // the old bucket entry behind shows it to the previous recipient forever.
+  for (const key of Object.keys(store)) {
+    if (key === card.recipientUserID) continue;
+    const cards = store[key];
+    const filtered = cards.filter((item) => item.id !== card.id);
+    if (filtered.length !== cards.length) {
+      store[key] = filtered;
+    }
+  }
   const userId = card.recipientUserID;
   const cards = store[userId] || [];
   const index = cards.findIndex((item) => item.id === card.id);
@@ -219,16 +223,15 @@ function readBody(req, { maxBytes = 1024 * 1024 } = {}) {
 }
 
 function json(res, status, payload) {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-  });
+  if (res.writableEnded || res.destroyed) return;
+  res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(payload));
 }
 
 async function exchangeGitHubCode(code) {
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
+    signal: AbortSignal.timeout(20_000),
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -254,15 +257,112 @@ async function exchangeGitHubCode(code) {
   return data.access_token;
 }
 
+// OAuth `state` nonces: minted on GET /oauth/github/state, consumed once on
+// POST /oauth/github/token. Same contract as the Worker — a code that arrives
+// without a nonce we issued is refused.
+const pendingOAuthStates = new Map(); // state → expiresAt (ms)
+const OAUTH_STATE_TTL = 10 * 60 * 1000;
+
+function createOAuthState() {
+  const state = randomUUID();
+  pendingOAuthStates.set(state, Date.now() + OAUTH_STATE_TTL);
+  return state;
+}
+
+function consumeOAuthState(state) {
+  const expiresAt = pendingOAuthStates.get(state);
+  pendingOAuthStates.delete(state);
+  return expiresAt !== undefined && expiresAt > Date.now();
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [state, expiresAt] of pendingOAuthStates) {
+    if (expiresAt <= now) pendingOAuthStates.delete(state);
+  }
+}, OAUTH_STATE_TTL).unref();
+
+// session token → GitHub identity. The access token never leaves the relay:
+// the app holds only the session and reaches GitHub through /github below.
+const githubSessions = new Map(); // sessionToken → { accessToken, login }
+
+// The same six-call allowlist as worker/src/githubProxy.js — exactly what the
+// app calls, nothing more. A stolen session can do these; it cannot read the
+// person's source.
+const GITHUB_ALLOWED = [
+  { method: "GET", pattern: ["user"] },
+  { method: "GET", pattern: ["user", "repos"], query: ["per_page", "sort", "page"] },
+  { method: "GET", pattern: ["repos", ":owner", ":repo"] },
+  { method: "GET", pattern: ["repos", ":owner", ":repo", "issues", ":number"] },
+  { method: "POST", pattern: ["repos", ":owner", ":repo", "issues"] },
+  { method: "PATCH", pattern: ["repos", ":owner", ":repo", "issues", ":number"] },
+];
+
+function matchGitHubRule(method, segments) {
+  return (
+    GITHUB_ALLOWED.find(
+      (rule) =>
+        rule.method === method &&
+        rule.pattern.length === segments.length &&
+        rule.pattern.every((p, i) =>
+          p.startsWith(":") ? segments[i].length > 0 : p === segments[i]
+        )
+    ) || null
+  );
+}
+
+async function proxyGitHub(req, res, url) {
+  const session = githubSessions.get(req.headers["x-session-token"]);
+  if (!session) {
+    json(res, 401, { message: "invalid session" });
+    return;
+  }
+
+  const segments = url.pathname.replace(/^\/github\/?/, "").split("/").filter(Boolean);
+  const safe = segments.every((s) => s !== "." && s !== "..");
+  const rule = safe ? matchGitHubRule(req.method, segments) : null;
+  if (!rule) {
+    json(res, 404, { message: "That GitHub call is not available here." });
+    return;
+  }
+
+  const target = new URL(
+    `https://api.github.com/${segments.map(encodeURIComponent).join("/")}`
+  );
+  for (const key of rule.query || []) {
+    const value = url.searchParams.get(key);
+    if (value) target.searchParams.set(key, value);
+  }
+
+  try {
+    const ghRes = await fetch(target, {
+      method: req.method,
+      signal: AbortSignal.timeout(20_000),
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+        accept: "application/vnd.github+json",
+        "content-type": "application/json",
+        "user-agent": "tiktokforwork",
+      },
+      body: req.method === "GET" ? undefined : await readBody(req),
+    });
+    const text = await ghRes.text();
+    res.writeHead(ghRes.status, { "Content-Type": "application/json" });
+    res.end(text);
+  } catch (error) {
+    json(res, 502, { message: error.message || "GitHub request failed." });
+  }
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
+  // No CORS headers on purpose: the API is consumed by the iOS app, which is
+  // not a browser and does not need them. Allowing every origin would let any
+  // web page the user has open call the relay — including /ai/route, which
+  // spends the server's LLM key.
   if (req.method === "OPTIONS") {
-    res.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
+    res.writeHead(204);
     res.end();
     return;
   }
@@ -324,6 +424,18 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Minted here, spent on the callback. The client puts it on the authorize
+  // URL as `state` and refuses a callback that comes back with a different
+  // one; we refuse a code that arrives without a nonce we issued.
+  if (url.pathname === "/oauth/github/state" && req.method === "GET") {
+    if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+      json(res, 503, { message: "GitHub OAuth is not configured on the server." });
+      return;
+    }
+    json(res, 200, { state: createOAuthState() });
+    return;
+  }
+
   if (url.pathname === "/oauth/github/token" && req.method === "POST") {
     if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
       json(res, 503, { message: "GitHub OAuth is not configured on the server." });
@@ -333,21 +445,50 @@ const server = createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const body = raw ? JSON.parse(raw) : {};
-      const code = body.code;
+      const { code, state } = body;
 
       if (!code) {
         json(res, 400, { message: "Missing OAuth code." });
         return;
       }
+      if (!consumeOAuthState(state)) {
+        json(res, 400, { message: "This sign-in has expired. Try again." });
+        return;
+      }
 
       const accessToken = await exchangeGitHubCode(code);
+
+      // Identify the person now, while the token is in hand — the session we
+      // hand back never reveals it.
+      const userRes = await fetch("https://api.github.com/user", {
+        signal: AbortSignal.timeout(20_000),
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "user-agent": "tiktokforwork",
+        },
+      });
+      const ghUser = await userRes.json();
+      if (!ghUser?.id) {
+        json(res, 502, { message: "GitHub did not identify this token" });
+        return;
+      }
+
+      const sessionToken = randomUUID();
+      githubSessions.set(sessionToken, { accessToken, login: ghUser.login });
       json(res, 200, {
-        accessToken,
         tokenType: "bearer",
+        sessionToken,
+        login: ghUser.login,
       });
     } catch (error) {
       json(res, 400, { message: error.message || "OAuth exchange failed." });
     }
+    return;
+  }
+
+  // GitHub API, reached through the relay so the repo-scoped token stays here.
+  if (url.pathname.startsWith("/github")) {
+    await proxyGitHub(req, res, url);
     return;
   }
 
@@ -389,9 +530,53 @@ const server = createServer(async (req, res) => {
   res.end("Not found");
 });
 
-const wss = new WebSocketServer({ server });
+// Browsers always send Origin on a WebSocket upgrade; the iOS client and other
+// native tooling send none. Rejecting foreign origins stops a random web page
+// the user has open from driving the relay.
+const ALLOWED_WS_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+
+const wss = new WebSocketServer({
+  server,
+  maxPayload: 128 * 1024,
+  verifyClient: (info, done) => {
+    if (info.origin && !ALLOWED_WS_ORIGIN.test(info.origin)) {
+      done(false, 403, "Forbidden origin");
+      return;
+    }
+    done(true);
+  },
+});
+
+function onlineUserIds(orgId) {
+  const ids = [];
+  for (const session of sessions.values()) {
+    if (session.orgId === orgId && !ids.includes(session.userId)) {
+      ids.push(session.userId);
+    }
+  }
+  return ids;
+}
+
+// Half-open TCP connections emit no error and no close — without a ping the
+// session map fills with ghosts that keep receiving broadcasts.
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 30_000);
+
+wss.on("close", () => clearInterval(heartbeat));
 
 wss.on("connection", (ws) => {
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
   ws.on("message", (raw) => {
     let message;
     try {
@@ -416,7 +601,12 @@ wss.on("connection", (ws) => {
         if (agui) {
           sendEvents(ws, joinEvents(userId, getStore(orgId), getContexts(orgId)));
         } else {
-          send(ws, "snapshot", { cardsByUser: getStore(orgId) });
+          // onlineUserIds is how the joiner learns who was already here — the
+          // presence broadcast below only reaches the other sockets.
+          send(ws, "snapshot", {
+            cardsByUser: getStore(orgId),
+            onlineUserIds: onlineUserIds(orgId),
+          });
         }
         publishPresence(orgId, userId, "online", ws);
         break;
@@ -540,16 +730,11 @@ wss.on("connection", (ws) => {
         break;
       }
 
-      case "clear_store": {
-        const session = sessions.get(ws);
-        if (!session) {
-          send(ws, "error", { message: "Not joined" });
-          return;
-        }
-        orgStores.set(session.orgId, {});
-        publishClear(session.orgId);
+      // Same as the Worker: this used to wipe every card in the org whenever a
+      // client signed out. It stays as a no-op so older clients that still send
+      // it do not error — clearing local state is a client concern.
+      case "clear_store":
         break;
-      }
 
       default:
         send(ws, "error", { message: `Unknown type: ${type}` });
@@ -565,7 +750,7 @@ wss.on("connection", (ws) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, "127.0.0.1", () => {
   console.log(`Relay listening on http://127.0.0.1:${PORT}`);
   console.log(`WebSocket: ws://127.0.0.1:${PORT}`);
   console.log(
