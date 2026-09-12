@@ -8,10 +8,10 @@ is something that ran, not something that was read.
 
 | Suite | Before | After |
 |-------|--------|-------|
-| Worker (`worker/`, real workerd) | 391 pass | 404 pass |
+| Worker (`worker/`, real workerd) | 391 pass | 411 pass |
 | Web unit (`web-react/`, vitest) | 8 pass | 11 pass |
 | Web typecheck + build | clean | clean |
-| End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 28 steps pass |
+| End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 30 steps pass |
 | iOS (`xcodebuild test`, macOS CI) | not runnable here (Linux) | pass — [CI run #287](https://github.com/Torutesu/HonmaruAI/actions/runs/34561892140), dispatched by hand |
 
 ## The web client, screen by screen

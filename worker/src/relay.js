@@ -252,6 +252,9 @@ export class OrgRelay {
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
       for (const ev of forEveryone) this.sendTo(orgId, card.recipientUserID, ev);
       for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
+      // Counted. How often a decision has to be asked about twice is one of
+      // the few numbers that says whether the feed is doing its job.
+      await this.log(orgId, { cardId: card.id, type: "nudged", actorUserId: att.userId, snapshot: card });
       // The socket only reaches someone with the app open — and a nudge is for
       // the person who has not opened it. This is what makes it reach them.
       if (anyChannelConfigured(this.env)) {

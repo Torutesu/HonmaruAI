@@ -175,6 +175,22 @@ CREATE TABLE IF NOT EXISTS card_events (
 CREATE INDEX IF NOT EXISTS idx_events_card ON card_events (org_id, card_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_org ON card_events (org_id, created_at);
 
+/* What people said about a card after they saw it. One row per person per
+   card, the latest standing; the metrics view and the eval export read it.
+   This is the feedback loop the router improves through. */
+CREATE TABLE IF NOT EXISTS card_feedback (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  card_id        TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  verdict        TEXT NOT NULL,
+  reason         TEXT,
+  note           TEXT,
+  created_at     TEXT NOT NULL,
+  UNIQUE (org_id, card_id, user_github_id)
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_org ON card_feedback (org_id, created_at);
+
 CREATE TABLE IF NOT EXISTS ingested_items (
   connector      TEXT NOT NULL,
   external_id    TEXT NOT NULL,

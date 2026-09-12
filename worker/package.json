@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "node eval/run.mjs",
+    "eval:model": "node eval/run.mjs --model"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.5.0",

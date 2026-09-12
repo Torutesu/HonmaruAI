@@ -12,7 +12,7 @@ interface Props {
   businesses: Business[]
   pendingCount: number
   decidedCount: number
-  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team') => void
+  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team' | 'insights') => void
   onLocaleChange: () => void
   onSwitchOrg: (orgId: string) => void
   onLogout: () => void
@@ -217,6 +217,11 @@ export const Profile: React.FC<Props> = ({
           <button className="row" onClick={() => onOpen('history')}>
             <span className="row-icon"><Icon name="history" size={18} /></span>
             <span className="row-main">{t('History')}<span className="row-sub">{t('Everything already settled.')}</span></span>
+            <span className="row-value">›</span>
+          </button>
+          <button className="row" onClick={() => onOpen('insights')}>
+            <span className="row-icon"><Icon name="insights" size={18} /></span>
+            <span className="row-main">{t('Insights')}<span className="row-sub">{t('How long decisions wait, what gets declined, what your AI got wrong.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row" onClick={() => onOpen('record')}>

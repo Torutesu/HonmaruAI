@@ -9,10 +9,10 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 404 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 411 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
-  Worker actually sent. 28 steps
+  Worker actually sent. 30 steps
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **Web unit suite:** 11 tests over the AG-UI client, including the outbox
 - **QA report:** [docs/qa-report.md](docs/qa-report.md) — what was checked
@@ -27,6 +27,33 @@ The list of what is still missing, and why each item matters, is
 [docs/production-release-plan.md](docs/production-release-plan.md).
 
 ## Done
+
+### The improvement loop (dogfooding)
+- [x] **Feedback on every card.** "Is this card wrong?" sits under each card
+      in the web feed; one tap says why (wrong person, not a decision, wrong
+      priority, badly written). `POST /cards/:id/feedback`, sender or
+      recipient only, one verdict per person per card, on the card's
+      timeline as a `feedback` event
+- [x] **Insights** (You → Insights, `GET /metrics?orgId=&days=`): cards per
+      day, median time to decide, decline rate, pending, nudges, where cards
+      come from, what was decided, what the AI got wrong. From the cards
+      themselves; nothing to keep in sync
+- [x] **The router reads the team.** `/ai/route` hands the model each
+      member's pending load and the team's last twelve decisions, and the
+      system prompt says what to do with them: between two who fit, the
+      less loaded one; a recommendation that leans on a real recent decision.
+      Bounded, optional, and absent on a fresh workspace
+- [x] **An eval harness.** `worker/eval/golden.json` (20 entries, en + ja,
+      one org fixture) and `npm run eval` (local router; `npm run eval:model`
+      with `OPENAI_API_KEY`) print recipient / type / priority / business
+      accuracy and write `eval/last-run.json`. `test/eval-golden.test.js`
+      gates the local router's recipient accuracy at 90% in CI.
+      `GET /eval/export?orgId=` turns real cards and their verdicts into
+      golden candidates, with a flagged field left open for a person to fill
+- [x] The local router speaks Japanese: 承認 / 委任 / 修正 / 直して and 至急 /
+      参考まで are read the way approve / delegate / revise / fix and urgent /
+      FYI are. On the golden set, card type went from 41% to 88% and priority
+      from 50% to 75% with no model at all
 
 ### Product
 - [x] Vertical decision feed, swipe to approve/decline, delegate, revise, undo
@@ -230,6 +257,13 @@ The list of what is still missing, and why each item matters, is
 - [x] Sessions extend with use, so an active user is never signed out
 
 ## Still open
+
+- [ ] The local router does not know a member by a Japanese name that is not
+      in their label: 「美香に…」 misses `mika` (the one recipient miss on the
+      golden set). Members need a display name in each language, or the
+      router needs a name table; the eval set will say when it is fixed
+- [ ] iOS has neither the flag under the card nor the Insights screen yet;
+      the Worker routes are there for it
 
 - [ ] **The Release build carries the RevenueCat Test Store key.** `RevenueCatConfig.apiKey`
       is `test_…`, which the app refuses to configure in Release (the SDK

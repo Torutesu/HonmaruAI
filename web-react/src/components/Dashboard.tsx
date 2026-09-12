@@ -11,6 +11,8 @@ import { History } from '../screens/History'
 import { NotificationSettings } from '../screens/NotificationSettings'
 import { Plans } from '../screens/Plans'
 import { Profile } from '../screens/Profile'
+import { Insights } from '../screens/Insights'
+import type { FlagReason } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
@@ -37,7 +39,7 @@ type Mode = 'cards' | 'classic'
 // A full screen over the feed, as opposed to a sheet. These are the design's
 // own screens — Tools, History, Notifications, Plan, You — and each one owns
 // the viewport while it is open.
-type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team'
+type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights'
 
 // What just happened, said back. English keys, translated where read.
 const DECIDED_WORD: Record<string, string> = {
@@ -249,6 +251,21 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     addDebugLog(`Rolled back: ${cardId}`)
     setUndo(null)
   }, [addDebugLog])
+  /// A verdict on a card. Sent straight to the Worker — it is a row, not a
+  /// relay event — and answered with one line so the person knows it landed.
+  const handleFlag = useCallback(async (cardId: string, reason: FlagReason) => {
+    try {
+      const res = await fetch(`${relayHttpUrl}/cards/${encodeURIComponent(cardId)}/feedback`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, verdict: 'wrong', reason }),
+      })
+      if (!res.ok) setError((await res.json().catch(() => ({}))).message || t('That did not save.'))
+      addDebugLog(`Flagged ${cardId}: ${reason}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }, [relayHttpUrl, orgId, sessionToken, addDebugLog, t])
   const handleNudge = useCallback((cardId: string) => {
     wsClientRef.current!.sendNudge(cardId)
     addDebugLog(`Nudged: ${cardId}`)
@@ -285,6 +302,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           active={!panel && !screen}
           onDecide={handleDecision}
           onAsk={handleAsk}
+          onFlag={handleFlag}
         />
       ) : (
         <ClassicList
@@ -410,6 +428,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
       {screen === 'notifications' && (
         <NotificationSettings httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+      )}
+      {screen === 'insights' && (
+        <Insights httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
       )}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />

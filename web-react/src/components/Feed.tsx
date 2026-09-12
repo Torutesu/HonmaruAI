@@ -19,7 +19,17 @@ interface Props {
   active: boolean
   onDecide: (cardId: string, action: string, options?: { replyText?: string }) => void
   onAsk: (text: string, card: DecisionCard) => void
+  /// "This card is wrong" — and why. The one signal the router learns from.
+  onFlag: (cardId: string, reason: FlagReason) => void
 }
+
+export type FlagReason = 'wrong-person' | 'not-a-decision' | 'wrong-priority' | 'wrong-words'
+const FLAG_REASONS: Array<{ id: FlagReason; label: string }> = [
+  { id: 'wrong-person', label: 'Wrong person' },
+  { id: 'not-a-decision', label: 'Not a decision' },
+  { id: 'wrong-priority', label: 'Wrong priority' },
+  { id: 'wrong-words', label: 'Badly written' },
+]
 
 const SWIPE_THRESHOLD = 96
 
@@ -66,7 +76,7 @@ function segments(context: string): Array<{ label: string; detail: string }> {
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
-export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk }) => {
+export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag }) => {
   const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -136,6 +146,7 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
           businessName={nameOf(card.business)}
           onDecide={onDecide}
           onAsk={onAsk}
+          onFlag={onFlag}
         />
       ))}
       {cards.length > 1 && (
@@ -151,12 +162,15 @@ interface PageProps {
   businessName: string
   onDecide: Props['onDecide']
   onAsk: Props['onAsk']
+  onFlag: Props['onFlag']
 }
 
-const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) => {
+const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk, onFlag }) => {
   const t = useT()
   const [dx, setDx] = useState(0)
   const [ask, setAsk] = useState('')
+  // Closed → open (the reasons) → sent (thanks). Never blocks the decision.
+  const [flag, setFlag] = useState<'closed' | 'open' | 'sent'>('closed')
   const start = useRef<{ x: number; y: number } | null>(null)
   const localized = card.localized?.[getLocale()]
   const title = localized?.title || card.title
@@ -293,6 +307,26 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
           />
           <button type="submit" className="ask-send" aria-label={t('Send')} disabled={!ask.trim()}>➤</button>
         </form>
+
+        {/* Quiet, under everything: a card that is wrong is still decided
+            above, and saying so costs one tap. What is said here becomes a
+            row the router is measured against. */}
+        <div className="card-flag" aria-live="polite">
+          {flag === 'closed' && (
+            <button type="button" className="flag-link" onClick={() => setFlag('open')}>{t('Is this card wrong?')}</button>
+          )}
+          {flag === 'open' && (
+            <div className="flag-row" role="group" aria-label={t('What is wrong with it?')}>
+              {FLAG_REASONS.map((r) => (
+                <button key={r.id} type="button" className="flag-chip" onClick={() => { onFlag(card.id, r.id); setFlag('sent') }}>
+                  {t(r.label)}
+                </button>
+              ))}
+              <button type="button" className="flag-link" onClick={() => setFlag('closed')}>{t('Never mind')}</button>
+            </div>
+          )}
+          {flag === 'sent' && <span className="flag-thanks">{t('Noted. Your AI will do better.')}</span>}
+        </div>
       </div>
     </section>
   )

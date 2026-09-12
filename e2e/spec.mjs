@@ -356,6 +356,20 @@ await step('a decision can be taken back in the moment', async () => {
   if (await page.$('.toast.undo')) throw new Error('the Undo toast is still up after being used')
 })
 
+// Every card carries "Is this card wrong?". Saying so is one tap, lands as a
+// row the router is measured against, and never gets in the way of deciding.
+await step('a card can be flagged as wrong, and the verdict lands', async () => {
+  await page.click('.flag-link')
+  await page.waitForSelector('.flag-chip', { timeout: 5000 })
+  await shot('09d-flag')
+  const [res] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/feedback') && r.request().method() === 'POST', { timeout: 10000 }),
+    page.click('.flag-chip >> nth=2'),
+  ])
+  if (res.status() !== 200) throw new Error(`feedback answered ${res.status()}`)
+  await page.waitForSelector('.flag-thanks', { timeout: 5000 })
+})
+
 await step('the decision can be taken, and it sticks', async () => {
   const title = await page.$eval('.card-title', (el) => el.textContent.trim())
   await page.click('.decide.approve')
@@ -444,6 +458,15 @@ await step('every other screen opens', async () => {
   await page.click('text=Plan')
   await page.waitForSelector('.plan-card, .empty', { timeout: 10000 })
   await shot('15-plans')
+  // The numbers: the flagged card from earlier is the one thing the AI got
+  // wrong in this window, and the screen has to say so.
+  await page.click('.screen .back')
+  await page.click('nav [data-tab="you"]')
+  await page.click('text=Insights')
+  await page.waitForSelector('.barlist, .insights-hint', { timeout: 15000 })
+  await page.waitForFunction(() => /Wrong priority|優先度が違う/.test(document.body.innerText), null, { timeout: 15000 })
+    .catch(() => { throw new Error('Insights does not show the flagged card') })
+  await shot('15b-insights')
 })
 
 await step('nothing threw in the browser', async () => {

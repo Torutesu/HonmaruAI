@@ -404,13 +404,20 @@ Routing (critical):
 - A person named in the instruction → that person.
 - Something that needs sign-off or approval → a member with a canApprove edge.
 - An escalation → the sender's manager (a "manages" edge pointing at the sender).
-- Otherwise pick the member whose role best fits the instruction.`;
+- Otherwise pick the member whose role best fits the instruction.
+- When two members fit equally, prefer the one carrying less pending load
+  (listed under "Current load" when known), and say so in routingReason.
+- "Recent decisions" is what this team actually decided lately. If the
+  instruction repeats or contradicts one, say so in the summary or the
+  recommendation; a recommendation that leans on a real recent decision is
+  worth more than one that leans on the instruction alone.`;
 
-export function buildUserPrompt({ text, sender, organization, readerLanguage, senderContext }) {
+export function buildUserPrompt({ text, sender, organization, readerLanguage, senderContext, teamContext }) {
   const orgContext = organizationContext(organization);
   const contextBlock = senderContext && senderContext.trim()
     ? `\nSender context: ${senderContext.trim()}\n`
     : "";
+  const teamBlock = teamContextBlock(teamContext);
   const businesses = (organization?.businesses || [])
     .map((b) => (typeof b === "string" ? `- ${b}` : `- ${b.slug}: ${b.name}`))
     .join("\n");
@@ -418,9 +425,33 @@ export function buildUserPrompt({ text, sender, organization, readerLanguage, se
   return `Sender: ${sender.name} (${sender.id}, ${sender.role})
 Reader language: ${readerLanguage || "ja"}
 Instruction: ${text}
-${contextBlock}${businessBlock}
+${contextBlock}${businessBlock}${teamBlock}
 Organization:
 ${orgContext}`;
+}
+
+/// What the team is carrying and what it decided lately, as two short lists.
+/// Bounded: a dozen decisions and one line per member, so a busy team does
+/// not turn the prompt into a ledger. Absent entirely when there is nothing
+/// to say, so a fresh workspace's prompt is exactly what it was.
+export function teamContextBlock(teamContext) {
+  if (!teamContext) return "";
+  const load = (teamContext.load || [])
+    .filter((l) => l && l.id && l.pending > 0)
+    .slice(0, 30)
+    .map((l) => `- ${l.id}: ${l.pending} pending${l.oldestHours >= 24 ? `, oldest ${Math.round(l.oldestHours / 24)}d` : ""}`);
+  const recent = (teamContext.recent || [])
+    .slice(0, 12)
+    .map((d) => {
+      const who = d.recipient ? `${d.recipient} ` : "";
+      const biz = d.business ? ` [${d.business}]` : "";
+      const note = d.note ? ` — "${String(d.note).slice(0, 80)}"` : "";
+      return `- ${who}${d.action}: ${String(d.title || "").slice(0, 100)}${biz}${note}`;
+    });
+  let out = "";
+  if (load.length) out += `\nCurrent load (cards waiting on each member):\n${load.join("\n")}\n`;
+  if (recent.length) out += `\nRecent decisions (newest first):\n${recent.join("\n")}\n`;
+  return out;
 }
 
 /// The business an instruction names, by slug or by name, or null. The local
@@ -822,11 +853,15 @@ export function routeInstructionLocally({
     organization
   );
 
+  // Keywords in both languages the product ships in. This is the router
+  // that answers when there is no model, and until the Japanese words were
+  // here every 承認 was filed as a notification — the eval set is what said so.
+  const any = (...words) => words.some((w) => lower.includes(w));
   let cardType = "notification";
-  if (lower.includes("approve") || lower.includes("approval")) cardType = "approval";
-  else if (lower.includes("delegate") || lower.includes("assign")) cardType = "delegation";
-  else if (lower.includes("revise") || lower.includes("feedback")) cardType = "revision";
-  else if (lower.includes("task") || lower.includes("fix") || lower.includes("build")) {
+  if (any("approve", "approval", "sign-off", "sign off", "承認", "決裁", "許可")) cardType = "approval";
+  else if (any("delegate", "assign", "take over", "hand over", "委任", "任せ", "引き継")) cardType = "delegation";
+  else if (any("revise", "revision", "feedback", "review", "typo", "修正", "見直")) cardType = "revision";
+  else if (any("task", "fix", "build", "implement", "redesign", "直して", "作って", "実装", "対応して")) {
     cardType = "task";
   }
 
@@ -841,9 +876,11 @@ export function routeInstructionLocally({
   const priority =
     priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)
       ? priorityOverride
-      : lower.includes("urgent")
+      : lower.includes("urgent") || lower.includes("至急") || lower.includes("緊急") || lower.includes("今すぐ") || lower.includes("right now")
         ? "urgent"
-        : "high";
+        : /^\s*fyi\b/i.test(String(text || "")) || lower.includes("参考まで") || lower.includes("共有まで")
+          ? "low"
+          : "high";
 
   return validateRouting(
     {
@@ -892,13 +929,14 @@ async function routeInstructionWithOpenRouter({
   openRouter,
   readerLanguage,
   senderContext,
+  teamContext,
   attempt = 0,
   // Shared with the caller (and with this function's own retry) so it can tell
   // "the model answered" from "the call never landed" even when both end up
   // throwing. Only the first is billable.
   call = { answered: false },
 }) {
-  const userPrompt = buildUserPrompt({ text, sender, organization, readerLanguage, senderContext });
+  const userPrompt = buildUserPrompt({ text, sender, organization, readerLanguage, senderContext, teamContext });
 
   // OpenAI and OpenRouter speak the same chat/completions dialect, tools
   // included, so the provider is just an endpoint and a couple of headers.
@@ -967,6 +1005,7 @@ async function routeInstructionWithOpenRouter({
         openRouter,
         readerLanguage,
         senderContext,
+        teamContext,
         attempt: attempt + 1,
         call,
       });
@@ -1004,6 +1043,7 @@ export async function routeInstruction({
   openRouter,
   readerLanguage,
   senderContext,
+  teamContext,
 }) {
   const sender = senderForCard(rawSender, organization);
   if (openRouter?.apiKey) {
@@ -1021,6 +1061,7 @@ export async function routeInstruction({
         openRouter,
         readerLanguage,
         senderContext,
+        teamContext,
         call,
       });
       return { ...routed, routedBy: openRouter.providerName || "llm", aiCalled: call.answered };

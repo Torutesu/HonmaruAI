@@ -266,3 +266,19 @@
   .empty-mark { background: #151518; border-color: #26262b; }
   .legend.on { color: #ededef; }
 }
+
+/* "Is this card wrong?" — quiet, under everything, one tap to say why. */
+.card-flag { margin-top: 12px; min-height: 22px; text-align: center; font-size: 12.5px; color: #a0a0aa; }
+.flag-link { background: none; border: none; color: #8b8b93; font-size: 12.5px; cursor: pointer; padding: 4px 6px; text-decoration: underline; text-underline-offset: 3px; }
+.flag-link:hover { color: #101014; }
+.flag-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.flag-chip {
+  border: 1px solid #e4e4ea; background: #fff; color: #45454f;
+  border-radius: 9999px; padding: 6px 12px; font-size: 12.5px; cursor: pointer;
+}
+.flag-chip:hover { border-color: #101014; color: #101014; }
+.flag-thanks { color: #6b6b75; }
+@media (prefers-color-scheme: dark) {
+  .flag-chip { background: #151518; border-color: #303038; color: #ededef; }
+  .flag-link:hover { color: #ededef; }
+}

@@ -8,7 +8,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
-  rememberConnections,
+  rememberConnections, getCard,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
@@ -26,7 +26,11 @@ import { isMailConfigured } from "./mailer.js";
 import { SUPPORTED_LOCALES } from "./notifyCopy.js";
 import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
-import { listCardEvents, listOrgEvents } from "./events.js";
+import {
+  recordFeedback, orgMetrics, recipientLoad, recentDecisions, exportGolden,
+  FEEDBACK_VERDICTS, FEEDBACK_REASONS,
+} from "./insights.js";
+import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
@@ -338,6 +342,7 @@ async function handle(request, env, url) {
       // whole team (and cannot be spoofed by the client). Fall back to whatever
       // the client sent only when there is no session/org to look up.
       let organization = body.organization;
+      let teamContext;
       const routeOrgId = body.organization?.orgId || body.orgId;
       if (session && routeOrgId) {
         // Naming an org is not belonging to it. Everything else that reads an
@@ -363,6 +368,20 @@ async function handle(request, env, url) {
         // one the feed can filter by.
         const businesses = await listBusinesses(env.DB, routeOrgId);
         if (businesses.length) organization = { ...(organization || {}), orgId: routeOrgId, businesses };
+        // What the team is carrying and what it decided lately. The router
+        // used to see roles and nothing else — "their priorities and current
+        // situation", which the product promises to weigh, were never in the
+        // prompt. Two queries, both bounded, both optional: a failure here is
+        // a card routed the old way, not a card not routed.
+        try {
+          const [load, recent] = await Promise.all([
+            recipientLoad(env.DB, routeOrgId),
+            recentDecisions(env.DB, routeOrgId),
+          ]);
+          if (load.length || recent.length) teamContext = { load, recent };
+        } catch (err) {
+          console.error("team context failed", err?.message || err);
+        }
       }
 
       const result = await routeInstruction({
@@ -372,6 +391,7 @@ async function handle(request, env, url) {
         priorityOverride: body.priorityOverride,
         readerLanguage: body.readerLanguage,
         senderContext: body.senderContext,
+        teamContext,
         // No provider means the local keyword router — the graceful degradation.
         openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
       });
@@ -898,6 +918,57 @@ async function handle(request, env, url) {
       }
       return json({ results });
     }
+    // What a person thought of a card. The one signal that turns "the AI
+    // routed it wrong" from a feeling into a row the eval set can be built
+    // from. Sender or recipient only: they are the two who can know.
+    const feedbackMatch = url.pathname.match(/^\/cards\/([^/]+)\/feedback$/);
+    if (feedbackMatch && request.method === "POST") {
+      const cardId = decodeURIComponent(feedbackMatch[1]);
+      const body = await request.json().catch(() => ({}));
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      if (!FEEDBACK_VERDICTS.has(body.verdict)) return json({ message: "verdict must be right or wrong" }, 400);
+      if (body.reason !== undefined && body.reason !== null && !FEEDBACK_REASONS.has(body.reason)) {
+        return json({ message: "unknown reason" }, 400);
+      }
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      if (card.recipientUserID !== user?.login && card.senderUserID !== user?.login) {
+        return json({ message: "Only the sender or the recipient can rate this card." }, 403);
+      }
+      await recordFeedback(env.DB, {
+        orgId, cardId, githubId: session.github_id,
+        verdict: body.verdict, reason: body.reason || null, note: body.note || null,
+      });
+      await appendCardEvent(env.DB, orgId, {
+        cardId, type: "feedback", action: body.verdict, actorUserId: user?.login || null,
+        note: body.reason || null, snapshot: card,
+      });
+      return json({ ok: true });
+    }
+
+    // How the feed is doing for this team, from the cards themselves.
+    if (url.pathname === "/metrics" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json(await orgMetrics(env.DB, orgId, { days: url.searchParams.get("days") }));
+    }
+
+    // Real cards, with their verdicts, in the shape the eval harness reads.
+    if (url.pathname === "/eval/export" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ entries: await exportGolden(env.DB, orgId, { limit: url.searchParams.get("limit") }) });
+    }
+
     const orgEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/events$/);
     if (orgEventsMatch && request.method === "GET") {
       const [, owner, repo] = orgEventsMatch;
