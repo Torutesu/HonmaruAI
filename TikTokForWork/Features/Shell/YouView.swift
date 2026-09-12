@@ -58,6 +58,13 @@ struct YouView: View {
                 group {
                     navRow(String(localized: "History")) { HistoryView() }
                     rowSeparator
+                    // The numbers: how long decisions wait, what gets
+                    // declined, what the AI got wrong. A guest has no
+                    // workspace for them to be about.
+                    if !appState.isGuest {
+                        navRow(String(localized: "Insights")) { InsightsView() }
+                        rowSeparator
+                    }
                     // What you asked of other people. The feed answers the
                     // other question, and until this row there was nowhere on
                     // a phone to see a decision of yours going unanswered.

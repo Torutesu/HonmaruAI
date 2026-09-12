@@ -10,6 +10,10 @@ struct DecisionCardView: View {
     @EnvironmentObject private var appState: AppState
     @State private var dragOffset: CGFloat = 0
     @State private var showsSource = false
+    /// "Is this card wrong?" — closed, open (the reasons), or sent (thanks).
+    /// Never in the way of deciding: it sits under the swipe hint.
+    @State private var flag: FlagState = .closed
+    private enum FlagState { case closed, open, sent }
 
     private let swipeThreshold: CGFloat = 96
 
@@ -378,6 +382,45 @@ struct DecisionCardView: View {
         }
     }
 
+    /// One tap to say a card was wrong, and why. What is said here becomes a
+    /// row the router is measured against (You → Insights shows the count).
+    @ViewBuilder
+    private var flagBlock: some View {
+        switch flag {
+        case .closed:
+            Button(String(localized: "Is this card wrong?")) {
+                withAnimation(.easeOut(duration: 0.15)) { flag = .open }
+            }
+            .font(Theme.TypeScale.micro)
+            .foregroundStyle(Theme.Colors.textTertiary)
+            .frame(maxWidth: .infinity)
+            .padding(.top, Theme.Spacing.xs)
+        case .open:
+            VStack(spacing: Theme.Spacing.xs) {
+                FlowChips(reasons: InsightsService.FlagReason.allCases) { reason in
+                    Haptics.light()
+                    flag = .sent
+                    let orgId = appState.currentUser?.teamID ?? ""
+                    if let base = appState.backendBaseURL, !orgId.isEmpty {
+                        Task { _ = await InsightsService.flag(cardId: card.id, orgId: orgId, reason: reason, backendBaseURL: base) }
+                    }
+                }
+                Button(String(localized: "Never mind")) {
+                    withAnimation(.easeOut(duration: 0.15)) { flag = .closed }
+                }
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .padding(.top, Theme.Spacing.xs)
+        case .sent:
+            Text(String(localized: "Noted. Your AI will do better."))
+                .font(Theme.TypeScale.micro)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, Theme.Spacing.xs)
+        }
+    }
+
     private var issueLabel: String {
         if let number = card.githubIssueNumber {
             return "Issue #\(number)"
@@ -435,6 +478,8 @@ struct DecisionCardView: View {
                     .foregroundStyle(Theme.Colors.textTertiary)
                     .frame(maxWidth: .infinity)
                     .padding(.top, Theme.Spacing.xs)
+
+                flagBlock
             } else {
                 HStack(spacing: 0) {
                     Button(String(localized: "Undo")) {
@@ -452,6 +497,31 @@ struct DecisionCardView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+/// The reasons, as small pills that wrap. Two rows on a phone, one on
+/// anything wider.
+private struct FlowChips: View {
+    let reasons: [InsightsService.FlagReason]
+    let onPick: (InsightsService.FlagReason) -> Void
+
+    var body: some View {
+        let rows = [Array(reasons.prefix(2)), Array(reasons.dropFirst(2))]
+        VStack(spacing: Theme.Spacing.xs) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: Theme.Spacing.xs) {
+                    ForEach(row) { reason in
+                        Button(reason.label) { onPick(reason) }
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .overlay(Capsule().stroke(Theme.Colors.border, lineWidth: 1))
+                    }
+                }
             }
         }
     }
