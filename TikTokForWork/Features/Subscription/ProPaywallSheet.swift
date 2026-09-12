@@ -12,33 +12,14 @@ struct ProPaywallSheet: View {
     @EnvironmentObject private var subscriptions: SubscriptionService
     @Environment(\.dismiss) private var dismiss
 
-    private let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-    private let privacyURL = URL(string: "https://honmaru-web.pages.dev/privacy.html")!
-
     var body: some View {
-        content
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                legalLinks
-            }
-            .task { await subscriptions.loadOfferings() }
-    }
-
-    /// These links stay visible for both RevenueCat's hosted paywall and the native
-    /// fallback. App Review must be able to find the terms and privacy policy even when
-    /// the hosted paywall cannot be downloaded.
-    private var legalLinks: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            Link("Terms of Use", destination: termsURL)
-            Text("·")
-                .accessibilityHidden(true)
-            Link("Privacy Policy", destination: privacyURL)
+        VStack(spacing: 0) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            SubscriptionLegalLinks()
+                .background(Theme.Colors.background)
         }
-        .font(Theme.TypeScale.micro)
-        .foregroundStyle(Theme.Colors.textSecondary)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, Theme.Spacing.screen)
-        .padding(.vertical, Theme.Spacing.sm)
-        .background(Theme.Colors.background)
+            .task { await subscriptions.loadOfferings() }
     }
 
     @ViewBuilder
@@ -82,6 +63,28 @@ struct ProPaywallSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .appBackground()
+    }
+}
+
+/// A first-party legal footer shared by the account subscription screen and every
+/// paywall state. Keeping it outside RevenueCat's hosted view means a remote template
+/// cannot cover or remove the links App Review and customers need.
+struct SubscriptionLegalLinks: View {
+    private let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+    private let privacyURL = URL(string: "https://honmaru-web.pages.dev/privacy.html")!
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            Link("Terms of Use", destination: termsURL)
+            Text("·")
+                .accessibilityHidden(true)
+            Link("Privacy Policy", destination: privacyURL)
+        }
+        .font(Theme.TypeScale.micro)
+        .foregroundStyle(Theme.Colors.textSecondary)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, Theme.Spacing.screen)
+        .padding(.vertical, Theme.Spacing.sm)
     }
 }
 

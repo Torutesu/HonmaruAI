@@ -21,7 +21,7 @@ iOS release. Begin with the app closed and show:
 7. Open Profile > Workspace > Delete account and complete deletion of the disposable
    account. Never delete `appreview@honmaruai.com`.
 
-Use a filename such as `honmaruai-build38-iphone-physical-review.mp4`. Before upload,
+Use a filename such as `honmaruai-build39-iphone-physical-review.mp4`. Before upload,
 check that no personal notification, Apple ID, password, or unrelated customer data is
 visible.
 

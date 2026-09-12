@@ -177,6 +177,9 @@ struct SubscriptionView: View {
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
             }
+
+            SubscriptionLegalLinks()
+                .padding(.horizontal, -Theme.Spacing.screen)
         }
     }
 
