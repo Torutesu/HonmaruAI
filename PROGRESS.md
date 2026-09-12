@@ -61,6 +61,15 @@ The list of what is still missing, and why each item matters, is
       with the decisions it drew on; the question
       is logged as an `asked` event; metered like a route; a deployment with
       no model says so
+- [x] **The reply back to whoever asked, drafted.** A decision is one tap;
+      the message telling the person who asked was still typed by hand.
+      `POST /ai/draft {orgId, cardId}` writes it from the card and the
+      decision — the action, the decider's note, the next step the card
+      names — in the language the request came in, signed by the decider,
+      three to six sentences, nothing invented. History → a decided row →
+      "Draft the reply" shows it with Copy; it is a draft, the person sends
+      it. Only the two people on the card, only once it is decided (409
+      before); logged as a `drafted` event; metered like a route
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

@@ -31,6 +31,7 @@ import {
   FEEDBACK_VERDICTS, FEEDBACK_REASONS,
 } from "./insights.js";
 import { answerQuestion, searchTermsFor } from "./ask.js";
+import { draftReply } from "./draft.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -981,6 +982,47 @@ async function handle(request, env, url) {
         answer: result.answer,
         related: related.slice(0, 5).map((d) => ({ title: d.title, status: d.status, decidedAt: d.decidedAt, recipient: d.recipient })),
       });
+    }
+
+    // The message back to whoever asked, drafted from the decision. Only the
+    // two people on the card can speak for it, and only once it is decided:
+    // a reply to a pending card is a promise nobody has made.
+    if (url.pathname === "/ai/draft" && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      const cardId = typeof body.cardId === "string" ? body.cardId : "";
+      if (!orgId || !cardId) return json({ message: "orgId and cardId are required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (user?.login !== card.recipientUserID && user?.login !== card.senderUserID) {
+        return json({ message: "Only the people on this card can draft its reply." }, 403);
+      }
+      if (!card.decision || card.status === "pending") {
+        return json({ message: "Decide first; the reply follows the decision." }, 409);
+      }
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      const provider = providerConfig(env, userKey);
+      if (!provider) return json({ message: "Your AI has no model to draft with on this deployment." }, 503);
+      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey });
+      if (!allowance.allowed) {
+        return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
+      }
+      const result = await draftReply({
+        provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage,
+      });
+      if (result.called && allowance.metered) await allowance.consume();
+      if (!result.draft) return json({ message: "Your AI could not draft that just now." }, 502);
+      await appendCardEvent(env.DB, orgId, {
+        cardId, type: "drafted", actorUserId: user?.login || null, note: result.draft.slice(0, 500), snapshot: card,
+      });
+      return json({ draft: result.draft, language: result.language });
     }
 
     // What a person thought of a card. The one signal that turns "the AI

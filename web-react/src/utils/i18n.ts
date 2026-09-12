@@ -422,6 +422,13 @@ const ja: Dict = {
   "You have used today's AI answers.": '今日のAIへの質問回数を使い切りました。',
   'Your AI could not answer that just now.': 'AIは今それに答えられませんでした。',
 
+  // The reply draft
+  'Draft the reply': '返信を下書き',
+  'Your AI is writing…': 'AIが書いています…',
+  'Your AI has no model to draft with on this deployment.': 'この環境のAIには、下書きするためのモデルが設定されていません。',
+  'Your AI could not draft that just now.': 'AIは今それを下書きできませんでした。',
+  'A draft, in the language the request came in. Read it, change it, send it yourself.': '依頼が来た言語での下書きです。読んで、直して、自分で送ってください。',
+
   // The feedback loop
   'Is this card wrong?': 'このカード、違う？',
   'What is wrong with it?': '何が違いますか？',

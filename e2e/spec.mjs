@@ -94,7 +94,7 @@ page.on('response', (r) => {
 
 // What this configuration is *supposed* to refuse: connectors need a Composio
 // key, web push needs a VAPID pair, and the screens for both say so out loud.
-const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai\/ask/]
+const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai\/ask/, /^503 \/ai\/draft/]
 
 /// Back to the feed, whatever is open on top of it. Several steps were each
 /// rolling their own version of this loop, and each one that got it slightly
@@ -418,6 +418,13 @@ await step('the decision can be taken, and it sticks', async () => {
   await page.waitForSelector('.hist-detail', { timeout: 10000 })
     .catch(() => { throw new Error('a history row does not open') })
   if (!(await page.$('.hist-undo'))) throw new Error('a decision you made has no Undo in History')
+  // The reply back to whoever asked, drafted from the decision. No model on
+  // this deployment, so the draft is that fact, said where the draft would go.
+  await page.click('.hist-draft')
+  await page.waitForSelector('.hist-draft-text, .hist-draft-error', { timeout: 15000 })
+    .catch(() => { throw new Error('Draft the reply answered nothing') })
+  const draftText = await page.$eval('.hist-draft-box', (el) => el.textContent)
+  if (!/no model|モデル/.test(draftText)) throw new Error(`the draft box says: ${draftText.slice(0, 120)}`)
   await shot('11b-history-open')
 })
 

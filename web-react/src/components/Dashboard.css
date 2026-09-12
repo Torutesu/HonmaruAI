@@ -194,6 +194,7 @@
 .create-error { color: #c62828; font-size: 13px; margin-top: 8px; width: 100%; }
 
 @media (prefers-color-scheme: dark) {
+  .hist-draft-text { background: #1f1f26; color: #ececf0; }
   .brand, .topbar-right button, .sheet-title, .sheet-title .close { color: #ededef; }
   .topbar-right button { background: rgba(9,9,11,0.7); border-color: #26262b; }
   .sheet, .toast { background: #111113; color: #ededef; border-color: #26262b; }
@@ -395,6 +396,12 @@
 .hist-note { margin: 0 0 8px; color: #6b6b75; font-size: 13px; font-style: italic; }
 .hist-link { display: inline-block; color: #6647f0; text-decoration: none; font-size: 13px; margin-right: 12px; }
 .hist-undo { margin-top: 4px; }
+.hist-draft { margin-top: 4px; margin-left: 8px; }
+.hist-copy { margin-top: 2px; }
+.hist-draft-box { margin-top: 10px; }
+.hist-draft-hint { margin: 0 0 6px; font-size: 12px; color: #9a9aa5; }
+.hist-draft-error { margin: 0; font-size: 13px; color: #d0316f; }
+.hist-draft-text { white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; line-height: 1.5; color: #1c1c21; background: #f6f6f8; border-radius: 10px; padding: 10px 12px; margin: 0 0 8px; }
 
 /* The last screen: a render error, said out loud. */
 .crash-detail { margin-top: 16px; font-size: 13px; color: #6b6b75; }

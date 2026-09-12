@@ -14,7 +14,13 @@ interface Props {
   /// updates when the relay answers.
   onUndo: (cardId: string) => void
   onClose: () => void
+  /// For the reply draft: the Worker, the org, and who is asking.
+  httpBase: string
+  orgId: string
+  sessionToken: string
 }
+
+interface Draft { busy: boolean; text?: string; error?: string }
 
 type Filter = 'all' | 'yours' | 'sent'
 
@@ -47,11 +53,47 @@ function dayLabel(iso: string) {
 /// later. A row opens to show the whole card — a settled decision is not in
 /// the feed any more, so this is the only place to read it back — and, for a
 /// decision you made, to take it back.
-export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onUndo, onClose }) => {
+export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onUndo, onClose, httpBase, orgId, sessionToken }) => {
   const t = useT()
   const locale = getLocale()
   const [filter, setFilter] = useState<Filter>('all')
   const [open, setOpen] = useState<string | null>(null)
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
+  const [copied, setCopied] = useState<string | null>(null)
+
+  /// The message back to whoever asked, drafted from the decision. A draft:
+  /// it is shown to be read, changed and sent by the person, not sent.
+  const requestDraft = async (cardId: string) => {
+    setDrafts((prev) => ({ ...prev, [cardId]: { busy: true } }))
+    try {
+      const res = await fetch(`${httpBase}/ai/draft`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, cardId, readerLanguage: locale }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const why = res.status === 503
+          ? t('Your AI has no model to draft with on this deployment.')
+          : res.status === 429
+            ? t("You have used today's AI answers.")
+            : (data.message || t('Your AI could not draft that just now.'))
+        setDrafts((prev) => ({ ...prev, [cardId]: { busy: false, error: why } }))
+        return
+      }
+      setDrafts((prev) => ({ ...prev, [cardId]: { busy: false, text: data.draft } }))
+    } catch (err) {
+      setDrafts((prev) => ({ ...prev, [cardId]: { busy: false, error: err instanceof Error ? err.message : String(err) } }))
+    }
+  }
+
+  const copy = async (cardId: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(cardId)
+      setTimeout(() => setCopied((c) => (c === cardId ? null : c)), 2000)
+    } catch { /* no clipboard here; the text is on screen to select */ }
+  }
   const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug
 
   const groups = useMemo(() => {
@@ -141,6 +183,26 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
                           <button className="pill-btn hist-undo" onClick={() => { onUndo(card.id); setOpen(null) }}>
                             {t('Undo')}
                           </button>
+                        )}
+                        {card.decision && (byYou || card.senderUserID === userId) && !drafts[card.id]?.busy && !drafts[card.id]?.text && (
+                          <button className="pill-btn hist-draft" onClick={() => requestDraft(card.id)}>
+                            {t('Draft the reply')}
+                          </button>
+                        )}
+                        {drafts[card.id] && (
+                          <div className="hist-draft-box" aria-live="polite">
+                            {drafts[card.id].busy && <p className="hist-draft-hint">{t('Your AI is writing…')}</p>}
+                            {drafts[card.id].error && <p className="hist-draft-error">{drafts[card.id].error}</p>}
+                            {drafts[card.id].text && (
+                              <>
+                                <p className="hist-draft-hint">{t('A draft, in the language the request came in. Read it, change it, send it yourself.')}</p>
+                                <pre className="hist-draft-text">{drafts[card.id].text}</pre>
+                                <button className="pill-btn hist-copy" onClick={() => copy(card.id, drafts[card.id].text || '')}>
+                                  {copied === card.id ? t('Copied') : t('Copy')}
+                                </button>
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

@@ -414,6 +414,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           userId={userId}
           onUndo={handleRollback}
           onClose={() => setScreen(null)}
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          sessionToken={sessionToken}
         />
       )}
       {screen === 'notifications' && (

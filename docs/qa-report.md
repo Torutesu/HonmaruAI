@@ -8,7 +8,7 @@ is something that ran, not something that was read.
 
 | Suite | Before | After |
 |-------|--------|-------|
-| Worker (`worker/`, real workerd) | 391 pass | 420 pass |
+| Worker (`worker/`, real workerd) | 391 pass | 424 pass |
 | Web unit (`web-react/`, vitest) | 8 pass | 11 pass |
 | Web typecheck + build | clean | clean |
 | End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 30 steps pass |
