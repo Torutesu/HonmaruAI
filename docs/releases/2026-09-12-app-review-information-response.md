@@ -21,18 +21,18 @@ iOS release. Begin with the app closed and show:
 7. Open Profile > Workspace > Delete account and complete deletion of the disposable
    account. Never delete `appreview@honmaruai.com`.
 
-Use a filename such as `honmaruai-build39-iphone-physical-review.mp4`. Before upload,
+Use a filename such as `honmaruai-build40-iphone12-physical-review.mp4`. Before upload,
 check that no personal notification, Apple ID, password, or unrelated customer data is
 visible.
 
 ## App Review Information notes
 
-Replace the bracketed device information and the build number after the recording and
-new TestFlight build are complete.
+The device information and build number below match the completed physical-device QA
+and the build attached to App Store version 1.0.
 
 ```text
 PHYSICAL-DEVICE QA
-The attached screen recording was captured on a physical [IPHONE MODEL] running [IOS VERSION] and demonstrates build [BUILD NUMBER] from launch through the typical workflow, subscription presentation, purchase restoration, and account deletion.
+The attached screen recording was captured from a physical iPhone 12 running iOS 26.1. Build 40 is the review build. The recording begins with launching Honmaru AI and demonstrates the email registration and login entry points, the typical request and approval flow in the built-in guest demo, the active monthly subscription title, period, storefront-localized price, restore entry point, Terms of Use and Privacy Policy, and the in-app account-deletion confirmation screen.
 
 1. PURPOSE AND TARGET AUDIENCE
 Honmaru AI is a productivity app for small teams, managers, project leads, and cross-functional organizations. It turns a spoken or written request into a structured decision card. The user reviews and edits the AI-created draft, chooses a teammate, and explicitly sends it. The app reduces repeated explanations and makes approvals, replies, revisions, and decision history easier to follow.
@@ -67,7 +67,7 @@ Attach the same physical-device recording to the reply, then paste:
 ```text
 Hello App Review,
 
-Thank you for the request. We completed physical-device QA on a supported [IPHONE MODEL] running [IOS VERSION]. The attached recording begins with launching Honmaru AI and demonstrates the typical request workflow, password registration and login, subscription plans and restoration, and in-app account deletion.
+Thank you for the request. We completed physical-device QA on an iPhone 12 running iOS 26.1, and build 40 is attached to App Store version 1.0. The attached recording begins with launching Honmaru AI and demonstrates the email registration and login entry points, the typical request and approval flow in the built-in guest demo, active subscription details including the localized price and legal links, the restore entry point, and the in-app account-deletion confirmation screen.
 
 We have also copied the complete purpose, audience, access instructions, external-service list, regional information, regulatory/content-rights statement, distribution model, and In-App Purchase details into the App Review Information Notes field as requested.
 
