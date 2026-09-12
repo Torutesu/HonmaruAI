@@ -5060,6 +5060,94 @@
           }
         }
       }
+    },
+    "Ask your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIに聞く"
+          }
+        }
+      }
+    },
+    "Ask anything…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なんでも聞いてください…"
+          }
+        }
+      }
+    },
+    "Ask your AI about this decision": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この決定についてAIに聞く"
+          }
+        }
+      }
+    },
+    "Your AI is looking…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIが調べています…"
+          }
+        }
+      }
+    },
+    "Waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未決"
+          }
+        }
+      }
+    },
+    "Decided before": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の決定"
+          }
+        }
+      }
+    },
+    "Sign in to ask your AI.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIに聞くにはサインインしてください。"
+          }
+        }
+      }
+    },
+    "Your AI could not answer that just now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIは今それに答えられませんでした。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

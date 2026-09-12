@@ -57,7 +57,8 @@ The list of what is still missing, and why each item matters, is
       from the card, a keyword search over the team's past decisions and
       its last eight, in the reader's language — two to five sentences, and
       "what is missing" rather than an invented decision. The answer lands
-      under the card on the web, with the decisions it drew on; the question
+      under the card on the web and in the card's details sheet on the phone,
+      with the decisions it drew on; the question
       is logged as an `asked` event; metered like a route; a deployment with
       no model says so
 - [x] **The router looks before it writes.** With a session and an org, the
