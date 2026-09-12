@@ -8,7 +8,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
-  rememberConnections, getCard,
+  rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
@@ -27,7 +27,7 @@ import { SUPPORTED_LOCALES } from "./notifyCopy.js";
 import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
 import {
-  recordFeedback, orgMetrics, recipientLoad, recentDecisions, exportGolden,
+  recordFeedback, orgMetrics, recipientLoad, recentDecisions, exportGolden, searchDecisions,
   FEEDBACK_VERDICTS, FEEDBACK_REASONS,
 } from "./insights.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
@@ -343,6 +343,7 @@ async function handle(request, env, url) {
       // the client sent only when there is no session/org to look up.
       let organization = body.organization;
       let teamContext;
+      let lookups;
       const routeOrgId = body.organization?.orgId || body.orgId;
       if (session && routeOrgId) {
         // Naming an org is not belonging to it. Everything else that reads an
@@ -382,6 +383,10 @@ async function handle(request, env, url) {
         } catch (err) {
           console.error("team context failed", err?.message || err);
         }
+        // And the one thing the model may look up before it writes: what
+        // this team already decided about the same thing.
+        const lookupOrg = routeOrgId;
+        lookups = { searchDecisions: (query) => searchDecisions(env.DB, lookupOrg, query) };
       }
 
       const result = await routeInstruction({
@@ -392,6 +397,7 @@ async function handle(request, env, url) {
         readerLanguage: body.readerLanguage,
         senderContext: body.senderContext,
         teamContext,
+        lookups,
         // No provider means the local keyword router — the graceful degradation.
         openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
       });
@@ -557,6 +563,7 @@ async function handle(request, env, url) {
         // An email account signs in with its address; only a GitHub account
         // can change where mail goes.
         emailEditable: !String(user.github_id).startsWith("email:"),
+        aliases: parseAliases(user.aliases),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         supportedLocales: SUPPORTED_LOCALES,
         // What the router will assume you decide, and what you may change it
@@ -585,6 +592,11 @@ async function handle(request, env, url) {
       if (body.notifyEmail !== undefined) {
         await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
       }
+      if (body.aliases !== undefined) {
+        const aliases = normalizeAliases(body.aliases);
+        if (!aliases) return json({ message: "aliases must be a list of names" }, 400);
+        await setUserAliases(env.DB, session.github_id, aliases);
+      }
       // Where email falls back to. A GitHub account has none unless it says
       // so here; an email account's address is its login and cannot change.
       if (body.email !== undefined) {
@@ -606,6 +618,7 @@ async function handle(request, env, url) {
         locale: user?.locale || "en",
         email: user?.email || null,
         notifyEmail: Number(user?.notify_email ?? 1) !== 0,
+        aliases: parseAliases(user?.aliases),
         ...(role ? { role } : {}),
       });
     }

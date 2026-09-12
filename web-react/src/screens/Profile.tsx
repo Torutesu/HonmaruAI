@@ -36,6 +36,7 @@ interface Me {
   locale: string
   role: string | null
   assignableRoles: string[]
+  aliases?: string[]
   orgs?: Org[]
 }
 
@@ -62,11 +63,15 @@ export const Profile: React.FC<Props> = ({
   const [joining, setJoining] = useState(false)
   const [joinCode, setJoinCode] = useState('')
   const [joinError, setJoinError] = useState<string | null>(null)
+  // What else people call you, as one comma-separated line. The router
+  // matches an instruction against these, so 「美香に」 reaches an account
+  // whose login is "mika".
+  const [aliases, setAliases] = useState('')
 
   useEffect(() => {
     fetch(`${httpBase}/me?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => r.json())
-      .then((data) => { setMe(data); if (data.locale) setLocaleState(data.locale) })
+      .then((data) => { setMe(data); if (data.locale) setLocaleState(data.locale); setAliases((data.aliases || []).join(', ')) })
       .catch(() => setError(t('Could not read your profile.')))
   }, [httpBase, orgId, sessionToken])
 
@@ -175,6 +180,23 @@ export const Profile: React.FC<Props> = ({
             ) : (
               <span className="row-value">{me?.role ? t(ROLE_LABEL[me.role] || me.role) : '—'}</span>
             )}
+          </div>
+          <div className="row static">
+            <span className="row-main">
+              {t('Also called')}
+              <span className="row-sub">{t('Names your AI should recognise as you — a first name, a nickname, in any language.')}</span>
+              <input
+                className="alias-input"
+                value={aliases}
+                onChange={(e) => setAliases(e.target.value)}
+                onBlur={() => {
+                  const list = aliases.split(/[,、]/).map((a) => a.trim()).filter(Boolean)
+                  if (list.join(',') !== (me?.aliases || []).join(',')) patch({ aliases: list })
+                }}
+                placeholder={t('e.g. 美香, Mika')}
+                aria-label={t('Also called')}
+              />
+            </span>
           </div>
           <div className="row static">
             <span className="row-main">

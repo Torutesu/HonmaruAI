@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 411 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 416 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 30 steps
@@ -50,6 +50,17 @@ The list of what is still missing, and why each item matters, is
       gates the local router's recipient accuracy at 90% in CI.
       `GET /eval/export?orgId=` turns real cards and their verdicts into
       golden candidates, with a flagged field left open for a person to fill
+- [x] **The router looks before it writes.** With a session and an org, the
+      model is offered `search_decisions` — 2-4 keywords in, the team's
+      matching decisions out, one line each — and told to use it when the
+      instruction could repeat or depend on something already decided. One
+      search at most, then it must write. A failed lookup is an empty one.
+      The research shows up as a step on the card (`toolCalls`)
+- [x] **A person can say what else they are called.** You → "Also called"
+      (`PUT /me {aliases}`, five names, forty characters each). The org the
+      router builds carries them, the local router matches them as whole
+      words, and the model's prompt lists them — so 「美香に」 reaches
+      `mika`. Golden set recipient accuracy: 18/18
 - [x] The local router speaks Japanese: 承認 / 委任 / 修正 / 直して and 至急 /
       参考まで are read the way approve / delegate / revise / fix and urgent /
       FYI are. On the golden set, card type went from 41% to 88% and priority
@@ -258,10 +269,6 @@ The list of what is still missing, and why each item matters, is
 
 ## Still open
 
-- [ ] The local router does not know a member by a Japanese name that is not
-      in their label: 「美香に…」 misses `mika` (the one recipient miss on the
-      golden set). Members need a display name in each language, or the
-      router needs a name table; the eval set will say when it is fixed
 - [ ] iOS has neither the flag under the card nor the Insights screen yet;
       the Worker routes are there for it
 

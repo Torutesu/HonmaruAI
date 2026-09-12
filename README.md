@@ -48,7 +48,7 @@ sign-in (skippable). Rationale in [onboarding.md](onboarding.md).
 ```bash
 cd worker
 npm install
-npm test        # 411 tests, real workerd via @cloudflare/vitest-pool-workers
+npm test        # 416 tests, real workerd via @cloudflare/vitest-pool-workers
 npm run eval    # the router against worker/eval/golden.json (add --model with OPENAI_API_KEY)
 npx wrangler dev
 ```

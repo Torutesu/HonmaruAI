@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS users (
   email         TEXT,
   password_hash TEXT,
   password_salt TEXT,
+  /* What else this person is called — a Japanese given name, a nickname —
+     as a JSON array. The router matches an instruction against these as
+     well as the name, so 「美香に」 reaches mika. */
+  aliases       TEXT,
   /* Whether a decision may reach this person by email when no push channel
      (APNs device, web push subscription) can. 1 = yes. */
   notify_email  INTEGER NOT NULL DEFAULT 1

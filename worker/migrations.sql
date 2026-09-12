@@ -18,6 +18,7 @@ ALTER TABLE invites ADD COLUMN uses INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN notify_email INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE memberships ADD COLUMN title TEXT;
 ALTER TABLE invites ADD COLUMN ref TEXT;
+ALTER TABLE users ADD COLUMN aliases TEXT;
 
 /* After the ALTER above, and never in schema.sql: that file runs first, so on a
    database predating the column this index would be created against a column

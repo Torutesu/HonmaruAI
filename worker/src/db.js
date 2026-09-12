@@ -261,11 +261,49 @@ export async function getUserByGithubId(db, githubId) {
   return (
     (await db
       .prepare(
-        "SELECT github_id, login, name, avatar_url, locale, email, notify_email FROM users WHERE github_id = ?1"
+        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, aliases FROM users WHERE github_id = ?1"
       )
       .bind(String(githubId))
       .first()) || null
   );
+}
+
+export const MAX_ALIASES = 5;
+export const MAX_ALIAS_CHARS = 40;
+
+/// Other names this person answers to. Text, a few of them, short; the
+/// router reads them, so a name that is a common word would misroute — that
+/// is the person's call, and the flag under the card is how they find out.
+export function normalizeAliases(value) {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set();
+  const out = [];
+  for (const raw of value) {
+    if (typeof raw !== "string") return null;
+    const alias = raw.trim().slice(0, MAX_ALIAS_CHARS);
+    if (!alias || seen.has(alias.toLowerCase())) continue;
+    seen.add(alias.toLowerCase());
+    out.push(alias);
+    if (out.length >= MAX_ALIASES) break;
+  }
+  return out;
+}
+
+export async function setUserAliases(db, githubId, aliases) {
+  await db
+    .prepare("UPDATE users SET aliases = ?2 WHERE github_id = ?1")
+    .bind(String(githubId), aliases.length ? JSON.stringify(aliases) : null)
+    .run();
+}
+
+export function parseAliases(raw) {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.filter((a) => typeof a === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function upsertMembership(db, orgId, githubId, role) {
@@ -617,7 +655,8 @@ export async function listOrgNodes(db, orgId) {
     .prepare(
       `SELECT COALESCE(u.login, m.user_github_id) AS id,
               COALESCE(m.title, m.role) AS role,
-              COALESCE(u.name, u.login, m.user_github_id) AS name
+              COALESCE(u.name, u.login, m.user_github_id) AS name,
+              u.aliases AS aliases
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
         WHERE m.org_id = ?1`
@@ -631,6 +670,7 @@ export async function listOrgNodes(db, orgId) {
     kind: "person",
     role: (r.role || "member").toLowerCase(),
     label: `${r.name} · ${r.role || "member"}`,
+    ...(parseAliases(r.aliases).length ? { aliases: parseAliases(r.aliases) } : {}),
   }));
 }
 

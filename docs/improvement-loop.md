@@ -70,6 +70,23 @@ equally, prefer the less loaded one and say so; and lean a recommendation on a
 real recent decision rather than the instruction alone. Both lists are absent
 on a fresh workspace, so its prompt is unchanged.
 
+## 5. Let the router look things up
+
+With a session and an org, `/ai/route` offers the model one tool before it
+writes: `search_decisions(query)`. The Worker answers it from the org's own
+cards (keyword match over title, summary, reply), at most eight lines, and the
+model is then told to write. The research appears on the card as a step —
+`"supplier price" · 1 found` — so a recommendation that says "Kenji declined
++5% in August" can be traced to what it read. `npm run eval:model` is where a
+change to that prompt is measured.
+
+## 6. Names
+
+The router matches an instruction against each member's name **and their
+aliases** (You → *Also called*). A team whose logins are romanized and whose
+instructions are in Japanese needs this once per person; the golden set has
+an entry (`g-13`) that fails without it.
+
 ## What to do with a week of use
 
 1. Look at Insights. If median wait is long, the feed is not reaching people

@@ -187,6 +187,17 @@ export function resolveRecipientTarget(text, senderID, organization) {
         forceOverride: true,
       };
     }
+    // The other names this person answers to — a Japanese given name on an
+    // account whose login is romanized, a nickname. The same whole-word rule.
+    const node = (organization?.nodes || []).find((n) => n.id === userID);
+    const alias = (node?.aliases || []).find((a) => mentions(lower, a));
+    if (alias) {
+      return {
+        recipientUserID: userID,
+        routingReason: `Mentioned ${alias}`,
+        forceOverride: true,
+      };
+    }
   }
     const team = matchTeamRoute(text, senderID, organization);
   if (team) {
@@ -410,7 +421,47 @@ Routing (critical):
 - "Recent decisions" is what this team actually decided lately. If the
   instruction repeats or contradicts one, say so in the summary or the
   recommendation; a recommendation that leans on a real recent decision is
-  worth more than one that leans on the instruction alone.`;
+  worth more than one that leans on the instruction alone.
+
+Research (when the search_decisions tool is offered):
+- If the instruction could repeat, revisit or depend on something this team
+  has decided before — a supplier, a price, a person, a project — call
+  search_decisions first with 2-4 keywords, then create the card using what
+  came back. One search at most. If nothing could plausibly have been
+  decided before, create the card straight away.`;
+
+/// The one tool the model may call before create_decision_card: what has
+/// this team already decided about this? Offered only when the caller can
+/// answer it (a session, an org, a database), and answered at most once.
+export const SEARCH_DECISIONS_TOOL = {
+  type: "function",
+  function: {
+    name: "search_decisions",
+    description:
+      "Look up what this team has already decided about something before writing the card. Give 2-4 keywords, in the language the instruction uses. Returns the most recent matching decisions, one line each.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "2-4 keywords" } },
+      required: ["query"],
+    },
+  },
+};
+
+const MAX_RESEARCH_RESULTS = 8;
+
+/// The tool result the model reads back: one line per decision.
+export function formatDecisionsForModel(rows) {
+  if (!rows?.length) return "No earlier decision matches.";
+  return rows
+    .slice(0, MAX_RESEARCH_RESULTS)
+    .map((d) => {
+      const when = d.decidedAt ? d.decidedAt.slice(0, 10) : "pending";
+      const biz = d.business ? ` [${d.business}]` : "";
+      const note = d.note ? ` — "${String(d.note).slice(0, 80)}"` : "";
+      return `- ${when} ${d.recipient} ${d.status}: ${d.title}${biz}${note}`;
+    })
+    .join("\n");
+}
 
 export function buildUserPrompt({ text, sender, organization, readerLanguage, senderContext, teamContext }) {
   const orgContext = organizationContext(organization);
@@ -478,7 +529,10 @@ export function matchBusiness(text, organization) {
 
 function organizationContext(organization) {
   const nodes = (organization?.nodes || [])
-    .map((node) => `- ${node.id}: ${node.label} (${node.kind})`)
+    .map((node) => {
+      const aliases = Array.isArray(node.aliases) && node.aliases.length ? ` — also called ${node.aliases.join(", ")}` : "";
+      return `- ${node.id}: ${node.label} (${node.kind})${aliases}`;
+    })
     .join("\n");
   const edges = (organization?.edges || [])
     .map((edge) => {
@@ -930,6 +984,7 @@ async function routeInstructionWithOpenRouter({
   readerLanguage,
   senderContext,
   teamContext,
+  lookups,
   attempt = 0,
   // Shared with the caller (and with this function's own retry) so it can tell
   // "the model answered" from "the call never landed" even when both end up
@@ -950,39 +1005,80 @@ async function routeInstructionWithOpenRouter({
   if (openRouter.appUrl) headers["HTTP-Referer"] = openRouter.appUrl;
   if (openRouter.appName) headers["X-Title"] = openRouter.appName;
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: openRouter.model,
-      temperature: 0.2,
-      max_tokens: 512,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-      tools: buildAgentTools(organization),
-      tool_choice: {
-        type: "function",
-        function: { name: "create_decision_card" },
-      },
-    }),
-  });
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: userPrompt },
+  ];
+  const cardTools = buildAgentTools(organization);
+  const forced = { type: "function", function: { name: "create_decision_card" } };
+  // Research is offered when somebody can answer it, and the model then
+  // chooses: look first, or write straight away. Once it has looked, the
+  // second call is forced to write — one search, not a conversation.
+  const canResearch = typeof lookups?.searchDecisions === "function";
 
-  const data = await response.json();
-  if (!response.ok) {
-    const message = data?.error?.message || `${openRouter.providerName || "LLM"} request failed.`;
-    throw new Error(message);
+  const ask = async (tools, toolChoice) => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: openRouter.model,
+        temperature: 0.2,
+        max_tokens: 512,
+        messages,
+        tools,
+        tool_choice: toolChoice,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const message = data?.error?.message || `${openRouter.providerName || "LLM"} request failed.`;
+      throw new Error(message);
+    }
+    // Past this line the provider has answered and billed us, whatever we go
+    // on to make of the answer — including rejecting it in validateRouting
+    // below. A research round and the write that follows it are one answer
+    // to the meter: the person asked one question.
+    call.answered = true;
+    return data?.choices?.[0]?.message;
+  };
+
+  let message = await ask(canResearch ? [SEARCH_DECISIONS_TOOL, ...cardTools] : cardTools, canResearch ? "auto" : forced);
+  const researchSteps = [];
+
+  const search = message?.tool_calls?.find((c) => c.function?.name === "search_decisions");
+  if (search && canResearch) {
+    let query = "";
+    try { query = String(parseToolArguments(search.function?.arguments).query || ""); } catch { query = ""; }
+    let found = [];
+    try {
+      found = await lookups.searchDecisions(query);
+    } catch (err) {
+      // A failed lookup is an empty one: the card is still written.
+      console.error("search_decisions failed", err?.message || err);
+    }
+    researchSteps.push({
+      name: "search_decisions",
+      label: "Looked up past decisions",
+      detail: `"${query}" · ${found.length} found`,
+    });
+    // The model's own turn goes back to it verbatim, tool calls included,
+    // which is what the chat dialect requires before a tool result.
+    messages.push({ role: "assistant", content: message.content ?? null, tool_calls: message.tool_calls });
+    for (const c of message.tool_calls) {
+      messages.push({
+        role: "tool",
+        tool_call_id: c.id,
+        content: c.function?.name === "search_decisions" ? formatDecisionsForModel(found) : "Not available.",
+      });
+    }
+    message = await ask(cardTools, forced);
   }
-  // Past this line the provider has answered and billed us, whatever we go on
-  // to make of the answer — including rejecting it in validateRouting below.
-  call.answered = true;
 
-  const message = data?.choices?.[0]?.message;
-  const toolCalls = message?.tool_calls;
+  const toolCalls = message?.tool_calls?.filter((c) => c.function?.name !== "search_decisions");
 
   if (toolCalls?.length) {
-    const { card, toolCalls: steps } = materializeFromToolCalls(toolCalls, sender.name);
+    const { card, toolCalls: written } = materializeFromToolCalls(toolCalls, sender.name);
+    const steps = [...researchSteps, ...written];
     if (priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)) {
       card.priority = priorityOverride;
       steps.push({
@@ -1006,6 +1102,7 @@ async function routeInstructionWithOpenRouter({
         readerLanguage,
         senderContext,
         teamContext,
+        lookups,
         attempt: attempt + 1,
         call,
       });
@@ -1044,6 +1141,7 @@ export async function routeInstruction({
   readerLanguage,
   senderContext,
   teamContext,
+  lookups,
 }) {
   const sender = senderForCard(rawSender, organization);
   if (openRouter?.apiKey) {
@@ -1062,6 +1160,7 @@ export async function routeInstruction({
         readerLanguage,
         senderContext,
         teamContext,
+        lookups,
         call,
       });
       return { ...routed, routedBy: openRouter.providerName || "llm", aiCalled: call.answered };

@@ -4,47 +4,362 @@
     "cafe": {
       "orgId": "eval:cafe",
       "nodes": [
-        { "id": "toru", "kind": "person", "role": "founder", "label": "Toru · founder" },
-        { "id": "kenji", "kind": "person", "role": "operator", "label": "Kenji · operator" },
-        { "id": "aya", "kind": "person", "role": "designer", "label": "Aya · designer" },
-        { "id": "mika", "kind": "person", "role": "engineer", "label": "Mika · engineer" },
-        { "id": "yui", "kind": "person", "role": "member", "label": "Yui · member" }
+        {
+          "id": "toru",
+          "kind": "person",
+          "role": "founder",
+          "label": "Toru · founder"
+        },
+        {
+          "id": "kenji",
+          "kind": "person",
+          "role": "operator",
+          "label": "Kenji · operator",
+          "aliases": [
+            "健二"
+          ]
+        },
+        {
+          "id": "aya",
+          "kind": "person",
+          "role": "designer",
+          "label": "Aya · designer"
+        },
+        {
+          "id": "mika",
+          "kind": "person",
+          "role": "engineer",
+          "label": "Mika · engineer",
+          "aliases": [
+            "美香"
+          ]
+        },
+        {
+          "id": "yui",
+          "kind": "person",
+          "role": "member",
+          "label": "Yui · member"
+        }
       ],
       "edges": [
-        { "fromID": "toru", "toID": "kenji", "kind": "manages" },
-        { "fromID": "toru", "toID": "aya", "kind": "manages" },
-        { "fromID": "toru", "toID": "mika", "kind": "manages" },
-        { "fromID": "kenji", "toID": "yui", "kind": "manages" },
-        { "fromID": "toru", "toID": "toru", "kind": "canApprove" },
-        { "fromID": "kenji", "toID": "kenji", "kind": "canApprove" }
+        {
+          "fromID": "toru",
+          "toID": "kenji",
+          "kind": "manages"
+        },
+        {
+          "fromID": "toru",
+          "toID": "aya",
+          "kind": "manages"
+        },
+        {
+          "fromID": "toru",
+          "toID": "mika",
+          "kind": "manages"
+        },
+        {
+          "fromID": "kenji",
+          "toID": "yui",
+          "kind": "manages"
+        },
+        {
+          "fromID": "toru",
+          "toID": "toru",
+          "kind": "canApprove"
+        },
+        {
+          "fromID": "kenji",
+          "toID": "kenji",
+          "kind": "canApprove"
+        }
       ],
       "businesses": [
-        { "slug": "cafe", "name": "Cafe Honmaru" },
-        { "slug": "hotel", "name": "Hotel 本丸" },
-        { "slug": "app", "name": "Honmaru AI" }
+        {
+          "slug": "cafe",
+          "name": "Cafe Honmaru"
+        },
+        {
+          "slug": "hotel",
+          "name": "Hotel 本丸"
+        },
+        {
+          "slug": "app",
+          "name": "Honmaru AI"
+        }
       ]
     }
   },
   "entries": [
-    { "id": "g-01", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "Ask Kenji to approve the new supplier price for the cafe by Friday", "expect": { "recipientUserID": "kenji", "cardType": "approval", "priority": "high", "business": "cafe" } },
-    { "id": "g-02", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "健二に来週の仕入価格の承認をお願いして", "expect": { "recipientUserID": "kenji", "cardType": "approval" } },
-    { "id": "g-03", "org": "cafe", "sender": { "id": "kenji", "role": "operator" }, "text": "Aya, please review the new menu layout and tell me if the photos work", "expect": { "recipientUserID": "aya", "cardType": "revision" } },
-    { "id": "g-04", "org": "cafe", "sender": { "id": "yui", "role": "member" }, "text": "The espresso machine is broken again, we need a decision on replacing it today", "expect": { "recipientUserID": "kenji", "priority": "urgent" } },
-    { "id": "g-05", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "Mika, the login page crashes on iOS 18, fix before the release", "expect": { "recipientUserID": "mika", "cardType": "task", "priority": "high", "business": "app" } },
-    { "id": "g-06", "org": "cafe", "sender": { "id": "aya", "role": "designer" }, "text": "I need sign-off on the hotel lobby signage budget, 400,000 yen", "expect": { "recipientUserID": "toru", "cardType": "approval", "business": "hotel" } },
-    { "id": "g-07", "org": "cafe", "sender": { "id": "kenji", "role": "operator" }, "text": "Delegate the weekend shift planning to Yui", "expect": { "recipientUserID": "yui", "cardType": "delegation" } },
-    { "id": "g-08", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "FYI everyone: the health inspection is next Tuesday", "expect": { "cardType": "notification", "priority": "low" } },
-    { "id": "g-09", "org": "cafe", "sender": { "id": "mika", "role": "engineer" }, "text": "ホテルの予約システムの障害、今すぐ判断が必要です。誰か承認して", "expect": { "cardType": "approval", "priority": "urgent", "business": "hotel" } },
-    { "id": "g-10", "org": "cafe", "sender": { "id": "yui", "role": "member" }, "text": "Can Aya redesign the loyalty card? The current one looks dated", "expect": { "recipientUserID": "aya", "cardType": "task" } },
-    { "id": "g-11", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "Kenji, decide whether we open on New Year's Day. Staff want to know by Monday.", "expect": { "recipientUserID": "kenji", "cardType": "approval", "priority": "high" } },
-    { "id": "g-12", "org": "cafe", "sender": { "id": "kenji", "role": "operator" }, "text": "Escalating: the landlord wants an answer on the lease renewal this week", "expect": { "recipientUserID": "toru", "priority": "high" } },
-    { "id": "g-13", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "美香、アプリのプッシュ通知が届かないバグを直して", "expect": { "recipientUserID": "mika", "cardType": "task", "business": "app" } },
-    { "id": "g-14", "org": "cafe", "sender": { "id": "aya", "role": "designer" }, "text": "Ask Kenji: can we switch the cafe's coffee beans to the Ethiopian supplier?", "expect": { "recipientUserID": "kenji", "business": "cafe" } },
-    { "id": "g-15", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "Yui, please take over the Instagram posting for the cafe this month", "expect": { "recipientUserID": "yui", "cardType": "delegation", "business": "cafe" } },
-    { "id": "g-16", "org": "cafe", "sender": { "id": "kenji", "role": "operator" }, "text": "Need approval to hire two part-timers for the hotel front desk, 1.2M yen a month total", "expect": { "recipientUserID": "toru", "cardType": "approval", "business": "hotel" } },
-    { "id": "g-17", "org": "cafe", "sender": { "id": "mika", "role": "engineer" }, "text": "Toru, should we keep paying for the old analytics tool? It is 30,000 yen a month and nobody opens it.", "expect": { "recipientUserID": "toru", "cardType": "approval" } },
-    { "id": "g-18", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "健二へ：週末の人員配置を承認してください。期限は金曜", "expect": { "recipientUserID": "kenji", "cardType": "approval" } },
-    { "id": "g-19", "org": "cafe", "sender": { "id": "yui", "role": "member" }, "text": "Aya, the poster text has a typo, please revise", "expect": { "recipientUserID": "aya", "cardType": "revision", "priority": "low" } },
-    { "id": "g-20", "org": "cafe", "sender": { "id": "toru", "role": "founder" }, "text": "Mika: build the export-to-CSV feature the hotel manager asked for", "expect": { "recipientUserID": "mika", "cardType": "task" } }
+    {
+      "id": "g-01",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "Ask Kenji to approve the new supplier price for the cafe by Friday",
+      "expect": {
+        "recipientUserID": "kenji",
+        "cardType": "approval",
+        "priority": "high",
+        "business": "cafe"
+      }
+    },
+    {
+      "id": "g-02",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "健二に来週の仕入価格の承認をお願いして",
+      "expect": {
+        "recipientUserID": "kenji",
+        "cardType": "approval"
+      }
+    },
+    {
+      "id": "g-03",
+      "org": "cafe",
+      "sender": {
+        "id": "kenji",
+        "role": "operator"
+      },
+      "text": "Aya, please review the new menu layout and tell me if the photos work",
+      "expect": {
+        "recipientUserID": "aya",
+        "cardType": "revision"
+      }
+    },
+    {
+      "id": "g-04",
+      "org": "cafe",
+      "sender": {
+        "id": "yui",
+        "role": "member"
+      },
+      "text": "The espresso machine is broken again, we need a decision on replacing it today",
+      "expect": {
+        "recipientUserID": "kenji",
+        "priority": "urgent"
+      }
+    },
+    {
+      "id": "g-05",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "Mika, the login page crashes on iOS 18, fix before the release",
+      "expect": {
+        "recipientUserID": "mika",
+        "cardType": "task",
+        "priority": "high",
+        "business": "app"
+      }
+    },
+    {
+      "id": "g-06",
+      "org": "cafe",
+      "sender": {
+        "id": "aya",
+        "role": "designer"
+      },
+      "text": "I need sign-off on the hotel lobby signage budget, 400,000 yen",
+      "expect": {
+        "recipientUserID": "toru",
+        "cardType": "approval",
+        "business": "hotel"
+      }
+    },
+    {
+      "id": "g-07",
+      "org": "cafe",
+      "sender": {
+        "id": "kenji",
+        "role": "operator"
+      },
+      "text": "Delegate the weekend shift planning to Yui",
+      "expect": {
+        "recipientUserID": "yui",
+        "cardType": "delegation"
+      }
+    },
+    {
+      "id": "g-08",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "FYI everyone: the health inspection is next Tuesday",
+      "expect": {
+        "cardType": "notification",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "g-09",
+      "org": "cafe",
+      "sender": {
+        "id": "mika",
+        "role": "engineer"
+      },
+      "text": "ホテルの予約システムの障害、今すぐ判断が必要です。誰か承認して",
+      "expect": {
+        "cardType": "approval",
+        "priority": "urgent",
+        "business": "hotel"
+      }
+    },
+    {
+      "id": "g-10",
+      "org": "cafe",
+      "sender": {
+        "id": "yui",
+        "role": "member"
+      },
+      "text": "Can Aya redesign the loyalty card? The current one looks dated",
+      "expect": {
+        "recipientUserID": "aya",
+        "cardType": "task"
+      }
+    },
+    {
+      "id": "g-11",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "Kenji, decide whether we open on New Year's Day. Staff want to know by Monday.",
+      "expect": {
+        "recipientUserID": "kenji",
+        "cardType": "approval",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "g-12",
+      "org": "cafe",
+      "sender": {
+        "id": "kenji",
+        "role": "operator"
+      },
+      "text": "Escalating: the landlord wants an answer on the lease renewal this week",
+      "expect": {
+        "recipientUserID": "toru",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "g-13",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "美香、アプリのプッシュ通知が届かないバグを直して",
+      "expect": {
+        "recipientUserID": "mika",
+        "cardType": "task",
+        "business": "app"
+      }
+    },
+    {
+      "id": "g-14",
+      "org": "cafe",
+      "sender": {
+        "id": "aya",
+        "role": "designer"
+      },
+      "text": "Ask Kenji: can we switch the cafe's coffee beans to the Ethiopian supplier?",
+      "expect": {
+        "recipientUserID": "kenji",
+        "business": "cafe"
+      }
+    },
+    {
+      "id": "g-15",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "Yui, please take over the Instagram posting for the cafe this month",
+      "expect": {
+        "recipientUserID": "yui",
+        "cardType": "delegation",
+        "business": "cafe"
+      }
+    },
+    {
+      "id": "g-16",
+      "org": "cafe",
+      "sender": {
+        "id": "kenji",
+        "role": "operator"
+      },
+      "text": "Need approval to hire two part-timers for the hotel front desk, 1.2M yen a month total",
+      "expect": {
+        "recipientUserID": "toru",
+        "cardType": "approval",
+        "business": "hotel"
+      }
+    },
+    {
+      "id": "g-17",
+      "org": "cafe",
+      "sender": {
+        "id": "mika",
+        "role": "engineer"
+      },
+      "text": "Toru, should we keep paying for the old analytics tool? It is 30,000 yen a month and nobody opens it.",
+      "expect": {
+        "recipientUserID": "toru",
+        "cardType": "approval"
+      }
+    },
+    {
+      "id": "g-18",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "健二へ：週末の人員配置を承認してください。期限は金曜",
+      "expect": {
+        "recipientUserID": "kenji",
+        "cardType": "approval"
+      }
+    },
+    {
+      "id": "g-19",
+      "org": "cafe",
+      "sender": {
+        "id": "yui",
+        "role": "member"
+      },
+      "text": "Aya, the poster text has a typo, please revise",
+      "expect": {
+        "recipientUserID": "aya",
+        "cardType": "revision",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "g-20",
+      "org": "cafe",
+      "sender": {
+        "id": "toru",
+        "role": "founder"
+      },
+      "text": "Mika: build the export-to-CSV feature the hotel manager asked for",
+      "expect": {
+        "recipientUserID": "mika",
+        "cardType": "task"
+      }
+    }
   ]
 }

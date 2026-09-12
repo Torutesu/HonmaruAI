@@ -215,3 +215,36 @@ export async function exportGolden(db, orgId, { limit = 200 } = {}) {
   }
   return entries;
 }
+
+/// What this team already decided about something, by keyword. The model's
+/// research tool: two to four words in, at most eight one-line decisions out.
+/// LIKE over the card JSON is crude and fast, and a team of ten has hundreds
+/// of cards, not millions.
+export async function searchDecisions(db, orgId, query, { limit = 8 } = {}) {
+  const words = String(query || "")
+    .split(/[\s,、。・]+/u)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 2)
+    .slice(0, 4);
+  if (!words.length) return [];
+  const clauses = words.map((_, i) => `data LIKE ?${i + 2}`).join(" OR ");
+  const { results } = await db
+    .prepare(
+      `SELECT recipient_user_id, decided_at, data FROM cards
+        WHERE org_id = ?1 AND (${clauses})
+        ORDER BY COALESCE(decided_at, created_at) DESC LIMIT ?${words.length + 2}`
+    )
+    .bind(orgId, ...words.map((w) => `%${w}%`), Math.max(1, Math.min(Number(limit) || 8, 20)))
+    .all();
+  return (results || []).map((row) => {
+    const card = parseCard(row) || {};
+    return {
+      title: String(card.title || "").slice(0, 120),
+      recipient: row.recipient_user_id,
+      status: card.decision?.action || card.status || "pending",
+      decidedAt: row.decided_at || null,
+      note: card.decision?.replyText || card.decision?.note || null,
+      business: card.business || null,
+    };
+  });
+}

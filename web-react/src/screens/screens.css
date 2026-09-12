@@ -360,7 +360,7 @@
   .profile-avatar { background: #ededef; color: #17171a; }
   .profile-stats { border-color: #2c2c33; }
   .profile-stats div { border-right-color: #2c2c33; }
-  .row-select, .join-code { background: #17171a; border-color: #2c2c33; color: #ededef; }
+  .row-select, .join-code, .alias-input { background: #17171a; border-color: #2c2c33; color: #ededef; }
   .btn-text { color: #a2a2ab; }
   .btn-text:hover { color: #ededef; }
   .welcome-points li { border-top-color: #26262b; }
@@ -431,3 +431,13 @@
   .barlist-track { background: #26262b; }
   .barlist-track i { background: #ededef; }
 }
+
+/* Its own class, not .join-code: the end-to-end suite fills ".join-code"
+   with an invite, and a second input wearing that class took the code. */
+.alias-input {
+  display: block; width: 100%; margin-top: 8px;
+  border: 1px solid var(--bone); border-radius: var(--radius-pill);
+  background: var(--signal-white); color: var(--ink-black);
+  font-family: var(--font-body); font-size: 14px; padding: 8px 12px;
+}
+.alias-input:focus { outline: none; border-color: var(--signal-blue); }

@@ -411,6 +411,11 @@ const ja: Dict = {
   'You will be told when a decision is waiting — even with this tab closed.': 'このタブを閉じていても、決定が待っているときにお知らせします。',
   'Your browser refused. Allow notifications for this site, then try again.': 'ブラウザが拒否しました。このサイトの通知を許可してからもう一度お試しください。',
 
+  // Aliases
+  'Also called': '呼び名',
+  'Names your AI should recognise as you — a first name, a nickname, in any language.': 'AIがあなただと認識すべき名前。下の名前、あだ名、どの言語でも。',
+  'e.g. 美香, Mika': '例：美香, Mika',
+
   // The feedback loop
   'Is this card wrong?': 'このカード、違う？',
   'What is wrong with it?': '何が違いますか？',

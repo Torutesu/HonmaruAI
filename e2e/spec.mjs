@@ -458,6 +458,18 @@ await step('every other screen opens', async () => {
   await page.click('text=Plan')
   await page.waitForSelector('.plan-card, .empty', { timeout: 10000 })
   await shot('15-plans')
+  // What else you are called, saved on blur and read back — the router
+  // matches instructions against it.
+  await page.click('.screen .back')
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.alias-input', { timeout: 10000 })
+  const [aliasRes] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/me') && r.request().method() === 'PUT', { timeout: 10000 }),
+    page.fill('.alias-input', '美香, Mika').then(() => page.press('.alias-input', 'Tab')),
+  ])
+  if (aliasRes.status() !== 200) throw new Error(`aliases answered ${aliasRes.status()}`)
+  const saved = await (await aliasRes.json()).aliases
+  if (JSON.stringify(saved) !== JSON.stringify(['美香', 'Mika'])) throw new Error(`aliases saved as ${JSON.stringify(saved)}`)
   // The numbers: the flagged card from earlier is the one thing the AI got
   // wrong in this window, and the screen has to say so.
   await page.click('.screen .back')
