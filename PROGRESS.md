@@ -34,6 +34,8 @@ The list of what is still missing, and why each item matters, is
       priority, badly written). `POST /cards/:id/feedback`, sender or
       recipient only, one verdict per person per card, on the card's
       timeline as a `feedback` event
+- [x] **On the phone too**: the flag sits under the swipe hint on every
+      pending card, and You → Insights reads the same numbers
 - [x] **Insights** (You → Insights, `GET /metrics?orgId=&days=`): cards per
       day, median time to decide, decline rate, pending, nudges, where cards
       come from, what was decided, what the AI got wrong. From the cards
@@ -269,8 +271,6 @@ The list of what is still missing, and why each item matters, is
 
 ## Still open
 
-- [ ] iOS has neither the flag under the card nor the Insights screen yet;
-      the Worker routes are there for it
 
 - [ ] **The Release build carries the RevenueCat Test Store key.** `RevenueCatConfig.apiKey`
       is `test_…`, which the app refuses to configure in Release (the SDK

@@ -12,8 +12,8 @@ How the product gets better from being used, and where each piece lives.
 
 ## 1. Say what was wrong
 
-Under every card in the web feed: **Is this card wrong?** → one of *Wrong
-person · Not a decision · Wrong priority · Badly written*. That is
+Under every card, on the web and on the phone: **Is this card wrong?** → one
+of *Wrong person · Not a decision · Wrong priority · Badly written*. That is
 `POST /cards/:id/feedback` with `{ orgId, verdict: "wrong", reason }`. Only
 the card's sender or recipient can rate it; one verdict per person per card,
 the latest standing. It is also written to the card's timeline as a
@@ -21,7 +21,7 @@ the latest standing. It is also written to the card's timeline as a
 
 ## 2. See the numbers
 
-**You → Insights** reads `GET /metrics?orgId=…&days=7|14|30`:
+**You → Insights** (web and iOS) reads `GET /metrics?orgId=…&days=7|14|30`:
 
 | Number | Meaning |
 |--------|---------|
