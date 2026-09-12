@@ -21,6 +21,16 @@ interface Props {
   onAsk: (text: string, card: DecisionCard) => void
   /// "This card is wrong" — and why. The one signal the router learns from.
   onFlag: (cardId: string, reason: FlagReason) => void
+  /// What your AI answered under each card, by card id.
+  answers: Record<string, Answer>
+}
+
+export interface Answer {
+  question: string
+  answer: string | null
+  related: Array<{ title: string; status: string; decidedAt: string | null; recipient: string }>
+  busy: boolean
+  error?: string
 }
 
 export type FlagReason = 'wrong-person' | 'not-a-decision' | 'wrong-priority' | 'wrong-words'
@@ -76,7 +86,7 @@ function segments(context: string): Array<{ label: string; detail: string }> {
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
-export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag }) => {
+export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag, answers }) => {
   const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -147,6 +157,7 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
           onDecide={onDecide}
           onAsk={onAsk}
           onFlag={onFlag}
+          answer={answers[card.id]}
         />
       ))}
       {cards.length > 1 && (
@@ -163,9 +174,10 @@ interface PageProps {
   onDecide: Props['onDecide']
   onAsk: Props['onAsk']
   onFlag: Props['onFlag']
+  answer?: Answer
 }
 
-const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk, onFlag }) => {
+const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk, onFlag, answer }) => {
   const t = useT()
   const [dx, setDx] = useState(0)
   const [ask, setAsk] = useState('')
@@ -307,6 +319,25 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk, on
           />
           <button type="submit" className="ask-send" aria-label={t('Send')} disabled={!ask.trim()}>➤</button>
         </form>
+
+        {answer && (
+          <div className="answer" aria-live="polite">
+            <div className="answer-q">{answer.question}</div>
+            {answer.busy && <div className="answer-a answer-busy">{t('Your AI is looking…')}</div>}
+            {answer.error && <div className="answer-a answer-error">{answer.error}</div>}
+            {answer.answer && <div className="answer-a">{answer.answer}</div>}
+            {answer.related.length > 0 && (
+              <ul className="answer-related">
+                {answer.related.map((r) => (
+                  <li key={`${r.title}-${r.decidedAt}`}>
+                    <span className="answer-when">{r.decidedAt ? r.decidedAt.slice(0, 10) : t('Waiting')}</span>
+                    {r.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {/* Quiet, under everything: a card that is wrong is still decided
             above, and saying so costs one tap. What is said here becomes a

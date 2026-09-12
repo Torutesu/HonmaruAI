@@ -80,7 +80,17 @@ model is then told to write. The research appears on the card as a step —
 +5% in August" can be traced to what it read. `npm run eval:model` is where a
 change to that prompt is measured.
 
-## 6. Names
+## 6. Ask, and be answered
+
+The ask bar under a card is a question, not a delegation. `POST /ai/ask`
+answers from the card, a keyword search over the team's past decisions
+(`search_decisions`, the same one the router uses) and the last eight, and
+lists the decisions it drew on under the answer. It never invents a decision:
+when the material does not hold the answer it says what is missing. Each
+question is an `asked` event on the card, so "what do people ask about?" is a
+query away.
+
+## 7. Names
 
 The router matches an instruction against each member's name **and their
 aliases** (You → *Also called*). A team whose logins are romanized and whose

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { getLocale, LOCALE_NAMES } from '../utils/locale'
 import type { Business } from '../types/card'
 import { useT, changeLocale as applyLocale } from '../utils/i18n'
@@ -67,11 +67,18 @@ export const Profile: React.FC<Props> = ({
   // matches an instruction against these, so 「美香に」 reaches an account
   // whose login is "mika".
   const [aliases, setAliases] = useState('')
+  // Typed before the profile arrived: the fetch must not overwrite it. That
+  // race is exactly what the end-to-end suite hit on a fast machine.
+  const aliasesTouched = useRef(false)
 
   useEffect(() => {
     fetch(`${httpBase}/me?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => r.json())
-      .then((data) => { setMe(data); if (data.locale) setLocaleState(data.locale); setAliases((data.aliases || []).join(', ')) })
+      .then((data) => {
+        setMe(data)
+        if (data.locale) setLocaleState(data.locale)
+        if (!aliasesTouched.current) setAliases((data.aliases || []).join(', '))
+      })
       .catch(() => setError(t('Could not read your profile.')))
   }, [httpBase, orgId, sessionToken])
 
@@ -188,7 +195,7 @@ export const Profile: React.FC<Props> = ({
               <input
                 className="alias-input"
                 value={aliases}
-                onChange={(e) => setAliases(e.target.value)}
+                onChange={(e) => { aliasesTouched.current = true; setAliases(e.target.value) }}
                 onBlur={() => {
                   const list = aliases.split(/[,、]/).map((a) => a.trim()).filter(Boolean)
                   if (list.join(',') !== (me?.aliases || []).join(',')) patch({ aliases: list })

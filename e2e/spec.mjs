@@ -94,7 +94,7 @@ page.on('response', (r) => {
 
 // What this configuration is *supposed* to refuse: connectors need a Composio
 // key, web push needs a VAPID pair, and the screens for both say so out loud.
-const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/]
+const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai\/ask/]
 
 /// Back to the feed, whatever is open on top of it. Several steps were each
 /// rolling their own version of this loop, and each one that got it slightly
@@ -356,6 +356,22 @@ await step('a decision can be taken back in the moment', async () => {
   if (await page.$('.toast.undo')) throw new Error('the Undo toast is still up after being used')
 })
 
+// "Ask anything" answers, under the card. This deployment has no model, and
+// the answer to a question then is that fact, said where the answer would go
+// — not a new card routed to somebody, which is what it used to do.
+await step('asking about a card answers under it, and does not make a card', async () => {
+  const before = await page.$$eval('.card-title', (els) => els.length)
+  await page.fill('.ask-bar input', 'Did we decide something like this before?')
+  await page.click('.ask-send')
+  await page.waitForSelector('.answer-a:not(.answer-busy)', { timeout: 15000 })
+  const text = await page.$eval('.answer', (el) => el.textContent)
+  if (!/no model|モデル/.test(text)) throw new Error(`the answer panel says: ${text.slice(0, 120)}`)
+  await page.waitForTimeout(500)
+  const after = await page.$$eval('.card-title', (els) => els.length)
+  if (after !== before) throw new Error(`a question made ${after - before} card(s)`)
+  await shot('09e-ask')
+})
+
 // Every card carries "Is this card wrong?". Saying so is one tap, lands as a
 // row the router is measured against, and never gets in the way of deciding.
 await step('a card can be flagged as wrong, and the verdict lands', async () => {
@@ -463,6 +479,8 @@ await step('every other screen opens', async () => {
   await page.click('.screen .back')
   await page.click('nav [data-tab="you"]')
   await page.waitForSelector('.alias-input', { timeout: 10000 })
+  // The profile has to have arrived, or the fetch lands after the typing.
+  await page.waitForFunction(() => (document.querySelector('.profile-head b')?.textContent || '').trim().length > 0, null, { timeout: 10000 })
   const [aliasRes] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/me') && r.request().method() === 'PUT', { timeout: 10000 }),
     page.fill('.alias-input', '美香, Mika').then(() => page.press('.alias-input', 'Tab')),

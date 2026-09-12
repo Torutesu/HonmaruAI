@@ -416,6 +416,12 @@ const ja: Dict = {
   'Names your AI should recognise as you — a first name, a nickname, in any language.': 'AIがあなただと認識すべき名前。下の名前、あだ名、どの言語でも。',
   'e.g. 美香, Mika': '例：美香, Mika',
 
+  // Ask anything
+  'Your AI is looking…': 'AIが調べています…',
+  'Your AI has no model to answer with on this deployment.': 'この環境のAIには、答えるためのモデルが設定されていません。',
+  "You have used today's AI answers.": '今日のAIへの質問回数を使い切りました。',
+  'Your AI could not answer that just now.': 'AIは今それに答えられませんでした。',
+
   // The feedback loop
   'Is this card wrong?': 'このカード、違う？',
   'What is wrong with it?': '何が違いますか？',

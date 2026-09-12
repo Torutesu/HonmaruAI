@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 416 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 420 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 30 steps
@@ -52,6 +52,14 @@ The list of what is still missing, and why each item matters, is
       gates the local router's recipient accuracy at 90% in CI.
       `GET /eval/export?orgId=` turns real cards and their verdicts into
       golden candidates, with a flagged field left open for a person to fill
+- [x] **"Ask anything" answers.** It used to route the question to somebody
+      as a new card. `POST /ai/ask {orgId, cardId, question}` answers it
+      from the card, a keyword search over the team's past decisions and
+      its last eight, in the reader's language — two to five sentences, and
+      "what is missing" rather than an invented decision. The answer lands
+      under the card on the web, with the decisions it drew on; the question
+      is logged as an `asked` event; metered like a route; a deployment with
+      no model says so
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

@@ -30,6 +30,7 @@ import {
   recordFeedback, orgMetrics, recipientLoad, recentDecisions, exportGolden, searchDecisions,
   FEEDBACK_VERDICTS, FEEDBACK_REASONS,
 } from "./insights.js";
+import { answerQuestion, searchTermsFor } from "./ask.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -931,6 +932,57 @@ async function handle(request, env, url) {
       }
       return json({ results });
     }
+    // A question about a card, answered from what the team already knows.
+    // Not a card: nobody is asked to decide anything, and nothing is stored
+    // but the fact that the question was asked.
+    if (url.pathname === "/ai/ask" && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      const cardId = typeof body.cardId === "string" ? body.cardId : "";
+      const question = typeof body.question === "string" ? body.question.trim() : "";
+      if (!orgId || !cardId) return json({ message: "orgId and cardId are required" }, 400);
+      if (!question) return json({ message: "question is required" }, 400);
+      if (question.length > 1000) return json({ message: "That question is too long (over 1000 characters)." }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      const provider = providerConfig(env, userKey);
+      if (!provider) return json({ message: "Your AI has no model to answer with on this deployment." }, 503);
+      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey });
+      if (!allowance.allowed) {
+        return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
+      }
+      let related = [];
+      let recent = [];
+      try {
+        [related, recent] = await Promise.all([
+          searchDecisions(env.DB, orgId, searchTermsFor(question, card)),
+          recentDecisions(env.DB, orgId, { limit: 8 }),
+        ]);
+      } catch (err) {
+        console.error("ask context failed", err?.message || err);
+      }
+      const result = await answerQuestion({
+        provider, card, question, readerLanguage: body.readerLanguage, recent, related,
+      });
+      if (result.called && allowance.metered) await allowance.consume();
+      if (!result.answer) return json({ message: "Your AI could not answer that just now." }, 502);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      await appendCardEvent(env.DB, orgId, {
+        cardId, type: "asked", actorUserId: user?.login || null, note: question.slice(0, 500), snapshot: card,
+      });
+      return json({
+        answer: result.answer,
+        related: related.slice(0, 5).map((d) => ({ title: d.title, status: d.status, decidedAt: d.decidedAt, recipient: d.recipient })),
+      });
+    }
+
     // What a person thought of a card. The one signal that turns "the AI
     // routed it wrong" from a feeling into a row the eval set can be built
     // from. Sender or recipient only: they are the two who can know.

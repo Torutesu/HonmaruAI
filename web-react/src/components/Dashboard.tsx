@@ -12,11 +12,11 @@ import { NotificationSettings } from '../screens/NotificationSettings'
 import { Plans } from '../screens/Plans'
 import { Profile } from '../screens/Profile'
 import { Insights } from '../screens/Insights'
-import type { FlagReason } from './Feed'
+import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
-import type { AppState, Business } from '../types/card'
+import type { AppState, Business, DecisionCard } from '../types/card'
 import './Dashboard.css'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
@@ -198,46 +198,35 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => clearTimeout(id)
   }, [undo])
 
-  /// "Ask anything" on a card: the same thing telling your AI does, with the
-  /// card it is about named, so the router has the context a bare sentence
-  /// would be missing.
-  const handleAsk = useCallback(async (text: string, card: any) => {
+  /// "Ask anything" on a card: a question, answered from the card and what
+  /// the team decided before — not routed to somebody as a new card. The
+  /// answer lands under the card; nothing is created.
+  const [answers, setAnswers] = useState<Record<string, Answer>>({})
+  const handleAsk = useCallback(async (text: string, card: DecisionCard) => {
+    setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: null, related: [], busy: true } }))
     try {
-      const res = await fetch(`${relayHttpUrl}/ai/route`, {
+      const res = await fetch(`${relayHttpUrl}/ai/ask`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
-        body: JSON.stringify({
-          text: `About "${card.title}": ${text}`,
-          orgId,
-          sender: { id: userId, role: 'member' },
-          // The Worker writes its own words on a card — the title, the routing
-          // line — and without this it writes them in English.
-          readerLanguage: getLocale(),
-        }),
+        body: JSON.stringify({ orgId, cardId: card.id, question: text, readerLanguage: getLocale() }),
       })
-      const routed = await res.json()
-      if (!res.ok) { setError(routed.message || t('Your AI could not route that.')); return }
-      wsClientRef.current!.sendCardCreated({
-        id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        type: routed.cardType || 'notification',
-        status: 'pending',
-        recipientUserID: routed.recipientUserID,
-        title: routed.title || t('Decision needed'),
-        summary: routed.summary || '',
-        context: routed.context || '',
-        priority: routed.priority || 'medium',
-        routingReason: routed.routingReason || '',
-        agentRoute: routed.agentRoute || '',
-        createdAt: new Date().toISOString(),
-        sourceInstruction: text,
-        ...(routed.business ? { business: routed.business } : {}),
-        ...(routed.recommendation ? { recommendation: routed.recommendation } : {}),
-      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const why = res.status === 503
+          ? t('Your AI has no model to answer with on this deployment.')
+          : res.status === 429
+            ? t("You have used today's AI answers.")
+            : (data.message || t('Your AI could not answer that just now.'))
+        setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: null, related: [], busy: false, error: why } }))
+        return
+      }
+      setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: data.answer, related: data.related || [], busy: false } }))
       addDebugLog(`Asked about ${card.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const why = err instanceof Error ? err.message : String(err)
+      setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: null, related: [], busy: false, error: why } }))
     }
-  }, [relayHttpUrl, orgId, userId, sessionToken, addDebugLog, t])
+  }, [relayHttpUrl, orgId, sessionToken, addDebugLog, t])
 
   const handleDecision = useCallback((cardId: string, action: string, options?: any) => {
     wsClientRef.current!.sendDecision(cardId, action, options)
@@ -303,6 +292,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onDecide={handleDecision}
           onAsk={handleAsk}
           onFlag={handleFlag}
+          answers={answers}
         />
       ) : (
         <ClassicList

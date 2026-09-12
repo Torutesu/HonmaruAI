@@ -282,3 +282,24 @@
   .flag-chip { background: #151518; border-color: #303038; color: #ededef; }
   .flag-link:hover { color: #ededef; }
 }
+
+/* What your AI answered, under the ask bar. Grounded in the card and the
+   team's past decisions; the ones it drew on are listed under it. */
+.answer {
+  margin-top: 12px; padding: 12px 14px;
+  background: #fff; border: 1px solid #ececf0; border-radius: 14px;
+  font-size: 14px; line-height: 1.5;
+}
+.answer-q { color: #8b8b93; font-size: 12.5px; margin-bottom: 6px; }
+.answer-q::before { content: '“'; } .answer-q::after { content: '”'; }
+.answer-a { color: #101014; white-space: pre-wrap; }
+.answer-busy { color: #8b8b93; }
+.answer-error { color: #a11258; }
+.answer-related { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px solid #f0f0f4; font-size: 12.5px; color: #45454f; }
+.answer-related li { display: flex; gap: 8px; padding: 2px 0; }
+.answer-when { color: #a0a0aa; font-variant-numeric: tabular-nums; flex: none; }
+@media (prefers-color-scheme: dark) {
+  .answer { background: #151518; border-color: #26262b; }
+  .answer-a { color: #ededef; }
+  .answer-related { border-top-color: #26262b; color: #c9c9d1; }
+}
