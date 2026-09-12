@@ -8375,6 +8375,16 @@
           }
         }
       }
+    },
+    "Terms of Use": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用規約"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
