@@ -1,5 +1,6 @@
-import { SELF, env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {SELF, env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import {
   vapidToken, resetVapidTokens, encryptPayload, decryptPayload, sendWebPush,
@@ -33,7 +34,7 @@ async function subscriber(endpoint) {
 let vapid;
 let pushEnv;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   vapid = await vapidPair();
   pushEnv = {

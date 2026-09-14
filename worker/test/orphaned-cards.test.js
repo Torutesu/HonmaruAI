@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 
@@ -61,7 +61,7 @@ function remove(token, userId) {
   );
 }
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession } = await import("../src/db.js");
   await seed("5001", "boss", "Boss", "admin");

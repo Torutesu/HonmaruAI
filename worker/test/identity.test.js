@@ -1,12 +1,12 @@
 import { env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import {
   createSession, getSession, upsertUser, getUserByGithubId,
   upsertMembership, upsertAgent,
 } from "../src/db.js";
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 

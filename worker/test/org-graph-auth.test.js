@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 
@@ -11,7 +11,7 @@ const ORG = "acme/app";
 let emailToken;
 let githubToken;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
   const { EMAIL_AUTH_TOKEN } = await import("../src/auth.js");

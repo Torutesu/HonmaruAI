@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { classifyBusiness, fileCardUnderBusiness } from "../src/classify.js";
 import { routeInstruction } from "../src/routing.js";
@@ -10,7 +11,7 @@ import { routeInstruction } from "../src/routing.js";
 const ORG = "acme/holdings";
 const provider = { providerName: "OpenAI", endpoint: "https://api.openai.com/v1/chat/completions", apiKey: "sk-test", model: "m" };
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 beforeEach(() => fetchMock.activate());

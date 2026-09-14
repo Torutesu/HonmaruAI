@@ -1,5 +1,6 @@
-import { SELF, env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {SELF, env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 
 // The redirect target is a custom URL scheme, and iOS gives a custom scheme to
@@ -8,7 +9,7 @@ import schemaSql from "../schema.sql?raw";
 // session bound to the victim's device. The nonce is the only thing that makes
 // the code ours.
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 beforeEach(() => fetchMock.activate());

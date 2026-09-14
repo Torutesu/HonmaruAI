@@ -1,5 +1,5 @@
 import { SELF, env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { localeFromRequest } from "../src/index.js";
 
@@ -7,7 +7,7 @@ import { localeFromRequest } from "../src/index.js";
 // until this existed it was written as "en" by every code path that touched
 // the users table — so it was never anything else.
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { upsertUser, upsertMembership, createSession } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "9101", login: "yuki", name: "Yuki", avatarUrl: null, locale: "ja" });

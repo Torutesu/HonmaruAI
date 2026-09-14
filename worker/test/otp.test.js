@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 
 // A six-digit code is the whole credential. These tests pin the four things
@@ -13,7 +13,7 @@ const MAIL = { RESEND_API_KEY: "re_test" };
 let sent = [];
 const realFetch = globalThis.fetch;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 

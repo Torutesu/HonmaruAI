@@ -1,4 +1,5 @@
-import { SELF, fetchMock } from "cloudflare:test";
+import {SELF} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import { routeInstruction, buildAgentTools } from "../src/routing.js";
 

@@ -1,4 +1,5 @@
-import { fetchMock } from "cloudflare:test";
+import {} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import { triageMessage } from "../src/triage.js";
 

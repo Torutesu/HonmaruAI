@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { createSession, upsertUser, upsertMembership } from "../src/db.js";
@@ -51,7 +52,7 @@ const triageReply = (content) =>
     .intercept({ path: "/v1/chat/completions", method: "POST" })
     .reply(200, () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }));
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   await upsertUser(env.DB, { githubId: "4242", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });
   await upsertMembership(env.DB, "acme/web", "4242", "Engineer");

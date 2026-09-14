@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { notion } from "../src/connectors/notion.js";
@@ -48,7 +49,7 @@ const CONNECTED = { ...env, COMPOSIO_API_KEY: "ak_test", OPENAI_API_KEY: "sk-tes
 const SELF = { fetch: (url, init) => worker.fetch(new Request(url, init), CONNECTED) };
 
 let token;
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   token = await createSession(env.DB, "900", "gho_notion_sync");
   await upsertUser(env.DB, { githubId: "900", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });

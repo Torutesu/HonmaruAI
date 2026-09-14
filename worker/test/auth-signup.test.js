@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 
 // Signup is an unauthenticated endpoint that writes a membership row, and
@@ -9,7 +9,7 @@ import schemaSql from "../schema.sql?raw";
 
 const VICTIM_ORG = "victim/private-repo";
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { upsertUser, upsertMembership } = await import("../src/db.js");
   // A private org with exactly one member: its owner.

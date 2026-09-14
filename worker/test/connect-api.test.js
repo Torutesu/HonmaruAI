@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { createSession } from "../src/db.js";
 import worker from "../src/index.js";
@@ -8,7 +9,7 @@ let token;
 const ENV = () => ({ ...env, COMPOSIO_API_KEY: "ak-test" });
 const call = (path, init) => worker.fetch(new Request("https://example.com" + path, init), ENV());
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   token = await createSession(env.DB, "900", "gho_conn");
 });

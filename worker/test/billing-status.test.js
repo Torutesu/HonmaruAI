@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 
 // The plan screen reads this. With billing switched off it must still answer —
@@ -8,7 +8,7 @@ import schemaSql from "../schema.sql?raw";
 
 let token;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { signup } = await import("../src/auth.js");
   const result = await signup(env, { email: "buyer@example.com", password: "password123", name: "Buyer" });

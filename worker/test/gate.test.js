@@ -1,9 +1,10 @@
-import { env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { countAIUse, usedToday, readEntitlement, writeEntitlement } from "../src/db.js";
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 
@@ -25,8 +26,7 @@ test("the entitlement cache round-trips with its timestamp", async () => {
   expect(typeof row.checked_at).toBe("string");
 });
 
-import { fetchMock } from "cloudflare:test";
-import { beforeEach, afterEach } from "vitest";
+import { afterEach } from "vitest";
 import { checkAIAllowance, FREE_DAILY_ROUTES, UNBILLED_DAILY_ROUTES } from "../src/gate.js";
 
 beforeEach(() => fetchMock.activate());

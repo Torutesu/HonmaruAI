@@ -1,5 +1,6 @@
-import { SELF, env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {SELF, env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { notifyCard } from "../src/notify.js";
 import { providerToken, resetProviderToken, isDeadToken } from "../src/apns.js";
@@ -22,7 +23,7 @@ const pushEnv = () => ({
   APNS_ENVIRONMENT: "sandbox",
 });
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { upsertUser, registerDevice, createSession } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "5001", login: "alice", name: null, avatarUrl: null, locale: "en" });

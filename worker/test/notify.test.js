@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { notifyCard } from "../src/notify.js";
 import { composeAlert, composeEmail, t, actionLabel } from "../src/notifyCopy.js";
@@ -25,7 +26,7 @@ const mail = (over = {}) => ({
   ...over,
 });
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { upsertUser, registerDevice } = await import("../src/db.js");
   // Taro reads Japanese and has a phone. Alice reads English and has a phone.

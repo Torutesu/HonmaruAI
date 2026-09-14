@@ -1,4 +1,4 @@
-import { env, expect, test, beforeAll } from "vitest";
+import { env, expect, test, beforeEach } from "vitest";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "../src/agui/validate.js";
 import { OrgRelay } from "../src/relay.js";
 
