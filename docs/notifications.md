@@ -31,9 +31,9 @@ person reads. `users.locale` is:
   every teammate to English; `upsertUser` now keeps a stored locale unless a
   caller actually passes one.
 
-Every string a notification can say is in `notifyCopy.js`, in English and
-Japanese, with English as the fallback for a language we have not written.
-Adding one is adding a block.
+Every string a notification can say is in `notifyCopy.js`, in English,
+Japanese, Spanish, French and German, with English as the fallback for a
+language we have not written. Adding one is adding a block.
 
 The **card itself** is written by the router in the *sender's* language,
 because the sender's app is the only thing the router knows. The relay is the

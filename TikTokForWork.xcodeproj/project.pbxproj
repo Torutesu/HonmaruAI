@@ -53,6 +53,7 @@
 		800DD1DDC98CE09D13719B11 /* HistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E25C40FFC66E7F2E6B70627 /* HistoryService.swift */; };
 		883115BA58A0EC1AA8D5F308 /* CardVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9800C7B0C8EBD9F798562A /* CardVideoView.swift */; };
 		890DC7776BFB95161547A003 /* DecisionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F1C39E5BEABD558A524E5BC /* DecisionCard.swift */; };
+		8E003443A83B4F928D14486E /* AppLanguageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D212E0F18FAB1F269B7E1386 /* AppLanguageTests.swift */; };
 		8F4BC52EA073A545855ED0A7 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F32E31C7E0C5B7195586234 /* AppLanguage.swift */; };
 		92B72AED3E5A8B5316B86D17 /* CardCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A039D147C4741E015530174 /* CardCache.swift */; };
 		95290EBF4EDE097F8C064870 /* GitHubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E494243CEA2F9FA065D51B /* GitHubService.swift */; };
@@ -175,6 +176,7 @@
 		CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIService.swift; sourceTree = "<group>"; };
 		CED63FE3692D666375D4EF19 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		CFD842FAD29BFAA978BC0DB8 /* ReviseSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviseSheet.swift; sourceTree = "<group>"; };
+		D212E0F18FAB1F269B7E1386 /* AppLanguageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguageTests.swift; sourceTree = "<group>"; };
 		D216DBD6816CA69DB47EFDE8 /* DecisionCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCardTests.swift; sourceTree = "<group>"; };
 		D6018CEB31000BAFC422610C /* CaptureRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureRequest.swift; sourceTree = "<group>"; };
 		D6EA18C2E37F28784989EDF0 /* MediaUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaUploader.swift; sourceTree = "<group>"; };
@@ -417,6 +419,7 @@
 		E9F8888B401902CB4E755D19 /* TikTokForWorkTests */ = {
 			isa = PBXGroup;
 			children = (
+				D212E0F18FAB1F269B7E1386 /* AppLanguageTests.swift */,
 				7BFF89D04DFAAFE20441432B /* CardCacheTests.swift */,
 				D216DBD6816CA69DB47EFDE8 /* DecisionCardTests.swift */,
 				683357448491DB612509CFCE /* EmailSessionTests.swift */,
@@ -509,7 +512,10 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
+				de,
 				en,
+				es,
+				fr,
 				ja,
 			);
 			mainGroup = D0850E186A410FFC54953FED;
@@ -546,6 +552,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8E003443A83B4F928D14486E /* AppLanguageTests.swift in Sources */,
 				1A2532D8889B0D727DB6EF21 /* CardCacheTests.swift in Sources */,
 				EF67E139C4916EAF055D6626 /* DecisionCardTests.swift in Sources */,
 				CFAAE202A471A7575DB287E6 /* EmailSessionTests.swift in Sources */,

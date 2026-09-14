@@ -21,7 +21,8 @@ test("GET /me says what language you read and what can reach you", async () => {
   const res = await SELF.fetch("https://example.com/me", { headers: headers(globalThis.__yuki) });
   expect(res.status).toBe(200);
   expect(await res.json()).toMatchObject({
-    login: "yuki", locale: "ja", notifyEmail: true, supportedLocales: expect.arrayContaining(["en", "ja"]),
+    login: "yuki", locale: "ja", notifyEmail: true,
+    supportedLocales: expect.arrayContaining(["en", "ja", "es", "fr", "de"]),
   });
   expect((await SELF.fetch("https://example.com/me")).status).toBe(401);
 });
@@ -37,6 +38,16 @@ test("PUT /me changes the language, normalizes the tag, and refuses nonsense", a
     method: "PUT", headers: headers(globalThis.__yuki), body: JSON.stringify({ locale: "not a language" }),
   });
   expect(res.status).toBe(400);
+
+  // The newer languages store the same way, region tag and all.
+  res = await SELF.fetch("https://example.com/me", {
+    method: "PUT", headers: headers(globalThis.__yuki), body: JSON.stringify({ locale: "de-DE" }),
+  });
+  expect(await res.json()).toMatchObject({ locale: "de" });
+  res = await SELF.fetch("https://example.com/me", {
+    method: "PUT", headers: headers(globalThis.__yuki), body: JSON.stringify({ locale: "es" }),
+  });
+  expect(await res.json()).toMatchObject({ locale: "es" });
 
   res = await SELF.fetch("https://example.com/me", {
     method: "PUT", headers: headers(globalThis.__yuki), body: JSON.stringify({ locale: "ja", notifyEmail: false }),

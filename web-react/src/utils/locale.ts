@@ -4,7 +4,7 @@
 // browser, mirrored to the Worker (PUT /me) so every notification — here, on
 // the phone, by email — is written in it.
 
-export const SUPPORTED = ['en', 'ja'] as const
+export const SUPPORTED = ['en', 'ja', 'es', 'fr', 'de'] as const
 
 export function primary(tag: string | undefined | null): string {
   return (tag || 'en').toLowerCase().split(/[-_]/)[0]
@@ -30,4 +30,7 @@ export function setLocale(code: string | null): void {
 export const LOCALE_NAMES: Record<string, string> = {
   en: 'English',
   ja: '日本語',
+  es: 'Español',
+  fr: 'Français',
+  de: 'Deutsch',
 }

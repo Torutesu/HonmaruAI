@@ -8,7 +8,7 @@ options:
   # Japanese ships as a real localization rather than by rewriting the source
   # strings, so English survives for review and anywhere outside Japan.
   developmentLanguage: en
-  knownRegions: [en, ja, Base]
+  knownRegions: [en, ja, es, fr, de, Base]
 
 settings:
   base:
