@@ -5,6 +5,8 @@ import { sweepRateLimits } from "./ratelimit.js";
 import { cardsCreatedSince, primaryOrgId } from "./db.js";
 import { announceCards } from "./announce.js";
 import { providerConfig } from "./provider.js";
+import { alert } from "./alert.js";
+import { safe } from "./log.js";
 
 // "Your AI triaged three decisions overnight" cannot be true if the AI only
 // runs while you are looking at it. Until this existed, a connector sync
@@ -51,7 +53,7 @@ async function candidates(db) {
   return withOrg.filter((row) => row.org_id && row.login);
 }
 
-export async function runScheduledSync(env) {
+export async function runScheduledSync(env, ctx) {
   const provider = providerConfig(env);
   const rows = await candidates(env.DB);
   let synced = 0;
@@ -100,6 +102,8 @@ export async function runScheduledSync(env) {
       }
     } catch (err) {
       console.error("scheduled sync failed", row.login, err?.message || err);
+      // A sync that fails quietly for weeks is how connectors rot unnoticed.
+      alert(ctx, env, "scheduled-sync", `${row.login}: ${safe(err?.message)}`);
     }
     // Marked whether the sync succeeded or failed: the timestamp orders the
     // next run's candidates, and a user whose connector is broken must not

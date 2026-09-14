@@ -25,6 +25,7 @@ import { isMailConfigured } from "./mailer.js";
 import { SUPPORTED_LOCALES } from "./notifyCopy.js";
 import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
+import { alert } from "./alert.js";
 import { listCardEvents, listOrgEvents } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -69,7 +70,7 @@ export default {
   // a card by the time they look. Nothing here bypasses the free-tier meter:
   // the sync loop checks the same allowance a manual sync does.
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(runScheduledSync(env));
+    ctx.waitUntil(runScheduledSync(env, ctx));
   },
 
   async fetch(request, env, ctx) {
@@ -93,6 +94,7 @@ export default {
       // An unhandled throw used to become a raw Workers 500 with a stack trace
       // in it. A malformed JSON body was enough.
       logJSON({ requestId, route, status: 500, ms: Date.now() - startedAt, error: safe(err?.message) });
+      alert(ctx, env, "unhandled", `${route} ${requestId} ${safe(err?.message)}`);
       return new Response(
         JSON.stringify({ message: "Something went wrong on our side.", requestId }),
         { status: 500, headers: { "content-type": "application/json", "x-request-id": requestId } }

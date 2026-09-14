@@ -248,6 +248,21 @@ https/wss を組み立てる。
 
 ---
 
+## 4.5. 運用アラート（任意だが推奨）
+
+未ハンドルの 500 と定期同期の失敗を、Slack の incoming webhook などに
+`{ text }` で POST する。未設定なら何もしない。同種のアラートは 1 分に
+1 回までに間引かれる。
+
+```bash
+npx wrangler secret put ALERT_WEBHOOK_URL    # https://hooks.slack.com/services/... など
+```
+
+Slack ならワークスペースの App 管理 → Incoming Webhooks で URL を発行するだけ。
+リクエストを遅らせないよう `waitUntil` で送るので、応答速度への影響はない。
+
+---
+
 ## 5. 確認
 
 ```bash
