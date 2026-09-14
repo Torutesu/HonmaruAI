@@ -32,6 +32,7 @@ import {
 } from "./insights.js";
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
+import { ingestedItemForCard } from "./db.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -1023,6 +1024,53 @@ async function handle(request, env, url) {
         cardId, type: "drafted", actorUserId: user?.login || null, note: result.draft.slice(0, 500), snapshot: card,
       });
       return json({ draft: result.draft, language: result.language });
+    }
+
+    // The reply, sent back the way the request came: on the Gmail thread, in
+    // the Slack thread. Only for a card this person's own sync made from a
+    // message — the ingested record, which no client can write, is the link
+    // — and only once it is decided. The text is the person's: the draft,
+    // read and changed by them.
+    const replyMatch = url.pathname.match(/^\/cards\/([^/]+)\/reply$/);
+    if (replyMatch && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const cardId = decodeURIComponent(replyMatch[1]);
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      const text = typeof body.text === "string" ? body.text.trim() : "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      if (!text) return json({ message: "text is required" }, 400);
+      if (text.length > 4000) return json({ message: "That reply is too long (over 4000 characters)." }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (user?.login !== card.recipientUserID && user?.login !== card.senderUserID) {
+        return json({ message: "Only the people on this card can reply for it." }, 403);
+      }
+      if (!card.decision || card.status === "pending") {
+        return json({ message: "Decide first; the reply follows the decision." }, 409);
+      }
+      if (!env.COMPOSIO_API_KEY) return json({ message: "Connected apps are not on this deployment. Copy the reply and send it yourself." }, 503);
+      const item = await ingestedItemForCard(env.DB, cardId, session.github_id);
+      if (!item) return json({ message: "This card did not come from a connected app. Copy the reply and send it yourself." }, 409);
+      const connector = connectorById(item.connector);
+      const tool = connector?.replyTool ? connector.replyTool(card.source || {}, text) : null;
+      if (!tool) return json({ message: `A reply cannot go back through ${connector?.label || item.connector} from here. Copy it and send it yourself.` }, 409);
+      try {
+        await executeTool(env.COMPOSIO_API_KEY, tool.slug, String(session.github_id), tool.args);
+      } catch (err) {
+        console.error("reply send failed", safe(err?.message || err));
+        return json({ message: `${connector.label} did not take the reply. Copy it and send it yourself.` }, 502);
+      }
+      await appendCardEvent(env.DB, orgId, {
+        cardId, type: "replied", actorUserId: user?.login || null, note: text.slice(0, 500), snapshot: card,
+      });
+      return json({ sent: true, via: connector.label });
     }
 
     // What a person thought of a card. The one signal that turns "the AI

@@ -25,6 +25,10 @@ const LIMITS = { title: 300, summary: 2000, context: 8000, revisionNote: 2000, s
 // both are as unbounded a surface as the summary and get the same treatment.
 const RECOMMENDED = new Set(["approve", "decline", "revise"]);
 const REQUESTER_LIMITS = { login: 128, name: 120, role: 60, quote: 600, sourceUrl: 500 };
+// Where a synced card came from, kept so a reply can go back the same way.
+// A client may write it, but a reply is only ever sent for a card the sync
+// recorded as ingested by the caller — see POST /cards/:id/reply.
+const SOURCE_FIELDS = ["connector", "id", "threadId", "from", "channel", "ts"];
 
 // A curated context is a person's profile document, so it is allowed to be
 // bigger than a card — but not unbounded, and it goes straight into D1.
@@ -68,6 +72,16 @@ export function validateIncomingCard(card) {
       if (value === undefined || value === null) continue;
       if (typeof value !== "string") return `requestedBy.${field} must be text.`;
       if (value.length > max) return `requestedBy.${field} is longer than ${max} characters.`;
+    }
+  }
+  if (card.source !== undefined) {
+    const src = card.source;
+    if (typeof src !== "object" || src === null) return "source must be an object.";
+    for (const field of SOURCE_FIELDS) {
+      const value = src[field];
+      if (value === undefined || value === null) continue;
+      if (typeof value !== "string") return `source.${field} must be text.`;
+      if (value.length > 300) return `source.${field} is longer than 300 characters.`;
     }
   }
   if (card.decision !== undefined) {

@@ -20,7 +20,11 @@ interface Props {
   sessionToken: string
 }
 
-interface Draft { busy: boolean; text?: string; error?: string }
+interface Draft { busy: boolean; text?: string; error?: string; sending?: boolean; sent?: string; sendError?: string }
+
+/// The apps a reply can go back through, from here. The Worker knows which
+/// thread; the client only knows whether to offer the button.
+const SENDABLE = new Set(['Gmail', 'Slack'])
 
 type Filter = 'all' | 'yours' | 'sent'
 
@@ -84,6 +88,27 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
       setDrafts((prev) => ({ ...prev, [cardId]: { busy: false, text: data.draft } }))
     } catch (err) {
       setDrafts((prev) => ({ ...prev, [cardId]: { busy: false, error: err instanceof Error ? err.message : String(err) } }))
+    }
+  }
+
+  /// Back the way it came: on the Gmail thread, in the Slack thread. The
+  /// text is whatever is in the box by then — the draft, read and changed.
+  const sendReply = async (cardId: string, text: string) => {
+    setDrafts((prev) => ({ ...prev, [cardId]: { ...prev[cardId], busy: false, sending: true, sendError: undefined } }))
+    try {
+      const res = await fetch(`${httpBase}/cards/${encodeURIComponent(cardId)}/reply`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, text }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setDrafts((prev) => ({ ...prev, [cardId]: { ...prev[cardId], busy: false, sending: false, sendError: data.message || t('Could not send.') } }))
+        return
+      }
+      setDrafts((prev) => ({ ...prev, [cardId]: { ...prev[cardId], busy: false, sending: false, sent: data.via } }))
+    } catch (err) {
+      setDrafts((prev) => ({ ...prev, [cardId]: { ...prev[cardId], busy: false, sending: false, sendError: err instanceof Error ? err.message : String(err) } }))
     }
   }
 
@@ -196,10 +221,33 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
                             {drafts[card.id].text && (
                               <>
                                 <p className="hist-draft-hint">{t('A draft, in the language the request came in. Read it, change it, send it yourself.')}</p>
-                                <pre className="hist-draft-text">{drafts[card.id].text}</pre>
-                                <button className="pill-btn hist-copy" onClick={() => copy(card.id, drafts[card.id].text || '')}>
-                                  {copied === card.id ? t('Copied') : t('Copy')}
-                                </button>
+                                <textarea
+                                  className="hist-draft-text"
+                                  rows={6}
+                                  aria-label={t('The draft')}
+                                  value={drafts[card.id].text}
+                                  readOnly={Boolean(drafts[card.id].sent) || drafts[card.id].sending}
+                                  onChange={(e) => setDrafts((prev) => ({ ...prev, [card.id]: { ...prev[card.id], text: e.target.value } }))}
+                                />
+                                {drafts[card.id].sent ? (
+                                  <p className="hist-sent">{t('Sent via {app}.', { app: drafts[card.id].sent || '' })}</p>
+                                ) : (
+                                  <div className="hist-draft-actions">
+                                    {card.sourceApp && SENDABLE.has(card.sourceApp) && (
+                                      <button
+                                        className="pill-btn hist-send"
+                                        disabled={drafts[card.id].sending || !(drafts[card.id].text || '').trim()}
+                                        onClick={() => sendReply(card.id, drafts[card.id].text || '')}
+                                      >
+                                        {drafts[card.id].sending ? t('Sending…') : t('Send via {app}', { app: card.sourceApp })}
+                                      </button>
+                                    )}
+                                    <button className="pill-btn hist-copy" onClick={() => copy(card.id, drafts[card.id].text || '')}>
+                                      {copied === card.id ? t('Copied') : t('Copy')}
+                                    </button>
+                                  </div>
+                                )}
+                                {drafts[card.id].sendError && <p className="hist-draft-error">{drafts[card.id].sendError}</p>}
                               </>
                             )}
                           </div>

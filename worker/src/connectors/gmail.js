@@ -24,4 +24,23 @@ export const gmail = {
       date: m.messageTimestamp || m.internalDate || "",
     }));
   },
+
+  /// The reply, back on the same thread, to the address the mail came from.
+  /// Null when the card does not remember enough to reply.
+  replyTool(source, text) {
+    const address = addressIn(source?.from);
+    if (!source?.threadId || !address) return null;
+    return {
+      slug: "GMAIL_REPLY_TO_THREAD",
+      args: { thread_id: source.threadId, recipient_email: address, message_body: text, is_html: false },
+    };
+  },
 };
+
+/// "Mika <mika@cafe.jp>" → "mika@cafe.jp"; a bare address as is; else null.
+export function addressIn(from) {
+  const text = String(from || "").trim();
+  const angled = text.match(/<([^<>\s]+@[^<>\s]+)>/);
+  if (angled) return angled[1];
+  return /^[^\s@<>]+@[^\s@<>]+$/.test(text) ? text : null;
+}

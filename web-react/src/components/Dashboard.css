@@ -195,6 +195,8 @@
 
 @media (prefers-color-scheme: dark) {
   .hist-draft-text { background: #1f1f26; color: #ececf0; }
+  .hist-draft-text:focus { background: #18181b; }
+  .hist-send { background: #ededef; color: #18181b; }
   .brand, .topbar-right button, .sheet-title, .sheet-title .close { color: #ededef; }
   .topbar-right button { background: rgba(9,9,11,0.7); border-color: #26262b; }
   .sheet, .toast { background: #111113; color: #ededef; border-color: #26262b; }
@@ -401,7 +403,12 @@
 .hist-draft-box { margin-top: 10px; }
 .hist-draft-hint { margin: 0 0 6px; font-size: 12px; color: #9a9aa5; }
 .hist-draft-error { margin: 0; font-size: 13px; color: #d0316f; }
-.hist-draft-text { white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; line-height: 1.5; color: #1c1c21; background: #f6f6f8; border-radius: 10px; padding: 10px 12px; margin: 0 0 8px; }
+.hist-draft-text { display: block; width: 100%; box-sizing: border-box; resize: vertical; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; line-height: 1.5; color: #1c1c21; background: #f6f6f8; border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; margin: 0 0 8px; }
+.hist-draft-text:focus { outline: none; border-color: #6647f0; background: #fff; }
+.hist-draft-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.hist-send { background: #1c1c21; color: #fff; }
+.hist-send:disabled { opacity: .5; }
+.hist-sent { margin: 0; font-size: 13px; color: #1f9d6b; }
 
 /* The last screen: a render error, said out loud. */
 .crash-detail { margin-top: 16px; font-size: 13px; color: #6b6b75; }

@@ -24,10 +24,19 @@ export const slack = {
       // permalink encodes channel + timestamp and is stable across searches;
       // iid is a per-search id and would re-ingest the same message forever.
       id: m.permalink || `${m.channel?.id || ""}-${m.ts}`,
+      // Where a reply goes: the channel, and the message as the thread.
+      channel: m.channel?.id || null,
+      ts: m.ts || null,
       from: m.username || m.user || "",
       subject: m.channel?.name ? `#${m.channel.name}` : "Slack",
       snippet: m.text || "",
       date: m.ts ? new Date(Number(m.ts) * 1000).toISOString() : "",
     }));
+  },
+
+  /// The reply, in the thread under the message, in its channel.
+  replyTool(source, text) {
+    if (!source?.channel || !source?.ts) return null;
+    return { slug: "SLACK_SEND_MESSAGE", args: { channel: source.channel, text, thread_ts: source.ts } };
   },
 };

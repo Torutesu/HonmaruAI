@@ -424,6 +424,11 @@ const ja: Dict = {
 
   // The reply draft
   'Draft the reply': '返信を下書き',
+  'The draft': '下書き',
+  'Send via {app}': '{app}で送る',
+  'Sending…': '送信中…',
+  'Sent via {app}.': '{app}で送りました。',
+  'Could not send.': '送れませんでした。',
   'Your AI is writing…': 'AIが書いています…',
   'Your AI has no model to draft with on this deployment.': 'この環境のAIには、下書きするためのモデルが設定されていません。',
   'Your AI could not draft that just now.': 'AIは今それを下書きできませんでした。',

@@ -69,6 +69,7 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
         createdAt: new Date().toISOString(),
         sourceApp: connector.label,
         sourceDetail: `${message.from} · ${message.subject}`,
+        source: sourceOf(connector, message),
       });
       created += 1;
     }
@@ -81,6 +82,17 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
   }
 
   return { connector: connector.id, scanned: messages.length, created };
+}
+
+/// What a card remembers about the message it came from — enough to send a
+/// reply back the same way, and nothing the card does not already show.
+export function sourceOf(connector, message) {
+  const keep = (v) => (typeof v === "string" && v ? v.slice(0, 300) : undefined);
+  const source = {
+    connector: connector.id, id: keep(message.id), threadId: keep(message.threadId),
+    from: keep(message.from), channel: keep(message.channel), ts: keep(message.ts),
+  };
+  return Object.fromEntries(Object.entries(source).filter(([, v]) => v !== undefined));
 }
 
 // One connector's outage must not silence the others.

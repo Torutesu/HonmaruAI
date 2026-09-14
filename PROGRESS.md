@@ -69,8 +69,18 @@ The list of what is still missing, and why each item matters, is
       three to six sentences, nothing invented. History → a decided row →
       "Draft the reply" shows it with Copy, and so does the card's details
       sheet on the phone (Sent by you rows open it); it is a draft, the
-      person sends it. Only the two people on the card, only once it is decided (409
-      before); logged as a `drafted` event; metered like a route
+      person sends it. Only the two people on the card, only once it is
+      decided (409 before); logged as a `drafted` event; metered like a route
+- [x] **The reply sent back the way it came.** For a card the person's own
+      sync made from a Gmail or Slack message, the draft (read and changed in
+      a box) goes back on that thread from here: `POST /cards/:id/reply
+      {orgId, text}` → `GMAIL_REPLY_TO_THREAD` on the thread, to the address
+      the mail came from, or `SLACK_SEND_MESSAGE` in the thread. Synced cards
+      now keep a `source` (thread, address, channel, ts); the link a reply
+      trusts is the `ingested_items` row, which no client can write, so a
+      forged `source` on a typed card sends nothing. Decided cards only;
+      logged as `replied`; a deployment without Composio, or an app that
+      refuses, says to copy and send by hand
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the
