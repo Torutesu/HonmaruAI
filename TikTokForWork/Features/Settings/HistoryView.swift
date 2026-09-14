@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// Everything that has happened in this repo's feed, newest first. The backend
-/// gates it by membership, so a guest is told to sign in rather than shown a
-/// failure.
+/// Everything that has happened in this repo's feed, one row per card,
+/// newest first. The backend gates it by membership, so a guest is told to
+/// sign in rather than shown a failure.
 ///
 /// History is not a feed to scroll — it is a place you go with a question:
-/// "did that get approved?", "what did Bob decide last week?". A list you can
-/// only page through answers neither, so it filters and searches.
+/// "did that get approved?", "what did Bob decide last week?", "did I ever
+/// answer Mika?". A row is a card: what happened to it last, how many times
+/// it has been touched, and who touched it. It opens the card, where a
+/// decided one can have its reply drafted, changed and sent.
 struct HistoryView: View {
     @EnvironmentObject private var appState: AppState
     @State private var events: [CardEvent] = []
@@ -14,44 +16,14 @@ struct HistoryView: View {
     @State private var isLoading = true
     @State private var query = ""
     @State private var filter: HistoryFilter = .all
+    @State private var detailCard: DecisionCard?
 
-    /// Kinds worth separating. `decided` is the one people actually come for, so
-    /// it is not buried under "everything".
-    enum HistoryFilter: String, CaseIterable, Identifiable {
-        case all, decided, created, undone
-
-        var id: String { rawValue }
-
-        var label: String {
-            switch self {
-            case .all: String(localized: "All")
-            case .decided: String(localized: "Decided")
-            case .created: String(localized: "Created")
-            case .undone: String(localized: "Undone")
-            }
-        }
-
-        func matches(_ event: CardEvent) -> Bool {
-            switch self {
-            case .all: true
-            case .decided: event.type == "decided"
-            case .created: event.type == "created"
-            case .undone: event.type == "rolled_back"
-            }
-        }
+    private var threads: [HistoryThread] {
+        HistoryThread.threads(from: events) { appState.cardService.card(id: $0) }
     }
 
-    private var visibleEvents: [CardEvent] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return events.filter { event in
-            guard filter.matches(event) else { return false }
-            guard !trimmed.isEmpty else { return true }
-            // Title, whoever acted, and any note they left — the three things
-            // someone actually remembers about a decision.
-            return [event.snapshot?.title, event.actorUserId, event.note, event.headline]
-                .compactMap { $0?.lowercased() }
-                .contains { $0.contains(trimmed) }
-        }
+    private var visibleThreads: [HistoryThread] {
+        threads.filter { filter.matches($0) && $0.matches(query) }
     }
 
     var body: some View {
@@ -72,7 +44,7 @@ struct HistoryView: View {
                         .padding(.top, Theme.Spacing.xl)
                 } else {
                     filterBar
-                    if visibleEvents.isEmpty {
+                    if visibleThreads.isEmpty {
                         // Distinct from "nothing has happened": the difference
                         // between an empty log and a search that found nothing
                         // is the difference between the product and the query.
@@ -82,8 +54,8 @@ struct HistoryView: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, Theme.Spacing.xl)
                     } else {
-                        ForEach(visibleEvents) { event in
-                            row(event)
+                        ForEach(visibleThreads) { thread in
+                            row(thread)
                         }
                     }
                 }
@@ -94,6 +66,10 @@ struct HistoryView: View {
         .searchable(text: $query, prompt: Text("Search decisions"))
         .refreshable { await load() }
         .task { await load() }
+        .sheet(item: $detailCard) { card in
+            CardDetailSheet(card: card)
+                .presentationDetents([.medium, .large])
+        }
     }
 
     private var filterBar: some View {
@@ -119,31 +95,48 @@ struct HistoryView: View {
         }
     }
 
-    private func row(_ event: CardEvent) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+    /// One card. What happened to it last is the headline; the title under
+    /// it; then how many times it has been touched, and by whom.
+    private func row(_ thread: HistoryThread) -> some View {
+        let latest = thread.latest
+        return VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text(event.headline)
+                Text(latest.headline)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.Colors.textPrimary)
                 Spacer()
-                Text(RelativeTime.since(event.createdAt))
+                Text(RelativeTime.since(latest.createdAt))
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
             }
-            Text(event.snapshot?.title ?? event.cardId)
+            Text(thread.title)
                 .font(Theme.TypeScale.caption)
                 .foregroundStyle(Theme.Colors.textSecondary)
                 .lineLimit(2)
-            if let note = event.note, !note.isEmpty {
+            if let note = latest.note, !note.isEmpty {
                 Text(note)
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .lineLimit(2)
             }
-            if let actor = event.actorUserId {
-                Text(DisplayName.of(actor, in: appState.organization))
-                    .font(Theme.TypeScale.micro)
-                    .foregroundStyle(Theme.Colors.textTertiary)
+            HStack(spacing: Theme.Spacing.sm) {
+                if thread.events.count > 1 {
+                    Text(String(localized: "\(thread.events.count) events"))
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+                if !thread.actors.isEmpty {
+                    Text(thread.actors.map { DisplayName.of($0, in: appState.organization) }.joined(separator: " · "))
+                        .font(Theme.TypeScale.micro)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if thread.card != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
             }
         }
         .padding(Theme.Spacing.md)
@@ -154,7 +147,16 @@ struct HistoryView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.image)
                 .strokeBorder(Theme.Colors.border, lineWidth: 1)
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // A row that has the card opens it; one that does not (an old
+            // event that recorded less) is just a row.
+            guard let card = thread.card else { return }
+            detailCard = card
+        }
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(thread.card != nil ? .isButton : [])
+        .accessibilityHint(thread.card != nil ? Text("Opens the card") : Text(""))
     }
 
     private func load() async {
@@ -185,9 +187,7 @@ struct HistoryView: View {
 /// activity list.
 enum RelativeTime {
     static func since(_ iso: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+        let date = ISO8601DateFormatter.relayFractional.date(from: iso) ?? ISO8601DateFormatter.relayStandard.date(from: iso)
         guard let date else { return "" }
         let seconds = Int(Date().timeIntervalSince(date))
         if seconds < 60 { return String(localized: "just now") }

@@ -154,6 +154,16 @@ final class DecisionCardService: ObservableObject {
     ///
     /// A card someone sent to themselves is already in their feed, so it is
     /// not also in the list of things they are waiting on other people for.
+    /// A card by id, whoever it is addressed to. History opens cards from
+    /// here first, so a card that changed since its last event shows its
+    /// current state rather than the event's.
+    func card(id: String) -> DecisionCard? {
+        for cards in cardsByUser.values {
+            if let card = cards.first(where: { $0.id == id }) { return card }
+        }
+        return nil
+    }
+
     func sent(by userID: String) -> [DecisionCard] {
         cardsByUser.values
             .flatMap { $0 }

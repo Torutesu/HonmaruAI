@@ -31,7 +31,7 @@ enum HistoryService {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw HistoryError.server(0) }
         switch http.statusCode {
-        case 200: return try JSONDecoder().decode(Envelope.self, from: data).events
+        case 200: return try JSONDecoder.relay().decode(Envelope.self, from: data).events
         case 401: throw HistoryError.notSignedIn
         case 403: throw HistoryError.forbidden
         default: throw HistoryError.server(http.statusCode)

@@ -88,6 +88,17 @@ The list of what is still missing, and why each item matters, is
       placeholder. Pages branch previews point at it through one Preview
       variable. Owner: create the two resources and paste the id
       (docs/setup-secrets.md 4.5, handoff G)
+- [x] **History on the phone is one row per card.** It was a list of
+      events — five rows for one decision, none of which opened. Events are
+      grouped into threads (`HistoryThread`): the latest event as headline,
+      the title, how many times it was touched and by whom; filters All /
+      Decided / Waiting / Undone; search over title, actors, notes. A row
+      opens the card's details sheet — the feed's copy when it has one, else
+      the card the newest event recorded — so a decided card goes straight
+      to "Draft the reply", the box, and "Send via Gmail". Events decode
+      through the relay's date format now (a plain decoder could name a
+      card but never open it); an older event that recorded less still
+      reads. Four unit tests
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

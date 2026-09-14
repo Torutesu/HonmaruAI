@@ -5291,6 +5291,61 @@
           }
         }
       }
+    },
+    "Asked your AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIに質問"
+          }
+        }
+      }
+    },
+    "Reply drafted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を下書き済み"
+          }
+        }
+      }
+    },
+    "Reply sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を送信済み"
+          }
+        }
+      }
+    },
+    "Filed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分類"
+          }
+        }
+      }
+    },
+    "%lld events": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の出来事"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
