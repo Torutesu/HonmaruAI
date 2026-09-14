@@ -213,6 +213,28 @@ reply」と返し、画面はコピーして手で送るよう案内します。
    カード詳細（iPhone）で「返信を下書き」→「Gmail で送る」。送信元スレッドに
    返信が付き、画面に「Gmail で送りました。」と出れば完了。
 
+## G. ステージング環境を作る（15 分、A の後）
+
+本番に触らずに試すための 2 つ目の Worker。コードと定義（`worker/wrangler.toml`
+の `[env.staging]`、Deploy Worker の environment 入力）は入っています。無いのは
+Cloudflare 側のリソース 2 つと、その ID の貼り付けです。
+
+1. ターミナルで `cd worker && npx wrangler@4 login`（ブラウザで許可）。
+2. `npx wrangler@4 d1 create tiktokforwork-staging` を実行し、出力の
+   `database_id`（UUID）をコピー。
+3. `worker/wrangler.toml` を開き、`[[env.staging.d1_databases]]` の
+   `database_id = "00000000-0000-0000-0000-000000000000"` をその UUID に置き換えて保存。
+4. `npx wrangler@4 r2 bucket create tiktokforwork-media-staging`。
+5. 本番に入れたシークレットを `--env staging` 付きでもう一度
+   （`npx wrangler@4 secret put OPENAI_API_KEY --env staging` など、
+   docs/setup-secrets.md 4.5 の一覧）。
+6. 3 の変更をコミットして `main` に入れ、`staging` ブランチを `main` から切って push。
+   GitHub の Actions → Deploy Worker が staging に出ることを確認。
+7. Cloudflare Pages の Settings → Environment variables → Preview に
+   `VITE_API_HOST = tiktokforwork-staging.torubj0904.workers.dev` を追加。
+8. 確認: `https://tiktokforwork-staging.torubj0904.workers.dev/health` が
+   `{"ok":true…}` を返す。
+
 ## 完了の定義
 
 - `curl -s https://tiktokforwork.torubj0904.workers.dev/health` が

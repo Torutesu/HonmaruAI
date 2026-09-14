@@ -81,6 +81,13 @@ The list of what is still missing, and why each item matters, is
       forged `source` on a typed card sends nothing. Decided cards only;
       logged as `replied`; a deployment without Composio, or an app that
       refuses, says to copy and send by hand
+- [x] **A staging Worker.** `[env.staging]` in `worker/wrangler.toml`: the
+      same code as `tiktokforwork-staging`, its own relay, D1 and R2. Deploy
+      Worker deploys it for a push to the `staging` branch or by hand
+      (environment input), and refuses while the database id is the
+      placeholder. Pages branch previews point at it through one Preview
+      variable. Owner: create the two resources and paste the id
+      (docs/setup-secrets.md 4.5, handoff G)
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

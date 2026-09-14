@@ -25,3 +25,34 @@ database_id = "08d78a7f-45eb-4837-8393-4f7c92bf39cb"
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "tiktokforwork-media"
+
+# Staging: the same Worker under another name, with its own relay, database
+# and bucket, so a branch can be tried against real Cloudflare without
+# touching what customers use. `wrangler deploy --env staging` reads this
+# block; the Deploy Worker workflow does that for a push to the `staging`
+# branch, or by hand with its "environment" input.
+#
+# Two resources exist once, made by the owner (see docs/setup-secrets.md):
+#   npx wrangler@4 d1 create tiktokforwork-staging      → paste database_id below
+#   npx wrangler@4 r2 bucket create tiktokforwork-media-staging
+# Secrets are per environment: `wrangler secret put NAME --env staging`.
+[env.staging]
+name = "tiktokforwork-staging"
+
+[env.staging.triggers]
+crons = ["*/15 * * * *"]
+
+[[env.staging.durable_objects.bindings]]
+name = "ORG_RELAY"
+class_name = "OrgRelay"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "tiktokforwork-staging"
+# Placeholder until the database exists. The deploy workflow refuses to
+# deploy staging while this is all zeros.
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[env.staging.r2_buckets]]
+binding = "MEDIA"
+bucket_name = "tiktokforwork-media-staging"

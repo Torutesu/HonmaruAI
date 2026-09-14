@@ -248,6 +248,34 @@ https/wss を組み立てる。
 
 ---
 
+## 4.5 ステージング（任意・15 分）
+
+本番と同じ Worker を `tiktokforwork-staging` という別名で動かし、リレー・D1・R2 を
+分けます。`worker/wrangler.toml` の `[env.staging]` がその定義です。
+`staging` ブランチに push すると **Deploy Worker** がこちらに出します
+（Actions から手動で environment=staging を選んでも同じ）。
+
+```bash
+cd worker
+npx wrangler@4 d1 create tiktokforwork-staging
+#   → 出力の database_id を wrangler.toml の [env.staging] の
+#     database_id（全部ゼロのプレースホルダ）に貼る
+npx wrangler@4 r2 bucket create tiktokforwork-media-staging
+# シークレットは環境ごと。本番と同じ名前を --env staging で入れる
+npx wrangler@4 secret put OPENAI_API_KEY --env staging
+npx wrangler@4 secret put RESEND_API_KEY --env staging
+npx wrangler@4 secret put COMPOSIO_API_KEY --env staging
+```
+
+Web 側は Cloudflare Pages のブランチプレビューをそのまま使います。Pages の
+Settings → Environment variables → **Preview** に
+`VITE_API_HOST=tiktokforwork-staging.torubj0904.workers.dev` を入れると、
+`main` 以外のブランチのプレビュー URL がステージング Worker を向きます
+（Production はそのまま本番 Worker）。
+
+プレースホルダのままだと Deploy Worker は staging を出さずに止まります
+（「Staging has no database yet」）。
+
 ## 5. 確認
 
 ```bash

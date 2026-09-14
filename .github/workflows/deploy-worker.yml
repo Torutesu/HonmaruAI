@@ -12,21 +12,31 @@ name: Deploy Worker
 # Without them the job stops with an explanation instead of failing in the
 # middle of a deploy.
 
+# Two environments. `main` deploys production; the `staging` branch deploys
+# the staging Worker (its own name, relay, database and bucket — see
+# `[env.staging]` in worker/wrangler.toml), so a branch can be tried against
+# real Cloudflare without touching what customers use. By hand, the
+# "environment" input picks either.
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
     paths:
       - "worker/**"
       - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:
     inputs:
+      environment:
+        description: "Which Worker to deploy"
+        type: choice
+        options: [production, staging]
+        default: production
       migrate_only:
         description: "Run the D1 migration but do not deploy"
         type: boolean
         default: false
 
 concurrency:
-  group: deploy-worker
+  group: deploy-worker-${{ inputs.environment || (github.ref_name == 'staging' && 'staging' || 'production') }}
   cancel-in-progress: false
 
 jobs:
@@ -39,8 +49,29 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TARGET: ${{ inputs.environment || (github.ref_name == 'staging' && 'staging' || 'production') }}
     steps:
       - uses: actions/checkout@v4
+
+      # One place decides the three things that differ: the wrangler flag,
+      # the D1 database name, and the URL to verify after.
+      - name: Pick the environment
+        id: target
+        run: |
+          echo "Deploying: $TARGET"
+          if [ "$TARGET" = "staging" ]; then
+            if grep -q '00000000-0000-0000-0000-000000000000' wrangler.toml; then
+              echo "::error::Staging has no database yet. Run 'npx wrangler@4 d1 create tiktokforwork-staging' and paste its id into [env.staging] in worker/wrangler.toml (docs/setup-secrets.md)."
+              exit 1
+            fi
+            echo "flag=--env staging" >> "$GITHUB_OUTPUT"
+            echo "db=tiktokforwork-staging" >> "$GITHUB_OUTPUT"
+            echo "health=https://tiktokforwork-staging.torubj0904.workers.dev/health" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=" >> "$GITHUB_OUTPUT"
+            echo "db=tiktokforwork" >> "$GITHUB_OUTPUT"
+            echo "health=https://tiktokforwork.torubj0904.workers.dev/health" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -71,7 +102,7 @@ jobs:
       # Every statement here is CREATE ... IF NOT EXISTS, so this is safe to run
       # on every deploy and safe to re-run after a failure.
       - name: Migrate D1
-        run: npx -y wrangler@4 d1 execute tiktokforwork --remote --file schema.sql --yes
+        run: npx -y wrangler@4 d1 execute ${{ steps.target.outputs.db }} ${{ steps.target.outputs.flag }} --remote --file schema.sql --yes
 
       # Column additions for databases predating these columns. schema.sql
       # declares them inside CREATE TABLE, so on a database it built these all
@@ -87,7 +118,7 @@ jobs:
           while IFS= read -r stmt; do
             [ -z "$stmt" ] && continue
             echo "-> $stmt"
-            if ! npx -y wrangler@4 d1 execute tiktokforwork --remote --command "$stmt" --yes 2>&1 | tee /tmp/migrate.log; then
+            if ! npx -y wrangler@4 d1 execute ${{ steps.target.outputs.db }} ${{ steps.target.outputs.flag }} --remote --command "$stmt" --yes 2>&1 | tee /tmp/migrate.log; then
               if grep -qi "duplicate column name" /tmp/migrate.log; then
                 echo "   already applied"
               else
@@ -100,7 +131,7 @@ jobs:
 
       - name: Deploy
         if: ${{ !inputs.migrate_only }}
-        run: npx -y wrangler@4 deploy
+        run: npx -y wrangler@4 deploy ${{ steps.target.outputs.flag }}
 
       - name: Verify
         if: ${{ !inputs.migrate_only }}
@@ -108,7 +139,7 @@ jobs:
           # A deploy that reports success but serves a broken build is worth ten
           # seconds to rule out.
           for attempt in 1 2 3 4 5; do
-            body="$(curl -fsS https://tiktokforwork.torubj0904.workers.dev/health || true)"
+            body="$(curl -fsS ${{ steps.target.outputs.health }} || true)"
             if [ -n "$body" ]; then
               echo "$body"
               echo "$body" | grep -q '"ok":true' && exit 0
