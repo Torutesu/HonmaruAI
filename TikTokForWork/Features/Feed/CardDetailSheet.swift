@@ -14,6 +14,12 @@ struct CardDetailSheet: View {
     @State private var askError: String?
     @State private var busy = false
 
+    /// The reply back to whoever asked, once the card is decided.
+    @State private var draft: DraftService.Draft?
+    @State private var draftError: String?
+    @State private var drafting = false
+    @State private var copied = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -35,6 +41,12 @@ struct CardDetailSheet: View {
 
                     detailSection(title: "Ask your AI") {
                         askBlock
+                    }
+
+                    if card.decision != nil, isOnThisCard {
+                        detailSection(title: "Reply to whoever asked") {
+                            draftBlock
+                        }
                     }
 
                     if !card.context.isEmpty {
@@ -190,6 +202,80 @@ struct CardDetailSheet: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: busy)
+    }
+
+    /// Only the two people on the card can speak for it — the Worker
+    /// refuses anyone else, so the button is not offered to them.
+    private var isOnThisCard: Bool {
+        guard let me = appState.currentUser?.id else { return false }
+        return me == card.recipientUserID || me == card.senderUserID
+    }
+
+    /// A draft of the message telling the person who asked what was decided,
+    /// in the language the request came in, signed by the decider. Shown to
+    /// be read, changed and sent by the person; nothing is sent from here.
+    private var draftBlock: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            if drafting {
+                Text("Your AI is writing…")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            } else if let draft {
+                Text("A draft, in the language the request came in. Read it, change it, send it yourself.")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                Text(draft.draft)
+                    .font(Theme.TypeScale.body)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .lineSpacing(4)
+                    .textSelection(.enabled)
+                    .padding(Theme.Spacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
+                Button(copied ? String(localized: "Copied") : String(localized: "Copy")) {
+                    UIPasteboard.general.string = draft.draft
+                    Haptics.light()
+                    copied = true
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(copied ? Theme.Colors.textTertiary : Theme.Colors.interactive)
+            } else {
+                if let draftError {
+                    Text(draftError)
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.reject)
+                }
+                // A refusal leaves the button in place: a second try is one tap.
+                Button(String(localized: "Draft the reply"), action: requestDraft)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.Colors.interactive)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: drafting)
+    }
+
+    private func requestDraft() {
+        Haptics.light()
+        draftError = nil
+        copied = false
+        let orgId = appState.currentUser?.teamID ?? SessionStore.orgId ?? ""
+        guard let base = appState.backendBaseURL, !orgId.isEmpty else {
+            draftError = DraftService.Failure.notSignedIn.errorDescription
+            return
+        }
+        drafting = true
+        let language = appState.readerLanguageCode
+        Task { @MainActor in
+            do {
+                draft = try await DraftService.draft(
+                    cardId: card.id, orgId: orgId, readerLanguage: language, backendBaseURL: base
+                )
+            } catch {
+                draftError = error.localizedDescription
+            }
+            drafting = false
+        }
     }
 
     private var canSend: Bool {

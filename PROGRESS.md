@@ -67,8 +67,9 @@ The list of what is still missing, and why each item matters, is
       decision — the action, the decider's note, the next step the card
       names — in the language the request came in, signed by the decider,
       three to six sentences, nothing invented. History → a decided row →
-      "Draft the reply" shows it with Copy; it is a draft, the person sends
-      it. Only the two people on the card, only once it is decided (409
+      "Draft the reply" shows it with Copy, and so does the card's details
+      sheet on the phone (Sent by you rows open it); it is a draft, the
+      person sends it. Only the two people on the card, only once it is decided (409
       before); logged as a `drafted` event; metered like a route
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's

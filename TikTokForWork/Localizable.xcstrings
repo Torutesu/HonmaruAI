@@ -5148,6 +5148,94 @@
           }
         }
       }
+    },
+    "Reply to whoever asked": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼者への返信"
+          }
+        }
+      }
+    },
+    "Draft the reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を下書き"
+          }
+        }
+      }
+    },
+    "Your AI is writing…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIが書いています…"
+          }
+        }
+      }
+    },
+    "A draft, in the language the request came in. Read it, change it, send it yourself.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼が来た言語での下書きです。読んで、直して、自分で送ってください。"
+          }
+        }
+      }
+    },
+    "Copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーしました"
+          }
+        }
+      }
+    },
+    "Sign in to draft the reply.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を下書きするにはサインインしてください。"
+          }
+        }
+      }
+    },
+    "Your AI could not draft that just now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIは今それを下書きできませんでした。"
+          }
+        }
+      }
+    },
+    "Opens the card": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードを開きます"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

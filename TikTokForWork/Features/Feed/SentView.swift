@@ -10,6 +10,7 @@ import SwiftUI
 struct SentView: View {
     @EnvironmentObject private var appState: AppState
     @State private var nudged: Set<String> = []
+    @State private var detailCard: DecisionCard?
 
     private var cards: [DecisionCard] {
         guard let me = appState.currentUser?.id else { return [] }
@@ -33,10 +34,16 @@ struct SentView: View {
             .padding(Theme.Spacing.md)
         }
         .navigationTitle(Text("Sent by you"))
+        .sheet(item: $detailCard) { card in
+            CardDetailSheet(card: card)
+                .presentationDetents([.medium, .large])
+        }
     }
 
     private func row(_ card: DecisionCard) -> some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            // The row opens the card: what was decided, the note, and — once
+            // it is decided — the reply back to whoever asked, drafted.
             Text(card.title)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.Colors.textPrimary)
@@ -71,6 +78,10 @@ struct SentView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.image)
                 .strokeBorder(Theme.Colors.border, lineWidth: 1)
         }
+        .contentShape(Rectangle())
+        .onTapGesture { detailCard = card }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(Text("Opens the card"))
     }
 
     /// Who it is waiting on, or what they said. Never the id they sign in
