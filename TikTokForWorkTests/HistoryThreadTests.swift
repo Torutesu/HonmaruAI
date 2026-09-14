@@ -100,7 +100,9 @@ final class HistoryThreadTests: XCTestCase {
         XCTAssertEqual(threads.filter(HistoryFilter.decided.matches).map(\.id), ["c-1"])
         XCTAssertEqual(threads.filter(HistoryFilter.waiting.matches).map(\.id), ["c-3", "c-2"])
         XCTAssertEqual(threads.filter(HistoryFilter.undone.matches).map(\.id), ["c-3"])
-        XCTAssertEqual(threads.filter { $0.matches("mika") }.map(\.id), ["c-1"])   // the note
+        // Every fixture card's summary names Mika; the note does not repeat.
+        XCTAssertEqual(threads.filter { $0.matches("not this time") }.map(\.id), ["c-1"]) // the note
+        XCTAssertEqual(threads.filter { $0.matches("mika") }.count, 3)                    // the summary
         XCTAssertEqual(threads.filter { $0.matches("KENJI") }.map(\.id), ["c-2"])  // the actor
         XCTAssertEqual(threads.filter { $0.matches("photos") }.map(\.id), ["c-2"]) // the title
         XCTAssertEqual(threads.filter { $0.matches("  ") }.count, 3)
