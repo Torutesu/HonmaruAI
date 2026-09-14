@@ -20,6 +20,11 @@ struct CardDetailSheet: View {
     @State private var draftError: String?
     @State private var drafting = false
     @State private var copied = false
+    /// The box's text — the draft, read and changed — and where it went.
+    @State private var replyText = ""
+    @State private var sending = false
+    @State private var sentVia: String?
+    @State private var sendError: String?
 
     var body: some View {
         NavigationStack {
@@ -225,22 +230,50 @@ struct CardDetailSheet: View {
                 Text("A draft, in the language the request came in. Read it, change it, send it yourself.")
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
-                Text(draft.draft)
+                TextEditor(text: $replyText)
                     .font(Theme.TypeScale.body)
                     .foregroundStyle(Theme.Colors.textPrimary)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-                    .padding(Theme.Spacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 120)
+                    .padding(Theme.Spacing.sm)
                     .background(Theme.Colors.surfaceRaised)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
-                Button(copied ? String(localized: "Copied") : String(localized: "Copy")) {
-                    UIPasteboard.general.string = draft.draft
-                    Haptics.light()
-                    copied = true
+                    .disabled(sending || sentVia != nil)
+                    .accessibilityLabel(String(localized: "The draft"))
+                if let sentVia {
+                    Text(String(localized: "Sent via \(sentVia)."))
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                } else {
+                    HStack(spacing: Theme.Spacing.md) {
+                        // Back the way it came, when it came from an app the
+                        // Worker can reply through. The text is the box's.
+                        if let app = card.sourceApp, DraftService.sendable.contains(app) {
+                            Button(sending ? String(localized: "Sending…") : String(localized: "Send via \(app)"), action: sendReply)
+                                .font(.system(size: 14, weight: .semibold))
+                                // The page colour on the CTA fill: white on
+                                // near-black by day, near-black on white by night.
+                                .foregroundStyle(Theme.Colors.background)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Theme.Colors.ctaFill)
+                                .clipShape(Capsule())
+                                .disabled(sending || replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        Button(copied ? String(localized: "Copied") : String(localized: "Copy")) {
+                            UIPasteboard.general.string = replyText
+                            Haptics.light()
+                            copied = true
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(copied ? Theme.Colors.textTertiary : Theme.Colors.interactive)
+                    }
+                    if let sendError {
+                        Text(sendError)
+                            .font(Theme.TypeScale.caption)
+                            .foregroundStyle(Theme.Colors.reject)
+                    }
                 }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(copied ? Theme.Colors.textTertiary : Theme.Colors.interactive)
             } else {
                 if let draftError {
                     Text(draftError)
@@ -269,13 +302,38 @@ struct CardDetailSheet: View {
         let language = appState.readerLanguageCode
         Task { @MainActor in
             do {
-                draft = try await DraftService.draft(
+                let made = try await DraftService.draft(
                     cardId: card.id, orgId: orgId, readerLanguage: language, backendBaseURL: base
                 )
+                draft = made
+                replyText = made.draft
             } catch {
                 draftError = error.localizedDescription
             }
             drafting = false
+        }
+    }
+
+    private func sendReply() {
+        let text = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sending, !text.isEmpty else { return }
+        Haptics.light()
+        sendError = nil
+        let orgId = appState.currentUser?.teamID ?? SessionStore.orgId ?? ""
+        guard let base = appState.backendBaseURL, !orgId.isEmpty else {
+            sendError = DraftService.Failure.notSignedIn.errorDescription
+            return
+        }
+        sending = true
+        Task { @MainActor in
+            do {
+                let sent = try await DraftService.send(cardId: card.id, orgId: orgId, text: text, backendBaseURL: base)
+                sentVia = sent.via ?? card.sourceApp ?? ""
+                Haptics.success()
+            } catch {
+                sendError = error.localizedDescription
+            }
+            sending = false
         }
     }
 

@@ -59,13 +59,51 @@ enum DraftService {
         return try JSONDecoder().decode(Draft.self, from: data)
     }
 
+    /// The apps a reply can go back through, from here. The Worker knows
+    /// which thread; the phone only knows whether to offer the button.
+    static let sendable: Set<String> = ["Gmail", "Slack"]
+
+    /// The wire shape of `POST /cards/:id/reply`.
+    struct Outgoing: Encodable {
+        let orgId: String
+        let text: String
+    }
+
+    struct Sent: Decodable, Equatable {
+        let sent: Bool
+        let via: String?
+    }
+
+    /// Back the way it came: on the Gmail thread, in the Slack thread. The
+    /// text is whatever is in the box by then — the draft, read and changed.
+    static func send(cardId: String, orgId: String, text: String, backendBaseURL: URL) async throws -> Sent {
+        guard let token = SessionStore.sessionToken, !token.isEmpty else { throw Failure.notSignedIn }
+        guard let encoded = cardId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "cards/\(encoded)/reply", relativeTo: backendBaseURL) else {
+            throw Failure.refused(String(localized: "Could not send."))
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        request.httpBody = try JSONEncoder().encode(Outgoing(orgId: orgId, text: text))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw Failure.refused(String(localized: "Could not send.")) }
+        if http.statusCode == 401 { throw Failure.notSignedIn }
+        guard (200...299).contains(http.statusCode) else {
+            throw Failure.refused(message(in: data, status: http.statusCode, fallback: String(localized: "Could not send.")))
+        }
+        return try JSONDecoder().decode(Sent.self, from: data)
+    }
+
     /// What the Worker said, in its own words when it had any, and one line
     /// of ours when the body was not the Worker's at all.
-    static func message(in data: Data, status: Int) -> String {
+    static func message(in data: Data, status: Int, fallback: String? = nil) -> String {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let message = json["message"] as? String, !message.isEmpty {
             return message
         }
-        return String(localized: "Your AI could not draft that just now.")
+        return fallback ?? String(localized: "Your AI could not draft that just now.")
     }
 }

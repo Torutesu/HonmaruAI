@@ -194,6 +194,25 @@ Mailgun のドメインと 2 つの秘密だけが無い。
 
 ---
 
+## F. Composio の返信スコープを有効にする（15 分）
+
+決定後の「返信を下書き」→「Gmail で送る / Slack で送る」は、Composio 経由で
+`GMAIL_REPLY_TO_THREAD` と `SLACK_SEND_MESSAGE` を呼びます。読み取り用に作った
+auth config に送信権限が無いと、Worker は 502 で「Gmail did not take the
+reply」と返し、画面はコピーして手で送るよう案内します。
+
+1. https://app.composio.dev にログインし、Auth Configs を開く。
+2. Gmail の auth config（ID は `worker/src/connectors/gmail.js` の
+   `authConfigId`）を開き、scopes に `https://www.googleapis.com/auth/gmail.send`
+   が含まれているか確認。無ければ追加して保存。
+3. Slack の auth config（`worker/src/connectors/slack.js`）の scopes に
+   `chat:write` を追加して保存。
+4. 既に接続済みのアカウントはスコープが古いままなので、アプリの
+   Tools 画面から Gmail / Slack を一度切断して再接続する。
+5. 確認: Gmail から作られたカードを決定し、History（Web）または
+   カード詳細（iPhone）で「返信を下書き」→「Gmail で送る」。送信元スレッドに
+   返信が付き、画面に「Gmail で送りました。」と出れば完了。
+
 ## 完了の定義
 
 - `curl -s https://tiktokforwork.torubj0904.workers.dev/health` が

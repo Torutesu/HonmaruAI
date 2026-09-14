@@ -23,6 +23,18 @@ final class DraftServiceTests: XCTestCase {
                        String(localized: "Your AI could not draft that just now."))
     }
 
+    func testAReplyGoesOutTheWayTheWorkerReadsIt() throws {
+        let data = try JSONEncoder().encode(DraftService.Outgoing(orgId: "personal:toru", text: "Not this time.\n\nToru"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(json, ["orgId": "personal:toru", "text": "Not this time.\n\nToru"])
+        let sent = try JSONDecoder().decode(DraftService.Sent.self, from: Data(#"{"sent":true,"via":"Gmail"}"#.utf8))
+        XCTAssertEqual(sent, DraftService.Sent(sent: true, via: "Gmail"))
+        // Only the apps the Worker can reply through get the button.
+        XCTAssertTrue(DraftService.sendable.contains("Gmail"))
+        XCTAssertFalse(DraftService.sendable.contains("Notion"))
+        XCTAssertEqual(DraftService.message(in: Data("<html>".utf8), status: 502, fallback: "Could not send."), "Could not send.")
+    }
+
     func testTheRequestIsSentTheWayTheWorkerReadsIt() throws {
         let data = try JSONEncoder().encode(DraftService.Request(orgId: "personal:toru", cardId: "c-1", readerLanguage: "en"))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
