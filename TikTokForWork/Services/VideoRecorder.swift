@@ -15,6 +15,10 @@ final class VideoRecorder: NSObject, ObservableObject {
     private let output = AVCaptureMovieFileOutput()
     private let queue = DispatchQueue(label: "capture.recorder")
     private var finished: ((URL?) -> Void)?
+    /// start() was asked for but the camera has not confirmed it yet. The
+    /// "Recording" badge reads isRecording, and isRecording only flips when
+    /// the file actually opens — a badge without a file is a lie.
+    private var startPending = false
 
     func configure() {
         queue.async { [session, output] in
@@ -39,12 +43,19 @@ final class VideoRecorder: NSObject, ObservableObject {
     }
 
     func start() {
-        guard !isRecording else { return }
+        guard !isRecording, !startPending else { return }
+        startPending = true
+        // A stale file from an earlier take must not be what Send hands back
+        // if this one never rolls.
+        recordedFile = nil
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("capture-\(UUID().uuidString).mov")
 
         queue.async { [output, session] in
-            guard session.isRunning else { return }
+            guard session.isRunning else {
+                DispatchQueue.main.async { self.startFailed() }
+                return
+            }
             // Mirror the file to match the preview. A clip where you reach left
             // and the video reaches right reads as someone else.
             if let connection = output.connection(with: .video),
@@ -54,13 +65,36 @@ final class VideoRecorder: NSObject, ObservableObject {
             }
             DispatchQueue.main.async { output.startRecording(to: url, recordingDelegate: self.delegateProxy) }
         }
-        isRecording = true
     }
 
     func stop(completion: @escaping (URL?) -> Void) {
-        guard isRecording else { completion(recordedFile); return }
-        finished = completion
-        output.stopRecording()
+        if isRecording {
+            finished = completion
+            output.stopRecording()
+        } else if startPending {
+            // The camera is still spinning up. Park the completion — if the
+            // file opens, didStart sees it and stops straight away; if the
+            // session was never running, startFailed answers it. Without this
+            // a fast Send left the card unsent forever.
+            finished = completion
+        } else {
+            completion(recordedFile)
+        }
+    }
+
+    /// start() bailed before the camera rolled — usually the session had not
+    /// finished configuring. Nothing was recorded, so nothing can finish.
+    private func startFailed() {
+        startPending = false
+        finished?(nil)
+        finished = nil
+    }
+
+    fileprivate func recordingStarted() {
+        startPending = false
+        isRecording = true
+        // Send was pressed while the camera was still opening the file.
+        if finished != nil { output.stopRecording() }
     }
 
     func teardown() {
@@ -85,6 +119,16 @@ final class VideoRecorder: NSObject, ObservableObject {
 
         init(owner: VideoRecorder) {
             self.owner = owner
+        }
+
+        func fileOutput(
+            _ output: AVCaptureFileOutput,
+            didStartRecordingTo fileURL: URL,
+            from connections: [AVCaptureConnection]
+        ) {
+            Task { @MainActor [weak owner] in
+                owner?.recordingStarted()
+            }
         }
 
         func fileOutput(
