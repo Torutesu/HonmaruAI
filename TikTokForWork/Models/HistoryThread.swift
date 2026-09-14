@@ -67,7 +67,10 @@ struct HistoryThread: Identifiable, Equatable {
     func matches(_ query: String) -> Bool {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return true }
-        let haystack = [title, card?.summary] + events.flatMap { [$0.actorUserId, $0.note, $0.headline] }
+        var haystack: [String?] = [title, card?.summary]
+        for event in events {
+            haystack += [event.actorUserId, event.note, event.headline]
+        }
         return haystack.compactMap { $0?.lowercased() }.contains { $0.contains(trimmed) }
     }
 }

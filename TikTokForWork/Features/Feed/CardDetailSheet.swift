@@ -226,7 +226,7 @@ struct CardDetailSheet: View {
                 Text("Your AI is writing…")
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
-            } else if let draft {
+            } else if draft != nil {
                 Text("A draft, in the language the request came in. Read it, change it, send it yourself.")
                     .font(Theme.TypeScale.micro)
                     .foregroundStyle(Theme.Colors.textTertiary)
