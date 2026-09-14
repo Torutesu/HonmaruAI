@@ -43,6 +43,7 @@
 		61546F7DD25035887C83D192 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E87DCC57193FEC4D70357DC /* Components.swift */; };
 		657DDCB6385E9FB249AA8FC2 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6296398BD566705F28FD07B2 /* Theme.swift */; };
 		6623DC0F2F2C3DFC172C40C7 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A83468C4EB6963E5C1FFEB5 /* NetworkMonitor.swift */; };
+		68DF2ED94CD8A41EFE4D49D9 /* OfflineSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D52191615B6250B63E923B /* OfflineSyncTests.swift */; };
 		6A021F0DC477FDC75CDB2B40 /* AIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8AE6CFAEF8ACAFF6F00717 /* AIService.swift */; };
 		6BC985B30F7277027E36BAD4 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B9A28AE759040145C8D6E1B /* CaptureView.swift */; };
 		704CEA636E1A66666B9B8E69 /* ProfileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62016A266BDC21AE0E9FF0E9 /* ProfileService.swift */; };
@@ -195,6 +196,7 @@
 		F125BEDE2BF4518F791F5480 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
 		F2C2FBC9D12319E3D1DFE18B /* KindTag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KindTag.swift; sourceTree = "<group>"; };
 		F4B928720EBE41102B4E9A5C /* TeamService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamService.swift; sourceTree = "<group>"; };
+		F9D52191615B6250B63E923B /* OfflineSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineSyncTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -418,6 +420,7 @@
 				7BFF89D04DFAAFE20441432B /* CardCacheTests.swift */,
 				D216DBD6816CA69DB47EFDE8 /* DecisionCardTests.swift */,
 				683357448491DB612509CFCE /* EmailSessionTests.swift */,
+				F9D52191615B6250B63E923B /* OfflineSyncTests.swift */,
 				45FBA72FDFB6E2F98D2BA29E /* OutboxTests.swift */,
 				37993CA01E4D90B684CDF0B6 /* TeamTests.swift */,
 			);
@@ -546,6 +549,7 @@
 				1A2532D8889B0D727DB6EF21 /* CardCacheTests.swift in Sources */,
 				EF67E139C4916EAF055D6626 /* DecisionCardTests.swift in Sources */,
 				CFAAE202A471A7575DB287E6 /* EmailSessionTests.swift in Sources */,
+				68DF2ED94CD8A41EFE4D49D9 /* OfflineSyncTests.swift in Sources */,
 				D35B336CD9BEAB9FBB812D65 /* OutboxTests.swift in Sources */,
 				000FD81833F600944CB2A0A4 /* TeamTests.swift in Sources */,
 			);

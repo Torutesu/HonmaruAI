@@ -929,6 +929,7 @@ async function routeInstructionWithOpenRouter({
         function: { name: "create_decision_card" },
       },
     }),
+    signal: AbortSignal.timeout(30_000),
   });
 
   const data = await response.json();

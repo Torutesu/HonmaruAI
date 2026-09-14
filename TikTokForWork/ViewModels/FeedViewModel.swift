@@ -48,6 +48,11 @@ final class FeedViewModel: ObservableObject {
                 self.refreshCards(from: cardService)
             }
         }
+        // A relay refusal is the only signal that a card we think we sent was
+        // never accepted — it has to reach the screen or it stays invisible.
+        service.onServerError = { [weak self] message in
+            self?.errorMessage = message
+        }
 
         githubSyncTask?.cancel()
         githubSyncTask = Task { [weak self] in
@@ -176,7 +181,7 @@ final class FeedViewModel: ObservableObject {
         guard let user = appState.currentUser else { return nil }
 
         guard appState.aiService.hasRelay else {
-            return OfflineRouter.draft(text: text, sender: user, priority: priority)
+            return OfflineRouter.draft(text: text, sender: user, organization: appState.organization, priority: priority)
         }
 
         do {
@@ -192,7 +197,7 @@ final class FeedViewModel: ObservableObject {
             // An unreachable relay is not a reason to lose what you just said.
             // The card is filed locally and the error is not raised: it would
             // only offer a retry that cannot succeed.
-            return OfflineRouter.draft(text: text, sender: user, priority: priority)
+            return OfflineRouter.draft(text: text, sender: user, organization: appState.organization, priority: priority)
         }
     }
 

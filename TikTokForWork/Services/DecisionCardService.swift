@@ -28,6 +28,13 @@ final class DecisionCardService: ObservableObject {
     @Published private(set) var pendingCount = 0
 
     var onCardsUpdated: (() -> Void)?
+    /// The active user's curated context changed on another device. Fires only
+    /// for the signed-in user — the snapshot carries every member's context.
+    var onContextReceived: ((String) -> Void)?
+    /// The relay refused something we sent — a card to a non-member, an
+    /// oversized context. Without this the refusal is silent: the card sits
+    /// pending in the feed looking delivered while nobody ever sees it.
+    var onServerError: ((String) -> Void)?
 
     func attach(webSocketService: WebSocketService) {
         self.webSocketService = webSocketService
@@ -402,7 +409,11 @@ final class DecisionCardService: ObservableObject {
             upsert(card)
         case .cardDeleted(let cardID, let recipientUserID):
             remove(cardID: cardID, for: recipientUserID)
-        case .presence, .error:
+        case .contextReceived(let userId, let text):
+            if userId == activeUserID { onContextReceived?(text) }
+        case .error(let message):
+            onServerError?(message)
+        case .presence:
             break
         }
     }

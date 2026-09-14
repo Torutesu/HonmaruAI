@@ -12,7 +12,13 @@ CREATE TABLE IF NOT EXISTS users (
   password_salt TEXT,
   /* Whether a decision may reach this person by email when no push channel
      (APNs device, web push subscription) can. 1 = yes. */
-  notify_email  INTEGER NOT NULL DEFAULT 1
+  notify_email  INTEGER NOT NULL DEFAULT 1,
+  /* The secret half of the inbound email address, u-<token>@domain. A GitHub
+     id is public and sequential, so u-<github id>@domain is an address anyone
+     can guess — and a guessed address is a way to spend someone's AI allowance
+     and put a forged card in their feed. NULL until the address is asked for;
+     generated lazily so accounts that never use inbound mail carry no secret. */
+  inbound_token TEXT
 );
 
 
@@ -219,6 +225,14 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   day            TEXT NOT NULL,
   used           INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_github_id, day)
+);
+
+/* When each user last ran through the connector cron. The run is capped, so
+   ordering candidates by this — never-synced first — is what keeps the cap a
+   window that moves rather than a wall the 51st user never gets past. */
+CREATE TABLE IF NOT EXISTS connector_sync_state (
+  user_github_id TEXT PRIMARY KEY,
+  synced_at      TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS entitlements (

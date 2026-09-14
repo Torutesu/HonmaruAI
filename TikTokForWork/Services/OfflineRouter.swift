@@ -6,33 +6,80 @@ import Foundation
 /// so a dead network costs you quality rather than the ability to file anything
 /// at all — which matters most in exactly the situation where you cannot fix it,
 /// like standing in front of someone with a phone in your hand.
+///
+/// Every recipient it picks is a real member of the organization — the Worker's
+/// `isOrgMemberLogin` refuses a card addressed to anyone else, and a refused
+/// card sits in your feed looking delivered while nobody ever sees it. When it
+/// cannot place the work on a teammate it names the sender: a card you can see
+/// is honest, a card addressed to a person who does not exist is not.
 enum OfflineRouter {
-    /// Keyword tables mirroring the relay's, kept deliberately small. Anything
-    /// this cannot place goes to the owner, which in a one-person business is
-    /// the right answer far more often than it is wrong.
-    private static let designWords = ["ロゴ", "バナー", "デザイン", "画像", "ヒーロー",
-                                      "logo", "banner", "design", "mockup", "figma"]
-    private static let clientWords = ["納品", "検収", "先方", "クライアント", "承認依頼",
-                                      "client", "delivery", "sign-off"]
+    /// The member's display name is the label's first half — labels arrive as
+    /// "Name · role". Role words widen the match a little beyond a name.
+    private static let roleWords: [String: [String]] = [
+        "designer": ["designer", "design", "デザイナー"],
+        "engineer": ["engineer", "developer", "エンジニア"],
+        "admin": ["admin", "owner"],
+        "triager": ["triager", "triage"],
+        "maintainer": ["maintainer"],
+    ]
+
+    /// `mentions` in worker/src/routing.js: ASCII words match on word
+    /// boundaries so "dev" does not fire on "device"; anything else matches as
+    /// a substring, because \b is meaningless in Japanese. One-character terms
+    /// are refused — 健 is inside half the words in the language.
+    private static func mentions(_ lower: String, _ term: String) -> Bool {
+        let word = term.trimmingCharacters(in: .whitespaces).lowercased()
+        guard word.count >= 2 else { return false }
+        if word.range(of: #"^[\x00-\x7F]+$"#, options: .regularExpression) != nil {
+            let escaped = NSRegularExpression.escapedPattern(for: word)
+            return lower.range(of: #"\b"# + escaped + #"\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+        }
+        return lower.contains(word)
+    }
+
+    private static func displayName(of node: OrgNode) -> String {
+        String(node.label.split(separator: "·").first ?? "").trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func role(of node: OrgNode) -> String {
+        let parts = node.label.split(separator: "·")
+        return parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces).lowercased() : "member"
+    }
 
     static func draft(
         text: String,
         sender: User,
+        organization: OrganizationGraph,
         priority: CardPriority
     ) -> InstructionDraft {
         let lower = text.lowercased()
+        let members = organization.nodes.filter { $0.kind == .person && $0.id != sender.id }
 
-        let recipient: String
-        let reason: String
-        if designWords.contains(where: { lower.contains($0.lowercased()) }) {
-            recipient = "user-yui"
-            reason = String(localized: "Visual work goes to the contractor")
-        } else if clientWords.contains(where: { lower.contains($0.lowercased()) }) {
-            recipient = "user-tanaka"
-            reason = String(localized: "The client has to agree to this")
-        } else {
-            recipient = sender.id
-            reason = String(localized: "This one is yours to decide")
+        var recipientID = sender.id
+        var reason = String(localized: "This one is yours to decide")
+
+        // A name in the instruction wins: "ask Yui about the logo" is not a
+        // design question, it is a message for Yui.
+        if let named = members.first(where: { mentions(lower, displayName(of: $0)) }) {
+            recipientID = named.id
+            reason = String(localized: "Named in your instruction")
+        } else if mentions(lower, "manager") || lower.contains("上司") || lower.contains("エスカレ"),
+                  let managerID = organization.edges.first(where: { $0.toID == sender.id && $0.kind == .manages })?.fromID {
+            recipientID = managerID
+            reason = String(localized: "Escalated to your manager")
+        } else if let holder = members.first(where: { member in
+            let memberRole = role(of: member)
+            return mentions(lower, memberRole) || (roleWords[memberRole] ?? []).contains(where: { mentions(lower, $0) })
+        }) {
+            recipientID = holder.id
+            reason = String(localized: "Routed to the \(role(of: holder))")
+        } else if let approver = organization.edges.first(where: { edge in
+            edge.kind == .canApprove && members.contains(where: { $0.id == edge.fromID })
+        }).map(\.fromID), members.contains(where: { $0.id == approver }) {
+            // Same default the relay uses: the person holding approval
+            // authority, before the card comes back to you.
+            recipientID = approver
+            reason = String(localized: "Best match for this decision in org graph")
         }
 
         let type: CardType
@@ -53,13 +100,13 @@ enum OfflineRouter {
         return InstructionDraft(
             id: UUID().uuidString,
             sourceText: text,
-            recipientUserID: recipient,
+            recipientUserID: recipientID,
             cardType: type,
             title: title,
             summary: trimmed,
             context: String(localized: "action: drafted locally · scope: offline"),
             priority: priority,
-            agentRoute: String(localized: "\(sender.name) → \(DisplayName.of(recipient))"),
+            agentRoute: String(localized: "\(sender.name) → \(DisplayName.of(recipientID, in: organization))"),
             routingReason: reason,
             labels: [],
             toolCalls: []

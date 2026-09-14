@@ -126,6 +126,7 @@ export async function sendPush(env, { deviceToken, payload, collapseId, priority
       method: "POST",
       headers,
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15_000),
     });
     if (res.status === 200) return { ok: true, status: 200 };
 

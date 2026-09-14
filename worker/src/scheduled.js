@@ -20,16 +20,22 @@ const MAX_USERS_PER_RUN = 50;
 /// Users worth syncing: a live session (so we have a GitHub token), a
 /// membership (so we know where their cards go), and at least one configured
 /// connector. Anyone else has nothing to fetch.
+///
+/// Ordered by who has waited longest, not who signed in last: a cap ordered
+/// by session age picks the same 50 every run and the 51st user never syncs
+/// at all. Never-synced users sort first — NULLS FIRST is SQLite's default
+/// for ASC, written out anyway because that default is doing the work.
 async function candidates(db) {
   const { results } = await db
     .prepare(
       `SELECT s.token, s.github_id, s.github_access_token, u.login, u.locale
        FROM sessions s
        JOIN users u ON u.github_id = s.github_id
+       LEFT JOIN connector_sync_state st ON st.user_github_id = s.github_id
        WHERE (s.expires_at IS NULL OR s.expires_at > ?1)
          AND EXISTS (SELECT 1 FROM connector_config c WHERE c.user_github_id = s.github_id)
        GROUP BY s.github_id
-       ORDER BY s.created_at DESC
+       ORDER BY st.synced_at ASC NULLS FIRST
        LIMIT ?2`
     )
     .bind(new Date().toISOString(), MAX_USERS_PER_RUN)
@@ -94,6 +100,20 @@ export async function runScheduledSync(env) {
       }
     } catch (err) {
       console.error("scheduled sync failed", row.login, err?.message || err);
+    }
+    // Marked whether the sync succeeded or failed: the timestamp orders the
+    // next run's candidates, and a user whose connector is broken must not
+    // sit at the front of every queue forever.
+    try {
+      await env.DB
+        .prepare(
+          `INSERT INTO connector_sync_state (user_github_id, synced_at) VALUES (?1, ?2)
+           ON CONFLICT(user_github_id) DO UPDATE SET synced_at = excluded.synced_at`
+        )
+        .bind(row.github_id, new Date().toISOString())
+        .run();
+    } catch (err) {
+      console.error("sync state write failed", row.login, err?.message || err);
     }
   }
 

@@ -9,12 +9,13 @@
 // validator you can read line by line is worth more here than one assembled at
 // runtime from a JSON document.
 
-import { DECISION_ACTIONS } from "./tools.js";
+import { DECISION_ACTIONS, DECISION_FORMATS } from "./tools.js";
 
 export const CARD_TYPES = new Set(["approval", "delegation", "notification", "task", "revision"]);
 export const CARD_STATUSES = new Set(["pending", "approved", "rejected", "revised", "delegated", "completed"]);
 export const PRIORITIES = new Set(["low", "medium", "high", "urgent"]);
 export const ACTIONS = new Set(DECISION_ACTIONS);
+export const FORMATS = new Set(DECISION_FORMATS);
 
 // Long enough for anything a person writes, short enough that a card cannot be
 // used to push a wall of text into everyone's feed — every member of the org
@@ -51,6 +52,10 @@ export function validateIncomingCard(card) {
   if (card.type !== undefined && !CARD_TYPES.has(card.type)) return `Unknown card type: ${card.type}`;
   if (card.status !== undefined && !CARD_STATUSES.has(card.status)) return `Unknown status: ${card.status}`;
   if (card.priority !== undefined && !PRIORITIES.has(card.priority)) return `Unknown priority: ${card.priority}`;
+  // The schema already enumerated this — nothing enforced it, so a client
+  // could store any string under `format`, and the reference web client
+  // rendered it unescaped. The enum is the check.
+  if (card.format !== undefined && !FORMATS.has(card.format)) return `Unknown format: ${card.format}`;
   if (card.recommendation !== undefined) {
     const r = card.recommendation;
     if (typeof r !== "object" || r === null) return "recommendation must be an object.";

@@ -69,6 +69,12 @@ final class AppState: ObservableObject {
         // language before the first view renders.
         Bundle.setAppLanguage(language.locale?.identifier)
         cardService.attach(webSocketService: webSocketService)
+        // Context written on another device lands here. The assignment only
+        // persists locally — publishing stays with the editor, so a received
+        // update is never echoed back as a write.
+        cardService.onContextReceived = { [weak self] text in
+            self?.userContext = text
+        }
         webSocketService.$state.assign(to: &$connectionState)
         cardService.$pendingCount.assign(to: &$pendingCount)
         networkMonitor.onBecameOnline = { [weak self] in

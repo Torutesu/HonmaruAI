@@ -61,7 +61,18 @@ final class AGUIEventAssembler {
             for key in cardsByUser.keys {
                 cardsByUser[key]?.sort { $0.createdAt > $1.createdAt }
             }
-            return [.snapshot(cardsByUser: cardsByUser, onlineUserIds: [])]
+            // The snapshot carries every member's context, not just cards —
+            // a device that missed the update (or never had it, after a
+            // reinstall) converges here instead of keeping a stale copy.
+            var events: [RealtimeEvent] = [.snapshot(cardsByUser: cardsByUser, onlineUserIds: [])]
+            if let contexts = snapshot["context"] as? [String: Any] {
+                for (userId, value) in contexts {
+                    if let text = Self.contextText(value) {
+                        events.append(.contextReceived(userId: userId, text: text))
+                    }
+                }
+            }
+            return events
 
         case "STATE_DELTA":
             guard let delta = json["delta"] as? [[String: Any]] else { return [] }
@@ -112,12 +123,24 @@ final class AGUIEventAssembler {
         }
     }
 
+    /// The text inside a stored context. Clients write `{text: "…"}`; a plain
+    /// string is accepted too, since the field predates the object shape.
+    private static func contextText(_ value: Any) -> String? {
+        if let text = value as? String { return text }
+        return (value as? [String: Any])?["text"] as? String
+    }
+
     private func applyOperation(_ operation: [String: Any]) -> RealtimeEvent? {
         guard let op = operation["op"] as? String,
-              let path = operation["path"] as? String,
-              let cardID = Self.cardID(fromPointer: path) else {
+              let path = operation["path"] as? String else {
             return nil
         }
+        if let userId = Self.contextUserID(fromPointer: path) {
+            guard op == "add" || op == "replace",
+                  let text = Self.contextText(operation["value"] as Any) else { return nil }
+            return .contextReceived(userId: userId, text: text)
+        }
+        guard let cardID = Self.cardID(fromPointer: path) else { return nil }
 
         switch op {
         case "add", "replace":
@@ -134,7 +157,15 @@ final class AGUIEventAssembler {
 
     /// "/cardsById/a~1b~0c" → "a/b~c" (RFC 6901 unescaping).
     static func cardID(fromPointer pointer: String) -> String? {
-        let prefix = "/cardsById/"
+        segment(fromPointer: pointer, prefix: "/cardsById/")
+    }
+
+    /// "/context/<userId>" → the user id, same unescaping as a card pointer.
+    static func contextUserID(fromPointer pointer: String) -> String? {
+        segment(fromPointer: pointer, prefix: "/context/")
+    }
+
+    private static func segment(fromPointer pointer: String, prefix: String) -> String? {
         guard pointer.hasPrefix(prefix) else { return nil }
         let escaped = String(pointer.dropFirst(prefix.count))
         guard !escaped.isEmpty, !escaped.contains("/") else { return nil }

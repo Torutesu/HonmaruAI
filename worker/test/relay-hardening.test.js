@@ -30,6 +30,15 @@ test("a value the clients cannot decode is refused rather than stored", () => {
   expect(validateIncomingCard({ ...valid, decision: { action: "seize" } })).toMatch(/action/);
 });
 
+test("a format the schema does not enumerate is refused", () => {
+  // `format` selects the component a client renders — and the reference web
+  // client put it straight into markup. The enum existed in CARD_SCHEMA; this
+  // is the check that makes it real.
+  expect(validateIncomingCard({ ...valid, format: "approve" })).toBeNull();
+  expect(validateIncomingCard({ ...valid, format: '\"><img src=x onerror=alert(1)>' })).toMatch(/format/);
+  expect(validateIncomingCard({ ...valid, format: "x".repeat(5000) })).toMatch(/format/);
+});
+
 test("a field long enough to flood a feed is refused, not trimmed", () => {
   // Trimming would change the terms of a decision on the way to the person
   // deciding it.

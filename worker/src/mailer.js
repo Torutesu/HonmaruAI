@@ -54,6 +54,8 @@ export async function sendMail(env, { to, subject, text }) {
         "content-type": "application/json",
       },
       body: JSON.stringify({ from: mailFrom(env), to: [to], subject, text }),
+      // Mail that never answers must not hold a sign-in open forever.
+      signal: AbortSignal.timeout(15_000),
     });
     if (res.ok) return { ok: true, status: res.status };
     const detail = (await res.text().catch(() => "")).slice(0, 300);

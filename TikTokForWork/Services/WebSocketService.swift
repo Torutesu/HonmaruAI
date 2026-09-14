@@ -6,6 +6,10 @@ enum RealtimeEvent: Codable {
     case cardUpdated(card: DecisionCard)
     case cardDeleted(cardID: String, recipientUserID: String)
     case presence(userId: String, status: String)
+    /// Another device changed this person's curated context. Synthesized by
+    /// the AG-UI assembler from STATE_SNAPSHOT/STATE_DELTA — it never arrives
+    /// as a legacy wire message.
+    case contextReceived(userId: String, text: String)
     case error(message: String)
 
     private enum CodingKeys: String, CodingKey {
@@ -31,6 +35,9 @@ enum RealtimeEvent: Codable {
         case "presence":
             let payload = try container.decode(PresencePayload.self, forKey: .payload)
             self = .presence(userId: payload.userId, status: payload.status)
+        case "context_received":
+            let payload = try container.decode(ContextPayload.self, forKey: .payload)
+            self = .contextReceived(userId: payload.userId, text: payload.text)
         case "error":
             let payload = try container.decode(ErrorPayload.self, forKey: .payload)
             self = .error(message: payload.message)
@@ -57,6 +64,9 @@ enum RealtimeEvent: Codable {
         case .presence(let userId, let status):
             try container.encode("presence", forKey: .type)
             try container.encode(PresencePayload(userId: userId, status: status), forKey: .payload)
+        case .contextReceived(let userId, let text):
+            try container.encode("context_received", forKey: .type)
+            try container.encode(ContextPayload(userId: userId, text: text), forKey: .payload)
         case .error(let message):
             try container.encode("error", forKey: .type)
             try container.encode(ErrorPayload(message: message), forKey: .payload)
@@ -85,6 +95,11 @@ enum RealtimeEvent: Codable {
     private struct PresencePayload: Codable {
         let userId: String
         let status: String
+    }
+
+    private struct ContextPayload: Codable {
+        let userId: String
+        let text: String
     }
 
     private struct ErrorPayload: Codable {
@@ -498,7 +513,7 @@ final class WebSocketService: ObservableObject {
             cardOwners[card.id] = card.recipientUserID
         case .cardDeleted(let cardID, _):
             cardOwners.removeValue(forKey: cardID)
-        case .presence, .error:
+        case .presence, .contextReceived, .error:
             break
         }
     }

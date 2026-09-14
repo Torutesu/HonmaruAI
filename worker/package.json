@@ -11,5 +11,9 @@
     "@cloudflare/vitest-pool-workers": "^0.5.0",
     "vitest": "^2.0.0",
     "wrangler": "^3.80.0"
+  },
+  "overrides": {
+    "ws": "^8.18.3",
+    "devalue": "^5.6.4"
   }
 }

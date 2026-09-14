@@ -18,6 +18,7 @@ ALTER TABLE invites ADD COLUMN uses INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN notify_email INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE memberships ADD COLUMN title TEXT;
 ALTER TABLE invites ADD COLUMN ref TEXT;
+ALTER TABLE users ADD COLUMN inbound_token TEXT;
 
 /* After the ALTER above, and never in schema.sql: that file runs first, so on a
    database predating the column this index would be created against a column
@@ -27,3 +28,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
    an index in schema.sql would be built against a column that does not exist
    yet and would fail the deploy. */
 CREATE INDEX IF NOT EXISTS idx_invites_ref ON invites(org_id, ref);
+/* Same again: inbound_token lives only on databases that have run the ALTER. */
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_inbound_token ON users(inbound_token);

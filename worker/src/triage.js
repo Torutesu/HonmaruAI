@@ -70,6 +70,7 @@ Body preview: ${message.snippet}
     const res = await fetch(provider.endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({
         model: provider.model, temperature: 0.1, max_tokens: 400,
         messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: userPrompt }],
