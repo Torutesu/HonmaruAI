@@ -3,6 +3,7 @@
 ## Source boundary
 
 - Integration branch: `codex/main-review-integration`, based on main `5382136`.
+- Integration commit: `f537733`; [main integration PR #43](https://github.com/Torutesu/HonmaruAI/pull/43). Main is not merged/deployed by this PR creation.
 - Native identity response hotfix cherry-picked as `1c10e0f`.
 - Original `codex/app-store-ready` worktree and its recordings were left untouched.
 - Main's private team-member references, context sync, reminders and five-language support remain in place. This is not a wholesale deployment of the old release branch.
@@ -18,6 +19,7 @@
 7. Native privacy declarations and policy source now match the intended new build. The existing published policy still describes the old cloud-speech fallback: publish the updated policy with the new release, not silently treat it as already live.
 8. CI checks release configuration and preserves dashboard-managed Worker variables with `--keep-vars`.
 9. Profile rows such as Plan now hit-test the whole padded row. UI QA reproduced a tap on the row center doing nothing before `contentShape(Rectangle())` was added.
+10. The first remote CI E2E run stopped before starting the Worker: the installed Wrangler/Miniflare require Node >=22 while CI still selected Node 20. CI and deployment now use Node 22, with startup diagnostics so setup failures cannot disappear into redirected logs.
 
 ## Verified so far
 
@@ -40,7 +42,8 @@ Production tests use generated `@example.invalid` identities, not App Review cre
 - Release simulator build succeeded (arm64 and x86_64). On iPhone 16 Pro / iOS 18.6, the installed Release app remained alive after the 12-second startup smoke check. This is not a distribution-signed archive or hardware qualification.
 - iPhone 17 Pro / iOS 26.4 UI: first launch, email/password navigation, local editable draft and Plan legal links passed. Result: `/private/tmp/honmaru-integration-ui-fixed-iphone.xcresult`.
 - Full iPad unit/integration run passed all 63 tests. The first end-to-end login UI run then reproduced missing persistence/No access with `CODE_SIGNING_ALLOWED=NO`; it is deliberately recorded as a failure, not counted as successful login QA. Simulator login verification must include signing/Keychain entitlements, and the CI command now uses ad-hoc signing.
-- A subsequent UI attempt also exposed a test-timing problem: tapping the password option before sheet/keyboard presentation completed left the email-code form open. The test now waits for the option, scrolls the actual form and requires the secure field before entering credentials. Final signed results are recorded below after completion.
+- A subsequent UI attempt also exposed a test-timing problem: tapping the password option before sheet/keyboard presentation completed left the email-code form open. The test now waits for the option, scrolls the actual form and requires the secure field before entering credentials.
+- **Signed iPad Air 11 M3 / iOS 18.6: PASS.** Actual ordinary-account password input → workspace joined → terminate/relaunch → saved session restored and workspace joined again. Account cleanup also passed. Result: `/private/tmp/honmaru-integration-ipad-login-final.xcresult`; inspected screenshot: `/private/tmp/honmaru-ipad-login-final-attachments/60E8FDC3-1549-4938-81F9-110B6B7C2079.png`. The green connection indicator and connected empty-feed message replaced the earlier No access screen. The guest draft/Plan test passed separately in `/private/tmp/honmaru-integration-ipad-signed.xcresult` (that run's earlier live test was a failure as described above).
 
 ### Reproduction
 

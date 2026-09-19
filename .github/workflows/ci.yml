@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
@@ -63,7 +63,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: web-react/package-lock.json
       - run: npm ci
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - run: ./e2e/run.sh
       - name: Screenshots
         if: always()
@@ -91,6 +91,14 @@ jobs:
           name: e2e-screenshots
           path: /tmp/e2e-shots
           if-no-files-found: ignore
+      - name: E2E startup diagnostics
+        if: failure()
+        run: |
+          for log in /tmp/e2e-d1.log /tmp/e2e-worker.log /tmp/e2e-build.log /tmp/e2e-preview.log /tmp/e2e-browser.log; do
+            if [ -f "$log" ]; then
+              tail -n 40 "$log"
+            fi
+          done
 
   # macOS minutes are expensive, so this runs on pull requests only. Pushing to
   # a branch gets the Worker suite; asking to merge gets the whole thing.
