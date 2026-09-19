@@ -109,6 +109,8 @@ jobs:
           command -v jq >/dev/null || brew install jq
       - name: Generate the project
         run: xcodegen generate
+      - name: Review configuration regression gate
+        run: node scripts/verify-review-config.mjs
       - name: Pick a simulator
         # Naming a device model pins this job to whatever the runner image
         # happened to ship the day it was written. It stopped shipping an
@@ -135,5 +137,5 @@ jobs:
             -scheme TikTokForWork \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
             -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             | xcbeautify

@@ -6,6 +6,32 @@ import XCTest
 /// path — not the keychain's ability to persist it, which a test bundle cannot
 /// rely on and which would make every one of these pass for the wrong reason.
 final class EmailSessionTests: XCTestCase {
+    func testRestoreUsesServerWorkspaceAndIdentity() throws {
+        let data = Data(#"{"login":"member","userId":"email:member@example.com","orgId":"joined-team"}"#.utf8)
+        let restored = try EmailAuthService.decodeRestoredSession(data, status: 200, token: "saved-token")
+        XCTAssertEqual(restored.orgId, "joined-team")
+        XCTAssertEqual(restored.userID, "email:member@example.com")
+        XCTAssertEqual(restored.token, "saved-token")
+    }
+
+    func testRestoreWithoutMembershipDoesNotInventWorkspace() throws {
+        let data = Data(#"{"login":"member","userId":"email:member@example.com","orgId":null}"#.utf8)
+        XCTAssertEqual(try EmailAuthService.decodeRestoredSession(data, status: 200, token: "token").orgId, "")
+    }
+
+    func testOnlyExplicitSessionFailureRequiresSignIn() {
+        for status in [401, 409] {
+            XCTAssertThrowsError(try EmailAuthService.decodeRestoredSession(Data(), status: status, token: "token")) { error in
+                guard case EmailAuthService.Failure.invalidSession = error else { return XCTFail("Expected invalid session") }
+            }
+        }
+        for status in [403, 429, 500, 503, 200] {
+            XCTAssertThrowsError(try EmailAuthService.decodeRestoredSession(Data(), status: status, token: "token")) { error in
+                if case EmailAuthService.Failure.invalidSession = error { XCTFail("Must preserve saved session") }
+            }
+        }
+    }
+
     func testASessionWithNoRepositoryIsAnEmailOne() {
         XCTAssertTrue(SessionStore.isEmailSession(token: "tok", user: "u:mai@honmaru.jp", repository: nil))
         XCTAssertTrue(SessionStore.isEmailSession(token: "tok", user: "u:mai@honmaru.jp", repository: ""))
@@ -47,6 +73,22 @@ final class EmailSessionTests: XCTestCase {
         XCTAssertTrue(SessionStore.clearedKeys.contains("githubRepository"))
         // The person's own OpenAI key belongs to the device, not the session.
         XCTAssertFalse(SessionStore.clearedKeys.contains("apiKey"))
+    }
+
+    func testAnEmailTransitionClearsGitHubFieldsWithoutDeletingItsFreshToken() {
+        XCTAssertTrue(SessionStore.githubConnectionKeys.contains("githubRepository"))
+        XCTAssertTrue(SessionStore.githubConnectionKeys.contains("githubUsername"))
+        XCTAssertFalse(SessionStore.githubConnectionKeys.contains("sessionToken"))
+        XCTAssertFalse(SessionStore.githubConnectionKeys.contains("orgId"))
+        XCTAssertTrue(SessionStore.clearedKeys.contains("accountID"))
+    }
+
+    func testEmailResponseKeepsServerIdentityAndAllowsMembershipLessAccounts() throws {
+        let session = try EmailAuthService.decodeSession(["token": "tok", "login": "u:mai@example.com", "userId": "email:mai@example.com", "orgId": NSNull()])
+        XCTAssertEqual(session.login, "u:mai@example.com")
+        XCTAssertEqual(session.userID, "email:mai@example.com")
+        XCTAssertTrue(session.orgId.isEmpty)
+        XCTAssertThrowsError(try EmailAuthService.decodeSession(["token": "tok", "orgId": "acme/app"]))
     }
 
     func testARelayLoginReadsAsAName() {

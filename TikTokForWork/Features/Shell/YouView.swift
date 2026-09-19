@@ -137,8 +137,7 @@ struct YouView: View {
         }
         .sheet(isPresented: $showEmailSignIn) {
             EmailSignInSheet { session, name in
-                SessionStore.sessionToken = session.token
-                Task { await appState.activateEmailSession(login: session.login, orgId: session.orgId, name: name) }
+                Task { await appState.activateEmailSession(login: session.login, orgId: session.orgId, name: name, sessionToken: session.token, accountID: session.userID) }
             }
                 .environmentObject(appState)
                 .presentationDetents([.medium, .large])
@@ -290,6 +289,7 @@ struct YouView: View {
             }
             .padding(.horizontal, Theme.Spacing.md)
             .padding(.vertical, 13)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -313,6 +313,7 @@ struct YouView: View {
         }
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, 13)
+        .contentShape(Rectangle())
 
         if let action {
             Button(action: action) { content }.buttonStyle(.plain)

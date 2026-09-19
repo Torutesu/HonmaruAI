@@ -100,7 +100,8 @@ jobs:
 
       - name: Deploy
         if: ${{ !inputs.migrate_only }}
-        run: npx -y wrangler@4 deploy
+        # Preserve dashboard-managed non-secret runtime variables as well as secrets.
+        run: npx -y wrangler@4 deploy --keep-vars
 
       - name: Verify
         if: ${{ !inputs.migrate_only }}

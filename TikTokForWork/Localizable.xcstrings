@@ -1,6 +1,547 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Use AI to draft this request?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIで下書きを作成しますか？"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Usar IA para redactar esta solicitud?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser l’IA pour rédiger cette demande ?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Anfrage mit KI entwerfen?"
+          }
+        }
+      }
+    },
+    "Send text to OpenAI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストをOpenAIに送信"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar texto a OpenAI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer le texte à OpenAI"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text an OpenAI senden"
+          }
+        }
+      }
+    },
+    "Continue without AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIを使わずに続ける"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar sin IA"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer sans IA"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne KI fortfahren"
+          }
+        }
+      }
+    },
+    "Your request text and work context are sent through Honmaru AI to OpenAI to prepare a draft. Microphone audio is never sent. Review the card before sending it to your team.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼文と仕事の文脈をHonmaru AI経由でOpenAIに送り、下書きを作成します。マイク音声は送信しません。チームに送る前にカードを確認できます。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El texto de la solicitud y el contexto laboral se envían a OpenAI a través de Honmaru AI para preparar un borrador. Nunca se envía el audio del micrófono. Revisa la tarjeta antes de enviarla al equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le texte de votre demande et le contexte de travail sont envoyés à OpenAI via Honmaru AI pour préparer un brouillon. L’audio du microphone n’est jamais envoyé. Vérifiez la carte avant de l’envoyer à votre équipe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihr Anfragetext und Arbeitskontext werden über Honmaru AI an OpenAI gesendet, um einen Entwurf zu erstellen. Mikrofonaufnahmen werden nie gesendet. Prüfen Sie die Karte, bevor Sie sie an Ihr Team senden."
+          }
+        }
+      }
+    },
+    "Record silent video": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無音動画を撮影"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabar vídeo sin sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer une vidéo muette"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stummes Video aufnehmen"
+          }
+        }
+      }
+    },
+    "Video upload failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画をアップロードできませんでした"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo subir el vídeo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de l’envoi de la vidéo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video-Upload fehlgeschlagen"
+          }
+        }
+      }
+    },
+    "Your video could not be uploaded. Your text has been kept; try again without video.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画をアップロードできませんでした。入力した文章は保持しています。動画なしで続けてください。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo subir el vídeo. Se ha conservado el texto; continúa sin vídeo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La vidéo n’a pas pu être envoyée. Votre texte a été conservé ; continuez sans vidéo."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Video konnte nicht hochgeladen werden. Ihr Text wurde behalten; fahren Sie ohne Video fort."
+          }
+        }
+      }
+    },
+    "Title": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "件名"
+          }
+        }
+      }
+    },
+    "New request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼を作成"
+          }
+        }
+      }
+    },
+    "Dictate request": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声で依頼を入力"
+          }
+        }
+      }
+    },
+    "Camera preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラのプレビュー"
+          }
+        }
+      }
+    },
+    "Video is silent. Your speech is added as an editable transcript.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画に音声は含まれません。話した内容は編集可能なテキストとして追加されます。"
+          }
+        }
+      }
+    },
+    "Speak your request, then review the transcript before adding it to your draft.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼したいことを話してください。文字起こしを確認してから下書きに追加できます。"
+          }
+        }
+      }
+    },
+    "Speech is transcribed on this device only. When you generate an AI draft, the text is sent to OpenAI, not your microphone audio. If on-device recognition is unavailable, type your request instead.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声は端末内だけで文字起こしします。AIで下書きを生成すると、文字起こししたテキストがOpenAIに送信されます。マイクの音声は送信しません。端末内の音声認識が使えない場合は、文字で入力してください。"
+          }
+        }
+      }
+    },
+    "Ready when you are": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備ができたら開始してください"
+          }
+        }
+      }
+    },
+    "Start recording": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録音を開始"
+          }
+        }
+      }
+    },
+    "Transcript": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字起こし"
+          }
+        }
+      }
+    },
+    "You can close this screen and type your request instead.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画面を閉じて、文字で入力することもできます。"
+          }
+        }
+      }
+    },
+    "Record video": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を撮影"
+          }
+        }
+      }
+    },
+    "Use transcript": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字起こしを使う"
+          }
+        }
+      }
+    },
+    "Camera access is off. Enable it in Settings or use dictation.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラへのアクセスが無効です。設定で許可するか、音声入力を使ってください。"
+          }
+        }
+      }
+    },
+    "Your team": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参加中のチーム"
+          }
+        }
+      }
+    },
+    "Terms of Use": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用規約"
+          }
+        }
+      }
+    },
+    "Privacy Policy": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシーポリシー"
+          }
+        }
+      }
+    },
+    "1 day": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1日"
+          }
+        }
+      }
+    },
+    "1 week": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1週間"
+          }
+        }
+      }
+    },
+    "1 month": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1か月"
+          }
+        }
+      }
+    },
+    "1 year": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1年"
+          }
+        }
+      }
+    },
+    "%lld days": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld日"
+          }
+        }
+      }
+    },
+    "%lld weeks": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld週間"
+          }
+        }
+      }
+    },
+    "%lld months": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldか月"
+          }
+        }
+      }
+    },
+    "%lld years": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld年"
+          }
+        }
+      }
+    },
+    "Price": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "価格"
+          }
+        }
+      }
+    },
+    "Upgrading isn't available in this version.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンではアップグレードはご利用いただけません。"
+          }
+        }
+      }
+    },
+    "The free routing limit above still applies.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上に記載の無料ルーティング上限はそのまま適用されます。"
+          }
+        }
+      }
+    },
+    "Connect to your workspace before sending. Your draft is kept here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信前にワークスペースに接続してください。下書きは保持しています。"
+          }
+        }
+      }
+    },
+    "approve": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
+          }
+        }
+      }
+    },
+    "decline": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "却下"
+          }
+        }
+      }
+    },
+    "rollback": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消し"
+          }
+        }
+      }
+    },
     "%lld waiting": {
       "extractionState": "manual",
       "localizations": {

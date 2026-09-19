@@ -2,10 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- development on purpose. Apple rewrites it to production when it
-	     re-signs for distribution, and hardcoding production breaks every
-	     local build. -->
 	<key>aps-environment</key>
-	<string>development</string>
+	<string>$(APNS_ENVIRONMENT)</string>
 </dict>
 </plist>
