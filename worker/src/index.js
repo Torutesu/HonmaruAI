@@ -514,6 +514,8 @@ async function handle(request, env, url) {
       if (!user) return json({ message: "unknown user" }, 409);
       return json({
         login: user.login,
+        userId: user.github_id,
+        orgId: await primaryOrgId(env.DB, session.github_id),
         name: user.name,
         locale: user.locale || "en",
         email: user.email || null,
