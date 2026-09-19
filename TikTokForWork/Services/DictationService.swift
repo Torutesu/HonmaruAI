@@ -5,8 +5,8 @@ import Speech
 /// On-device dictation for the capture screen.
 ///
 /// The transcript is deliberately editable before it is sent: speech recognition
-/// is a draft, not a command. Recognition is forced on-device where the locale
-/// supports it, so nothing is spoken to a server the user did not choose.
+/// is a draft, not a command. Recognition must stay on-device. Unsupported
+/// devices/locales use typed input, never server-based speech recognition.
 @MainActor
 final class DictationService: ObservableObject {
     enum Failure: LocalizedError {
@@ -26,38 +26,52 @@ final class DictationService: ObservableObject {
     @Published var errorMessage: String?
 
     private let audioEngine = AVAudioEngine()
+    private var hasInputTap = false
+    private var isStarting = false
+    private var recordingGeneration = UUID()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private lazy var recognizer = SFSpeechRecognizer(locale: Locale.current)
         ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
 
     func start() async {
-        guard !isRecording else { return }
+        guard !isRecording, !isStarting else { return }
+        isStarting = true
+        recordingGeneration = UUID()
+        let generation = recordingGeneration
+        defer { if recordingGeneration == generation { isStarting = false } }
         transcript = ""
         errorMessage = nil
 
         do {
+            guard let recognizer, recognizer.supportsOnDeviceRecognition else { throw Failure.unavailable }
             try await requestAccess()
+            guard recordingGeneration == generation else { return }
+            try Task.checkCancellation()
             try beginSession()
             isRecording = true
         } catch {
+            guard recordingGeneration == generation else { return }
             errorMessage = error.localizedDescription
             stop()
         }
     }
 
     func stop() {
+        recordingGeneration = UUID()
         // Order matters: detach the tap before stopping the engine, or the tap
         // outlives the node and the next start() traps on a duplicate install.
-        if audioEngine.isRunning {
+        if hasInputTap {
             audioEngine.inputNode.removeTap(onBus: 0)
-            audioEngine.stop()
+            hasInputTap = false
         }
+        audioEngine.stop()
         request?.endAudio()
         task?.cancel()
         request = nil
         task = nil
         isRecording = false
+        isStarting = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -80,7 +94,8 @@ final class DictationService: ObservableObject {
     }
 
     private func beginSession() throws {
-        guard let recognizer, recognizer.isAvailable else { throw Failure.unavailable }
+        guard let recognizer, recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else { throw Failure.unavailable }
+        let generation = recordingGeneration
 
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -88,22 +103,23 @@ final class DictationService: ObservableObject {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
+        request.requiresOnDeviceRecognition = true
         self.request = request
 
         let input = audioEngine.inputNode
-        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw Failure.unavailable }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             request.append(buffer)
         }
+        hasInputTap = true
 
         audioEngine.prepare()
         try audioEngine.start()
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.recordingGeneration == generation else { return }
                 if let result {
                     self.transcript = result.bestTranscription.formattedString
                 }

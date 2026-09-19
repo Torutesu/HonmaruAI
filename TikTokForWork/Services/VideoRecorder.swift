@@ -10,6 +10,7 @@ import Foundation
 final class VideoRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var recordedFile: URL?
+    @Published private(set) var errorMessage: String?
 
     let session = AVCaptureSession()
     private let output = AVCaptureMovieFileOutput()
@@ -45,6 +46,7 @@ final class VideoRecorder: NSObject, ObservableObject {
     func start() {
         guard !isRecording, !startPending else { return }
         startPending = true
+        errorMessage = nil
         // A stale file from an earlier take must not be what Send hands back
         // if this one never rolls.
         recordedFile = nil
@@ -86,6 +88,7 @@ final class VideoRecorder: NSObject, ObservableObject {
     /// finished configuring. Nothing was recorded, so nothing can finish.
     private func startFailed() {
         startPending = false
+        errorMessage = String(localized: "Could not start the camera. You can continue with text.")
         finished?(nil)
         finished = nil
     }
@@ -106,7 +109,9 @@ final class VideoRecorder: NSObject, ObservableObject {
     private lazy var delegateProxy: Delegate = Delegate(owner: self)
 
     fileprivate func recordingFinished(_ url: URL?) {
+        startPending = false
         isRecording = false
+        if url == nil { errorMessage = String(localized: "Could not record video. You can continue with text.") }
         recordedFile = url
         finished?(url)
         finished = nil

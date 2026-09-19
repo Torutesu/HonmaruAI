@@ -58,8 +58,8 @@ enum TeamService {
     private struct Minted: Decodable { let code: String }
     private struct Failure: Decodable { let message: String? }
 
-    private static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil, backendBaseURL: URL) throws -> URLRequest {
-        guard let token = SessionStore.sessionToken,
+    private static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil, backendBaseURL: URL, sessionToken: String? = nil) throws -> URLRequest {
+        guard let token = sessionToken ?? SessionStore.sessionToken,
               let url = URL(string: path, relativeTo: backendBaseURL) else {
             throw TeamServiceError.notConfigured
         }
@@ -87,9 +87,9 @@ enum TeamService {
         }
     }
 
-    static func members(orgId: String, backendBaseURL: URL) async throws -> (members: [TeamMember], editable: Bool) {
+    static func members(orgId: String, backendBaseURL: URL, sessionToken: String? = nil, session: URLSession = .shared) async throws -> (members: [TeamMember], editable: Bool) {
         let path = "members?orgId=\(orgId.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? orgId)"
-        let (data, response) = try await URLSession.shared.data(for: try request(path, backendBaseURL: backendBaseURL))
+        let (data, response) = try await session.data(for: try request(path, backendBaseURL: backendBaseURL, sessionToken: sessionToken))
         try check(data, response)
         let decoded = try JSONDecoder().decode(Members.self, from: data)
         return (decoded.members, decoded.editable)

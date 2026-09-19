@@ -129,6 +129,8 @@ test("/me says which teams you are in, and who runs each", async () => {
   );
   expect(res.status).toBe(200);
   const me = await res.json();
+  expect(me.userId).toBe(guest.userId);
+  expect(me.orgId).toBe(owner.orgId);
   const ids = me.orgs.map((o) => o.id);
   expect(ids).toContain(guest.orgId);
   expect(ids).toContain(owner.orgId);

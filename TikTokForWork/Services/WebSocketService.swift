@@ -42,7 +42,7 @@ enum RealtimeEvent: Codable {
             let payload = try container.decode(ErrorPayload.self, forKey: .payload)
             self = .error(message: payload.message)
         default:
-            self = .error(message: "Unknown event: \(type)")
+            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown event: \(type)")
         }
     }
 
@@ -199,6 +199,7 @@ enum ConnectionState: Equatable {
 final class WebSocketService: ObservableObject {
     @Published private(set) var state: ConnectionState = .offline
     @Published private(set) var onlineUserIDs: Set<String> = []
+    @Published private(set) var deliveryError: String?
 
     var isConnected: Bool { state == .connected }
 
@@ -207,6 +208,7 @@ final class WebSocketService: ObservableObject {
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var joinTimeoutTask: Task<Void, Never>?
     private var intentionalDisconnect = false
     private var reconnectAttempt = 0
     private var lastURLString: String?
@@ -214,10 +216,12 @@ final class WebSocketService: ObservableObject {
     private var lastOrgID = "core-team"
     private var lastSessionToken: String?
     private var lastRefusal: String?
+    private var connectionGeneration = UUID()
     private let session = URLSession(configuration: .default)
     // Lazy so its main-actor initializer runs on first use rather than in a
     // stored-property default.
-    private lazy var outbox = Outbox()
+    private var outbox: Outbox?
+    private var outboxFilename: String?
 
     /// cardID → recipientUserID, maintained from snapshots and upserts so
     /// AG-UI remove patches (which carry only the card id) can be routed.
@@ -257,10 +261,19 @@ final class WebSocketService: ObservableObject {
         // back. Setting it before the teardown, which is what used to happen,
         // left it true forever and killed auto-reconnect after the first call.
         disconnect(intentional: true)
+        let generation = connectionGeneration
+        let filename = Outbox.filename(relayURL: urlString, userID: userId, orgID: orgId)
+        if filename != outboxFilename {
+            outbox = Outbox(filename: filename)
+            outboxFilename = filename
+            deliveryError = nil
+        }
+        cardOwners = [:]
+        aguiAssembler = AGUIEventAssembler(decoder: decoder)
         intentionalDisconnect = false
         state = .connecting
 
-        guard let url = URL(string: urlString) else {
+        guard let url = Self.connectionURL(relayURL: urlString, orgID: orgId) else {
             state = .offline
             throw URLError(.badURL)
         }
@@ -273,28 +286,52 @@ final class WebSocketService: ObservableObject {
         task.resume()
 
         receiveLoopTask = Task { [weak self] in
-            await self?.receiveLoop()
+            await self?.receiveLoop(task: task, generation: generation)
         }
 
         do {
             try await send(.join(userId: userId, orgId: orgId, sessionToken: sessionToken))
         } catch {
+            guard generation == connectionGeneration else { throw error }
             state = .offline
             scheduleReconnect()
             throw error
         }
-        reconnectAttempt = 0
-        state = .connected
-        await flushOutbox()
+        // The relay's first snapshot confirms that membership and the session
+        // were accepted. A successful socket write alone does not mean joined.
+        guard generation == connectionGeneration, state == .connecting else { return }
+        joinTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled, let self,
+                  self.connectionGeneration == generation,
+                  self.state == .connecting else { return }
+            self.state = .offline
+            self.scheduleReconnect()
+        }
+    }
+
+    /// The Worker selects the organization relay during the HTTP upgrade,
+    /// before it reads the join message. A payload-only orgId joins core-team.
+    static func connectionURL(relayURL: String, orgID: String) -> URL? {
+        guard !orgID.isEmpty, var components = URLComponents(string: relayURL),
+              let scheme = components.scheme, ["ws", "wss"].contains(scheme),
+              components.host != nil else { return nil }
+        var query = (components.queryItems ?? []).filter { $0.name != "orgId" }
+        query.append(URLQueryItem(name: "orgId", value: orgID))
+        components.queryItems = query
+        return components.url
     }
 
     /// Intentional by default, because every caller outside this file means
     /// "stop" — signing out, mainly. A drop we did not ask for never comes
     /// through here; the receive loop notices it and schedules a reconnect.
     func disconnect(intentional: Bool = true) {
+        connectionGeneration = UUID()
         intentionalDisconnect = intentional
         reconnectTask?.cancel()
         reconnectTask = nil
+        joinTimeoutTask?.cancel()
+        joinTimeoutTask = nil
         receiveLoopTask?.cancel()
         receiveLoopTask = nil
         task?.cancel(with: .goingAway, reason: nil)
@@ -306,6 +343,31 @@ final class WebSocketService: ObservableObject {
         onlineUserIDs = []
     }
 
+    func clearPendingEvents() {
+        outbox?.clear()
+        if let lastURLString, let lastUserID {
+            Outbox.clearAll(relayURL: lastURLString, userID: lastUserID)
+        }
+        outbox = nil
+        outboxFilename = nil
+        deliveryError = nil
+    }
+
+    func clearDeliveryError() { deliveryError = nil }
+
+    /// Join failures explain refusal. Once joined, an error means a mutation
+    /// may have been rejected: surface it and fetch authoritative state again
+    /// so an optimistic local card does not continue to look delivered.
+    func reportRelayError(_ message: String, wasJoined: Bool) {
+        let boundedMessage = String(message.prefix(500))
+        if wasJoined {
+            deliveryError = boundedMessage
+            scheduleReconnect(immediately: true)
+        } else {
+            lastRefusal = boundedMessage
+        }
+    }
+
     /// Reconnect if we are meant to be connected and are not. Called when the
     /// app returns to the foreground and when the network comes back — a socket
     /// dropped while backgrounded produces no receive-loop error to react to, so
@@ -314,7 +376,10 @@ final class WebSocketService: ObservableObject {
         // A refusal is the relay saying this session may never join this org.
         // Retrying it is a battery drain with a known answer.
         if case .refused = state { return }
-        guard state != .connected, lastURLString != nil, !intentionalDisconnect else { return }
+        // Foregrounding and network recovery can leave a half-open socket
+        // looking connected. Rejoining refreshes its state and the feed; a join
+        // already in progress has its own timeout and should finish normally.
+        guard state != .connecting, lastURLString != nil, !intentionalDisconnect else { return }
         reconnectAttempt = 0
         scheduleReconnect(immediately: true)
     }
@@ -331,12 +396,8 @@ final class WebSocketService: ObservableObject {
         await publish(.rollback(cardID: cardID))
     }
 
-    /// Ask again about a decision that has been waiting.
-    ///
-    /// Sent, not queued: a reminder that arrives when the network comes back
-    /// is a reminder about a moment that has passed, and the outbox exists for
-    /// decisions, which must not be lost. This one may be.
     func nudge(cardID: String) async {
+        guard state == .connected else { return }
         try? await send(.nudge(cardID: cardID))
     }
 
@@ -354,25 +415,39 @@ final class WebSocketService: ObservableObject {
     /// discarded, and the decision existed only on that device. The person who
     /// made it saw success. The teammate waiting on it never heard. Anything
     /// that fails now waits in the outbox and goes out in order on reconnect —
-    /// the relay upserts by card id, so a re-delivery is harmless.
+    /// transport completion still does not prove persistence on the relay.
     private func publish(_ event: OutboundEvent) async {
-        do {
-            try await send(event)
-        } catch {
-            outbox.append(event)
-        }
+        guard !intentionalDisconnect, let outbox else { return }
+        // Always queue first, including online sends, so a newer action cannot
+        // overtake an earlier one during a reconnect or a suspended write.
+        outbox.append(event)
+        await flushOutbox()
     }
 
     private func flushOutbox() async {
-        for event in outbox.drain() {
-            do {
-                try await send(event)
-            } catch {
-                // Still down. Put it back, in order, and stop — the next
-                // reconnect will try again rather than reordering the queue.
-                outbox.prepend(event)
-                break
+        guard state == .connected, let outbox else { return }
+        let generation = connectionGeneration
+        do {
+            try await outbox.flush { [weak self] event in
+                guard let self, self.connectionGeneration == generation,
+                      self.state == .connected else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                try await self.send(event)
+                guard self.connectionGeneration == generation,
+                      self.state == .connected else { throw CancellationError() }
             }
+        } catch {
+            guard generation == connectionGeneration else {
+                // A replacement connection may have tried to flush while the
+                // old transport still held this queue. Its completion releases
+                // the lock, so let the current connection pick the queue up.
+                await flushOutbox()
+                return
+            }
+            if case .refused = state { return }
+            state = .offline
+            scheduleReconnect()
         }
     }
 
@@ -396,10 +471,11 @@ final class WebSocketService: ObservableObject {
         try await task.send(.string(text))
     }
 
-    private func receiveLoop() async {
-        while !Task.isCancelled, let task {
+    private func receiveLoop(task: URLSessionWebSocketTask, generation: UUID) async {
+        while !Task.isCancelled, generation == connectionGeneration {
             do {
                 let message = try await task.receive()
+                guard !Task.isCancelled, generation == connectionGeneration else { return }
                 switch message {
                 case .string(let text):
                     handle(text: text)
@@ -411,6 +487,7 @@ final class WebSocketService: ObservableObject {
                     break
                 }
             } catch {
+                guard !Task.isCancelled, generation == connectionGeneration else { return }
                 // 1008 is the relay refusing this session for this organization
                 // — a permanent answer, not a dropped connection. Telling them
                 // apart is the difference between showing "reconnecting…" once
@@ -482,22 +559,28 @@ final class WebSocketService: ObservableObject {
 
         // The relay explains a refusal before it closes, so hold the last
         // explanation to show instead of a generic one when the close lands.
-        if case .error(let message) = event { lastRefusal = message }
+        if case .error(let message) = event {
+            reportRelayError(message, wasJoined: state == .connected)
+        }
 
-        switch event {
-        case .snapshot(_, let onlineUserIds):
-            onlineUserIDs = Set(onlineUserIds)
-        case .presence(let userId, let status):
+        if case .snapshot(_, let onlineUserIds) = event { onlineUserIDs = Set(onlineUserIds) }
+        if case .presence(let userId, let status) = event {
             if status == "online" {
                 onlineUserIDs.insert(userId)
             } else {
                 onlineUserIDs.remove(userId)
             }
-        default:
-            break
         }
 
         onEvent?(event)
+
+        if case .snapshot = event, state == .connecting {
+            joinTimeoutTask?.cancel()
+            joinTimeoutTask = nil
+            reconnectAttempt = 0
+            state = .connected
+            Task { await flushOutbox() }
+        }
     }
 
     private func trackOwnership(of event: RealtimeEvent) {

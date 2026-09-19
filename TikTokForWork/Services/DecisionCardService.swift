@@ -3,11 +3,13 @@ import Foundation
 enum CardServiceError: LocalizedError {
     case githubSyncFailed(String)
     case cardNotFound
+    case notConnected
 
     var errorDescription: String? {
         switch self {
         case .githubSyncFailed(let message): message
         case .cardNotFound: String(localized: "Card not found.")
+        case .notConnected: String(localized: "Connect to your workspace before sending. Your draft is kept here.")
         }
     }
 }
@@ -19,6 +21,15 @@ final class DecisionCardService: ObservableObject {
     private var activeUserID: String?
     private var orgID: String?
     private var persistTask: Task<Void, Never>?
+    private var scopeGeneration = UUID()
+
+    private func ensureCurrentScope(_ generation: UUID) throws {
+        guard generation == scopeGeneration else { throw CancellationError() }
+    }
+
+    private func requireDeliveryScope() throws {
+        if let webSocketService, webSocketService.state != .connected { throw CardServiceError.notConnected }
+    }
 
     /// How many decisions are waiting on the person using this device.
     ///
@@ -44,6 +55,10 @@ final class DecisionCardService: ObservableObject {
     }
 
     func setActiveUser(_ userID: String) {
+        if activeUserID != userID {
+            scopeGeneration = UUID()
+            if activeUserID != nil { reset() }
+        }
         activeUserID = userID
     }
 
@@ -51,16 +66,14 @@ final class DecisionCardService: ObservableObject {
     /// socket has said anything. This is the difference between launching into
     /// your feed and launching into a blank screen.
     func adoptOrganization(_ orgID: String) {
+        scopeGeneration = UUID()
         self.orgID = orgID
         cardsByUser = CardCache.load(orgID: orgID)
         changed()
     }
 
     func applySnapshot(_ incoming: [String: [DecisionCard]]) {
-        // An empty snapshot is not the same as "there is nothing". It is what a
-        // relay sends before anything has been published, and adopting it would
-        // wipe a cache that is currently the only copy of the user's feed.
-        if incoming.isEmpty, !cardsByUser.isEmpty { return }
+        // A joined relay is authoritative even after the last card was deleted.
         cardsByUser = incoming
         changed()
     }
@@ -76,6 +89,8 @@ final class DecisionCardService: ObservableObject {
     func seedDemoFeedIfNeeded() {}
 
     func reset() {
+        scopeGeneration = UUID()
+        activeUserID = nil
         cardsByUser = [:]
         orgID = nil
         persistTask?.cancel()
@@ -109,6 +124,7 @@ final class DecisionCardService: ObservableObject {
     }
 
     func syncGitHubStatus(githubService: GitHubService) async {
+        let generation = scopeGeneration
         guard githubService.isConnected else { return }
         // Only our own cards. The store holds the whole org so a second device
         // can stay in sync passively, but a card belongs to the person who has
@@ -128,6 +144,7 @@ final class DecisionCardService: ObservableObject {
 
             do {
                 let issueState = try await githubService.issueState(number: issueNumber)
+                guard generation == scopeGeneration else { return }
                 if issueState == "closed", status != .completed {
                     userCards[index].status = .completed
                     didChange = true
@@ -142,7 +159,7 @@ final class DecisionCardService: ObservableObject {
             }
         }
 
-        if didChange {
+        if didChange, generation == scopeGeneration {
             cardsByUser[userID] = userCards
             changed()
         }
@@ -176,6 +193,8 @@ final class DecisionCardService: ObservableObject {
         revisionNote: String? = nil,
         githubService: GitHubService
     ) async throws -> DecisionCard {
+        let generation = scopeGeneration
+        try requireDeliveryScope()
         guard var userCards = cardsByUser[actorUserID],
               let index = userCards.firstIndex(where: { $0.id == cardID }) else {
             throw CardServiceError.cardNotFound
@@ -205,6 +224,7 @@ final class DecisionCardService: ObservableObject {
         // recorded locally and can sync later once a repository is linked.
         if githubService.isConnected, action == .createIssue || card.githubIssueNumber != nil {
             let synced = try await githubService.syncDecision(card)
+            try ensureCurrentScope(generation)
             card.githubIssueNumber = synced.number
             card.githubIssueURL = synced.url
             card.githubRepository = githubService.linkedRepository
@@ -225,6 +245,7 @@ final class DecisionCardService: ObservableObject {
 
         let toolCallId = webSocketService?.toolCallID(for: cardID)
         await webSocketService?.publishToolResult(card, decision: decision, toolCallId: toolCallId)
+        try ensureCurrentScope(generation)
 
         let statusLabel: String = {
             switch card.status {
@@ -254,6 +275,7 @@ final class DecisionCardService: ObservableObject {
 
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
+        try ensureCurrentScope(generation)
         changed()
         return card
     }
@@ -266,6 +288,8 @@ final class DecisionCardService: ObservableObject {
         organization: OrganizationGraph,
         githubService: GitHubService
     ) async throws -> DecisionCard {
+        let generation = scopeGeneration
+        try requireDeliveryScope()
         guard var userCards = cardsByUser[actorUserID],
               let index = userCards.firstIndex(where: { $0.id == cardID }) else {
             throw CardServiceError.cardNotFound
@@ -280,6 +304,7 @@ final class DecisionCardService: ObservableObject {
         card.status = .delegated
         if githubService.isConnected {
             let synced = try await githubService.syncDecision(card)
+            try ensureCurrentScope(generation)
             card.githubIssueNumber = synced.number
             card.githubIssueURL = synced.url
             card.githubRepository = githubService.linkedRepository
@@ -301,6 +326,7 @@ final class DecisionCardService: ObservableObject {
         let toolCallId = webSocketService?.toolCallID(for: cardID)
         await webSocketService?.publishToolResult(card, decision: decision, toolCallId: toolCallId)
 
+        try ensureCurrentScope(generation)
         let actorName = DisplayName.of(actorUserID, in: organization)
         let recipientName = DisplayName.of(recipientUserID, in: organization)
         let delegatedCard = DecisionCard(
@@ -323,6 +349,7 @@ final class DecisionCardService: ObservableObject {
 
         append(delegatedCard, for: recipientUserID)
         await webSocketService?.publishCreated(delegatedCard)
+        try ensureCurrentScope(generation)
 
         let responseCard = DecisionCard(
             id: UUID().uuidString,
@@ -344,11 +371,14 @@ final class DecisionCardService: ObservableObject {
 
         append(responseCard, for: card.senderUserID)
         await webSocketService?.publishCreated(responseCard)
+        try ensureCurrentScope(generation)
         changed()
         return card
     }
 
     func delete(cardID: String, actorUserID: String) async throws {
+        let generation = scopeGeneration
+        try requireDeliveryScope()
         guard var userCards = cardsByUser[actorUserID],
               let index = userCards.firstIndex(where: { $0.id == cardID }) else {
             throw CardServiceError.cardNotFound
@@ -362,6 +392,7 @@ final class DecisionCardService: ObservableObject {
         userCards.remove(at: index)
         cardsByUser[actorUserID] = userCards
         await webSocketService?.publishDeleted(cardID: cardID, recipientUserID: actorUserID)
+        try ensureCurrentScope(generation)
         changed()
     }
 
@@ -372,6 +403,8 @@ final class DecisionCardService: ObservableObject {
         from sender: User,
         videoURL: String? = nil
     ) async throws -> DecisionCard {
+        let generation = scopeGeneration
+        try requireDeliveryScope()
         let card = DecisionCard(
             id: UUID().uuidString,
             recipientUserID: routing.recipientID,
@@ -395,6 +428,7 @@ final class DecisionCardService: ObservableObject {
 
         append(card, for: routing.recipientID)
         await webSocketService?.publishCreated(card)
+        try ensureCurrentScope(generation)
         changed()
         return card
     }
