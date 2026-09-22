@@ -118,6 +118,15 @@ The list of what is still missing, and why each item matters, is
       (the same keyword search the router and "Ask anything" use, with the
       card's id so a hit opens). ↑↓ ⏎ esc; a search button in the top bar
       for the pointer. One e2e step: a card by a word, Insights by name
+- [x] **Say it, and "How I work", on the web.** A mic on "Tell your AI"
+      where the browser can listen (Web Speech; Chrome and Safari — Firefox
+      is not offered a button it cannot honour): the box fills as you speak,
+      Send is still yours. Under You, "How I work" — what you run, who owns
+      what, what is always yours — kept in this browser like the phone keeps
+      it on the device, and sent as `senderContext` with every instruction,
+      which the router already read from the phone and never got from the
+      web. Three unit tests; one e2e step: written, kept across a reload,
+      on the wire with the next instruction
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

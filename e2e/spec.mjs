@@ -325,7 +325,7 @@ await step('telling your AI something produces a decision', async () => {
   if (readable.right > 391) throw new Error('the compose box runs off the phone')
   await shot('08-compose')
   await box.fill('Approve the new supplier price for the cafe')
-  const send = await page.$('.create-decision button')
+  const send = await page.$('.create-decision button:not(.mic)')
   if (!send) throw new Error('the compose sheet has no send button')
   await send.click()
   // The keyword router has no teammates in a one-person org, so the card comes
@@ -612,7 +612,7 @@ await step('choosing a language changes the interface, and changing back returns
   await page.click('nav [data-tab="compose"]')
   await page.waitForSelector('.sheet-bottom .create-decision textarea', { timeout: 10000 })
   await page.fill('.sheet-bottom .create-decision textarea', '来週の値上げを承認してほしい')
-  await page.click('.sheet-bottom .create-decision button')
+  await page.click('.sheet-bottom .create-decision button:not(.mic)')
   await page.waitForTimeout(2500)
   await closeEverything()
   await page.waitForSelector('.card-title', { timeout: 15000 })
@@ -680,7 +680,7 @@ await step('the app is usable on a laptop', async () => {
   await d.click('[data-tab="compose"]')
   await d.waitForSelector('.create-decision textarea')
   await d.fill('.create-decision textarea', 'Ask the designer to review the new card layout')
-  await d.click('.create-decision button')
+  await d.click('.create-decision button:not(.mic)')
   await d.waitForSelector('.card-title', { timeout: 25000 })
   await d.waitForTimeout(600)
   await d.screenshot({ path: `${SHOTS}/20-desktop-feed.png` })
@@ -792,6 +792,31 @@ await step('⌘K finds a card by a word and a screen by its name', async () => {
     .catch(() => { throw new Error('the palette did not open Insights by name') })
   await d.keyboard.press('Escape')
   await d.waitForSelector('.workbench .card-title', { timeout: 10000 })
+})
+
+// "How I work": written once under You, kept in this browser, and sent with
+// every instruction so the router knows who owns what.
+await step('how you work is remembered and rides on what you send', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/you' })
+  await d.waitForSelector('.context-input', { timeout: 10000 })
+    .catch(() => { throw new Error('You has no "How I work" box') })
+  await d.fill('.context-input', 'I run the cafe. Kenji owns suppliers.')
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.context-input', { timeout: 20000 })
+  const kept = await d.$eval('.context-input', (el) => el.value)
+  if (kept !== 'I run the cafe. Kenji owns suppliers.') throw new Error(`a reload lost "How I work": ${JSON.stringify(kept)}`)
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.workbench', { timeout: 10000 })
+  await d.click('[data-tab="compose"]')
+  await d.waitForSelector('.create-decision textarea')
+  const sent = d.waitForRequest((req) => req.url().endsWith('/ai/route') && req.method() === 'POST', { timeout: 15000 })
+  await d.fill('.create-decision textarea', 'Ask Kenji to approve the supplier price')
+  await d.click('.create-decision button:not(.mic)')
+  const body = JSON.parse((await sent).postData() || '{}')
+  if (body.senderContext !== 'I run the cafe. Kenji owns suppliers.') throw new Error(`the instruction went without "How I work": ${JSON.stringify(body.senderContext)}`)
+  await d.waitForSelector('.card-title', { timeout: 25000 })
+  await d.keyboard.press('Escape')
 })
 
 await step('the other screens hold up on a laptop', async () => {

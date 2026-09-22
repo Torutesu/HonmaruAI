@@ -495,6 +495,13 @@ const ja: Dict = {
   'Go to': '移動',
   'Decided before': '以前の決定',
   'Plans': 'プラン',
+  // How I work, and the voice
+  'How I work': '私の働き方',
+  'What your AI should know before it routes anything you say: what you run, who owns what, what is always yours.': 'あなたの言葉を振り分ける前に AI が知っておくべきこと。何を運営しているか、誰が何を担当しているか、必ず自分で決めることは何か。',
+  'e.g. I run the cafe and the hotel. Kenji owns suppliers. Anything about the lease is mine.': '例：カフェとホテルを運営している。仕入は健二の担当。賃貸契約のことは必ず私が決める。',
+  'Say it instead': '声で入力',
+  'Stop listening': '聞き取りを止める',
+  'Could not hear you: {why}': '聞き取れませんでした: {why}',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

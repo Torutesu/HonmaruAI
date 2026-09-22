@@ -19,7 +19,7 @@ import React from 'react'
 export type IconName =
   | 'home' | 'you' | 'history' | 'tools' | 'plus'
   | 'record' | 'bell' | 'invite' | 'plan' | 'mail' | 'hash' | 'notion' | 'github' | 'box'
-  | 'calendar' | 'drive' | 'insights' | 'search'
+  | 'calendar' | 'drive' | 'insights' | 'search' | 'mic'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // Figma: Chrome/Tab Bar → icon/home
@@ -72,6 +72,14 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="11" cy="11" r="8" />
       <path d="M21 21l-4.35-4.35" />
+    </>
+  ),
+  // Feather: mic
+  mic: (
+    <>
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <path d="M12 19v4M8 23h8" />
     </>
   ),
   bell: (

@@ -3,6 +3,7 @@ import { getLocale, LOCALE_NAMES } from '../utils/locale'
 import type { Business } from '../types/card'
 import { useT, changeLocale as applyLocale } from '../utils/i18n'
 import { Icon } from '../components/Icon'
+import { getSenderContext, setSenderContext, MAX_CONTEXT_CHARS } from '../utils/context'
 
 interface Props {
   httpBase: string
@@ -67,6 +68,8 @@ export const Profile: React.FC<Props> = ({
   // matches an instruction against these, so 「美香に」 reaches an account
   // whose login is "mika".
   const [aliases, setAliases] = useState('')
+  // "How I work": kept in this browser, sent with every instruction.
+  const [howIWork, setHowIWork] = useState(getSenderContext)
   // Typed before the profile arrived: the fetch must not overwrite it. That
   // race is exactly what the end-to-end suite hit on a fast machine.
   const aliasesTouched = useRef(false)
@@ -202,6 +205,21 @@ export const Profile: React.FC<Props> = ({
                 }}
                 placeholder={t('e.g. 美香, Mika')}
                 aria-label={t('Also called')}
+              />
+            </span>
+          </div>
+          <div className="row static">
+            <span className="row-main">
+              {t('How I work')}
+              <span className="row-sub">{t('What your AI should know before it routes anything you say: what you run, who owns what, what is always yours.')}</span>
+              <textarea
+                className="context-input"
+                value={howIWork}
+                rows={3}
+                maxLength={MAX_CONTEXT_CHARS}
+                onChange={(e) => { setHowIWork(e.target.value); setSenderContext(e.target.value) }}
+                placeholder={t('e.g. I run the cafe and the hotel. Kenji owns suppliers. Anything about the lease is mine.')}
+                aria-label={t('How I work')}
               />
             </span>
           </div>

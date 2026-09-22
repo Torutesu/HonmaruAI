@@ -2,6 +2,10 @@ import React, { useEffect, useRef, useState } from 'react'
 import { properName } from '../utils/names'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
+import { getSenderContext } from '../utils/context'
+import { dictationAvailable, startDictation } from '../utils/dictation'
+import type { Dictation } from '../utils/dictation'
+import { Icon } from './Icon'
 
 interface Props {
   relayHttpUrl: string
@@ -30,6 +34,25 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
   }, [text])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Say it instead of typing it. The box fills as you speak; Send is still
+  // yours to press. Offered only where the browser can listen.
+  const [listening, setListening] = useState(false)
+  const dictation = useRef<Dictation | null>(null)
+  const typedBefore = useRef('')
+  const canListen = dictationAvailable()
+  const toggleListening = () => {
+    if (listening) { dictation.current?.stop(); return }
+    typedBefore.current = text ? text.replace(/\s+$/, '') + ' ' : ''
+    const started = startDictation(getLocale() === 'ja' ? 'ja-JP' : getLocale(), (spoken) => {
+      setText(typedBefore.current + spoken)
+    }, (why) => {
+      setListening(false)
+      dictation.current = null
+      if (why && why !== 'aborted' && why !== 'no-speech') setError(t('Could not hear you: {why}', { why }))
+    })
+    if (started) { dictation.current = started; setListening(true) }
+  }
+  useEffect(() => () => dictation.current?.stop(), [])
 
   const handleCreate = async () => {
     if (!text.trim()) return
@@ -51,6 +74,8 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
           // The Worker writes its own words on a card — the title, the routing
           // line — and without this it writes them in English.
           readerLanguage: getLocale(),
+          // "How I work", from You. The router reads it on every send.
+          ...(getSenderContext() ? { senderContext: getSenderContext() } : {}),
           organization: {
             orgId,
             // The router reads members from `nodes` (kind: "person"). Sending
@@ -114,6 +139,19 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCreate() }
         }}
       />
+      {canListen && (
+        <button
+          type="button"
+          className={`mic${listening ? ' on' : ''}`}
+          onClick={toggleListening}
+          disabled={busy}
+          aria-pressed={listening}
+          aria-label={listening ? t('Stop listening') : t('Say it instead')}
+          title={listening ? t('Stop listening') : t('Say it instead')}
+        >
+          <Icon name="mic" size={18} />
+        </button>
+      )}
       <button onClick={handleCreate} disabled={busy || !text.trim()}>
         {busy ? t('Routing…') : t('Send')}
       </button>
