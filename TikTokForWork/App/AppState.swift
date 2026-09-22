@@ -15,6 +15,60 @@ final class AppState: ObservableObject {
     @Published var isAuthenticated = false
     @Published private(set) var isBootstrapping = true
     @Published var organization = OrganizationGraph(nodes: [], edges: [])
+    @Published private(set) var workspaceMembers: [WorkspaceMember] = []
+    @Published private(set) var membersLoading = false
+    @Published private(set) var membersError: String?
+
+    var workspaceDisplayName: String {
+        isGuest ? String(localized: "Demo workspace") : (currentUser?.teamID ?? String(localized: "Workspace"))
+    }
+
+    /// Switch only after the server accepts an invite. Keep the same login
+    /// session so the shell's unsent draft survives; discard old relay events.
+    func switchToJoinedTeam(_ orgID: String) async throws {
+        guard var user = currentUser, let token = SessionStore.sessionToken, let base = backendBaseURL, !isGuest else { return }
+        let members = try await WorkspaceMemberService.fetch(orgID: orgID, baseURL: base, sessionToken: token)
+        guard currentUser == user, SessionStore.sessionToken == token else { return }
+        webSocketService.disconnect()
+        webSocketService.clearPendingEvents()
+        cardService.reset()
+        user.teamID = orgID; currentUser = user; SessionStore.orgId = orgID
+        workspaceMembers = members
+        organization = OrganizationGraph(nodes: members.map { OrgNode(id: $0.id, kind: .person, label: "\($0.name) · \($0.role)") }, edges: [])
+        cardService.setActiveUser(user.id); cardService.adoptOrganization(orgID)
+        try await webSocketService.connect(urlString: relayURL, userId: user.id, orgId: orgID, sessionToken: token)
+    }
+
+    func refreshWorkspaceMembers() async {
+        let generation = sessionGeneration
+        if isGuest { workspaceMembers = DemoWorkspace.members; return }
+        guard let orgID = currentUser?.teamID, !orgID.isEmpty, let base = backendBaseURL,
+              let token = SessionStore.sessionToken else { return }
+        membersLoading = true
+        do {
+            let members = try await WorkspaceMemberService.fetch(orgID: orgID, baseURL: base, sessionToken: token)
+            guard generation == sessionGeneration, !isGuest, currentUser?.teamID == orgID,
+                  SessionStore.sessionToken == token else { return }
+            workspaceMembers = members
+            if githubService.connection == nil {
+                organization = OrganizationGraph(nodes: members.map { OrgNode(id: $0.id, kind: .person, label: "\($0.name) · \($0.role)") }, edges: [])
+            }
+            membersError = nil
+        } catch {
+            guard generation == sessionGeneration, !isGuest, currentUser?.teamID == orgID,
+                  SessionStore.sessionToken == token else { return }
+            membersError = String(localized: "Could not load teammates. Try again.")
+        }
+        membersLoading = false
+    }
+
+    func resetDemoWorkspace() {
+        guard isGuest else { return }
+        workspaceMembers = DemoWorkspace.members
+        organization = DemoWorkspace.organization
+        currentUser = User(id: DemoWorkspace.userID, name: String(localized: "You"), role: String(localized: "Demo member"), teamID: DemoWorkspace.id, githubUsername: nil)
+        cardService.activateDemo(cardsByUser: DemoWorkspace.cards(), userID: DemoWorkspace.userID)
+    }
     @Published var language: AppLanguage = {
         AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "system") ?? .system
     }() {
@@ -59,15 +113,14 @@ final class AppState: ObservableObject {
     let networkMonitor = NetworkMonitor()
 
     let relayURL = AppConfig.relayURL
+    private var sessionGeneration = UUID()
+    private let accountSession: URLSession
+    private let accountToken: () -> String?
+    var activeSessionID: UUID { sessionGeneration }
 
     var backendBaseURL: URL? {
         BackendURL.httpBase(from: relayURL)
     }
-
-    private var sessionGeneration = UUID()
-    var activeSessionID: UUID { sessionGeneration }
-    private let accountSession: URLSession
-    private let accountToken: () -> String?
 
     init(startServices: Bool = true, accountSession: URLSession = .shared, accountToken: @escaping () -> String? = { SessionStore.sessionToken }) {
         self.accountSession = accountSession
@@ -76,12 +129,7 @@ final class AppState: ObservableObject {
         // language before the first view renders.
         Bundle.setAppLanguage(language.locale?.identifier)
         cardService.attach(webSocketService: webSocketService)
-        // Context written on another device lands here. The assignment only
-        // persists locally — publishing stays with the editor, so a received
-        // update is never echoed back as a write.
-        cardService.onContextReceived = { [weak self] text in
-            self?.userContext = text
-        }
+        cardService.onContextReceived = { [weak self] text in self?.userContext = text }
         webSocketService.$state.assign(to: &$connectionState)
         cardService.$pendingCount.assign(to: &$pendingCount)
         networkMonitor.onBecameOnline = { [weak self] in
@@ -94,6 +142,7 @@ final class AppState: ObservableObject {
             }
         }
         if startServices { Task { await bootstrapBackend() } }
+        else { isBootstrapping = false }
     }
 
     func bootstrapBackend() async {
@@ -112,10 +161,7 @@ final class AppState: ObservableObject {
     func restoreSessionIfNeeded() async {
         guard !isGuest else { return }
         let generation = sessionGeneration
-        // An email session restores first, and on its own path: it has no
-        // repository to validate and no GitHub token to check.
-        if SessionStore.hasSavedEmailSession,
-           let login = SessionStore.currentUserID {
+        if SessionStore.hasSavedEmailSession, let login = SessionStore.currentUserID {
             if let token = SessionStore.sessionToken, let backendBaseURL {
                 do {
                     let restored = try await EmailAuthService.restore(token: token, baseURL: backendBaseURL)
@@ -128,6 +174,7 @@ final class AppState: ObservableObject {
                     signOut()
                     return
                 } catch {
+                    // Offline or temporary server failure: retain cached work and retry connectivity.
                     guard generation == sessionGeneration, !Task.isCancelled else { return }
                 }
             }
@@ -135,8 +182,7 @@ final class AppState: ObservableObject {
             return
         }
         guard SessionStore.hasSavedGitHubSession,
-              githubService.restoreSavedSession(),
-              let connection = githubService.connection else {
+              githubService.restoreSavedSession() else {
             return
         }
         do {
@@ -148,9 +194,16 @@ final class AppState: ObservableObject {
                 SessionStore.clear()
                 return
             }
+            // The saved identity and cached feed remain usable during an
+            // outage. The relay will validate membership again on reconnect.
         }
         guard generation == sessionGeneration else { return }
+        guard let connection = githubService.connection else { return }
+        let savedTeam = SessionStore.orgId
         await activateGitHubSession(connection: connection)
+        if let savedTeam, savedTeam != connection.repository, currentUser?.id == connection.username {
+            try? await switchToJoinedTeam(savedTeam)
+        }
     }
 
     static func user(from connection: GitHubConnection) -> User {
@@ -177,17 +230,20 @@ final class AppState: ObservableObject {
     /// Whether the current session is a look-around guest (no GitHub sign-in).
     @Published private(set) var isGuest = false
 
-    /// Enter without signing in, to look around. There is no org and no relay
-    /// connection — the feed is empty and AI routing has no teammates — but the
-    /// UI is fully explorable, and the user can sign in later from the account
-    /// screen to get the real thing.
+    /// An isolated sample workspace. Demo requests and actions remain in memory;
+    /// no relay or connected external tool receives them.
     func activateGuestSession() {
         sessionGeneration = UUID()
         webSocketService.disconnect()
+        webSocketService.clearPendingEvents()
+        cardService.reset()
         isGuest = true
-        organization = OrganizationGraph(nodes: [], edges: [])
-        let guest = User(id: "guest", name: "Guest", role: "Guest", teamID: nil, githubUsername: nil)
-        cardService.setActiveUser(guest.id)
+        organization = DemoWorkspace.organization
+        workspaceMembers = DemoWorkspace.members
+        membersError = nil
+        membersLoading = false
+        let guest = User(id: DemoWorkspace.userID, name: String(localized: "You"), role: String(localized: "Demo member"), teamID: DemoWorkspace.id, githubUsername: nil)
+        cardService.activateDemo(cardsByUser: DemoWorkspace.cards(), userID: guest.id)
         currentUser = guest
         isAuthenticated = true
     }
@@ -211,56 +267,54 @@ final class AppState: ObservableObject {
         let generation = sessionGeneration
         webSocketService.disconnect()
         if currentUser?.id != login { webSocketService.clearPendingEvents() }
+        // The code verification just issued this token. Clearing the old
+        // GitHub identity must preserve it, while cancelling old OAuth work.
         githubService.disconnect(clearStoredSession: false)
         SessionStore.sessionToken = token
-        SessionStore.accountID = accountID
-        organization = OrganizationGraph(nodes: [], edges: [])
-        isGuest = false
         SessionStore.currentUserID = login
         SessionStore.orgId = orgId
+        SessionStore.accountID = accountID
+        isGuest = false
+        organization = OrganizationGraph(nodes: [], edges: [])
+        workspaceMembers = []
+        membersLoading = false
+        membersError = nil
         let display = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let user = User(
-            id: login,
-            name: (display?.isEmpty == false ? display! : AppState.readableLogin(login)),
-            role: "Member",
-            teamID: orgId.isEmpty ? nil : orgId,
-            githubUsername: nil
-        )
-        cardService.setActiveUser(user.id)
+        let user = User(id: login, name: display.flatMap { $0.isEmpty ? nil : $0 } ?? AppState.readableLogin(login), role: "Member", teamID: orgId.isEmpty ? nil : orgId, githubUsername: nil)
         currentUser = user
         isAuthenticated = true
-        if !orgId.isEmpty { cardService.adoptOrganization(orgId) }
-        else { cardService.reset(); cardService.setActiveUser(user.id) }
-        if !orgId.isEmpty { do {
-            try await webSocketService.connect(
-                urlString: relayURL,
-                userId: user.id,
-                orgId: orgId,
-                sessionToken: SessionStore.sessionToken
-            )
-        } catch {
-            // Relay unreachable: still let them in; the feed will be empty.
-        } }
+        if orgId.isEmpty {
+            cardService.reset()
+            cardService.setActiveUser(user.id)
+            membersError = String(localized: "This account has no workspace. Join a team to send requests.")
+        } else {
+            cardService.setActiveUser(user.id)
+            cardService.adoptOrganization(orgId)
+            do {
+                try await webSocketService.connect(urlString: relayURL, userId: user.id, orgId: orgId, sessionToken: token)
+            } catch { }
+        }
         guard generation == sessionGeneration else { return }
         if let accountID { await SubscriptionService.shared.identify(accountID) }
         guard generation == sessionGeneration else { return }
         PushService.shared.registerExistingToken(sessionToken: token)
-        // An email org is "owner/repo" only when an invite put this person in
-        // a GitHub-backed team; a personal one has no graph to load, and
-        // loadOrganization declines it rather than calling with empty parts.
-        let parts = orgId.split(separator: "/")
-        if parts.count == 2 {
-            Task { await loadOrganization(owner: String(parts[0]), repo: String(parts[1])) }
-        }
+        Task { await refreshWorkspaceMembers() }
         Task { await syncLanguageToBackend() }
     }
 
     func activateGitHubSession(connection: GitHubConnection) async {
         sessionGeneration = UUID()
         let generation = sessionGeneration
-        organization = OrganizationGraph(nodes: [], edges: [])
         isGuest = false
+        membersLoading = false
+        workspaceMembers = []
+        membersError = nil
         let user = AppState.user(from: connection)
+        if currentUser?.teamID != user.teamID {
+            organization = OrganizationGraph(nodes: [], edges: [])
+        }
+        currentUser = user
+        isAuthenticated = true
         SessionStore.currentUserID = user.id
         SessionStore.orgId = connection.repository
         SessionStore.accountID = SessionStore.githubUserId
@@ -281,8 +335,6 @@ final class AppState: ObservableObject {
             // Relay unreachable: still let the user in; the feed will be empty.
         }
         guard generation == sessionGeneration else { return }
-        currentUser = user
-        isAuthenticated = true
         // RevenueCat's app_user_id must match what the Worker asks about.
         if let githubId = SessionStore.githubUserId {
             await SubscriptionService.shared.identify(githubId)
@@ -294,6 +346,7 @@ final class AppState: ObservableObject {
         PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
         // Load the org in the background so entry never blocks on reachability.
         Task { await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId)) }
+        Task { await refreshWorkspaceMembers() }
         // And the language this person reads, so the first notification is
         // already in it — the server seeded one from the device on sign-in,
         // but the in-app toggle is the choice that counts.
@@ -313,8 +366,10 @@ final class AppState: ObservableObject {
         request.setValue(token, forHTTPHeaderField: "x-session-token")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard generation == sessionGeneration else { return }
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
+            guard generation == sessionGeneration, isAuthenticated, !isGuest,
+                  currentUser?.teamID == "\(owner)/\(repo)",
+                  SessionStore.sessionToken == token else { return }
             organization = try JSONDecoder().decode(OrganizationGraph.self, from: data)
         } catch {
         }
@@ -344,6 +399,9 @@ final class AppState: ObservableObject {
         isAuthenticated = false
         currentUser = nil
         organization = OrganizationGraph(nodes: [], edges: [])
+        workspaceMembers = []
+        membersError = nil
+        membersLoading = false
         userContext = ""
     }
 
@@ -381,7 +439,10 @@ final class AppState: ObservableObject {
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["message"] as? String
             throw AccountError.server(message ?? String(localized: "Could not delete your account."))
         }
-        if generation == sessionGeneration { signOut() }
+        // The deletion belongs to the identity that sent it. A later login or
+        // demo session must not be signed out by the old request completing.
+        guard generation == sessionGeneration, accountToken() == token else { return }
+        signOut()
     }
 
     /// Switching repositories switches organizations, so the cards on screen

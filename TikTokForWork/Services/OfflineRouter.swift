@@ -1,18 +1,10 @@
 import Foundation
 
-/// Routes an instruction without the relay.
-///
-/// The relay does this better, with an LLM and the whole org graph. This exists
-/// so a dead network costs you quality rather than the ability to file anything
-/// at all — which matters most in exactly the situation where you cannot fix it,
-/// like standing in front of someone with a phone in your hand.
-///
-/// Every recipient it picks is a real member of the organization — the Worker's
-/// `isOrgMemberLogin` refuses a card addressed to anyone else, and a refused
-/// card sits in your feed looking delivered while nobody ever sees it. When it
-/// cannot place the work on a teammate it names the sender: a card you can see
-/// is honest, a card addressed to a person who does not exist is not.
+/// Preserves the author's words as an editable manual draft. Recipient selection
+/// is explicit; an offline fallback never invents people from keyword matches.
 enum OfflineRouter {
+    // Retain the graph-based API for existing callers. The new composer uses
+    // the explicit-recipient overload below and never chooses on the user's behalf.
     /// The member's display name is the label's first half — labels arrive as
     /// "Name · role". Role words widen the match a little beyond a name.
     private static let roleWords: [String: [String]] = [
@@ -110,6 +102,17 @@ enum OfflineRouter {
             routingReason: reason,
             labels: [],
             toolCalls: []
+        )
+    }
+    static func draft(text: String, sender: User, priority: CardPriority, recipientUserID: String? = nil) -> InstructionDraft {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recipient = recipientUserID ?? sender.id
+        let firstLine = trimmed.split(separator: "\n").first.map(String.init) ?? trimmed
+        let title = firstLine.count > 72 ? String(firstLine.prefix(72)) + "…" : firstLine
+        return InstructionDraft(
+            id: UUID().uuidString, sourceText: text, recipientUserID: recipient,
+            cardType: .approval, title: title, summary: trimmed, context: "", priority: priority,
+            agentRoute: "", routingReason: String(localized: "Selected by you"), labels: [], toolCalls: []
         )
     }
 }

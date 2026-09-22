@@ -8,7 +8,7 @@ struct AppLogo: View {
             .resizable()
             .scaledToFit()
             .frame(width: size, height: size)
-            .accessibilityLabel("TikTok for Work")
+            .accessibilityLabel("Honmaru AI")
     }
 }
 

@@ -28,6 +28,8 @@ enum CardCache {
     private struct Envelope: Codable {
         let orgID: String
         let cardsByUser: [String: [DecisionCard]]
+        let awaitingDeliveryIDs: Set<String>?
+        let pendingDeliveries: [String: PendingCardDelivery]?
     }
 
     static func load(orgID: String) -> [String: [DecisionCard]] {
@@ -39,11 +41,27 @@ enum CardCache {
         return envelope.cardsByUser
     }
 
-    static func save(orgID: String, cardsByUser: [String: [DecisionCard]]) {
+    static func loadAwaitingDeliveryIDs(orgID: String) -> Set<String> {
+        guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let envelope = try? decoder.decode(Envelope.self, from: data), envelope.orgID == orgID else { return [] }
+        return envelope.awaitingDeliveryIDs ?? []
+    }
+
+    static func loadPendingDeliveries(orgID: String) -> [String: PendingCardDelivery] {
+        guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [:] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let envelope = try? decoder.decode(Envelope.self, from: data), envelope.orgID == orgID else { return [:] }
+        return envelope.pendingDeliveries ?? [:]
+    }
+
+    static func save(orgID: String, cardsByUser: [String: [DecisionCard]], awaitingDeliveryIDs: Set<String> = [], pendingDeliveries: [String: PendingCardDelivery] = [:]) {
         guard let fileURL else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(Envelope(orgID: orgID, cardsByUser: cardsByUser)) else { return }
+        guard let data = try? encoder.encode(Envelope(orgID: orgID, cardsByUser: cardsByUser, awaitingDeliveryIDs: awaitingDeliveryIDs, pendingDeliveries: pendingDeliveries)) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 
