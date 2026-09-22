@@ -8,6 +8,7 @@ struct TeamSettingsView: View {
     @State private var busy = false
     @State private var error: String?
     @State private var joined = false
+    @State private var showOrganization = false
 
     var body: some View {
         List {
@@ -25,6 +26,7 @@ struct TeamSettingsView: View {
             if !appState.isGuest {
                 Section {
                     NavigationLink("Manage members and invitations") { TeamView().environmentObject(appState) }
+                    Button("Organization") { showOrganization = true }
                 }
                 Section {
                     if inviteCode.isEmpty {
@@ -47,6 +49,7 @@ struct TeamSettingsView: View {
         .disabled(busy).navigationTitle("Team").navigationBarTitleDisplayMode(.inline)
         .task { await appState.refreshWorkspaceMembers() }
         .refreshable { await appState.refreshWorkspaceMembers() }
+        .sheet(isPresented: $showOrganization) { OrgGraphView().environmentObject(appState) }
     }
 
     @MainActor private func perform(join: Bool) async {
