@@ -510,6 +510,10 @@ const ja: Dict = {
   'Waiting 2+ days': '2日以上待ち',
   'Install the app': 'アプリとしてインストール',
   'On your desktop or home screen, and it opens offline.': 'デスクトップやホーム画面に置けて、オフラインでも開きます。',
+  // Offline
+  'You are offline. What you decide will be sent when you are back.': 'オフラインです。決めたことは、つながったときに送られます。',
+  'Could not connect: {why}': '接続できませんでした: {why}',
+  'Could not connect. Retrying.': '接続できませんでした。再試行しています。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

@@ -862,6 +862,12 @@ await step('the app opens offline', async () => {
     await d.reload({ waitUntil: 'load' })
     await d.waitForSelector('.tabbar', { timeout: 20000 })
       .catch(() => { throw new Error('offline, the shell did not open') })
+    // The last snapshot is still here to read, and the toast says offline
+    // in words rather than "[object Event]".
+    await d.waitForSelector('.inbox-row', { timeout: 10000 })
+      .catch(() => { throw new Error('offline, the inbox forgot the cards it had') })
+    await d.waitForFunction(() => /offline|オフライン/.test(document.querySelector('.toast')?.textContent || ''), null, { timeout: 10000 })
+      .catch(async () => { throw new Error(`offline, the toast says: ${await d.evaluate(() => document.querySelector('.toast')?.textContent)}`) })
     await d.screenshot({ path: `${SHOTS}/20d-offline.png` })
   } finally {
     await desk.setOffline(false)

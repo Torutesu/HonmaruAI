@@ -138,7 +138,10 @@ The list of what is still missing, and why each item matters, is
       as fresh). Registered at startup in production builds; the install
       offer is held for a row under You rather than sprung on a first visit;
       a notification opens `#/feed/<id>`. One e2e step: the shell taken,
-      the network cut, a reload that still opens
+      the network cut, a reload that still opens — with the last snapshot's
+      cards in the inbox and the pane (`utils/cardCache.ts`, per
+      workspace, newest 200), and "You are offline" in words where the
+      toast used to say "[object Event]"
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

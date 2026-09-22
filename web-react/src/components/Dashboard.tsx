@@ -25,6 +25,7 @@ import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
 import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen } from '../utils/route'
+import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import type { Screen, Mode } from '../utils/route'
 
 interface Props {
@@ -57,7 +58,9 @@ const DECIDED_WORD: Record<string, string> = {
 /// is a sheet over it that closes back to the feed.
 export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg, onLeft }) => {
   const t = useT()
-  const [state, setState] = useState<AppState>({ cardsById: {} })
+  // The last snapshot this browser saw, until the relay sends a new one —
+  // and instead of nothing when it cannot.
+  const [state, setState] = useState<AppState>(() => ({ cardsById: loadCardCache(orgId) }))
   const [isConnected, setIsConnected] = useState(false)
   // The relay has sent its snapshot at least once. Before that the feed says
   // it is opening, not that it is empty — "All clear" on a cold start, half a
@@ -126,6 +129,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     setTabBadge(pending.length)
     return () => setTabBadge(0)
   }, [state, userId])
+  useEffect(() => {
+    if (synced) saveCardCache(orgId, state.cardsById || {})
+  }, [state, synced, orgId])
 
   useEffect(() => {
     const wsClient = wsClientRef.current!
@@ -163,8 +169,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     setSynced(false)
     wsClient.connect(relayUrl, userId, orgId, sessionToken).catch((err) => {
       if (ignore) return
-      const message = err instanceof Error ? err.message : String(err)
-      setError(`Failed to connect: ${message}`)
+      // A socket that fails hands back an Event, not an Error, and "[object
+      // Event]" tells nobody anything. Offline is the usual reason, and has
+      // its own sentence.
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+      const message = err instanceof Error ? err.message : ''
+      setError(offline
+        ? t('You are offline. What you decide will be sent when you are back.')
+        : (message ? t('Could not connect: {why}', { why: message }) : t('Could not connect. Retrying.')))
     })
     return () => { ignore = true; wsClient.disconnect() }
   }, [relayUrl, userId, orgId, sessionToken, addDebugLog, onLeft])
