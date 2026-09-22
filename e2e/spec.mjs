@@ -866,6 +866,9 @@ await step('the app opens offline', async () => {
     // in words rather than "[object Event]".
     await d.waitForSelector('.inbox-row', { timeout: 10000 })
       .catch(() => { throw new Error('offline, the inbox forgot the cards it had') })
+    // The last card is readable too, not a spinner over what the browser has.
+    await d.waitForSelector('.workbench .card-title', { timeout: 10000 })
+      .catch(() => { throw new Error('offline, the card pane shows a spinner over cards the browser has') })
     await d.waitForFunction(() => /offline|オフライン/.test(document.querySelector('.toast')?.textContent || ''), null, { timeout: 10000 })
       .catch(async () => { throw new Error(`offline, the toast says: ${await d.evaluate(() => document.querySelector('.toast')?.textContent)}`) })
     await d.screenshot({ path: `${SHOTS}/20d-offline.png` })
