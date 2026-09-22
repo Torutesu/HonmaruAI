@@ -1,6 +1,7 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
 
 import { cardText } from "./cardCopy.js";
+import { decideRoute, CONFIDENT } from "./jev.js";
 
 export const DEMO_USER_IDS = ["user-toru", "user-tanaka", "user-yui", "user-alex"];
 
@@ -899,20 +900,25 @@ export function routeInstructionLocally({
   organization,
   priorityOverride,
   readerLanguage,
+  // What System One decided, when it did: recipient, kind, priority and
+  // business, each with its confidence. The words are still written here.
+  decided = null,
 }) {
   const lower = String(text || "").toLowerCase();
-  const { recipientUserID, namedInInstruction, routingReason } = resolveRecipient(
-    text,
-    sender.id,
-    organization
-  );
+  const resolved = resolveRecipient(text, sender.id, organization);
+  const recipientUserID = decided?.recipient?.value || resolved.recipientUserID;
+  const namedInInstruction = decided?.recipient ? false : resolved.namedInInstruction;
+  const routingReason = decided?.recipient
+    ? `Your AI is ${Math.round(decided.recipient.confidence * 100)}% sure this is ${displayNameOf(organization, recipientUserID)}'s`
+    : resolved.routingReason;
 
   // Keywords in both languages the product ships in. This is the router
   // that answers when there is no model, and until the Japanese words were
   // here every 承認 was filed as a notification — the eval set is what said so.
   const any = (...words) => words.some((w) => lower.includes(w));
   let cardType = "notification";
-  if (any("approve", "approval", "sign-off", "sign off", "承認", "決裁", "許可")) cardType = "approval";
+  if (decided?.kind?.value) cardType = decided.kind.value;
+  else if (any("approve", "approval", "sign-off", "sign off", "承認", "決裁", "許可")) cardType = "approval";
   else if (any("delegate", "assign", "take over", "hand over", "委任", "任せ", "引き継")) cardType = "delegation";
   else if (any("revise", "revision", "feedback", "review", "typo", "修正", "見直")) cardType = "revision";
   else if (any("task", "fix", "build", "implement", "redesign", "直して", "作って", "実装", "対応して")) {
@@ -930,7 +936,9 @@ export function routeInstructionLocally({
   const priority =
     priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)
       ? priorityOverride
-      : lower.includes("urgent") || lower.includes("至急") || lower.includes("緊急") || lower.includes("今すぐ") || lower.includes("right now")
+      : decided?.priority?.value
+        ? decided.priority.value
+        : lower.includes("urgent") || lower.includes("至急") || lower.includes("緊急") || lower.includes("今すぐ") || lower.includes("right now")
         ? "urgent"
         : /^\s*fyi\b/i.test(String(text || "")) || lower.includes("参考まで") || lower.includes("共有まで")
           ? "low"
@@ -953,19 +961,42 @@ export function routeInstructionLocally({
         routingReason,
       }),
       labels: [],
+      ...(decided?.business?.value && decided.business.value !== "none" ? { business: decided.business.value } : {}),
     },
     sender,
     text,
     [
-      {
-        name: "create_decision_card",
-        label: "Local fallback route",
-        detail: `${recipientName} · ${cardType}`,
-      },
+      decided
+        ? {
+            name: "system_one",
+            label: "Decided by Jev",
+            detail: [
+              decided.recipient ? `${recipientName} ${Math.round(decided.recipient.confidence * 100)}%` : recipientName,
+              decided.kind ? `${decided.kind.value} ${Math.round(decided.kind.confidence * 100)}%` : cardType,
+            ].join(" · "),
+          }
+        : {
+            name: "create_decision_card",
+            label: "Local fallback route",
+            detail: `${recipientName} · ${cardType}`,
+          },
     ],
     organization,
     readerLanguage
   );
+}
+
+/// System One first. Jev picks the recipient, the kind, the priority and the
+/// business; the local router writes the words. When Jev is not sure about
+/// the recipient — the one pick that matters — and a language model is
+/// there, the model decides instead. When Jev cannot be reached, nothing
+/// changes: the path is the one the caller had before.
+async function routeWithSystemOne({ text, sender, organization, priorityOverride, readerLanguage, senderContext, systemOne }) {
+  const decided = await decideRoute(systemOne, { text, sender, organization, senderContext });
+  const needsRecipient = Boolean((organization?.nodes || []).filter((n) => n.kind === "person").length >= 2);
+  const sure = !needsRecipient || (decided.recipient && decided.recipient.confidence >= CONFIDENT);
+  const routed = routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage, decided });
+  return { routed, sure, usage: decided.usage };
 }
 
 function parseRoutingJSON(content) {
@@ -1143,8 +1174,24 @@ export async function routeInstruction({
   senderContext,
   teamContext,
   lookups,
+  systemOne,
 }) {
   const sender = senderForCard(rawSender, organization);
+  // Jev decides, when it is configured. A confident pick is the answer; an
+  // unsure one is handed to the language model below when there is one.
+  if (systemOne?.apiKey) {
+    try {
+      const { routed, sure, usage } = await routeWithSystemOne({
+        text, sender, organization, priorityOverride, readerLanguage, senderContext, systemOne,
+      });
+      if (sure || !openRouter?.apiKey) {
+        return { ...routed, routedBy: sure ? "jev" : "jev-unsure", aiCalled: false, systemOneUsage: usage };
+      }
+      console.warn("Jev unsure about the recipient; asking the language model");
+    } catch (error) {
+      console.warn("Jev routing failed, continuing without it:", error.message);
+    }
+  }
   if (openRouter?.apiKey) {
     // `aiCalled` is for the meter, not for clients: /ai/route strips it before
     // responding, so the wire format is unchanged. routedBy cannot stand in for

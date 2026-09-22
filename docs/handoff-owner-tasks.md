@@ -235,6 +235,22 @@ Cloudflare 側のリソース 2 つと、その ID の貼り付けです。
 8. 確認: `https://tiktokforwork-staging.torubj0904.workers.dev/health` が
    `{"ok":true…}` を返す。
 
+## H. Jev（TypeSafe）の鍵を入れて原価を下げる（10 分）
+
+コードは入っています。鍵が無いだけです。
+
+1. https://console.typesafe.ai でアカウントを作り、API キーを発行。
+2. ターミナルで `cd worker && TYPESAFE_API_KEY=<キー> npm run eval:jev` を実行し、
+   表の `recipientUserID` の行（宛先精度）と、最後の `routed by:` /
+   `jev input tokens:` の行をメモ。宛先精度が 90% 未満なら
+   `OPENAI_API_KEY` も付けて `npm run eval:jev:model` を実行し、同じ行をメモ。
+3. `npx wrangler@4 secret put TYPESAFE_API_KEY` でキーを Worker に入れる
+   （staging があれば `--env staging` でも）。
+4. 確認: `https://tiktokforwork.torubj0904.workers.dev/health` の
+   `systemOne` が `true`。アプリから 1 件ルーティングし、カードの
+   「決定の理由」に「Your AI is NN% sure…」が出れば Jev が動いています。
+5. 2 でメモした数字を報告してください。閾値（`CONFIDENT`）の調整判断に使います。
+
 ## 完了の定義
 
 - `curl -s https://tiktokforwork.torubj0904.workers.dev/health` が

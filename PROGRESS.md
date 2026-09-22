@@ -142,6 +142,19 @@ The list of what is still missing, and why each item matters, is
       cards in the inbox and the pane (`utils/cardCache.ts`, per
       workspace, newest 200), and "You are offline" in words where the
       toast used to say "[object Event]"
+- [x] **Jev (TypeSafe System One) as the decision layer.** Most of the
+      language-model bill was deciding, not writing: who, what kind, how
+      hot, which business. With `TYPESAFE_API_KEY`, Jev answers those as
+      typed choices with confidence ($0.042/M input, output free), the
+      local router writes the card's words from the instruction, and the
+      language model is asked only when Jev is unsure about the recipient
+      (`CONFIDENT` = 0.6) or when text is the product. Triage asks Jev
+      "does this need a decision?" first, so the mail that needs nothing —
+      most of it — never reaches the model; filing asks Jev to pick an
+      existing business and the model only to name a new one. Jev down
+      changes nothing. A name in the instruction still wins over Jev's
+      pick. `npm run eval:jev` prints accuracy, who routed what, tokens and
+      dollars. Nine tests, all mocked — no key here; owner task H
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

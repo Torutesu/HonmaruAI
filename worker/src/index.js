@@ -32,6 +32,7 @@ import {
 } from "./insights.js";
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
+import { jevConfig } from "./jev.js";
 import { ingestedItemForCard } from "./db.js";
 import { alert } from "./alert.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
@@ -304,6 +305,7 @@ async function handle(request, env, url) {
         orgId: "core-team",
         githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
         aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),
+        systemOne: Boolean(env.TYPESAFE_API_KEY),
         aiModel: env.OPENAI_API_KEY
           ? env.OPENAI_MODEL || "gpt-4o-mini"
           : env.OPENROUTER_API_KEY
@@ -405,6 +407,9 @@ async function handle(request, env, url) {
         lookups,
         // No provider means the local keyword router — the graceful degradation.
         openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
+        // System One decides for a fraction of a cent, allowance or not; the
+        // language model is the second opinion, within the allowance.
+        systemOne: jevConfig(env),
       });
       // Only a model that actually answered is billable — including one whose
       // answer we then rejected, which still comes back as routedBy "fallback".
@@ -413,6 +418,7 @@ async function handle(request, env, url) {
       if (modelAnswered && allowance.metered) await allowance.consume();
       // Internal to the meter. Stripped so the wire format is unchanged.
       delete result.aiCalled;
+      delete result.systemOneUsage;
 
       return json(allowance.quotaExceeded ? { ...result, quotaExceeded: true } : result);
     }

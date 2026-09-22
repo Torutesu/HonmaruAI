@@ -12,6 +12,7 @@
 // could not be created is not.
 
 import { listBusinesses, upsertBusiness, businessSlug } from "./db.js";
+import { decideBusiness, jevConfig, CONFIDENT } from "./jev.js";
 
 const SYSTEM_PROMPT = `You file a workplace Decision Card under the business it is about.
 
@@ -82,10 +83,24 @@ ${JSON.stringify({ title: card.title || "", summary: card.summary || "", context
 /// stores the slug on the card; this function touches only the businesses
 /// table.
 export async function fileCardUnderBusiness(env, { orgId, card, provider, allowance, githubId }) {
-  if (!provider || !orgId || card?.business) return card?.business || null;
-  if (allowance && !allowance.allowed) return null;
+  const systemOne = jevConfig(env);
+  if ((!provider && !systemOne) || !orgId || card?.business) return card?.business || null;
   try {
     const businesses = await listBusinesses(env.DB, orgId);
+    // System One first: an existing business is a choice, and a confident
+    // one files the card for a fraction of a cent. "None" — or no confidence
+    // — goes on to the language model, which can name a business that does
+    // not exist yet.
+    if (systemOne && businesses.length) {
+      try {
+        const picked = await decideBusiness(systemOne, card, businesses);
+        if (picked?.slug && picked.confidence >= CONFIDENT) return picked.slug;
+      } catch (err) {
+        console.warn("Jev filing failed:", err?.message || err);
+      }
+    }
+    if (!provider) return null;
+    if (allowance && !allowance.allowed) return null;
     const { called, name } = await classifyBusiness(card, { provider, businesses });
     if (called && allowance?.metered) await allowance.consume();
     if (!name) return null;

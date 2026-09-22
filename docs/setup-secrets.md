@@ -248,6 +248,35 @@ https/wss を組み立てる。
 
 ---
 
+## 4.4. Jev（TypeSafe）で判断コストを下げる（任意・10 分）
+
+ルーティングで払っている LLM 代のほとんどは「文章を書く」ではなく「決める」
+（誰宛か・種類・優先度・どの事業か）に使われています。Jev はその判断だけを
+型付きの答え＋確信度で返すモデルで、入力 100 万トークン $0.042、出力は無料
+（gpt-4o-mini は入力 $0.15・出力 $0.60）。鍵を入れると Worker は
+「Jev が決め、カードの言葉は手元のルーターが書き、Jev が迷ったときだけ LLM に
+聞く」動きになります。同期の「この受信メールは判断が要るか」も Jev が先に
+答えるので、ほとんどのメール（＝要らない）が LLM を通らなくなります。
+
+```bash
+# 鍵は https://console.typesafe.ai で発行
+cd worker
+npx wrangler@4 secret put TYPESAFE_API_KEY
+# 任意: TYPESAFE_MODEL（既定 jev-latest）、TYPESAFE_ENDPOINT
+```
+
+入れる前に精度を見るなら、ゴールデンセットで:
+
+```bash
+TYPESAFE_API_KEY=... npm run eval:jev            # Jev だけ
+TYPESAFE_API_KEY=... OPENAI_API_KEY=... npm run eval:jev:model   # 迷ったら LLM
+```
+
+表の下に「routed by: jev N, OpenAI M」と Jev のトークン数・概算ドルが出ます。
+宛先精度の gate は `--gate 0.9` で同じように掛けられます。日本語は「対応して
+いるが英語ほどではない」と公式に書かれているので、日本語の項目の宛先精度を
+先に見てください。確信度の閾値は `worker/src/jev.js` の `CONFIDENT`（0.6）。
+
 ## 4.5. 運用アラート（任意だが推奨）
 
 未ハンドルの 500 と定期同期の失敗を、Slack の incoming webhook などに

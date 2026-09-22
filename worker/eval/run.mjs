@@ -3,6 +3,7 @@
 //
 //     node eval/run.mjs                 # the local keyword router, always
 //     node eval/run.mjs --model         # and the model, with OPENAI_API_KEY
+//     node eval/run.mjs --jev           # Jev decides, with TYPESAFE_API_KEY (add --model for the fallback)
 //     node eval/run.mjs --gate 0.8      # exit 1 when recipient accuracy is below
 //     node eval/run.mjs eval/golden.json eval/from-prod.json
 //
@@ -16,9 +17,11 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { routeInstruction } from "../src/routing.js";
+import { jevConfig, jevCost } from "../src/jev.js";
 
 const args = process.argv.slice(2);
 const useModel = args.includes("--model") || Boolean(process.env.EVAL_MODEL);
+const useJev = args.includes("--jev") || Boolean(process.env.EVAL_JEV);
 const gateIndex = args.indexOf("--gate");
 const gate = gateIndex >= 0 ? Number(args[gateIndex + 1]) : null;
 const files = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--gate");
@@ -44,6 +47,12 @@ if (useModel && !provider) {
   console.error("--model needs OPENAI_API_KEY in the environment");
   process.exit(2);
 }
+const systemOne = useJev ? jevConfig(process.env) : null;
+if (useJev && !systemOne) {
+  console.error("--jev needs TYPESAFE_API_KEY in the environment");
+  process.exit(2);
+}
+let jevTokens = 0;
 
 function score(result, expect) {
   const fields = {};
@@ -55,7 +64,7 @@ function score(result, expect) {
   return fields;
 }
 
-async function runOne(entry, openRouter) {
+async function runOne(entry, openRouter, systemOne = null) {
   const org = orgs[entry.org];
   if (!org) throw new Error(`${entry.id}: unknown org fixture "${entry.org}"`);
   const sender = { ...entry.sender, name: entry.sender.name || entry.sender.id };
@@ -67,7 +76,9 @@ async function runOne(entry, openRouter) {
     senderContext: entry.senderContext,
     teamContext: entry.teamContext,
     openRouter: openRouter || undefined,
+    systemOne: systemOne || undefined,
   });
+  if (systemOne) jevTokens += Number(result.systemOneUsage?.input_tokens) || 0;
   return {
     id: entry.id,
     text: entry.text,
@@ -118,18 +129,37 @@ const localSummary = print("local router", local);
 
 let modelSummary = null;
 let model = [];
-if (provider) {
+if (provider && !systemOne) {
   for (const entry of entries) model.push(await runOne(entry, provider));
   modelSummary = print(`model ${provider.model}`, model);
 }
 
+// Jev decides; the language model, when --model is also given, is the second
+// opinion for an unsure recipient. The ledger under the table is the point:
+// how many routes Jev settled alone, and what they cost.
+let jevSummary = null;
+let jev = [];
+if (systemOne) {
+  for (const entry of entries) jev.push(await runOne(entry, provider, systemOne));
+  jevSummary = print(`jev${provider ? ` + ${provider.model} when unsure` : ""}`, jev);
+  const by = {};
+  for (const row of jev) by[row.routedBy] = (by[row.routedBy] || 0) + 1;
+  console.log(`\nrouted by: ${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")}`);
+  console.log(`jev input tokens: ${jevTokens}  ≈ $${jevCost({ input_tokens: jevTokens }).toFixed(5)} for ${jev.length} routes`);
+}
+
 writeFileSync(
   new URL("./last-run.json", import.meta.url),
-  JSON.stringify({ at: new Date().toISOString(), files, local: { rows: local, summary: localSummary }, model: provider ? { model: provider.model, rows: model, summary: modelSummary } : null }, null, 2)
+  JSON.stringify({
+    at: new Date().toISOString(), files,
+    local: { rows: local, summary: localSummary },
+    model: provider && !systemOne ? { model: provider.model, rows: model, summary: modelSummary } : null,
+    jev: systemOne ? { rows: jev, summary: jevSummary, inputTokens: jevTokens, usd: jevCost({ input_tokens: jevTokens }) } : null,
+  }, null, 2)
 );
 
 if (gate !== null) {
-  const measured = (modelSummary || localSummary).recipientUserID?.accuracy ?? 0;
+  const measured = (jevSummary || modelSummary || localSummary).recipientUserID?.accuracy ?? 0;
   if (measured < gate) {
     console.error(`\nrecipient accuracy ${(measured * 100).toFixed(0)}% is below the gate of ${(gate * 100).toFixed(0)}%`);
     process.exit(1);
