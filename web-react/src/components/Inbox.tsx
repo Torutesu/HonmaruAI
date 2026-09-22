@@ -42,8 +42,22 @@ export const Inbox: React.FC<Props> = ({ pending, decided, businesses, selectedI
     return (slug?: string) => (slug ? map.get(slug) || slug : '')
   }, [businesses])
 
+  // Narrow by what matters when there is too much: the business, how hot,
+  // how long it has waited. One of each at a time; a chip is a toggle.
+  const [business, setBusiness] = useState<string | null>(null)
+  const [hot, setHot] = useState(false)
+  const [stale, setStale] = useState(false)
+  const DAY = 86400000
+  const waitingDays = (c: DecisionCard) => Math.floor((Date.now() - Date.parse(c.createdAt)) / DAY)
+  const isHot = (c: DecisionCard) => c.priority === 'urgent' || c.priority === 'high'
+  const isStale = (c: DecisionCard) => c.status === 'pending' && waitingDays(c) >= 2
+  const businessesInUse = businesses.filter((b) => pending.some((c) => c.business === b.slug) || decided.some((c) => c.business === b.slug))
+
   const q = query.trim().toLowerCase()
   const matches = (c: DecisionCard) => {
+    if (business && c.business !== business) return false
+    if (hot && !isHot(c)) return false
+    if (stale && !isStale(c)) return false
     if (!q) return true
     const l = c.localized?.[locale]
     return [l?.title || c.title, l?.summary || c.summary, c.requestedBy?.name, c.senderUserID, nameOf(c.business), c.sourceApp]
@@ -86,6 +100,36 @@ export const Inbox: React.FC<Props> = ({ pending, decided, businesses, selectedI
           aria-label={t('Search decisions')}
         />
       </div>
+
+      {/* Today, in one line: what is waiting, how much of it is hot, how
+          much has waited too long. The numbers a person would otherwise
+          count by scrolling. */}
+      <p className="inbox-today" role="status">
+        {pending.length === 0
+          ? t('Nothing is waiting on you.')
+          : t('{n} waiting on you', { n: pending.length })
+            + (pending.filter(isHot).length ? ` · ${t('{n} urgent', { n: pending.filter(isHot).length })}` : '')
+            + (pending.filter(isStale).length ? ` · ${t('{n} older than 2 days', { n: pending.filter(isStale).length })}` : '')}
+      </p>
+      {(businessesInUse.length > 0 || pending.some(isHot) || pending.some(isStale)) && (
+        <div className="inbox-chips" role="group" aria-label={t('Narrow')}>
+          {pending.some(isHot) && (
+            <button type="button" className={`chip${hot ? ' on' : ''}`} aria-pressed={hot} onClick={() => setHot(!hot)}>{t('Urgent')}</button>
+          )}
+          {pending.some(isStale) && (
+            <button type="button" className={`chip${stale ? ' on' : ''}`} aria-pressed={stale} onClick={() => setStale(!stale)}>{t('Waiting 2+ days')}</button>
+          )}
+          {businessesInUse.map((b) => (
+            <button
+              key={b.slug}
+              type="button"
+              className={`chip${business === b.slug ? ' on' : ''}`}
+              aria-pressed={business === b.slug}
+              onClick={() => setBusiness(business === b.slug ? null : b.slug)}
+            >{b.name}</button>
+          ))}
+        </div>
+      )}
 
       <h2 className="inbox-h">{t('Waiting on you')}<span>{waiting.length}</span></h2>
       {waiting.length === 0 && <p className="inbox-empty">{q ? t('Nothing matches that.') : t('Nothing is waiting on you.')}</p>}

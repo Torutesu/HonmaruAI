@@ -502,6 +502,14 @@ const ja: Dict = {
   'Say it instead': '声で入力',
   'Stop listening': '聞き取りを止める',
   'Could not hear you: {why}': '聞き取れませんでした: {why}',
+  // Narrowing the inbox, and installing
+  '{n} waiting on you': '{n}件があなた待ち',
+  '{n} urgent': '{n}件が緊急',
+  '{n} older than 2 days': '{n}件が2日以上',
+  'Narrow': '絞り込み',
+  'Waiting 2+ days': '2日以上待ち',
+  'Install the app': 'アプリとしてインストール',
+  'On your desktop or home screen, and it opens offline.': 'デスクトップやホーム画面に置けて、オフラインでも開きます。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

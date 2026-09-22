@@ -819,6 +819,57 @@ await step('how you work is remembered and rides on what you send', async () => 
   await d.keyboard.press('Escape')
 })
 
+// Too much in the inbox is narrowed, not scrolled: by heat, by age, by
+// business. And the numbers a person would otherwise count.
+await step('the inbox says what today looks like and narrows by a chip', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.inbox-today', { timeout: 10000 })
+    .catch(() => { throw new Error('the inbox has no line for today') })
+  const today = await d.$eval('.inbox-today', (el) => el.textContent)
+  if (!/waiting on you|あなた待ち/.test(today)) throw new Error(`the today line says: ${today}`)
+  // The card composed a step ago is still arriving from the relay; count
+  // once the list has stopped growing.
+  await d.waitForTimeout(1500)
+  const before = await d.$$eval('.inbox-list .inbox-row', (els) => els.length)
+  // Every card so far is "high"; the Urgent chip is offered, and turns off
+  // as many rows as are not hot — none here — so it must at least stay
+  // consistent both ways.
+  const chip = await d.$('.inbox-chips .chip')
+  if (!chip) throw new Error('no chips to narrow the inbox with')
+  await chip.click()
+  const pressed = await chip.getAttribute('aria-pressed')
+  if (pressed !== 'true') throw new Error('a chip does not read as pressed')
+  const during = await d.$$eval('.inbox-list .inbox-row', (els) => els.length)
+  if (during > before) throw new Error('narrowing added rows')
+  await chip.click()
+  const after = await d.$$eval('.inbox-list .inbox-row', (els) => els.length)
+  if (after !== before) throw new Error(`un-narrowing did not restore the rows: ${before} → ${after}`)
+})
+
+// The shell opens with no network: the page, its script and its styles come
+// from the service worker's cache, and the feed says it is reconnecting
+// rather than the browser saying there is no internet.
+await step('the app opens offline', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForFunction(async () => {
+    const reg = await navigator.serviceWorker.getRegistration('/')
+    return Boolean(reg && reg.active) && Boolean(await caches.match('/'))
+  }, null, { timeout: 20000 }).catch(() => { throw new Error('the service worker did not take the shell') })
+  await desk.setOffline(true)
+  try {
+    await d.reload({ waitUntil: 'load' })
+    await d.waitForSelector('.tabbar', { timeout: 20000 })
+      .catch(() => { throw new Error('offline, the shell did not open') })
+    await d.screenshot({ path: `${SHOTS}/20d-offline.png` })
+  } finally {
+    await desk.setOffline(false)
+  }
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.workbench .card-title, .page-empty', { timeout: 25000 })
+})
+
 await step('the other screens hold up on a laptop', async () => {
   const d = desk.pages()[0]
   for (const [label, marker, name] of [

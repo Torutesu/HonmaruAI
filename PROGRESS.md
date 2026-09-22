@@ -127,6 +127,18 @@ The list of what is still missing, and why each item matters, is
       which the router already read from the phone and never got from the
       web. Three unit tests; one e2e step: written, kept across a reload,
       on the wire with the next instruction
+- [x] **The inbox narrows, and says what today looks like.** One line on
+      top — N waiting on you · M urgent · K older than 2 days — and chips
+      for Urgent, Waiting 2+ days, and each business in use; a chip is a
+      toggle. One e2e step
+- [x] **The app opens offline, and installs.** The service worker keeps the
+      shell — the page, its hashed script and stylesheet, the icon — and
+      serves it when the network does not answer; the Worker's origin is
+      never cached (a cached session response would be a stale feed served
+      as fresh). Registered at startup in production builds; the install
+      offer is held for a row under You rather than sprung on a first visit;
+      a notification opens `#/feed/<id>`. One e2e step: the shell taken,
+      the network cut, a reload that still opens
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

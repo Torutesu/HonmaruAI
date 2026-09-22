@@ -4,6 +4,7 @@ import type { Business } from '../types/card'
 import { useT, changeLocale as applyLocale } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { getSenderContext, setSenderContext, MAX_CONTEXT_CHARS } from '../utils/context'
+import { canInstall, promptInstall, onInstallChange } from '../utils/install'
 
 interface Props {
   httpBase: string
@@ -70,6 +71,8 @@ export const Profile: React.FC<Props> = ({
   const [aliases, setAliases] = useState('')
   // "How I work": kept in this browser, sent with every instruction.
   const [howIWork, setHowIWork] = useState(getSenderContext)
+  const [installable, setInstallable] = useState(canInstall)
+  useEffect(() => onInstallChange(() => setInstallable(canInstall())), [])
   // Typed before the profile arrived: the fetch must not overwrite it. That
   // race is exactly what the end-to-end suite hit on a fast machine.
   const aliasesTouched = useRef(false)
@@ -281,6 +284,12 @@ export const Profile: React.FC<Props> = ({
             <span className="row-main">{t('Tools')}<span className="row-sub">{t('Gmail, Slack, Notion, GitHub.')}</span></span>
             <span className="row-value">›</span>
           </button>
+          {installable && (
+            <button className="row" onClick={() => promptInstall()}>
+              <span className="row-main">{t('Install the app')}<span className="row-sub">{t('On your desktop or home screen, and it opens offline.')}</span></span>
+              <span className="row-chevron">›</span>
+            </button>
+          )}
           <button className="row" onClick={() => onOpen('notifications')}>
             <span className="row-icon"><Icon name="bell" size={18} /></span>
             <span className="row-main">{t('Notifications')}<span className="row-sub">{t('Where a decision reaches you.')}</span></span>
