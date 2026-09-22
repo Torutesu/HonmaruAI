@@ -1,8 +1,9 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { notifyCard } from "../src/notify.js";
-import { composeAlert, composeEmail, t, actionLabel } from "../src/notifyCopy.js";
+import { composeAlert, composeEmail, composeCodeEmail, t, actionLabel, stringsFor, SUPPORTED_LOCALES } from "../src/notifyCopy.js";
 import { resetProviderToken } from "../src/apns.js";
 
 // The hub's promise: whoever a card is waiting on is told, in their language,
@@ -25,7 +26,7 @@ const mail = (over = {}) => ({
   ...over,
 });
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { upsertUser, registerDevice } = await import("../src/db.js");
   // Taro reads Japanese and has a phone. Alice reads English and has a phone.
@@ -50,10 +51,42 @@ function interceptAPNs(token, sink) {
 test("the copy exists in every supported language and falls back to English", () => {
   expect(t("ja", "waiting")).toBe("決定待ちがあります");
   expect(t("en", "waiting")).toBe("A decision is waiting");
-  expect(t("fr", "waiting")).toBe("A decision is waiting");
+  expect(t("es", "waiting")).toBe("Hay una decisión pendiente");
+  expect(t("fr", "waiting")).toBe("Une décision vous attend");
+  expect(t("de", "waiting")).toBe("Eine Entscheidung wartet");
+  // A language we have not written still gets told — in English.
+  expect(t("it", "waiting")).toBe("A decision is waiting");
   expect(t("ja", "fromAI", { name: "alice" })).toBe("aliceのAI → あなた");
+  expect(t("de", "fromAI", { name: "alice" })).toBe("alices KI → du");
   expect(actionLabel("ja", "approve")).toBe("承認");
+  expect(actionLabel("es", "approve")).toBe("aprobó");
   expect(actionLabel("en", "revised")).toBe("asked for changes");
+});
+
+test("every supported language has the full copy, placeholders included", () => {
+  expect(SUPPORTED_LOCALES).toEqual(["en", "ja", "es", "fr", "de"]);
+  const enTable = stringsFor("en");
+  for (const lang of SUPPORTED_LOCALES) {
+    const table = stringsFor(lang);
+    for (const key of Object.keys(enTable)) {
+      expect(table[key], `${lang} is missing "${key}"`).toBeDefined();
+    }
+    for (const action of Object.keys(enTable.actions)) {
+      expect(table.actions[action], `${lang} is missing action "${action}"`).toBeDefined();
+    }
+  }
+  // A region tag reads the same table as its primary language.
+  expect(t("de-DE", "waiting")).toBe(t("de", "waiting"));
+  expect(t("es_MX", "waiting")).toBe(t("es", "waiting"));
+});
+
+test("the sign-in code email speaks the reader's language", () => {
+  const es = composeCodeEmail({ code: "123456", locale: "es", minutes: 10 });
+  expect(es.subject).toBe("123456 es tu código de acceso a Honmaru");
+  expect(es.text).toContain("123456");
+  expect(es.text).toContain("10 minutos");
+  const fr = composeCodeEmail({ code: "654321", locale: "fr-CA", minutes: 10 });
+  expect(fr.subject).toBe("654321 est votre code de connexion Honmaru");
 });
 
 test("a Japanese reader gets a Japanese alert, in the words the relay translated", async () => {

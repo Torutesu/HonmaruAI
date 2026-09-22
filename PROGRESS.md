@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 420 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 440 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 30 steps
@@ -123,7 +123,7 @@ The list of what is still missing, and why each item matters, is
 - [x] Gmail, Slack and Notion inbound via Composio, authorized per user
 - [x] Decisions written out to the decider's chosen Notion database
 - [x] Video capture attached to a card, stored in R2
-- [x] Dictation, English/Japanese, light and dark
+- [x] Dictation, five languages (en/ja/es/fr/de), light and dark
 - [x] Decisions go out as AG-UI `tool_result` carrying the `toolCallId` of the
       `request_decision` that asked for them, so an answer can be matched to the
       question that prompted it rather than arriving as a bare card update
@@ -148,7 +148,7 @@ The list of what is still missing, and why each item matters, is
 - [x] Every notification in the recipient's language. `users.locale` is
       seeded from `Accept-Language`, set by the app toggle and the browser,
       and no longer reset to English by the org graph. All copy in
-      `notifyCopy.js`, en + ja
+      `notifyCopy.js`, en + ja + es + fr + de
 - [x] A new card is translated into the recipient's language on the relay
       (`localize.js`, one model call, paid from the sender's allowance) and
       stored as `localized[locale]`, so the alert and the card agree

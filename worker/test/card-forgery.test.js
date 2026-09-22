@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { joined, message, until } from "./helpers.js";
 
@@ -17,7 +17,7 @@ const ORG = "personal:forgery";
 let alice;
 let mallory;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "7101", login: "alice", name: "Alice", avatarUrl: null, locale: "en" });

@@ -11,6 +11,11 @@ struct AppShell: View {
     @State private var tab: AppTab = .home
     @State private var composeTick = 0
     @State private var showCapture = false
+    @State private var showComposeOptions = false
+    @State private var captureMode: CaptureMode = .dictation
+    @State private var uploadError: String?
+    @State private var pendingCapture: (text: String, video: URL?)?
+    @State private var uploadFallback: CaptureRequest?
     @State private var captured: CaptureRequest?
     @State private var feedCardCount = 0
     @State private var feedCardIndex = 0
@@ -39,9 +44,9 @@ struct AppShell: View {
             AppTabBar(
                 selection: $tab,
                 onCompose: {
-                    // The ＋ records; the transcript is editable before it is sent.
+                    // Make typing, on-device dictation and silent video discoverable.
                     tab = .home
-                    showCapture = true
+                    showComposeOptions = true
                 },
                 onComposeText: {
                     // Long press is the way in for someone who cannot talk right
@@ -52,19 +57,42 @@ struct AppShell: View {
                 pendingCount: appState.pendingCount
             )
         }
-        .fullScreenCover(isPresented: $showCapture) {
-            CaptureView { text, video in
+        .fullScreenCover(isPresented: $showCapture, onDismiss: {
+            guard let request = pendingCapture else { return }
+            pendingCapture = nil
+            Task { await handleCapture(text: request.text, video: request.video) }
+        }) {
+            CaptureView(mode: captureMode) { text, video in
+                pendingCapture = (text, video)
                 showCapture = false
-                Task { await handleCapture(text: text, video: video) }
             }
             .environmentObject(appState)
         }
+        .confirmationDialog("New request", isPresented: $showComposeOptions, titleVisibility: .visible) {
+            Button("Write a request") { composeTick += 1 }
+            Button("Dictate request") { captureMode = .dictation; showCapture = true }
+            Button("Record silent video") { captureMode = .video; showCapture = true }
+            Button("Cancel", role: .cancel) { }
+        }
+        .alert("Video upload failed", isPresented: Binding(get: { uploadError != nil }, set: { if !$0 { uploadError = nil } })) {
+            Button("OK") {
+                uploadError = nil
+                captured = uploadFallback
+                uploadFallback = nil
+            }
+        } message: { Text(uploadError ?? "") }
+        .onChange(of: appState.activeSessionID) { _, _ in
+            pendingCapture = nil
+            uploadFallback = nil
+            uploadError = nil
+            captured = nil
+        }
     }
 
-    /// Keeps the clip locally first, so a failed upload still plays back, then
-    /// compresses and uploads it when a backend is configured. The decision
-    /// routes on its text either way.
+    /// Compresses and uploads the clip; a failed upload preserves the text draft
+    /// without attaching a device-local URL that teammates cannot open.
     private func handleCapture(text: String, video: URL?) async {
+        let generation = appState.activeSessionID
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         var uploaded: String?
         if let video {
@@ -72,11 +100,19 @@ struct AppShell: View {
             // Compress before upload: R2 bills stored bytes, and a raw capture is
             // ~20x larger than a 960x540 export of the same talking-head clip.
             let toUpload = await MediaStore.compress(local ?? video)
+            guard generation == appState.activeSessionID else { return }
             if let base = appState.backendBaseURL {
                 uploaded = try? await MediaUploader.upload(toUpload, to: base)
             }
-            if uploaded == nil { uploaded = local?.absoluteString }
+            guard generation == appState.activeSessionID else { return }
+            if uploaded == nil {
+                uploadFallback = CaptureRequest(text: text, videoURL: nil)
+                uploadError = String(localized: "Your video could not be uploaded. Your text has been kept; try again without video.")
+                // Never share a device-local file URL with a teammate.
+                return
+            }
         }
+        guard generation == appState.activeSessionID else { return }
         captured = CaptureRequest(text: text, videoURL: uploaded)
     }
 

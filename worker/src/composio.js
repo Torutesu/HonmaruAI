@@ -1,11 +1,15 @@
 // The only place that speaks Composio's HTTP API.
 const BASE = "https://backend.composio.dev/api/v3";
+// A tool execution can legitimately walk an inbox; the cap is on hanging,
+// not on work — a stuck upstream must not hold the request forever.
+const UPSTREAM_TIMEOUT_MS = 30_000;
 
 export async function executeTool(apiKey, slug, userId, args) {
   const res = await fetch(`${BASE}/tools/execute/${slug}`, {
     method: "POST",
     headers: { "x-api-key": apiKey, "content-type": "application/json" },
     body: JSON.stringify({ user_id: userId, arguments: args }),
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -23,6 +27,7 @@ export async function createConnectLink(apiKey, userId, authConfigId) {
     method: "POST",
     headers: { "x-api-key": apiKey, "content-type": "application/json" },
     body: JSON.stringify({ user_id: userId, auth_config_id: authConfigId }),
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Composio link ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res.json();
@@ -31,6 +36,7 @@ export async function createConnectLink(apiKey, userId, authConfigId) {
 export async function listConnectedAccounts(apiKey, userId) {
   const res = await fetch(`${BASE}/connected_accounts?user_ids=${encodeURIComponent(userId)}`, {
     headers: { "x-api-key": apiKey },
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Composio accounts ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const body = await res.json();

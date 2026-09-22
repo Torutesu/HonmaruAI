@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 
 // The org graph route refreshes membership from GitHub's collaborator list and
@@ -9,7 +9,7 @@ import schemaSql from "../schema.sql?raw";
 
 const ORG = "acme/app";
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 

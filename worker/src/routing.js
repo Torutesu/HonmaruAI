@@ -1028,6 +1028,7 @@ async function routeInstructionWithOpenRouter({
         tools,
         tool_choice: toolChoice,
       }),
+      signal: AbortSignal.timeout(30_000),
     });
     const data = await response.json();
     if (!response.ok) {

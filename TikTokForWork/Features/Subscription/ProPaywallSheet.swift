@@ -1,46 +1,29 @@
 import RevenueCat
-import RevenueCatUI
 import SwiftUI
 
 /// The paywall the app presents everywhere.
 ///
-/// Layout, copy, pricing, and A/B tests come from RevenueCat → Paywalls, so the offer can
-/// change without an app release. If offerings can't be fetched (offline, or the dashboard
-/// has no offering yet) we fall back to a native list built from the same packages, so the
-/// user always has a way to subscribe or restore.
+/// Products, prices, purchases, and entitlements come from RevenueCat. The presentation is
+/// first-party so App Review and customers always see the plan title, renewal period, price,
+/// restore control, and legal links together regardless of a remotely edited paywall template.
 struct ProPaywallSheet: View {
     @EnvironmentObject private var subscriptions: SubscriptionService
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        content
+        VStack(spacing: 0) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            SubscriptionLegalLinks()
+                .background(Theme.Colors.background)
+        }
             .task { await subscriptions.loadOfferings() }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let offering = subscriptions.currentOffering {
-            PaywallView(offering: offering, displayCloseButton: true)
-                .onPurchaseCompleted { customerInfo in
-                    subscriptions.apply(customerInfo)
-                    Haptics.success()
-                    dismiss()
-                }
-                .onPurchaseFailure { error in
-                    subscriptions.report(error)
-                }
-                .onRestoreCompleted { customerInfo in
-                    subscriptions.apply(customerInfo)
-                    // Only leave if the restore actually unlocked Pro — otherwise the user
-                    // stays on the paywall with the plans still in front of them.
-                    if customerInfo.entitlements[RevenueCatConfig.proEntitlementID]?.isActive == true {
-                        Haptics.success()
-                        dismiss()
-                    }
-                }
-                .onRequestedDismissal {
-                    dismiss()
-                }
+        if subscriptions.currentOffering != nil {
+            FallbackPaywallView()
         } else if subscriptions.isLoadingOfferings {
             loadingState
         } else {
@@ -58,6 +41,28 @@ struct ProPaywallSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .appBackground()
+    }
+}
+
+/// A first-party legal footer shared by the account subscription screen and every
+/// paywall state. Keeping it outside RevenueCat's hosted view means a remote template
+/// cannot cover or remove the links App Review and customers need.
+struct SubscriptionLegalLinks: View {
+    private let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+    private let privacyURL = URL(string: "https://honmaru-web.pages.dev/privacy.html")!
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            Link("Terms of Use", destination: termsURL)
+            Text("·")
+                .accessibilityHidden(true)
+            Link("Privacy Policy", destination: privacyURL)
+        }
+        .font(Theme.TypeScale.micro)
+        .foregroundStyle(Theme.Colors.textSecondary)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, Theme.Spacing.screen)
+        .padding(.vertical, Theme.Spacing.sm)
     }
 }
 
@@ -82,8 +87,7 @@ struct FallbackPaywallView: View {
             }
         }
         .appBackground()
-        .task {
-            await subscriptions.loadOfferings(force: true)
+        .onChange(of: subscriptions.availablePackages.map(\.identifier), initial: true) {
             selectedPackage = selectedPackage
                 ?? subscriptions.annualPackage
                 ?? subscriptions.availablePackages.first
@@ -145,7 +149,7 @@ struct FallbackPaywallView: View {
                     Text(RevenueCatConfig.planName(forProductID: package.storeProduct.productIdentifier))
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Theme.Colors.textPrimary)
-                    Text(package.storeProduct.localizedDescription)
+                    Text(subscriptionPeriodText(for: package))
                         .font(Theme.TypeScale.micro)
                         .foregroundStyle(Theme.Colors.textTertiary)
                         .lineLimit(1)
@@ -166,6 +170,24 @@ struct FallbackPaywallView: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md))
         }
         .buttonStyle(.plain)
+    }
+
+    private func subscriptionPeriodText(for package: Package) -> String {
+        guard let period = package.storeProduct.subscriptionPeriod else {
+            return package.storeProduct.localizedDescription
+        }
+
+        return switch (period.value, period.unit) {
+        case (1, .day): String(localized: "1 day")
+        case (1, .week): String(localized: "1 week")
+        case (1, .month): String(localized: "1 month")
+        case (1, .year): String(localized: "1 year")
+        case (_, .day): String(format: String(localized: "%lld days"), Int64(period.value))
+        case (_, .week): String(format: String(localized: "%lld weeks"), Int64(period.value))
+        case (_, .month): String(format: String(localized: "%lld months"), Int64(period.value))
+        case (_, .year): String(format: String(localized: "%lld years"), Int64(period.value))
+        @unknown default: package.storeProduct.localizedDescription
+        }
     }
 
     private var purchaseControls: some View {

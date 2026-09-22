@@ -74,7 +74,7 @@ jobs:
           fi
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: worker/package-lock.json
 
@@ -131,7 +131,9 @@ jobs:
 
       - name: Deploy
         if: ${{ !inputs.migrate_only }}
-        run: npx -y wrangler@4 deploy ${{ steps.target.outputs.flag }}
+        # --keep-vars preserves dashboard-managed non-secret runtime variables
+        # as well as secrets; the flag picks the environment.
+        run: npx -y wrangler@4 deploy --keep-vars ${{ steps.target.outputs.flag }}
 
       - name: Verify
         if: ${{ !inputs.migrate_only }}

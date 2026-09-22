@@ -13,11 +13,11 @@ import {
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards, evictMember } from "./announce.js";
-import { verifyMailgunWebhook, parseMailgunWebhook, githubIdFromAddress, inboundAddressFor } from "./connectors/email.js";
+import { verifyMailgunWebhook, parseMailgunWebhook, inboundTokenFromAddress, userForInboundAddress, inboundAddressFor } from "./connectors/email.js";
 import { triageMessage } from "./triage.js";
 import { notifyCard } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
-import { deleteAccount } from "./account.js";
+import { deleteAccount, exportAccount } from "./account.js";
 import { listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured, isDeviceToken } from "./apns.js";
@@ -33,6 +33,7 @@ import {
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
 import { ingestedItemForCard } from "./db.js";
+import { alert } from "./alert.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -84,7 +85,7 @@ export default {
   // a card by the time they look. Nothing here bypasses the free-tier meter:
   // the sync loop checks the same allowance a manual sync does.
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(runScheduledSync(env));
+    ctx.waitUntil(runScheduledSync(env, ctx));
   },
 
   async fetch(request, env, ctx) {
@@ -108,6 +109,7 @@ export default {
       // An unhandled throw used to become a raw Workers 500 with a stack trace
       // in it. A malformed JSON body was enough.
       logJSON({ requestId, route, status: 500, ms: Date.now() - startedAt, error: safe(err?.message) });
+      alert(ctx, env, "unhandled", `${route} ${requestId} ${safe(err?.message)}`);
       return new Response(
         JSON.stringify({ message: "Something went wrong on our side.", requestId }),
         { status: 500, headers: { "content-type": "application/json", "x-request-id": requestId } }
@@ -448,6 +450,7 @@ async function handle(request, env, url) {
           code,
           redirect_uri: env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback",
         }),
+        signal: AbortSignal.timeout(20_000),
       });
       const data = await ghRes.json();
       if (!data.access_token) {
@@ -455,6 +458,7 @@ async function handle(request, env, url) {
       }
       const userRes = await fetch("https://api.github.com/user", {
         headers: { authorization: `Bearer ${data.access_token}`, "user-agent": "tiktokforwork" },
+        signal: AbortSignal.timeout(20_000),
       });
       const ghUser = await userRes.json();
       if (!ghUser?.id) return json({ message: "GitHub did not identify this token" }, 502);
@@ -560,6 +564,8 @@ async function handle(request, env, url) {
       if (!user) return json({ message: "unknown user" }, 409);
       return json({
         login: user.login,
+        userId: user.github_id,
+        orgId: await primaryOrgId(env.DB, session.github_id),
         name: user.name,
         locale: user.locale || "en",
         email: user.email || null,
@@ -687,6 +693,22 @@ async function handle(request, env, url) {
       const body = await request.json().catch(() => ({}));
       if (typeof body.deviceToken === "string") await removeDevice(env.DB, body.deviceToken, session.github_id);
       return json({ ok: true });
+    }
+    // Everything we hold about the caller, as a download. Deletion without
+    // export is half of what a person is owed — GDPR/APPI portability is the
+    // other half.
+    if (url.pathname === "/account/export" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      const data = await exportAccount(env.DB, session.github_id, user?.login || null);
+      return new Response(JSON.stringify(data, null, 2), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "content-disposition": `attachment; filename="honmaru-export-${new Date().toISOString().slice(0, 10)}.json"`,
+        },
+      });
     }
     if (url.pathname === "/account" && request.method === "DELETE") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -1175,13 +1197,13 @@ async function handle(request, env, url) {
       const message = parseMailgunWebhook(fields);
       if (!message) return json({ message: "No message in the webhook." }, 400);
 
-      // The address names its owner. No owner, nothing to do — answered 200
-      // because Mailgun retries a non-2xx, and retrying will not make the
-      // address resolve.
-      const githubId = githubIdFromAddress(message.recipient);
-      if (!githubId) return json({ status: "unroutable" });
-      const user = await getUserByGithubId(env.DB, githubId);
+      // The address carries a per-user secret, not an id. No token, nothing to
+      // do — answered 200 because Mailgun retries a non-2xx, and retrying will
+      // not make the address resolve.
+      if (!inboundTokenFromAddress(message.recipient)) return json({ status: "unroutable" });
+      const user = await userForInboundAddress(env, message.recipient);
       if (!user?.login) return json({ status: "unknown recipient" });
+      const githubId = user.github_id;
 
       // Where this person works, by the same rule a sign-in uses. `LIMIT 1`
       // with no ordering picked whichever membership row the database reached
@@ -1240,12 +1262,13 @@ async function handle(request, env, url) {
       return json({ status: cardId ? "card created" : "no decision needed" });
     }
 
-    // Where to send mail so it reaches you. The address names its owner, which
-    // is what makes routing an inbound message possible at all.
+    // Where to send mail so it reaches you. The address carries a secret only
+    // this account can have minted, which is what makes routing an inbound
+    // message safe at all.
     if (url.pathname === "/connectors/email/address" && request.method === "GET") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      const address = inboundAddressFor(env, session.github_id);
+      const address = await inboundAddressFor(env, session.github_id);
       return address
         ? json({ address })
         : json({ message: "Inbound email is not configured on this deployment." }, 503);

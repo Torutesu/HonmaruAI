@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { runScheduledSync } from "../src/scheduled.js";
 
@@ -7,7 +8,7 @@ import { runScheduledSync } from "../src/scheduled.js";
 // nobody is watching. These tests are about who the cron picks up, who it skips,
 // and what it refuses to do on their behalf.
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { upsertUser, upsertMembership, createSession, setConnectorConfig } = await import("../src/db.js");
 

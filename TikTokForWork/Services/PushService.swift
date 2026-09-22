@@ -13,31 +13,9 @@ import UserNotifications
 final class PushService: NSObject, ObservableObject {
     static let shared = PushService()
 
-    /// Whether this build can actually receive a notification.
-    ///
-    /// False, and deliberately. Sending needs `aps-environment` in the
-    /// entitlements, and that entitlement has to be in the provisioning profile
-    /// — "HonmaruAI AppStore" was issued before push existed, so an archive
-    /// carrying it fails to sign. Rather than block the release on Apple
-    /// Developer portal work, this build ships the whole mechanism switched off.
-    ///
-    /// It is a constant rather than a runtime check because there is no public
-    /// API to ask the running app which entitlements it was signed with, and
-    /// guessing wrong in the permissive direction is the expensive mistake:
-    /// **iOS grants exactly one notification prompt, ever.** Spending it in a
-    /// build that cannot deliver anything is how you end up permanently unable
-    /// to notify someone who would have said yes.
-    ///
-    /// Turning it on is four things, all of which must land together:
-    ///   1. Enable Push Notifications on the App ID `com.honmaru.ai`, and
-    ///      regenerate the "HonmaruAI AppStore" provisioning profile.
-    ///   2. Restore `TikTokForWork/HonmaruAI.entitlements` with
-    ///      `aps-environment` = `development`, and point `project.yml` at it
-    ///      (it goes under the target's `entitlements:` key, and must also be
-    ///      added to the sources `excludes`).
-    ///   3. Set the four APNs Worker secrets — `docs/push-notifications.md`.
-    ///   4. Flip this to `true`.
-    static let isEnabledInThisBuild = false
+    /// Enabled alongside the APNs entitlement in project.yml. Debug uses
+    /// development APNs; Release uses the production distribution profile.
+    static let isEnabledInThisBuild = true
 
     @Published private(set) var authorization: UNAuthorizationStatus = .notDetermined
 

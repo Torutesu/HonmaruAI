@@ -48,6 +48,11 @@ final class FeedViewModel: ObservableObject {
                 self.refreshCards(from: cardService)
             }
         }
+        // A relay refusal is the only signal that a card we think we sent was
+        // never accepted — it has to reach the screen or it stays invisible.
+        service.onServerError = { [weak self] message in
+            self?.errorMessage = message
+        }
 
         githubSyncTask?.cancel()
         githubSyncTask = Task { [weak self] in
@@ -71,6 +76,7 @@ final class FeedViewModel: ObservableObject {
         reviewDraft = nil
         draftTask?.cancel()
         isDrafting = false
+        isProcessing = false
     }
 
     func handle(action: CardActionKind, for card: DecisionCard, appState: AppState) async {
@@ -152,7 +158,7 @@ final class FeedViewModel: ObservableObject {
         delegateCard = nil
     }
 
-    func beginDraft(_ text: String, priority: CardPriority, appState: AppState, videoURL: String? = nil) {
+    func beginDraft(_ text: String, priority: CardPriority, appState: AppState, videoURL: String? = nil, allowAI: Bool = false) {
         pendingVideoURL = videoURL
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -160,10 +166,11 @@ final class FeedViewModel: ObservableObject {
         draftTask?.cancel()
         errorMessage = nil
         isDrafting = true
+        let generation = appState.activeSessionID
 
         draftTask = Task {
-            let draft = await draftInstruction(trimmed, priority: priority, appState: appState)
-            guard !Task.isCancelled else { return }
+            let draft = await draftInstruction(trimmed, priority: priority, appState: appState, allowAI: allowAI)
+            guard !Task.isCancelled, generation == appState.activeSessionID else { return }
             isDrafting = false
             if let draft {
                 if draft.quotaExceeded { quotaExceeded = true }
@@ -172,11 +179,11 @@ final class FeedViewModel: ObservableObject {
         }
     }
 
-    func draftInstruction(_ text: String, priority: CardPriority, appState: AppState) async -> InstructionDraft? {
+    func draftInstruction(_ text: String, priority: CardPriority, appState: AppState, allowAI: Bool = false) async -> InstructionDraft? {
         guard let user = appState.currentUser else { return nil }
 
-        guard appState.aiService.hasRelay else {
-            return OfflineRouter.draft(text: text, sender: user, priority: priority)
+        guard allowAI, !appState.isGuest, appState.aiService.hasRelay else {
+            return OfflineRouter.draft(text: text, sender: user, organization: appState.organization, priority: priority)
         }
 
         do {
@@ -192,12 +199,18 @@ final class FeedViewModel: ObservableObject {
             // An unreachable relay is not a reason to lose what you just said.
             // The card is filed locally and the error is not raised: it would
             // only offer a retry that cannot succeed.
-            return OfflineRouter.draft(text: text, sender: user, priority: priority)
+            return OfflineRouter.draft(text: text, sender: user, organization: appState.organization, priority: priority)
         }
     }
 
     func sendDraft(_ draft: InstructionDraft, appState: AppState) async {
+        guard !isProcessing else { return }
         guard let cardService, let user = appState.currentUser else { return }
+        guard appState.connectionState == .connected else {
+            errorMessage = String(localized: "Connect to your workspace before sending. Your draft is kept here.")
+            return
+        }
+        let generation = appState.activeSessionID
 
         isProcessing = true
         processingMessage = String(localized: "Routing decision")
@@ -211,15 +224,15 @@ final class FeedViewModel: ObservableObject {
                 from: user,
                 videoURL: pendingVideoURL
             )
+            guard generation == appState.activeSessionID else { return }
             pendingVideoURL = nil
             refreshCards(from: cardService)
-            Haptics.success()
+            reviewDraft = nil
         } catch {
             errorMessage = error.localizedDescription
         }
 
         isProcessing = false
-        reviewDraft = nil
     }
 
     private func resolve(

@@ -1,12 +1,13 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { writeEntitlement } from "../src/db.js";
 import { isPro } from "../src/entitlements.js";
 
 const ENV = () => ({ ...env, REVENUECAT_SECRET_KEY: "sk-rc" });
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 beforeEach(() => fetchMock.activate());

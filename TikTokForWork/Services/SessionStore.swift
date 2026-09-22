@@ -12,16 +12,8 @@ enum SessionStore {
         static let currentUserID = "currentUserID"
         static let sessionToken = "sessionToken"
         static let orgId = "orgId"
-        static let accountId = "accountId"
+        static let accountID = "accountID"
         static let apiKey = "apiKey"
-    }
-
-    /// The server's id for this account (`email:…` for an email sign-in).
-    /// Distinct from `currentUserID`, which is the relay login (`u:…`); the
-    /// Worker meters and looks entitlements up by this one.
-    static var accountId: String? {
-        get { read(Key.accountId) }
-        set { write(newValue, key: Key.accountId) }
     }
 
     static var githubRepository: String? {
@@ -63,6 +55,11 @@ enum SessionStore {
     static var orgId: String? {
         get { read(Key.orgId) }
         set { write(newValue, key: Key.orgId) }
+    }
+
+    static var accountID: String? {
+        get { read(Key.accountID) }
+        set { write(newValue, key: Key.accountID) }
     }
 
     static var apiKey: String? {
@@ -109,6 +106,12 @@ enum SessionStore {
         return (repository ?? "").isEmpty
     }
 
+    static let githubConnectionKeys = [Key.githubRepository, Key.githubUsername, Key.githubUserId, Key.githubRepositoryURL]
+
+    static func clearGitHubConnection() {
+        githubConnectionKeys.forEach { delete($0) }
+    }
+
     static func saveGitHubConnection(_ connection: GitHubConnection, repository: String) {
         githubRepository = repository
         githubUsername = connection.username
@@ -126,8 +129,7 @@ enum SessionStore {
     /// which belongs to the device and not to the session.
     static let clearedKeys = [
         Key.githubRepository, Key.githubUsername, Key.githubUserId,
-        Key.githubRepositoryURL, Key.currentUserID, Key.sessionToken, Key.orgId,
-        Key.accountId,
+        Key.githubRepositoryURL, Key.currentUserID, Key.sessionToken, Key.orgId, Key.accountID,
     ]
 
     static func clear() {

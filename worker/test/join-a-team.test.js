@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 
@@ -16,7 +16,7 @@ const MAIL = { RESEND_API_KEY: "re_test" };
 let sent = [];
 const realFetch = globalThis.fetch;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
@@ -129,6 +129,8 @@ test("/me says which teams you are in, and who runs each", async () => {
   );
   expect(res.status).toBe(200);
   const me = await res.json();
+  expect(me.userId).toBe(guest.userId);
+  expect(me.orgId).toBe(owner.orgId);
   const ids = me.orgs.map((o) => o.id);
   expect(ids).toContain(guest.orgId);
   expect(ids).toContain(owner.orgId);

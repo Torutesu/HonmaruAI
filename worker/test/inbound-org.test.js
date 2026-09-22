@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 
 // Where a card from outside the app lands.
@@ -15,7 +15,7 @@ import schemaSql from "../schema.sql?raw";
 const SOLO = "personal:inboundsolo";
 const TEAM = "personal:inboundteam";
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { upsertUser, upsertMembership } = await import("../src/db.js");
 

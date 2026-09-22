@@ -14,7 +14,7 @@ struct AIInputSheet: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                 Text(isAIConfigured
                      ? String(localized: "Your AI drafts a decision card in the background — keep scrolling while it works.")
-                     : String(localized: "Offline mode — local routing with your priority setting."))
+                     : String(localized: "No AI model configured — the relay will route this by keyword."))
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textTertiary)
 
@@ -74,14 +74,24 @@ struct AIInputSheet: View {
 struct DraftReviewSheet: View {
     let draft: InstructionDraft
     let onSend: (InstructionDraft) -> Void
+    let errorMessage: String?
+    let isSending: Bool
 
     @State private var priority: CardPriority
+    @State private var title: String
+    @State private var summary: String
+    @State private var context: String
     @Environment(\.dismiss) private var dismiss
 
-    init(draft: InstructionDraft, onSend: @escaping (InstructionDraft) -> Void) {
+    init(draft: InstructionDraft, errorMessage: String? = nil, isSending: Bool = false, onSend: @escaping (InstructionDraft) -> Void) {
         self.draft = draft
         self.onSend = onSend
+        self.errorMessage = errorMessage
+        self.isSending = isSending
         _priority = State(initialValue: draft.priority)
+        _title = State(initialValue: draft.title)
+        _summary = State(initialValue: draft.summary)
+        _context = State(initialValue: draft.context)
     }
 
     var body: some View {
@@ -100,19 +110,18 @@ struct DraftReviewSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                        Text(draft.title)
+                        TextField("Title", text: $title, axis: .vertical)
+                            .accessibilityIdentifier("draft.title")
                             .font(Theme.TypeScale.title)
                             .foregroundStyle(Theme.Colors.textPrimary)
                         Text("→ \(draft.recipientName)")
                             .font(Theme.TypeScale.caption)
                             .foregroundStyle(Theme.Colors.accent)
-                        Text(draft.summary)
+                        TextField("Summary", text: $summary, axis: .vertical)
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .lineSpacing(4)
-                        if !draft.context.isEmpty {
-                            ContextInsightView(context: draft.context)
-                        }
+                        TextField("Context", text: $context, axis: .vertical)
                     }
 
                     HStack {
@@ -125,15 +134,18 @@ struct DraftReviewSheet: View {
 
                     PrioritySlider(priority: $priority)
 
-                    PrimaryButton(title: String(localized: "Send decision card")) {
+                    if let errorMessage {
+                        Text(errorMessage).font(Theme.TypeScale.caption).foregroundStyle(Theme.Colors.reject)
+                    }
+                    PrimaryButton(title: String(localized: "Send decision card"), enabled: !isSending && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         let finalDraft = InstructionDraft(
                             id: draft.id,
                             sourceText: draft.sourceText,
                             recipientUserID: draft.recipientUserID,
                             cardType: draft.cardType,
-                            title: draft.title,
-                            summary: draft.summary,
-                            context: draft.context,
+                            title: title,
+                            summary: summary,
+                            context: context,
                             priority: priority,
                             agentRoute: draft.agentRoute,
                             routingReason: draft.routingReason,
@@ -141,7 +153,6 @@ struct DraftReviewSheet: View {
                             toolCalls: draft.toolCalls
                         )
                         onSend(finalDraft)
-                        dismiss()
                     }
                 }
                 .padding(Theme.Spacing.screen)

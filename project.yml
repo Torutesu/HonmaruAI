@@ -8,7 +8,7 @@ options:
   # Japanese ships as a real localization rather than by rewriting the source
   # strings, so English survives for review and anywhere outside Japan.
   developmentLanguage: en
-  knownRegions: [en, ja, Base]
+  knownRegions: [en, ja, es, fr, de, Base]
 
 settings:
   base:
@@ -25,14 +25,15 @@ targets:
   TikTokForWork:
     type: application
     platform: iOS
-    # No entitlements file on purpose. Adding `aps-environment` requires the
-    # provisioning profile to carry it, and "HonmaruAI AppStore" was issued
-    # before push existed — an archive would fail to sign. Turning push on is a
-    # four-part change; PushService.isEnabledInThisBuild lists all of it.
+    entitlements:
+      path: TikTokForWork/HonmaruAI.entitlements
+      properties:
+        aps-environment: $(APNS_ENVIRONMENT)
     sources:
       - path: TikTokForWork
         excludes:
           - PrivacyInfo.xcprivacy
+          - HonmaruAI.entitlements
       # Named on its own so it lands in Resources. xcodegen has no build phase
       # for an extension it does not recognise, and a privacy manifest that is
       # not copied into the bundle fails review exactly as if it were absent.
@@ -52,6 +53,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.honmaru.ai
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
+        APNS_ENVIRONMENT: development
         INFOPLIST_FILE: TikTokForWork/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Honmaru AI
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -71,6 +73,7 @@ targets:
         # produced without a phone plugged in, which TestFlight exists to avoid.
         # Creating the certificate and profile: docs/app-store-release.md.
         Release:
+          APNS_ENVIRONMENT: production
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: iPhone Distribution
           PROVISIONING_PROFILE_SPECIFIER: HonmaruAI AppStore
@@ -96,20 +99,36 @@ targets:
     dependencies:
       - target: TikTokForWork
 
+  TikTokForWorkUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: TikTokForWorkUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.honmaru.ai.uitests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: TikTokForWork
+
 schemes:
   TikTokForWork:
     build:
       targets:
         TikTokForWork: all
         TikTokForWorkTests: [test]
+        TikTokForWorkUITests: [test]
     # Configs are named rather than left to the default, because
     # scripts/release.sh drives `xcodebuild archive` through this scheme and an
     # archive that silently picked Debug would ship an unsigned, un-optimised
     # build that still says BUILD SUCCEEDED.
     test:
       config: Debug
+      environmentVariables:
+        HONMARU_LIVE_AUTH_TEST: $(HONMARU_LIVE_AUTH_TEST)
       targets:
         - TikTokForWorkTests
+        - TikTokForWorkUITests
     run:
       config: Debug
     profile:

@@ -10,7 +10,7 @@ const HEADERS = (token) => ({
 export async function fetchCollaborators(token, owner, repo) {
   const res = await fetch(
     `${GH}/repos/${owner}/${repo}/collaborators?per_page=100`,
-    { headers: HEADERS(token) }
+    { headers: HEADERS(token), signal: AbortSignal.timeout(20_000) }
   );
   if (!res.ok) {
     const body = await res.text();

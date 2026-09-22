@@ -26,6 +26,10 @@ const MESSAGE_WINDOW_MS = 10_000;
 // No message this product sends is near this; a JSON.parse of something much
 // larger is a cost paid before anything has been checked.
 const MAX_MESSAGE_BYTES = 256 * 1024;
+// `join` runs before `overBudget` can name a user, so it gets its own bound:
+// a handful of attempts per socket, each of which costs a session lookup and
+// a membership check against D1.
+const MAX_JOINS_PER_SOCKET = 5;
 
 export class OrgRelay {
   constructor(state, env) {
@@ -201,6 +205,16 @@ export class OrgRelay {
     try {
     if (type === "join") {
       const agui = payload.protocol === "agui/1";
+      // `join` is the one message exempt from the per-user budget — no user is
+      // proved yet — so it gets its own bound instead: a handful of attempts
+      // per socket, each of which costs a session lookup and a membership
+      // check against D1. Re-joining is allowed inside the bound: it is how a
+      // client re-auths with a fresh session without dropping the socket.
+      const joins = (att.joins || 0) + 1;
+      ws.serializeAttachment({ ...att, joins });
+      if (joins > MAX_JOINS_PER_SOCKET) {
+        return this.refuse(ws, agui, "Too many join attempts on this connection.");
+      }
       // Identity is never taken from the client. `payload.userId` is read only
       // to be discarded: whoever you say you are, you act as the login on your
       // session, in the org that session can prove it belongs to.
@@ -222,10 +236,23 @@ export class OrgRelay {
       }
 
       const userId = access.login;
-      ws.serializeAttachment({ orgId, userId, githubId: String(session.github_id), agui, authed: true });
+      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true });
       const store = await loadStore(this.db, orgId);
       const contexts = await loadContexts(this.db, orgId);
       for (const ev of joinEvents(userId, store, contexts)) ws.send(JSON.stringify(ev));
+      // Who is already here. Presence otherwise only moves when someone joins
+      // or leaves, so a joiner without this sees an empty room until the next
+      // event — and a reconnecting client, whose presence set was just reset
+      // by the snapshot, would stay that way.
+      const online = new Set();
+      for (const other of this.state.getWebSockets()) {
+        if (other === ws) continue;
+        const oatt = other.deserializeAttachment();
+        if (oatt?.orgId === orgId && oatt?.authed && oatt.userId) online.add(oatt.userId);
+      }
+      for (const id of online) {
+        for (const ev of presenceEvents(id, "online")) ws.send(JSON.stringify(ev));
+      }
       // Once, not twice. Presence went out in both dialects to every socket
       // regardless of which one it spoke, so every client received it as a
       // CUSTOM event and again as a legacy message.

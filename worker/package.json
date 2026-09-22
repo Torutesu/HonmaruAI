@@ -10,8 +10,12 @@
     "eval:model": "node eval/run.mjs --model"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.5.0",
-    "vitest": "^2.0.0",
-    "wrangler": "^3.80.0"
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "vitest": "4.1.11",
+    "wrangler": "4.131.1"
+  },
+  "overrides": {
+    "wrangler": "4.131.1",
+    "miniflare": "5.20260911.0-alpha"
   }
 }

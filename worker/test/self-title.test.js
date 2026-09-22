@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 
 // The onboarding screen asks what you do, and the router matches on the
@@ -11,7 +11,7 @@ import schemaSql from "../schema.sql?raw";
 
 let member, admin;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { signup } = await import("../src/auth.js");
   const { upsertMembership } = await import("../src/db.js");
@@ -63,7 +63,7 @@ test("nobody can promote themselves", async () => {
   expect(res.status).toBe(400);
   const row = await env.DB.prepare("SELECT role, title FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
     .bind(member.orgId, member.userId).first();
-  // Storage is rolled back between tests, so this is what beforeAll set: the
+  // Storage is rolled back between tests, so this is what beforeEach set: the
   // rejected call changed nothing, and left no title behind either.
   expect(String(row.role).toLowerCase()).toBe("member");
   expect(row.title).toBeNull();

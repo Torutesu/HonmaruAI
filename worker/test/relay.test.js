@@ -1,9 +1,10 @@
-import { SELF, env, fetchMock } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import {SELF, env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { joined, message, messageContaining, until, untilNoThrow } from "./helpers.js";
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, setConnectorConfig } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "1001", login: "realdev", name: "Real Dev", avatarUrl: "http://a", locale: "en" });
@@ -33,6 +34,31 @@ test("join then a created card round-trips to a second client", async () => {
     (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("c-relay")
   );
   expect(delta).toBeTruthy();
+});
+
+test("a joiner is told who is already online", async () => {
+  await joined("core-team", globalThis.__tokenA);
+  // B joins after A: without this, B's presence set is empty until somebody
+  // else connects or drops — a room that looks empty while someone is in it.
+  const { messages: bMessages } = await joined("core-team", globalThis.__tokenB);
+  const presence = await message(
+    bMessages,
+    (m) => m.type === "CUSTOM" && m.name === "presence" && m.value?.userId === "realdev" && m.value?.status === "online"
+  );
+  expect(presence).toBeTruthy();
+});
+
+test("join is bounded per socket", async () => {
+  const { ws, messages } = await joined("core-team", globalThis.__tokenA);
+  for (let i = 0; i < 5; i += 1) {
+    ws.send(JSON.stringify({ type: "join", payload: { sessionToken: globalThis.__tokenA, protocol: "agui/1" } }));
+  }
+  const refusal = await message(
+    messages,
+    (m) => (m.type === "RUN_ERROR" || m.type === "error") &&
+      JSON.stringify(m).includes("Too many join attempts")
+  );
+  expect(refusal).toBeTruthy();
 });
 
 test("join uses the session's real user id, not the payload", async () => {

@@ -1,11 +1,14 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { createSession, upsertUser, upsertMembership } from "../src/db.js";
-import { githubIdFromAddress, inboundAddressFor, verifyMailgunWebhook } from "../src/connectors/email.js";
+import { inboundTokenFromAddress, userForInboundAddress, inboundAddressFor, verifyMailgunWebhook } from "../src/connectors/email.js";
 
 const SIGNING_KEY = "mailgun-test-key";
+const INBOUND_TOKEN = "b16b00b54242";
+const INBOUND_ADDR = `u-${INBOUND_TOKEN}@in.honmaru.ai`;
 const CONFIGURED = {
   ...env,
   ORG_RELAY: undefined, // the harness cannot follow a hand-made env into a Durable Object
@@ -30,7 +33,7 @@ async function post(overrides = {}) {
   const token = `tok-${nonce++}`;
   const body = {
     timestamp, token, signature: await sign(timestamp, token),
-    recipient: "u-4242@in.honmaru.ai",
+    recipient: INBOUND_ADDR,
     sender: "billing@acme.com",
     subject: "Invoice #42 needs approval",
     "stripped-text": "Please approve the attached invoice by Friday.",
@@ -49,10 +52,12 @@ const triageReply = (content) =>
     .intercept({ path: "/v1/chat/completions", method: "POST" })
     .reply(200, () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }));
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   await upsertUser(env.DB, { githubId: "4242", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });
   await upsertMembership(env.DB, "acme/web", "4242", "Engineer");
+  // A fixed token so the tests can name the address mail should arrive on.
+  await env.DB.prepare("UPDATE users SET inbound_token = ?1 WHERE github_id = ?2").bind(INBOUND_TOKEN, "4242").run();
 });
 beforeEach(() => fetchMock.activate());
 afterEach(() => fetchMock.assertNoPendingInterceptors());
@@ -86,7 +91,7 @@ test("an unsigned request is refused", async () => {
   const res = await SELF.fetch("https://example.com/webhooks/email", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ recipient: "u-4242@in.honmaru.ai", sender: "a@b.com", subject: "hi" }),
+    body: JSON.stringify({ recipient: INBOUND_ADDR, sender: "a@b.com", subject: "hi" }),
   });
   expect(res.status).toBe(401);
 });
@@ -107,7 +112,7 @@ test("a replayed token is refused even though its signature is genuine", async (
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      timestamp, token, signature, recipient: "u-4242@in.honmaru.ai",
+      timestamp, token, signature, recipient: INBOUND_ADDR,
       sender: "a@b.com", subject: "Replay me", "stripped-text": "hi",
       "Message-Id": "<replay@acme.com>",
     }),
@@ -141,10 +146,24 @@ test("the same message delivered twice makes one card", async () => {
   expect((await second.json()).status).toBe("duplicate");
 });
 
-test("the inbound address names its owner", () => {
-  expect(inboundAddressFor({ INBOUND_EMAIL_DOMAIN: "in.honmaru.ai" }, "4242")).toBe("u-4242@in.honmaru.ai");
-  expect(githubIdFromAddress("u-4242@in.honmaru.ai")).toBe("4242");
-  expect(githubIdFromAddress("support@in.honmaru.ai")).toBeNull();
+test("the inbound address names its owner by a secret, not an id", async () => {
+  expect(inboundTokenFromAddress(INBOUND_ADDR)).toBe(INBOUND_TOKEN);
+  expect(inboundTokenFromAddress("support@in.honmaru.ai")).toBeNull();
+  expect(inboundTokenFromAddress("u-4242@in.honmaru.ai")).toBeNull(); // too short: ids are no longer addresses
+  const found = await userForInboundAddress({ DB: env.DB }, INBOUND_ADDR);
+  expect(found.github_id).toBe("4242");
+  expect(await userForInboundAddress({ DB: env.DB }, "u-notissued0@in.honmaru.ai")).toBeNull();
+});
+
+test("an address minted for one person reaches only them, and mints once", async () => {
+  const address = await inboundAddressFor({ ...CONFIGURED, DB: env.DB }, "4242");
+  expect(address).toBe(INBOUND_ADDR); // preset above
+  // An email-only account — an id that was never a number — gets one too.
+  await upsertUser(env.DB, { githubId: "email:solo@honmaru.test", login: "u:solo@honmaru.test", name: "Solo", avatarUrl: "", locale: "en" });
+  const solo = await inboundAddressFor({ ...CONFIGURED, DB: env.DB }, "email:solo@honmaru.test");
+  expect(solo).toMatch(/^u-[a-z0-9]{32}@in\.honmaru\.ai$/);
+  // Idempotent: the second ask returns the same address.
+  expect(await inboundAddressFor({ ...CONFIGURED, DB: env.DB }, "email:solo@honmaru.test")).toBe(solo);
 });
 
 test("unsigned traffic is allowed only when explicitly opted in", async () => {
@@ -160,5 +179,5 @@ test("GET /connectors/email/address tells a signed-in user where to send mail", 
     headers: { "x-session-token": token },
   });
   expect(res.status).toBe(200);
-  expect((await res.json()).address).toBe("u-4242@in.honmaru.ai");
+  expect((await res.json()).address).toBe(INBOUND_ADDR);
 });

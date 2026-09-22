@@ -1,5 +1,6 @@
-import { env, SELF, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import { env, SELF } from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { searchTermsFor } from "../src/ask.js";
@@ -15,7 +16,7 @@ const ENV = (over = {}) => ({ ...env, OPENAI_API_KEY: "sk-test", ...over });
 const call = (path, init, over) => worker.fetch(new Request("https://example.com" + path, init), ENV(over));
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, saveCard } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "8301", login: "toru", name: "Toru", avatarUrl: null, locale: "ja" });

@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { teamContextBlock, buildUserPrompt } from "../src/routing.js";
 
@@ -12,7 +12,7 @@ let alice;
 let bob;
 let outsider;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, saveCard } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "8101", login: "alice", name: "Alice", avatarUrl: null, locale: "en" });

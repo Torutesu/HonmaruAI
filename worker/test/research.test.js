@@ -1,5 +1,6 @@
-import { env, SELF, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import { env, SELF } from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { routeInstruction, formatDecisionsForModel, SEARCH_DECISIONS_TOOL } from "../src/routing.js";
 
@@ -33,7 +34,7 @@ const cardReply = (recipient, summary) => ({
   ] } }],
 });
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, saveCard } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "8201", login: "toru", name: "Toru", avatarUrl: null, locale: "ja" });

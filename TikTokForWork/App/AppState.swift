@@ -64,23 +64,36 @@ final class AppState: ObservableObject {
         BackendURL.httpBase(from: relayURL)
     }
 
-    init() {
+    private var sessionGeneration = UUID()
+    var activeSessionID: UUID { sessionGeneration }
+    private let accountSession: URLSession
+    private let accountToken: () -> String?
+
+    init(startServices: Bool = true, accountSession: URLSession = .shared, accountToken: @escaping () -> String? = { SessionStore.sessionToken }) {
+        self.accountSession = accountSession
+        self.accountToken = accountToken
         // didSet does not fire for the initial value, so apply the saved
         // language before the first view renders.
         Bundle.setAppLanguage(language.locale?.identifier)
         cardService.attach(webSocketService: webSocketService)
+        // Context written on another device lands here. The assignment only
+        // persists locally — publishing stays with the editor, so a received
+        // update is never echoed back as a write.
+        cardService.onContextReceived = { [weak self] text in
+            self?.userContext = text
+        }
         webSocketService.$state.assign(to: &$connectionState)
         cardService.$pendingCount.assign(to: &$pendingCount)
         networkMonitor.onBecameOnline = { [weak self] in
             self?.webSocketService.reconnectIfNeeded()
         }
-        networkMonitor.start()
+        if startServices { networkMonitor.start() }
         githubService.onRepositoryChanged = { [weak self] in
             Task { @MainActor in
                 await self?.handleRepositoryChanged()
             }
         }
-        Task { await bootstrapBackend() }
+        if startServices { Task { await bootstrapBackend() } }
     }
 
     func bootstrapBackend() async {
@@ -97,11 +110,28 @@ final class AppState: ObservableObject {
     }
 
     func restoreSessionIfNeeded() async {
+        guard !isGuest else { return }
+        let generation = sessionGeneration
         // An email session restores first, and on its own path: it has no
         // repository to validate and no GitHub token to check.
         if SessionStore.hasSavedEmailSession,
            let login = SessionStore.currentUserID {
-            await activateEmailSession(login: login, orgId: SessionStore.orgId ?? "", name: nil)
+            if let token = SessionStore.sessionToken, let backendBaseURL {
+                do {
+                    let restored = try await EmailAuthService.restore(token: token, baseURL: backendBaseURL)
+                    guard generation == sessionGeneration else { return }
+                    await activateEmailSession(login: restored.login, orgId: restored.orgId, name: nil,
+                                               sessionToken: restored.token, accountID: restored.userID)
+                    return
+                } catch EmailAuthService.Failure.invalidSession {
+                    guard generation == sessionGeneration else { return }
+                    signOut()
+                    return
+                } catch {
+                    guard generation == sessionGeneration, !Task.isCancelled else { return }
+                }
+            }
+            await activateEmailSession(login: login, orgId: SessionStore.orgId ?? "", name: nil, accountID: SessionStore.accountID)
             return
         }
         guard SessionStore.hasSavedGitHubSession,
@@ -112,10 +142,14 @@ final class AppState: ObservableObject {
         do {
             try await githubService.validateSavedSession()
         } catch {
-            githubService.disconnect()
-            SessionStore.clear()
-            return
+            guard generation == sessionGeneration else { return }
+            if (error as? GitHubServiceError)?.invalidatesSavedSession == true {
+                githubService.disconnect()
+                SessionStore.clear()
+                return
+            }
         }
+        guard generation == sessionGeneration else { return }
         await activateGitHubSession(connection: connection)
     }
 
@@ -148,6 +182,8 @@ final class AppState: ObservableObject {
     /// UI is fully explorable, and the user can sign in later from the account
     /// screen to get the real thing.
     func activateGuestSession() {
+        sessionGeneration = UUID()
+        webSocketService.disconnect()
         isGuest = true
         organization = OrganizationGraph(nodes: [], edges: [])
         let guest = User(id: "guest", name: "Guest", role: "Guest", teamID: nil, githubUsername: nil)
@@ -169,7 +205,16 @@ final class AppState: ObservableObject {
     /// Signed in with an email code. Same shape as a GitHub session minus the
     /// repository: the org comes from the server, and the person's teammates
     /// are whoever else is in it rather than a repo's collaborators.
-    func activateEmailSession(login: String, orgId: String, name: String?) async {
+    func activateEmailSession(login: String, orgId: String, name: String?, sessionToken: String? = nil, accountID: String? = nil) async {
+        guard let token = sessionToken ?? SessionStore.sessionToken, !token.isEmpty, !login.isEmpty else { return }
+        sessionGeneration = UUID()
+        let generation = sessionGeneration
+        webSocketService.disconnect()
+        if currentUser?.id != login { webSocketService.clearPendingEvents() }
+        githubService.disconnect(clearStoredSession: false)
+        SessionStore.sessionToken = token
+        SessionStore.accountID = accountID
+        organization = OrganizationGraph(nodes: [], edges: [])
         isGuest = false
         SessionStore.currentUserID = login
         SessionStore.orgId = orgId
@@ -182,8 +227,11 @@ final class AppState: ObservableObject {
             githubUsername: nil
         )
         cardService.setActiveUser(user.id)
+        currentUser = user
+        isAuthenticated = true
         if !orgId.isEmpty { cardService.adoptOrganization(orgId) }
-        do {
+        else { cardService.reset(); cardService.setActiveUser(user.id) }
+        if !orgId.isEmpty { do {
             try await webSocketService.connect(
                 urlString: relayURL,
                 userId: user.id,
@@ -192,17 +240,11 @@ final class AppState: ObservableObject {
             )
         } catch {
             // Relay unreachable: still let them in; the feed will be empty.
-        }
-        currentUser = user
-        isAuthenticated = true
-        // RevenueCat's app user id must be the id the Worker meters by — the
-        // account id, `email:…`, not the relay login. Without this an email
-        // subscriber's purchase sat under an anonymous id, the Worker's
-        // lookup found nothing, and a paying person stayed on the free tier.
-        if let accountId = SessionStore.accountId, !accountId.isEmpty {
-            await SubscriptionService.shared.identify(userID: accountId)
-        }
-        PushService.shared.registerExistingToken(sessionToken: SessionStore.sessionToken)
+        } }
+        guard generation == sessionGeneration else { return }
+        if let accountID { await SubscriptionService.shared.identify(accountID) }
+        guard generation == sessionGeneration else { return }
+        PushService.shared.registerExistingToken(sessionToken: token)
         // An email org is "owner/repo" only when an invite put this person in
         // a GitHub-backed team; a personal one has no graph to load, and
         // loadOrganization declines it rather than calling with empty parts.
@@ -214,9 +256,14 @@ final class AppState: ObservableObject {
     }
 
     func activateGitHubSession(connection: GitHubConnection) async {
+        sessionGeneration = UUID()
+        let generation = sessionGeneration
+        organization = OrganizationGraph(nodes: [], edges: [])
         isGuest = false
         let user = AppState.user(from: connection)
         SessionStore.currentUserID = user.id
+        SessionStore.orgId = connection.repository
+        SessionStore.accountID = SessionStore.githubUserId
         cardService.setActiveUser(user.id)
         let orgId = connection.repository            // "owner/repo"
         // The cached feed goes up before the socket is even dialled. Waiting for
@@ -233,12 +280,14 @@ final class AppState: ObservableObject {
         } catch {
             // Relay unreachable: still let the user in; the feed will be empty.
         }
+        guard generation == sessionGeneration else { return }
         currentUser = user
         isAuthenticated = true
         // RevenueCat's app_user_id must match what the Worker asks about.
         if let githubId = SessionStore.githubUserId {
             await SubscriptionService.shared.identify(githubId)
         }
+        guard generation == sessionGeneration else { return }
         // The device token is bound to a person on the server. Re-binding it on
         // sign-in is what stops a phone that changed hands from receiving the
         // previous account's decisions.
@@ -255,6 +304,7 @@ final class AppState: ObservableObject {
     private func orgRepo(_ full: String) -> String { full.split(separator: "/").dropFirst().first.map(String.init) ?? "" }
 
     func loadOrganization(owner: String, repo: String) async {
+        let generation = sessionGeneration
         guard !owner.isEmpty, !repo.isEmpty,
               let base = backendBaseURL,
               let token = SessionStore.sessionToken,
@@ -263,6 +313,7 @@ final class AppState: ObservableObject {
         request.setValue(token, forHTTPHeaderField: "x-session-token")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard generation == sessionGeneration else { return }
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
             organization = try JSONDecoder().decode(OrganizationGraph.self, from: data)
         } catch {
@@ -270,11 +321,13 @@ final class AppState: ObservableObject {
     }
 
     func signOut() {
+        sessionGeneration = UUID()
+        let generation = sessionGeneration
         let sessionToken = SessionStore.sessionToken
         Task {
             // Drop back to an anonymous RevenueCat id so the next account on this
             // device does not inherit this person's entitlement.
-            await SubscriptionService.shared.signOut()
+            if sessionGeneration == generation { await SubscriptionService.shared.signOut() }
             // Unregister while the token is still valid — afterwards the server
             // has no way to know which device to forget, and this phone keeps
             // buzzing about someone else's decisions.
@@ -287,6 +340,7 @@ final class AppState: ObservableObject {
         // which went out as senderContext on every route the next person made.
         webSocketService.clearOutbox()
         webSocketService.disconnect()
+        webSocketService.clearPendingEvents()
         githubService.disconnect()
         cardService.reset()
         SessionStore.clear()
@@ -296,6 +350,8 @@ final class AppState: ObservableObject {
         isGuest = false
         isAuthenticated = false
         currentUser = nil
+        organization = OrganizationGraph(nodes: [], edges: [])
+        userContext = ""
     }
 
     enum AccountError: LocalizedError {
@@ -315,7 +371,8 @@ final class AppState: ObservableObject {
     /// only locally would leave the account alive on a server the user believes
     /// they have left.
     func deleteAccount() async throws {
-        guard let base = backendBaseURL, let token = SessionStore.sessionToken else {
+        let generation = sessionGeneration
+        guard let base = backendBaseURL, let token = accountToken() else {
             throw AccountError.notSignedIn
         }
         var request = URLRequest(url: base.appending(path: "account"))
@@ -323,7 +380,7 @@ final class AppState: ObservableObject {
         request.timeoutInterval = 20
         request.setValue(token, forHTTPHeaderField: "x-session-token")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await accountSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw AccountError.server(String(localized: "No response from the server."))
         }
@@ -331,7 +388,7 @@ final class AppState: ObservableObject {
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["message"] as? String
             throw AccountError.server(message ?? String(localized: "Could not delete your account."))
         }
-        signOut()
+        if generation == sessionGeneration { signOut() }
     }
 
     /// Switching repositories switches organizations, so the cards on screen

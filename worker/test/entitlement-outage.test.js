@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { isPro } from "../src/entitlements.js";
 
@@ -18,7 +18,7 @@ const billing = () => ({ ...env, REVENUECAT_SECRET_KEY: "sk_test" });
 const realFetch = globalThis.fetch;
 let respond;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 

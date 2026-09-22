@@ -5,6 +5,9 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     case system
     case english = "en"
     case japanese = "ja"
+    case spanish = "es"
+    case french = "fr"
+    case german = "de"
 
     var id: String { rawValue }
 
@@ -13,6 +16,9 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .system: return String(localized: "System")
         case .english: return "English"
         case .japanese: return "日本語"
+        case .spanish: return "Español"
+        case .french: return "Français"
+        case .german: return "Deutsch"
         }
     }
 
@@ -20,8 +26,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     var locale: Locale? {
         switch self {
         case .system: return nil
-        case .english: return Locale(identifier: "en")
-        case .japanese: return Locale(identifier: "ja")
+        default: return Locale(identifier: rawValue)
         }
     }
 
@@ -29,8 +34,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     var readerLanguageCode: String {
         switch self {
         case .system: return Locale.current.language.languageCode?.identifier ?? "en"
-        case .english: return "en"
-        case .japanese: return "ja"
+        default: return rawValue
         }
     }
 }

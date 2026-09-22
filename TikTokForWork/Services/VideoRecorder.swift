@@ -10,11 +10,16 @@ import Foundation
 final class VideoRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var recordedFile: URL?
+    @Published private(set) var errorMessage: String?
 
     let session = AVCaptureSession()
     private let output = AVCaptureMovieFileOutput()
     private let queue = DispatchQueue(label: "capture.recorder")
     private var finished: ((URL?) -> Void)?
+    /// start() was asked for but the camera has not confirmed it yet. The
+    /// "Recording" badge reads isRecording, and isRecording only flips when
+    /// the file actually opens — a badge without a file is a lie.
+    private var startPending = false
 
     func configure() {
         queue.async { [session, output] in
@@ -39,18 +44,22 @@ final class VideoRecorder: NSObject, ObservableObject {
     }
 
     func start() {
-        guard !isRecording else { return }
+        guard !isRecording, !startPending else { return }
+        startPending = true
+        errorMessage = nil
+        // A stale file from an earlier take must not be what Send hands back
+        // if this one never rolls.
+        recordedFile = nil
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("capture-\(UUID().uuidString).mov")
 
-        queue.async { [weak self, output, session] in
+        queue.async { [output, session] in
             // No running session, or a session with no camera on it (the
             // input could not be added, another app holds the device): nothing
-            // will record. Saying "recording" anyway left Send with a
-            // completion that never fired, and calling startRecording with no
-            // video connection raises an Objective-C exception.
+            // will record, and calling startRecording with no video connection
+            // raises an Objective-C exception.
             guard session.isRunning, output.connection(with: .video) != nil else {
-                Task { @MainActor in self?.isRecording = false }
+                DispatchQueue.main.async { self.startFailed() }
                 return
             }
             // Mirror the file to match the preview. A clip where you reach left
@@ -65,20 +74,37 @@ final class VideoRecorder: NSObject, ObservableObject {
                 output.startRecording(to: url, recordingDelegate: self.delegateProxy)
             }
         }
-        isRecording = true
     }
 
     func stop(completion: @escaping (URL?) -> Void) {
-        // "Recording" that never started has nothing to stop, and waiting on
-        // a delegate that will never be called is a Send button that does
-        // nothing. Answer now with whatever there is.
-        guard isRecording, output.isRecording else {
-            isRecording = false
+        if isRecording {
+            finished = completion
+            output.stopRecording()
+        } else if startPending {
+            // The camera is still spinning up. Park the completion — if the
+            // file opens, didStart sees it and stops straight away; if the
+            // session was never running, startFailed answers it. Without this
+            // a fast Send left the card unsent forever.
+            finished = completion
+        } else {
             completion(recordedFile)
-            return
         }
-        finished = completion
-        output.stopRecording()
+    }
+
+    /// start() bailed before the camera rolled — usually the session had not
+    /// finished configuring. Nothing was recorded, so nothing can finish.
+    private func startFailed() {
+        startPending = false
+        errorMessage = String(localized: "Could not start the camera. You can continue with text.")
+        finished?(nil)
+        finished = nil
+    }
+
+    fileprivate func recordingStarted() {
+        startPending = false
+        isRecording = true
+        // Send was pressed while the camera was still opening the file.
+        if finished != nil { output.stopRecording() }
     }
 
     func teardown() {
@@ -90,7 +116,9 @@ final class VideoRecorder: NSObject, ObservableObject {
     private lazy var delegateProxy: Delegate = Delegate(owner: self)
 
     fileprivate func recordingFinished(_ url: URL?) {
+        startPending = false
         isRecording = false
+        if url == nil { errorMessage = String(localized: "Could not record video. You can continue with text.") }
         recordedFile = url
         finished?(url)
         finished = nil
@@ -103,6 +131,16 @@ final class VideoRecorder: NSObject, ObservableObject {
 
         init(owner: VideoRecorder) {
             self.owner = owner
+        }
+
+        func fileOutput(
+            _ output: AVCaptureFileOutput,
+            didStartRecordingTo fileURL: URL,
+            from connections: [AVCaptureConnection]
+        ) {
+            Task { @MainActor [weak owner] in
+                owner?.recordingStarted()
+            }
         }
 
         func fileOutput(

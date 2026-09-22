@@ -1,5 +1,5 @@
 import { SELF, env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { createSession, upsertMembership } from "../src/db.js";
 import { appendCardEvent } from "../src/events.js";
@@ -7,7 +7,7 @@ import { appendCardEvent } from "../src/events.js";
 let memberToken;
 let strangerToken;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   memberToken = await createSession(env.DB, "501", "gho_member");
   strangerToken = await createSession(env.DB, "502", "gho_stranger");

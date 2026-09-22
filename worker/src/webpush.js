@@ -207,7 +207,13 @@ export async function sendWebPush(env, { subscription, payload, topic, urgency =
     // A card created and then decided collapses to one notification, as it
     // does on APNs. The spec allows 32 URL-safe characters.
     if (topic) headers.topic = String(topic).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32);
-    const res = await fetch(endpoint.toString(), { method: "POST", headers, body });
+    const res = await fetch(endpoint.toString(), {
+      method: "POST",
+      headers,
+      body,
+      // A push service that never answers is a hung delivery, not a slow one.
+      signal: AbortSignal.timeout(10_000),
+    });
     if (res.status >= 200 && res.status < 300) return { ok: true, status: res.status };
     return { ok: false, status: res.status };
   } catch (err) {

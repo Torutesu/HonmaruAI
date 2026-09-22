@@ -1,8 +1,8 @@
 import { SELF, env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 
@@ -145,5 +145,30 @@ test("nothing the account minted or is named on outlives it", async () => {
 
 test("deletion needs a session", async () => {
   const res = await SELF.fetch("https://example.com/account", { method: "DELETE" });
+  expect(res.status).toBe(401);
+});
+
+test("export hands back the account's own data, and nobody else's", async () => {
+  const token = await seedAlice();
+  const res = await SELF.fetch("https://example.com/account/export", {
+    headers: { "x-session-token": token },
+  });
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-disposition")).toContain("attachment");
+
+  const data = await res.json();
+  expect(data.user.login).toBe("alice");
+  expect(data.user.password_hash).toBeUndefined();
+  expect(data.memberships.some((m) => m.org_id === "acme/app")).toBe(true);
+  expect(data.cardsAddressedToMe.some((c) => c.card_id === "c-alices")).toBe(true);
+  expect(data.cardsISent.some((c) => c.card_id === "c-bobs")).toBe(true);
+  expect(data.myActions.length).toBe(1);
+  expect(data.connectorConfig.some((c) => c.connector === "notion")).toBe(true);
+  // Bob's cards are not Alice's to take home.
+  expect(data.cardsAddressedToMe.some((c) => c.card_id === "c-bobs")).toBe(false);
+});
+
+test("export needs a session", async () => {
+  const res = await SELF.fetch("https://example.com/account/export");
   expect(res.status).toBe(401);
 });

@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import { env } from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { sourceOf } from "../src/sync.js";
@@ -23,7 +24,7 @@ const send = (token, cardId, text = "Mika, not this time — not until the lease
 
 const decided = { action: "decline", actorUserID: "toru", decidedAt: "2026-09-11T00:00:00Z", replyText: "Not until the lease is settled" };
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, saveCard, markIngested } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "8501", login: "toru", name: "Toru", avatarUrl: null, locale: "ja" });

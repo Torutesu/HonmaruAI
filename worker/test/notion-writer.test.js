@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { setConnectorConfig, upsertUser, isIngested } from "../src/db.js";
 import { writeDecisionToNotion } from "../src/notionWriter.js";
@@ -12,7 +13,7 @@ const card = {
 
 const ENV = () => ({ ...env, COMPOSIO_API_KEY: "ak-test" });
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   await upsertUser(env.DB, { githubId: "800", login: "octocat", name: "octocat", locale: "en" });
   await setConnectorConfig(env.DB, "800", "notion", { databaseId: "db-1" });

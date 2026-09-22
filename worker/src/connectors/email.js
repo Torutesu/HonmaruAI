@@ -110,20 +110,54 @@ export function parseMailgunWebhook(fields) {
   };
 }
 
-/// Which person this message is for.
+/// The secret in an inbound address.
 ///
-/// The inbound address carries the answer: `u-<github id>@<your domain>`. The
-/// reference relay routed every email to "the first user in the org's store",
-/// which is insertion order — the same message could reach different people
-/// depending on what the process happened to have seen. An address that names
-/// its owner is the smallest thing that is actually correct.
-export function githubIdFromAddress(recipient) {
+/// The address is `u-<token>@<domain>` where the token is random and per-user.
+/// It used to be `u-<github id>` — a GitHub id is public and sequential, so
+/// the address was guessable, and a guessed address is a way to spend someone's
+/// AI allowance on triage and put a forged "approve this" card in their feed.
+/// An email-only account has no numeric id at all, so that format could not
+/// even address them. A secret only we issued fixes both at once.
+export function inboundTokenFromAddress(recipient) {
   const local = String(recipient || "").split("@")[0];
-  const match = local.match(/^u-(\d+)$/);
+  const match = local.match(/^u-([a-z0-9]{8,64})$/);
   return match ? match[1] : null;
 }
 
-export function inboundAddressFor(env, githubId) {
+/// Which person this message is for — a lookup, not a pattern match. The
+/// reference relay routed every email to "the first user in the org's store",
+/// which is insertion order; the guessable id version routed to anyone a
+/// stranger named. A token resolves only if we issued it.
+export async function userForInboundAddress(env, recipient) {
+  const token = inboundTokenFromAddress(recipient);
+  if (!token) return null;
+  return (
+    (await env.DB
+      .prepare("SELECT github_id, login, locale FROM users WHERE inbound_token = ?1")
+      .bind(token)
+      .first()) || null
+  );
+}
+
+/// This person's inbound address, minting their token on first ask.
+///
+/// Lazy on purpose: an account that never asks for its address holds no
+/// secret, and a token that does not exist routes nothing.
+export async function inboundAddressFor(env, githubId) {
   const domain = env.INBOUND_EMAIL_DOMAIN;
-  return domain ? `u-${githubId}@${domain}` : null;
+  if (!domain) return null;
+  const id = String(githubId);
+  const row = await env.DB
+    .prepare("SELECT inbound_token FROM users WHERE github_id = ?1")
+    .bind(id)
+    .first();
+  let token = row?.inbound_token;
+  if (!token) {
+    token = crypto.randomUUID().replaceAll("-", "");
+    await env.DB
+      .prepare("UPDATE users SET inbound_token = ?1 WHERE github_id = ?2")
+      .bind(token, id)
+      .run();
+  }
+  return `u-${token}@${domain}`;
 }

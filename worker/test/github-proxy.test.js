@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { createSession, upsertUser } from "../src/db.js";
@@ -7,7 +8,7 @@ import { createSession, upsertUser } from "../src/db.js";
 const SELF = { fetch: (url, init) => worker.fetch(new Request(url, init), env) };
 
 let token;
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   await upsertUser(env.DB, { githubId: "5150", login: "octocat", name: "O", avatarUrl: "", locale: "en" });
   token = await createSession(env.DB, "5150", "gho_secret");

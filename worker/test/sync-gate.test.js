@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { createSession, upsertMembership, upsertUser, countAIUse, writeEntitlement } from "../src/db.js";
@@ -23,7 +24,7 @@ const METERED = {
 };
 
 let token;
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   token = await createSession(env.DB, "800", "gho_sync_gate");
   await upsertUser(env.DB, { githubId: "800", login: "octocat", name: "Octo", avatarUrl: "", locale: "en" });

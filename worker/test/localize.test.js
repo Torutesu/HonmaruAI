@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { detectLanguage, needsLocalizing, localizeCard } from "../src/localize.js";
 import { joined, message } from "./helpers.js";
@@ -11,7 +12,7 @@ import { joined, message } from "./helpers.js";
 const ORG = "acme/app";
 let taroToken;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "5201", login: "taro", name: "Taro", avatarUrl: null, locale: "ja" });

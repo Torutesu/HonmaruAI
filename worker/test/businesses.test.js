@@ -1,5 +1,6 @@
-import { SELF, env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {SELF, env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { joined, message } from "./helpers.js";
 import { businessSlug } from "../src/db.js";
@@ -13,7 +14,7 @@ let ownerToken;
 let memberToken;
 let outsiderToken;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "6101", login: "owner", name: "Owner", avatarUrl: null, locale: "ja" });

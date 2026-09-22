@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { createSession, getSession } from "../src/db.js";
 
@@ -7,7 +7,7 @@ import { createSession, getSession } from "../src/db.js";
 // morning, on day 31, with no warning and nothing to distinguish it from a bug.
 // Absence should expire a session; use should not.
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
 });
 

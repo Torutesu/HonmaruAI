@@ -28,6 +28,15 @@ struct FeedView: View {
     @State private var showConnectGitHub = false
     @State private var showPaywall = false
     @State private var connectContext: ConnectGitHubSheet.Context = .settings
+    @State private var pendingDraft: (text: String, priority: CardPriority, videoURL: String?)?
+    @State private var showAIConsent = false
+
+    private func startPendingDraft(allowAI: Bool) {
+        guard let request = pendingDraft else { return }
+        pendingDraft = nil
+        viewModel.beginDraft(request.text, priority: request.priority, appState: appState,
+                             videoURL: request.videoURL, allowAI: allowAI)
+    }
 
     var body: some View {
         ZStack {
@@ -102,7 +111,8 @@ struct FeedView: View {
         }
         .onChange(of: captured) { _, request in
             guard let request else { return }
-            viewModel.beginDraft(request.text, priority: .medium, appState: appState, videoURL: request.videoURL)
+            pendingDraft = (request.text, .medium, request.videoURL)
+            showAIConsent = true
         }
         .task { await syncConnectors() }
         .onChange(of: viewModel.cards.count) { _, count in cardCount.wrappedValue = count }
@@ -123,12 +133,14 @@ struct FeedView: View {
             OrgGraphView()
                 .environmentObject(appState)
         }
-        .sheet(isPresented: $showAIInput) {
+        .sheet(isPresented: $showAIInput, onDismiss: {
+            if pendingDraft != nil { showAIConsent = true }
+        }) {
             AIInputSheet(
                 prompt: $aiPrompt,
                 isAIConfigured: appState.aiService.isConfigured,
                 onSubmit: { text, priority in
-                    viewModel.beginDraft(text, priority: priority, appState: appState)
+                    pendingDraft = (text, priority, nil)
                 }
             )
             .presentationDetents([.medium, .large])
@@ -136,7 +148,7 @@ struct FeedView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $viewModel.reviewDraft) { draft in
-            DraftReviewSheet(draft: draft) { finalDraft in
+            DraftReviewSheet(draft: draft, errorMessage: viewModel.errorMessage, isSending: viewModel.isProcessing) { finalDraft in
                 Task {
                     await viewModel.sendDraft(finalDraft, appState: appState)
                     aiPrompt = ""
@@ -149,6 +161,21 @@ struct FeedView: View {
         .sheet(item: $viewModel.detailCard) { card in
             CardDetailSheet(card: card)
                 .presentationDetents([.medium, .large])
+        }
+        .confirmationDialog("Use AI to draft this request?", isPresented: $showAIConsent, titleVisibility: .visible) {
+            Button("Send text to OpenAI") { startPendingDraft(allowAI: true) }
+            Button("Continue without AI") { startPendingDraft(allowAI: false) }
+            Button("Cancel", role: .cancel) { pendingDraft = nil }
+        } message: {
+            Text("Your request text and work context are sent through Honmaru AI to OpenAI to prepare a draft. Microphone audio is never sent. Review the card before sending it to your team.")
+        }
+        .onChange(of: appState.activeSessionID) { _, _ in
+            pendingDraft = nil
+            showAIConsent = false
+            viewModel.clearSheets()
+            if let user = appState.currentUser {
+                viewModel.bind(to: appState.cardService, user: user, githubService: appState.githubService)
+            }
         }
         .sheet(item: $viewModel.reviseCard) { card in
             ReviseSheet(card: card) { note in

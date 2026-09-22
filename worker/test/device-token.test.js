@@ -1,5 +1,6 @@
-import { SELF, env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import {SELF, env} from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { sendPush, resetProviderToken } from "../src/apns.js";
 
@@ -34,7 +35,7 @@ const pushEnv = () => ({
 const GOOD_TOKEN = "a".repeat(64);
 let token;
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { upsertUser, createSession } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "6600", login: "phoneowner", name: "Owner", avatarUrl: null, locale: "en" });

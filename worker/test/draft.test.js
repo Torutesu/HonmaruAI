@@ -1,5 +1,6 @@
-import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, afterEach, expect, test } from "vitest";
+import { env } from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { draftLanguageFor } from "../src/draft.js";
@@ -18,7 +19,7 @@ const draft = (token, cardId, over) => call("/ai/draft", {
   method: "POST", headers: headers(token), body: JSON.stringify({ orgId: ORG, cardId, readerLanguage: "en" }),
 }, over);
 
-beforeAll(async () => {
+beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, saveCard } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "8401", login: "toru", name: "Toru Tesu", avatarUrl: null, locale: "ja" });

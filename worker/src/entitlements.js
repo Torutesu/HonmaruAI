@@ -21,7 +21,10 @@ export async function isPro(env, githubId) {
   try {
     const res = await fetch(
       `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(String(githubId))}`,
-      { headers: { Authorization: `Bearer ${env.REVENUECAT_SECRET_KEY}` } }
+      {
+        headers: { Authorization: `Bearer ${env.REVENUECAT_SECRET_KEY}` },
+        signal: AbortSignal.timeout(15_000),
+      }
     );
     if (res.status === 404) {
       // An answer about the subscriber: never heard of them, so not Pro.

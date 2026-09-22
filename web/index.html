@@ -237,7 +237,7 @@ function cardHTML(c) {
   }
   return `
     <div class="card">
-      <div class="meta"><span style="color:${FORMAT_COLORS[fmt]}">${fmt}</span><time>${esc(c.priority || '')}</time></div>
+      <div class="meta"><span style="color:${FORMAT_COLORS[fmt]}">${esc(fmt)}</span><time>${esc(c.priority || '')}</time></div>
       <h3>${esc(c.title)}</h3>
       ${c.summary ? `<p>${esc(c.summary)}</p>` : ''}
       ${c.routingReason ? `<div class="reason">${esc(c.routingReason)}</div>` : ''}

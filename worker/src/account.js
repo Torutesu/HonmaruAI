@@ -24,6 +24,86 @@
 
 const ANONYMOUS = "deleted-user";
 
+/// Everything this deployment holds about one person, in one document.
+///
+/// Deletion is half of what a person is owed under GDPR/APPI — the other half
+/// is a copy. This is that copy: their profile, their cards, their history,
+/// their settings. Someone else's record of a shared event stays theirs — a
+/// decision Bob made on Alice's request is exported to Alice as the card, not
+/// as Bob's row.
+export async function exportAccount(db, githubId, login) {
+  const id = String(githubId);
+  const all = async (sql, ...binds) =>
+    (await db.prepare(sql).bind(...binds).all()).results || [];
+  // Tables that may not exist on a database that predates push: missing means
+  // "no rows", which is also the honest answer.
+  const tryAll = async (sql, ...binds) => {
+    try {
+      return await all(sql, ...binds);
+    } catch (err) {
+      if (/no such table/i.test(String(err?.message))) return [];
+      throw err;
+    }
+  };
+
+  const user = await db
+    .prepare(
+      "SELECT github_id, login, name, email, locale, notify_email, created_at FROM users WHERE github_id = ?1"
+    )
+    .bind(id)
+    .first();
+
+  const out = {
+    exportedAt: new Date().toISOString(),
+    user: user || null,
+    memberships: await all(
+      "SELECT org_id, role, title, created_at FROM memberships WHERE user_github_id = ?1", id
+    ),
+    // Cards are stored as JSON in `data`; the column fields are indexes over
+    // it, so exporting the document exports the card.
+    cardsAddressedToMe: login
+      ? await all(
+          "SELECT org_id, card_id, status, priority, created_at, decided_at, data FROM cards WHERE recipient_user_id = ?1",
+          login
+        )
+      : [],
+    cardsISent: login
+      ? await all(
+          "SELECT org_id, card_id, status, priority, created_at, decided_at, data FROM cards WHERE sender_user_id = ?1",
+          login
+        )
+      : [],
+    myActions: login
+      ? await all(
+          "SELECT org_id, card_id, type, action, note, created_at FROM card_events WHERE actor_user_id = ?1",
+          login
+        )
+      : [],
+    contexts: login
+      ? await all("SELECT org_id, data FROM contexts WHERE user_id = ?1", login)
+      : [],
+    connectorConfig: await all(
+      "SELECT connector, config, updated_at FROM connector_config WHERE user_github_id = ?1", id
+    ),
+    entitlements: await all(
+      "SELECT is_pro, checked_at FROM entitlements WHERE user_github_id = ?1", id
+    ),
+    aiUsage: await all(
+      "SELECT day, used FROM ai_usage WHERE user_github_id = ?1", id
+    ),
+    ingestedItems: await all(
+      "SELECT connector, external_id, org_id, card_id, created_at FROM ingested_items WHERE user_github_id = ?1", id
+    ),
+    devices: await tryAll(
+      "SELECT environment, updated_at FROM device_tokens WHERE user_github_id = ?1", id
+    ),
+    pushSubscriptions: await tryAll(
+      "SELECT user_agent, updated_at FROM push_subscriptions WHERE user_github_id = ?1", id
+    ),
+  };
+  return out;
+}
+
 export async function deleteAccount(db, githubId, login) {
   const id = String(githubId);
 
@@ -78,6 +158,7 @@ export async function deleteAccount(db, githubId, login) {
     "DELETE FROM memberships WHERE user_github_id = ?1",
     "DELETE FROM agents WHERE user_github_id = ?1",
     "DELETE FROM connector_config WHERE user_github_id = ?1",
+    "DELETE FROM connector_sync_state WHERE user_github_id = ?1",
     "DELETE FROM entitlements WHERE user_github_id = ?1",
     "DELETE FROM ai_usage WHERE user_github_id = ?1",
     "DELETE FROM ingested_items WHERE user_github_id = ?1",
