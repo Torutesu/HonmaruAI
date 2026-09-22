@@ -769,6 +769,31 @@ await step('a laptop shows the inbox beside the card, and the URL says where you
   if (overflow.length) throw new Error(`off-screen on the workbench: ${overflow.join(' ; ')}`)
 })
 
+// ⌘K goes anywhere and finds anything: a screen by name, a card by a word
+// in it. Enter takes the highlighted row.
+await step('⌘K finds a card by a word and a screen by its name', async () => {
+  const d = desk.pages()[0]
+  await d.keyboard.press('Control+k')
+  await d.waitForSelector('.palette-input', { timeout: 5000 })
+    .catch(() => { throw new Error('⌘K did not open the palette') })
+  await d.fill('.palette-input', 'Revision')
+  await d.waitForFunction(() => /Revision/.test(document.querySelector('.palette-item.on')?.textContent || ''), null, { timeout: 5000 })
+    .catch(() => { throw new Error('the palette did not find the card by a word in its title') })
+  await d.screenshot({ path: `${SHOTS}/20c-palette.png` })
+  await d.keyboard.press('Enter')
+  await d.waitForFunction(() => /Revision/.test(document.querySelector('.workbench .card-title')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('Enter in the palette did not open the card') })
+  if (await d.$('.palette')) throw new Error('the palette stayed open after Enter')
+  await d.keyboard.press('Control+k')
+  await d.waitForSelector('.palette-input', { timeout: 5000 })
+  await d.fill('.palette-input', 'Insight')
+  await d.keyboard.press('Enter')
+  await d.waitForFunction(() => /Insights|インサイト/.test(document.querySelector('.head-title')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the palette did not open Insights by name') })
+  await d.keyboard.press('Escape')
+  await d.waitForSelector('.workbench .card-title', { timeout: 10000 })
+})
+
 await step('the other screens hold up on a laptop', async () => {
   const d = desk.pages()[0]
   for (const [label, marker, name] of [

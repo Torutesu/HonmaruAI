@@ -460,3 +460,30 @@
   .inbox-title { color: #ededef; }
   .inbox-meta { color: #a1a1aa; }
 }
+
+/* ⌘K */
+.palette-scrim { z-index: 40; }
+.palette {
+  position: fixed; z-index: 41; left: 50%; top: 12vh; transform: translateX(-50%);
+  width: min(92vw, 620px); max-height: 70vh; display: flex; flex-direction: column;
+  background: #fff; border: 1px solid #ececf0; border-radius: 16px; box-shadow: 0 24px 64px rgba(9, 12, 29, .18); overflow: hidden;
+}
+.palette-input {
+  height: 52px; padding: 0 18px; border: none; border-bottom: 1px solid #ececf0; font: inherit; font-size: 16px; color: #1c1c21; background: transparent; outline: none;
+}
+.palette-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
+.palette-group { padding: 8px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa5; }
+.palette-item { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 12px; border-radius: 10px; cursor: pointer; font-size: 14px; color: #1c1c21; }
+.palette-item.on { background: #f3f0ff; }
+.palette-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-meta { flex: none; font-size: 12px; color: #6b6b75; }
+.palette-empty { padding: 14px 12px; font-size: 13.5px; color: #9a9aa5; }
+.palette-foot { padding: 6px 14px 8px; font-size: 11px; color: #9a9aa5; border-top: 1px solid #ececf0; }
+.topbar-right .palette-button { display: grid; place-items: center; }
+@media (prefers-color-scheme: dark) {
+  .palette { background: #18181b; border-color: #26262b; }
+  .palette-input { color: #ededef; border-bottom-color: #26262b; }
+  .palette-item { color: #ededef; }
+  .palette-item.on { background: #26233a; }
+  .palette-foot { border-top-color: #26262b; }
+}

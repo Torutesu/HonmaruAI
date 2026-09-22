@@ -239,6 +239,7 @@ export async function searchDecisions(db, orgId, query, { limit = 8 } = {}) {
   return (results || []).map((row) => {
     const card = parseCard(row) || {};
     return {
+      id: card.id || null,
       title: String(card.title || "").slice(0, 120),
       recipient: row.recipient_user_id,
       status: card.decision?.action || card.status || "pending",

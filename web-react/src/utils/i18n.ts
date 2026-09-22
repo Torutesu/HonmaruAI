@@ -489,6 +489,12 @@ const ja: Dict = {
   'Reply drafted': '返信を下書き',
   'Reply sent': '返信を送信',
   'Filed': '分類',
+  // ⌘K
+  'Search or jump to': '検索・移動',
+  'Search decisions, or type where to go…': '決定を検索、または行き先を入力…',
+  'Go to': '移動',
+  'Decided before': '以前の決定',
+  'Plans': 'プラン',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

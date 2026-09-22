@@ -1095,6 +1095,19 @@ async function handle(request, env, url) {
       return json({ sent: true, via: connector.label });
     }
 
+    // The team's decisions, by keyword — what the command palette shows
+    // under the cards the browser already has. The same search the router
+    // and "Ask anything" use, for a person.
+    if (url.pathname === "/search" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "";
+      const q = (url.searchParams.get("q") || "").trim().slice(0, 200);
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const hits = q ? await searchDecisions(env.DB, orgId, q, { limit: 12 }) : [];
+      return json({ hits });
+    }
+
     // One card's history, for any member of its org. The older route is
     // keyed by owner/repo and cannot name a personal or email workspace;
     // this one takes the org id every other route takes.

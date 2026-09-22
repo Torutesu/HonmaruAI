@@ -112,6 +112,12 @@ The list of what is still missing, and why each item matters, is
       in the URL (`#/feed/<id>`, `#/history`, `#/you`…): reload, back and a
       pasted link all mean what they say; `?card=` links from before are
       turned into hashes. One e2e step for the pane, the thread and the URL
+- [x] **⌘K.** One box that goes anywhere and finds anything: a screen or
+      an action by name, a card the browser has by a word in it, and — a
+      beat later — what the team decided before, from `GET /search?orgId=&q=`
+      (the same keyword search the router and "Ask anything" use, with the
+      card's id so a hit opens). ↑↓ ⏎ esc; a search button in the top bar
+      for the pointer. One e2e step: a card by a word, Insights by name
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

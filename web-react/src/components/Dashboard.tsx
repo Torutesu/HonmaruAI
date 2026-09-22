@@ -3,6 +3,8 @@ import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { ClassicList } from './ClassicList'
 import { Inbox } from './Inbox'
+import { Palette } from './Palette'
+import type { PaletteAction } from './Palette'
 import { Icon } from './Icon'
 import { CreateDecision } from './CreateDecision'
 import { RecordSheet } from './RecordSheet'
@@ -71,6 +73,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // without this a slip of the thumb is an approval nobody meant.
   const [undo, setUndo] = useState<{ cardId: string; action: string; title: string } | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
+  // ⌘K: one box that goes anywhere and finds anything.
+  const [palette, setPalette] = useState(false)
   const { route, navigate } = useRoute()
   const desktop = useDesktop()
   const screen: Screen | null = route.screen
@@ -198,12 +202,23 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // Escape closes whatever is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); setPalette((p) => !p); return }
+      if (palette) return
       if (e.key === 'Escape') { setPanel(null); if (screen) setScreen(null) }
       else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) setPanel('compose')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [panel, screen, setScreen])
+  }, [panel, screen, setScreen, palette])
+  const pickFromPalette = useCallback((action: PaletteAction) => {
+    setPalette(false)
+    setPanel(null)
+    if (action.kind === 'card') { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(action.cardId)) }
+    else if (action.kind === 'screen') navigate(hashForScreen(action.screen))
+    else if (action.kind === 'feed') { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForMode('cards')) }
+    else if (action.kind === 'list') { try { localStorage.setItem('mode', 'classic') } catch {}; navigate(hashForMode('classic')) }
+    else if (action.kind === 'compose') { navigate(hashForMode('cards')); setPanel('compose') }
+  }, [navigate])
 
   // A toast that stays until clicked is a banner. Errors clear themselves.
   useEffect(() => {
@@ -405,6 +420,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             </span>
           )}
           <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} aria-hidden="true" />
+          <button className="palette-button" onClick={() => setPalette(true)} aria-label={t('Search or jump to')} title="⌘K" aria-keyshortcuts="Meta+K Control+K">
+            <Icon name="search" size={18} />
+          </button>
           <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
           <button className="avatar-button" onClick={() => setScreen('profile')} aria-label={t('You')}>
             {(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()}
@@ -440,6 +458,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel && <div className="scrim" onClick={() => setPanel(null)} />}
+
+      {palette && (
+        <Palette
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          sessionToken={sessionToken}
+          cards={[...pendingCards, ...decidedCards, ...sentCards]}
+          onPick={pickFromPalette}
+          onClose={() => setPalette(false)}
+        />
+      )}
 
       {panel === 'compose' && (
         <div className="sheet sheet-bottom" role="dialog" aria-modal="true" aria-label={t('Tell your AI')}>
