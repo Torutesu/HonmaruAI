@@ -18,6 +18,7 @@ import { providerConfig } from "./provider.js";
 import { checkAIAllowance } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
+import { listMembers } from "./team.js";
 
 // One socket's allowance. Well above anything the app does — it sends a message
 // per decision, not per frame — and far below what a loop can produce.
@@ -310,6 +311,22 @@ export class OrgRelay {
       // using it, not designed up front.
       if (card.business !== undefined) card.business = await this.fileUnder(orgId, card.business, att.githubId);
       if (type === "card_created") {
+        // A directory ref is scoped to this org and carries no email address.
+        // Resolve it server-side before the existing membership and sender
+        // checks. Legacy clients may continue sending a login.
+        delete card.recipientMemberRef;
+        delete card.recipientName;
+        if (card.recipientUserID.startsWith("member:")) {
+          const member = (await listMembers(this.db, orgId, att.githubId))
+            .find(m => `member:${m.ref}` === card.recipientUserID);
+          if (!member) {
+            ws.send(JSON.stringify(runError("That person is not in this workspace.")));
+            return;
+          }
+          card.recipientMemberRef = member.ref;
+          card.recipientName = member.name;
+          card.recipientUserID = member.login;
+        }
         // Anyone in the org — and the org is the part that was never checked.
         // The sender is stamped below and cannot be forged; the recipient came
         // straight off the wire, so a card could be addressed to somebody in a
@@ -353,7 +370,7 @@ export class OrgRelay {
         // created — the translation, the business, who asked, what the AI
         // advised. A client that does not know a field must not erase it.
         if (existing) {
-          for (const field of ["localized", "business", "requestedBy", "recommendation"]) {
+          for (const field of ["localized", "business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
         }

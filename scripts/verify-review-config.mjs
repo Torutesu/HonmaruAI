@@ -13,8 +13,11 @@ assert.doesNotMatch(read('TikTokForWork/Services/VideoRecorder.swift'), /for: \.
 assert.doesNotMatch(read('TikTokForWork/PrivacyInfo.xcprivacy'), /NSPrivacyCollectedDataTypeAudioData/);
 assert.match(read('TikTokForWork/Features/Subscription/ProPaywallSheet.swift'), /Link\("Terms of Use"/);
 assert.match(read('TikTokForWork/Features/Subscription/ProPaywallSheet.swift'), /Link\("Privacy Policy"/);
-assert.match(read('TikTokForWork/Features/Feed/FeedView.swift'), /Continue without AI/);
-assert.match(read('TikTokForWork/Features/Feed/FeedView.swift'), /Send text to OpenAI/);
+const composer = read('TikTokForWork/Features/Feed/RequestComposerView.swift');
+assert.match(composer, /Prepare without AI/);
+assert.match(composer, /Your text, including any transcript, and relevant team context will be sent to our AI provider, OpenAI\. Microphone audio is not sent\./);
+assert.match(composer, /allowAI: true/);
+assert.match(read('TikTokForWork/ViewModels/FeedViewModel.swift'), /allowAI: Bool = false/);
 const strings = JSON.parse(read('TikTokForWork/Localizable.xcstrings'));
 for (const locale of ['ja', 'es', 'fr', 'de']) {
   assert.ok(strings.strings['Use AI to draft this request?'].localizations[locale]);

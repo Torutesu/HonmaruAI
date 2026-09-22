@@ -17,7 +17,7 @@ import { triageMessage } from "./triage.js";
 import { notifyCard } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount, exportAccount } from "./account.js";
-import { listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
+import { listMembers, listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured, isDeviceToken } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
@@ -320,6 +320,15 @@ async function handle(request, env, url) {
       // the client sent only when there is no session/org to look up.
       let organization = body.organization;
       const routeOrgId = body.organization?.orgId || body.orgId;
+      const chosenId = body.recipientUserID;
+      if (chosenId !== undefined && (typeof chosenId !== "string" || !chosenId.trim())) {
+        return json({ message: "Choose a workspace member." }, 400);
+      }
+      if ((chosenId !== undefined || body.memberReferences === true) && (!session || !routeOrgId)) {
+        return json({ message: "Sign in to a workspace before choosing a teammate." }, 401);
+      }
+      let routeMembers = [];
+      let chosenMember;
       if (session && routeOrgId) {
         // Naming an org is not belonging to it. Everything else that reads an
         // organization checks this; this route did not, and it answers with a
@@ -335,6 +344,13 @@ async function handle(request, env, url) {
         // does not. Asking GitHub is what the socket does on join.
         const allowed = await authorizeOrgAccess(env, session, routeOrgId);
         if (!allowed.ok) return json({ message: "not a member of this org" }, 403);
+        if (chosenId !== undefined || body.memberReferences === true) {
+          routeMembers = await listMembers(env.DB, routeOrgId, session.github_id);
+          if (chosenId !== undefined) {
+            chosenMember = routeMembers.find(m => chosenId === `member:${m.ref}` || chosenId === m.login);
+            if (!chosenMember) return json({ message: "That recipient is not a current member of this workspace." }, 400);
+          }
+        }
         const nodes = await listOrgNodes(env.DB, routeOrgId);
         if (nodes.length) {
           organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
@@ -346,6 +362,10 @@ async function handle(request, env, url) {
         if (businesses.length) organization = { ...(organization || {}), orgId: routeOrgId, businesses };
       }
 
+      if (chosenMember) {
+        organization = { ...organization, nodes: [{ id: chosenMember.login, kind: "person",
+          role: chosenMember.title || chosenMember.role, label: `${chosenMember.name} · ${chosenMember.title || chosenMember.role}` }], edges: [] };
+      }
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
@@ -356,6 +376,16 @@ async function handle(request, env, url) {
         // No provider means the local keyword router — the graceful degradation.
         openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
       });
+      if (chosenMember) {
+        result.recipientUserID = chosenMember.login;
+        result.routingReason = "Selected by you";
+        result.agentRoute = `${body.sender?.name || "You"} → ${chosenMember.name}`;
+      }
+      if (body.memberReferences === true) {
+        const recipient = routeMembers.find(m => m.login === result.recipientUserID);
+        if (!recipient) return json({ message: "Choose a current workspace member." }, 400);
+        result.recipientUserID = recipient.mine ? recipient.login : `member:${recipient.ref}`;
+      }
       // Only a model that actually answered is billable — including one whose
       // answer we then rejected, which still comes back as routedBy "fallback".
       // A provider outage never burns someone's three.

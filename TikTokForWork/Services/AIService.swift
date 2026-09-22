@@ -36,6 +36,8 @@ private struct RouteInstructionRequest: Encodable {
     let readerLanguage: String
     /// What the sender told their AI about how they work.
     let senderContext: String?
+    let recipientUserID: String?
+    let memberReferences: Bool
 }
 
 private struct RouteInstructionResponse: Decodable {
@@ -115,7 +117,8 @@ final class AIService: ObservableObject {
         organization: OrganizationGraph,
         priorityOverride: CardPriority? = nil,
         readerLanguage: String,
-        senderContext: String?
+        senderContext: String?,
+        recipientUserID: String? = nil
     ) async throws -> InstructionDraft {
         let routing = try await routeInstruction(
             text: text,
@@ -123,7 +126,8 @@ final class AIService: ObservableObject {
             organization: organization,
             priorityOverride: priorityOverride,
             readerLanguage: readerLanguage,
-            senderContext: senderContext
+            senderContext: senderContext,
+            recipientUserID: recipientUserID
         )
 
         return InstructionDraft(
@@ -149,7 +153,8 @@ final class AIService: ObservableObject {
         organization: OrganizationGraph,
         priorityOverride: CardPriority? = nil,
         readerLanguage: String,
-        senderContext: String?
+        senderContext: String?,
+        recipientUserID: String? = nil
     ) async throws -> InstructionRouting {
         guard let backendBaseURL else {
             throw AIServiceError.notConfigured
@@ -160,6 +165,7 @@ final class AIService: ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Who is asking. Every other service here sends this; this one did not,
         // and /ai/route reads it to decide whether the caller may spend the
@@ -182,10 +188,12 @@ final class AIService: ObservableObject {
                 // Read here rather than threaded through every caller, the
                 // same way the session token and the API key above are: it is
                 // one value, stored in one place, and every call wants it.
-                orgId: SessionStore.orgId,
+                orgId: sender.teamID,
                 priorityOverride: priorityOverride?.rawValue,
                 readerLanguage: readerLanguage,
-                senderContext: senderContext
+                senderContext: senderContext,
+                recipientUserID: recipientUserID,
+                memberReferences: true
             )
         )
 

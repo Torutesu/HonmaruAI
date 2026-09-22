@@ -23,6 +23,7 @@ enum DisplayName {
     /// Deliberately the same rule as `displayName()` in the web client, so the
     /// two never disagree about what a person is called.
     static func short(_ userID: String) -> String {
+        if userID.hasPrefix("member:") { return String(localized: "Teammate") }
         var name = userID
         for prefix in ["u:", "email:"] where name.hasPrefix(prefix) {
             name = String(name.dropFirst(prefix.count))
