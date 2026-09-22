@@ -38,7 +38,6 @@ final class DictationService: ObservableObject {
     /// the screen's `.task` and the record button — and `isRecording` is only
     /// true after the permission prompt, so both used to get past the guard
     /// and the second installed a second tap on the input bus, which traps.
-    private var isStarting = false
 
     func start() async {
         guard !isRecording, !isStarting else { return }
