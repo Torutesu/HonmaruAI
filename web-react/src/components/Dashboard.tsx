@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { ClassicList } from './ClassicList'
+import { Inbox } from './Inbox'
 import { Icon } from './Icon'
 import { CreateDecision } from './CreateDecision'
 import { RecordSheet } from './RecordSheet'
@@ -21,6 +22,8 @@ import './Dashboard.css'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
+import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen } from '../utils/route'
+import type { Screen, Mode } from '../utils/route'
 
 interface Props {
   userId: string
@@ -35,11 +38,11 @@ interface Props {
 }
 
 type Panel = null | 'compose' | 'record'
-type Mode = 'cards' | 'classic'
 // A full screen over the feed, as opposed to a sheet. These are the design's
 // own screens — Tools, History, Notifications, Plan, You — and each one owns
-// the viewport while it is open.
-type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights'
+// the viewport while it is open. Which one is open, and which card the feed
+// is on, live in the URL (utils/route.ts): a reload, the back button and a
+// pasted link all mean what they say.
 
 // What just happened, said back. English keys, translated where read.
 const DECIDED_WORD: Record<string, string> = {
@@ -68,7 +71,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // without this a slip of the thumb is an approval nobody meant.
   const [undo, setUndo] = useState<{ cardId: string; action: string; title: string } | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
-  const [screen, setScreen] = useState<Screen>(null)
+  const { route, navigate } = useRoute()
+  const desktop = useDesktop()
+  const screen: Screen | null = route.screen
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
@@ -76,17 +81,31 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const [localeVersion, setLocaleVersion] = useState(0)
   // Cards is one decision per screen; Classic is the same decisions as a list
   // you can scan. Remembered, because it is a way of working, not a detour.
-  const [mode, setMode] = useState<Mode>(() => {
+  const storedMode: Mode = (() => {
     try { return localStorage.getItem('mode') === 'classic' ? 'classic' : 'cards' } catch { return 'cards' }
-  })
+  })()
+  const mode: Mode = route.mode ?? storedMode
   const switchMode = (next: Mode) => {
-    setMode(next)
     try { localStorage.setItem('mode', next) } catch {}
+    navigate(hashForMode(next))
   }
-  // The card a notification tap (or a ?card= link) asked for.
-  const [focusCardId, setFocusCardId] = useState<string | null>(() => {
-    try { return new URL(window.location.href).searchParams.get('card') } catch { return null }
-  })
+  const setScreen = useCallback((next: Screen | null) => {
+    navigate(next ? hashForScreen(next) : hashForMode(mode))
+  }, [navigate, mode])
+  // The card the URL names — from a notification tap, a pasted link, or a
+  // row picked in the inbox.
+  const focusCardId = route.cardId
+  // A `?card=` link from before the hash routes: turned into one, once.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      const legacy = url.searchParams.get('card')
+      if (!legacy) return
+      url.searchParams.delete('card')
+      history.replaceState(null, '', url.pathname + url.search + hashForCard(legacy))
+      navigate(hashForCard(legacy), true)
+    } catch { /* nothing to translate */ }
+  }, [navigate])
 
   const wsClientRef = useRef<WebSocketClient | null>(null)
   if (wsClientRef.current === null) wsClientRef.current = new WebSocketClient()
@@ -151,11 +170,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'open-card' && event.data.cardId) { setPanel(null); setFocusCardId(event.data.cardId) }
+      if (event.data?.type === 'open-card' && event.data.cardId) { setPanel(null); navigate(hashForCard(event.data.cardId)) }
     }
     navigator.serviceWorker.addEventListener('message', onMessage)
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
-  }, [])
+  }, [navigate])
 
   // What language this browser reads, so every notification arrives in it.
   useEffect(() => { syncLocale(relayHttpUrl, sessionToken) }, [relayHttpUrl, sessionToken])
@@ -179,12 +198,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // Escape closes whatever is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setPanel(null); setScreen(null) }
+      if (e.key === 'Escape') { setPanel(null); if (screen) setScreen(null) }
       else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) setPanel('compose')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [panel, screen])
+  }, [panel, screen, setScreen])
 
   // A toast that stays until clicked is a banner. Errors clear themselves.
   useEffect(() => {
@@ -274,13 +293,64 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     .filter((c) => c.senderUserID === userId && c.recipientUserID !== userId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
+  // The laptop workbench: the inbox on the left, one card on the right. The
+  // URL names the card; with none named, the first thing waiting.
+  const workbench = desktop && mode === 'cards'
+  const inboxCards = [...pendingCards, ...decidedCards]
+  const selectedId = focusCardId && inboxCards.some((c) => c.id === focusCardId)
+    ? focusCardId
+    : (pendingCards[0]?.id ?? null)
+  const selected = selectedId ? inboxCards.find((c) => c.id === selectedId) ?? null : null
+  useEffect(() => {
+    if (!workbench || panel || screen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (target && target.closest('input, textarea, select, [contenteditable]')) return
+      if (e.key !== 'j' && e.key !== 'k' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      const i = inboxCards.findIndex((c) => c.id === selectedId)
+      const next = inboxCards[i + ((e.key === 'j' || e.key === 'ArrowDown') ? 1 : -1)]
+      if (next) { e.preventDefault(); navigate(hashForCard(next.id)) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [workbench, panel, screen, inboxCards, selectedId, navigate])
+  const api = { httpBase: relayHttpUrl, orgId, sessionToken }
+
   return (
     // `screen-open` is what lets the rail stay on a laptop while a screen is
     // open: on a phone a screen owns the viewport and the tab bar goes away,
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
     <div className={`shell${screen ? ' screen-open' : ''}`}>
-      {mode === 'cards' ? (
+      {workbench ? (
+        <div className="workbench">
+          <Inbox
+            key={`inbox-${localeVersion}`}
+            pending={pendingCards}
+            decided={decidedCards}
+            businesses={businesses}
+            selectedId={selectedId}
+            onSelect={(id) => navigate(hashForCard(id))}
+          />
+          <Feed
+            key={localeVersion}
+            cards={selected ? [selected] : []}
+            userId={userId}
+            businesses={businesses}
+            focusCardId={null}
+            ready={synced}
+            active={!panel && !screen}
+            onDecide={handleDecision}
+            onAsk={handleAsk}
+            onFlag={handleFlag}
+            answers={answers}
+            onUndo={handleRollback}
+            api={api}
+            layout="desk"
+          />
+        </div>
+      ) : mode === 'cards' ? (
         <Feed
           key={localeVersion}
           cards={pendingCards}
@@ -293,6 +363,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onAsk={handleAsk}
           onFlag={handleFlag}
           answers={answers}
+          onUndo={handleRollback}
+          api={api}
+          layout="phone"
         />
       ) : (
         <ClassicList
@@ -301,7 +374,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           sent={sentCards}
           decided={decidedCards}
           businesses={businesses}
-          onOpen={(id) => { setFocusCardId(id); switchMode('cards') }}
+          onOpen={(id) => { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(id)) }}
           onNudge={handleNudge}
         />
       )}

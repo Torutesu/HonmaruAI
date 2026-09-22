@@ -422,3 +422,41 @@
   .hist-row.open { background: #17171a; }
   .hist-summary { color: #c9c9d1; }
 }
+
+/* The laptop workbench: the inbox beside the card. Rendered only at and above
+   1080px (utils/route.ts draws the same line the stylesheet does). */
+.workbench { position: fixed; top: 0; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr); }
+.shell .workbench { left: 216px; }
+.workbench .feed, .shell .workbench .feed { position: static; inset: auto; left: auto; height: 100%; min-width: 0; }
+.inbox { border-right: 1px solid #ececf0; overflow-y: auto; padding: 76px 12px 32px 20px; background: transparent; }
+.inbox-search { margin: 0 0 14px; }
+.inbox-search input {
+  width: 100%; box-sizing: border-box; height: 36px; padding: 0 12px;
+  border: 1px solid #ececf0; border-radius: 10px; background: #fff; font: inherit; font-size: 13.5px; color: #1c1c21;
+}
+.inbox-search input:focus { outline: none; border-color: #6647f0; }
+.inbox-h { display: flex; align-items: baseline; gap: 8px; margin: 18px 6px 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa5; }
+.inbox-h span { font-weight: 500; }
+.inbox-empty { margin: 4px 6px 12px; font-size: 13px; color: #9a9aa5; }
+.inbox-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.inbox-row {
+  width: 100%; display: flex; align-items: flex-start; gap: 10px; text-align: left;
+  padding: 10px 10px 10px 8px; border: 1px solid transparent; border-radius: 12px; background: transparent; cursor: pointer; font: inherit; color: inherit;
+}
+.inbox-row:hover { background: rgba(9, 12, 29, 0.045); }
+.inbox-row.on { background: #fff; border-color: #ececf0; box-shadow: rgba(9, 12, 29, .06) 0 1px 2px; }
+.inbox-pri { flex: none; width: 6px; height: 6px; margin-top: 7px; border-radius: 50%; background: #d4d4d8; }
+.inbox-pri.p-high { background: #0091ff; }
+.inbox-pri.p-urgent { background: #fa49a5; }
+.inbox-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.inbox-title { font-size: 14px; font-weight: 500; color: #1c1c21; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.inbox-meta { font-size: 12px; color: #6b6b75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inbox-when { flex: none; font-size: 11.5px; color: #9a9aa5; margin-top: 2px; }
+@media (prefers-color-scheme: dark) {
+  .inbox { border-right-color: #26262b; }
+  .inbox-search input { background: #18181b; color: #ededef; border-color: #26262b; }
+  .inbox-row:hover { background: #17171a; }
+  .inbox-row.on { background: #17171a; border-color: #26262b; box-shadow: none; }
+  .inbox-title { color: #ededef; }
+  .inbox-meta { color: #a1a1aa; }
+}

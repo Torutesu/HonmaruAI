@@ -1095,6 +1095,19 @@ async function handle(request, env, url) {
       return json({ sent: true, via: connector.label });
     }
 
+    // One card's history, for any member of its org. The older route is
+    // keyed by owner/repo and cannot name a personal or email workspace;
+    // this one takes the org id every other route takes.
+    const cardEventsById = url.pathname.match(/^\/cards\/([^/]+)\/events$/);
+    if (cardEventsById && request.method === "GET") {
+      const cardId = decodeURIComponent(cardEventsById[1]);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ events: await listCardEvents(env.DB, orgId, cardId) });
+    }
+
     // What a person thought of a card. The one signal that turns "the AI
     // routed it wrong" from a feeling into a row the eval set can be built
     // from. Sender or recipient only: they are the two who can know.

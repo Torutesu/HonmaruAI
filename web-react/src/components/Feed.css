@@ -303,3 +303,30 @@
   .answer-a { color: #ededef; }
   .answer-related { border-top-color: #26262b; color: #c9c9d1; }
 }
+
+/* A decided card: the decision where the buttons were, the way back, and the
+   reply that follows it. */
+.decided-block { margin-top: 18px; }
+.decided-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.decided-when { font-size: 13px; color: #6b6b75; }
+.decided-undo { margin-left: auto; }
+.decided-block .hist-quote { margin-top: 10px; }
+.decided-block .reply-draft { margin-top: 12px; }
+
+/* What happened to this card, oldest first. */
+.thread { margin-top: 14px; padding: 12px 14px; background: #fff; border: 1px solid #ececf0; border-radius: 14px; }
+.thread-title { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa5; margin-bottom: 8px; }
+.thread-empty { margin: 0; font-size: 13px; color: #9a9aa5; }
+.thread-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.thread-row { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
+.thread-when { flex: none; width: 88px; color: #9a9aa5; font-variant-numeric: tabular-nums; }
+.thread-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.thread-head { color: #1c1c21; font-weight: 500; }
+.thread-who { color: #6b6b75; font-weight: 400; }
+.thread-note { color: #6b6b75; white-space: pre-wrap; word-break: break-word; }
+.thread-toggle { margin-top: 12px; background: none; border: none; padding: 0; font: inherit; font-size: 13px; color: #6647f0; cursor: pointer; }
+@media (prefers-color-scheme: dark) {
+  .thread { background: #18181b; border-color: #26262b; }
+  .thread-head { color: #ededef; }
+  .decided-when, .thread-note, .thread-who { color: #a1a1aa; }
+}

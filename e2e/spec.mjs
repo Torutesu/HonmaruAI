@@ -726,6 +726,49 @@ await step('the app is usable on a laptop', async () => {
   }
 })
 
+// A laptop is a workbench, not a tall phone: the inbox on the left, the card
+// on the right, and under the card what happened to it. The URL names the
+// card, so the back button, a reload and a pasted link all mean something.
+await step('a laptop shows the inbox beside the card, and the URL says where you are', async () => {
+  const d = desk.pages()[0]
+  await d.waitForSelector('.inbox', { timeout: 10000 })
+    .catch(() => { throw new Error('no inbox pane on a laptop') })
+  const selected = await d.waitForSelector('.inbox-row.on', { timeout: 10000 })
+    .catch(() => { throw new Error('no card is selected in the inbox') })
+  const cardId = await selected.getAttribute('data-card')
+  if (!(await d.$('.workbench .card-title'))) throw new Error('the selected card is not open beside the inbox')
+  await d.waitForSelector('.thread', { timeout: 10000 })
+    .catch(() => { throw new Error('the card has no thread under it') })
+  await d.waitForFunction(() => /Created|作成/.test(document.querySelector('.thread')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the thread does not show the card being created') })
+
+  // Picking a row writes the URL; the URL opens the row.
+  await d.click(`.inbox-row[data-card="${cardId}"]`)
+  await d.waitForFunction((id) => location.hash === `#/feed/${encodeURIComponent(id)}`, cardId, { timeout: 5000 })
+    .catch(async () => { throw new Error(`picking a card did not put it in the URL: ${await d.evaluate(() => location.hash)}`) })
+  await d.evaluate(() => { location.hash = '#/history' })
+  await d.waitForFunction(() => /History|履歴/.test(document.querySelector('.head-title')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('#/history does not open History') })
+  await d.goBack()
+  await d.waitForSelector('.workbench .card-title', { timeout: 10000 })
+    .catch(() => { throw new Error('the back button does not return to the card') })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector(`.inbox-row.on[data-card="${cardId}"]`, { timeout: 20000 })
+    .catch(() => { throw new Error('a reload lost the card the URL named') })
+  await d.screenshot({ path: `${SHOTS}/20b-desktop-workbench.png` })
+  // Nothing may sit outside the viewport with the second pane in.
+  const overflow = await d.evaluate(() => {
+    const bad = []
+    for (const el of document.querySelectorAll('body *')) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      if (r.left < -1 || r.right > window.innerWidth + 1) bad.push(`${el.className || el.tagName} @ ${Math.round(r.left)} w${Math.round(r.width)}`)
+    }
+    return bad.slice(0, 6)
+  })
+  if (overflow.length) throw new Error(`off-screen on the workbench: ${overflow.join(' ; ')}`)
+})
+
 await step('the other screens hold up on a laptop', async () => {
   const d = desk.pages()[0]
   for (const [label, marker, name] of [

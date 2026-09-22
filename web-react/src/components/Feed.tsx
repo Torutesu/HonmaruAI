@@ -4,6 +4,8 @@ import { getLocale } from '../utils/locale'
 import './Feed.css'
 import { displayName } from '../utils/names'
 import { useT, t } from '../utils/i18n'
+import { ReplyDraft } from './ReplyDraft'
+import { CardThread } from './CardThread'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -23,6 +25,14 @@ interface Props {
   onFlag: (cardId: string, reason: FlagReason) => void
   /// What your AI answered under each card, by card id.
   answers: Record<string, Answer>
+  /// Take a decision back. Shown on a decided card, for the person who made it.
+  onUndo: (cardId: string) => void
+  /// The Worker, for what a card carries beyond the relay's snapshot: its
+  /// thread, and the reply draft. Absent in tests that have no Worker.
+  api?: { httpBase: string; orgId: string; sessionToken: string }
+  /// On a laptop the thread is open under the card; on a phone it is a line
+  /// the person taps, because the card is the screen there.
+  layout?: 'phone' | 'desk'
 }
 
 export interface Answer {
@@ -86,7 +96,7 @@ function segments(context: string): Array<{ label: string; detail: string }> {
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
-export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag, answers }) => {
+export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag, answers, onUndo, api, layout = 'phone' }) => {
   const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -125,8 +135,8 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
       const card = cards[index]
       if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); scrollTo(index + 1) }
       else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); scrollTo(index - 1) }
-      else if (card && (e.key === 'a' || e.key === 'A')) onDecide(card.id, 'approve')
-      else if (card && (e.key === 'd' || e.key === 'D')) onDecide(card.id, 'decline')
+      else if (card && card.status === 'pending' && (e.key === 'a' || e.key === 'A')) onDecide(card.id, 'approve')
+      else if (card && card.status === 'pending' && (e.key === 'd' || e.key === 'D')) onDecide(card.id, 'decline')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -158,6 +168,9 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
           onAsk={onAsk}
           onFlag={onFlag}
           answer={answers[card.id]}
+          onUndo={onUndo}
+          api={api}
+          layout={layout}
         />
       ))}
       {cards.length > 1 && (
@@ -175,9 +188,19 @@ interface PageProps {
   onAsk: Props['onAsk']
   onFlag: Props['onFlag']
   answer?: Answer
+  onUndo: Props['onUndo']
+  api?: Props['api']
+  layout: 'phone' | 'desk'
 }
 
-const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk, onFlag, answer }) => {
+// What was done, as a word. English keys, translated where read.
+const DONE_WORD: Record<string, string> = {
+  approve: 'Approved', decline: 'Declined', revise: 'Revision asked',
+  choose: 'Chose', reply: 'Replied', acknowledge: 'Acknowledged',
+  delegate: 'Delegated', later: 'Deferred',
+}
+
+const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, onAsk, onFlag, answer, onUndo, api, layout }) => {
   const t = useT()
   const [dx, setDx] = useState(0)
   const [ask, setAsk] = useState('')
@@ -197,8 +220,13 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk, on
   // to be seen was the one with no mark. It lights the top of the scale and
   // says so.
   const level = card.priority === 'urgent' ? 'high' : card.priority
+  // A decided card is read, not swiped: the decision is shown where the two
+  // buttons were, with the way back and the reply that follows it.
+  const decided = card.status !== 'pending' || Boolean(card.decision)
+  const onThisCard = card.recipientUserID === userId || card.senderUserID === userId
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (decided) return
     if ((e.target as HTMLElement).closest('button, textarea, input, a')) return
     start.current = { x: e.clientX, y: e.clientY }
     // Keep receiving moves after the pointer leaves the page, or a fast swipe
@@ -298,10 +326,31 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk, on
           )}
         </article>
 
-        <div className="decide-row">
-          <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
-          <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
-        </div>
+        {decided ? (
+          <div className="decided-block">
+            <div className="decided-line" role="status">
+              <span className={`pill-tag ${card.decision?.action === 'approve' ? 'mint' : card.decision?.action === 'decline' ? 'pink' : ''}`}>
+                {t(DONE_WORD[card.decision?.action || ''] || card.status)}
+              </span>
+              <span className="decided-when">
+                {card.decision?.decidedAt ? ago(card.decision.decidedAt) : ''}
+                {card.decision?.actorUserID ? ` · ${displayName(card.decision.actorUserID)}` : ''}
+              </span>
+              {card.recipientUserID === userId && card.decision && (
+                <button type="button" className="pill-btn decided-undo" onClick={() => onUndo(card.id)}>{t('Undo')}</button>
+              )}
+            </div>
+            {card.decision?.replyText && <blockquote className="hist-quote">“{card.decision.replyText}”</blockquote>}
+            {api && onThisCard && card.decision && (
+              <ReplyDraft httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} card={card} />
+            )}
+          </div>
+        ) : (
+          <div className="decide-row">
+            <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
+            <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
+          </div>
+        )}
 
         <form
           className="ask-bar"
@@ -337,6 +386,17 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk, on
               </ul>
             )}
           </div>
+        )}
+
+        {api && (
+          <CardThread
+            httpBase={api.httpBase}
+            orgId={api.orgId}
+            sessionToken={api.sessionToken}
+            cardId={card.id}
+            version={`${card.status}|${card.decision?.decidedAt || ''}|${answer?.busy ? 'asking' : (answer?.answer || '')}`}
+            alwaysOpen={layout === 'desk'}
+          />
         )}
 
         {/* Quiet, under everything: a card that is wrong is still decided

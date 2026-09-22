@@ -3,6 +3,7 @@ import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
 import { useT } from '../utils/i18n'
+import { ReplyDraft } from '../components/ReplyDraft'
 
 interface Props {
   decided: DecisionCard[]
@@ -20,11 +21,6 @@ interface Props {
   sessionToken: string
 }
 
-interface Draft { busy: boolean; text?: string; error?: string; sending?: boolean; sent?: string; sendError?: string }
-
-/// The apps a reply can go back through, from here. The Worker knows which
-/// thread; the client only knows whether to offer the button.
-const SENDABLE = new Set(['Gmail', 'Slack'])
 
 type Filter = 'all' | 'yours' | 'sent'
 
@@ -62,63 +58,6 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
   const locale = getLocale()
   const [filter, setFilter] = useState<Filter>('all')
   const [open, setOpen] = useState<string | null>(null)
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
-  const [copied, setCopied] = useState<string | null>(null)
-
-  /// The message back to whoever asked, drafted from the decision. A draft:
-  /// it is shown to be read, changed and sent by the person, not sent.
-  const requestDraft = async (cardId: string) => {
-    setDrafts((prev) => ({ ...prev, [cardId]: { busy: true } }))
-    try {
-      const res = await fetch(`${httpBase}/ai/draft`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
-        body: JSON.stringify({ orgId, cardId, readerLanguage: locale }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const why = res.status === 503
-          ? t('Your AI has no model to draft with on this deployment.')
-          : res.status === 429
-            ? t("You have used today's AI answers.")
-            : (data.message || t('Your AI could not draft that just now.'))
-        setDrafts((prev) => ({ ...prev, [cardId]: { busy: false, error: why } }))
-        return
-      }
-      setDrafts((prev) => ({ ...prev, [cardId]: { busy: false, text: data.draft } }))
-    } catch (err) {
-      setDrafts((prev) => ({ ...prev, [cardId]: { busy: false, error: err instanceof Error ? err.message : String(err) } }))
-    }
-  }
-
-  /// Back the way it came: on the Gmail thread, in the Slack thread. The
-  /// text is whatever is in the box by then — the draft, read and changed.
-  const sendReply = async (cardId: string, text: string) => {
-    setDrafts((prev) => ({ ...prev, [cardId]: { ...prev[cardId], busy: false, sending: true, sendError: undefined } }))
-    try {
-      const res = await fetch(`${httpBase}/cards/${encodeURIComponent(cardId)}/reply`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
-        body: JSON.stringify({ orgId, text }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setDrafts((prev) => ({ ...prev, [cardId]: { ...prev[cardId], busy: false, sending: false, sendError: data.message || t('Could not send.') } }))
-        return
-      }
-      setDrafts((prev) => ({ ...prev, [cardId]: { ...prev[cardId], busy: false, sending: false, sent: data.via } }))
-    } catch (err) {
-      setDrafts((prev) => ({ ...prev, [cardId]: { ...prev[cardId], busy: false, sending: false, sendError: err instanceof Error ? err.message : String(err) } }))
-    }
-  }
-
-  const copy = async (cardId: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(cardId)
-      setTimeout(() => setCopied((c) => (c === cardId ? null : c)), 2000)
-    } catch { /* no clipboard here; the text is on screen to select */ }
-  }
   const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug
 
   const groups = useMemo(() => {
@@ -209,48 +148,8 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
                             {t('Undo')}
                           </button>
                         )}
-                        {card.decision && (byYou || card.senderUserID === userId) && !drafts[card.id]?.busy && !drafts[card.id]?.text && (
-                          <button className="pill-btn hist-draft" onClick={() => requestDraft(card.id)}>
-                            {t('Draft the reply')}
-                          </button>
-                        )}
-                        {drafts[card.id] && (
-                          <div className="hist-draft-box" aria-live="polite">
-                            {drafts[card.id].busy && <p className="hist-draft-hint">{t('Your AI is writing…')}</p>}
-                            {drafts[card.id].error && <p className="hist-draft-error">{drafts[card.id].error}</p>}
-                            {drafts[card.id].text && (
-                              <>
-                                <p className="hist-draft-hint">{t('A draft, in the language the request came in. Read it, change it, send it yourself.')}</p>
-                                <textarea
-                                  className="hist-draft-text"
-                                  rows={6}
-                                  aria-label={t('The draft')}
-                                  value={drafts[card.id].text}
-                                  readOnly={Boolean(drafts[card.id].sent) || drafts[card.id].sending}
-                                  onChange={(e) => setDrafts((prev) => ({ ...prev, [card.id]: { ...prev[card.id], text: e.target.value } }))}
-                                />
-                                {drafts[card.id].sent ? (
-                                  <p className="hist-sent">{t('Sent via {app}.', { app: drafts[card.id].sent || '' })}</p>
-                                ) : (
-                                  <div className="hist-draft-actions">
-                                    {card.sourceApp && SENDABLE.has(card.sourceApp) && (
-                                      <button
-                                        className="pill-btn hist-send"
-                                        disabled={drafts[card.id].sending || !(drafts[card.id].text || '').trim()}
-                                        onClick={() => sendReply(card.id, drafts[card.id].text || '')}
-                                      >
-                                        {drafts[card.id].sending ? t('Sending…') : t('Send via {app}', { app: card.sourceApp })}
-                                      </button>
-                                    )}
-                                    <button className="pill-btn hist-copy" onClick={() => copy(card.id, drafts[card.id].text || '')}>
-                                      {copied === card.id ? t('Copied') : t('Copy')}
-                                    </button>
-                                  </div>
-                                )}
-                                {drafts[card.id].sendError && <p className="hist-draft-error">{drafts[card.id].sendError}</p>}
-                              </>
-                            )}
-                          </div>
+                        {card.decision && (byYou || card.senderUserID === userId) && (
+                          <ReplyDraft httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} card={card} />
                         )}
                       </div>
                     )}

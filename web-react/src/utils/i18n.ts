@@ -473,6 +473,22 @@ const ja: Dict = {
   'crash.body': 'この画面を表示できませんでした。再読み込みすれば、あなたの決定はそのまま残っています。',
   Details: '詳細',
   Reload: '再読み込み',
+
+  // The workbench and the thread
+  'Inbox': '受信箱',
+  'Search decisions': '決定を検索',
+  'What happened': '経緯',
+  'What happened to this card': 'このカードの経緯',
+  'Nothing has happened to this card yet.': 'このカードにはまだ何も起きていません。',
+  'Could not load what happened.': '経緯を読み込めませんでした。',
+  'Created': '作成',
+  'Updated': '更新',
+  'Deleted': '削除',
+  'Undone': '取り消し',
+  'Asked your AI': 'AIに質問',
+  'Reply drafted': '返信を下書き',
+  'Reply sent': '返信を送信',
+  'Filed': '分類',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

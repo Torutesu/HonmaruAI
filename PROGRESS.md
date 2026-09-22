@@ -99,6 +99,19 @@ The list of what is still missing, and why each item matters, is
       through the relay's date format now (a plain decoder could name a
       card but never open it); an older event that recorded less still
       reads. Four unit tests
+- [x] **The web is a workbench on a laptop.** At 1080px and up, Cards mode
+      is the inbox on the left (waiting on you, then decided; a search box;
+      one line each) and the card on the right, with what happened to it
+      underneath — created, nudged, asked, decided, drafted, sent, undone —
+      read from `GET /cards/:id/events?orgId=`, a route keyed by org id so a
+      personal workspace can use it (the owner/repo one could not). j/k move
+      the selection. A decided card opens too: the decision where the two
+      buttons were, Undo, the reply draft and Send via Gmail/Slack — one
+      `ReplyDraft` component, shared with History. On a phone the card is
+      the screen still, with the thread behind one line. Where you are is
+      in the URL (`#/feed/<id>`, `#/history`, `#/you`…): reload, back and a
+      pasted link all mean what they say; `?card=` links from before are
+      turned into hashes. One e2e step for the pane, the thread and the URL
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the
