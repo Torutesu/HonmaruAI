@@ -290,3 +290,15 @@ CREATE TABLE IF NOT EXISTS login_codes (
   attempts    INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL
 );
+
+
+/* Permanent account grants, independent of the RevenueCat purchase cache.
+   Deleting an account also deletes its grant. No redemption code is stored. */
+CREATE TABLE IF NOT EXISTS complimentary_access (
+  user_github_id TEXT PRIMARY KEY,
+  granted_at TEXT NOT NULL,
+  rc_synced_at TEXT,
+  rc_attempted_at TEXT,
+  rc_operation_until INTEGER NOT NULL DEFAULT 0,
+  deletion_requested_at TEXT
+);

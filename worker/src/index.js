@@ -48,6 +48,7 @@ import { createConnectLink, listConnectedAccounts, executeTool } from "./composi
 import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
 import { billingStatus } from "./plans.js";
+import { complimentaryAvailable, limitRedemption, readRedemptionCode, redeemComplimentaryAccess, prepareComplimentaryDeletion } from "./complimentary.js";
 import { providerConfig } from "./provider.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { buildRecord, recordToMarkdown } from "./record.js";
@@ -698,10 +699,29 @@ async function handle(request, env, url) {
 
     // What this account can spend, and what there is to buy. Read by the
     // plan screen; also what tells the feed how many free routes are left.
+    if (url.pathname === "/billing/redeem" && request.method === "POST") {
+      const headers = { "cache-control": "no-store" };
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401, headers);
+      const retryAfter = await limitRedemption(env, request, session.github_id);
+      if (retryAfter) return json({ message: "Too many attempts. Try again shortly." }, 429,
+        { ...headers, "retry-after": String(retryAfter) });
+      if (!complimentaryAvailable(env)) return json({ message: "Code redemption is unavailable right now." }, 503, headers);
+      const code = await readRedemptionCode(request);
+      if (!(await redeemComplimentaryAccess(env, session.github_id, code))) {
+        return json({ message: "This code is not valid." }, 400, headers);
+      }
+      const status = await billingStatus(env, session.github_id);
+      if (status.complimentarySyncPending) {
+        return json({ ...status, message: "Free access is saved. iOS activation is pending; refresh your plan to retry." }, 503, headers);
+      }
+      return json(status, 200, headers);
+    }
+
     if (url.pathname === "/billing/status" && request.method === "GET") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      return json(await billingStatus(env, session.github_id));
+      return json(await billingStatus(env, session.github_id), 200, { "cache-control": "no-store" });
     }
 
     // Who am I, and how do I want to be told. The locale here is the language
@@ -869,6 +889,10 @@ async function handle(request, env, url) {
       // authorized once, at join, so a deleted account's open connection would
       // otherwise go on receiving its old team's cards.
       const wasIn = await listUserOrgs(env.DB, session.github_id);
+      if (!(await prepareComplimentaryDeletion(env, session.github_id))) {
+        return json({ message: "Account deletion could not finish. Please try again shortly." }, 503,
+          { "cache-control": "no-store" });
+      }
       await deleteAccount(env.DB, session.github_id, user?.login || null);
       for (const org of wasIn) await evictMember(env, org.id, user?.login || null);
       return json({ ok: true });

@@ -60,3 +60,23 @@ test("no secret configured means we never ask", async () => {
   // No interceptor registered: a network call here would throw.
   expect(await isPro({ ...env }, "503")).toBe(false);
 });
+
+test("a purchase or restore bypasses a fresh free cache on the next request", async () => {
+  const userID = "email:billing-regression";
+  await writeEntitlement(env.DB, userID, false);
+  fetchMock.get("https://api.revenuecat.com")
+    .intercept({ path: `/v1/subscribers/${encodeURIComponent(userID)}` })
+    .reply(200, subscriber(true));
+
+  expect(await isPro(ENV(), userID)).toBe(true);
+  expect(await isPro(ENV(), userID)).toBe(true);
+});
+
+test("a failed lookup does not delay a subsequent successful purchase lookup", async () => {
+  fetchMock.get("https://api.revenuecat.com")
+    .intercept({ path: "/v1/subscribers/504" }).reply(500, "unavailable");
+  expect(await isPro(ENV(), "504")).toBe(false);
+  fetchMock.get("https://api.revenuecat.com")
+    .intercept({ path: "/v1/subscribers/504" }).reply(200, subscriber(true));
+  expect(await isPro(ENV(), "504")).toBe(true);
+});

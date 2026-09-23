@@ -165,6 +165,8 @@ export async function deleteAccount(db, githubId, login) {
     "DELETE FROM device_tokens WHERE user_github_id = ?1",
     "DELETE FROM push_subscriptions WHERE user_github_id = ?1",
     "DELETE FROM users WHERE github_id = ?1",
+    // Keep the deletion tombstone until redemption can no longer find the user.
+    "DELETE FROM complimentary_access WHERE user_github_id = ?1",
   ]) {
     try {
       await db.prepare(sql).bind(id).run();

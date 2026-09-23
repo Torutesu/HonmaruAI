@@ -28,16 +28,22 @@ test("with billing unconfigured the catalog is still readable and honestly unbuy
   const body = await res.json();
   expect(body.plan).toBe("free");
   expect(body.purchasable).toBe(false);
-  expect(body.trialDays).toBe(3);
+  expect(body.trialDays).toBeUndefined();
+  expect(body.currency).toBeUndefined();
+  expect(body.purchasePlatform).toBe("app_store");
+  expect(body.complimentary).toBe(false);
+  expect(body.complimentarySyncPending).toBe(false);
+  expect(body.complimentaryAvailable).toBe(false);
+  expect(body.accessSource).toBe("free");
   // With nothing to sell, the ceiling in force is the unbilled one, not the
   // free tier's — the screen must not warn about a limit nobody is enforcing.
   const { UNBILLED_DAILY_ROUTES } = await import("../src/gate.js");
   expect(body.dailyLimit).toBe(UNBILLED_DAILY_ROUTES);
   expect(body.remainingToday).toBe(UNBILLED_DAILY_ROUTES);
-  expect(body.plans.map((p) => p.id)).toEqual(["free", "pro", "business"]);
-  // Annual is cheaper per month than monthly, on every paid plan.
-  for (const plan of body.plans.filter((p) => p.monthly > 0)) {
-    expect(plan.annualMonthly).toBeLessThan(plan.monthly);
+  expect(body.plans.map((p) => p.id)).toEqual(["free", "pro"]);
+  for (const plan of body.plans) {
+    expect(plan.monthly).toBeUndefined();
+    expect(plan.annualMonthly).toBeUndefined();
   }
 });
 
@@ -62,9 +68,9 @@ test("a plan the screen offers is a plan somebody can actually buy", async () =>
   const body = await (await SELF.fetch("https://example.com/billing/status", {
     headers: { "x-session-token": token },
   })).json();
-  const buyable = body.plans.filter((p) => p.monthly > 0 && p.available !== false);
+  const buyable = body.plans.filter((p) => p.purchasePlatform === "app_store" && p.available !== false);
   expect(buyable.map((p) => p.id)).toEqual(["pro"]);
-  expect(body.plans.find((p) => p.id === "business").available).toBe(false);
+  expect(body.plans.find((p) => p.id === "business")).toBeUndefined();
   // Free is not bought, but it is offered, and it is real.
   expect(body.plans.find((p) => p.id === "free").available).toBe(true);
 });

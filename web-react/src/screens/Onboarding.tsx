@@ -1,11 +1,13 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { LOCALE_NAMES } from '../utils/locale'
-import { useT } from '../utils/i18n'
+import { changeLocale, useT } from '../utils/i18n'
+import { readOnboardingDraft } from '../utils/onboardingProgress'
 
 interface Props {
   httpBase: string
   orgId: string
   sessionToken: string
+  progressKey: string
   onDone: () => void
 }
 
@@ -24,34 +26,37 @@ const ROLES: Array<{ id: string; label: string; blurb: string }> = [
 /// Everything else the product could ask for — your businesses, your team,
 /// your tools — it learns by being used, which is the whole design. Asking on
 /// day one produces a taxonomy nobody will keep.
-export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, onDone }) => {
+export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, progressKey, onDone }) => {
   const t = useT()
-  const [page, setPage] = useState(0)
-  const [role, setRole] = useState('founder')
-  const [locale, setLocale] = useState(() => (navigator.language || 'en').split('-')[0])
+  const [saved] = useState(() => readOnboardingDraft(localStorage, progressKey))
+  const [page, setPage] = useState(saved.page || 0)
+  const [role, setRole] = useState(saved.role || 'founder')
+  const [locale, setLocale] = useState(() => saved.locale || (LOCALE_NAMES[(navigator.language || 'en').split('-')[0]] ? (navigator.language || 'en').split('-')[0] : 'en'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [demo, setDemo] = useState<null | 'approved' | 'declined'>(null)
 
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => () => request.current?.abort(), [])
+  useEffect(() => { try { localStorage.setItem(`${progressKey}:draft`, JSON.stringify({ page, role, locale })) } catch { /* In-memory progress still works. */ } }, [progressKey, page, role, locale])
   const finish = async () => {
+    if (request.current) return
+    const controller = new AbortController(); request.current = controller
     setBusy(true); setError(null)
     try {
       const res = await fetch(`${httpBase}/me`, {
-        method: 'PUT',
+        method: 'PUT', signal: controller.signal,
         headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
         body: JSON.stringify({ locale, role, orgId }),
       })
-      // A role you may not set (an admin picking one, say) is not a reason to
-      // trap someone on the last onboarding screen. The language still saved.
-      if (!res.ok && res.status !== 400) {
-        setError((await res.json().catch(() => ({}))).message || t('We could not save that.'))
-        return
-      }
-      onDone()
+      if (!res.ok) { if (!controller.signal.aborted) setError(t('We could not save that.')); return }
+      if (controller.signal.aborted) return
+      changeLocale(locale); onDone()
     } catch {
-      // Offline on first run: the answers are worth less than getting in.
-      onDone()
-    } finally { setBusy(false) }
+      if (!controller.signal.aborted) setError(t('We could not save that.'))
+    } finally {
+      if (!controller.signal.aborted) { request.current = null; setBusy(false) }
+    }
   }
 
   const pages = [
@@ -118,7 +123,7 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, onD
   return (
     <div className="screen">
       <div className="screen-head">
-        <button className="back" onClick={() => setPage(pages.length - 1)} aria-label={t('Back')}>‹</button>
+        <button className="back" disabled={busy} onClick={() => setPage(pages.length - 1)} aria-label={t('Back')}>‹</button>
         <span className="head-title">{t('Two questions')}</span>
       </div>
       <div className="screen-body">
@@ -127,7 +132,7 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, onD
 
         <div className="rows">
           {ROLES.map((r) => (
-            <button key={r.id} className="row" onClick={() => setRole(r.id)} aria-pressed={role === r.id}>
+            <button key={r.id} className="row" disabled={busy} onClick={() => setRole(r.id)} aria-pressed={role === r.id}>
               <span className="row-main">
                 {t(r.label)}
                 <span className="row-sub">{t(r.blurb)}</span>
@@ -139,7 +144,7 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, onD
 
         <div className="rows-title">{t('Language')}</div>
         <div className="field">
-          <select value={locale} onChange={(e) => setLocale(e.target.value)} aria-label={t('Language')}>
+          <select disabled={busy} value={locale} onChange={(e) => setLocale(e.target.value)} aria-label={t('Language')}>
             {Object.entries(LOCALE_NAMES).map(([code, label]) => (
               <option key={code} value={code}>{label}</option>
             ))}
@@ -147,7 +152,7 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, onD
           <div className="hint">{t('Every notification reaches you in this language, whoever wrote it.')}</div>
         </div>
 
-        {error && <div className="form-error">{error}</div>}
+        {error && <div className="form-error" role="alert">{error}</div>}
         <div style={{ height: 8 }} />
       </div>
       <div className="screen-foot bare">
