@@ -1,3 +1,4 @@
+import { aiSpend } from "./ledger.js";
 // What the team can learn from its own decisions, and what the router can
 // learn from the team.
 //
@@ -109,8 +110,10 @@ export async function orgMetrics(db, orgId, { days = 14 } = {}) {
     created.push({ day, count: perDay.get(day) || 0 });
   }
   const declined = byAction.get("decline") || 0;
+  const ai = await aiSpend(db, orgId, since);
 
   return {
+    ai,
     days: span,
     cards: rows.length,
     pending,

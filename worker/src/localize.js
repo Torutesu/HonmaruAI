@@ -1,3 +1,4 @@
+import { noteUsage } from "./ledger.js";
 // A card in the language of the person who has to decide it.
 //
 // The router writes a card in the *reader* language the sender's app asked
@@ -63,6 +64,7 @@ ${JSON.stringify({ title: card.title || "", summary: card.summary || "", context
     });
     if (!res.ok) return { called: false, text: null };
     data = await res.json();
+    noteUsage(provider, "localize", data);
   } catch {
     return { called: false, text: null };
   }

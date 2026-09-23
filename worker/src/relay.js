@@ -1,3 +1,4 @@
+import { settleUsage } from "./ledger.js";
 import {
   joinEvents, upsertEvents, removeEvents,
   presenceEvents, contextEvents, applyDecision, applyRollback,
@@ -636,6 +637,8 @@ export class OrgRelay {
       // language, or one without a business — not a card nobody was told about.
       console.error("deliver enrichment failed", err?.message || err);
     }
+    // What the enrichment cost, on the sender's account.
+    await settleUsage(this.db, provider, { orgId, githubId: senderGithubId });
     if (!canNotify) return;
     await notifyCard(this.env, {
       card: current,

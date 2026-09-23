@@ -26,6 +26,7 @@ import { isWebPushConfigured, parseSubscription } from "./webpush.js";
 import { isMailConfigured, sendMail } from "./mailer.js";
 import { SUPPORTED_LOCALES, composeInviteEmail } from "./notifyCopy.js";
 import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
+import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
 import {
@@ -511,6 +512,7 @@ async function handle(request, env, url) {
         organization = { ...organization, nodes: [{ id: chosenMember.login, kind: "person",
           role: chosenMember.title || chosenMember.role, label: `${chosenMember.name} · ${chosenMember.title || chosenMember.role}` }], edges: [] };
       }
+      const routeProvider = allowance.allowed ? providerConfig(env, userKey) : undefined;
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
@@ -521,7 +523,7 @@ async function handle(request, env, url) {
         teamContext,
         lookups,
         // No provider means the local keyword router — the graceful degradation.
-        openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
+        openRouter: routeProvider,
         // System One decides for a fraction of a cent, allowance or not; the
         // language model is the second opinion, within the allowance. But
         // only for someone signed in: a guest is unmetered, and unmetered
@@ -543,6 +545,11 @@ async function handle(request, env, url) {
       // A provider outage never burns someone's three.
       const modelAnswered = allowance.allowed && result.aiCalled === true;
       if (modelAnswered && allowance.metered) await allowance.consume();
+      // The bill, by team: the model's tokens and System One's, whoever paid.
+      if (session && routeOrgId) {
+        await settleUsage(env.DB, routeProvider, { orgId: routeOrgId, githubId: session.github_id, byok: Boolean(userKey) },
+          result.systemOneUsage ? [jevEntry("route", result.systemOneUsage)] : []);
+      }
       // Internal to the meter. Stripped so the wire format is unchanged.
       delete result.aiCalled;
       delete result.systemOneUsage;
@@ -1118,12 +1125,14 @@ async function handle(request, env, url) {
       if (typeof syncMatch === "object" && !only) return json({ message: "unknown connector" }, 404);
 
       const startedAt = new Date().toISOString();
+      const syncProvider = providerConfig(env);
       const results = await syncAll(only ? [only] : availableConnectors(env), {
         env, session,
         orgId: body.orgId, userId: me.login,
         readerLanguage: body.readerLanguage,
-        provider: providerConfig(env),
+        provider: syncProvider,
       });
+      await settleUsage(env.DB, syncProvider, { orgId: body.orgId, githubId: session.github_id });
       // The sync wrote to D1; the sockets live in the Durable Object and heard
       // nothing about it. Announcing here is what puts a card someone just
       // pulled in front of them, instead of on their next reconnect.
@@ -1183,6 +1192,7 @@ async function handle(request, env, url) {
         provider, card, question, readerLanguage: body.readerLanguage, recent, related, sources,
       });
       if (result.called && allowance.metered) await allowance.consume();
+      await settleUsage(env.DB, provider, { orgId, githubId: session.github_id, byok: Boolean(userKey) });
       if (!result.answer) return json({ message: "Your AI could not answer that just now." }, 502);
       const user = await getUserByGithubId(env.DB, session.github_id);
       await appendCardEvent(env.DB, orgId, {
@@ -1229,6 +1239,7 @@ async function handle(request, env, url) {
         provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage,
       });
       if (result.called && allowance.metered) await allowance.consume();
+      await settleUsage(env.DB, provider, { orgId, githubId: session.github_id, byok: Boolean(userKey) });
       if (!result.draft) return json({ message: "Your AI could not draft that just now." }, 502);
       await appendCardEvent(env.DB, orgId, {
         cardId, type: "drafted", actorUserId: user?.login || null, note: result.draft.slice(0, 500), snapshot: card,
@@ -1332,6 +1343,7 @@ async function handle(request, env, url) {
         return json({ message: "Today's AI answers are nearly used up; the card stays in its own language.", quotaExceeded: true }, 429);
       }
       const localized = await localizeCard(card, { provider, locale, allowance });
+      await settleUsage(env.DB, provider, { orgId, githubId: session.github_id, byok: Boolean(request.headers.get("x-ai-key")) });
       if (!localized) return json({ message: "Your AI could not translate that just now." }, 502);
       // Only the new words are written: the card may have been decided while
       // the model was translating, and that decision must survive.
@@ -1499,6 +1511,7 @@ async function handle(request, env, url) {
         ? await triageMessage(message, { provider, readerLanguage: user.locale || "en", sourceLabel: "Email" })
         : { called: false, card: null };
       if (result.called && allowance.metered) await allowance.consume();
+      await settleUsage(env.DB, provider, { orgId, githubId });
 
       let cardId = null;
       if (result.card) {

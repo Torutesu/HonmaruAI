@@ -43,6 +43,9 @@ struct InsightsView: View {
                             bars(m.byAction.map { (actionWord($0.label), $0.count) })
                         }
                     }
+                    if let ai = m.ai {
+                        section(String(localized: "What your AI cost")) { spend(ai) }
+                    }
                     section(String(localized: "What your AI got wrong")) {
                         if m.feedback.reasons.isEmpty {
                             Text(String(localized: "Nobody has flagged a card in this window. \"Is this card wrong?\" sits under every card."))
@@ -167,6 +170,54 @@ struct InsightsView: View {
         .background(Theme.Colors.background)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.image, style: .continuous).stroke(Theme.Colors.border, lineWidth: 1))
+    }
+
+    /// Dollars at list price, and how much of the routing System One took
+    /// without a language model.
+    private func spend(_ ai: InsightsService.Metrics.Spend) -> some View {
+        VStack(spacing: 0) {
+            textRow(String(localized: "This window, at list price"), money(ai.usd))
+            if ai.byokCalls > 0 {
+                textRow(String(localized: "On your own keys"), money(ai.usd - ai.ourUsd))
+            }
+            textRow(String(localized: "Decided by Jev without a language model"),
+                    ai.jevShare.map { "\(Int(($0 * 100).rounded()))%" } ?? "—")
+            if !ai.byPurpose.isEmpty {
+                bars(ai.byPurpose.map { (purposeWord($0.purpose ?? ""), $0.calls) })
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .padding(.vertical, Theme.Spacing.sm)
+            }
+        }
+        .background(Theme.Colors.background)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.image, style: .continuous).stroke(Theme.Colors.border, lineWidth: 1))
+    }
+
+    private func money(_ usd: Double) -> String {
+        if usd == 0 { return "$0" }
+        return usd < 0.01 ? String(format: "$%.4f", usd) : String(format: "$%.2f", usd)
+    }
+
+    private func purposeWord(_ purpose: String) -> String {
+        switch purpose {
+        case "route": String(localized: "Routing")
+        case "ask": String(localized: "Answers")
+        case "draft": String(localized: "Reply drafts")
+        case "localize": String(localized: "Translation")
+        case "triage": String(localized: "Inbox triage")
+        case "classify": String(localized: "Filing by business")
+        default: purpose
+        }
+    }
+
+    private func textRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).font(.system(size: 15)).foregroundStyle(Theme.Colors.textPrimary)
+            Spacer()
+            Text(value).font(.system(size: 14).monospacedDigit()).foregroundStyle(Theme.Colors.textTertiary)
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, 13)
     }
 
     private func numberRow(_ title: String, _ value: Int) -> some View {

@@ -1,3 +1,4 @@
+import { noteUsage } from "./ledger.js";
 // The message that goes back to whoever asked, after the decision is made.
 //
 // A decision in the feed is one tap; telling the person who asked for it is
@@ -65,6 +66,7 @@ ${JSON.stringify({
     });
     if (!res.ok) return { called: false, draft: null };
     data = await res.json();
+    noteUsage(provider, "draft", data);
   } catch {
     return { called: false, draft: null };
   }

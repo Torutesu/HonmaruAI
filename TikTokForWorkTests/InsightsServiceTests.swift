@@ -39,4 +39,27 @@ final class InsightsServiceTests: XCTestCase {
         XCTAssertEqual(InsightsService.FlagReason.allCases.map(\.rawValue),
                        ["wrong-person", "not-a-decision", "wrong-priority", "wrong-words"])
     }
+
+    func testSpendDecodesAndIsOptional() throws {
+        let json = """
+        {"days":14,"cards":1,"pending":1,"decided":0,"created":[],"bySource":[],"byAction":[],
+         "feedback":{"right":0,"wrong":0,"reasons":{}},
+         "ai":{"calls":3,"inputTokens":2000,"outputTokens":120,"usd":0.00042,"ourUsd":0.0003,"byokCalls":1,
+               "byPurpose":[{"purpose":"route","calls":2,"usd":0.0003},{"purpose":"ask","calls":1,"usd":0.00012}],
+               "byProvider":[{"provider":"OpenAI","calls":2,"usd":0.0004},{"provider":"jev","calls":1,"usd":0.00002}],
+               "jevShare":0.5}}
+        """
+        let m = try JSONDecoder().decode(InsightsService.Metrics.self, from: Data(json.utf8))
+        let ai = try XCTUnwrap(m.ai)
+        XCTAssertEqual(ai.calls, 3)
+        XCTAssertEqual(ai.byokCalls, 1)
+        XCTAssertEqual(ai.byPurpose.map(\.id), ["route", "ask"])
+        XCTAssertEqual(ai.byProvider.first?.id, "OpenAI")
+        XCTAssertEqual(ai.jevShare, 0.5)
+        // A Worker without the ledger sends no `ai`; the screen simply has no section.
+        let older = """
+        {"days":14,"cards":0,"pending":0,"decided":0,"created":[],"bySource":[],"byAction":[],"feedback":{"right":0,"wrong":0,"reasons":{}}}
+        """
+        XCTAssertNil(try JSONDecoder().decode(InsightsService.Metrics.self, from: Data(older.utf8)).ai)
+    }
 }

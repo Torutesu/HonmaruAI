@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon, type IconName } from '../components/Icon'
+import { getAIKey } from '../utils/aiKey'
 
 interface Connector { id: string; label: string; status: string }
 
@@ -53,6 +54,17 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   const [databaseId, setDatabaseId] = useState<string>('')
   const [databaseError, setDatabaseError] = useState<string | null>(null)
   const [copiedInbox, setCopiedInbox] = useState(false)
+  // What this deployment runs the AI on, straight from the Worker: the
+  // model, whether System One (Jev) is switched on, and whether this
+  // browser sends its own key. Nothing here is a promise the server has
+  // not made.
+  const [health, setHealth] = useState<{ aiRouting: boolean; aiModel: string; systemOne: boolean } | null>(null)
+  useEffect(() => {
+    let ignore = false
+    fetch(`${httpBase}/health`).then((r) => (r.ok ? r.json() : null)).then((h) => { if (!ignore && h) setHealth(h) }).catch(() => {})
+    return () => { ignore = true }
+  }, [httpBase])
+  const ownKey = Boolean(getAIKey())
 
   const load = useCallback(async () => {
     try {
@@ -185,6 +197,22 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         {unavailable && <div className="form-note">{unavailable}</div>}
         {note && <div className="form-note">{note}</div>}
         {error && <div className="form-error">{error}</div>}
+
+        {health && (
+          <>
+            <div className="rows-title">{t('Your AI')}</div>
+            <div className="rows ai-status">
+              <div className="row static">
+                <span className="row-main">{t('Language model')}<span className="row-sub">{t('Writes cards, answers, drafts and translations.')}</span></span>
+                <span className="row-value">{ownKey ? t('Your own key') : health.aiRouting ? health.aiModel : t('Off')}</span>
+              </div>
+              <div className="row static">
+                <span className="row-main">{t('Jev (System One)')}<span className="row-sub">{health.systemOne ? t('Decides who and how urgent for a fraction of a cent; the model is asked only when it is unsure.') : t('Not switched on here. Set TYPESAFE_API_KEY on the Worker and routing gets cheaper.')}</span></span>
+                <span className={`row-value ${health.systemOne ? 'on' : ''}`}>{health.systemOne ? t('On') : t('Off')}</span>
+              </div>
+            </div>
+          </>
+        )}
 
         {connectors === null && <div className="empty">{t('Loading…')}</div>}
 

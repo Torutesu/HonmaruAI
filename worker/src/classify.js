@@ -12,6 +12,7 @@
 // could not be created is not.
 
 import { listBusinesses, upsertBusiness, businessSlug } from "./db.js";
+import { noteUsage } from "./ledger.js";
 import { decideBusiness, jevConfig, CONFIDENT } from "./jev.js";
 
 const SYSTEM_PROMPT = `You file a workplace Decision Card under the business it is about.
@@ -57,6 +58,7 @@ ${JSON.stringify({ title: card.title || "", summary: card.summary || "", context
     });
     if (!res.ok) return { called: false, name: null };
     data = await res.json();
+    noteUsage(provider, "classify", data);
   } catch {
     return { called: false, name: null };
   }

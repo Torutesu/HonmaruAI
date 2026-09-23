@@ -12,19 +12,22 @@ enum Theme {
             })
         }
 
-        static let background = dyn(0xFFFFFF, 0x191C22)
-        static let surface = dyn(0xFBFBFC, 0x0F1115)
-        static let surfaceRaised = dyn(0xF2F2F2, 0x222631)
-        static let textPrimary = dyn(0x202020, 0xF4F5F7)
-        static let textSecondary = dyn(0x666666, 0xB5BDC9)
-        static let textTertiary = dyn(0x707683, 0x98A1B0)
+        // docs/design-system.md, both sides on one neutral scale — the dark
+        // side used to be a set of blue-grey guesses (#191C22, #222631,
+        // #B5BDC9) that read as a different product from the web's.
+        static let background = dyn(0xFFFFFF, 0x0F0F0F)
+        static let surface = dyn(0xF8F9FA, 0x1A1A1A)
+        static let surfaceRaised = dyn(0xEEEEEE, 0x2A2A2A)
+        static let textPrimary = dyn(0x202020, 0xF2F2F2)
+        static let textSecondary = dyn(0x646464, 0xA3A3A3)
+        static let textTertiary = dyn(0x838383, 0x8A8A8A)
         static let accent = dyn(0x6647F0, 0xB4A1FF)
-        static let interactive = dyn(0x4268D5, 0x89ACFF)
-        static let approve = dyn(0x00885E, 0x67D6A5)
+        static let interactive = dyn(0x0091FF, 0x4FB9FA)
+        static let approve = dyn(0x00C07A, 0x6EE7B7)
         static let issueGreen = dyn(0x238636, 0x3FB950)
-        static let reject = dyn(0xC63B4D, 0xFF8E9D)
-        static let border = dyn(0xE8E8E8, 0x2D323D)
-        static let ctaFill = dyn(0x111111, 0xF4F5F7)
+        static let reject = dyn(0xFA49A5, 0xFF8E9D)
+        static let border = dyn(0xE8E8E8, 0x2A2A2A)
+        static let ctaFill = dyn(0x202020, 0xF2F2F2)
         static let ctaText = dyn(0xFFFFFF, 0x202020)
     }
 

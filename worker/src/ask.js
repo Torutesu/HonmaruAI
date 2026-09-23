@@ -1,3 +1,4 @@
+import { noteUsage } from "./ledger.js";
 // A question about a card, answered — not turned into another card.
 //
 // "Ask anything" under a card used to route the question as a new decision
@@ -84,6 +85,7 @@ Question: ${clean}`;
     });
     if (!res.ok) return { called: false, answer: null };
     data = await res.json();
+    noteUsage(provider, "ask", data);
   } catch {
     return { called: false, answer: null };
   }

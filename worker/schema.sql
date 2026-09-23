@@ -240,6 +240,24 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_login ON push_subscriptions (login);
 
+/* Every model call, with its tokens and its dollars at list price: what the
+   AI costs a team, by purpose and by provider, on our key or on theirs.
+   `ai_usage` above counts calls for the allowance; this is the bill. */
+CREATE TABLE IF NOT EXISTS ai_calls (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id         TEXT NOT NULL,
+  user_github_id TEXT,
+  purpose        TEXT NOT NULL,
+  provider       TEXT NOT NULL,
+  model          TEXT NOT NULL,
+  input_tokens   INTEGER NOT NULL DEFAULT 0,
+  output_tokens  INTEGER NOT NULL DEFAULT 0,
+  usd            REAL NOT NULL DEFAULT 0,
+  byok           INTEGER NOT NULL DEFAULT 0,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_calls_org ON ai_calls (org_id, created_at);
+
 CREATE TABLE IF NOT EXISTS ai_usage (
   user_github_id TEXT NOT NULL,
   day            TEXT NOT NULL,

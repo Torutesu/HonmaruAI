@@ -1,6 +1,7 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
 
 import { cardText } from "./cardCopy.js";
+import { noteUsage } from "./ledger.js";
 import { decideRoute, CONFIDENT } from "./jev.js";
 import { formatSourcesForModel } from "./context.js";
 
@@ -1105,6 +1106,7 @@ async function routeInstructionWithOpenRouter({
       const message = data?.error?.message || `${openRouter.providerName || "LLM"} request failed.`;
       throw new Error(message);
     }
+    noteUsage(openRouter, "route", data);
     // Past this line the provider has answered and billed us, whatever we go
     // on to make of the answer — including rejecting it in validateRouting
     // below. A research round and the write that follows it are one answer
