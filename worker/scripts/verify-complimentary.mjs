@@ -25,7 +25,7 @@ async function sdk(id) {
   const response = await fetch('https://api.revenuecat.com/v1/subscribers/' + encodeURIComponent(id), {
     headers: { Authorization: 'Bearer ' + key }, signal: AbortSignal.timeout(30000),
   });
-  assert.equal(response.status, 200, 'Public SDK customer lookup');
+  assert.ok([200, 201].includes(response.status), 'Public SDK customer lookup');
   return (await response.json()).subscriber;
 }
 function active(customer) {

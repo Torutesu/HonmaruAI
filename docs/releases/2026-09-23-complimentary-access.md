@@ -16,7 +16,7 @@ This release is based on main `f6fe666` and preserves its team, privacy, OAuth, 
 
 ## Onboarding
 
-New-account progress and answers are scoped to account and API. Refresh resumes unfinished setup. Failed profile saves keep the answers and allow retry. Existing accounts are not forced through onboarding again. Saved sessions are checked against the server; temporary failures preserve credentials, expired sessions clear them. Invite acceptance waits for restoration so it cannot be overwritten by an older workspace.
+New-account progress and answers are scoped to account and API. Refresh resumes unfinished setup. Failed profile saves keep the answers and allow retry. Existing accounts are not forced through onboarding again. Saved sessions are checked against the server; temporary online failures preserve credentials, expired sessions clear them. Offline startup preserves the previously cached workspace and revalidates when connectivity returns. Invite acceptance waits for restoration so it cannot be overwritten by an older workspace.
 
 The App Store support page previously deployed outside main is now tracked so Web deployments retain it.
 
@@ -27,6 +27,15 @@ The App Store support page previously deployed outside main is now tracked so We
 - Browser: code privacy, account switching, duplicate submission, stale requests, pending synchronization, retries, Japanese mobile layout, onboarding drafts, failed-save recovery, and session restoration exercised.
 - Live qualification scripts create and delete only disposable ordinary accounts. The code is read from stdin; credentials are retained in a mode-0600 recovery file only if cleanup fails.
 
-Deployment and live verification evidence will be added after publication. These checks do not claim a real-money App Store purchase or a physical-device purchase/restore test.
+## Production evidence
+
+- Code registered as a Worker Secret; only the complimentary_access table was added to production D1.
+- Worker deployed as `a8395227-c34c-4ade-b4ac-e7b61c84bb11`.
+- Web deployment: `https://df38aff7.honmaru-web.pages.dev` (production domain `https://honmaru-web.pages.dev`).
+- Live ordinary-account checks passed: correct/incorrect codes, Pro grant, published iOS SDK customer-info readback with the promotional entitlement, second-account isolation, repeated activation, re-login, provider revocation on deletion, same-email recreation without free Pro, and cleanup of every disposable account.
+- Public mobile browser checks passed: normal password sign-in from /#/plans, successful activation and iPhone sync, reload persistence, no horizontal overflow, no visible code after activation. Screenshot: /private/tmp/honmaru-complimentary-live/activated-mobile.png.
+- Existing App Store Connect authentication was validated. iOS 1.0 is available and 1.0.1 remains WAITING_FOR_REVIEW; no new API key, certificate, app upload, review withdrawal, or App Store release was needed for this activation.
+
+These checks do not claim a real-money App Store purchase or a physical-device purchase/restore test.
 
 References: https://www.revenuecat.com/docs/api-v1/entitlements and https://www.revenuecat.com/docs/customers/customer-info .

@@ -134,8 +134,19 @@ function App() {
         setStage(needsOnboarding(localStorage, httpBase(savedHost), me.login) ? 'onboarding' : 'app')
         setRestoring(false)
       })
-      .catch(() => { if (!controller.signal.aborted) setRestoreError(true) })
-    return () => controller.abort()
+      .catch(() => {
+        if (controller.signal.aborted) return
+        if (navigator.onLine === false) {
+          // Preserve this browser's existing offline workspace. Server calls
+          // remain authenticated; reconnect revalidates before fetching data.
+          setSessionToken(savedToken); setUserId(savedUser); setOrgId(savedOrg || '')
+          setStage(needsOnboarding(localStorage, httpBase(savedHost), savedUser) ? 'onboarding' : 'app')
+          setRestoring(false)
+        } else setRestoreError(true)
+      })
+    const revalidate = () => setRestoreAttempt((value) => value + 1)
+    window.addEventListener('online', revalidate)
+    return () => { controller.abort(); window.removeEventListener('online', revalidate) }
   }, [restoreAttempt])
 
   // The link a teammate was sent: #/join/<code>. Signed in, it joins the
