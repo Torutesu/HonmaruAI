@@ -94,7 +94,7 @@ page.on('response', (r) => {
 
 // What this configuration is *supposed* to refuse: connectors need a Composio
 // key, web push needs a VAPID pair, and the screens for both say so out loud.
-const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/]
+const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai\/ask/, /^503 \/ai\/draft/, /^503 \/cards\/[^/]+\/localize/, /^503 \/oauth\/github\/config/]
 
 /// Back to the feed, whatever is open on top of it. Several steps were each
 /// rolling their own version of this loop, and each one that got it slightly
@@ -173,6 +173,14 @@ await step('the welcome screen loads', async () => {
 // The first thing anyone sees on a laptop, signed out. It was offset by the
 // width of a navigation rail that does not exist until you are signed in,
 // which left a bare white column down the left edge of the window.
+// GitHub sign-in is offered on the web only where the deployment registered a
+// web callback. This one has not, so the button must not be there — a button
+// that leads to a 503 is worse than none.
+await step('GitHub sign-in is not offered where it is not set up', async () => {
+  await page.waitForTimeout(800)
+  if (await page.$('.btn-github')) throw new Error('a "Continue with GitHub" button on a deployment with no web callback')
+})
+
 await step('the welcome screen is not offset by a rail that is not there', async () => {
   const wide = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const w = await wide.newPage()
@@ -325,13 +333,75 @@ await step('telling your AI something produces a decision', async () => {
   if (readable.right > 391) throw new Error('the compose box runs off the phone')
   await shot('08-compose')
   await box.fill('Approve the new supplier price for the cafe')
-  const send = await page.$('.create-decision button')
+  const send = await page.$('.create-decision button:not(.mic)')
   if (!send) throw new Error('the compose sheet has no send button')
   await send.click()
   // The keyword router has no teammates in a one-person org, so the card comes
   // back to the person who asked. Either way a card must appear.
   await page.waitForSelector('.card-title', { timeout: 25000 })
   await shot('09-card')
+})
+
+// A swipe is fast and the card is gone the moment it is decided, so a slip of
+// the thumb used to be an approval nobody meant, with no way back. Deciding
+// now leaves six seconds of Undo on the screen, and Undo brings the card back.
+await step('a decision can be taken back in the moment', async () => {
+  const title = await page.$eval('.card-title', (el) => el.textContent.trim())
+  await page.click('.decide.decline')
+  await page.waitForSelector('.toast.undo', { timeout: 10000 })
+  await page.waitForFunction(
+    (t) => ![...document.querySelectorAll('.card-title')].some((el) => el.textContent.trim() === t),
+    title,
+    { timeout: 20000 }
+  ).catch(() => { throw new Error('the declined card never left the pending feed') })
+  await shot('09c-undo')
+  await page.click('.undo-button')
+  await page.waitForFunction(
+    (t) => [...document.querySelectorAll('.card-title')].some((el) => el.textContent.trim() === t),
+    title,
+    { timeout: 20000 }
+  ).catch(() => { throw new Error('Undo did not bring the card back') })
+  if (await page.$('.toast.undo')) throw new Error('the Undo toast is still up after being used')
+})
+
+// "Ask anything" answers, under the card. This deployment has no model, and
+// the answer to a question then is that fact, said where the answer would go
+// — not a new card routed to somebody, which is what it used to do.
+await step('asking about a card answers under it, and does not make a card', async () => {
+  const before = await page.$$eval('.card-title', (els) => els.length)
+  await page.fill('.ask-bar input', 'Did we decide something like this before?')
+  await page.click('.ask-send')
+  await page.waitForSelector('.answer-a:not(.answer-busy)', { timeout: 15000 })
+  const text = await page.$eval('.answer', (el) => el.textContent)
+  if (!/no model|モデル/.test(text)) throw new Error(`the answer panel says: ${text.slice(0, 120)}`)
+  await page.waitForTimeout(500)
+  const after = await page.$$eval('.card-title', (els) => els.length)
+  if (after !== before) throw new Error(`a question made ${after - before} card(s)`)
+  await shot('09e-ask')
+})
+
+// Every card carries "Is this card wrong?". Saying so is one tap, lands as a
+// row the router is measured against, and never gets in the way of deciding.
+// On a phone the thread sits behind one line under the card.
+await step('what happened to a card opens on a phone', async () => {
+  await page.click('.thread-toggle')
+  await page.waitForSelector('.thread', { timeout: 10000 })
+    .catch(() => { throw new Error('the thread did not open on a phone') })
+  await page.waitForFunction(() => /Created|作成/.test(document.querySelector('.thread')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the thread does not show the card being created') })
+  await shot('09f-thread')
+})
+
+await step('a card can be flagged as wrong, and the verdict lands', async () => {
+  await page.click('.flag-link')
+  await page.waitForSelector('.flag-chip', { timeout: 5000 })
+  await shot('09d-flag')
+  const [res] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/feedback') && r.request().method() === 'POST', { timeout: 10000 }),
+    page.click('.flag-chip >> nth=2'),
+  ])
+  if (res.status() !== 200) throw new Error(`feedback answered ${res.status()}`)
+  await page.waitForSelector('.flag-thanks', { timeout: 5000 })
 })
 
 await step('the decision can be taken, and it sticks', async () => {
@@ -359,6 +429,21 @@ await step('the decision can be taken, and it sticks', async () => {
   await page.waitForFunction(() => /Approved|承認/.test(document.body.innerText), null, { timeout: 20000 })
     .catch(() => { throw new Error('the decision is not in history after a reload') })
   await shot('11-history')
+  // A settled decision is not in the feed any more, so a row here used to
+  // close History and open a feed that did not contain it. It opens in place
+  // now, with what was decided and the way to take it back.
+  await page.click('.hist-row .row')
+  await page.waitForSelector('.hist-detail', { timeout: 10000 })
+    .catch(() => { throw new Error('a history row does not open') })
+  if (!(await page.$('.hist-undo'))) throw new Error('a decision you made has no Undo in History')
+  // The reply back to whoever asked, drafted from the decision. No model on
+  // this deployment, so the draft is that fact, said where the draft would go.
+  await page.click('.hist-draft')
+  await page.waitForSelector('.hist-draft-text, .hist-draft-error', { timeout: 15000 })
+    .catch(() => { throw new Error('Draft the reply answered nothing') })
+  const draftText = await page.$eval('.hist-draft-box', (el) => el.textContent)
+  if (!/no model|モデル/.test(draftText)) throw new Error(`the draft box says: ${draftText.slice(0, 120)}`)
+  await shot('11b-history-open')
 })
 
 // The other half of the feed. Cards is one decision at a time; Classic is the
@@ -414,6 +499,29 @@ await step('every other screen opens', async () => {
   await page.click('text=Plan')
   await page.waitForSelector('.plan-card, .empty', { timeout: 10000 })
   await shot('15-plans')
+  // What else you are called, saved on blur and read back — the router
+  // matches instructions against it.
+  await page.click('.screen .back')
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.alias-input', { timeout: 10000 })
+  // The profile has to have arrived, or the fetch lands after the typing.
+  await page.waitForFunction(() => (document.querySelector('.profile-head b')?.textContent || '').trim().length > 0, null, { timeout: 10000 })
+  const [aliasRes] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/me') && r.request().method() === 'PUT', { timeout: 10000 }),
+    page.fill('.alias-input', '美香, Mika').then(() => page.press('.alias-input', 'Tab')),
+  ])
+  if (aliasRes.status() !== 200) throw new Error(`aliases answered ${aliasRes.status()}`)
+  const saved = await (await aliasRes.json()).aliases
+  if (JSON.stringify(saved) !== JSON.stringify(['美香', 'Mika'])) throw new Error(`aliases saved as ${JSON.stringify(saved)}`)
+  // The numbers: the flagged card from earlier is the one thing the AI got
+  // wrong in this window, and the screen has to say so.
+  await page.click('.screen .back')
+  await page.click('nav [data-tab="you"]')
+  await page.click('text=Insights')
+  await page.waitForSelector('.barlist, .insights-hint', { timeout: 15000 })
+  await page.waitForFunction(() => /Wrong priority|優先度が違う/.test(document.body.innerText), null, { timeout: 15000 })
+    .catch(() => { throw new Error('Insights does not show the flagged card') })
+  await shot('15b-insights')
 })
 
 await step('nothing threw in the browser', async () => {
@@ -522,7 +630,7 @@ await step('choosing a language changes the interface, and changing back returns
   await page.click('nav [data-tab="compose"]')
   await page.waitForSelector('.sheet-bottom .create-decision textarea', { timeout: 10000 })
   await page.fill('.sheet-bottom .create-decision textarea', '来週の値上げを承認してほしい')
-  await page.click('.sheet-bottom .create-decision button')
+  await page.click('.sheet-bottom .create-decision button:not(.mic)')
   await page.waitForTimeout(2500)
   await closeEverything()
   await page.waitForSelector('.card-title', { timeout: 15000 })
@@ -590,7 +698,7 @@ await step('the app is usable on a laptop', async () => {
   await d.click('[data-tab="compose"]')
   await d.waitForSelector('.create-decision textarea')
   await d.fill('.create-decision textarea', 'Ask the designer to review the new card layout')
-  await d.click('.create-decision button')
+  await d.click('.create-decision button:not(.mic)')
   await d.waitForSelector('.card-title', { timeout: 25000 })
   await d.waitForTimeout(600)
   await d.screenshot({ path: `${SHOTS}/20-desktop-feed.png` })
@@ -634,6 +742,260 @@ await step('the app is usable on a laptop', async () => {
   if (bare.length) {
     throw new Error(`rail buttons with no words on them: ${bare.map((t) => t.name).join(', ')}`)
   }
+})
+
+// A laptop is a workbench, not a tall phone: the inbox on the left, the card
+// on the right, and under the card what happened to it. The URL names the
+// card, so the back button, a reload and a pasted link all mean something.
+await step('a laptop shows the inbox beside the card, and the URL says where you are', async () => {
+  const d = desk.pages()[0]
+  await d.waitForSelector('.inbox', { timeout: 10000 })
+    .catch(() => { throw new Error('no inbox pane on a laptop') })
+  const selected = await d.waitForSelector('.inbox-row.on', { timeout: 10000 })
+    .catch(() => { throw new Error('no card is selected in the inbox') })
+  const cardId = await selected.getAttribute('data-card')
+  if (!(await d.$('.workbench .card-title'))) throw new Error('the selected card is not open beside the inbox')
+  await d.waitForSelector('.thread', { timeout: 10000 })
+    .catch(() => { throw new Error('the card has no thread under it') })
+  await d.waitForFunction(() => /Created|作成/.test(document.querySelector('.thread')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the thread does not show the card being created') })
+
+  // Picking a row writes the URL; the URL opens the row.
+  await d.click(`.inbox-row[data-card="${cardId}"]`)
+  await d.waitForFunction((id) => location.hash === `#/feed/${encodeURIComponent(id)}`, cardId, { timeout: 5000 })
+    .catch(async () => { throw new Error(`picking a card did not put it in the URL: ${await d.evaluate(() => location.hash)}`) })
+  await d.evaluate(() => { location.hash = '#/history' })
+  await d.waitForFunction(() => /History|履歴/.test(document.querySelector('.head-title')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('#/history does not open History') })
+  await d.goBack()
+  await d.waitForSelector('.workbench .card-title', { timeout: 10000 })
+    .catch(() => { throw new Error('the back button does not return to the card') })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector(`.inbox-row.on[data-card="${cardId}"]`, { timeout: 20000 })
+    .catch(() => { throw new Error('a reload lost the card the URL named') })
+  await d.screenshot({ path: `${SHOTS}/20b-desktop-workbench.png` })
+  // Nothing may sit outside the viewport with the second pane in.
+  const overflow = await d.evaluate(() => {
+    const bad = []
+    for (const el of document.querySelectorAll('body *')) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      if (r.left < -1 || r.right > window.innerWidth + 1) bad.push(`${el.className || el.tagName} @ ${Math.round(r.left)} w${Math.round(r.width)}`)
+    }
+    return bad.slice(0, 6)
+  })
+  if (overflow.length) throw new Error(`off-screen on the workbench: ${overflow.join(' ; ')}`)
+})
+
+// ⌘K goes anywhere and finds anything: a screen by name, a card by a word
+// in it. Enter takes the highlighted row.
+await step('⌘K finds a card by a word and a screen by its name', async () => {
+  const d = desk.pages()[0]
+  await d.keyboard.press('Control+k')
+  await d.waitForSelector('.palette-input', { timeout: 5000 })
+    .catch(() => { throw new Error('⌘K did not open the palette') })
+  await d.fill('.palette-input', 'Revision')
+  await d.waitForFunction(() => /Revision/.test(document.querySelector('.palette-item.on')?.textContent || ''), null, { timeout: 5000 })
+    .catch(() => { throw new Error('the palette did not find the card by a word in its title') })
+  await d.screenshot({ path: `${SHOTS}/20c-palette.png` })
+  await d.keyboard.press('Enter')
+  await d.waitForFunction(() => /Revision/.test(document.querySelector('.workbench .card-title')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('Enter in the palette did not open the card') })
+  if (await d.$('.palette')) throw new Error('the palette stayed open after Enter')
+  await d.keyboard.press('Control+k')
+  await d.waitForSelector('.palette-input', { timeout: 5000 })
+  await d.fill('.palette-input', 'Insight')
+  await d.keyboard.press('Enter')
+  await d.waitForFunction(() => /Insights|インサイト/.test(document.querySelector('.head-title')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the palette did not open Insights by name') })
+  await d.keyboard.press('Escape')
+  await d.waitForSelector('.workbench .card-title', { timeout: 10000 })
+})
+
+// "How I work": written once under You, kept in this browser, and sent with
+// every instruction so the router knows who owns what.
+await step('how you work is remembered and rides on what you send', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/you' })
+  await d.waitForSelector('.context-input', { timeout: 10000 })
+    .catch(() => { throw new Error('You has no "How I work" box') })
+  await d.fill('.context-input', 'I run the cafe. Kenji owns suppliers.')
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.context-input', { timeout: 20000 })
+  const kept = await d.$eval('.context-input', (el) => el.value)
+  if (kept !== 'I run the cafe. Kenji owns suppliers.') throw new Error(`a reload lost "How I work": ${JSON.stringify(kept)}`)
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.workbench', { timeout: 10000 })
+  await d.click('[data-tab="compose"]')
+  await d.waitForSelector('.create-decision textarea')
+  const sent = d.waitForRequest((req) => req.url().endsWith('/ai/route') && req.method() === 'POST', { timeout: 15000 })
+  await d.fill('.create-decision textarea', 'Ask Kenji to approve the supplier price')
+  await d.click('.create-decision button:not(.mic)')
+  const body = JSON.parse((await sent).postData() || '{}')
+  if (body.senderContext !== 'I run the cafe. Kenji owns suppliers.') throw new Error(`the instruction went without "How I work": ${JSON.stringify(body.senderContext)}`)
+  await d.waitForSelector('.card-title', { timeout: 25000 })
+  await d.keyboard.press('Escape')
+})
+
+// Too much in the inbox is narrowed, not scrolled: by heat, by age, by
+// business. And the numbers a person would otherwise count.
+await step('the inbox says what today looks like and narrows by a chip', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.inbox-today', { timeout: 10000 })
+    .catch(() => { throw new Error('the inbox has no line for today') })
+  const today = await d.$eval('.inbox-today', (el) => el.textContent)
+  if (!/waiting on you|あなた待ち/.test(today)) throw new Error(`the today line says: ${today}`)
+  // The card composed a step ago is still arriving from the relay; count
+  // once the list has stopped growing.
+  await d.waitForTimeout(1500)
+  const before = await d.$$eval('.inbox-list .inbox-row', (els) => els.length)
+  // Every card so far is "high"; the Urgent chip is offered, and turns off
+  // as many rows as are not hot — none here — so it must at least stay
+  // consistent both ways.
+  const chip = await d.$('.inbox-chips .chip')
+  if (!chip) throw new Error('no chips to narrow the inbox with')
+  await chip.click()
+  const pressed = await chip.getAttribute('aria-pressed')
+  if (pressed !== 'true') throw new Error('a chip does not read as pressed')
+  const during = await d.$$eval('.inbox-list .inbox-row', (els) => els.length)
+  if (during > before) throw new Error('narrowing added rows')
+  await chip.click()
+  const after = await d.$$eval('.inbox-list .inbox-row', (els) => els.length)
+  if (after !== before) throw new Error(`un-narrowing did not restore the rows: ${before} → ${after}`)
+})
+
+// The shell opens with no network: the page, its script and its styles come
+// from the service worker's cache, and the feed says it is reconnecting
+// rather than the browser saying there is no internet.
+await step('the app opens offline', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForFunction(async () => {
+    const reg = await navigator.serviceWorker.getRegistration('/')
+    return Boolean(reg && reg.active) && Boolean(await caches.match('/'))
+  }, null, { timeout: 20000 }).catch(() => { throw new Error('the service worker did not take the shell') })
+  await desk.setOffline(true)
+  try {
+    await d.reload({ waitUntil: 'load' })
+    await d.waitForSelector('.tabbar', { timeout: 20000 })
+      .catch(() => { throw new Error('offline, the shell did not open') })
+    // The last snapshot is still here to read, and the toast says offline
+    // in words rather than "[object Event]".
+    await d.waitForSelector('.inbox-row', { timeout: 10000 })
+      .catch(() => { throw new Error('offline, the inbox forgot the cards it had') })
+    // The last card is readable too, not a spinner over what the browser has.
+    await d.waitForSelector('.workbench .card-title', { timeout: 10000 })
+      .catch(() => { throw new Error('offline, the card pane shows a spinner over cards the browser has') })
+    await d.waitForFunction(() => /offline|オフライン/.test(document.querySelector('.toast')?.textContent || ''), null, { timeout: 10000 })
+      .catch(async () => { throw new Error(`offline, the toast says: ${await d.evaluate(() => document.querySelector('.toast')?.textContent)}`) })
+    await d.screenshot({ path: `${SHOTS}/20d-offline.png` })
+  } finally {
+    await desk.setOffline(false)
+  }
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.workbench .card-title, .page-empty', { timeout: 25000 })
+})
+
+// Your own model key, as the phone has had: kept in this browser, sent only
+// with your own requests, on every request that may spend a model.
+await step('your own AI key is kept and rides on what you send', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/you' })
+  await d.waitForSelector('.key-input', { timeout: 10000 })
+    .catch(() => { throw new Error('You has no field for your own AI key') })
+  await d.fill('.key-input', 'sk-e2e-own-key')
+  await d.press('.key-input', 'Tab')
+  await d.waitForSelector('.key-saved', { timeout: 5000 })
+    .catch(() => { throw new Error('the key did not say it was saved') })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.key-input', { timeout: 20000 })
+  const kept = await d.$eval('.key-input', (el) => el.value)
+  if (kept !== 'sk-e2e-own-key') throw new Error(`a reload lost the key: ${JSON.stringify(kept)}`)
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.workbench', { timeout: 10000 })
+  await d.click('[data-tab="compose"]')
+  await d.waitForSelector('.create-decision textarea')
+  const sent = d.waitForRequest((req) => req.url().endsWith('/ai/route') && req.method() === 'POST', { timeout: 15000 })
+  await d.fill('.create-decision textarea', 'Ask Kenji to sign off the menu photos')
+  await d.click('.create-decision button:not(.mic)')
+  const req = await sent
+  const header = req.headers()['x-ai-key']
+  if (header !== 'sk-e2e-own-key') throw new Error(`the instruction went without the key: ${JSON.stringify(header)}`)
+  await d.waitForSelector('.card-title', { timeout: 25000 })
+  await d.keyboard.press('Escape')
+  // Cleared, so the rest of the suite runs on the deployment's model.
+  await d.evaluate(() => { localStorage.removeItem('aiKey') })
+})
+
+// A QA sweep of the workbench that the feature steps above do not cover:
+// the keys, a decided card, the language, the dark theme, the thread on a
+// phone. Each is a thing a person would try in the first ten minutes.
+await step('j and k walk the inbox, and the URL follows', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.inbox-row.on', { timeout: 10000 })
+  await d.keyboard.press('Escape')
+  const first = await d.$eval('.inbox-row.on', (el) => el.getAttribute('data-card'))
+  await d.keyboard.press('j')
+  await d.waitForFunction((id) => document.querySelector('.inbox-row.on')?.getAttribute('data-card') !== id, first, { timeout: 5000 })
+    .catch(() => { throw new Error('j did not move the selection') })
+  const second = await d.$eval('.inbox-row.on', (el) => el.getAttribute('data-card'))
+  if (!second) throw new Error('no second selection')
+  await d.waitForFunction((id) => location.hash === `#/feed/${encodeURIComponent(id)}`, second, { timeout: 5000 })
+    .catch(() => { throw new Error('the URL did not follow the selection') })
+  await d.keyboard.press('k')
+  await d.waitForFunction((id) => document.querySelector('.inbox-row.on')?.getAttribute('data-card') === id, first, { timeout: 5000 })
+    .catch(() => { throw new Error('k did not move the selection back') })
+})
+
+await step('a decided card opens in the workbench with its decision, Undo and the reply draft', async () => {
+  const d = desk.pages()[0]
+  // Click by selector, not by handle: a row can re-render between the
+  // lookup and the click while cards are still arriving.
+  const decided = '.inbox-list .inbox-row:has(.inbox-when.quiet)'
+  if (!(await d.$(decided))) throw new Error('no decided card in the inbox to open')
+  await d.click(decided)
+  await d.waitForSelector('.workbench .decided-line', { timeout: 10000 })
+    .catch(() => { throw new Error('a decided card does not show its decision in the pane') })
+  if (!(await d.$('.workbench .decided-undo'))) throw new Error('a decided card you decided has no Undo in the pane')
+  if (await d.$('.workbench .decide-row')) throw new Error('a decided card still shows the two decide buttons')
+  await d.click('.workbench .hist-draft')
+  await d.waitForSelector('.workbench .hist-draft-box .hist-draft-error, .workbench .hist-draft-box .hist-draft-text', { timeout: 15000 })
+    .catch(() => { throw new Error('Draft the reply answered nothing in the pane') })
+  await d.screenshot({ path: `${SHOTS}/20e-desktop-decided.png` })
+})
+
+await step('the workbench reads in Japanese', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { localStorage.setItem('locale', 'ja') })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.inbox', { timeout: 20000 })
+  await d.waitForFunction(() => /あなた待ち/.test(document.querySelector('.inbox')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the inbox heading is not in Japanese') })
+  await d.keyboard.press('Control+k')
+  await d.waitForSelector('.palette-input', { timeout: 5000 })
+  const placeholder = await d.$eval('.palette-input', (el) => el.placeholder)
+  if (!/決定/.test(placeholder)) throw new Error(`the palette placeholder is not in Japanese: ${placeholder}`)
+  await d.keyboard.press('Escape')
+  await d.screenshot({ path: `${SHOTS}/20f-desktop-ja.png` })
+  await d.evaluate(() => { localStorage.removeItem('locale') })
+})
+
+await step('the workbench holds up in the dark', async () => {
+  const d = desk.pages()[0]
+  await d.emulateMedia({ colorScheme: 'dark' })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.inbox-row.on', { timeout: 20000 })
+  await d.screenshot({ path: `${SHOTS}/20g-desktop-dark.png` })
+  // The page paints its own ground: a white body behind a dark shell is the
+  // classic half-themed page.
+  const body = await d.evaluate(() => getComputedStyle(document.body).backgroundColor)
+  const m = body.match(/\d+/g) || []
+  if (m.length >= 3 && Number(m[0]) > 60) throw new Error(`the page ground is light in dark mode: ${body}`)
+  await d.emulateMedia({ colorScheme: 'light' })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.inbox-row.on', { timeout: 20000 })
 })
 
 await step('the other screens hold up on a laptop', async () => {
@@ -894,6 +1256,131 @@ await step('a code you have out can be found and revoked', async () => {
   await page.click('.screen .row.static .pill-btn')
   await page.waitForSelector('.screen .form-error', { timeout: 15000 })
   await closeEverything()
+})
+
+/// A brand-new person, through the front door: Get started, a code, the
+/// four onboarding screens, the feed. What "an invite reaches someone who
+/// already has an account" does inline, for anyone else who needs a
+/// stranger with an account.
+async function freshAccount(name, email, { start } = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  extras.push(ctx)
+  const p = await ctx.newPage()
+  await p.goto(start || WEB, { waitUntil: 'load' })
+  if (!start) await p.click('text=Get started')
+  await p.waitForSelector('#email', { timeout: 15000 })
+  await p.fill('#name', name)
+  await p.fill('#email', email)
+  await p.click('text=Email me a code')
+  await p.waitForSelector('.otp-boxes', { timeout: 15000 })
+  await typeCode(p, await codeFor(email))
+  await p.waitForSelector('.ob-art', { timeout: 20000 })
+  await p.click('text=Next'); await p.waitForSelector('.ob-art-route')
+  await p.click('text=Next'); await p.waitForSelector('.ob-demo')
+  await p.click('text=Set me up'); await p.waitForSelector('.radio')
+  await p.click('text=Open my feed')
+  await p.waitForSelector('.dot.on', { timeout: 25000 })
+  return p
+}
+
+/// Which workspace a person is in, as its Team screen names it, and how
+/// many they can switch between (the switcher only draws with two or more).
+async function currentWorkspace(p) {
+  await p.click('nav [data-tab="you"]')
+  await p.waitForSelector('.profile-stats', { timeout: 10000 })
+  // The switcher draws once /me has answered, and only with two or more.
+  await p.waitForSelector('[data-org]', { timeout: 5000 }).catch(() => null)
+  const count = await p.$$eval('[data-org]', (els) => els.length)
+  await p.click('.screen .row:has-text("Your team")')
+  // The name arrives with the member list; read it once the people have.
+  await p.waitForSelector('.team-member', { timeout: 15000 })
+  const label = (await p.textContent('.team-name')).trim()
+  // Back to the feed by the URL: the Team screen's back lands on the feed,
+  // not on You, so a second back has nothing to close.
+  await p.evaluate(() => { location.hash = '#/feed' })
+  await p.waitForSelector('.tabbar', { timeout: 10000 })
+  return { label, count: Math.max(count, 1) }
+}
+
+let mailedLink = null
+await step('a team gets a name, and an invitation by email carries it', async () => {
+  // A workspace handed out at sign-up had no name — "Your workspace" here,
+  // "Toru's team" to everyone else — and there was no way to give it one.
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row:has-text("Your team")')
+  await page.waitForSelector('.team-rename-btn', { timeout: 15000 })
+  await page.click('.team-rename-btn')
+  await page.fill('.team-name-input', 'Honmaru Coffee')
+  await page.click('.team-rename .pill-btn')
+  await page.waitForFunction(() => /Honmaru Coffee/.test(document.querySelector('.team-name')?.textContent || ''), null, { timeout: 15000 })
+    .catch(() => { throw new Error('the team did not take its name') })
+
+  // And an invitation by address: a link in the mail, the team's name on it.
+  const to = `e2e-mailed-${Date.now()}@example.com`
+  const before = (await (await fetch(`${SINK}/sent`)).json()).length
+  await page.fill('.invite-email', to)
+  await page.click('.invite-mail .pill-btn')
+  await page.waitForSelector('.invite-sent', { timeout: 15000 })
+    .catch(() => { throw new Error('sending an invitation by email said nothing') })
+  await shot('27-team-named-and-mailed')
+  const mail = (await (await fetch(`${SINK}/sent`)).json()).slice(before).find((m) => (m.to || []).includes(to))
+  if (!mail) throw new Error('no invitation reached the mail sink')
+  if (!/Honmaru Coffee/.test(mail.subject)) throw new Error(`the invitation does not name the team: ${mail.subject}`)
+  const m = (mail.text || '').match(/https?:\/\/\S+#\/join\/[0-9a-f]{32}/)
+  if (!m) throw new Error(`the invitation carries no link: ${(mail.text || '').slice(0, 200)}`)
+  mailedLink = m[0]
+  await closeEverything()
+})
+
+await step('an invite link joins someone who is already signed in', async () => {
+  // A link, not a code to paste: signed in, opening it is joining.
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row:has-text("Your team")')
+  await page.waitForSelector('.screen .invite select', { timeout: 10000 })
+  await page.selectOption('.screen .invite select', 'member')
+  await page.click('.screen .invite .btn-primary')
+  await page.waitForSelector('.screen .invite-link', { timeout: 15000 })
+    .catch(() => { throw new Error('a minted code came with no link') })
+  const link = (await page.getAttribute('.screen .invite-link', 'href')) || ''
+  if (!/#\/join\/[0-9a-f]{32}$/.test(link)) throw new Error(`the invite link is not one: ${link}`)
+  await closeEverything()
+
+  const d = await freshAccount('Daichi', `e2e-linked-${Date.now()}@example.com`)
+  const own = await currentWorkspace(d)
+  await d.goto(link, { waitUntil: 'load' })
+  await d.waitForSelector('.app-toasts .toast', { timeout: 20000 })
+    .catch(() => { throw new Error('opening an invite link while signed in said nothing') })
+  const said = (await d.textContent('.app-toasts .toast')).trim()
+  if (!/joined/i.test(said)) throw new Error(`opening the link did not join: ${said}`)
+  await d.waitForSelector('.dot.on', { timeout: 25000 })
+  const now = await currentWorkspace(d)
+  if (now.count < own.count + 1) throw new Error(`the link added no workspace (${own.count} → ${now.count})`)
+  if (!/Honmaru Coffee/.test(now.label)) throw new Error(`the link landed in "${now.label}", not the named team`)
+  await d.screenshot({ path: `${SHOTS}/28-joined-by-link.png` })
+})
+
+await step('an invite link opens sign-up with the team named, and the account lands in it', async () => {
+  if (!mailedLink) throw new Error('no mailed link to open')
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  extras.push(ctx)
+  const p = await ctx.newPage()
+  await p.goto(mailedLink, { waitUntil: 'load' })
+  await p.waitForSelector('#invite', { timeout: 15000 })
+    .catch(() => { throw new Error('an invite link did not open sign-up') })
+  const prefilled = await p.$eval('#invite', (el) => el.value)
+  if (!/^[0-9a-f]{32}$/.test(prefilled)) throw new Error(`the code did not ride into sign-up: "${prefilled}"`)
+  await p.waitForSelector('.invite-banner', { timeout: 15000 })
+    .catch(() => { throw new Error('sign-up does not say whose team this is') })
+  const banner = (await p.textContent('.invite-banner')).trim()
+  if (!/Honmaru Coffee/.test(banner)) throw new Error(`the banner does not name the team: ${banner}`)
+  await p.screenshot({ path: `${SHOTS}/29-invited-signup.png` })
+  await ctx.close()
+
+  const e = await freshAccount('Emi', `e2e-invited-${Date.now()}@example.com`, { start: mailedLink })
+  const where = await currentWorkspace(e)
+  if (!/Honmaru Coffee/.test(where.label)) throw new Error(`the invited account landed in "${where.label}"`)
 })
 
 await step('GitHub is not claimed where it cannot run', async () => {

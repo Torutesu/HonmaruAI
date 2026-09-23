@@ -54,7 +54,11 @@ final class VideoRecorder: NSObject, ObservableObject {
             .appendingPathComponent("capture-\(UUID().uuidString).mov")
 
         queue.async { [output, session] in
-            guard session.isRunning else {
+            // No running session, or a session with no camera on it (the
+            // input could not be added, another app holds the device): nothing
+            // will record, and calling startRecording with no video connection
+            // raises an Objective-C exception.
+            guard session.isRunning, output.connection(with: .video) != nil else {
                 DispatchQueue.main.async { self.startFailed() }
                 return
             }
@@ -65,7 +69,10 @@ final class VideoRecorder: NSObject, ObservableObject {
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = true
             }
-            DispatchQueue.main.async { output.startRecording(to: url, recordingDelegate: self.delegateProxy) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isRecording else { return }
+                output.startRecording(to: url, recordingDelegate: self.delegateProxy)
+            }
         }
     }
 

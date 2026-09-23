@@ -48,7 +48,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(data.message || 'That code is not valid.')
+        setError(data.message || t('That code is not valid.'))
         setDigits(Array(LENGTH).fill(''))
         inputs.current[0]?.focus()
         return
@@ -109,8 +109,8 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
       body: JSON.stringify({ email }),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) { setError(data.message || 'We could not send another code.'); return }
-    setNote('Sent. Check your email again.')
+    if (!res.ok) { setError(data.message || t('We could not send another code.')); return }
+    setNote(t('Sent. Check your email again.'))
     setWait(RESEND_SECONDS)
   }
 
@@ -123,8 +123,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
       <div className="screen-body">
         <h1 className="display" style={{ fontSize: 28 }}>{t('Enter the code.')}</h1>
         <p className="lede">
-          We sent six digits to <b style={{ color: 'var(--ink-black)' }}>{email}</b>. It is
-          good for ten minutes, once.
+          {t('We sent six digits to')} <b style={{ color: 'var(--ink-black)' }}>{email}</b>{t('. It is good for ten minutes, once.')}
         </p>
 
         <div className="otp-boxes">
@@ -139,7 +138,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
               inputMode="numeric"
               autoComplete={i === 0 ? 'one-time-code' : 'off'}
               maxLength={LENGTH}
-              aria-label={`Digit ${i + 1}`}
+              aria-label={t('Digit {n}', { n: i + 1 })}
               disabled={busy}
             />
           ))}
@@ -162,10 +161,10 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
         )}
 
         <button className="btn btn-primary" disabled={code.length !== LENGTH || busy} onClick={() => verify(code)}>
-          {busy ? 'Checking…' : 'Continue'}
+          {busy ? t('Checking…') : t('Continue')}
         </button>
         <button className="btn btn-quiet" disabled={wait > 0} onClick={resend}>
-          {wait > 0 ? `Send another code in ${wait}s` : 'Send another code'}
+          {wait > 0 ? t('Send another code in {n}s', { n: wait }) : t('Send another code')}
         </button>
       </div>
     </div>

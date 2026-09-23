@@ -123,7 +123,7 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, onD
       </div>
       <div className="screen-body">
         <h1 className="display" style={{ fontSize: 28 }}>{t('What do you mostly decide?')}</h1>
-        <p className="lede">Your AI routes by role. This is the only thing it cannot guess on day one.</p>
+        <p className="lede">{t('Your AI routes by role. This is the only thing it cannot guess on day one.')}</p>
 
         <div className="rows">
           {ROLES.map((r) => (

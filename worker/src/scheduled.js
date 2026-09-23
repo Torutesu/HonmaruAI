@@ -1,4 +1,4 @@
-import { CONNECTORS } from "./connectors/index.js";
+import { availableConnectors } from "./connectors/index.js";
 import { syncAll } from "./sync.js";
 import { notifyCard } from "./notify.js";
 import { sweepRateLimits } from "./ratelimit.js";
@@ -20,8 +20,9 @@ import { safe } from "./log.js";
 const MAX_USERS_PER_RUN = 50;
 
 /// Users worth syncing: a live session (so we have a GitHub token), a
-/// membership (so we know where their cards go), and at least one configured
-/// connector. Anyone else has nothing to fetch.
+/// membership (so we know where their cards go), and at least one connector
+/// — configured (Notion's database) or remembered as connected the last time
+/// `GET /connectors` listed their accounts. Anyone else has nothing to fetch.
 ///
 /// Ordered by who has waited longest, not who signed in last: a cap ordered
 /// by session age picks the same 50 every run and the 51st user never syncs
@@ -69,7 +70,10 @@ export async function runScheduledSync(env, ctx) {
     try {
       // One user's broken connector must not stop the rest of the run, exactly
       // as one connector's outage does not silence the others inside syncAll.
-      const results = await syncAll(CONNECTORS, {
+      // The connectors this deployment can actually run — not the whole
+      // catalogue. Every 15 minutes the cron fired a Composio call for
+      // Calendar and Drive on deployments that offer neither.
+      const results = await syncAll(availableConnectors(env), {
         env, session,
         orgId: row.org_id,
         userId: row.login,

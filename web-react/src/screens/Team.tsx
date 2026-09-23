@@ -55,6 +55,11 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
   const t = useT()
   const [members, setMembers] = useState<Member[] | null>(null)
   const [editable, setEditable] = useState(true)
+  // What the team calls itself, and whether this person may change it.
+  const [teamName, setTeamName] = useState<string | null>(null)
+  const [canRename, setCanRename] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [draftName, setDraftName] = useState('')
   const [invites, setInvites] = useState<Invite[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -74,6 +79,8 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
       if (!m.ok) { setError(mine.message || t('Could not read your team.')); setMembers([]); return }
       setMembers(mine.members || [])
       setEditable(mine.editable !== false)
+      setTeamName(typeof mine.name === 'string' ? mine.name : null)
+      setCanRename(mine.canRename === true)
       // The codes are the smaller half of this screen: failing to read them is
       // not a reason to show nothing about the people.
       if (i.ok) setInvites((await i.json().catch(() => ({}))).invites || [])
@@ -116,6 +123,24 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
     } finally { setBusy(null) }
   }
 
+  const rename = async () => {
+    const name = draftName.trim()
+    if (!name) return
+    setBusy('rename')
+    setError(null)
+    try {
+      const res = await fetch(`${httpBase}/orgs/name`, {
+        method: 'PUT',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, name }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.message || t('That did not save.')); return }
+      setTeamName(data.name || name)
+      setRenaming(false)
+    } finally { setBusy(null) }
+  }
+
   const copy = (invite: Invite) => {
     if (!invite.code) return
     navigator.clipboard?.writeText(invite.code)
@@ -131,6 +156,36 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
       </div>
       <div className="screen-body">
         {error && <div className="form-error">{error}</div>}
+
+        {/* The name on the door. A repository is named by GitHub; a team
+            made here, or the workspace a sign-up handed out, is named by
+            its admins — and until it is, it is "your workspace". */}
+        <div className="team-name-row">
+          {renaming ? (
+            <form className="team-rename" onSubmit={(e) => { e.preventDefault(); void rename() }}>
+              <input
+                className="team-name-input"
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                placeholder={t('Team name')}
+                aria-label={t('Team name')}
+                maxLength={60}
+                autoFocus
+              />
+              <button type="submit" className="pill-btn" disabled={busy === 'rename' || !draftName.trim()}>{t('Save')}</button>
+              <button type="button" className="btn-text" onClick={() => setRenaming(false)}>{t('Cancel')}</button>
+            </form>
+          ) : (
+            <>
+              <h1 className="team-name">{teamName || (orgId.includes('/') ? orgId : t('Your workspace'))}</h1>
+              {canRename && (
+                <button className="btn-text team-rename-btn" onClick={() => { setDraftName(teamName || ''); setRenaming(true) }}>
+                  {teamName ? t('Rename') : t('Name it')}
+                </button>
+              )}
+            </>
+          )}
+        </div>
 
         <div className="rows-title">{t('Who is here')}</div>
         {members === null && <div className="empty">{t('One moment…')}</div>}

@@ -32,6 +32,12 @@ struct YouView: View {
                         Button(action: openNotifications) { row("Notifications", icon: "bell", value: notificationStatus) }.disabled(!PushService.isEnabledInThisBuild || appState.isGuest)
                         separator
                         NavigationLink { RequestHistoryView().environmentObject(appState) } label: { row("History", icon: "clock.arrow.circlepath") }
+                        // The numbers: how long decisions wait, what gets
+                        // declined, what the AI got wrong. A guest has no
+                        // workspace for them to be about.
+                        if !appState.isGuest {
+                            NavigationLink { InsightsView().environmentObject(appState) } label: { row("Insights", icon: "chart.bar") }
+                        }
                     }
                     group {
                         NavigationLink { SubscriptionView().environmentObject(appState) } label: {

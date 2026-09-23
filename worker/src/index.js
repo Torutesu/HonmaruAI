@@ -1,13 +1,15 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
-import { signup, login, createInvite, acceptInvite, isGitHubSession } from "./auth.js";
+import { signup, login, createInvite, acceptInvite, isGitHubSession, inviteLink, peekInvite } from "./auth.js";
 import { requestCode, verifyCode } from "./otp.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
-  isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
+  isIngested, markIngested, saveCard,
+  saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
+  rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
@@ -21,12 +23,23 @@ import { listMembers, listMembersForClient, removeMember, listInvites, revokeInv
 import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured, isDeviceToken } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
-import { isMailConfigured } from "./mailer.js";
-import { SUPPORTED_LOCALES } from "./notifyCopy.js";
+import { isMailConfigured, sendMail } from "./mailer.js";
+import { SUPPORTED_LOCALES, composeInviteEmail } from "./notifyCopy.js";
+import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
+import {
+  recordFeedback, orgMetrics, recipientLoad, recentDecisions, exportGolden, searchDecisions,
+  FEEDBACK_VERDICTS, FEEDBACK_REASONS,
+} from "./insights.js";
+import { answerQuestion, searchTermsFor } from "./ask.js";
+import { draftReply } from "./draft.js";
+import { jevConfig } from "./jev.js";
+import { localizeCard, needsLocalizing } from "./localize.js";
+import { connectedSources, lookupsFor, searchNotion, searchGithubIssues } from "./context.js";
+import { ingestedItemForCard } from "./db.js";
 import { alert } from "./alert.js";
-import { listCardEvents, listOrgEvents } from "./events.js";
+import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
@@ -38,6 +51,13 @@ import { billingStatus } from "./plans.js";
 import { providerConfig } from "./provider.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { buildRecord, recordToMarkdown } from "./record.js";
+
+// The longest thing `/ai/route` will read as one instruction. A sentence, a
+// paragraph, a pasted email — not a document. Not exported: workerd refuses
+// to start a Worker whose main module exports anything that is not a handler
+// or a function — a number here took the whole deployment down, and the test
+// runner (which imports the module differently) never noticed.
+const MAX_INSTRUCTION_CHARS = 4000;
 
 export { OrgRelay } from "./relay.js";
 
@@ -131,7 +151,7 @@ async function handle(request, env, url) {
     // one mails a code, one trades it for a session. Together they are the
     // only way in that needs nothing you had to have set up beforehand.
     if (url.pathname === "/auth/otp/request" && request.method === "POST") {
-      const limited = await enforce(env, request, "oauth/token");
+      const limited = await enforce(env, request, "otp/request");
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
       const result = await requestCode(env, {
@@ -192,6 +212,56 @@ async function handle(request, env, url) {
       return json(result);
     }
 
+    // What a code opens, before it is spent: the team's name, who sent it,
+    // the role. The join page reads this so the person sees "Join Acme as a
+    // member" and not a hex string. The code is the credential, so an
+    // unknown, expired or spent one is answered exactly like a guess.
+    if (url.pathname === "/invites/peek" && request.method === "GET") {
+      const limited = await enforce(env, request, "invites/peek");
+      if (limited) return limited;
+      const peek = await peekInvite(env, url.searchParams.get("code") || "");
+      if (!peek) return json({ message: "That invite code is not valid." }, 404);
+      const { orgId: _orgId, ...shown } = peek;
+      return json(shown);
+    }
+
+    // An invitation by address. Mints a single-use code for the role and
+    // mails it — as a link where the deployment has a web address, as the
+    // code either way — in the sender's language, the only one we know
+    // before the invitee has an account. Same budget as minting a code by
+    // hand: each of these is a credential, and a mail.
+    if (url.pathname === "/invites/email" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      if (!isMailConfigured(env)) return json({ message: "This deployment cannot send email yet. Share the code instead." }, 503);
+      const body = await request.json().catch(() => ({}));
+      const to = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) || to.length > 254) return json({ message: "That is not an email address." }, 400);
+      if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
+        return json({ message: "You are not a member of this organization." }, 403);
+      }
+      const minted = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: 1 });
+      if (minted.error) return json({ message: minted.error }, 400);
+      const sender = await getUserByGithubId(env.DB, session.github_id);
+      const mail = composeInviteEmail({
+        inviter: sender?.name || sender?.login || null,
+        team: await teamName(env.DB, body.orgId),
+        code: minted.code,
+        url: minted.link,
+        days: 7,
+        locale: sender?.locale || localeFromRequest(request),
+      });
+      const sent = await sendMail(env, { to, subject: mail.subject, text: mail.text });
+      if (!sent.ok) {
+        // A code nobody received is a door left open for nothing.
+        await env.DB.prepare("DELETE FROM invites WHERE code = ?1").bind(minted.code).run();
+        return json({ message: "We could not send the invitation. Try again in a moment." }, 502);
+      }
+      return json({ ok: true, ref: minted.ref, role: minted.role, to });
+    }
+
     if (url.pathname === "/invites/accept" && request.method === "POST") {
       // Redeeming or minting a code grants org membership, so both are guessable
       // surfaces and both get the same budget as the other credential routes.
@@ -202,6 +272,32 @@ async function handle(request, env, url) {
       const body = await request.json().catch(() => ({}));
       const result = await acceptInvite(env, { code: body.code, userId: session.github_id });
       if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    // Start a team. The one workspace a sign-up hands out is enough for
+    // one person; the second business, the side project, the client you
+    // work with, each want a room of their own with a name on the door.
+    if (url.pathname === "/orgs" && request.method === "POST") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await createTeam(env.DB, { name: body.name, createdBy: session.github_id });
+      if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    // Name, or rename, the team. Admins of it, and never a repository.
+    if (url.pathname === "/orgs/name" && request.method === "PUT") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await renameTeam(env.DB, { orgId: body.orgId, actorId: session.github_id, name: body.name });
+      if (result.error) return json({ message: result.error }, result.status || 400);
       return json(result);
     }
 
@@ -224,6 +320,9 @@ async function handle(request, env, url) {
         // where they are actually decided rather than offering a button that
         // the next org-graph load would undo.
         editable: membershipIsOurs(orgId),
+        // What the team calls itself, and whether this person may change it.
+        name: await teamName(env.DB, orgId),
+        canRename: await canRename(env.DB, orgId, session.github_id),
       });
     }
 
@@ -288,7 +387,9 @@ async function handle(request, env, url) {
         ok: true,
         orgId: "core-team",
         githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+        githubOAuthWeb: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.GITHUB_WEB_REDIRECT_URI),
         aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),
+        systemOne: Boolean(env.TYPESAFE_API_KEY),
         aiModel: env.OPENAI_API_KEY
           ? env.OPENAI_MODEL || "gpt-4o-mini"
           : env.OPENROUTER_API_KEY
@@ -297,6 +398,8 @@ async function handle(request, env, url) {
         push: isConfigured(env),
         webPush: isWebPushConfigured(env),
         email: isMailConfigured(env),
+        // Invite links and notification links need the web's own address.
+        inviteLinks: Boolean(inviteLink(env, "probe")),
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {
@@ -305,7 +408,20 @@ async function handle(request, env, url) {
     if (url.pathname === "/ai/route" && request.method === "POST") {
       const limited = await enforce(env, request, "ai/route");
       if (limited) return limited;
-      const body = await request.json();
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      // The whole body becomes a prompt. An instruction is a sentence or a
+      // paragraph; anything longer is not one, and on a paid, unmetered tier
+      // it is somebody else's model context on our key.
+      if (typeof body.text !== "string" || !body.text.trim()) {
+        return json({ message: "text is required." }, 400);
+      }
+      if (body.text.length > MAX_INSTRUCTION_CHARS) {
+        return json({ message: `That instruction is too long (over ${MAX_INSTRUCTION_CHARS} characters).` }, 400);
+      }
+      if (typeof body.senderContext === "string" && body.senderContext.length > MAX_INSTRUCTION_CHARS) {
+        return json({ message: "senderContext is too long." }, 400);
+      }
       const userKey = request.headers.get("x-ai-key") || undefined;
       // The route is usable without a session (guests), but only a session can
       // be metered — and an unmetered guest must not spend our AI budget.
@@ -319,6 +435,8 @@ async function handle(request, env, url) {
       // whole team (and cannot be spoofed by the client). Fall back to whatever
       // the client sent only when there is no session/org to look up.
       let organization = body.organization;
+      let teamContext;
+      let lookups;
       const routeOrgId = body.organization?.orgId || body.orgId;
       const chosenId = body.recipientUserID;
       if (chosenId !== undefined && (typeof chosenId !== "string" || !chosenId.trim())) {
@@ -360,6 +478,32 @@ async function handle(request, env, url) {
         // one the feed can filter by.
         const businesses = await listBusinesses(env.DB, routeOrgId);
         if (businesses.length) organization = { ...(organization || {}), orgId: routeOrgId, businesses };
+        // What the team is carrying and what it decided lately. The router
+        // used to see roles and nothing else — "their priorities and current
+        // situation", which the product promises to weigh, were never in the
+        // prompt. Two queries, both bounded, both optional: a failure here is
+        // a card routed the old way, not a card not routed.
+        try {
+          const [load, recent] = await Promise.all([
+            recipientLoad(env.DB, routeOrgId),
+            recentDecisions(env.DB, routeOrgId),
+          ]);
+          if (load.length || recent.length) teamContext = { load, recent };
+        } catch (err) {
+          console.error("team context failed", err?.message || err);
+        }
+        // And the one thing the model may look up before it writes: what
+        // this team already decided about the same thing.
+        const lookupOrg = routeOrgId;
+        lookups = { searchDecisions: (query) => searchDecisions(env.DB, lookupOrg, query) };
+        // And the person's own connected tools, when they have them.
+        try {
+          const routeSession = await getSession(env.DB, request.headers.get("x-session-token"));
+          const sources = await connectedSources(env, routeSession, lookupOrg);
+          Object.assign(lookups, lookupsFor(env, routeSession, lookupOrg, sources));
+        } catch (err) {
+          console.error("connected sources failed", err?.message || err);
+        }
       }
 
       if (chosenMember) {
@@ -373,8 +517,15 @@ async function handle(request, env, url) {
         priorityOverride: body.priorityOverride,
         readerLanguage: body.readerLanguage,
         senderContext: body.senderContext,
+        teamContext,
+        lookups,
         // No provider means the local keyword router — the graceful degradation.
         openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
+        // System One decides for a fraction of a cent, allowance or not; the
+        // language model is the second opinion, within the allowance. But
+        // only for someone signed in: a guest is unmetered, and unmetered
+        // must mean spending nothing, however little.
+        systemOne: session ? jevConfig(env) : undefined,
       });
       if (chosenMember) {
         result.recipientUserID = chosenMember.login;
@@ -393,12 +544,22 @@ async function handle(request, env, url) {
       if (modelAnswered && allowance.metered) await allowance.consume();
       // Internal to the meter. Stripped so the wire format is unchanged.
       delete result.aiCalled;
+      delete result.systemOneUsage;
 
       return json(allowance.quotaExceeded ? { ...result, quotaExceeded: true } : result);
     }
     if (url.pathname === "/oauth/github/config" && request.method === "GET") {
       if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
         return json({ message: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET as Worker secrets" }, 503);
+      }
+      // The app comes back through its own URL scheme; the web through a page
+      // on its own origin. Each is a callback URL registered on the GitHub
+      // OAuth app, and the web one is offered only where it has been set.
+      if (url.searchParams.get("client") === "web") {
+        if (!env.GITHUB_WEB_REDIRECT_URI) {
+          return json({ message: "GitHub sign-in on the web is not set up on this deployment (GITHUB_WEB_REDIRECT_URI)." }, 503);
+        }
+        return json({ clientId: env.GITHUB_CLIENT_ID, redirectUri: env.GITHUB_WEB_REDIRECT_URI, scope: env.GITHUB_OAUTH_SCOPE || "repo" });
       }
       return json({
         clientId: env.GITHUB_CLIENT_ID,
@@ -417,7 +578,14 @@ async function handle(request, env, url) {
     if (url.pathname === "/oauth/github/token" && request.method === "POST") {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
-      const { code, state } = await request.json();
+      const { code, state, redirectUri } = await request.json().catch(() => ({}));
+      // The redirect the code was issued for. GitHub checks it against the
+      // authorize step, and we check it against the two we registered, so a
+      // caller cannot exchange a code through an address of their own.
+      const appRedirect = env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback";
+      const allowedRedirects = new Set([appRedirect, env.GITHUB_WEB_REDIRECT_URI].filter(Boolean));
+      const redirect = typeof redirectUri === "string" && redirectUri ? redirectUri : appRedirect;
+      if (!allowedRedirects.has(redirect)) return json({ message: "That is not a sign-in address this deployment knows." }, 400);
       if (!(await consumeOAuthState(env.DB, state))) {
         return json({ message: "This sign-in has expired. Try again." }, 400);
       }
@@ -428,7 +596,7 @@ async function handle(request, env, url) {
           client_id: env.GITHUB_CLIENT_ID,
           client_secret: env.GITHUB_CLIENT_SECRET,
           code,
-          redirect_uri: env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback",
+          redirect_uri: redirect,
         }),
         signal: AbortSignal.timeout(20_000),
       });
@@ -459,7 +627,10 @@ async function handle(request, env, url) {
       // repository this person can reach, code included — and the app does six
       // things with it, all of which now go through /github. A session cannot
       // be replayed against api.github.com; an access token can.
-      return json({ tokenType: "bearer", sessionToken, login: ghUser.login });
+      // The workspaces this account already belongs to, so a returning person
+      // lands in one instead of the repository picker.
+      const orgs = (await listUserOrgs(env.DB, String(ghUser.id)).catch(() => [])).map((o) => o?.id).filter(Boolean);
+      return json({ tokenType: "bearer", sessionToken, login: ghUser.login, orgs });
     }
     if (url.pathname === "/media" && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -552,6 +723,7 @@ async function handle(request, env, url) {
         // An email account signs in with its address; only a GitHub account
         // can change where mail goes.
         emailEditable: !String(user.github_id).startsWith("email:"),
+        aliases: parseAliases(user.aliases),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         supportedLocales: SUPPORTED_LOCALES,
         // What the router will assume you decide, and what you may change it
@@ -580,6 +752,11 @@ async function handle(request, env, url) {
       if (body.notifyEmail !== undefined) {
         await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
       }
+      if (body.aliases !== undefined) {
+        const aliases = normalizeAliases(body.aliases);
+        if (!aliases) return json({ message: "aliases must be a list of names" }, 400);
+        await setUserAliases(env.DB, session.github_id, aliases);
+      }
       // Where email falls back to. A GitHub account has none unless it says
       // so here; an email account's address is its login and cannot change.
       if (body.email !== undefined) {
@@ -601,6 +778,7 @@ async function handle(request, env, url) {
         locale: user?.locale || "en",
         email: user?.email || null,
         notifyEmail: Number(user?.notify_email ?? 1) !== 0,
+        aliases: parseAliases(user?.aliases),
         ...(role ? { role } : {}),
       });
     }
@@ -632,7 +810,10 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json().catch(() => ({}));
-      if (typeof body.endpoint === "string") await removeSubscription(env.DB, body.endpoint);
+      // Yours, not anyone's. The endpoint is high-entropy, but the query was
+      // keyed on it alone, so a signed-in account that learned another's could
+      // unsubscribe them.
+      if (typeof body.endpoint === "string") await removeSubscription(env.DB, body.endpoint, session.github_id);
       return json({ ok: true });
     }
     // Registered after the user grants permission, and re-registered on every
@@ -640,7 +821,7 @@ async function handle(request, env, url) {
     if (url.pathname === "/devices" && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      const body = await request.json();
+      const body = await request.json().catch(() => ({}));
       if (!body.deviceToken) return json({ message: "deviceToken is required" }, 400);
       // Shape-checked here rather than trusted: this string ends up in the path
       // of a request to Apple, signed with our provider token.
@@ -660,8 +841,8 @@ async function handle(request, env, url) {
     if (url.pathname === "/devices" && request.method === "DELETE") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      const body = await request.json();
-      if (body.deviceToken) await removeDevice(env.DB, body.deviceToken);
+      const body = await request.json().catch(() => ({}));
+      if (typeof body.deviceToken === "string") await removeDevice(env.DB, body.deviceToken, session.github_id);
       return json({ ok: true });
     }
     // Everything we hold about the caller, as a download. Deletion without
@@ -763,6 +944,13 @@ async function handle(request, env, url) {
           .filter((a) => String(a.status).toUpperCase() === "ACTIVE")
           .map((a) => (typeof a.toolkit === "string" ? a.toolkit : a.toolkit?.slug))
       );
+      // What this person has connected, remembered, so the cron syncs them
+      // between visits. Both clients load this list on the Tools screen.
+      try {
+        await rememberConnections(env.DB, session.github_id, availableConnectors(env).map((c) => c.id), active);
+      } catch (err) {
+        console.error("remembering connections failed", err?.message || err);
+      }
       return json({
         connectors: availableConnectors(env).map((c) => ({
           id: c.id, label: c.label, status: active.has(c.id) ? "active" : "none",
@@ -853,9 +1041,13 @@ async function handle(request, env, url) {
     if (url.pathname === "/connectors/notion/config" && request.method === "PUT") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      const body = await request.json();
-      if (!body.databaseId) return json({ message: "databaseId is required" }, 400);
-      await setConnectorConfig(env.DB, session.github_id, "notion", { databaseId: body.databaseId });
+      const body = await request.json().catch(() => ({}));
+      if (typeof body.databaseId !== "string" || !body.databaseId) return json({ message: "databaseId is required" }, 400);
+      // Beside what the connector already remembers (that it is connected),
+      // not instead of it: this used to drop the `connected` flag, and the
+      // person disappeared from the cron until the next time they opened Tools.
+      const existing = await getConnectorConfig(env.DB, session.github_id, "notion");
+      await setConnectorConfig(env.DB, session.github_id, "notion", { ...(existing || {}), databaseId: body.databaseId });
       return json({ ok: true });
     }
 
@@ -879,7 +1071,7 @@ async function handle(request, env, url) {
       const limited = await enforce(env, request, "connectors/sync");
       if (limited) return limited;
 
-      const body = await request.json();
+      const body = await request.json().catch(() => ({}));
       if (!body.orgId) return json({ message: "orgId is required" }, 400);
 
       // Membership is checked here for the same reason the relay checks it on
@@ -919,13 +1111,302 @@ async function handle(request, env, url) {
       }
       return json({ results });
     }
+    // A question about a card, answered from what the team already knows.
+    // Not a card: nobody is asked to decide anything, and nothing is stored
+    // but the fact that the question was asked.
+    if (url.pathname === "/ai/ask" && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      const cardId = typeof body.cardId === "string" ? body.cardId : "";
+      const question = typeof body.question === "string" ? body.question.trim() : "";
+      if (!orgId || !cardId) return json({ message: "orgId and cardId are required" }, 400);
+      if (!question) return json({ message: "question is required" }, 400);
+      if (question.length > 1000) return json({ message: "That question is too long (over 1000 characters)." }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      const provider = providerConfig(env, userKey);
+      if (!provider) return json({ message: "Your AI has no model to answer with on this deployment." }, 503);
+      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey });
+      if (!allowance.allowed) {
+        return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
+      }
+      let related = [];
+      let recent = [];
+      let sources = [];
+      try {
+        const terms = searchTermsFor(question, card);
+        const available = await connectedSources(env, session, orgId);
+        const [decisionsHit, recentHit, notionHit, githubHit] = await Promise.all([
+          searchDecisions(env.DB, orgId, terms),
+          recentDecisions(env.DB, orgId, { limit: 8 }),
+          available.notion ? searchNotion(env, session.github_id, terms).catch((err) => { console.error("notion search failed", err?.message || err); return []; }) : [],
+          available.github ? searchGithubIssues(session, orgId, terms).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
+        ]);
+        related = decisionsHit;
+        recent = recentHit;
+        sources = [...notionHit, ...githubHit];
+      } catch (err) {
+        console.error("ask context failed", err?.message || err);
+      }
+      const result = await answerQuestion({
+        provider, card, question, readerLanguage: body.readerLanguage, recent, related, sources,
+      });
+      if (result.called && allowance.metered) await allowance.consume();
+      if (!result.answer) return json({ message: "Your AI could not answer that just now." }, 502);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      await appendCardEvent(env.DB, orgId, {
+        cardId, type: "asked", actorUserId: user?.login || null, note: question.slice(0, 500), snapshot: card,
+      });
+      return json({
+        answer: result.answer,
+        related: related.slice(0, 5).map((d) => ({ title: d.title, status: d.status, decidedAt: d.decidedAt, recipient: d.recipient })),
+        sources: sources.slice(0, 6).map((r) => ({ app: r.app, title: r.title, url: r.url })),
+      });
+    }
+
+    // The message back to whoever asked, drafted from the decision. Only the
+    // two people on the card can speak for it, and only once it is decided:
+    // a reply to a pending card is a promise nobody has made.
+    if (url.pathname === "/ai/draft" && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      const cardId = typeof body.cardId === "string" ? body.cardId : "";
+      if (!orgId || !cardId) return json({ message: "orgId and cardId are required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (user?.login !== card.recipientUserID && user?.login !== card.senderUserID) {
+        return json({ message: "Only the people on this card can draft its reply." }, 403);
+      }
+      if (!card.decision || card.status === "pending") {
+        return json({ message: "Decide first; the reply follows the decision." }, 409);
+      }
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      const provider = providerConfig(env, userKey);
+      if (!provider) return json({ message: "Your AI has no model to draft with on this deployment." }, 503);
+      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey });
+      if (!allowance.allowed) {
+        return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
+      }
+      const result = await draftReply({
+        provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage,
+      });
+      if (result.called && allowance.metered) await allowance.consume();
+      if (!result.draft) return json({ message: "Your AI could not draft that just now." }, 502);
+      await appendCardEvent(env.DB, orgId, {
+        cardId, type: "drafted", actorUserId: user?.login || null, note: result.draft.slice(0, 500), snapshot: card,
+      });
+      return json({ draft: result.draft, language: result.language });
+    }
+
+    // The reply, sent back the way the request came: on the Gmail thread, in
+    // the Slack thread. Only for a card this person's own sync made from a
+    // message — the ingested record, which no client can write, is the link
+    // — and only once it is decided. The text is the person's: the draft,
+    // read and changed by them.
+    const replyMatch = url.pathname.match(/^\/cards\/([^/]+)\/reply$/);
+    if (replyMatch && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const cardId = decodeURIComponent(replyMatch[1]);
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      const text = typeof body.text === "string" ? body.text.trim() : "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      if (!text) return json({ message: "text is required" }, 400);
+      if (text.length > 4000) return json({ message: "That reply is too long (over 4000 characters)." }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (user?.login !== card.recipientUserID && user?.login !== card.senderUserID) {
+        return json({ message: "Only the people on this card can reply for it." }, 403);
+      }
+      if (!card.decision || card.status === "pending") {
+        return json({ message: "Decide first; the reply follows the decision." }, 409);
+      }
+      if (!env.COMPOSIO_API_KEY) return json({ message: "Connected apps are not on this deployment. Copy the reply and send it yourself." }, 503);
+      const item = await ingestedItemForCard(env.DB, cardId, session.github_id);
+      if (!item) return json({ message: "This card did not come from a connected app. Copy the reply and send it yourself." }, 409);
+      const connector = connectorById(item.connector);
+      const tool = connector?.replyTool ? connector.replyTool(card.source || {}, text) : null;
+      if (!tool) return json({ message: `A reply cannot go back through ${connector?.label || item.connector} from here. Copy it and send it yourself.` }, 409);
+      try {
+        await executeTool(env.COMPOSIO_API_KEY, tool.slug, String(session.github_id), tool.args);
+      } catch (err) {
+        console.error("reply send failed", safe(err?.message || err));
+        return json({ message: `${connector.label} did not take the reply. Copy it and send it yourself.` }, 502);
+      }
+      await appendCardEvent(env.DB, orgId, {
+        cardId, type: "replied", actorUserId: user?.login || null, note: text.slice(0, 500), snapshot: card,
+      });
+      return json({ sent: true, via: connector.label });
+    }
+
+    // The team's decisions, by keyword — what the command palette shows
+    // under the cards the browser already has. The same search the router
+    // and "Ask anything" use, for a person.
+    if (url.pathname === "/search" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "";
+      const q = (url.searchParams.get("q") || "").trim().slice(0, 200);
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const hits = q ? await searchDecisions(env.DB, orgId, q, { limit: 12 }) : [];
+      return json({ hits });
+    }
+
+    // A card in the reader's language, on request. The relay translates for
+    // the recipient when a card is made; everyone else — a teammate reading
+    // the feed, the sender after switching languages, a recipient whose
+    // language changed — asks here. Stored on the card, so the next reader
+    // of that language pays nothing, and re-broadcast so every open device
+    // shows the same words.
+    const localizeMatch = url.pathname.match(/^\/cards\/([^/]+)\/localize$/);
+    if (localizeMatch && request.method === "POST") {
+      const limited = await enforce(env, request, "cards/localize");
+      if (limited) return limited;
+      const cardId = decodeURIComponent(localizeMatch[1]);
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      const locale = typeof body.locale === "string" ? body.locale.toLowerCase().slice(0, 8) : "";
+      if (!orgId || !locale) return json({ message: "orgId and locale are required" }, 400);
+      if (!SUPPORTED_LOCALES.includes(locale)) return json({ message: "That language is not one the relay writes." }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      if (!needsLocalizing(card, locale)) {
+        return json({ localized: card.localized?.[locale] || null, already: true });
+      }
+      const provider = providerConfig(env, request.headers.get("x-ai-key") || undefined);
+      if (!provider) return json({ message: "Your AI has no model to translate with on this deployment." }, 503);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey: request.headers.get("x-ai-key") || undefined });
+      if (!allowance.allowed) return json({ message: "You have used today's AI answers.", quotaExceeded: true }, 429);
+      // A translation is a convenience the client asks for on its own; it
+      // must not spend the last of a metered day's allowance, which the
+      // person needs for the instruction they are about to type.
+      if (allowance.metered && allowance.remaining !== undefined && allowance.remaining <= 1) {
+        return json({ message: "Today's AI answers are nearly used up; the card stays in its own language.", quotaExceeded: true }, 429);
+      }
+      const localized = await localizeCard(card, { provider, locale, allowance });
+      if (!localized) return json({ message: "Your AI could not translate that just now." }, 502);
+      // Only the new words are written: the card may have been decided while
+      // the model was translating, and that decision must survive.
+      await saveCardLocalization(env.DB, orgId, cardId, locale, localized.localized[locale]);
+      const fresh = (await getCard(env.DB, orgId, cardId)) || localized;
+      await announceCards(env, orgId, [fresh], { isNew: false });
+      return json({ localized: localized.localized[locale] });
+    }
+
+    // One card, for any member of its org: what a search hit older than the
+    // socket's snapshot opens from. The socket sends the recent window; the
+    // palette's "Decided before" reaches past it.
+    const cardById = url.pathname.match(/^\/cards\/([^/]+)$/);
+    if (cardById && request.method === "GET") {
+      const cardId = decodeURIComponent(cardById[1]);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      return json({ card });
+    }
+
+    // One card's history, for any member of its org. The older route is
+    // keyed by owner/repo and cannot name a personal or email workspace;
+    // this one takes the org id every other route takes.
+    const cardEventsById = url.pathname.match(/^\/cards\/([^/]+)\/events$/);
+    if (cardEventsById && request.method === "GET") {
+      const cardId = decodeURIComponent(cardEventsById[1]);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ events: await listCardEvents(env.DB, orgId, cardId) });
+    }
+
+    // What a person thought of a card. The one signal that turns "the AI
+    // routed it wrong" from a feeling into a row the eval set can be built
+    // from. Sender or recipient only: they are the two who can know.
+    const feedbackMatch = url.pathname.match(/^\/cards\/([^/]+)\/feedback$/);
+    if (feedbackMatch && request.method === "POST") {
+      const cardId = decodeURIComponent(feedbackMatch[1]);
+      const body = await request.json().catch(() => ({}));
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      if (!FEEDBACK_VERDICTS.has(body.verdict)) return json({ message: "verdict must be right or wrong" }, 400);
+      if (body.reason !== undefined && body.reason !== null && !FEEDBACK_REASONS.has(body.reason)) {
+        return json({ message: "unknown reason" }, 400);
+      }
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      if (card.recipientUserID !== user?.login && card.senderUserID !== user?.login) {
+        return json({ message: "Only the sender or the recipient can rate this card." }, 403);
+      }
+      await recordFeedback(env.DB, {
+        orgId, cardId, githubId: session.github_id,
+        verdict: body.verdict, reason: body.reason || null, note: body.note || null,
+      });
+      await appendCardEvent(env.DB, orgId, {
+        cardId, type: "feedback", action: body.verdict, actorUserId: user?.login || null,
+        note: body.reason || null, snapshot: card,
+      });
+      return json({ ok: true });
+    }
+
+    // How the feed is doing for this team, from the cards themselves.
+    if (url.pathname === "/metrics" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json(await orgMetrics(env.DB, orgId, { days: url.searchParams.get("days") }));
+    }
+
+    // Real cards, with their verdicts, in the shape the eval harness reads.
+    if (url.pathname === "/eval/export" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ entries: await exportGolden(env.DB, orgId, { limit: url.searchParams.get("limit") }) });
+    }
+
     const orgEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/events$/);
     if (orgEventsMatch && request.method === "GET") {
       const [, owner, repo] = orgEventsMatch;
       const orgId = `${owner}/${repo}`;
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
-      const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
+      // Positive, or the default. `Number("-1") || 50` is -1, and SQLite
+      // reads a negative LIMIT as "no limit" — every event the org has ever
+      // logged, each with a full card snapshot, in one response.
+      const asked = Number.parseInt(url.searchParams.get("limit") || "", 10);
+      const limit = Number.isFinite(asked) && asked > 0 ? Math.min(asked, 200) : 50;
       return json({ events: await listOrgEvents(env.DB, orgId, limit) });
     }
     // GitHub, reached through us. The app used to hold the access token and
@@ -1052,17 +1533,27 @@ async function handle(request, env, url) {
     return new Response("not found", { status: 404 });
 }
 
+// Allow browser clients (the web app) to call this API. Native apps are not
+// subject to CORS, so this was never needed until the web client. Every JSON
+// response carries these — including the ones that are not built here, like a
+// rate limiter's 429, or a browser cannot read the body that says when to
+// come back.
+export const CORS_HEADERS = Object.freeze({
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+});
+
 export function json(body, status = 200, extraHeaders) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
+      // Nothing this API answers with JSON is for a cache: session tokens,
+      // a person's settings, a team's invite codes. `/media` sets its own.
+      "cache-control": "no-store",
       ...(extraHeaders || {}),
       "content-type": "application/json",
-      // Allow browser clients (the web app) to call this API. Native apps are
-      // not subject to CORS, so this was never needed until the web client.
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
-      "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+      ...CORS_HEADERS,
     },
   });
 } 

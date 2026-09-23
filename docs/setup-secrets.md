@@ -112,6 +112,19 @@ npx wrangler deploy
 
 ---
 
+## 1-e. Web でも GitHub サインイン（5 分）
+
+iPhone と同じ GitHub OAuth App に、Web 用のコールバックをもう 1 つ登録します。
+
+1. GitHub → Settings → Developer settings → OAuth Apps → 該当アプリ →
+   **Authorization callback URL** に Web の URL（例 `https://honmaru.pages.dev/`、末尾スラッシュまで）を追加。
+   GitHub は 1 アプリに複数のコールバック URL を許します。
+2. Worker に同じ値を入れる: `npx wrangler@4 secret put GITHUB_WEB_REDIRECT_URI`
+   （staging があれば `--env staging` でプレビューの URL）。
+3. 確認: `/health` の `githubOAuthWeb` が `true`、Web の最初の画面に
+   「GitHub で続ける」が出る。サインイン後は書き込みできるリポジトリを選ぶ画面になり、
+   選んだリポジトリがワークスペース（Issue 作成と GitHub 検索が使える）になります。
+
 ## 2〜3 をまとめてやる場合（手動でやる場合の説明は下）
 
 段階 1 を終えて `npx wrangler login` が済んでいれば、2 と 3 と 4 の秘密情報は
@@ -248,6 +261,35 @@ https/wss を組み立てる。
 
 ---
 
+## 4.4. Jev（TypeSafe）で判断コストを下げる（任意・10 分）
+
+ルーティングで払っている LLM 代のほとんどは「文章を書く」ではなく「決める」
+（誰宛か・種類・優先度・どの事業か）に使われています。Jev はその判断だけを
+型付きの答え＋確信度で返すモデルで、入力 100 万トークン $0.042、出力は無料
+（gpt-4o-mini は入力 $0.15・出力 $0.60）。鍵を入れると Worker は
+「Jev が決め、カードの言葉は手元のルーターが書き、Jev が迷ったときだけ LLM に
+聞く」動きになります。同期の「この受信メールは判断が要るか」も Jev が先に
+答えるので、ほとんどのメール（＝要らない）が LLM を通らなくなります。
+
+```bash
+# 鍵は https://console.typesafe.ai で発行
+cd worker
+npx wrangler@4 secret put TYPESAFE_API_KEY
+# 任意: TYPESAFE_MODEL（既定 jev-latest）、TYPESAFE_ENDPOINT
+```
+
+入れる前に精度を見るなら、ゴールデンセットで:
+
+```bash
+TYPESAFE_API_KEY=... npm run eval:jev            # Jev だけ
+TYPESAFE_API_KEY=... OPENAI_API_KEY=... npm run eval:jev:model   # 迷ったら LLM
+```
+
+表の下に「routed by: jev N, OpenAI M」と Jev のトークン数・概算ドルが出ます。
+宛先精度の gate は `--gate 0.9` で同じように掛けられます。日本語は「対応して
+いるが英語ほどではない」と公式に書かれているので、日本語の項目の宛先精度を
+先に見てください。確信度の閾値は `worker/src/jev.js` の `CONFIDENT`（0.6）。
+
 ## 4.5. 運用アラート（任意だが推奨）
 
 未ハンドルの 500 と定期同期の失敗を、Slack の incoming webhook などに
@@ -262,6 +304,34 @@ Slack ならワークスペースの App 管理 → Incoming Webhooks で URL �
 リクエストを遅らせないよう `waitUntil` で送るので、応答速度への影響はない。
 
 ---
+
+## 4.6 ステージング（任意・15 分）
+
+本番と同じ Worker を `tiktokforwork-staging` という別名で動かし、リレー・D1・R2 を
+分けます。`worker/wrangler.toml` の `[env.staging]` がその定義です。
+`staging` ブランチに push すると **Deploy Worker** がこちらに出します
+（Actions から手動で environment=staging を選んでも同じ）。
+
+```bash
+cd worker
+npx wrangler@4 d1 create tiktokforwork-staging
+#   → 出力の database_id を wrangler.toml の [env.staging] の
+#     database_id（全部ゼロのプレースホルダ）に貼る
+npx wrangler@4 r2 bucket create tiktokforwork-media-staging
+# シークレットは環境ごと。本番と同じ名前を --env staging で入れる
+npx wrangler@4 secret put OPENAI_API_KEY --env staging
+npx wrangler@4 secret put RESEND_API_KEY --env staging
+npx wrangler@4 secret put COMPOSIO_API_KEY --env staging
+```
+
+Web 側は Cloudflare Pages のブランチプレビューをそのまま使います。Pages の
+Settings → Environment variables → **Preview** に
+`VITE_API_HOST=tiktokforwork-staging.torubj0904.workers.dev` を入れると、
+`main` 以外のブランチのプレビュー URL がステージング Worker を向きます
+（Production はそのまま本番 Worker）。
+
+プレースホルダのままだと Deploy Worker は staging を出さずに止まります
+（「Staging has no database yet」）。
 
 ## 5. 確認
 

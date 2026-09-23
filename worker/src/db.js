@@ -44,6 +44,22 @@ export async function saveCard(db, orgId, card) {
     .run();
 }
 
+/// One language's words onto a card, and nothing else. A translation takes
+/// up to thirty seconds, and the recipient may decide in that time: writing
+/// the whole card back afterwards would put the copy read before the
+/// decision over the decision. This touches only `localized.<locale>`, in
+/// the database, so whatever else changed meanwhile stays changed.
+export async function saveCardLocalization(db, orgId, cardId, locale, text) {
+  const label = String(locale).replace(/["\\]/g, "");
+  await db
+    .prepare(
+      `UPDATE cards SET data = json_set(data, '$.localized."${label}"', json(?3)), updated_at = ?4
+       WHERE org_id = ?1 AND card_id = ?2`
+    )
+    .bind(orgId, cardId, JSON.stringify(text), new Date().toISOString())
+    .run();
+}
+
 // One card, without paying to deserialize the whole org. The relay needs this
 // to answer "who does this card belong to?" before it lets anyone change it.
 export async function getCard(db, orgId, cardId) {
@@ -261,11 +277,49 @@ export async function getUserByGithubId(db, githubId) {
   return (
     (await db
       .prepare(
-        "SELECT github_id, login, name, avatar_url, locale, email, notify_email FROM users WHERE github_id = ?1"
+        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, aliases FROM users WHERE github_id = ?1"
       )
       .bind(String(githubId))
       .first()) || null
   );
+}
+
+export const MAX_ALIASES = 5;
+export const MAX_ALIAS_CHARS = 40;
+
+/// Other names this person answers to. Text, a few of them, short; the
+/// router reads them, so a name that is a common word would misroute — that
+/// is the person's call, and the flag under the card is how they find out.
+export function normalizeAliases(value) {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set();
+  const out = [];
+  for (const raw of value) {
+    if (typeof raw !== "string") return null;
+    const alias = raw.trim().slice(0, MAX_ALIAS_CHARS);
+    if (!alias || seen.has(alias.toLowerCase())) continue;
+    seen.add(alias.toLowerCase());
+    out.push(alias);
+    if (out.length >= MAX_ALIASES) break;
+  }
+  return out;
+}
+
+export async function setUserAliases(db, githubId, aliases) {
+  await db
+    .prepare("UPDATE users SET aliases = ?2 WHERE github_id = ?1")
+    .bind(String(githubId), aliases.length ? JSON.stringify(aliases) : null)
+    .run();
+}
+
+export function parseAliases(raw) {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.filter((a) => typeof a === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function upsertMembership(db, orgId, githubId, role) {
@@ -404,6 +458,16 @@ export async function isIngested(db, connector, externalId, githubId) {
   return Boolean(row);
 }
 
+/// The message a card was made from, if this person's sync made it. The
+/// one link between a card and an outside thread that a client cannot write.
+export async function ingestedItemForCard(db, cardId, githubId) {
+  const row = await db
+    .prepare("SELECT connector, external_id AS externalId FROM ingested_items WHERE card_id = ?1 AND user_github_id = ?2")
+    .bind(cardId, String(githubId))
+    .first();
+  return row || null;
+}
+
 export async function markIngested(db, { connector, externalId, githubId, orgId, cardId }) {
   await db
     .prepare(
@@ -482,6 +546,37 @@ export async function setConnectorConfig(db, githubId, connector, config) {
     .run();
 }
 
+export async function deleteConnectorConfig(db, githubId, connector) {
+  await db
+    .prepare("DELETE FROM connector_config WHERE user_github_id = ?1 AND connector = ?2")
+    .bind(String(githubId), connector)
+    .run();
+}
+
+/// Record which connectors Composio says this person has, so the cron can
+/// find them without asking Composio about everyone with a session.
+///
+/// The cron picks people up by the existence of a `connector_config` row,
+/// and until this existed only the Notion writer ever wrote one — so a
+/// person who connected Gmail was synced only when they pulled by hand, and
+/// "your AI triaged three decisions overnight" was true for exactly the
+/// people who had also configured Notion. A `connected` flag lives beside
+/// whatever configuration the connector already keeps; a row that carried
+/// nothing else is dropped when the account goes away.
+export async function rememberConnections(db, githubId, connectorIds, activeIds) {
+  for (const id of connectorIds) {
+    const existing = await getConnectorConfig(db, githubId, id);
+    if (activeIds.has(id)) {
+      if (!existing?.connected) await setConnectorConfig(db, githubId, id, { ...(existing || {}), connected: true });
+      continue;
+    }
+    if (!existing) continue;
+    const { connected, ...rest } = existing;
+    if (Object.keys(rest).length === 0) await deleteConnectorConfig(db, githubId, id);
+    else if (connected) await setConnectorConfig(db, githubId, id, rest);
+  }
+}
+
 export async function registerDevice(db, { deviceToken, githubId, login, environment }) {
   await db
     .prepare(
@@ -507,8 +602,18 @@ export async function devicesForLogin(db, login) {
   return results || [];
 }
 
-export async function removeDevice(db, deviceToken) {
-  await db.prepare("DELETE FROM device_tokens WHERE device_token = ?1").bind(deviceToken).run();
+/// Forget a device — the caller's own. A token is the push service's secret
+/// for one phone, but the delete was keyed on it alone, so knowing one was
+/// enough to silence it from any account.
+export async function removeDevice(db, deviceToken, githubId) {
+  if (githubId === undefined) {
+    await db.prepare("DELETE FROM device_tokens WHERE device_token = ?1").bind(deviceToken).run();
+    return;
+  }
+  await db
+    .prepare("DELETE FROM device_tokens WHERE device_token = ?1 AND user_github_id = ?2")
+    .bind(deviceToken, String(githubId))
+    .run();
 }
 
 // The relay knows a person by their github LOGIN; config is keyed by the numeric
@@ -554,8 +659,17 @@ export async function subscriptionsForLogin(db, login) {
   return results || [];
 }
 
-export async function removeSubscription(db, endpoint) {
-  await db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1").bind(endpoint).run();
+/// Forget a browser's subscription. With a `githubId`, only if it is theirs;
+/// without one — the push service said the endpoint is gone — whoever's it was.
+export async function removeSubscription(db, endpoint, githubId) {
+  if (githubId === undefined) {
+    await db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1").bind(endpoint).run();
+    return;
+  }
+  await db
+    .prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1 AND user_github_id = ?2")
+    .bind(endpoint, String(githubId))
+    .run();
 }
 
 
@@ -567,7 +681,8 @@ export async function listOrgNodes(db, orgId) {
     .prepare(
       `SELECT COALESCE(u.login, m.user_github_id) AS id,
               COALESCE(m.title, m.role) AS role,
-              COALESCE(u.name, u.login, m.user_github_id) AS name
+              COALESCE(u.name, u.login, m.user_github_id) AS name,
+              u.aliases AS aliases
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
         WHERE m.org_id = ?1`
@@ -581,6 +696,7 @@ export async function listOrgNodes(db, orgId) {
     kind: "person",
     role: (r.role || "member").toLowerCase(),
     label: `${r.name} · ${r.role || "member"}`,
+    ...(parseAliases(r.aliases).length ? { aliases: parseAliases(r.aliases) } : {}),
   }));
 }
 
@@ -688,6 +804,7 @@ export async function listUserOrgs(db, githubId) {
     .prepare(
       `SELECT m.org_id AS id,
               m.role   AS role,
+              (SELECT o.name FROM orgs o WHERE o.id = m.org_id) AS name,
               (SELECT COALESCE(u.name, u.login, om.user_github_id)
                  FROM memberships om
                  LEFT JOIN users u ON u.github_id = om.user_github_id
@@ -708,6 +825,9 @@ export async function listUserOrgs(db, githubId) {
   return (rows?.results || []).map((r) => ({
     id: r.id,
     role: r.role || "member",
+    // What the team called itself, when it did. A repository's id is its
+    // name; a personal workspace nobody renamed has none.
+    name: r.name || null,
     // A repository-backed org is already readable as "owner/repo"; only a
     // personal workspace needs a person's name to stand in for its id.
     founder: String(r.id).includes("/") ? null : r.founder || null,

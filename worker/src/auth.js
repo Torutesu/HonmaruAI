@@ -76,8 +76,16 @@ export function validEmail(email) {
 
 // Create an account: hash the password, store the user, put them in a default
 // org, and return a session token the client can use immediately.
+export const MAX_NAME_CHARS = 120;
+export const MAX_EMAIL_CHARS = 254;
+
 export async function signup(env, { email, password, name, inviteCode, locale, passwordless }) {
-  if (!validEmail(email)) return { error: "Please enter a valid email." };
+  if (!validEmail(email) || email.length > MAX_EMAIL_CHARS) return { error: "Please enter a valid email." };
+  // The name lands on every card this account creates, in every member's
+  // join snapshot, and in `/members`. Text, and not a page of it.
+  if (name !== undefined && name !== null && typeof name !== "string") {
+    return { error: "Name must be text." };
+  }
   // A passwordless sign-up has already proved the address by receiving a code
   // there, which is the thing a password stands in for. It gets no password
   // hash at all rather than a placeholder one, so `login()` — which requires a
@@ -102,7 +110,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
   // so it must be unique and must not be chosen by the caller. Derive it from
   // the email (already unique) and keep `name` as display text only.
   const login = `u:${normalizedEmail}`;
-  const displayName = name?.trim() || normalizedEmail.split("@")[0];
+  const displayName = (name || "").trim().slice(0, MAX_NAME_CHARS) || normalizedEmail.split("@")[0];
 
   // A caller-supplied orgId is not authorization. Signup may only place a user
   // in an org a valid invite names, or in a fresh org of their own. Trusting
@@ -250,7 +258,50 @@ export async function createInvite(env, { orgId, createdBy, role, uses }) {
     .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, ref) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
     .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses, ref)
     .run();
-  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses, ref };
+  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses, ref, link: inviteLink(env, code) };
+}
+
+/// The code as a link the web client opens: signed out, it lands on sign-up
+/// with the code filled in; signed in, it joins. Only where the deployment
+/// knows its own web address — the phone has no link to open otherwise.
+export function inviteLink(env, code) {
+  if (!env.APP_WEB_URL || !code) return null;
+  try {
+    const url = new URL(env.APP_WEB_URL);
+    url.hash = `#/join/${code}`;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/// What a code opens, for the person holding it, before they spend it: the
+/// team's name, who made the code, the role it grants. Nothing an outsider
+/// could not learn by redeeming it, and the code is the credential — an
+/// unknown, expired or spent one answers with nothing at all.
+export async function peekInvite(env, code) {
+  if (!code || typeof code !== "string") return null;
+  const row = await env.DB
+    .prepare(
+      `SELECT i.org_id, i.role, i.expires_at, i.max_uses, i.uses,
+              (SELECT o.name FROM orgs o WHERE o.id = i.org_id) AS team,
+              COALESCE(u.name, u.login, i.created_by) AS inviter
+         FROM invites i
+         LEFT JOIN users u ON u.github_id = i.created_by
+        WHERE i.code = ?1`
+    )
+    .bind(code.trim())
+    .first();
+  if (!row) return null;
+  if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
+  if (Number(row.uses) >= Number(row.max_uses)) return null;
+  return {
+    orgId: row.org_id,
+    team: row.team || null,
+    inviter: row.inviter || null,
+    role: row.role || "member",
+    expiresAt: row.expires_at || null,
+  };
 }
 
 // Redeem an invite code: look it up, add the user to that org.

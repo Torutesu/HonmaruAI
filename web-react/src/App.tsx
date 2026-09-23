@@ -4,6 +4,13 @@ import { Welcome } from './screens/Welcome'
 import { SignIn } from './screens/SignIn'
 import { Otp } from './screens/Otp'
 import { Onboarding } from './screens/Onboarding'
+import { PickRepository } from './screens/PickRepository'
+import { githubWebConfig, beginGitHubSignIn, readCallback, finishGitHubSignIn } from './utils/githubAuth'
+import type { GitHubWebConfig } from './utils/githubAuth'
+import { clearCardCache } from './utils/cardCache'
+import { parseRoute } from './utils/route'
+import { t } from './utils/i18n'
+import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush } from './utils/push'
 import './theme.css'
 import './App.css'
@@ -27,7 +34,7 @@ function wsBase(host: string) {
 
 // Where someone is in getting into the product. `app` is the only stage with a
 // session behind it; everything before it is the way in.
-type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'app'
+type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'repo' | 'app'
 
 function App() {
   const [stage, setStage] = useState<Stage>('welcome')
@@ -42,6 +49,57 @@ function App() {
   const [host, setHost] = useState<string>(DEFAULT_HOST)
   // Carried from the email screen to the code screen and nowhere else.
   const [pending, setPending] = useState({ email: '', name: '', inviteCode: '' })
+  // GitHub sign-in on the web, where the deployment offers it; and the
+  // session that came back before it has a workspace to open.
+  const [github, setGithub] = useState<GitHubWebConfig | null>(null)
+  const [githubError, setGithubError] = useState<string | null>(null)
+  const [pendingGithub, setPendingGithub] = useState<{ token: string; login: string } | null>(null)
+  // An invitation the URL carried: what it opens, and a word once it did.
+  const [invite, setInvite] = useState<InvitePeek | null>(null)
+  const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null)
+  useEffect(() => {
+    let ignore = false
+    githubWebConfig(httpBase(host)).then((cfg) => { if (!ignore) setGithub(cfg) })
+    return () => { ignore = true }
+  }, [host])
+
+  // A stage that needs a session, reached without one — storage cleared
+  // under a running tab, say — goes back to the start. Setting state during
+  // render was how this used to be done, which React warns about and which
+  // re-renders the tree twice for every frame it happens on.
+  useEffect(() => {
+    if ((stage === 'onboarding' || stage === 'app') && !userId) setStage('welcome')
+  }, [stage, userId])
+
+  // The way back from GitHub: ?code&state on the page. Traded for a session
+  // before anything else is decided about where to land.
+  const finishAuthRef = useRef<(token: string, uid: string, org: string, firstTime: boolean) => Promise<void>>()
+  useEffect(() => {
+    const cb = readCallback()
+    if (!cb) return
+    // Already signed in: the code in the URL is not this person's sign-in
+    // (theirs finished) and must not replace their session with another
+    // account's. Drop it from the URL and carry on as they were.
+    if (localStorage.getItem('sessionToken') && localStorage.getItem('userId')) {
+      try {
+        const url = new URL(location.href)
+        url.searchParams.delete('code'); url.searchParams.delete('state')
+        history.replaceState(null, '', url.pathname + url.search + url.hash)
+      } catch { /* cosmetic */ }
+      return
+    }
+    const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+    finishGitHubSignIn(base, cb)
+      .then(({ sessionToken: token, login, orgs }) => {
+        if (orgs.length) { void finishAuthRef.current?.(token, login, orgs[0], false); return }
+        setSessionToken(token)
+        setUserId(login)
+        setPendingGithub({ token, login })
+        setStage('repo')
+      })
+      .catch((err) => { setGithubError(err instanceof Error ? err.message : String(err)); setStage('welcome') })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const savedToken = localStorage.getItem('sessionToken')
@@ -69,6 +127,57 @@ function App() {
     }
   }, [])
 
+  // The link a teammate was sent: #/join/<code>. Signed in, it joins the
+  // team and opens the feed there; signed out, it lands on sign-up with the
+  // code filled in and the team named. Read on arrival and on every change
+  // of the hash, so a link pasted into a tab that is already open works too.
+  const joinedRef = useRef<string | null>(null)
+  useEffect(() => {
+    const onHash = () => {
+      const { join } = parseRoute(location.hash)
+      if (!join || joinedRef.current === join) return
+      joinedRef.current = join
+      const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+      const token = localStorage.getItem('sessionToken')
+      const clear = () => { try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ } }
+      if (token && localStorage.getItem('userId')) {
+        fetch(`${base}/invites/accept`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-session-token': token },
+          body: JSON.stringify({ code: join }),
+        })
+          .then(async (r) => {
+            const data = await r.json().catch(() => ({}))
+            if (!r.ok) { setNotice({ text: data.message || t('That invite code is not valid.'), error: true }); return }
+            clear()
+            switchOrg(data.orgId)
+            setNotice({ text: t('You joined the team.') })
+          })
+          .catch(() => setNotice({ text: t('Could not reach the relay.'), error: true }))
+        return
+      }
+      // Not signed in: the code rides into sign-up, and the Worker says
+      // whose team it is so the page can.
+      clear()
+      setPending((p) => ({ ...p, inviteCode: join }))
+      setMode('signup')
+      setStage('auth')
+      fetch(`${base}/invites/peek?code=${encodeURIComponent(join)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((peek) => { if (peek) setInvite(peek) })
+        .catch(() => { /* the banner is a courtesy */ })
+    }
+    onHash()
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(null), notice.error ? 8000 : 4000)
+    return () => clearTimeout(id)
+  }, [notice])
+
   /// Which workspace to open. The sign-in reply names one; when it does not —
   /// an older backend, or an account in no org at all — ask, rather than
   /// guessing at a name.
@@ -85,6 +194,7 @@ function App() {
   }
 
   const finishAuth = async (token: string, uid: string, org: string, firstTime: boolean) => {
+    finishAuthRef.current = finishAuth
     const workspace = await resolveOrg(token, org)
     setSessionToken(token)
     setUserId(uid)
@@ -100,6 +210,8 @@ function App() {
     setStage(!seen && firstTime ? 'onboarding' : 'app')
   }
 
+  finishAuthRef.current = finishAuth
+
   /// Moving between the workspaces someone belongs to — their own, and any
   /// team they were invited into. Stored, because it is where they work.
   const switchOrg = (next: string) => {
@@ -112,6 +224,9 @@ function App() {
   /// There is nothing there to show them now, so ask where they still belong
   /// — the same question a sign-in asks — and go there.
   const leftOrg = async () => {
+    // Whatever happens next, the cards of the workspace they are out of
+    // are not theirs to keep on this machine.
+    clearCardCache()
     try {
       const res = await fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken } })
       if (res.ok) {
@@ -146,13 +261,31 @@ function App() {
     setStage('welcome')
     localStorage.removeItem('sessionToken')
     localStorage.removeItem('userId')
+    // The workspace's cards stay readable on this machine otherwise.
+    clearCardCache()
   }
 
   if (stage === 'welcome') {
     return (
-      <Welcome
-        onStart={() => { setMode('signup'); setStage('auth') }}
-        onSignIn={() => { setMode('login'); setStage('auth') }}
+      <>
+        {githubError && <div className="toasts"><div className="toast error" role="alert" onClick={() => setGithubError(null)}>{githubError}</div></div>}
+        <Welcome
+          onStart={() => { setMode('signup'); setStage('auth') }}
+          onSignIn={() => { setMode('login'); setStage('auth') }}
+          onGitHub={github ? () => { beginGitHubSignIn(httpBase(host), github).catch((err) => setGithubError(err instanceof Error ? err.message : String(err))) } : undefined}
+        />
+      </>
+    )
+  }
+
+  if (stage === 'repo' && pendingGithub) {
+    return (
+      <PickRepository
+        httpBase={httpBase(host)}
+        sessionToken={pendingGithub.token}
+        login={pendingGithub.login}
+        onPick={(fullName) => { setPendingGithub(null); void finishAuth(pendingGithub.token, pendingGithub.login, fullName, false) }}
+        onLogout={() => { setPendingGithub(null); handleLogout() }}
       />
     )
   }
@@ -162,6 +295,8 @@ function App() {
       <SignIn
         httpBase={httpBase(host)}
         mode={mode}
+        initialInviteCode={pending.inviteCode}
+        invite={invite}
         onBack={() => setStage('welcome')}
         onSwitchMode={setMode}
         onCodeSent={(email, name, inviteCode) => { setPending({ email, name, inviteCode }); setStage('otp') }}
@@ -196,13 +331,18 @@ function App() {
 
   if (!userId) {
     // A stage that needs a session and has none: back to the start rather than
-    // a blank screen.
-    setStage('welcome')
+    // a blank screen. The effect above does the setting; rendering nothing for
+    // one frame is the whole cost.
     return null
   }
 
   return (
     <div className="app">
+      {notice && (
+        <div className="toasts app-toasts">
+          <div className={`toast${notice.error ? ' error' : ''}`} role={notice.error ? 'alert' : 'status'} onClick={() => setNotice(null)}>{notice.text}</div>
+        </div>
+      )}
       <Dashboard
         userId={userId}
         orgId={orgId}

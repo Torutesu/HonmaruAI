@@ -451,6 +451,13 @@ final class WebSocketService: ObservableObject {
         }
     }
 
+    /// Forget what this account never managed to send. Called on sign-out:
+    /// the relay stamps the sender from whichever session the socket joins
+    /// with, so a queue left behind would be delivered as the next person.
+    func clearOutbox() {
+        outbox?.clear()
+    }
+
     /// Goes through `publish`, not `send`, for the same reason every other
     /// mutation does: a decision made with no socket has to wait in the outbox
     /// rather than disappear. This is the one message where losing it is worst

@@ -33,6 +33,14 @@ struct TeamInvite: Identifiable, Decodable, Equatable {
     var id: String { ref }
 }
 
+/// What minting a code returns: the code, and the link the web opens it
+/// from where the deployment has a web address. The link is what you hand
+/// over; the code is what you read out when you cannot.
+struct MintedInvite: Decodable, Equatable {
+    let code: String
+    let link: String?
+}
+
 enum TeamServiceError: LocalizedError {
     case notConfigured
     case server(String)
@@ -53,9 +61,10 @@ enum TeamServiceError: LocalizedError {
 /// answered nothing for anyone who signed in with an email address, which is
 /// the only way in on a phone.
 enum TeamService {
-    private struct Members: Decodable { let members: [TeamMember]; let editable: Bool }
+    private struct Members: Decodable { let members: [TeamMember]; let editable: Bool; let name: String?; let canRename: Bool? }
     private struct Invites: Decodable { let invites: [TeamInvite] }
     private struct Minted: Decodable { let code: String }
+    private struct Made: Decodable { let orgId: String; let name: String }
     private struct Failure: Decodable { let message: String? }
 
     private static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil, backendBaseURL: URL, sessionToken: String? = nil) throws -> URLRequest {
@@ -103,10 +112,44 @@ enum TeamService {
     }
 
     static func mintInvite(orgId: String, role: String, backendBaseURL: URL) async throws -> String {
+        try await mintInviteLink(orgId: orgId, role: role, backendBaseURL: backendBaseURL).code
+    }
+
+    /// A code and, where the web has an address, the link that opens it.
+    static func mintInviteLink(orgId: String, role: String, backendBaseURL: URL) async throws -> MintedInvite {
         let req = try request("invites/create", method: "POST", body: ["orgId": orgId, "role": role], backendBaseURL: backendBaseURL)
         let (data, response) = try await URLSession.shared.data(for: req)
         try check(data, response)
-        return try JSONDecoder().decode(Minted.self, from: data).code
+        return try JSONDecoder().decode(MintedInvite.self, from: data)
+    }
+
+    /// The name a workspace was given, or nil for one that has none. Read
+    /// off the member list, which every member may see.
+    static func teamName(orgId: String, backendBaseURL: URL, sessionToken: String? = nil, session: URLSession = .shared) async throws -> (name: String?, canRename: Bool) {
+        let path = "members?orgId=\(orgId.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? orgId)"
+        let (data, response) = try await session.data(for: try request(path, backendBaseURL: backendBaseURL, sessionToken: sessionToken))
+        try check(data, response)
+        let decoded = try JSONDecoder().decode(Members.self, from: data)
+        return (decoded.name, decoded.canRename ?? false)
+    }
+
+    /// Start a team with a name. The caller becomes its admin; the id that
+    /// comes back is the workspace to switch to.
+    static func createTeam(name: String, backendBaseURL: URL) async throws -> (orgId: String, name: String) {
+        let req = try request("orgs", method: "POST", body: ["name": name], backendBaseURL: backendBaseURL)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try check(data, response)
+        let made = try JSONDecoder().decode(Made.self, from: data)
+        return (made.orgId, made.name)
+    }
+
+    /// Give the team a name, or a new one. Admins only; the server refuses
+    /// the rest with its own sentence.
+    static func renameTeam(orgId: String, name: String, backendBaseURL: URL) async throws -> String {
+        let req = try request("orgs/name", method: "PUT", body: ["orgId": orgId, "name": name], backendBaseURL: backendBaseURL)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try check(data, response)
+        return try JSONDecoder().decode(Made.self, from: data).name
     }
 
     static func revokeInvite(orgId: String, ref: String, backendBaseURL: URL) async throws {

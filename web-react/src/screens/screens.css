@@ -360,7 +360,7 @@
   .profile-avatar { background: #ededef; color: #17171a; }
   .profile-stats { border-color: #2c2c33; }
   .profile-stats div { border-right-color: #2c2c33; }
-  .row-select, .join-code { background: #17171a; border-color: #2c2c33; color: #ededef; }
+  .row-select, .join-code, .alias-input { background: #17171a; border-color: #2c2c33; color: #ededef; }
   .btn-text { color: #a2a2ab; }
   .btn-text:hover { color: #ededef; }
   .welcome-points li { border-top-color: #26262b; }
@@ -395,4 +395,82 @@
 @media (prefers-color-scheme: dark) {
   .invite-code { background: #17171a; border-color: #2c2c33; color: #ededef; }
   .invite .row.static { border-color: #2c2c33; }
+}
+
+/* ── Insights ────────────────────────────────────────────────────────── */
+.insights-stats { margin-top: 16px; }
+.bars {
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 96px; padding: 8px 12px 0;
+  border: 1px solid var(--bone); border-radius: 12px 12px 0 0; border-bottom: none;
+  background: var(--signal-white);
+}
+.bar { flex: 1; display: flex; align-items: flex-end; height: 100%; }
+.bar i { display: block; width: 100%; background: var(--ink-black); border-radius: 3px 3px 0 0; min-height: 2px; }
+.bar i.zero { background: var(--cloud); }
+.bars-axis {
+  display: flex; justify-content: space-between;
+  border: 1px solid var(--bone); border-top: 1px solid var(--bone); border-radius: 0 0 12px 12px;
+  padding: 4px 12px; margin-bottom: 20px;
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--ash);
+  background: var(--signal-white);
+}
+.barlist { list-style: none; margin: 0 0 20px; padding: 0; }
+.barlist li { display: grid; grid-template-columns: 9em 1fr 2.5em; align-items: center; gap: 10px; padding: 6px 4px; font-size: 13.5px; }
+.barlist-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-black); }
+.barlist-track { height: 8px; background: var(--mercury); border-radius: 9999px; overflow: hidden; }
+.barlist-track i { display: block; height: 100%; background: var(--ink-black); border-radius: 9999px; min-width: 4px; }
+.barlist-count { text-align: right; font-variant-numeric: tabular-nums; color: var(--slate); }
+.insights-hint { margin: 4px 4px 20px; color: var(--ash); font-size: 12.5px; line-height: 1.5; }
+
+@media (prefers-color-scheme: dark) {
+  .bars, .bars-axis { background: #17171a; border-color: #2c2c33; }
+  .bar i { background: #ededef; }
+  .bar i.zero { background: #2c2c33; }
+  .barlist-label { color: #ededef; }
+  .barlist-track { background: #26262b; }
+  .barlist-track i { background: #ededef; }
+}
+
+/* Its own class, not .join-code: the end-to-end suite fills ".join-code"
+   with an invite, and a second input wearing that class took the code. */
+.alias-input {
+  display: block; width: 100%; margin-top: 8px;
+  border: 1px solid var(--bone); border-radius: var(--radius-pill);
+  background: var(--signal-white); color: var(--ink-black);
+  font-family: var(--font-body); font-size: 14px; padding: 8px 12px;
+}
+.alias-input:focus { outline: none; border-color: var(--signal-blue); }
+
+/* The team's name on its screen, and the form that gives it one. */
+.team-name-row { display: flex; align-items: center; gap: 12px; margin: 4px 4px 16px; min-height: 36px; }
+.team-name { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.team-rename { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.team-name-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 8px 12px;
+  border: 1px solid var(--bone); border-radius: var(--radius-card); background: var(--paper, #fff);
+}
+.team-rename-btn { flex: none; }
+
+/* An invitation as a link, and by mail. */
+.invite-link {
+  display: block; font-size: 13px; color: var(--ink); text-decoration: none; word-break: break-all;
+  padding: 10px 12px; border: 1px solid var(--bone); border-radius: var(--radius-card); background: var(--paper, #fff);
+}
+.invite-actions { display: flex; gap: 8px; }
+.invite-actions .btn { flex: 1; }
+.invite .invite-mail { flex-direction: column; align-items: stretch; gap: 10px; }
+.invite-mail-form { display: flex; align-items: center; gap: 8px; }
+.invite-email {
+  flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 8px 12px;
+  border: 1px solid var(--bone); border-radius: var(--radius-card); background: var(--paper, #fff);
+}
+.invite-sent { color: var(--ash); font-size: 13px; padding: 0 4px; }
+.invite-banner {
+  margin: 0 0 16px; padding: 12px 14px; border-radius: var(--radius-card);
+  background: var(--accent-soft, rgba(93, 95, 239, 0.1)); color: var(--ink); font-size: 14px; line-height: 1.4;
+}
+.app-toasts { z-index: 60; }
+@media (prefers-color-scheme: dark) {
+  .team-name-input, .invite-email, .invite-link { background: #17171a; border-color: #2c2c33; color: #ededef; }
 }

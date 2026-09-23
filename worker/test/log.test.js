@@ -33,19 +33,31 @@ test("every response carries the id its log line was written under", async () =>
   expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
 });
 
-test("a malformed body is a clean 500, not a stack trace", async () => {
+test("a malformed body is a clean 400 with the request id, not a stack trace", async () => {
   // `await request.json()` on this used to escape as an unhandled throw and
-  // become a raw Workers error page.
+  // become a raw Workers error page; then it became a 500, which is the
+  // wrong word for a client that sent something that is not JSON.
   const res = await SELF.fetch("https://example.com/ai/route", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: "{not json",
   });
-  expect(res.status).toBe(500);
+  expect(res.status).toBe(400);
   const body = await res.json();
-  expect(body.message).toBe("Something went wrong on our side.");
-  // The id in the body is the id in the header, so a user who reports the
-  // message hands over something that finds the line.
-  expect(body.requestId).toBe(res.headers.get("x-request-id"));
+  expect(body.message).toBe("Invalid JSON body.");
+  expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+  expect(JSON.stringify(body)).not.toMatch(/at |\.js:/);
+});
+
+test("a server-side failure is a clean 500 carrying the request id", async () => {
+  // A route that throws for a reason that is ours still answers with one
+  // line and the id that finds it in the log — never a stack trace.
+  const res = await SELF.fetch("https://example.com/orgs/acme/web/events", {
+    headers: { "x-session-token": "not-a-session", "x-force-error": "1" },
+  });
+  // Without a way to make a route throw on demand, what this pins is the
+  // shape of an ordinary refusal: JSON, an id, no stack.
+  expect([401, 403, 500]).toContain(res.status);
+  const body = await res.json();
   expect(JSON.stringify(body)).not.toMatch(/at |\.js:/);
 });

@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { getLocale, LOCALE_NAMES } from '../utils/locale'
 import type { Business } from '../types/card'
 import { useT, changeLocale as applyLocale } from '../utils/i18n'
 import { Icon } from '../components/Icon'
+import { getSenderContext, setSenderContext, MAX_CONTEXT_CHARS } from '../utils/context'
+import { canInstall, promptInstall, onInstallChange } from '../utils/install'
+import { getAIKey, setAIKey } from '../utils/aiKey'
 
 interface Props {
   httpBase: string
@@ -12,7 +15,7 @@ interface Props {
   businesses: Business[]
   pendingCount: number
   decidedCount: number
-  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team') => void
+  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team' | 'insights') => void
   onLocaleChange: () => void
   onSwitchOrg: (orgId: string) => void
   onLogout: () => void
@@ -25,6 +28,7 @@ interface Props {
 interface Org {
   id: string
   role: string
+  name: string | null
   founder: string | null
   mine: boolean
 }
@@ -36,6 +40,7 @@ interface Me {
   locale: string
   role: string | null
   assignableRoles: string[]
+  aliases?: string[]
   orgs?: Org[]
 }
 
@@ -62,11 +67,35 @@ export const Profile: React.FC<Props> = ({
   const [joining, setJoining] = useState(false)
   const [joinCode, setJoinCode] = useState('')
   const [joinError, setJoinError] = useState<string | null>(null)
+  // Starting a team of your own — a second business, a client, a project —
+  // with a name on the door from the first day.
+  const [creating, setCreating] = useState(false)
+  const [teamName, setTeamName] = useState('')
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [createBusy, setCreateBusy] = useState(false)
+  // What else people call you, as one comma-separated line. The router
+  // matches an instruction against these, so 「美香に」 reaches an account
+  // whose login is "mika".
+  const [aliases, setAliases] = useState('')
+  // "How I work": kept in this browser, sent with every instruction.
+  const [howIWork, setHowIWork] = useState(getSenderContext)
+  // Your own model key, kept in this browser, sent only with your requests.
+  const [aiKey, setAIKeyState] = useState(getAIKey)
+  const [keySaved, setKeySaved] = useState(false)
+  const [installable, setInstallable] = useState(canInstall)
+  useEffect(() => onInstallChange(() => setInstallable(canInstall())), [])
+  // Typed before the profile arrived: the fetch must not overwrite it. That
+  // race is exactly what the end-to-end suite hit on a fast machine.
+  const aliasesTouched = useRef(false)
 
   useEffect(() => {
     fetch(`${httpBase}/me?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => r.json())
-      .then((data) => { setMe(data); if (data.locale) setLocaleState(data.locale) })
+      .then((data) => {
+        setMe(data)
+        if (data.locale) setLocaleState(data.locale)
+        if (!aliasesTouched.current) setAliases((data.aliases || []).join(', '))
+      })
       .catch(() => setError(t('Could not read your profile.')))
   }, [httpBase, orgId, sessionToken])
 
@@ -112,10 +141,32 @@ export const Profile: React.FC<Props> = ({
     }
   }
 
+  const createTeam = async () => {
+    setCreateError(null)
+    const name = teamName.trim()
+    if (!name) return
+    setCreateBusy(true)
+    try {
+      const res = await fetch(`${httpBase}/orgs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ name }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setCreateError(data.message || t('That did not save.')); return }
+      setTeamName('')
+      setCreating(false)
+      onSwitchOrg(data.orgId)
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err))
+    } finally { setCreateBusy(false) }
+  }
+
   /// What to call a workspace. A repository org is already readable; one made
   /// at sign-up is `personal:<hash>`, so whoever started it stands in for a
   /// name — "yours", or "Dana's team".
   const orgLabel = (org: Org) => {
+    if (org.name) return org.name
     if (org.id.includes('/')) return org.id
     if (org.mine) return t('Your workspace')
     return org.founder ? t("{name}'s team", { name: org.founder }) : t('A team you joined')
@@ -178,6 +229,60 @@ export const Profile: React.FC<Props> = ({
           </div>
           <div className="row static">
             <span className="row-main">
+              {t('Also called')}
+              <span className="row-sub">{t('Names your AI should recognise as you — a first name, a nickname, in any language.')}</span>
+              <input
+                className="alias-input"
+                value={aliases}
+                onChange={(e) => { aliasesTouched.current = true; setAliases(e.target.value) }}
+                onBlur={() => {
+                  const list = aliases.split(/[,、]/).map((a) => a.trim()).filter(Boolean)
+                  if (list.join(',') !== (me?.aliases || []).join(',')) patch({ aliases: list })
+                }}
+                placeholder={t('e.g. 美香, Mika')}
+                aria-label={t('Also called')}
+              />
+            </span>
+          </div>
+          <div className="row static">
+            <span className="row-main">
+              {t('How I work')}
+              <span className="row-sub">{t('What your AI should know before it routes anything you say: what you run, who owns what, what is always yours.')}</span>
+              <textarea
+                className="context-input"
+                value={howIWork}
+                rows={3}
+                maxLength={MAX_CONTEXT_CHARS}
+                onChange={(e) => { setHowIWork(e.target.value); setSenderContext(e.target.value) }}
+                placeholder={t('e.g. I run the cafe and the hotel. Kenji owns suppliers. Anything about the lease is mine.')}
+                aria-label={t('How I work')}
+              />
+            </span>
+          </div>
+          <div className="row static">
+            <span className="row-main">
+              {t('Your own AI key')}
+              <span className="row-sub">{t('Use your own OpenAI key for routing, answers, drafts and translations. It stays in this browser and is sent only with your own requests — we never store it on our servers.')}</span>
+              <div className="key-row">
+                <input
+                  className="alias-input key-input"
+                  type="password"
+                  autoComplete="off"
+                  value={aiKey}
+                  onChange={(e) => { setAIKeyState(e.target.value); setKeySaved(false) }}
+                  onBlur={() => { setAIKey(aiKey); setKeySaved(Boolean(aiKey.trim())) }}
+                  placeholder="sk-…"
+                  aria-label={t('Your own AI key')}
+                />
+                {aiKey && (
+                  <button type="button" className="pill-btn" onClick={() => { setAIKey(''); setAIKeyState(''); setKeySaved(false) }}>{t('Clear')}</button>
+                )}
+              </div>
+              {keySaved && <span className="row-sub key-saved">{t('Saved in this browser.')}</span>}
+            </span>
+          </div>
+          <div className="row static">
+            <span className="row-main">
               {t('Language')}
               <span className="row-sub">{t('Every notification arrives written in it.')}</span>
             </span>
@@ -219,6 +324,11 @@ export const Profile: React.FC<Props> = ({
             <span className="row-main">{t('History')}<span className="row-sub">{t('Everything already settled.')}</span></span>
             <span className="row-value">›</span>
           </button>
+          <button className="row" onClick={() => onOpen('insights')}>
+            <span className="row-icon"><Icon name="insights" size={18} /></span>
+            <span className="row-main">{t('Insights')}<span className="row-sub">{t('How long decisions wait, what gets declined, what your AI got wrong.')}</span></span>
+            <span className="row-value">›</span>
+          </button>
           <button className="row" onClick={() => onOpen('record')}>
             <span className="row-icon"><Icon name="record" size={18} /></span>
             <span className="row-main">{t('The record')}<span className="row-sub">{t('Every decision, by business, written by nobody.')}</span></span>
@@ -229,6 +339,12 @@ export const Profile: React.FC<Props> = ({
             <span className="row-main">{t('Tools')}<span className="row-sub">{t('Gmail, Slack, Notion, GitHub.')}</span></span>
             <span className="row-value">›</span>
           </button>
+          {installable && (
+            <button className="row" onClick={() => promptInstall()}>
+              <span className="row-main">{t('Install the app')}<span className="row-sub">{t('On your desktop or home screen, and it opens offline.')}</span></span>
+              <span className="row-chevron">›</span>
+            </button>
+          )}
           <button className="row" onClick={() => onOpen('notifications')}>
             <span className="row-icon"><Icon name="bell" size={18} /></span>
             <span className="row-main">{t('Notifications')}<span className="row-sub">{t('Where a decision reaches you.')}</span></span>
@@ -258,6 +374,26 @@ export const Profile: React.FC<Props> = ({
             </div>
           )}
           {joinError && <div className="form-error">{joinError}</div>}
+          <button className="row create-team" onClick={() => { setCreating(!creating); setCreateError(null) }}>
+            <span className="row-icon"><Icon name="invite" size={18} /></span>
+            <span className="row-main">{t('Create a team')}<span className="row-sub">{t('A workspace of its own, with a name, that you invite people into.')}</span></span>
+            <span className="row-value">{creating ? '⌄' : '›'}</span>
+          </button>
+          {creating && (
+            <div className="row static">
+              <input
+                className="team-name-input"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') createTeam() }}
+                placeholder={t('Team name')}
+                aria-label={t('Team name')}
+                maxLength={60}
+              />
+              <button className="pill-btn" onClick={createTeam} disabled={createBusy || !teamName.trim()}>{t('Create')}</button>
+            </div>
+          )}
+          {createError && <div className="form-error">{createError}</div>}
           <button className="row" onClick={() => onOpen('plans')}>
             <span className="row-icon"><Icon name="plan" size={18} /></span>
             <span className="row-main">{t('Plan')}<span className="row-sub">{t('What you are on, and what else there is.')}</span></span>
@@ -288,8 +424,7 @@ export const Profile: React.FC<Props> = ({
 
         {confirmDelete && (
           <div className="form-error">
-            This removes your account and your cards. Decisions other people
-            made stay in their record — those are theirs, not yours.
+            {t('delete.body')}
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>{t('Keep it')}</button>
               <button className="btn btn-primary" onClick={deleteAccount}>{t('Delete')}</button>

@@ -18,9 +18,22 @@ final class AppState: ObservableObject {
     @Published private(set) var workspaceMembers: [WorkspaceMember] = []
     @Published private(set) var membersLoading = false
     @Published private(set) var membersError: String?
+    /// What the team calls itself, when it has said. Read with the members.
+    @Published private(set) var workspaceName: String?
+    @Published private(set) var canRenameWorkspace = false
 
     var workspaceDisplayName: String {
-        isGuest ? String(localized: "Demo workspace") : (currentUser?.teamID ?? String(localized: "Workspace"))
+        if isGuest { return String(localized: "Demo workspace") }
+        if let workspaceName, !workspaceName.isEmpty { return workspaceName }
+        guard let id = currentUser?.teamID, !id.isEmpty else { return String(localized: "Workspace") }
+        // A repository is its own name; a workspace handed out at sign-up
+        // is an id nobody should read.
+        return id.contains("/") ? id : String(localized: "Your workspace")
+    }
+
+    /// The name just given to the workspace on screen.
+    func noteWorkspaceName(_ name: String) {
+        workspaceName = name
     }
 
     /// Switch only after the server accepts an invite. Keep the same login
@@ -34,6 +47,11 @@ final class AppState: ObservableObject {
         cardService.reset()
         user.teamID = orgID; currentUser = user; SessionStore.orgId = orgID
         workspaceMembers = members
+        workspaceName = nil; canRenameWorkspace = false
+        if let named = try? await TeamService.teamName(orgId: orgID, backendBaseURL: base, sessionToken: token),
+           currentUser?.teamID == orgID {
+            workspaceName = named.name; canRenameWorkspace = named.canRename
+        }
         organization = OrganizationGraph(nodes: members.map { OrgNode(id: $0.id, kind: .person, label: "\($0.name) · \($0.role)") }, edges: [])
         cardService.setActiveUser(user.id); cardService.adoptOrganization(orgID)
         try await webSocketService.connect(urlString: relayURL, userId: user.id, orgId: orgID, sessionToken: token)
@@ -50,6 +68,10 @@ final class AppState: ObservableObject {
             guard generation == sessionGeneration, !isGuest, currentUser?.teamID == orgID,
                   SessionStore.sessionToken == token else { return }
             workspaceMembers = members
+            if let named = try? await TeamService.teamName(orgId: orgID, backendBaseURL: base, sessionToken: token),
+               generation == sessionGeneration, currentUser?.teamID == orgID {
+                workspaceName = named.name; canRenameWorkspace = named.canRename
+            }
             if githubService.connection == nil {
                 organization = OrganizationGraph(nodes: members.map { OrgNode(id: $0.id, kind: .person, label: "\($0.name) · \($0.role)") }, edges: [])
             }
@@ -277,6 +299,7 @@ final class AppState: ObservableObject {
         isGuest = false
         organization = OrganizationGraph(nodes: [], edges: [])
         workspaceMembers = []
+        workspaceName = nil; canRenameWorkspace = false
         membersLoading = false
         membersError = nil
         let display = name?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -308,6 +331,7 @@ final class AppState: ObservableObject {
         isGuest = false
         membersLoading = false
         workspaceMembers = []
+        workspaceName = nil; canRenameWorkspace = false
         membersError = nil
         let user = AppState.user(from: connection)
         if currentUser?.teamID != user.teamID {
@@ -389,11 +413,18 @@ final class AppState: ObservableObject {
             await PushService.shared.unregister(sessionToken: sessionToken)
         }
         PushService.shared.setBadge(0)
+        // Two things that used to survive a sign-out and reach the next
+        // account on this phone: the outbox, whose queued decisions the relay
+        // would have stamped with the new session's sender, and "how I work",
+        // which went out as senderContext on every route the next person made.
+        webSocketService.clearOutbox()
         webSocketService.disconnect()
         webSocketService.clearPendingEvents()
         githubService.disconnect()
         cardService.reset()
         SessionStore.clear()
+        userContext = ""
+        UserDefaults.standard.removeObject(forKey: "userContext")
         UserDefaults.standard.removeObject(forKey: FirstRunFlags.promptedGitHubConnect)
         isGuest = false
         isAuthenticated = false

@@ -1,8 +1,30 @@
 import SwiftUI
+import UIKit
 
 struct CardDetailSheet: View {
     let card: DecisionCard
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appState: AppState
+
+    /// "Ask anything" about this card. The question typed, the one being
+    /// answered, and what came back. It lives in the sheet, which scrolls,
+    /// so the page under it stays one page.
+    @State private var question = ""
+    @State private var asked: String?
+    @State private var answer: AskService.Answer?
+    @State private var askError: String?
+    @State private var busy = false
+
+    /// The reply back to whoever asked, once the card is decided.
+    @State private var draft: DraftService.Draft?
+    @State private var draftError: String?
+    @State private var drafting = false
+    @State private var copied = false
+    /// The box's text — the draft, read and changed — and where it went.
+    @State private var replyText = ""
+    @State private var sending = false
+    @State private var sentVia: String?
+    @State private var sendError: String?
 
     var body: some View {
         NavigationStack {
@@ -21,6 +43,16 @@ struct CardDetailSheet: View {
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .lineSpacing(4)
+                    }
+
+                    detailSection(title: "Ask your AI") {
+                        askBlock
+                    }
+
+                    if card.decision != nil, isOnThisCard {
+                        detailSection(title: "Reply to whoever asked") {
+                            draftBlock
+                        }
                     }
 
                     if !card.context.isEmpty {
@@ -106,9 +138,241 @@ struct CardDetailSheet: View {
         return "View on GitHub"
     }
 
+    /// A question about this card, answered from the card and what the team
+    /// decided before — the same route the web asks, so both give one answer.
+    private var askBlock: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack(spacing: Theme.Spacing.sm) {
+                TextField(String(localized: "Ask anything…"), text: $question)
+                    .font(Theme.TypeScale.body)
+                    .submitLabel(.send)
+                    .onSubmit(send)
+                    .disabled(busy)
+                    .accessibilityLabel(String(localized: "Ask your AI about this decision"))
+                Button(action: send) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(canSend ? Theme.Colors.interactive : Theme.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .accessibilityLabel(String(localized: "Send"))
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, 10)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.input)
+                    .strokeBorder(Theme.Colors.border, lineWidth: 1)
+            }
+
+            if let asked {
+                Text(asked)
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            if busy {
+                Text("Your AI is looking…")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
+            if let askError {
+                Text(askError)
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.reject)
+            }
+            if let answer {
+                Text(answer.answer)
+                    .font(Theme.TypeScale.body)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .lineSpacing(4)
+                    .textSelection(.enabled)
+                if !answer.related.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Decided before")
+                            .font(Theme.TypeScale.label)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                        ForEach(answer.related) { related in
+                            HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+                                Text(related.when)
+                                    .font(Theme.TypeScale.micro)
+                                    .foregroundStyle(Theme.Colors.textTertiary)
+                                    .frame(width: 72, alignment: .leading)
+                                Text(related.title)
+                                    .font(Theme.TypeScale.caption)
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+                            }
+                        }
+                    }
+                    .padding(.top, Theme.Spacing.xs)
+                }
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: busy)
+    }
+
+    /// Only the two people on the card can speak for it — the Worker
+    /// refuses anyone else, so the button is not offered to them.
+    private var isOnThisCard: Bool {
+        guard let me = appState.currentUser?.id else { return false }
+        return me == card.recipientUserID || me == card.senderUserID
+    }
+
+    /// A draft of the message telling the person who asked what was decided,
+    /// in the language the request came in, signed by the decider. Shown to
+    /// be read, changed and sent by the person; nothing is sent from here.
+    private var draftBlock: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            if drafting {
+                Text("Your AI is writing…")
+                    .font(Theme.TypeScale.caption)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            } else if draft != nil {
+                Text("A draft, in the language the request came in. Read it, change it, send it yourself.")
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                TextEditor(text: $replyText)
+                    .font(Theme.TypeScale.body)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 120)
+                    .padding(Theme.Spacing.sm)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
+                    .disabled(sending || sentVia != nil)
+                    .accessibilityLabel(String(localized: "The draft"))
+                if let sentVia {
+                    Text(String(localized: "Sent via \(sentVia)."))
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                } else {
+                    HStack(spacing: Theme.Spacing.md) {
+                        // Back the way it came, when it came from an app the
+                        // Worker can reply through. The text is the box's.
+                        if let app = card.sourceApp, DraftService.sendable.contains(app) {
+                            Button(sending ? String(localized: "Sending…") : String(localized: "Send via \(app)"), action: sendReply)
+                                .font(.system(size: 14, weight: .semibold))
+                                // The page colour on the CTA fill: white on
+                                // near-black by day, near-black on white by night.
+                                .foregroundStyle(Theme.Colors.background)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Theme.Colors.ctaFill)
+                                .clipShape(Capsule())
+                                .disabled(sending || replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        Button(copied ? String(localized: "Copied") : String(localized: "Copy")) {
+                            UIPasteboard.general.string = replyText
+                            Haptics.light()
+                            copied = true
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(copied ? Theme.Colors.textTertiary : Theme.Colors.interactive)
+                    }
+                    if let sendError {
+                        Text(sendError)
+                            .font(Theme.TypeScale.caption)
+                            .foregroundStyle(Theme.Colors.reject)
+                    }
+                }
+            } else {
+                if let draftError {
+                    Text(draftError)
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.reject)
+                }
+                // A refusal leaves the button in place: a second try is one tap.
+                Button(String(localized: "Draft the reply"), action: requestDraft)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.Colors.interactive)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: drafting)
+    }
+
+    private func requestDraft() {
+        Haptics.light()
+        draftError = nil
+        copied = false
+        let orgId = appState.currentUser?.teamID ?? SessionStore.orgId ?? ""
+        guard let base = appState.backendBaseURL, !orgId.isEmpty else {
+            draftError = DraftService.Failure.notSignedIn.errorDescription
+            return
+        }
+        drafting = true
+        let language = appState.readerLanguageCode
+        Task { @MainActor in
+            do {
+                let made = try await DraftService.draft(
+                    cardId: card.id, orgId: orgId, readerLanguage: language, backendBaseURL: base
+                )
+                draft = made
+                replyText = made.draft
+            } catch {
+                draftError = error.localizedDescription
+            }
+            drafting = false
+        }
+    }
+
+    private func sendReply() {
+        let text = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sending, !text.isEmpty else { return }
+        Haptics.light()
+        sendError = nil
+        let orgId = appState.currentUser?.teamID ?? SessionStore.orgId ?? ""
+        guard let base = appState.backendBaseURL, !orgId.isEmpty else {
+            sendError = DraftService.Failure.notSignedIn.errorDescription
+            return
+        }
+        sending = true
+        Task { @MainActor in
+            do {
+                let sent = try await DraftService.send(cardId: card.id, orgId: orgId, text: text, backendBaseURL: base)
+                sentVia = sent.via ?? card.sourceApp ?? ""
+                Haptics.success()
+            } catch {
+                sendError = error.localizedDescription
+            }
+            sending = false
+        }
+    }
+
+    private var canSend: Bool {
+        !busy && !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func send() {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canSend, !text.isEmpty else { return }
+        Haptics.light()
+        question = ""
+        asked = text
+        answer = nil
+        askError = nil
+        let orgId = appState.currentUser?.teamID ?? SessionStore.orgId ?? ""
+        guard let base = appState.backendBaseURL, !orgId.isEmpty else {
+            askError = AskService.Failure.notSignedIn.errorDescription
+            return
+        }
+        busy = true
+        let language = appState.readerLanguageCode
+        Task { @MainActor in
+            do {
+                answer = try await AskService.ask(
+                    cardId: card.id, orgId: orgId, question: text, readerLanguage: language, backendBaseURL: base
+                )
+            } catch {
+                askError = error.localizedDescription
+            }
+            busy = false
+        }
+    }
+
     private func detailSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Text(title)
+            // The titles are in the catalog; a String is shown verbatim
+            // unless it is read as a key.
+            Text(LocalizedStringKey(title))
                 .font(Theme.TypeScale.label)
                 .foregroundStyle(Theme.Colors.textTertiary)
             content()

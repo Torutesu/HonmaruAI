@@ -4,6 +4,7 @@ import { triageMessage } from "./triage.js";
 import { isIngested, markIngested, saveCard, getConnectorConfig } from "./db.js";
 import { checkAIAllowance } from "./gate.js";
 import { fileCardUnderBusiness } from "./classify.js";
+import { jevConfig } from "./jev.js";
 
 // The loop is deliberately ignorant of which connector it is running: fetch,
 // skip what we have seen, ask whether it needs a decision, and record the answer
@@ -36,8 +37,12 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     // Checked per message, so a sync stops creating cards the moment the day's
     // allowance runs out rather than blowing through it.
     const allowance = await checkAIAllowance(env, { githubId: String(session.github_id) });
-    const result = provider && allowance.allowed
-      ? await triageMessage(message, { provider, readerLanguage, sourceLabel: connector.label })
+    // System One asks "does this need a decision?" for a fraction of a cent
+    // whether or not the person has language-model allowance left; the
+    // model is only offered for the words, and only within the allowance.
+    const systemOne = jevConfig(env);
+    const result = (provider && allowance.allowed) || systemOne
+      ? await triageMessage(message, { provider: allowance.allowed ? provider : null, systemOne, readerLanguage, sourceLabel: connector.label })
       : { called: false, card: null };
     // Metered on the call, not on the card. Most mail correctly needs no
     // decision, and charging only for the ones that produce a card would let an
@@ -69,6 +74,7 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
         createdAt: new Date().toISOString(),
         sourceApp: connector.label,
         sourceDetail: `${message.from} · ${message.subject}`,
+        source: sourceOf(connector, message),
       });
       created += 1;
     }
@@ -81,6 +87,17 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
   }
 
   return { connector: connector.id, scanned: messages.length, created };
+}
+
+/// What a card remembers about the message it came from — enough to send a
+/// reply back the same way, and nothing the card does not already show.
+export function sourceOf(connector, message) {
+  const keep = (v) => (typeof v === "string" && v ? v.slice(0, 300) : undefined);
+  const source = {
+    connector: connector.id, id: keep(message.id), threadId: keep(message.threadId),
+    from: keep(message.from), channel: keep(message.channel), ts: keep(message.ts),
+  };
+  return Object.fromEntries(Object.entries(source).filter(([, v]) => v !== undefined));
 }
 
 // One connector's outage must not silence the others.

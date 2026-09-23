@@ -35,16 +35,16 @@ export const NotificationsButton: React.FC<Props> = ({ httpBase, sessionToken })
 
   const click = async () => {
     if (support === 'needs-install') {
-      setNote('On iPhone: tap Share → Add to Home Screen, then open Honmaru from there to get notified.')
+      setNote(t('On iPhone: tap Share → Add to Home Screen, then open Honmaru from there to get notified.'))
       return
     }
     if (support === 'denied') {
-      setNote('Notifications are blocked for this site. Allow them in your browser settings.')
+      setNote(t('Notifications are blocked for this site. Allow them in your browser settings.'))
       return
     }
     setState('busy')
     const result = await enableWebPush(httpBase, sessionToken)
-    if (result === 'on') { setState('on'); setNote('You will be told when a decision is waiting — even with this tab closed.') }
+    if (result === 'on') { setState('on'); setNote(t('You will be told when a decision is waiting — even with this tab closed.')) }
     else if (result === 'denied') { setSupport('denied'); setState('off') }
     else { setState('failed'); setNote(t('Could not turn notifications on. Try again in a moment.')) }
   }

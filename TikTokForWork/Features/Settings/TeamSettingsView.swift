@@ -4,7 +4,11 @@ import SwiftUI
 struct TeamSettingsView: View {
     @EnvironmentObject private var appState: AppState
     @State private var inviteCode = ""
+    @State private var inviteLink: URL?
     @State private var joinCode = ""
+    @State private var newTeamName = ""
+    @State private var renameTo = ""
+    @State private var renaming = false
     @State private var busy = false
     @State private var error: String?
     @State private var joined = false
@@ -13,7 +17,21 @@ struct TeamSettingsView: View {
     var body: some View {
         List {
             Section("Your team") {
-                Text(appState.workspaceDisplayName).font(.headline)
+                if renaming {
+                    TextField("Team name", text: $renameTo)
+                    Button("Save") { Task { await rename() } }.disabled(renameTo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Cancel", role: .cancel) { renaming = false }
+                } else {
+                    HStack {
+                        Text(appState.workspaceDisplayName).font(.headline)
+                        Spacer()
+                        if appState.canRenameWorkspace {
+                            Button(appState.workspaceName == nil ? String(localized: "Name it") : String(localized: "Rename")) {
+                                renameTo = appState.workspaceName ?? ""; renaming = true
+                            }.font(.subheadline)
+                        }
+                    }
+                }
                 if appState.membersLoading { ProgressView("Loading teammates…") }
                 ForEach(appState.workspaceMembers) { member in
                     HStack { Text(member.name); Spacer(); if member.id == appState.currentUser?.id { Text("You").foregroundStyle(.secondary) } }
@@ -32,11 +50,20 @@ struct TeamSettingsView: View {
                     if inviteCode.isEmpty {
                         Button("Create invite code") { Task { await perform(join: false) } }
                     } else {
+                        if let inviteLink {
+                            // The link is what you hand over: opened, it joins
+                            // or signs the person up into this team.
+                            ShareLink(item: inviteLink, message: Text("Join my team on Honmaru AI")) { Label("Share invite link", systemImage: "link") }
+                        }
                         Text(inviteCode).font(.title3.monospaced()).textSelection(.enabled)
                         ShareLink(item: inviteCode) { Label("Share invite code", systemImage: "square.and.arrow.up") }
                         Button("Create invite code") { Task { await perform(join: false) } }
                     }
                 } header: { Text("Invite a teammate") } footer: { Text("People with this code can join your team and access its shared work.") }
+                Section {
+                    TextField("Team name", text: $newTeamName)
+                    Button("Create team") { Task { await createTeam() } }.disabled(newTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } header: { Text("Create a team") } footer: { Text("A workspace of its own, with a name, that you invite people into.") }
                 Section {
                     TextField("Invite code", text: $joinCode).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Button("Join team") { Task { await perform(join: true) } }.disabled(joinCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -76,7 +103,34 @@ struct TeamSettingsView: View {
             } else {
                 guard let code = result["code"] as? String, !code.isEmpty else { throw URLError(.badServerResponse) }
                 inviteCode = code
+                inviteLink = (result["link"] as? String).flatMap { URL(string: $0) }
             }
+        } catch { self.error = error.localizedDescription }
+    }
+
+    @MainActor private func createTeam() async {
+        guard let base = appState.backendBaseURL else { return }
+        let name = newTeamName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            let made = try await TeamService.createTeam(name: name, backendBaseURL: base)
+            try await appState.switchToJoinedTeam(made.orgId)
+            newTeamName = ""; inviteCode = ""; inviteLink = nil
+        } catch { self.error = error.localizedDescription }
+    }
+
+    @MainActor private func rename() async {
+        guard let base = appState.backendBaseURL, let orgId = appState.currentUser?.teamID else { return }
+        let name = renameTo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            let named = try await TeamService.renameTeam(orgId: orgId, name: name, backendBaseURL: base)
+            appState.noteWorkspaceName(named)
+            renaming = false
         } catch { self.error = error.localizedDescription }
     }
 }

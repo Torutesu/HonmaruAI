@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { ClassicList } from './ClassicList'
+import { Inbox } from './Inbox'
+import { Palette } from './Palette'
+import type { PaletteAction } from './Palette'
 import { Icon } from './Icon'
-import { DecisionCard } from './DecisionCard'
 import { CreateDecision } from './CreateDecision'
 import { RecordSheet } from './RecordSheet'
 import { Team } from '../screens/Team'
@@ -12,13 +14,21 @@ import { History } from '../screens/History'
 import { NotificationSettings } from '../screens/NotificationSettings'
 import { Plans } from '../screens/Plans'
 import { Profile } from '../screens/Profile'
+import { Insights } from '../screens/Insights'
+import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
-import type { AppState, Business } from '../types/card'
+import type { AppState, Business, DecisionCard } from '../types/card'
 import './Dashboard.css'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
+import { displayName } from '../utils/names'
+import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen } from '../utils/route'
+import { loadCardCache, saveCardCache } from '../utils/cardCache'
+import { needsLocalizing } from '../utils/language'
+import { aiHeaders } from '../utils/aiKey'
+import type { Screen, Mode } from '../utils/route'
 
 interface Props {
   userId: string
@@ -32,23 +42,47 @@ interface Props {
   onLeft: () => void
 }
 
-type Panel = null | 'compose' | 'sent' | 'done' | 'record'
-type Mode = 'cards' | 'classic'
+type Panel = null | 'compose' | 'record'
 // A full screen over the feed, as opposed to a sheet. These are the design's
 // own screens — Tools, History, Notifications, Plan, You — and each one owns
-// the viewport while it is open.
-type Screen = null | 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team'
+// the viewport while it is open. Which one is open, and which card the feed
+// is on, live in the URL (utils/route.ts): a reload, the back button and a
+// pasted link all mean what they say.
+
+// What just happened, said back. English keys, translated where read.
+const DECIDED_WORD: Record<string, string> = {
+  approve: 'Approved', decline: 'Declined', reply: 'Replied', revise: 'Revision asked',
+  choose: 'Chose', acknowledge: 'Acknowledged', delegate: 'Delegated', later: 'Deferred',
+}
 
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
 /// is a sheet over it that closes back to the feed.
 export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg, onLeft }) => {
   const t = useT()
-  const [state, setState] = useState<AppState>({ cardsById: {} })
+  // The last snapshot this browser saw, until the relay sends a new one —
+  // and instead of nothing when it cannot.
+  const [state, setState] = useState<AppState>(() => ({ cardsById: loadCardCache(orgId) }))
   const [isConnected, setIsConnected] = useState(false)
+  // The relay has sent its snapshot at least once. Before that the feed says
+  // it is opening, not that it is empty — "All clear" on a cold start, half a
+  // second before three cards arrive, is a lie told to exactly the person who
+  // opened the app to see what is waiting.
+  const [synced, setSynced] = useState(false)
+  // Messages this browser could not deliver yet — a decision made while the
+  // relay was unreachable. Shown, so the person knows it is on its way.
+  const [unsent, setUnsent] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // The decision just made, for six seconds: long enough to take it back. A
+  // swipe is fast and a card leaves the screen the moment it is decided, so
+  // without this a slip of the thumb is an approval nobody meant.
+  const [undo, setUndo] = useState<{ cardId: string; action: string; title: string } | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
-  const [screen, setScreen] = useState<Screen>(null)
+  // ⌘K: one box that goes anywhere and finds anything.
+  const [palette, setPalette] = useState(false)
+  const { route, navigate } = useRoute()
+  const desktop = useDesktop()
+  const screen: Screen | null = route.screen
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
@@ -56,17 +90,31 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const [localeVersion, setLocaleVersion] = useState(0)
   // Cards is one decision per screen; Classic is the same decisions as a list
   // you can scan. Remembered, because it is a way of working, not a detour.
-  const [mode, setMode] = useState<Mode>(() => {
+  const storedMode: Mode = (() => {
     try { return localStorage.getItem('mode') === 'classic' ? 'classic' : 'cards' } catch { return 'cards' }
-  })
+  })()
+  const mode: Mode = route.mode ?? storedMode
   const switchMode = (next: Mode) => {
-    setMode(next)
     try { localStorage.setItem('mode', next) } catch {}
+    navigate(hashForMode(next))
   }
-  // The card a notification tap (or a ?card= link) asked for.
-  const [focusCardId, setFocusCardId] = useState<string | null>(() => {
-    try { return new URL(window.location.href).searchParams.get('card') } catch { return null }
-  })
+  const setScreen = useCallback((next: Screen | null) => {
+    navigate(next ? hashForScreen(next) : hashForMode(mode))
+  }, [navigate, mode])
+  // The card the URL names — from a notification tap, a pasted link, or a
+  // row picked in the inbox.
+  const focusCardId = route.cardId
+  // A `?card=` link from before the hash routes: turned into one, once.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      const legacy = url.searchParams.get('card')
+      if (!legacy) return
+      url.searchParams.delete('card')
+      history.replaceState(null, '', url.pathname + url.search + hashForCard(legacy))
+      navigate(hashForCard(legacy), true)
+    } catch { /* nothing to translate */ }
+  }, [navigate])
 
   const wsClientRef = useRef<WebSocketClient | null>(null)
   if (wsClientRef.current === null) wsClientRef.current = new WebSocketClient()
@@ -83,16 +131,21 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     setTabBadge(pending.length)
     return () => setTabBadge(0)
   }, [state, userId])
+  useEffect(() => {
+    if (synced) saveCardCache(orgId, state.cardsById || {})
+  }, [state, synced, orgId])
 
   useEffect(() => {
     const wsClient = wsClientRef.current!
     let ignore = false
     wsClient.onStateChange = (newState) => { if (!ignore) setState(newState) }
+    wsClient.onSynced = () => { if (!ignore) setSynced(true) }
+    wsClient.onOutboxChange = (n) => { if (!ignore) setUnsent(n) }
     wsClient.onCardCreated = (card) => {
       if (ignore) return
       addDebugLog(`Card created: ${card.id}`)
       if (card.recipientUserID === userId && card.status === 'pending') {
-        notifyNewDecision(card.title || 'A decision is waiting', card.senderUserID || 'a teammate')
+        notifyNewDecision(card.localized?.[getLocale()]?.title || card.title || t('A decision is waiting'), card.requestedBy?.name || displayName(card.senderUserID) || t('a teammate'))
       }
     }
     wsClient.onCardUpdated = (card) => { if (!ignore) addDebugLog(`Card updated: ${card.id}`) }
@@ -115,10 +168,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (connected) setError(null)
       addDebugLog(connected ? `Connected to ${relayUrl}` : 'Disconnected — will retry')
     }
+    setSynced(false)
     wsClient.connect(relayUrl, userId, orgId, sessionToken).catch((err) => {
       if (ignore) return
-      const message = err instanceof Error ? err.message : String(err)
-      setError(`Failed to connect: ${message}`)
+      // A socket that fails hands back an Event, not an Error, and "[object
+      // Event]" tells nobody anything. Offline is the usual reason, and has
+      // its own sentence.
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+      const message = err instanceof Error ? err.message : ''
+      setError(offline
+        ? t('You are offline. What you decide will be sent when you are back.')
+        : (message ? t('Could not connect: {why}', { why: message }) : t('Could not connect. Retrying.')))
     })
     return () => { ignore = true; wsClient.disconnect() }
   }, [relayUrl, userId, orgId, sessionToken, addDebugLog, onLeft])
@@ -128,11 +188,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'open-card' && event.data.cardId) { setPanel(null); setFocusCardId(event.data.cardId) }
+      if (event.data?.type === 'open-card' && event.data.cardId) { setPanel(null); navigate(hashForCard(event.data.cardId)) }
     }
     navigator.serviceWorker.addEventListener('message', onMessage)
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
-  }, [])
+  }, [navigate])
 
   // What language this browser reads, so every notification arrives in it.
   useEffect(() => { syncLocale(relayHttpUrl, sessionToken) }, [relayHttpUrl, sessionToken])
@@ -156,68 +216,139 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // Escape closes whatever is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setPanel(null); setScreen(null) }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); setPalette((p) => !p); return }
+      if (palette) return
+      if (e.key === 'Escape') { setPanel(null); if (screen) setScreen(null) }
       else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) setPanel('compose')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [panel, screen])
+  }, [panel, screen, setScreen, palette])
+  const pickFromPalette = useCallback((action: PaletteAction) => {
+    setPalette(false)
+    setPanel(null)
+    if (action.kind === 'card') { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(action.cardId)) }
+    else if (action.kind === 'screen') navigate(hashForScreen(action.screen))
+    else if (action.kind === 'feed') { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForMode('cards')) }
+    else if (action.kind === 'list') { try { localStorage.setItem('mode', 'classic') } catch {}; navigate(hashForMode('classic')) }
+    else if (action.kind === 'compose') { navigate(hashForMode('cards')); setPanel('compose') }
+  }, [navigate])
 
-  /// "Ask anything" on a card: the same thing telling your AI does, with the
-  /// card it is about named, so the router has the context a bare sentence
-  /// would be missing.
-  const handleAsk = useCallback(async (text: string, card: any) => {
+  // A toast that stays until clicked is a banner. Errors clear themselves.
+  useEffect(() => {
+    if (!error) return
+    const id = setTimeout(() => setError(null), 8000)
+    return () => clearTimeout(id)
+  }, [error])
+  useEffect(() => {
+    if (!undo) return
+    const id = setTimeout(() => setUndo(null), 6000)
+    return () => clearTimeout(id)
+  }, [undo])
+
+  /// "Ask anything" on a card: a question, answered from the card and what
+  /// the team decided before — not routed to somebody as a new card. The
+  /// answer lands under the card; nothing is created.
+  const [answers, setAnswers] = useState<Record<string, Answer>>({})
+  const handleAsk = useCallback(async (text: string, card: DecisionCard) => {
+    setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: null, related: [], busy: true } }))
     try {
-      const res = await fetch(`${relayHttpUrl}/ai/route`, {
+      const res = await fetch(`${relayHttpUrl}/ai/ask`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
-        body: JSON.stringify({
-          text: `About "${card.title}": ${text}`,
-          orgId,
-          sender: { id: userId, role: 'member' },
-          // The Worker writes its own words on a card — the title, the routing
-          // line — and without this it writes them in English.
-          readerLanguage: getLocale(),
-        }),
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken, ...aiHeaders() },
+        body: JSON.stringify({ orgId, cardId: card.id, question: text, readerLanguage: getLocale() }),
       })
-      const routed = await res.json()
-      if (!res.ok) { setError(routed.message || t('Your AI could not route that.')); return }
-      wsClientRef.current!.sendCardCreated({
-        id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        type: routed.cardType || 'notification',
-        status: 'pending',
-        recipientUserID: routed.recipientUserID,
-        title: routed.title || 'Decision needed',
-        summary: routed.summary || '',
-        context: routed.context || '',
-        priority: routed.priority || 'medium',
-        routingReason: routed.routingReason || '',
-        agentRoute: routed.agentRoute || '',
-        createdAt: new Date().toISOString(),
-        sourceInstruction: text,
-        ...(routed.business ? { business: routed.business } : {}),
-        ...(routed.recommendation ? { recommendation: routed.recommendation } : {}),
-      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const why = res.status === 503
+          ? t('Your AI has no model to answer with on this deployment.')
+          : res.status === 429
+            ? t("You have used today's AI answers.")
+            : (data.message || t('Your AI could not answer that just now.'))
+        setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: null, related: [], busy: false, error: why } }))
+        return
+      }
+      setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: data.answer, related: data.related || [], sources: data.sources || [], busy: false } }))
       addDebugLog(`Asked about ${card.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const why = err instanceof Error ? err.message : String(err)
+      setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: null, related: [], busy: false, error: why } }))
     }
-  }, [relayHttpUrl, orgId, userId, sessionToken, addDebugLog])
+  }, [relayHttpUrl, orgId, sessionToken, addDebugLog, t])
 
   const handleDecision = useCallback((cardId: string, action: string, options?: any) => {
     wsClientRef.current!.sendDecision(cardId, action, options)
     addDebugLog(`Sent decision: ${cardId} → ${action}`)
+    const card = wsClientRef.current!.getCard(cardId)
+    const title = card?.localized?.[getLocale()]?.title || card?.title || ''
+    setUndo({ cardId, action, title })
   }, [addDebugLog])
   const handleRollback = useCallback((cardId: string) => {
     wsClientRef.current!.sendRollback(cardId)
     addDebugLog(`Rolled back: ${cardId}`)
+    setUndo(null)
   }, [addDebugLog])
+  /// A verdict on a card. Sent straight to the Worker — it is a row, not a
+  /// relay event — and answered with one line so the person knows it landed.
+  const handleFlag = useCallback(async (cardId: string, reason: FlagReason) => {
+    try {
+      const res = await fetch(`${relayHttpUrl}/cards/${encodeURIComponent(cardId)}/feedback`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, verdict: 'wrong', reason }),
+      })
+      if (!res.ok) setError((await res.json().catch(() => ({}))).message || t('That did not save.'))
+      addDebugLog(`Flagged ${cardId}: ${reason}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }, [relayHttpUrl, orgId, sessionToken, addDebugLog, t])
   const handleNudge = useCallback((cardId: string) => {
     wsClientRef.current!.sendNudge(cardId)
     addDebugLog(`Nudged: ${cardId}`)
   }, [addDebugLog])
 
-  const cards = Object.values(state.cardsById || {})
+  // Cards in this reader's language. The relay translates for the recipient
+  // when a card is made; for everyone else — a teammate, the sender after a
+  // language switch — the Worker is asked here, once per card and language,
+  // and the words are kept on the card for the next reader. A deployment
+  // with no model says so once, and is not asked again this session.
+  const [translations, setTranslations] = useState<Record<string, Record<string, { title: string; summary?: string; context?: string }>>>({})
+  // A card the URL names that the socket never sent — a search hit from
+  // months ago. Fetched once; `card: null` remembers a miss.
+  const [fetched, setFetched] = useState<{ id: string; card: DecisionCard | null } | null>(null)
+  const askedFor = useRef(new Set<string>())
+  const noTranslator = useRef(false)
+  const locale = getLocale()
+  const rawCards = Object.values(state.cardsById || {})
+  useEffect(() => {
+    if (noTranslator.current) return
+    // Only what is on screen, and the card in front first: a workspace full
+    // of cards in another language must not spend a metered day's allowance
+    // before the person has typed anything. The Worker keeps the last call
+    // of a metered day for them regardless.
+    const mine = rawCards.filter((c) => c.recipientUserID === userId || c.senderUserID === userId)
+    const inFront = focusCardId ? mine.filter((c) => c.id === focusCardId) : []
+    const wanted = [...inFront, ...mine.filter((c) => c.status === 'pending' && c.recipientUserID === userId && c.id !== focusCardId)]
+      .filter((c) => needsLocalizing(c, locale) && !translations[c.id]?.[locale] && !askedFor.current.has(`${c.id}|${locale}`))
+      .slice(0, 2)
+    for (const card of wanted) {
+      askedFor.current.add(`${card.id}|${locale}`)
+      fetch(`${relayHttpUrl}/cards/${encodeURIComponent(card.id)}/localize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken, ...aiHeaders() },
+        body: JSON.stringify({ orgId, locale }),
+      })
+        .then(async (r) => {
+          if (r.status === 503 || r.status === 429) { noTranslator.current = true; return }
+          if (!r.ok) return
+          const data = await r.json().catch(() => ({}))
+          if (data.localized?.title) setTranslations((prev) => ({ ...prev, [card.id]: { ...(prev[card.id] || {}), [locale]: data.localized } }))
+        })
+        .catch(() => { /* the card reads in its own language */ })
+    }
+  }, [rawCards, locale, userId, relayHttpUrl, orgId, sessionToken, translations, localeVersion, focusCardId])
+  const cards = rawCards.map((c) => (translations[c.id] ? { ...c, localized: { ...(c.localized || {}), ...translations[c.id] } } : c))
   const byUrgency = { urgent: 0, high: 1, medium: 2, low: 3 } as Record<string, number>
   // What is waiting on me, most urgent first, then oldest first: the order
   // the AI would read them to you.
@@ -230,7 +361,46 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const sentCards = cards
     .filter((c) => c.senderUserID === userId && c.recipientUserID !== userId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const nameOf = (slug?: string) => businesses.find((b) => b.slug === slug)?.name
+
+  // The laptop workbench: the inbox on the left, one card on the right. The
+  // URL names the card; with none named, the first thing waiting.
+  const workbench = desktop && mode === 'cards'
+  const inboxCards = [...pendingCards, ...decidedCards]
+  // A card the URL names opens whatever list it is on — sent, decided by
+  // someone else, or older than the socket's snapshot and fetched below.
+  // Only with no card named does the pane fall back to the first thing
+  // waiting: a "Decided before" hit must not silently show something else.
+  const named = focusCardId ? cards.find((c) => c.id === focusCardId) ?? (fetched?.id === focusCardId ? fetched.card : null) : null
+  const selectedId = named ? named.id : (pendingCards[0]?.id ?? null)
+  const selected = named ?? (selectedId ? inboxCards.find((c) => c.id === selectedId) ?? null : null)
+  useEffect(() => {
+    if (!focusCardId || cards.some((c) => c.id === focusCardId) || fetched?.id === focusCardId) return
+    let ignore = false
+    fetch(`${relayHttpUrl}/cards/${encodeURIComponent(focusCardId)}?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then(async (r) => {
+        if (ignore) return
+        const data = r.ok ? await r.json().catch(() => ({})) : {}
+        setFetched({ id: focusCardId, card: data.card ?? null })
+        if (!r.ok) setError(t('That card is not in this workspace.'))
+      })
+      .catch(() => { /* offline: the card the URL names is not here */ })
+    return () => { ignore = true }
+  }, [focusCardId, cards, fetched, relayHttpUrl, orgId, sessionToken, t])
+  useEffect(() => {
+    if (!workbench || panel || screen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (target && target.closest('input, textarea, select, [contenteditable]')) return
+      if (e.key !== 'j' && e.key !== 'k' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      const i = inboxCards.findIndex((c) => c.id === selectedId)
+      const next = inboxCards[i + ((e.key === 'j' || e.key === 'ArrowDown') ? 1 : -1)]
+      if (next) { e.preventDefault(); navigate(hashForCard(next.id)) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [workbench, panel, screen, inboxCards, selectedId, navigate])
+  const api = { httpBase: relayHttpUrl, orgId, sessionToken }
 
   return (
     // `screen-open` is what lets the rail stay on a laptop while a screen is
@@ -238,15 +408,49 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
     <div className={`shell${screen ? ' screen-open' : ''}`}>
-      {mode === 'cards' ? (
+      {workbench ? (
+        <div className="workbench">
+          <Inbox
+            key={`inbox-${localeVersion}`}
+            pending={pendingCards}
+            decided={decidedCards}
+            businesses={businesses}
+            selectedId={selectedId}
+            onSelect={(id) => navigate(hashForCard(id))}
+          />
+          <Feed
+            key={localeVersion}
+            cards={selected ? [selected] : []}
+            userId={userId}
+            businesses={businesses}
+            focusCardId={null}
+            ready={synced || cards.length > 0}
+            active={!panel && !screen}
+            onDecide={handleDecision}
+            onAsk={handleAsk}
+            onFlag={handleFlag}
+            answers={answers}
+            onUndo={handleRollback}
+            api={api}
+            layout="desk"
+          />
+        </div>
+      ) : mode === 'cards' ? (
         <Feed
           key={localeVersion}
-          cards={pendingCards}
+          cards={named && !pendingCards.some((c) => c.id === named.id) ? [...pendingCards, named] : pendingCards}
           userId={userId}
           businesses={businesses}
           focusCardId={focusCardId}
+          ready={synced || cards.length > 0}
+          active={!panel && !screen}
           onDecide={handleDecision}
           onAsk={handleAsk}
+          onFlag={handleFlag}
+          answers={answers}
+          onUndo={handleRollback}
+          api={api}
+          layout="phone"
         />
       ) : (
         <ClassicList
@@ -255,7 +459,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           sent={sentCards}
           decided={decidedCards}
           businesses={businesses}
-          onOpen={(id) => { setFocusCardId(id); switchMode('cards') }}
+          onOpen={(id) => { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(id)) }}
           onNudge={handleNudge}
         />
       )}
@@ -280,7 +484,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           </button>
         </div>
         <div className="topbar-right">
-          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} />
+          {(!isConnected || unsent > 0) && synced && (
+            <span className="link-state" role="status">
+              {unsent > 0 ? t('{n} waiting to send', { n: unsent }) : t('Reconnecting…')}
+            </span>
+          )}
+          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} aria-hidden="true" />
+          <button className="palette-button" onClick={() => setPalette(true)} aria-label={t('Search or jump to')} title="⌘K" aria-keyshortcuts="Meta+K Control+K">
+            <Icon name="search" size={18} />
+          </button>
           <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
           <button className="avatar-button" onClick={() => setScreen('profile')} aria-label={t('You')}>
             {(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()}
@@ -289,7 +501,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       </header>
 
       <div className="toasts">
-        {error && <div className="toast error" onClick={() => setError(null)}>{error}</div>}
+        {error && <div className="toast error" role="alert" onClick={() => setError(null)}>{error}</div>}
+        {undo && !error && (
+          <div className="toast undo" role="status">
+            <span className="undo-text">{t(DECIDED_WORD[undo.action] || 'Done')}{undo.title ? ` · ${undo.title}` : ''}</span>
+            <button className="undo-button" onClick={() => handleRollback(undo.cardId)}>{t('Undo')}</button>
+          </div>
+        )}
       </div>
 
       {panel === null && (
@@ -311,8 +529,19 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       {panel && <div className="scrim" onClick={() => setPanel(null)} />}
 
+      {palette && (
+        <Palette
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          sessionToken={sessionToken}
+          cards={[...pendingCards, ...decidedCards, ...sentCards]}
+          onPick={pickFromPalette}
+          onClose={() => setPalette(false)}
+        />
+      )}
+
       {panel === 'compose' && (
-        <div className="sheet sheet-bottom" role="dialog" aria-label={t('Tell your AI')}>
+        <div className="sheet sheet-bottom" role="dialog" aria-modal="true" aria-label={t('Tell your AI')}>
           <div className="sheet-title">{t('Tell your AI')}</div>
           <p className="sheet-hint">{t('compose.hint')}</p>
           <CreateDecision
@@ -326,48 +555,6 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             onDone={() => setPanel(null)}
           />
         </div>
-      )}
-
-      {panel === 'sent' && (
-        <aside className="sheet sheet-side" role="dialog" aria-label={t('Sent by you')}>
-          <div className="sheet-title">{t('Sent by you')} <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
-          {sentCards.length === 0 && <p className="sheet-empty">{t('Nothing sent yet. Tell your AI something.')}</p>}
-          {sentCards.map((card) => (
-            <div key={card.id} className="sent-card">
-              <div className="sent-card-head">
-                <strong>{card.title}</strong>
-                <span className={`sent-status ${card.status === 'pending' ? 'waiting' : 'done'}`}>
-                  {card.status === 'pending'
-                    ? `Waiting on ${card.recipientUserID.replace(/^(u:|email:)/, '').split('@')[0]}`
-                    : (card.decision?.action || 'decided')}
-                </span>
-              </div>
-              {card.business && <span className="business-tag">{nameOf(card.business) || card.business}</span>}
-              <p className="sent-summary">{card.summary}</p>
-              {card.decision?.replyText && <p className="sent-reply">“{card.decision.replyText}”</p>}
-              {card.status === 'pending' && <button className="nudge-button" onClick={() => handleNudge(card.id)}>{t('Nudge')}</button>}
-            </div>
-          ))}
-        </aside>
-      )}
-
-      {panel === 'done' && (
-        <aside className="sheet sheet-side" role="dialog" aria-label={t('Decided')}>
-          <div className="sheet-title">{t('Decided')} <button className="close" data-close="1" onClick={() => setPanel(null)} aria-label={t('Close')}>×</button></div>
-          {decidedCards.length === 0 && <p className="sheet-empty">{t('No decisions yet.')}</p>}
-          {decidedCards.map((card) => (
-            <DecisionCard
-              key={card.id}
-              card={card}
-              currentUserId={userId}
-              businessName={nameOf(card.business)}
-              onApprove={() => {}} onDecline={() => {}} onChoose={() => {}} onReply={() => {}}
-              onAcknowledge={() => {}} onDelegate={() => {}}
-              onRollback={() => handleRollback(card.id)}
-              isPending={false}
-            />
-          ))}
-        </aside>
       )}
 
       {panel === 'record' && (
@@ -397,12 +584,18 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           sent={sentCards}
           businesses={businesses}
           userId={userId}
-          onOpen={(id) => { setScreen(null); setFocusCardId(id); switchMode('cards') }}
+          onUndo={handleRollback}
           onClose={() => setScreen(null)}
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          sessionToken={sessionToken}
         />
       )}
       {screen === 'notifications' && (
         <NotificationSettings httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+      )}
+      {screen === 'insights' && (
+        <Insights httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
       )}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />

@@ -51,12 +51,16 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-async function connectedClient(userId = 'user-alice') {
+/// A client whose join the relay has accepted: open, and answered with a
+/// snapshot. Anything sent before that answer is held, because the relay
+/// closes a socket that speaks before it has joined.
+async function connectedClient(userId = 'user-alice', { snapshot = true } = {}) {
   const client = new WebSocketClient()
   const connectPromise = client.connect('ws://test', userId, 'core-team')
   const socket = FakeWebSocket.instances[0]
   socket.onopen?.()
   await connectPromise
+  if (snapshot) socket.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
   return { client, socket }
 }
 
@@ -176,5 +180,58 @@ describe('WebSocketClient', () => {
     const client = new WebSocketClient()
     // Never connected — sendDecision must no-op, not throw.
     expect(() => client.sendDecision('card-1', 'approve')).not.toThrow()
+  })
+
+  it('says when the relay has answered, once per socket', async () => {
+    const client = new WebSocketClient()
+    let synced = 0
+    client.onSynced = () => { synced += 1 }
+    const connecting = client.connect('ws://test', 'user-alice', 'core-team')
+    const socket = FakeWebSocket.instances[0]
+    socket.onopen?.()
+    await connecting
+    expect(synced).toBe(0)
+    socket.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
+    socket.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
+    expect(synced).toBe(1)
+  })
+
+  it('holds a decision made while the relay is down and delivers it, in order, after the next join', async () => {
+    vi.useFakeTimers()
+    const { client, socket } = await connectedClient('user-alice')
+    const pending: number[] = []
+    client.onOutboxChange = (n) => pending.push(n)
+
+    // The network dies. Two things happen before it comes back.
+    socket.onclose?.()
+    client.sendDecision('card-1', 'approve')
+    client.sendNudge('card-2')
+    expect(pending).toEqual([1, 2])
+    expect(client.pendingCount).toBe(2)
+
+    // Reconnect. The join goes out first; nothing else until the relay
+    // answers it — a message before that closes the socket.
+    await vi.advanceTimersByTimeAsync(2100)
+    const next = FakeWebSocket.instances[1]
+    next.onopen?.()
+    expect(next.sent.map((m) => m.type)).toEqual(['join'])
+
+    next.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
+    expect(next.sent.map((m) => m.type)).toEqual(['join', 'tool_result', 'nudge'])
+    expect(next.sent[1].payload.content).toMatchObject({ cardId: 'card-1', action: 'approve', actorUserID: 'user-alice' })
+    expect(pending[pending.length - 1]).toBe(0)
+    expect(client.pendingCount).toBe(0)
+
+    // And not again on the next snapshot.
+    next.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
+    expect(next.sent.length).toBe(3)
+  })
+
+  it('holds a message sent after the socket opens but before the relay has answered the join', async () => {
+    const { client, socket } = await connectedClient('user-alice', { snapshot: false })
+    client.sendRollback('card-1')
+    expect(socket.sent.map((m) => m.type)).toEqual(['join'])
+    socket.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: {} } })
+    expect(socket.sent.map((m) => m.type)).toEqual(['join', 'rollback'])
   })
 })

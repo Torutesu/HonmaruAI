@@ -17,7 +17,7 @@ export class WebSocketClient {
   private currentUserId: string | null = null
   private lastConnectParams: { url: string; orgId: string; sessionToken?: string } | null = null
   private intentionalDisconnect = false
-   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   // Grows on each failed retry (2s → 4s → 8s … capped) so a server that is
   // down is not hammered every 2s, and resets to the minimum on a success.
   private reconnectDelay = RECONNECT_MIN_MS
@@ -26,6 +26,17 @@ export class WebSocketClient {
   // ever end the same way.
   private refused = false
   private refusal: { message: string; code?: string } | null = null
+  // What this browser tried to send while the socket was down. A decision
+  // made on a train used to vanish: sendDecision returned early when the
+  // socket was not open and nothing said so, so the card stayed on the
+  // screen looking undecided and the person swiped it again — or did not,
+  // and the sender waited for an answer that had been given. Held here, in
+  // order, and delivered once the relay has accepted the next join.
+  private outbox: Array<{ type: string; payload: unknown }> = []
+  // True once the relay has answered a join with its snapshot on the current
+  // socket. Sending before that point is refused by the relay — it closes the
+  // socket — so the outbox waits for it rather than for `onopen`.
+  private joined = false
 
   onStateChange?: (state: AppState) => void
   onCardCreated?: (card: DecisionCard) => void
@@ -39,6 +50,12 @@ export class WebSocketClient {
   onRefused?: (message: string, code?: string) => void
   onToolCallResult?: (toolCallId: string, result: any) => void
   onConnectionChange?: (isConnected: boolean) => void
+  /// The relay has accepted this socket and sent everything it knows. Until
+  /// this fires the feed has nothing to show — not "nothing", nothing yet.
+  onSynced?: () => void
+  /// How many messages are waiting for the relay to come back. Zero means
+  /// everything this browser did has reached it.
+  onOutboxChange?: (pending: number) => void
 
   connect(
     url: string,
@@ -51,6 +68,7 @@ export class WebSocketClient {
     // being refused by one must not inherit the refusal.
     this.refused = false
     this.refusal = null
+    this.joined = false
     this.currentUserId = userId
     this.lastConnectParams = { url, orgId, sessionToken }
 
@@ -103,6 +121,7 @@ export class WebSocketClient {
         // error instead of a reconnect.
         ws.onclose = (event?: { code?: number; reason?: string }) => {
           this.ws = null
+          this.joined = false
           this.onConnectionChange?.(false)
           // 1008 is the relay saying the door will not open: not a member, no
           // valid session, a client too old to speak to it. It sends that code
@@ -130,7 +149,7 @@ export class WebSocketClient {
 
     const { url, orgId, sessionToken } = this.lastConnectParams
     const userId = this.currentUserId
-        const delay = this.reconnectDelay
+    const delay = this.reconnectDelay
     // Next attempt waits longer, up to the cap.
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS)
     this.reconnectTimer = setTimeout(() => {
@@ -191,7 +210,7 @@ export class WebSocketClient {
     }
   }
 
-   private handleSnapshot(event: StateSnapshot): void {
+  private handleSnapshot(event: StateSnapshot): void {
     if (!event.snapshot?.cardsById) return
     // A successful join resets the backoff, so the next disconnect retries
     // quickly rather than inheriting a long delay from an earlier outage.
@@ -201,6 +220,35 @@ export class WebSocketClient {
     // Object.is, so old cards would never clear (e.g. after clear_store).
     this.state = { ...this.state, cardsById: event.snapshot.cardsById }
     this.onStateChange?.(this.state)
+    if (!this.joined) {
+      this.joined = true
+      this.onSynced?.()
+      this.flushOutbox()
+    }
+  }
+
+  /// Send now if the relay will take it, otherwise keep it for when it will.
+  private post(message: { type: string; payload: unknown }): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.joined) {
+      this.ws.send(JSON.stringify(message))
+      return
+    }
+    this.outbox.push(message)
+    this.onOutboxChange?.(this.outbox.length)
+  }
+
+  private flushOutbox(): void {
+    if (this.outbox.length === 0) return
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    const queued = this.outbox
+    this.outbox = []
+    for (const message of queued) this.ws.send(JSON.stringify(message))
+    this.onOutboxChange?.(0)
+  }
+
+  /// Messages this browser has not been able to deliver yet.
+  get pendingCount(): number {
+    return this.outbox.length
   }
 
   private handleDelta(event: StateDelta): void {
@@ -313,7 +361,7 @@ export class WebSocketClient {
       note?: string
     }
   ): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.currentUserId) return
+    if (!this.currentUserId) return
 
     const toolCallId = this.toolCallIdsByCard[cardId]
     const content = {
@@ -329,49 +377,28 @@ export class WebSocketClient {
       payload.toolCallId = toolCallId
     }
 
-    this.ws.send(JSON.stringify({
-      type: 'tool_result',
-      payload
-    }))
+    this.post({ type: 'tool_result', payload })
   }
 
-    sendRollback(cardId: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-
-    this.ws.send(JSON.stringify({
-      type: 'rollback',
-      payload: { cardId }
-    }))
+  sendRollback(cardId: string): void {
+    this.post({ type: 'rollback', payload: { cardId } })
   }
 
   // Send a newly created card into the org feed. The relay stamps the sender
   // from the session, persists it, and broadcasts it to every member.
   sendCardCreated(card: any): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify({
-      type: 'card_created',
-      payload: { card }
-    }))
+    this.post({ type: 'card_created', payload: { card } })
   }
 
-  
   // File a card under a business (a slug, or a new name), or null to clear.
   // The relay accepts this from the sender or the recipient.
   sendSetBusiness(cardId: string, business: string | null): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify({
-      type: 'set_business',
-      payload: { cardId, business }
-    }))
+    this.post({ type: 'set_business', payload: { cardId, business } })
   }
 
   // Re-alert the recipient of a card you sent that is still pending.
   sendNudge(cardId: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify({
-      type: 'nudge',
-      payload: { cardId }
-    }))
+    this.post({ type: 'nudge', payload: { cardId } })
   }
 
   getState(): AppState {

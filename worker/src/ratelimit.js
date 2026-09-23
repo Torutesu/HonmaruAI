@@ -11,8 +11,20 @@
 export const LIMITS = {
   // The expensive one: every call spends money on someone's model.
   "ai/route": { max: 30, windowSeconds: 300 },
+  // A translation is a model call too, but one the client asks for on its
+  // own as cards arrive. Its own bucket, so a screen full of cards in
+  // another language cannot lock the person out of routing for five minutes.
+  "cards/localize": { max: 30, windowSeconds: 300 },
   // Guessing an authorization code should not be cheap.
   "oauth/token": { max: 10, windowSeconds: 300 },
+  // Asking for a sign-in code sends a mail, which is the cost to bound; it
+  // guesses nothing (the code's own attempt counter does that). Its own
+  // bucket, because a whole office signs in from one address, and ten
+  // requests-plus-verifications per five minutes was the office locked out.
+  "otp/request": { max: 20, windowSeconds: 300 },
+  // Reading what an invite opens grants nothing; only redeeming does. Still
+  // bounded, since an unknown code answers differently from a real one.
+  "invites/peek": { max: 30, windowSeconds: 300 },
   // A sync walks an inbox and can trigger many model calls.
   "connectors/sync": { max: 6, windowSeconds: 300 },
   // Storage is the thing R2 bills for, and each of these is up to 12 MB.
@@ -106,7 +118,13 @@ export async function enforce(env, request, bucket) {
       status: 429,
       headers: {
         "content-type": "application/json",
+        "cache-control": "no-store",
         "retry-after": String(Math.max(1, retryAfter)),
+        // Without these a browser client is not allowed to read the body —
+        // it sees a network failure where the server said "in 40 seconds".
+        "access-control-allow-origin": "*",
+        "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+        "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
       },
     }
   );

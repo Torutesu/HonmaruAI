@@ -46,7 +46,7 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
   useEffect(() => {
     fetch(`${httpBase}/billing/status`, { headers: { 'x-session-token': sessionToken } })
       .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || 'Could not load plans.')
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || t('Could not load plans.'))
         setStatus(await res.json())
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
@@ -79,9 +79,9 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
               <div className="form-note">{t('You are on Pro. Unlimited routing, every business, the full record.')}</div>
             ) : (
               <p className="lede" style={{ marginTop: 4 }}>
-                Free gives you {status.dailyLimit} AI-routed decisions a day
-                {status.remainingToday !== null && <> — <b style={{ color: 'var(--ink-black)' }}>{status.remainingToday} left today</b></>}.
-                Paid removes the limit and turns on everything the AI does in the background.
+                {t('Free gives you {n} AI-routed decisions a day', { n: status.dailyLimit })}
+                {status.remainingToday !== null && <> — <b style={{ color: 'var(--ink-black)' }}>{t('{n} left today', { n: status.remainingToday })}</b></>}.
+                {' '}{t('Paid removes the limit and turns on everything the AI does in the background.')}
               </p>
             )}
 
@@ -90,7 +90,7 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
                 {t('Annual')} <span className="save">{t('save 20%')}</span>
               </button>
               <button role="tab" aria-selected={!annual} className={!annual ? 'on' : ''} onClick={() => setAnnual(false)}>
-                Monthly
+                {t('Monthly')}
               </button>
             </div>
 
@@ -108,13 +108,13 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
                   </div>
                   <div className="plan-price">
                     <b>${price(p)}</b>
-                    <span>/{p.perSeat ? 'user/' : ''}mo</span>
+                    <span>{p.perSeat ? t('/user/mo') : t('/mo')}</span>
                   </div>
                 </div>
                 <ul className="plan-features">
                   {p.features.map((f) => <li key={f}>{f}</li>)}
                 </ul>
-                {annual && <span className="pill-tag blue">Billed yearly · ${price(p) * 12}</span>}
+                {annual && <span className="pill-tag blue">{t('Billed yearly · ${n}', { n: price(p) * 12 })}</span>}
               </button>
             ))}
 
@@ -127,7 +127,7 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
                   </div>
                   <div className="plan-price">
                     <b>${price(p)}</b>
-                    <span>/{p.perSeat ? 'user/' : ''}mo</span>
+                    <span>{p.perSeat ? t('/user/mo') : t('/mo')}</span>
                   </div>
                 </div>
                 <ul className="plan-features">
@@ -153,16 +153,16 @@ export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
           <button
             className="btn btn-primary"
             disabled={!status.purchasable}
-            onClick={() => setError('Subscriptions are bought in the iOS app, through the App Store.')}
+            onClick={() => setError(t('Subscriptions are bought in the iOS app, through the App Store.'))}
           >
             {status.purchasable
-              ? `Start ${status.trialDays}-day free trial`
-              : 'Billing is not switched on yet'}
+              ? t('Start {n}-day free trial', { n: status.trialDays })
+              : t('Billing is not switched on yet')}
           </button>
           <p className="foot-note">
             {status.purchasable
-              ? `Free for ${status.trialDays} days, then $${selected ? price(selected) : ''}${selected?.perSeat ? ' per person' : ''} a month. Cancel any time.`
-              : `Nothing is for sale on this deployment yet. Everyone gets ${status.dailyLimit} AI-routed decisions a day in the meantime.`}
+              ? t(selected?.perSeat ? 'plans.trial.seat' : 'plans.trial', { days: status.trialDays, price: selected ? price(selected) : '' })
+              : t('plans.notForSale', { n: status.dailyLimit })}
           </p>
         </div>
       )}

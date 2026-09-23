@@ -1,6 +1,8 @@
 /** @typedef {{ recipientUserID: string, cardType: string, title: string, summary: string, context: string, priority: string, routingReason: string, agentRoute?: string, labels?: string[] }} DecisionCardArgs */
 
 import { cardText } from "./cardCopy.js";
+import { decideRoute, CONFIDENT } from "./jev.js";
+import { formatSourcesForModel } from "./context.js";
 
 export const DEMO_USER_IDS = ["user-toru", "user-tanaka", "user-yui", "user-alex"];
 
@@ -184,6 +186,17 @@ export function resolveRecipientTarget(text, senderID, organization) {
       return {
         recipientUserID: userID,
         routingReason: `Mentioned ${displayName}`,
+        forceOverride: true,
+      };
+    }
+    // The other names this person answers to — a Japanese given name on an
+    // account whose login is romanized, a nickname. The same whole-word rule.
+    const node = (organization?.nodes || []).find((n) => n.id === userID);
+    const alias = (node?.aliases || []).find((a) => mentions(lower, a));
+    if (alias) {
+      return {
+        recipientUserID: userID,
+        routingReason: `Mentioned ${alias}`,
         forceOverride: true,
       };
     }
@@ -404,13 +417,91 @@ Routing (critical):
 - A person named in the instruction → that person.
 - Something that needs sign-off or approval → a member with a canApprove edge.
 - An escalation → the sender's manager (a "manages" edge pointing at the sender).
-- Otherwise pick the member whose role best fits the instruction.`;
+- Otherwise pick the member whose role best fits the instruction.
+- When two members fit equally, prefer the one carrying less pending load
+  (listed under "Current load" when known), and say so in routingReason.
+- "Recent decisions" is what this team actually decided lately. If the
+  instruction repeats or contradicts one, say so in the summary or the
+  recommendation; a recommendation that leans on a real recent decision is
+  worth more than one that leans on the instruction alone.
 
-export function buildUserPrompt({ text, sender, organization, readerLanguage, senderContext }) {
+Research (when search_decisions, search_notion or search_github are offered):
+- If the instruction could repeat, revisit or depend on something this team
+  has decided before — a supplier, a price, a person, a project — call
+  search_decisions first with 2-4 keywords, then create the card using what
+  came back. One search at most. If nothing could plausibly have been
+  decided before, create the card straight away.`;
+
+/// The one tool the model may call before create_decision_card: what has
+/// this team already decided about this? Offered only when the caller can
+/// answer it (a session, an org, a database), and answered at most once.
+export const SEARCH_DECISIONS_TOOL = {
+  type: "function",
+  function: {
+    name: "search_decisions",
+    description:
+      "Look up what this team has already decided about something before writing the card. Give 2-4 keywords, in the language the instruction uses. Returns the most recent matching decisions, one line each.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "2-4 keywords" } },
+      required: ["query"],
+    },
+  },
+};
+
+const MAX_RESEARCH_RESULTS = 8;
+
+/// The tool result the model reads back: one line per decision.
+/// The team's connected tools, offered only when the person has them.
+export const SEARCH_NOTION_TOOL = {
+  type: "function",
+  function: {
+    name: "search_notion",
+    description: "Search the sender's Notion pages for what the team wrote about this: a plan, a note, a spec, a decision record. Use it when the instruction refers to something that would be written down.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "2-4 keywords, in the language the pages are likely written in" } },
+      required: ["query"],
+    },
+  },
+};
+export const SEARCH_GITHUB_TOOL = {
+  type: "function",
+  function: {
+    name: "search_github",
+    description: "Search the workspace's GitHub issues and pull requests. Use it when the instruction is about a bug, a feature, a release or anything that may already be tracked.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "2-4 keywords" } },
+      required: ["query"],
+    },
+  },
+};
+const RESEARCH_TOOLS = {
+  search_decisions: { tool: null, lookup: "searchDecisions", label: "Looked up past decisions", format: (rows) => formatDecisionsForModel(rows) },
+  search_notion: { tool: SEARCH_NOTION_TOOL, lookup: "searchNotion", label: "Searched Notion", format: formatSourcesForModel },
+  search_github: { tool: SEARCH_GITHUB_TOOL, lookup: "searchGithub", label: "Searched GitHub", format: formatSourcesForModel },
+};
+
+export function formatDecisionsForModel(rows) {
+  if (!rows?.length) return "No earlier decision matches.";
+  return rows
+    .slice(0, MAX_RESEARCH_RESULTS)
+    .map((d) => {
+      const when = d.decidedAt ? d.decidedAt.slice(0, 10) : "pending";
+      const biz = d.business ? ` [${d.business}]` : "";
+      const note = d.note ? ` — "${String(d.note).slice(0, 80)}"` : "";
+      return `- ${when} ${d.recipient} ${d.status}: ${d.title}${biz}${note}`;
+    })
+    .join("\n");
+}
+
+export function buildUserPrompt({ text, sender, organization, readerLanguage, senderContext, teamContext }) {
   const orgContext = organizationContext(organization);
   const contextBlock = senderContext && senderContext.trim()
     ? `\nSender context: ${senderContext.trim()}\n`
     : "";
+  const teamBlock = teamContextBlock(teamContext);
   const businesses = (organization?.businesses || [])
     .map((b) => (typeof b === "string" ? `- ${b}` : `- ${b.slug}: ${b.name}`))
     .join("\n");
@@ -418,9 +509,33 @@ export function buildUserPrompt({ text, sender, organization, readerLanguage, se
   return `Sender: ${sender.name} (${sender.id}, ${sender.role})
 Reader language: ${readerLanguage || "ja"}
 Instruction: ${text}
-${contextBlock}${businessBlock}
+${contextBlock}${businessBlock}${teamBlock}
 Organization:
 ${orgContext}`;
+}
+
+/// What the team is carrying and what it decided lately, as two short lists.
+/// Bounded: a dozen decisions and one line per member, so a busy team does
+/// not turn the prompt into a ledger. Absent entirely when there is nothing
+/// to say, so a fresh workspace's prompt is exactly what it was.
+export function teamContextBlock(teamContext) {
+  if (!teamContext) return "";
+  const load = (teamContext.load || [])
+    .filter((l) => l && l.id && l.pending > 0)
+    .slice(0, 30)
+    .map((l) => `- ${l.id}: ${l.pending} pending${l.oldestHours >= 24 ? `, oldest ${Math.round(l.oldestHours / 24)}d` : ""}`);
+  const recent = (teamContext.recent || [])
+    .slice(0, 12)
+    .map((d) => {
+      const who = d.recipient ? `${d.recipient} ` : "";
+      const biz = d.business ? ` [${d.business}]` : "";
+      const note = d.note ? ` — "${String(d.note).slice(0, 80)}"` : "";
+      return `- ${who}${d.action}: ${String(d.title || "").slice(0, 100)}${biz}${note}`;
+    });
+  let out = "";
+  if (load.length) out += `\nCurrent load (cards waiting on each member):\n${load.join("\n")}\n`;
+  if (recent.length) out += `\nRecent decisions (newest first):\n${recent.join("\n")}\n`;
+  return out;
 }
 
 /// The business an instruction names, by slug or by name, or null. The local
@@ -447,7 +562,10 @@ export function matchBusiness(text, organization) {
 
 function organizationContext(organization) {
   const nodes = (organization?.nodes || [])
-    .map((node) => `- ${node.id}: ${node.label} (${node.kind})`)
+    .map((node) => {
+      const aliases = Array.isArray(node.aliases) && node.aliases.length ? ` — also called ${node.aliases.join(", ")}` : "";
+      return `- ${node.id}: ${node.label} (${node.kind})${aliases}`;
+    })
     .join("\n");
   const edges = (organization?.edges || [])
     .map((edge) => {
@@ -814,19 +932,28 @@ export function routeInstructionLocally({
   organization,
   priorityOverride,
   readerLanguage,
+  // What System One decided, when it did: recipient, kind, priority and
+  // business, each with its confidence. The words are still written here.
+  decided = null,
 }) {
   const lower = String(text || "").toLowerCase();
-  const { recipientUserID, namedInInstruction, routingReason } = resolveRecipient(
-    text,
-    sender.id,
-    organization
-  );
+  const resolved = resolveRecipient(text, sender.id, organization);
+  const recipientUserID = decided?.recipient?.value || resolved.recipientUserID;
+  const namedInInstruction = decided?.recipient ? false : resolved.namedInInstruction;
+  const routingReason = decided?.recipient
+    ? `Your AI is ${Math.round(decided.recipient.confidence * 100)}% sure this is ${displayNameOf(organization, recipientUserID)}'s`
+    : resolved.routingReason;
 
+  // Keywords in both languages the product ships in. This is the router
+  // that answers when there is no model, and until the Japanese words were
+  // here every 承認 was filed as a notification — the eval set is what said so.
+  const any = (...words) => words.some((w) => lower.includes(w));
   let cardType = "notification";
-  if (lower.includes("approve") || lower.includes("approval")) cardType = "approval";
-  else if (lower.includes("delegate") || lower.includes("assign")) cardType = "delegation";
-  else if (lower.includes("revise") || lower.includes("feedback")) cardType = "revision";
-  else if (lower.includes("task") || lower.includes("fix") || lower.includes("build")) {
+  if (decided?.kind?.value) cardType = decided.kind.value;
+  else if (any("approve", "approval", "sign-off", "sign off", "承認", "決裁", "許可")) cardType = "approval";
+  else if (any("delegate", "assign", "take over", "hand over", "委任", "任せ", "引き継")) cardType = "delegation";
+  else if (any("revise", "revision", "feedback", "review", "typo", "修正", "見直")) cardType = "revision";
+  else if (any("task", "fix", "build", "implement", "redesign", "直して", "作って", "実装", "対応して")) {
     cardType = "task";
   }
 
@@ -841,9 +968,13 @@ export function routeInstructionLocally({
   const priority =
     priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)
       ? priorityOverride
-      : lower.includes("urgent")
+      : decided?.priority?.value
+        ? decided.priority.value
+        : lower.includes("urgent") || lower.includes("至急") || lower.includes("緊急") || lower.includes("今すぐ") || lower.includes("right now")
         ? "urgent"
-        : "high";
+        : /^\s*fyi\b/i.test(String(text || "")) || lower.includes("参考まで") || lower.includes("共有まで")
+          ? "low"
+          : "high";
 
   return validateRouting(
     {
@@ -862,19 +993,42 @@ export function routeInstructionLocally({
         routingReason,
       }),
       labels: [],
+      ...(decided?.business?.value && decided.business.value !== "none" ? { business: decided.business.value } : {}),
     },
     sender,
     text,
     [
-      {
-        name: "create_decision_card",
-        label: "Local fallback route",
-        detail: `${recipientName} · ${cardType}`,
-      },
+      decided
+        ? {
+            name: "system_one",
+            label: "Decided by Jev",
+            detail: [
+              decided.recipient ? `${recipientName} ${Math.round(decided.recipient.confidence * 100)}%` : recipientName,
+              decided.kind ? `${decided.kind.value} ${Math.round(decided.kind.confidence * 100)}%` : cardType,
+            ].join(" · "),
+          }
+        : {
+            name: "create_decision_card",
+            label: "Local fallback route",
+            detail: `${recipientName} · ${cardType}`,
+          },
     ],
     organization,
     readerLanguage
   );
+}
+
+/// System One first. Jev picks the recipient, the kind, the priority and the
+/// business; the local router writes the words. When Jev is not sure about
+/// the recipient — the one pick that matters — and a language model is
+/// there, the model decides instead. When Jev cannot be reached, nothing
+/// changes: the path is the one the caller had before.
+async function routeWithSystemOne({ text, sender, organization, priorityOverride, readerLanguage, senderContext, systemOne }) {
+  const decided = await decideRoute(systemOne, { text, sender, organization, senderContext });
+  const needsRecipient = Boolean((organization?.nodes || []).filter((n) => n.kind === "person").length >= 2);
+  const sure = !needsRecipient || (decided.recipient && decided.recipient.confidence >= CONFIDENT);
+  const routed = routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage, decided });
+  return { routed, sure, usage: decided.usage };
 }
 
 function parseRoutingJSON(content) {
@@ -892,13 +1046,15 @@ async function routeInstructionWithOpenRouter({
   openRouter,
   readerLanguage,
   senderContext,
+  teamContext,
+  lookups,
   attempt = 0,
   // Shared with the caller (and with this function's own retry) so it can tell
   // "the model answered" from "the call never landed" even when both end up
   // throwing. Only the first is billable.
   call = { answered: false },
 }) {
-  const userPrompt = buildUserPrompt({ text, sender, organization, readerLanguage, senderContext });
+  const userPrompt = buildUserPrompt({ text, sender, organization, readerLanguage, senderContext, teamContext });
 
   // OpenAI and OpenRouter speak the same chat/completions dialect, tools
   // included, so the provider is just an endpoint and a couple of headers.
@@ -912,40 +1068,87 @@ async function routeInstructionWithOpenRouter({
   if (openRouter.appUrl) headers["HTTP-Referer"] = openRouter.appUrl;
   if (openRouter.appName) headers["X-Title"] = openRouter.appName;
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: openRouter.model,
-      temperature: 0.2,
-      max_tokens: 512,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-      tools: buildAgentTools(organization),
-      tool_choice: {
-        type: "function",
-        function: { name: "create_decision_card" },
-      },
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: userPrompt },
+  ];
+  const cardTools = buildAgentTools(organization);
+  const forced = { type: "function", function: { name: "create_decision_card" } };
+  // Research is offered when somebody can answer it, and the model then
+  // chooses: look first, or write straight away. Once it has looked, the
+  // second call is forced to write — one search, not a conversation.
+  // Every lookup the caller can answer is a tool on offer. Past decisions
+  // always come first when they are there; Notion and GitHub only for a
+  // person who connected them.
+  const researchTools = [];
+  if (typeof lookups?.searchDecisions === "function") researchTools.push(SEARCH_DECISIONS_TOOL);
+  if (typeof lookups?.searchNotion === "function") researchTools.push(SEARCH_NOTION_TOOL);
+  if (typeof lookups?.searchGithub === "function") researchTools.push(SEARCH_GITHUB_TOOL);
+  const canResearch = researchTools.length > 0;
 
-  const data = await response.json();
-  if (!response.ok) {
-    const message = data?.error?.message || `${openRouter.providerName || "LLM"} request failed.`;
-    throw new Error(message);
+  const ask = async (tools, toolChoice) => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: openRouter.model,
+        temperature: 0.2,
+        max_tokens: 512,
+        messages,
+        tools,
+        tool_choice: toolChoice,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const message = data?.error?.message || `${openRouter.providerName || "LLM"} request failed.`;
+      throw new Error(message);
+    }
+    // Past this line the provider has answered and billed us, whatever we go
+    // on to make of the answer — including rejecting it in validateRouting
+    // below. A research round and the write that follows it are one answer
+    // to the meter: the person asked one question.
+    call.answered = true;
+    return data?.choices?.[0]?.message;
+  };
+
+  let message = await ask(canResearch ? [...researchTools, ...cardTools] : cardTools, canResearch ? "auto" : forced);
+  const researchSteps = [];
+
+  // One research round: every lookup the model asked for in its first turn
+  // runs, its answers go back, and the second turn must write. A failed
+  // lookup is an empty one — the card is still written.
+  const research = (message?.tool_calls || []).filter((c) => RESEARCH_TOOLS[c.function?.name] && typeof lookups?.[RESEARCH_TOOLS[c.function.name].lookup] === "function");
+  if (research.length && canResearch) {
+    const results = new Map();
+    for (const c of research) {
+      const kind = RESEARCH_TOOLS[c.function.name];
+      let query = "";
+      try { query = String(parseToolArguments(c.function?.arguments).query || ""); } catch { query = ""; }
+      let found = [];
+      try {
+        found = await lookups[kind.lookup](query);
+      } catch (err) {
+        console.error(`${c.function.name} failed`, err?.message || err);
+      }
+      results.set(c.id, kind.format(found));
+      researchSteps.push({ name: c.function.name, label: kind.label, detail: `"${query}" · ${found.length} found` });
+    }
+    // The model's own turn goes back to it verbatim, tool calls included,
+    // which is what the chat dialect requires before a tool result.
+    messages.push({ role: "assistant", content: message.content ?? null, tool_calls: message.tool_calls });
+    for (const c of message.tool_calls) {
+      messages.push({ role: "tool", tool_call_id: c.id, content: results.get(c.id) || "Not available." });
+    }
+    message = await ask(cardTools, forced);
   }
-  // Past this line the provider has answered and billed us, whatever we go on
-  // to make of the answer — including rejecting it in validateRouting below.
-  call.answered = true;
 
-  const message = data?.choices?.[0]?.message;
-  const toolCalls = message?.tool_calls;
+  const toolCalls = message?.tool_calls?.filter((c) => !RESEARCH_TOOLS[c.function?.name]);
 
   if (toolCalls?.length) {
-    const { card, toolCalls: steps } = materializeFromToolCalls(toolCalls, sender.name);
+    const { card, toolCalls: written } = materializeFromToolCalls(toolCalls, sender.name);
+    const steps = [...researchSteps, ...written];
     if (priorityOverride && ["low", "medium", "high", "urgent"].includes(priorityOverride)) {
       card.priority = priorityOverride;
       steps.push({
@@ -968,6 +1171,8 @@ async function routeInstructionWithOpenRouter({
         openRouter,
         readerLanguage,
         senderContext,
+        teamContext,
+        lookups,
         attempt: attempt + 1,
         call,
       });
@@ -1005,8 +1210,26 @@ export async function routeInstruction({
   openRouter,
   readerLanguage,
   senderContext,
+  teamContext,
+  lookups,
+  systemOne,
 }) {
   const sender = senderForCard(rawSender, organization);
+  // Jev decides, when it is configured. A confident pick is the answer; an
+  // unsure one is handed to the language model below when there is one.
+  if (systemOne?.apiKey) {
+    try {
+      const { routed, sure, usage } = await routeWithSystemOne({
+        text, sender, organization, priorityOverride, readerLanguage, senderContext, systemOne,
+      });
+      if (sure || !openRouter?.apiKey) {
+        return { ...routed, routedBy: sure ? "jev" : "jev-unsure", aiCalled: false, systemOneUsage: usage };
+      }
+      console.warn("Jev unsure about the recipient; asking the language model");
+    } catch (error) {
+      console.warn("Jev routing failed, continuing without it:", error.message);
+    }
+  }
   if (openRouter?.apiKey) {
     // `aiCalled` is for the meter, not for clients: /ai/route strips it before
     // responding, so the wire format is unchanged. routedBy cannot stand in for
@@ -1022,6 +1245,8 @@ export async function routeInstruction({
         openRouter,
         readerLanguage,
         senderContext,
+        teamContext,
+        lookups,
         call,
       });
       return { ...routed, routedBy: openRouter.providerName || "llm", aiCalled: call.answered };

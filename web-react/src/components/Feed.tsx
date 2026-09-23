@@ -4,15 +4,54 @@ import { getLocale } from '../utils/locale'
 import './Feed.css'
 import { displayName } from '../utils/names'
 import { useT, t } from '../utils/i18n'
+import { ReplyDraft } from './ReplyDraft'
+import { CardThread } from './CardThread'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
   userId: string
   businesses: Business[]
   focusCardId: string | null
+  /// The relay has sent what it knows. Before that, the feed is not empty —
+  /// it is not here yet, and the two look nothing alike to the person who
+  /// opened the app to see what is waiting on them.
+  ready: boolean
+  /// Whether the feed is the thing on screen. A sheet or a screen over it
+  /// takes the keyboard: A and D must not decide a card nobody is looking at.
+  active: boolean
   onDecide: (cardId: string, action: string, options?: { replyText?: string }) => void
   onAsk: (text: string, card: DecisionCard) => void
+  /// "This card is wrong" — and why. The one signal the router learns from.
+  onFlag: (cardId: string, reason: FlagReason) => void
+  /// What your AI answered under each card, by card id.
+  answers: Record<string, Answer>
+  /// Take a decision back. Shown on a decided card, for the person who made it.
+  onUndo: (cardId: string) => void
+  /// The Worker, for what a card carries beyond the relay's snapshot: its
+  /// thread, and the reply draft. Absent in tests that have no Worker.
+  api?: { httpBase: string; orgId: string; sessionToken: string }
+  /// On a laptop the thread is open under the card; on a phone it is a line
+  /// the person taps, because the card is the screen there.
+  layout?: 'phone' | 'desk'
 }
+
+export interface Answer {
+  question: string
+  answer: string | null
+  related: Array<{ title: string; status: string; decidedAt: string | null; recipient: string }>
+  /// Pages and issues from the person's connected tools the answer drew on.
+  sources?: Array<{ app: string; title: string; url: string | null }>
+  busy: boolean
+  error?: string
+}
+
+export type FlagReason = 'wrong-person' | 'not-a-decision' | 'wrong-priority' | 'wrong-words'
+const FLAG_REASONS: Array<{ id: FlagReason; label: string }> = [
+  { id: 'wrong-person', label: 'Wrong person' },
+  { id: 'not-a-decision', label: 'Not a decision' },
+  { id: 'wrong-priority', label: 'Wrong priority' },
+  { id: 'wrong-words', label: 'Badly written' },
+]
 
 const SWIPE_THRESHOLD = 96
 
@@ -59,7 +98,7 @@ function segments(context: string): Array<{ label: string; detail: string }> {
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
-export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, onDecide, onAsk }) => {
+export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag, answers, onUndo, api, layout = 'phone' }) => {
   const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -90,29 +129,38 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
   }, [focusCardId, cards, scrollTo])
 
   useEffect(() => {
+    if (!active) return
     const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
       const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      if (target && target.closest('input, textarea, select, [contenteditable]')) return
       const card = cards[index]
       if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); scrollTo(index + 1) }
       else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); scrollTo(index - 1) }
-      else if (card && (e.key === 'a' || e.key === 'A')) onDecide(card.id, 'approve')
-      else if (card && (e.key === 'd' || e.key === 'D')) onDecide(card.id, 'decline')
+      else if (card && card.status === 'pending' && (e.key === 'a' || e.key === 'A')) onDecide(card.id, 'approve')
+      else if (card && card.status === 'pending' && (e.key === 'd' || e.key === 'D')) onDecide(card.id, 'decline')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [cards, index, scrollTo, onDecide])
+  }, [active, cards, index, scrollTo, onDecide])
 
   return (
     <div className="feed" ref={container}>
-      {cards.length === 0 && (
+      {!ready && (
+        <section className="page page-empty page-loading" aria-busy="true" aria-live="polite">
+          <div className="empty-mark loading-mark" aria-hidden="true" />
+          <h2>{t('Opening your feed…')}</h2>
+          <p>{t('Asking your AI what is waiting on you.')}</p>
+        </section>
+      )}
+      {ready && cards.length === 0 && (
         <section className="page page-empty">
           <div className="empty-mark">✓</div>
           <h2>{t('All clear')}</h2>
           <p>{t('Nothing is waiting on you. Your AI will tell you when something is.')}</p>
         </section>
       )}
-      {cards.map((card) => (
+      {ready && cards.map((card) => (
         <FeedPage
           key={card.id}
           card={card}
@@ -120,6 +168,11 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
           businessName={nameOf(card.business)}
           onDecide={onDecide}
           onAsk={onAsk}
+          onFlag={onFlag}
+          answer={answers[card.id]}
+          onUndo={onUndo}
+          api={api}
+          layout={layout}
         />
       ))}
       {cards.length > 1 && (
@@ -135,12 +188,26 @@ interface PageProps {
   businessName: string
   onDecide: Props['onDecide']
   onAsk: Props['onAsk']
+  onFlag: Props['onFlag']
+  answer?: Answer
+  onUndo: Props['onUndo']
+  api?: Props['api']
+  layout: 'phone' | 'desk'
 }
 
-const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) => {
+// What was done, as a word. English keys, translated where read.
+const DONE_WORD: Record<string, string> = {
+  approve: 'Approved', decline: 'Declined', revise: 'Revision asked',
+  choose: 'Chose', reply: 'Replied', acknowledge: 'Acknowledged',
+  delegate: 'Delegated', later: 'Deferred',
+}
+
+const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, onAsk, onFlag, answer, onUndo, api, layout }) => {
   const t = useT()
   const [dx, setDx] = useState(0)
   const [ask, setAsk] = useState('')
+  // Closed → open (the reasons) → sent (thanks). Never blocks the decision.
+  const [flag, setFlag] = useState<'closed' | 'open' | 'sent'>('closed')
   const start = useRef<{ x: number; y: number } | null>(null)
   const localized = card.localized?.[getLocale()]
   const title = localized?.title || card.title
@@ -149,11 +216,24 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
   const who = card.requestedBy
   const whoName = who?.name || displayName(card.senderUserID)
   const quote = who?.quote || card.sourceInstruction || card.originalBody || ''
-  const sources = [card.sourceApp, businessName ? null : null].filter(Boolean) as string[]
+  const sources = card.sourceApp ? [card.sourceApp] : []
+  // The legend draws three levels. "urgent" is the fourth the API can send,
+  // and it used to light nothing at all — the one priority that most needed
+  // to be seen was the one with no mark. It lights the top of the scale and
+  // says so.
+  const level = card.priority === 'urgent' ? 'high' : card.priority
+  // A decided card is read, not swiped: the decision is shown where the two
+  // buttons were, with the way back and the reply that follows it.
+  const decided = card.status !== 'pending' || Boolean(card.decision)
+  const onThisCard = card.recipientUserID === userId || card.senderUserID === userId
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (decided) return
     if ((e.target as HTMLElement).closest('button, textarea, input, a')) return
     start.current = { x: e.clientX, y: e.clientY }
+    // Keep receiving moves after the pointer leaves the page, or a fast swipe
+    // that ends off the card ends with no pointerup and a card stuck mid-drag.
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch { /* not every pointer can be captured */ }
   }
   const onPointerMove = (e: React.PointerEvent) => {
     if (!start.current) return
@@ -181,14 +261,15 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
       <div className="page-inner">
         <article
           className="card"
+          aria-label={title}
           style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? 'transform 160ms ease' : 'none' }}
         >
           <header className="card-top">
             <span className="card-kind">{t(KIND[card.type] || card.type)}</span>
             <span className="priority-legend" aria-label={t('Priority')}>
-              {(['low', 'medium', 'high'] as const).map((level) => (
-                <span key={level} className={`legend ${card.priority === level ? 'on' : ''} p-${level}`}>
-                  <i /> {t(level[0].toUpperCase() + level.slice(1))}
+              {(['low', 'medium', 'high'] as const).map((step) => (
+                <span key={step} className={`legend ${level === step ? 'on' : ''} p-${step}${card.priority === 'urgent' && step === 'high' ? ' urgent' : ''}`}>
+                  <i /> {card.priority === 'urgent' && step === 'high' ? t('Urgent') : t(step[0].toUpperCase() + step.slice(1))}
                 </span>
               ))}
             </span>
@@ -230,7 +311,7 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
               {quote && <blockquote className="rb-quote">“{quote}”</blockquote>}
               {who?.sourceUrl && (
                 <a className="rb-link" href={who.sourceUrl} target="_blank" rel="noopener noreferrer">
-                  View original{card.sourceApp ? ` in ${card.sourceApp}` : ''} ›
+                  {card.sourceApp ? t('View original in {app}', { app: card.sourceApp }) : t('View original')} ›
                 </a>
               )}
             </section>
@@ -240,23 +321,44 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
             <section className={`recommendation rec-${card.recommendation.action}`}>
               <div className="rec-head">
                 <span className="ai-spark" aria-hidden="true">✦</span>
-                Recommended: <strong>{card.recommendation.action}</strong>
+                {t('Recommended:')} <strong>{t(card.recommendation.action)}</strong>
               </div>
               {card.recommendation.reason && <p className="rec-reason">{card.recommendation.reason}</p>}
             </section>
           )}
         </article>
 
-        <div className="decide-row">
-          <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
-          <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
-        </div>
+        {decided ? (
+          <div className="decided-block">
+            <div className="decided-line" role="status">
+              <span className={`pill-tag ${card.decision?.action === 'approve' ? 'mint' : card.decision?.action === 'decline' ? 'pink' : ''}`}>
+                {t(DONE_WORD[card.decision?.action || ''] || card.status)}
+              </span>
+              <span className="decided-when">
+                {card.decision?.decidedAt ? ago(card.decision.decidedAt) : ''}
+                {card.decision?.actorUserID ? ` · ${displayName(card.decision.actorUserID)}` : ''}
+              </span>
+              {card.recipientUserID === userId && card.decision && (
+                <button type="button" className="pill-btn decided-undo" onClick={() => onUndo(card.id)}>{t('Undo')}</button>
+              )}
+            </div>
+            {card.decision?.replyText && <blockquote className="hist-quote">“{card.decision.replyText}”</blockquote>}
+            {api && onThisCard && card.decision && (
+              <ReplyDraft httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} card={card} />
+            )}
+          </div>
+        ) : (
+          <div className="decide-row">
+            <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
+            <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
+          </div>
+        )}
 
         <form
           className="ask-bar"
           onSubmit={(e) => { e.preventDefault(); if (ask.trim()) { onAsk(ask.trim(), card); setAsk('') } }}
         >
-          <button type="button" className="ask-plus" aria-label={t('Reply with a note')} onClick={() => {
+          <button type="button" className="ask-plus" aria-label={t('Reply with a note')} title={t('Reply with a note')} disabled={!ask.trim()} onClick={() => {
             if (ask.trim()) { onDecide(card.id, 'reply', { replyText: ask.trim() }); setAsk('') }
           }}>+</button>
           <input
@@ -264,9 +366,71 @@ const FeedPage: React.FC<PageProps> = ({ card, businessName, onDecide, onAsk }) 
             onChange={(e) => setAsk(e.target.value)}
             placeholder={t('Ask anything...')}
             aria-label={t('Ask your AI about this decision')}
+            enterKeyHint="send"
           />
           <button type="submit" className="ask-send" aria-label={t('Send')} disabled={!ask.trim()}>➤</button>
         </form>
+
+        {answer && (
+          <div className="answer" aria-live="polite">
+            <div className="answer-q">{answer.question}</div>
+            {answer.busy && <div className="answer-a answer-busy">{t('Your AI is looking…')}</div>}
+            {answer.error && <div className="answer-a answer-error">{answer.error}</div>}
+            {answer.answer && <div className="answer-a">{answer.answer}</div>}
+            {(answer.sources?.length || 0) > 0 && (
+              <ul className="answer-sources" aria-label={t('From your tools')}>
+                {answer.sources!.map((r) => (
+                  <li key={`${r.app}-${r.title}`}>
+                    <span className="answer-when">{r.app}</span>
+                    {r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title}</a> : r.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {answer.related.length > 0 && (
+              <ul className="answer-related">
+                {answer.related.map((r) => (
+                  <li key={`${r.title}-${r.decidedAt}`}>
+                    <span className="answer-when">{r.decidedAt ? r.decidedAt.slice(0, 10) : t('Waiting')}</span>
+                    {r.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {api && (
+          <CardThread
+            httpBase={api.httpBase}
+            orgId={api.orgId}
+            sessionToken={api.sessionToken}
+            cardId={card.id}
+            userId={userId}
+            version={`${card.status}|${card.decision?.decidedAt || ''}|${answer?.busy ? 'asking' : (answer?.answer || '')}`}
+            alwaysOpen={layout === 'desk'}
+          />
+        )}
+
+        {/* Quiet, under everything: a card that is wrong is still decided
+            above, and saying so costs one tap. What is said here becomes a
+            row the router is measured against. */}
+        <div className="card-flag" aria-live="polite">
+          {flag === 'closed' && (
+            <button type="button" className="flag-link" onClick={() => setFlag('open')}>{t('Is this card wrong?')}</button>
+          )}
+          {flag === 'open' && (
+            <div className="flag-row" role="group" aria-label={t('What is wrong with it?')}>
+              {FLAG_REASONS.map((r) => (
+                <button key={r.id} type="button" className="flag-chip" onClick={() => { onFlag(card.id, r.id); setFlag('sent') }}>
+                  {t(r.label)}
+                </button>
+              ))}
+              <button type="button" className="flag-link" onClick={() => setFlag('closed')}>{t('Never mind')}</button>
+            </div>
+          )}
+          {flag === 'sent' && <span className="flag-thanks">{t('Noted. Your AI will do better.')}</span>}
+        </div>
       </div>
     </section>
   )

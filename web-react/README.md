@@ -1,209 +1,88 @@
-# Honmaru AI Web Client (Phase 8)
+# Honmaru AI — web client
 
-A production-ready React + TypeScript web client for the Honmaru AI decision feed system, implementing the AG-UI protocol v1.
+The same product as the phone app, in a browser: one decision per screen,
+swipe or press to decide, and one button — *Tell your AI*. It speaks the
+relay's AG-UI protocol over a WebSocket and the Worker's HTTP routes for
+everything else (sign-in, the team, tools, the record).
 
-## Features
+- **Phone width** (< 1080px): a snap-scrolled feed, a three-tab bar (feed,
+  compose, you). History and Tools live under *You*.
+- **Laptop** (≥ 1080px): the bar becomes a rail with all five, the feed becomes
+  a scrollable queue, screens open beside the rail.
+- **Installable** as a PWA; on an iPhone that is what makes Web Push possible.
+- **Two languages**, English and Japanese, for the interface (`src/utils/i18n.ts`)
+  and — via the Worker — for every card and notification.
 
-- **The feed is the screen**: one decision per page, snap-scrolled; swipe right to approve, left to decline; A / D / R on a keyboard; N to tell your AI
-- **Real-time decision feed** via WebSocket AG-UI protocol
-- **Full decision lifecycle**: receive, decide (approve/decline/choose/reply), rollback
-- **Multi-user sync**: see other users' online status and decisions in real-time
-- **AG-UI event stream** debug logger
-- **Responsive design** (desktop & mobile)
-
-## Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Start dev server
-npm run dev
-
-# Build for production
-npm run build
-```
-
-## Architecture
-
-### Types
-- `src/types/agui.ts` — AG-UI event definitions
-- `src/types/card.ts` — Decision card types
-
-### Services
-- `src/services/WebSocketClient.ts` — AG-UI WebSocket client
-  - Parses AG-UI events (STATE_SNAPSHOT, STATE_DELTA, TOOL_CALL_*, TOOL_CALL_RESULT)
-  - Applies JSON Patch RFC 6902 operations
-  - Manages tool call ID tracking for decision correlation
-  - Sends outbound `tool_result` decisions
-
-### Components
-- `src/components/Dashboard.tsx` — Main feed layout (pending & decided sections)
-- `src/components/DecisionCard.tsx` — Individual card with actions
-
-### Main App
-- `src/App.tsx` — Login page, user selection, connection setup
-- `src/main.tsx` — React root
-
-## Environment Variables
-
-Copy `.env.example` to `.env.local` to override the defaults shown on the login screen:
-
-- `VITE_RELAY_URL` — default relay WebSocket URL (still editable on the login form)
-- `VITE_ORG_ID` — default organization id
-- `VITE_DEBUG` — set to `true` to have the debug event log open by default
-
-## Testing
-
-### Automated
+## Run it
 
 ```bash
-npm test        # vitest, watches by default; CI=true npm test runs once and exits
-npm run build   # tsc --noEmit-equivalent type check + production build
+npm ci
+npm run dev                       # http://localhost:3000 against localhost:8787
+VITE_API_HOST=… npm run build     # production build in dist/
 ```
 
-`src/services/WebSocketClient.test.ts` covers the AG-UI event handling directly (join payload,
-state-reference identity after STATE_SNAPSHOT/tool-call-derived updates, toolCallId linking,
-reconnect-after-unexpected-close vs. no-reconnect-after-explicit-disconnect) against a fake
-WebSocket — no relay or browser needed.
+`VITE_API_HOST` is the backend host **without a scheme**; the page derives
+`http`/`ws` or `https`/`wss` from its own URL. It is baked in at build time —
+`scripts/deploy-pages.sh` exists to get exactly this right on Cloudflare Pages.
+`.env.example` shows the two variables.
 
-### Manual Testing with Relay
-
-1. **Start the relay**:
-   ```bash
-   cd server
-   npm start
-   # Should output: Server running on port 8080
-   ```
-
-2. **Start the web client dev server** (from `/web`):
-   ```bash
-   npm run dev
-   # Should output: http://localhost:3000
-   ```
-
-3. **Connect as first user** (Alice):
-   - Open http://localhost:3000
-   - Enter user ID: `alice`
-   - Relay URL: `ws://localhost:8080`
-   - Org: `core-team`
-   - Click "Connect"
-
-4. **Connect as second user** (Bob):
-   - Open another browser tab to http://localhost:3000
-   - Enter user ID: `bob`
-   - Same relay & org
-   - Click "Connect"
-
-5. **Send a decision from Alice to Bob** (via iOS or CLI):
-   ```bash
-   # From the relay, you can send a decision via the API
-   curl -X POST http://localhost:8080/api/route \
-     -H "Content-Type: application/json" \
-     -d '{
-       "text": "Approve the design proposal",
-       "sender": "alice",
-       "organization": "core-team",
-       "reader": "bob"
-     }'
-   ```
-
-6. **Observe**:
-   - Bob's web client shows a new card in "Pending Decisions"
-   - Bob clicks "Approve"
-   - Alice's web client sees the card move to "Decided" with decision recorded
-   - Event log shows `tool_result` event
-
-### Cross-Platform Testing (iOS ↔ Web)
-
-1. **iOS sends decision**:
-   - Open iOS app, connect as Alice
-   - Send an instruction (via AI composer)
-   - Relay routes to Bob
-   - Bob's iOS shows card
-
-2. **Web receives & approves**:
-   - Open web client as Bob in another browser
-   - Both iOS and web see the same card (synced via WebSocket)
-   - Click Approve on web
-   - iOS immediately shows card as approved
-   - Alice's iOS sees the decision result
-
-3. **Rollback from web**:
-   - Web shows "↩ Roll back" button on decided cards
-   - Click it
-   - Card returns to pending
-   - iOS reflects the change instantly
-
-## Debug Features
-
-- **Event Log**: Toggle "Show Debug Log" to see all AG-UI events in real-time
-- **Connection Info**: Displays current URL, user, org, and card counts
-- **Browser DevTools**: Full React/TypeScript debugging
-
-## Protocol Details
-
-### Inbound Events
-- `STATE_SNAPSHOT` — Initial card state on connection
-- `STATE_DELTA` — JSON Patch operations (RFC 6902)
-- `TOOL_CALL_START/ARGS/END` — Incoming decision request
-- `TOOL_CALL_RESULT` — Decision result echo from other clients
-- `CUSTOM presence` — User online/offline status
-
-### Outbound Events
-- `tool_result` — Send decision (approve/decline/choose/reply/acknowledge)
-  ```json
-  {
-    "type": "tool_result",
-    "payload": {
-      "toolCallId": "...",
-      "content": {
-        "cardId": "...",
-        "action": "approve|decline|choose|reply|acknowledge",
-        "actorUserID": "...",
-        "decidedAt": "2024-08-12T...",
-        "optionId": "...",
-        "replyText": "..."
-      }
-    }
-  }
-  ```
-
-- `rollback` — Undo a decision
-  ```json
-  {
-    "type": "rollback",
-    "payload": { "cardId": "..." }
-  }
-  ```
-
-## Deployment
-
-For production, build and serve the `dist/` output:
+## Check it
 
 ```bash
-npm run build
-# Deploy dist/ to a static host (Vercel, Netlify, Cloudflare Pages, etc.)
+npx tsc --noEmit    # types
+npx vitest run      # the WebSocket client, against a fake socket
+npm run build       # what CI runs
+../e2e/run.sh       # the real thing: a Worker on workerd, a D1, this build, a browser
 ```
 
-Or embed in a Node.js server:
+The unit suite covers the protocol client: the join payload, state identity
+after snapshots and deltas, `toolCallId` correlation, reconnect-with-backoff,
+the 1008 refusal that must not be retried, and the **outbox** — a decision
+made while the relay is unreachable is held and delivered after the next
+accepted join, in order, once.
 
-```javascript
-import express from 'express'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+The end-to-end suite signs up with a code it reads out of the email the Worker
+really sent, tells its AI something, decides, undoes, invites, joins, revokes
+and evicts — 28 steps, screenshots at phone and laptop sizes, every screen.
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const app = express()
-app.use(express.static(join(__dirname, 'dist')))
-app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'dist', 'index.html'))
-})
-app.listen(3000)
-```
+## Where things are
 
-## References
+| Path | What |
+|------|------|
+| `src/App.tsx` | The way in: welcome → sign-in → code → onboarding → app |
+| `src/components/Dashboard.tsx` | The shell: socket, feed/list, tab bar, sheets, screens, toasts |
+| `src/components/Feed.tsx` | One decision per page; swipe, buttons, A/D keys, "Ask anything" |
+| `src/components/ClassicList.tsx` | The same decisions as a list |
+| `src/screens/*.tsx` | Welcome, SignIn, Otp, Onboarding, Profile, History, Tools, Team, Notifications, Plans |
+| `src/services/WebSocketClient.ts` | AG-UI over WebSocket: events in, `tool_result` etc. out, reconnect, outbox |
+| `src/utils/i18n.ts` | The interface's words, keyed by their English |
+| `src/utils/push.ts`, `public/sw.js` | Web Push: subscribe, and show a notification with the tab closed |
+| `src/theme.css` | Design tokens and the laptop layout ([docs/design-system.md](../docs/design-system.md)) |
 
-- [AG-UI Protocol Documentation](../docs/agui-protocol.md)
-- [Server Relay Implementation](../server/index.js)
-- [iOS App (Phase 8 implementation)](../TikTokForWork/)
+## What the feed promises
+
+- Nothing is shown as "All clear" until the relay has answered. Before that
+  the feed says it is opening.
+- Every decision leaves six seconds of **Undo** on the screen; History keeps
+  Undo for anything you decided.
+- A decision made offline is kept and sent when the relay is back; the top
+  bar says how many are waiting.
+- Keyboard: ↑ ↓ (or j k) to move, **A** approve, **D** decline, **N** tell
+  your AI, **Esc** closes anything. The keys are inert while a sheet or a
+  screen is open.
+- A render error shows a screen with a Reload button, in the reader's
+  language, rather than a blank page.
+
+## Protocol
+
+Inbound: `STATE_SNAPSHOT`, `STATE_DELTA` (RFC 6902 patches on `cardsById`),
+`TOOL_CALL_START/ARGS/END` (a `request_decision` becomes a card),
+`TOOL_CALL_RESULT`, `CUSTOM presence`, `RUN_ERROR` (with a `code` when the
+relay is refusing: `not-a-member`, `sign-in-required`, `client-too-old`).
+
+Outbound: `join` (with the session token; identity comes off the session, not
+the payload), `tool_result` (a decision, carrying the `toolCallId` of the
+request it answers), `card_created`, `rollback`, `nudge`, `set_business`.
+
+Details: [docs/agui-protocol.md](../docs/agui-protocol.md) and the relay in
+[worker/src/relay.js](../worker/src/relay.js).
