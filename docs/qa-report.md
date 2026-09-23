@@ -14,6 +14,22 @@ is something that ran, not something that was read.
 | End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 45 steps pass |
 | iOS (`xcodebuild test`, macOS CI) | not runnable here (Linux) | pass — [CI run #287](https://github.com/Torutesu/HonmaruAI/actions/runs/34561892140), dispatched by hand |
 
+## Responsive pass, 2026-09-23
+
+Photographed every screen at 390, 834, 1024, 1280, 1440 and 1920px, signed
+out and in (`e2e/design-audit.mjs`). What was wrong: everything between a
+phone and 1080px was the phone layout stretched — a bottom tab bar on an
+iPad, a card floating in a sea of grey on a small laptop; at 1440 the pane
+was pinned to the left of a huge empty area and at 1920 more so; screens
+(History, You, Team, Tools) were phone columns with a "‹" chip stranded at
+the left; the composer was a bottom sheet the width of the window; the
+welcome and sign-in were a phone column with the button at the bottom edge
+of the window. Fixed by a three-step layout (720 / 1024 / 1280), the pane
+centred with a wider card and labelled decision buttons, screens as pages,
+the composer as a dialog, sign-in as a card. Found on the way: pressing `n`
+to compose typed an "n" into the composer, and the rail vanished while the
+composer was open. The rail now lights the screen that is open.
+
 ## Teams and invitations, 2026-09-23
 
 Added after the QA pass, with `main`'s native UI (1.0.1) merged in first.

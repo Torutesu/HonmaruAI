@@ -1024,7 +1024,8 @@ await step('the other screens hold up on a laptop', async () => {
       return r.width > 0 && r.left < 10
     })
     if (!railVisible) throw new Error(`the rail disappears on ${label}`)
-    await d.click('.screen .back')
+    // No chevron on a laptop: the rail is the way around, and Esc closes.
+    await d.keyboard.press('Escape')
     await d.waitForTimeout(400)
   }
   await desk.close()
