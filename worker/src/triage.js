@@ -25,6 +25,7 @@ Write title, summary and context in the reader's language, given below.`;
 // them apart, so the result is discriminated — `called` is whether we paid,
 // `card` is whether anything came of it.
 import { decideTriage } from "./jev.js";
+import { noteUsage } from "./ledger.js";
 
 const NOT_CALLED = { called: false, card: null };
 const ANSWERED_NO = { called: true, card: null };
@@ -108,6 +109,7 @@ Body preview: ${message.snippet}
     });
     if (!res.ok) return NOT_CALLED;
     data = await res.json();
+    noteUsage(provider, "triage", data);
   } catch {
     return NOT_CALLED;
   }

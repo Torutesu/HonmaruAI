@@ -21,6 +21,28 @@ interface Metrics {
   bySource: Array<{ source: string; count: number }>
   byAction: Array<{ action: string; count: number }>
   feedback: { right: number; wrong: number; reasons: Record<string, number> }
+  /// What the AI cost this team in the window, from the ledger of every
+  /// model call: dollars at list price, on our key and on their own.
+  ai?: {
+    calls: number
+    inputTokens: number
+    outputTokens: number
+    usd: number
+    ourUsd: number
+    byokCalls: number
+    byPurpose: Array<{ purpose: string; calls: number; usd: number }>
+    byProvider: Array<{ provider: string; calls: number; usd: number }>
+    jevShare: number | null
+  }
+}
+const PURPOSE_WORD: Record<string, string> = {
+  route: 'Routing', ask: 'Answers', draft: 'Reply drafts', localize: 'Translation',
+  triage: 'Inbox triage', classify: 'Filing by business',
+}
+function money(usd: number): string {
+  if (usd === 0) return '$0'
+  if (usd < 0.01) return `$${usd.toFixed(4)}`
+  return `$${usd.toFixed(2)}`
 }
 
 // English keys, translated where read.
@@ -122,6 +144,22 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
               <>
                 <div className="rows-title">{t('What was decided')}</div>
                 <BarList rows={m.byAction.map((a) => ({ label: t(ACTION_WORD[a.action] || a.action), count: a.count }))} />
+              </>
+            )}
+
+            {m.ai && (
+              <>
+                <div className="rows-title">{t('What your AI cost')}</div>
+                <div className="rows">
+                  <div className="row static"><span className="row-main">{t('This window, at list price')}<span className="row-sub">{t('{n} calls · {i} tokens in · {o} out', { n: m.ai.calls, i: m.ai.inputTokens.toLocaleString(), o: m.ai.outputTokens.toLocaleString() })}</span></span><span className="row-value">{money(m.ai.usd)}</span></div>
+                  {m.ai.byokCalls > 0 && (
+                    <div className="row static"><span className="row-main">{t('On your own keys')}<span className="row-sub">{t('{n} calls the team paid for directly.', { n: m.ai.byokCalls })}</span></span><span className="row-value">{money(m.ai.usd - m.ai.ourUsd)}</span></div>
+                  )}
+                  <div className="row static"><span className="row-main">{t('Decided by Jev without a language model')}<span className="row-sub">{t('System One answers routing at a fraction of a cent; the model is only asked when it is unsure.')}</span></span><span className="row-value">{m.ai.jevShare === null ? '—' : `${Math.round(m.ai.jevShare * 100)}%`}</span></div>
+                </div>
+                {m.ai.byPurpose.length > 0 && (
+                  <BarList rows={m.ai.byPurpose.map((p) => ({ label: `${t(PURPOSE_WORD[p.purpose] || p.purpose)} · ${money(p.usd)}`, count: p.calls }))} />
+                )}
               </>
             )}
 

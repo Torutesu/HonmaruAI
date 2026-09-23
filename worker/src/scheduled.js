@@ -1,3 +1,4 @@
+import { settleUsage } from "./ledger.js";
 import { availableConnectors } from "./connectors/index.js";
 import { syncAll } from "./sync.js";
 import { notifyCard } from "./notify.js";
@@ -81,6 +82,7 @@ export async function runScheduledSync(env, ctx) {
         provider,
       });
       synced += 1;
+      await settleUsage(env.DB, provider, { orgId: row.org_id, githubId: row.github_id });
       const newCards = results.reduce((sum, r) => sum + (r.created || 0), 0);
       if (!newCards) continue;
       created += newCards;

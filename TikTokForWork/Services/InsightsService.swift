@@ -50,6 +50,26 @@ enum InsightsService {
             let wrong: Int
             let reasons: [String: Int]
         }
+        /// What the AI cost this team in the window: the Worker's ledger of
+        /// every model call, at list price. Absent from a Worker older than it.
+        struct Spend: Decodable {
+            struct Slice: Decodable, Identifiable {
+                let purpose: String?
+                let provider: String?
+                let calls: Int
+                let usd: Double
+                var id: String { purpose ?? provider ?? "" }
+            }
+            let calls: Int
+            let inputTokens: Int
+            let outputTokens: Int
+            let usd: Double
+            let ourUsd: Double
+            let byokCalls: Int
+            let byPurpose: [Slice]
+            let byProvider: [Slice]
+            let jevShare: Double?
+        }
 
         let days: Int
         let cards: Int
@@ -63,9 +83,10 @@ enum InsightsService {
         let bySource: [Count]
         let byAction: [Count]
         let feedback: Feedback
+        let ai: Spend?
 
         private enum CodingKeys: String, CodingKey {
-            case days, cards, pending, decided, selfAddressed, medianMinutesToDecide, declineRate, nudges, created, bySource, byAction, feedback
+            case days, cards, pending, decided, selfAddressed, medianMinutesToDecide, declineRate, nudges, created, bySource, byAction, feedback, ai
         }
 
         // The Worker names the key of each count after what it counts
@@ -82,6 +103,7 @@ enum InsightsService {
             nudges = try c.decodeIfPresent(Int.self, forKey: .nudges) ?? 0
             created = try c.decodeIfPresent([Day].self, forKey: .created) ?? []
             feedback = try c.decode(Feedback.self, forKey: .feedback)
+            ai = try c.decodeIfPresent(Spend.self, forKey: .ai)
             struct Source: Decodable { let source: String; let count: Int }
             struct Action: Decodable { let action: String; let count: Int }
             bySource = (try c.decodeIfPresent([Source].self, forKey: .bySource) ?? []).map { Count(label: $0.source, count: $0.count) }
