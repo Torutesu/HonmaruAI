@@ -17,6 +17,14 @@ export const LIMITS = {
   "cards/localize": { max: 30, windowSeconds: 300 },
   // Guessing an authorization code should not be cheap.
   "oauth/token": { max: 10, windowSeconds: 300 },
+  // Asking for a sign-in code sends a mail, which is the cost to bound; it
+  // guesses nothing (the code's own attempt counter does that). Its own
+  // bucket, because a whole office signs in from one address, and ten
+  // requests-plus-verifications per five minutes was the office locked out.
+  "otp/request": { max: 20, windowSeconds: 300 },
+  // Reading what an invite opens grants nothing; only redeeming does. Still
+  // bounded, since an unknown code answers differently from a real one.
+  "invites/peek": { max: 30, windowSeconds: 300 },
   // A sync walks an inbox and can trigger many model calls.
   "connectors/sync": { max: 6, windowSeconds: 300 },
   // Storage is the thing R2 bills for, and each of these is up to 12 MB.

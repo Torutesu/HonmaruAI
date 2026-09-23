@@ -258,7 +258,50 @@ export async function createInvite(env, { orgId, createdBy, role, uses }) {
     .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, ref) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
     .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses, ref)
     .run();
-  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses, ref };
+  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses, ref, link: inviteLink(env, code) };
+}
+
+/// The code as a link the web client opens: signed out, it lands on sign-up
+/// with the code filled in; signed in, it joins. Only where the deployment
+/// knows its own web address — the phone has no link to open otherwise.
+export function inviteLink(env, code) {
+  if (!env.APP_WEB_URL || !code) return null;
+  try {
+    const url = new URL(env.APP_WEB_URL);
+    url.hash = `#/join/${code}`;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/// What a code opens, for the person holding it, before they spend it: the
+/// team's name, who made the code, the role it grants. Nothing an outsider
+/// could not learn by redeeming it, and the code is the credential — an
+/// unknown, expired or spent one answers with nothing at all.
+export async function peekInvite(env, code) {
+  if (!code || typeof code !== "string") return null;
+  const row = await env.DB
+    .prepare(
+      `SELECT i.org_id, i.role, i.expires_at, i.max_uses, i.uses,
+              (SELECT o.name FROM orgs o WHERE o.id = i.org_id) AS team,
+              COALESCE(u.name, u.login, i.created_by) AS inviter
+         FROM invites i
+         LEFT JOIN users u ON u.github_id = i.created_by
+        WHERE i.code = ?1`
+    )
+    .bind(code.trim())
+    .first();
+  if (!row) return null;
+  if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
+  if (Number(row.uses) >= Number(row.max_uses)) return null;
+  return {
+    orgId: row.org_id,
+    team: row.team || null,
+    inviter: row.inviter || null,
+    role: row.role || "member",
+    expiresAt: row.expires_at || null,
+  };
 }
 
 // Redeem an invite code: look it up, add the user to that org.

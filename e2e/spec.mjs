@@ -1258,6 +1258,131 @@ await step('a code you have out can be found and revoked', async () => {
   await closeEverything()
 })
 
+/// A brand-new person, through the front door: Get started, a code, the
+/// four onboarding screens, the feed. What "an invite reaches someone who
+/// already has an account" does inline, for anyone else who needs a
+/// stranger with an account.
+async function freshAccount(name, email, { start } = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  extras.push(ctx)
+  const p = await ctx.newPage()
+  await p.goto(start || WEB, { waitUntil: 'load' })
+  if (!start) await p.click('text=Get started')
+  await p.waitForSelector('#email', { timeout: 15000 })
+  await p.fill('#name', name)
+  await p.fill('#email', email)
+  await p.click('text=Email me a code')
+  await p.waitForSelector('.otp-boxes', { timeout: 15000 })
+  await typeCode(p, await codeFor(email))
+  await p.waitForSelector('.ob-art', { timeout: 20000 })
+  await p.click('text=Next'); await p.waitForSelector('.ob-art-route')
+  await p.click('text=Next'); await p.waitForSelector('.ob-demo')
+  await p.click('text=Set me up'); await p.waitForSelector('.radio')
+  await p.click('text=Open my feed')
+  await p.waitForSelector('.dot.on', { timeout: 25000 })
+  return p
+}
+
+/// Which workspace a person is in, as its Team screen names it, and how
+/// many they can switch between (the switcher only draws with two or more).
+async function currentWorkspace(p) {
+  await p.click('nav [data-tab="you"]')
+  await p.waitForSelector('.profile-stats', { timeout: 10000 })
+  // The switcher draws once /me has answered, and only with two or more.
+  await p.waitForSelector('[data-org]', { timeout: 5000 }).catch(() => null)
+  const count = await p.$$eval('[data-org]', (els) => els.length)
+  await p.click('.screen .row:has-text("Your team")')
+  // The name arrives with the member list; read it once the people have.
+  await p.waitForSelector('.team-member', { timeout: 15000 })
+  const label = (await p.textContent('.team-name')).trim()
+  // Back to the feed by the URL: the Team screen's back lands on the feed,
+  // not on You, so a second back has nothing to close.
+  await p.evaluate(() => { location.hash = '#/feed' })
+  await p.waitForSelector('.tabbar', { timeout: 10000 })
+  return { label, count: Math.max(count, 1) }
+}
+
+let mailedLink = null
+await step('a team gets a name, and an invitation by email carries it', async () => {
+  // A workspace handed out at sign-up had no name — "Your workspace" here,
+  // "Toru's team" to everyone else — and there was no way to give it one.
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row:has-text("Your team")')
+  await page.waitForSelector('.team-rename-btn', { timeout: 15000 })
+  await page.click('.team-rename-btn')
+  await page.fill('.team-name-input', 'Honmaru Coffee')
+  await page.click('.team-rename .pill-btn')
+  await page.waitForFunction(() => /Honmaru Coffee/.test(document.querySelector('.team-name')?.textContent || ''), null, { timeout: 15000 })
+    .catch(() => { throw new Error('the team did not take its name') })
+
+  // And an invitation by address: a link in the mail, the team's name on it.
+  const to = `e2e-mailed-${Date.now()}@example.com`
+  const before = (await (await fetch(`${SINK}/sent`)).json()).length
+  await page.fill('.invite-email', to)
+  await page.click('.invite-mail .pill-btn')
+  await page.waitForSelector('.invite-sent', { timeout: 15000 })
+    .catch(() => { throw new Error('sending an invitation by email said nothing') })
+  await shot('27-team-named-and-mailed')
+  const mail = (await (await fetch(`${SINK}/sent`)).json()).slice(before).find((m) => (m.to || []).includes(to))
+  if (!mail) throw new Error('no invitation reached the mail sink')
+  if (!/Honmaru Coffee/.test(mail.subject)) throw new Error(`the invitation does not name the team: ${mail.subject}`)
+  const m = (mail.text || '').match(/https?:\/\/\S+#\/join\/[0-9a-f]{32}/)
+  if (!m) throw new Error(`the invitation carries no link: ${(mail.text || '').slice(0, 200)}`)
+  mailedLink = m[0]
+  await closeEverything()
+})
+
+await step('an invite link joins someone who is already signed in', async () => {
+  // A link, not a code to paste: signed in, opening it is joining.
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.click('.screen .row:has-text("Your team")')
+  await page.waitForSelector('.screen .invite select', { timeout: 10000 })
+  await page.selectOption('.screen .invite select', 'member')
+  await page.click('.screen .invite .btn-primary')
+  await page.waitForSelector('.screen .invite-link', { timeout: 15000 })
+    .catch(() => { throw new Error('a minted code came with no link') })
+  const link = (await page.getAttribute('.screen .invite-link', 'href')) || ''
+  if (!/#\/join\/[0-9a-f]{32}$/.test(link)) throw new Error(`the invite link is not one: ${link}`)
+  await closeEverything()
+
+  const d = await freshAccount('Daichi', `e2e-linked-${Date.now()}@example.com`)
+  const own = await currentWorkspace(d)
+  await d.goto(link, { waitUntil: 'load' })
+  await d.waitForSelector('.app-toasts .toast', { timeout: 20000 })
+    .catch(() => { throw new Error('opening an invite link while signed in said nothing') })
+  const said = (await d.textContent('.app-toasts .toast')).trim()
+  if (!/joined/i.test(said)) throw new Error(`opening the link did not join: ${said}`)
+  await d.waitForSelector('.dot.on', { timeout: 25000 })
+  const now = await currentWorkspace(d)
+  if (now.count < own.count + 1) throw new Error(`the link added no workspace (${own.count} → ${now.count})`)
+  if (!/Honmaru Coffee/.test(now.label)) throw new Error(`the link landed in "${now.label}", not the named team`)
+  await d.screenshot({ path: `${SHOTS}/28-joined-by-link.png` })
+})
+
+await step('an invite link opens sign-up with the team named, and the account lands in it', async () => {
+  if (!mailedLink) throw new Error('no mailed link to open')
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  extras.push(ctx)
+  const p = await ctx.newPage()
+  await p.goto(mailedLink, { waitUntil: 'load' })
+  await p.waitForSelector('#invite', { timeout: 15000 })
+    .catch(() => { throw new Error('an invite link did not open sign-up') })
+  const prefilled = await p.$eval('#invite', (el) => el.value)
+  if (!/^[0-9a-f]{32}$/.test(prefilled)) throw new Error(`the code did not ride into sign-up: "${prefilled}"`)
+  await p.waitForSelector('.invite-banner', { timeout: 15000 })
+    .catch(() => { throw new Error('sign-up does not say whose team this is') })
+  const banner = (await p.textContent('.invite-banner')).trim()
+  if (!/Honmaru Coffee/.test(banner)) throw new Error(`the banner does not name the team: ${banner}`)
+  await p.screenshot({ path: `${SHOTS}/29-invited-signup.png` })
+  await ctx.close()
+
+  const e = await freshAccount('Emi', `e2e-invited-${Date.now()}@example.com`, { start: mailedLink })
+  const where = await currentWorkspace(e)
+  if (!/Honmaru Coffee/.test(where.label)) throw new Error(`the invited account landed in "${where.label}"`)
+})
+
 await step('GitHub is not claimed where it cannot run', async () => {
   // The Tools screen printed "Always on · Built in" for everyone. In a
   // workspace made at sign-up there is no repository to open an issue in and

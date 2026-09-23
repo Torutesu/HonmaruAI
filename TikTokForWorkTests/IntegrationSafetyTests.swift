@@ -26,14 +26,18 @@ final class IntegrationSafetyTests: XCTestCase {
         let state = AppState(startServices: false)
         state.activateGuestSession()
         let model = FeedViewModel()
-        model.bind(to: state.cardService, user: try XCTUnwrap(state.currentUser), githubService: state.githubService)
-        let draft = await model.draftInstruction("Keep this local", priority: .medium, appState: state)
-        XCTAssertEqual(draft?.sourceText, "Keep this local")
-        XCTAssertEqual(draft?.recipientUserID, "guest")
-        await model.sendDraft(try XCTUnwrap(draft), appState: state)
-        // Guest preview must not claim a real team delivery.
+        model.bind(to: state)
+        model.sourceText = "Keep this local"
+        model.recipientID = "guest"
+        await model.prepare(appState: state)
+        XCTAssertEqual(model.sourceText, "Keep this local")
+        XCTAssertEqual(model.recipientID, "guest")
+        let card = await model.send(appState: state)
+        // An explicit demo is local only, never a real team delivery.
         XCTAssertFalse(state.webSocketService.isConnected)
-        XCTAssertNotNil(model.errorMessage)
+        XCTAssertTrue(state.cardService.isDemo)
+        XCTAssertNotNil(card)
+        XCTAssertTrue(state.cardService.awaitingDeliveryIDs.isEmpty)
     }
 
     func testMainTeamContractRetainsPrivateMemberReferences() throws {

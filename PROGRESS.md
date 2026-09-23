@@ -9,12 +9,12 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 465 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 477 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
-  Worker actually sent. 42 steps
+  Worker actually sent. 45 steps
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
-- **Web unit suite:** 24 tests over the AG-UI client, the outbox, the card cache, the sign-in callback
+- **Web unit suite:** 26 tests over the AG-UI client, the outbox, the card cache, the sign-in callback, the routes
 - **QA report:** [docs/qa-report.md](docs/qa-report.md) — what was checked
   before calling this sellable, what was found, what was fixed
 - **CI:** `.github/workflows/ci.yml` — Worker, the reference relay, the
@@ -29,6 +29,20 @@ The list of what is still missing, and why each item matters, is
 ## Done
 
 ### The improvement loop (dogfooding)
+- [x] **Teams with names, and invitations that are links.** A team can be
+      started on purpose (`POST /orgs`, You → Create a team, iOS Team →
+      Create a team) and named or renamed by its admins (`PUT /orgs/name`,
+      the name on the Team screen, in the workspace switcher, in the
+      invitation). An invite is minted as a code *and* a link
+      (`#/join/<code>`, where `APP_WEB_URL` is set): opened signed in it
+      joins and opens the feed; signed out it lands on sign-up with the code
+      filled in and "Toru invited you to Honmaru Coffee" on the page
+      (`GET /invites/peek`). Invitations go by email too (`POST
+      /invites/email`, single-use, in the sender's language). iOS shares the
+      link from Team. Three end-to-end steps drive all of it
+- [x] **Merged `main` (Figma native UI 1.0.1, brand icon, member refs)**
+      into the branch: six Swift conflicts taken on main's side, our string
+      keys and Insights row re-applied
 - [x] **QA pass over the workbench, Jev, translation and connected context**
       (2026-09-23): five end-to-end steps added (keyboard walk, a decided
       card in the pane, Japanese and dark on a laptop, the thread on a

@@ -29,10 +29,16 @@ const ROLES: Array<{ id: string; label: string }> = [
 export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionToken, onMinted }) => {
   const t = useT()
   const [code, setCode] = useState<string | null>(null)
+  const [link, setLink] = useState<string | null>(null)
   const [role, setRole] = useState('member')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'code' | 'link' | null>(null)
+  // By address: the Worker mints a single-use code and mails it as a link.
+  const [email, setEmail] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sentTo, setSentTo] = useState<string | null>(null)
+  const [mailError, setMailError] = useState<string | null>(null)
 
   const handleInvite = async () => {
     setBusy(true)
@@ -52,6 +58,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
         return
       }
       setCode(data.code)
+      setLink(typeof data.link === 'string' ? data.link : null)
       onMinted?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -60,11 +67,39 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
     }
   }
 
-  const copyCode = () => {
-    if (!code) return
-    navigator.clipboard?.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+  const copy = (what: 'code' | 'link') => {
+    const text = what === 'link' ? link : code
+    if (!text) return
+    navigator.clipboard?.writeText(text)
+    setCopied(what)
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  const share = () => {
+    if (!link) return
+    const nav = navigator as Navigator & { share?: (data: { title?: string; text?: string; url?: string }) => Promise<void> }
+    if (nav.share) nav.share({ title: 'Honmaru AI', text: t('Join my team on Honmaru AI'), url: link }).catch(() => { /* dismissed */ })
+    else copy('link')
+  }
+
+  const sendByEmail = async () => {
+    const to = email.trim()
+    if (!to) return
+    setSending(true); setMailError(null); setSentTo(null)
+    try {
+      const res = await fetch(`${relayHttpUrl}/invites/email`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, role, email: to }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setMailError(data.message || t('Could not send the invitation.')); return }
+      setSentTo(data.to || to)
+      setEmail('')
+      onMinted?.()
+    } catch (err) {
+      setMailError(err instanceof Error ? err.message : String(err))
+    } finally { setSending(false) }
   }
 
   if (code) {
@@ -75,15 +110,26 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
             role: t(ROLES.find((r) => r.id === role)?.label || role),
           })}
         </p>
+        {link && (
+          <div className="invite-row">
+            <a className="invite-link" href={link} onClick={(e) => e.preventDefault()}>{link}</a>
+            <div className="invite-actions">
+              <button className="btn btn-primary invite-copy" onClick={() => copy('link')}>
+                {copied === 'link' ? t('Copied!') : t('Copy link')}
+              </button>
+              <button className="btn btn-quiet invite-copy" onClick={share}>{t('Share')}</button>
+            </div>
+          </div>
+        )}
         <div className="invite-row">
           <code className="invite-code">{code}</code>
-          <button className="btn btn-quiet invite-copy" onClick={copyCode}>
-            {copied ? t('Copied!') : t('Copy')}
+          <button className="btn btn-quiet invite-copy" onClick={() => copy('code')}>
+            {copied === 'code' ? t('Copied!') : t('Copy code')}
           </button>
         </div>
         <button
           className="btn btn-quiet"
-          onClick={() => { setCode(null); setError(null) }}
+          onClick={() => { setCode(null); setLink(null); setError(null) }}
         >
           {t('Create another')}
         </button>
@@ -107,6 +153,29 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
           {ROLES.map((r) => <option key={r.id} value={r.id}>{t(r.label)}</option>)}
         </select>
       </div>
+      <div className="row static invite-mail">
+        <span className="row-main">
+          {t('Send an invitation by email')}
+          <span className="row-sub">{t('They get a link that opens straight into your team.')}</span>
+        </span>
+        <div className="invite-mail-form">
+          <input
+            className="invite-email"
+            type="email"
+            inputMode="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void sendByEmail() } }}
+            placeholder={t('teammate@company.com')}
+            aria-label={t('Email')}
+          />
+          <button className="pill-btn" onClick={sendByEmail} disabled={sending || !email.trim()}>
+            {sending ? t('Sending…') : t('Send')}
+          </button>
+        </div>
+      </div>
+      {sentTo && <div className="form-note invite-sent">{t('Invitation sent to {email}.', { email: sentTo })}</div>}
+      {mailError && <div className="form-error">{mailError}</div>}
       <button className="btn btn-primary" onClick={handleInvite} disabled={busy}>
         {busy ? t('Creating…') : t('Create invite code')}
       </button>

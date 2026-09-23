@@ -8,11 +8,30 @@ is something that ran, not something that was read.
 
 | Suite | Before | After |
 |-------|--------|-------|
-| Worker (`worker/`, real workerd) | 391 pass | 465 pass |
-| Web unit (`web-react/`, vitest) | 8 pass | 24 pass |
+| Worker (`worker/`, real workerd) | 391 pass | 477 pass |
+| Web unit (`web-react/`, vitest) | 8 pass | 26 pass |
 | Web typecheck + build | clean | clean |
-| End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 42 steps pass |
+| End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 45 steps pass |
 | iOS (`xcodebuild test`, macOS CI) | not runnable here (Linux) | pass — [CI run #287](https://github.com/Torutesu/HonmaruAI/actions/runs/34561892140), dispatched by hand |
+
+## Teams and invitations, 2026-09-23
+
+Added after the QA pass, with `main`'s native UI (1.0.1) merged in first.
+Three end-to-end steps drive the whole thing on the real Worker: a team is
+named on its screen and an invitation is sent by email — the mail in the
+sink names the team and carries a `#/join/<code>` link; a signed-in person
+opens a link and lands in the named team with a second workspace to switch
+to; a stranger opens the mailed link, sees "E2E Person invited you to
+Honmaru Coffee" on sign-up with the code filled in, and the account they
+make lands in that team. Worker tests cover the routes' refusals (a member
+renaming, a repository being renamed, a guessed or spent code peeked at, an
+invitation with no mail configured, a mail that fails leaving no code
+behind) and the copy in every language.
+
+Found on the way: the credential bucket (10 per 5 minutes per address)
+counted code *requests* as well as verifications, so an office signing in
+from one address, or this suite, hit 429 by the sixth person. Requests have
+their own bucket now; verifying still has the tight one.
 
 ## QA pass, 2026-09-23 — the workbench, Jev, translation, connected context
 

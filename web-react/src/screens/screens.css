@@ -441,3 +441,36 @@
   font-family: var(--font-body); font-size: 14px; padding: 8px 12px;
 }
 .alias-input:focus { outline: none; border-color: var(--signal-blue); }
+
+/* The team's name on its screen, and the form that gives it one. */
+.team-name-row { display: flex; align-items: center; gap: 12px; margin: 4px 4px 16px; min-height: 36px; }
+.team-name { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.team-rename { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.team-name-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 8px 12px;
+  border: 1px solid var(--bone); border-radius: var(--radius-card); background: var(--paper, #fff);
+}
+.team-rename-btn { flex: none; }
+
+/* An invitation as a link, and by mail. */
+.invite-link {
+  display: block; font-size: 13px; color: var(--ink); text-decoration: none; word-break: break-all;
+  padding: 10px 12px; border: 1px solid var(--bone); border-radius: var(--radius-card); background: var(--paper, #fff);
+}
+.invite-actions { display: flex; gap: 8px; }
+.invite-actions .btn { flex: 1; }
+.invite .invite-mail { flex-direction: column; align-items: stretch; gap: 10px; }
+.invite-mail-form { display: flex; align-items: center; gap: 8px; }
+.invite-email {
+  flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 8px 12px;
+  border: 1px solid var(--bone); border-radius: var(--radius-card); background: var(--paper, #fff);
+}
+.invite-sent { color: var(--ash); font-size: 13px; padding: 0 4px; }
+.invite-banner {
+  margin: 0 0 16px; padding: 12px 14px; border-radius: var(--radius-card);
+  background: var(--accent-soft, rgba(93, 95, 239, 0.1)); color: var(--ink); font-size: 14px; line-height: 1.4;
+}
+.app-toasts { z-index: 60; }
+@media (prefers-color-scheme: dark) {
+  .team-name-input, .invite-email, .invite-link { background: #17171a; border-color: #2c2c33; color: #ededef; }
+}

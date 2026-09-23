@@ -8,6 +8,9 @@ import { PickRepository } from './screens/PickRepository'
 import { githubWebConfig, beginGitHubSignIn, readCallback, finishGitHubSignIn } from './utils/githubAuth'
 import type { GitHubWebConfig } from './utils/githubAuth'
 import { clearCardCache } from './utils/cardCache'
+import { parseRoute } from './utils/route'
+import { t } from './utils/i18n'
+import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush } from './utils/push'
 import './theme.css'
 import './App.css'
@@ -51,6 +54,9 @@ function App() {
   const [github, setGithub] = useState<GitHubWebConfig | null>(null)
   const [githubError, setGithubError] = useState<string | null>(null)
   const [pendingGithub, setPendingGithub] = useState<{ token: string; login: string } | null>(null)
+  // An invitation the URL carried: what it opens, and a word once it did.
+  const [invite, setInvite] = useState<InvitePeek | null>(null)
+  const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null)
   useEffect(() => {
     let ignore = false
     githubWebConfig(httpBase(host)).then((cfg) => { if (!ignore) setGithub(cfg) })
@@ -120,6 +126,57 @@ function App() {
       }
     }
   }, [])
+
+  // The link a teammate was sent: #/join/<code>. Signed in, it joins the
+  // team and opens the feed there; signed out, it lands on sign-up with the
+  // code filled in and the team named. Read on arrival and on every change
+  // of the hash, so a link pasted into a tab that is already open works too.
+  const joinedRef = useRef<string | null>(null)
+  useEffect(() => {
+    const onHash = () => {
+      const { join } = parseRoute(location.hash)
+      if (!join || joinedRef.current === join) return
+      joinedRef.current = join
+      const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+      const token = localStorage.getItem('sessionToken')
+      const clear = () => { try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ } }
+      if (token && localStorage.getItem('userId')) {
+        fetch(`${base}/invites/accept`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-session-token': token },
+          body: JSON.stringify({ code: join }),
+        })
+          .then(async (r) => {
+            const data = await r.json().catch(() => ({}))
+            if (!r.ok) { setNotice({ text: data.message || t('That invite code is not valid.'), error: true }); return }
+            clear()
+            switchOrg(data.orgId)
+            setNotice({ text: t('You joined the team.') })
+          })
+          .catch(() => setNotice({ text: t('Could not reach the relay.'), error: true }))
+        return
+      }
+      // Not signed in: the code rides into sign-up, and the Worker says
+      // whose team it is so the page can.
+      clear()
+      setPending((p) => ({ ...p, inviteCode: join }))
+      setMode('signup')
+      setStage('auth')
+      fetch(`${base}/invites/peek?code=${encodeURIComponent(join)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((peek) => { if (peek) setInvite(peek) })
+        .catch(() => { /* the banner is a courtesy */ })
+    }
+    onHash()
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(null), notice.error ? 8000 : 4000)
+    return () => clearTimeout(id)
+  }, [notice])
 
   /// Which workspace to open. The sign-in reply names one; when it does not —
   /// an older backend, or an account in no org at all — ask, rather than
@@ -238,6 +295,8 @@ function App() {
       <SignIn
         httpBase={httpBase(host)}
         mode={mode}
+        initialInviteCode={pending.inviteCode}
+        invite={invite}
         onBack={() => setStage('welcome')}
         onSwitchMode={setMode}
         onCodeSent={(email, name, inviteCode) => { setPending({ email, name, inviteCode }); setStage('otp') }}
@@ -279,6 +338,11 @@ function App() {
 
   return (
     <div className="app">
+      {notice && (
+        <div className="toasts app-toasts">
+          <div className={`toast${notice.error ? ' error' : ''}`} role={notice.error ? 'alert' : 'status'} onClick={() => setNotice(null)}>{notice.text}</div>
+        </div>
+      )}
       <Dashboard
         userId={userId}
         orgId={orgId}

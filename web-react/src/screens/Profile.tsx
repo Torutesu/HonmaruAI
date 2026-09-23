@@ -28,6 +28,7 @@ interface Props {
 interface Org {
   id: string
   role: string
+  name: string | null
   founder: string | null
   mine: boolean
 }
@@ -66,6 +67,12 @@ export const Profile: React.FC<Props> = ({
   const [joining, setJoining] = useState(false)
   const [joinCode, setJoinCode] = useState('')
   const [joinError, setJoinError] = useState<string | null>(null)
+  // Starting a team of your own — a second business, a client, a project —
+  // with a name on the door from the first day.
+  const [creating, setCreating] = useState(false)
+  const [teamName, setTeamName] = useState('')
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [createBusy, setCreateBusy] = useState(false)
   // What else people call you, as one comma-separated line. The router
   // matches an instruction against these, so 「美香に」 reaches an account
   // whose login is "mika".
@@ -134,10 +141,32 @@ export const Profile: React.FC<Props> = ({
     }
   }
 
+  const createTeam = async () => {
+    setCreateError(null)
+    const name = teamName.trim()
+    if (!name) return
+    setCreateBusy(true)
+    try {
+      const res = await fetch(`${httpBase}/orgs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ name }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setCreateError(data.message || t('That did not save.')); return }
+      setTeamName('')
+      setCreating(false)
+      onSwitchOrg(data.orgId)
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err))
+    } finally { setCreateBusy(false) }
+  }
+
   /// What to call a workspace. A repository org is already readable; one made
   /// at sign-up is `personal:<hash>`, so whoever started it stands in for a
   /// name — "yours", or "Dana's team".
   const orgLabel = (org: Org) => {
+    if (org.name) return org.name
     if (org.id.includes('/')) return org.id
     if (org.mine) return t('Your workspace')
     return org.founder ? t("{name}'s team", { name: org.founder }) : t('A team you joined')
@@ -345,6 +374,26 @@ export const Profile: React.FC<Props> = ({
             </div>
           )}
           {joinError && <div className="form-error">{joinError}</div>}
+          <button className="row create-team" onClick={() => { setCreating(!creating); setCreateError(null) }}>
+            <span className="row-icon"><Icon name="invite" size={18} /></span>
+            <span className="row-main">{t('Create a team')}<span className="row-sub">{t('A workspace of its own, with a name, that you invite people into.')}</span></span>
+            <span className="row-value">{creating ? '⌄' : '›'}</span>
+          </button>
+          {creating && (
+            <div className="row static">
+              <input
+                className="team-name-input"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') createTeam() }}
+                placeholder={t('Team name')}
+                aria-label={t('Team name')}
+                maxLength={60}
+              />
+              <button className="pill-btn" onClick={createTeam} disabled={createBusy || !teamName.trim()}>{t('Create')}</button>
+            </div>
+          )}
+          {createError && <div className="form-error">{createError}</div>}
           <button className="row" onClick={() => onOpen('plans')}>
             <span className="row-icon"><Icon name="plan" size={18} /></span>
             <span className="row-main">{t('Plan')}<span className="row-sub">{t('What you are on, and what else there is.')}</span></span>

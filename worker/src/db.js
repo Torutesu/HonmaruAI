@@ -804,6 +804,7 @@ export async function listUserOrgs(db, githubId) {
     .prepare(
       `SELECT m.org_id AS id,
               m.role   AS role,
+              (SELECT o.name FROM orgs o WHERE o.id = m.org_id) AS name,
               (SELECT COALESCE(u.name, u.login, om.user_github_id)
                  FROM memberships om
                  LEFT JOIN users u ON u.github_id = om.user_github_id
@@ -824,6 +825,9 @@ export async function listUserOrgs(db, githubId) {
   return (rows?.results || []).map((r) => ({
     id: r.id,
     role: r.role || "member",
+    // What the team called itself, when it did. A repository's id is its
+    // name; a personal workspace nobody renamed has none.
+    name: r.name || null,
     // A repository-backed org is already readable as "owner/repo"; only a
     // personal workspace needs a person's name to stand in for its id.
     founder: String(r.id).includes("/") ? null : r.founder || null,

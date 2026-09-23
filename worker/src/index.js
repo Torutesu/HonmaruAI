@@ -1,6 +1,6 @@
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
-import { signup, login, createInvite, acceptInvite, isGitHubSession } from "./auth.js";
+import { signup, login, createInvite, acceptInvite, isGitHubSession, inviteLink, peekInvite } from "./auth.js";
 import { requestCode, verifyCode } from "./otp.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
@@ -19,12 +19,13 @@ import { triageMessage } from "./triage.js";
 import { notifyCard } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount, exportAccount } from "./account.js";
-import { listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
+import { listMembers, listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured, isDeviceToken } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
-import { isMailConfigured } from "./mailer.js";
-import { SUPPORTED_LOCALES } from "./notifyCopy.js";
+import { isMailConfigured, sendMail } from "./mailer.js";
+import { SUPPORTED_LOCALES, composeInviteEmail } from "./notifyCopy.js";
+import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { runScheduledSync } from "./scheduled.js";
 import { logJSON, routeLabel, safe } from "./log.js";
 import {
@@ -150,7 +151,7 @@ async function handle(request, env, url) {
     // one mails a code, one trades it for a session. Together they are the
     // only way in that needs nothing you had to have set up beforehand.
     if (url.pathname === "/auth/otp/request" && request.method === "POST") {
-      const limited = await enforce(env, request, "oauth/token");
+      const limited = await enforce(env, request, "otp/request");
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
       const result = await requestCode(env, {
@@ -211,6 +212,56 @@ async function handle(request, env, url) {
       return json(result);
     }
 
+    // What a code opens, before it is spent: the team's name, who sent it,
+    // the role. The join page reads this so the person sees "Join Acme as a
+    // member" and not a hex string. The code is the credential, so an
+    // unknown, expired or spent one is answered exactly like a guess.
+    if (url.pathname === "/invites/peek" && request.method === "GET") {
+      const limited = await enforce(env, request, "invites/peek");
+      if (limited) return limited;
+      const peek = await peekInvite(env, url.searchParams.get("code") || "");
+      if (!peek) return json({ message: "That invite code is not valid." }, 404);
+      const { orgId: _orgId, ...shown } = peek;
+      return json(shown);
+    }
+
+    // An invitation by address. Mints a single-use code for the role and
+    // mails it — as a link where the deployment has a web address, as the
+    // code either way — in the sender's language, the only one we know
+    // before the invitee has an account. Same budget as minting a code by
+    // hand: each of these is a credential, and a mail.
+    if (url.pathname === "/invites/email" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      if (!isMailConfigured(env)) return json({ message: "This deployment cannot send email yet. Share the code instead." }, 503);
+      const body = await request.json().catch(() => ({}));
+      const to = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) || to.length > 254) return json({ message: "That is not an email address." }, 400);
+      if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
+        return json({ message: "You are not a member of this organization." }, 403);
+      }
+      const minted = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: 1 });
+      if (minted.error) return json({ message: minted.error }, 400);
+      const sender = await getUserByGithubId(env.DB, session.github_id);
+      const mail = composeInviteEmail({
+        inviter: sender?.name || sender?.login || null,
+        team: await teamName(env.DB, body.orgId),
+        code: minted.code,
+        url: minted.link,
+        days: 7,
+        locale: sender?.locale || localeFromRequest(request),
+      });
+      const sent = await sendMail(env, { to, subject: mail.subject, text: mail.text });
+      if (!sent.ok) {
+        // A code nobody received is a door left open for nothing.
+        await env.DB.prepare("DELETE FROM invites WHERE code = ?1").bind(minted.code).run();
+        return json({ message: "We could not send the invitation. Try again in a moment." }, 502);
+      }
+      return json({ ok: true, ref: minted.ref, role: minted.role, to });
+    }
+
     if (url.pathname === "/invites/accept" && request.method === "POST") {
       // Redeeming or minting a code grants org membership, so both are guessable
       // surfaces and both get the same budget as the other credential routes.
@@ -221,6 +272,32 @@ async function handle(request, env, url) {
       const body = await request.json().catch(() => ({}));
       const result = await acceptInvite(env, { code: body.code, userId: session.github_id });
       if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    // Start a team. The one workspace a sign-up hands out is enough for
+    // one person; the second business, the side project, the client you
+    // work with, each want a room of their own with a name on the door.
+    if (url.pathname === "/orgs" && request.method === "POST") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await createTeam(env.DB, { name: body.name, createdBy: session.github_id });
+      if (result.error) return json({ message: result.error }, 400);
+      return json(result);
+    }
+
+    // Name, or rename, the team. Admins of it, and never a repository.
+    if (url.pathname === "/orgs/name" && request.method === "PUT") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await renameTeam(env.DB, { orgId: body.orgId, actorId: session.github_id, name: body.name });
+      if (result.error) return json({ message: result.error }, result.status || 400);
       return json(result);
     }
 
@@ -243,6 +320,9 @@ async function handle(request, env, url) {
         // where they are actually decided rather than offering a button that
         // the next org-graph load would undo.
         editable: membershipIsOurs(orgId),
+        // What the team calls itself, and whether this person may change it.
+        name: await teamName(env.DB, orgId),
+        canRename: await canRename(env.DB, orgId, session.github_id),
       });
     }
 
@@ -318,6 +398,8 @@ async function handle(request, env, url) {
         push: isConfigured(env),
         webPush: isWebPushConfigured(env),
         email: isMailConfigured(env),
+        // Invite links and notification links need the web's own address.
+        inviteLinks: Boolean(inviteLink(env, "probe")),
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {
@@ -356,6 +438,15 @@ async function handle(request, env, url) {
       let teamContext;
       let lookups;
       const routeOrgId = body.organization?.orgId || body.orgId;
+      const chosenId = body.recipientUserID;
+      if (chosenId !== undefined && (typeof chosenId !== "string" || !chosenId.trim())) {
+        return json({ message: "Choose a workspace member." }, 400);
+      }
+      if ((chosenId !== undefined || body.memberReferences === true) && (!session || !routeOrgId)) {
+        return json({ message: "Sign in to a workspace before choosing a teammate." }, 401);
+      }
+      let routeMembers = [];
+      let chosenMember;
       if (session && routeOrgId) {
         // Naming an org is not belonging to it. Everything else that reads an
         // organization checks this; this route did not, and it answers with a
@@ -371,6 +462,13 @@ async function handle(request, env, url) {
         // does not. Asking GitHub is what the socket does on join.
         const allowed = await authorizeOrgAccess(env, session, routeOrgId);
         if (!allowed.ok) return json({ message: "not a member of this org" }, 403);
+        if (chosenId !== undefined || body.memberReferences === true) {
+          routeMembers = await listMembers(env.DB, routeOrgId, session.github_id);
+          if (chosenId !== undefined) {
+            chosenMember = routeMembers.find(m => chosenId === `member:${m.ref}` || chosenId === m.login);
+            if (!chosenMember) return json({ message: "That recipient is not a current member of this workspace." }, 400);
+          }
+        }
         const nodes = await listOrgNodes(env.DB, routeOrgId);
         if (nodes.length) {
           organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
@@ -408,6 +506,10 @@ async function handle(request, env, url) {
         }
       }
 
+      if (chosenMember) {
+        organization = { ...organization, nodes: [{ id: chosenMember.login, kind: "person",
+          role: chosenMember.title || chosenMember.role, label: `${chosenMember.name} · ${chosenMember.title || chosenMember.role}` }], edges: [] };
+      }
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
@@ -425,6 +527,16 @@ async function handle(request, env, url) {
         // must mean spending nothing, however little.
         systemOne: session ? jevConfig(env) : undefined,
       });
+      if (chosenMember) {
+        result.recipientUserID = chosenMember.login;
+        result.routingReason = "Selected by you";
+        result.agentRoute = `${body.sender?.name || "You"} → ${chosenMember.name}`;
+      }
+      if (body.memberReferences === true) {
+        const recipient = routeMembers.find(m => m.login === result.recipientUserID);
+        if (!recipient) return json({ message: "Choose a current workspace member." }, 400);
+        result.recipientUserID = recipient.mine ? recipient.login : `member:${recipient.ref}`;
+      }
       // Only a model that actually answered is billable — including one whose
       // answer we then rejected, which still comes back as routedBy "fallback".
       // A provider outage never burns someone's three.

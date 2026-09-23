@@ -1,9 +1,14 @@
 import React, { useState } from 'react'
 import { useT } from '../utils/i18n'
 
+export interface InvitePeek { team: string | null; inviter: string | null; role: string }
+
 interface Props {
   httpBase: string
   mode: 'signup' | 'login'
+  /// The code a link carried here, and what the Worker says it opens.
+  initialInviteCode?: string
+  invite?: InvitePeek | null
   /// A code was sent; go and collect it.
   onCodeSent: (email: string, name: string, inviteCode: string) => void
   /// Signed in outright with a password.
@@ -18,11 +23,11 @@ interface Props {
 /// and it proves the address every notification this product sends depends on.
 /// A password still works — some deployments have no mail configured at all —
 /// so this screen carries both, with the code path in front.
-export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn, onBack, onSwitchMode }) => {
+export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, invite, onCodeSent, onSignedIn, onBack, onSwitchMode }) => {
   const t = useT()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
+  const [inviteCode, setInviteCode] = useState(initialInviteCode || '')
   const [password, setPassword] = useState('')
   const [usePassword, setUsePassword] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -95,6 +100,15 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, onCodeSent, onSignedIn
             ? t('Email and password.')
             : t('signin.code.lede')}
         </p>
+        {invite && (
+          <div className="invite-banner" role="status">
+            {invite.inviter
+              ? t('{name} invited you to {team}.', { name: invite.inviter, team: invite.team || t('their team') })
+              : t('You are invited to {team}.', { team: invite.team || t('a team') })}
+            {' '}
+            {mode === 'signup' ? t('Create your account and you are in.') : t('Sign in and you are in.')}
+          </div>
+        )}
 
         <form onSubmit={(e) => { e.preventDefault(); if (canSubmit) (usePassword ? withPassword() : sendCode()) }}>
           {mode === 'signup' && (

@@ -16,8 +16,8 @@
 
 ## A. Cloudflare の自動デプロイを動かす（15 分）
 
-目的：`main` への push で Worker が自動デプロイされるようにする。今は
-`Deploy Worker` ワークフローが "Check credentials" で止まっている。
+目的：`main` への push で Worker が自動デプロイされるようにする。
+**（2026-09-22 時点で設定済み：直近の `main` で Deploy Worker は緑。以下は再設定用。）**
 
 1. https://dash.cloudflare.com にログイン → 左メニュー **Workers & Pages** →
    右側 **Account details** の **Account ID**（32 桁の16進数）をコピー
@@ -164,7 +164,7 @@ Mailgun のドメインと 2 つの秘密だけが無い。
 1. 事前確認（すべて緑になるまで先に進まない）：
    ```bash
    cd HonmaruAI
-   (cd worker && npm test)          # 404 tests
+   (cd worker && npm test)          # 472+ tests
    xcodegen generate
    xcodebuild test -project TikTokForWork.xcodeproj -scheme TikTokForWork \
      -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO
@@ -259,10 +259,56 @@ Cloudflare 側のリソース 2 つと、その ID の貼り付けです。
 4. 確認: Web を開き「GitHub で続ける」→ GitHub で許可 → リポジトリ一覧から 1 つ選ぶ → フィードが開く。
    Tools の GitHub 行が「Built in」になっていれば完了。
 
+## J. チームと招待を本番で使えるようにする（5 分、A の後）
+
+チームは名前をつけて作れるようになり（You → **チームを作成**、Team 画面の
+**名前を変更**）、招待は 3 通りになりました：コード、リンク、メール。
+リンクとメールの中のリンクは Web の URL から組み立てるので、Worker が自分の
+Web アドレスを知っている必要があります。
+
+1. Web を Pages に出していなければ `./web-react/scripts/deploy-pages.sh`（4 章）。
+2. `cd worker && npx wrangler@4 secret put APP_WEB_URL` に Pages の URL
+   （例 `https://honmaru-web.pages.dev`）。通知のリンク先にもなります。
+3. 確認：`curl -s https://tiktokforwork.torubj0904.workers.dev/health` が
+   `"inviteLinks": true` を返す。Team 画面で招待コードを作ると、コードの上に
+   `…/#/join/<code>` のリンクと **リンクをコピー / 共有** が出る。
+4. メール招待は Resend（`RESEND_API_KEY`）が入っていれば動きます。共有送信元
+   （`onboarding@resend.dev`）のままだと Resend アカウントの持ち主宛にしか届かない
+   ので、他の人を招待するには `NOTIFY_EMAIL_FROM` に検証済みドメインの From を入れる
+   （docs/setup-secrets.md 2 章）。
+
+受け取った側：リンクを開くと、サインイン済みならそのチームに参加してフィードが
+開く。未サインインなら「{招待者}さんが{チーム}に招待しています」と出た
+サインアップ画面にコードが入った状態で始まり、アカウントを作るとそのチームに入る。
+iPhone アプリの You → Team には **招待リンクを共有**（Web の URL がある場合）と
+**チームを作成** が並びます。
+
+---
+
+## K. このブランチをリリースする（30 分）
+
+`claude/eloquent-volta-s9mmfj` には、Web のワークベンチ・⌘K・音声入力・
+オフライン、Jev による分類、翻訳、Notion/GitHub コンテキスト、Web の GitHub
+サインイン、チーム作成と招待、そして 2 回の QA パスが入っています。`main` の
+Figma ネイティブ UI（#44, #45）はマージ済みです。
+
+1. PR を作って `main` にマージする。マージで **Deploy Worker** が動き、D1 の
+   マイグレーションと Worker のデプロイまで自動（A は設定済み — 直近の main で緑）。
+   ランが緑で `/health` が `"ok": true` を返せば Worker は本番。
+2. Web：`./web-react/scripts/deploy-pages.sh`（Pages への手動デプロイ。Pages に
+   GitHub 連携をしているなら main へのマージで自動）。
+3. 新しい Worker シークレット（任意）：`TYPESAFE_API_KEY`（H）、
+   `GITHUB_WEB_REDIRECT_URI`（I）、`APP_WEB_URL`（J）。どれも無ければその機能が
+   静かに無いだけで、他は動きます。
+4. iPhone：`main` で **TestFlight** ワークフローを実行（`testflight.yml`）。
+   ネイティブ UI 1.0.1 のビルドに、本ブランチの Ask / 下書き / 送信 / Insights /
+   翻訳 / チームが乗ります。
+5. App Store 提出は E の手順のまま。
+
 ## 完了の定義
 
 - `curl -s https://tiktokforwork.torubj0904.workers.dev/health` が
-  `push`, `webPush`, `email` をすべて `true` で返す
+  `push`, `webPush`, `email`, `inviteLinks` をすべて `true` で返す
 - GitHub Actions の **Deploy Worker** が最新の `main` で緑
 - TestFlight の実機で：購入シートが出る／通知が届く／転送メールがカードになる
 - App Store Connect のステータスが **Waiting for Review** 以降

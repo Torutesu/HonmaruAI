@@ -29,6 +29,13 @@ const STRINGS = {
     codeIntro: "Enter this code to sign in to Honmaru AI:",
     codeExpiry: "It works for {minutes} minutes, once.",
     codeIgnore: "If you did not ask to sign in, ignore this email — nothing has happened to your account.",
+    inviteSubject: "{inviter} invited you to {team} on Honmaru AI",
+    inviteIntro: "{inviter} invited you to join {team} on Honmaru AI — where every decision reaches the right person, in their own language.",
+    inviteOpen: "Open this link to join: {url}",
+    inviteCode: "Or sign in and enter this invite code: {code}",
+    inviteExpiry: "The invitation works for {days} days.",
+    inviteIgnore: "If you were not expecting this, ignore this email — nothing has happened.",
+    yourTeam: "their team",
     actions: {
       approve: "approved", decline: "declined", choose: "chose an option", reply: "replied",
       acknowledge: "acknowledged", later: "deferred", delete: "removed", mute: "muted",
@@ -54,6 +61,13 @@ const STRINGS = {
     codeIntro: "このコードを入力すると Honmaru AI にログインできます:",
     codeExpiry: "有効期間は{minutes}分、1回限りです。",
     codeIgnore: "心当たりがない場合は、このメールを無視してください。アカウントには何も起きていません。",
+    inviteSubject: "{inviter}さんから Honmaru AI の「{team}」への招待",
+    inviteIntro: "{inviter}さんが Honmaru AI の「{team}」にあなたを招待しました。決定が、それぞれの言語で、必要な人に届きます。",
+    inviteOpen: "このリンクを開くと参加できます: {url}",
+    inviteCode: "または、サインインしてこの招待コードを入力してください: {code}",
+    inviteExpiry: "この招待は{days}日間有効です。",
+    inviteIgnore: "心当たりがない場合は、このメールを無視してください。何も起きていません。",
+    yourTeam: "チーム",
     actions: {
       approve: "承認", decline: "却下", choose: "選択", reply: "返信",
       acknowledge: "確認済み", later: "保留", delete: "削除", mute: "ミュート",
@@ -79,6 +93,13 @@ const STRINGS = {
     codeIntro: "Introduce este código para entrar en Honmaru AI:",
     codeExpiry: "Funciona durante {minutes} minutos, una sola vez.",
     codeIgnore: "Si no pediste iniciar sesión, ignora este correo: tu cuenta no ha cambiado.",
+    inviteSubject: "{inviter} te invitó a {team} en Honmaru AI",
+    inviteIntro: "{inviter} te invitó a unirte a {team} en Honmaru AI, donde cada decisión llega a la persona correcta, en su propio idioma.",
+    inviteOpen: "Abre este enlace para unirte: {url}",
+    inviteCode: "O inicia sesión e introduce este código de invitación: {code}",
+    inviteExpiry: "La invitación es válida durante {days} días.",
+    inviteIgnore: "Si no esperabas esto, ignora este correo: no ha pasado nada.",
+    yourTeam: "su equipo",
     actions: {
       approve: "aprobó", decline: "rechazó", choose: "eligió una opción", reply: "respondió",
       acknowledge: "confirmó", later: "aplazó", delete: "eliminó", mute: "silenció",
@@ -104,6 +125,13 @@ const STRINGS = {
     codeIntro: "Saisissez ce code pour vous connecter à Honmaru AI :",
     codeExpiry: "Il fonctionne pendant {minutes} minutes, une seule fois.",
     codeIgnore: "Si vous n'avez pas demandé à vous connecter, ignorez cet e-mail — rien n'a changé sur votre compte.",
+    inviteSubject: "{inviter} vous a invité à rejoindre {team} sur Honmaru AI",
+    inviteIntro: "{inviter} vous a invité à rejoindre {team} sur Honmaru AI, où chaque décision atteint la bonne personne, dans sa propre langue.",
+    inviteOpen: "Ouvrez ce lien pour rejoindre l'équipe : {url}",
+    inviteCode: "Ou connectez-vous et saisissez ce code d'invitation : {code}",
+    inviteExpiry: "L'invitation est valable {days} jours.",
+    inviteIgnore: "Si vous n'attendiez pas ce message, ignorez-le : rien ne s'est passé.",
+    yourTeam: "son équipe",
     actions: {
       approve: "a approuvé", decline: "a refusé", choose: "a choisi une option", reply: "a répondu",
       acknowledge: "a pris acte", later: "a reporté", delete: "a supprimé", mute: "a masqué",
@@ -129,6 +157,13 @@ const STRINGS = {
     codeIntro: "Gib diesen Code ein, um dich bei Honmaru AI anzumelden:",
     codeExpiry: "Er gilt {minutes} Minuten lang, einmalig.",
     codeIgnore: "Falls du keine Anmeldung angefordert hast, ignoriere diese E-Mail — mit deinem Konto ist nichts passiert.",
+    inviteSubject: "{inviter} hat dich zu {team} auf Honmaru AI eingeladen",
+    inviteIntro: "{inviter} hat dich eingeladen, {team} auf Honmaru AI beizutreten – wo jede Entscheidung die richtige Person erreicht, in ihrer eigenen Sprache.",
+    inviteOpen: "Öffne diesen Link, um beizutreten: {url}",
+    inviteCode: "Oder melde dich an und gib diesen Einladungscode ein: {code}",
+    inviteExpiry: "Die Einladung gilt {days} Tage.",
+    inviteIgnore: "Wenn du das nicht erwartet hast, ignoriere diese E-Mail – es ist nichts passiert.",
+    yourTeam: "ihr Team",
     actions: {
       approve: "hat zugestimmt", decline: "hat abgelehnt", choose: "hat eine Option gewählt", reply: "hat geantwortet",
       acknowledge: "hat bestätigt", later: "hat vertagt", delete: "hat gelöscht", mute: "hat stummgeschaltet",
@@ -255,5 +290,24 @@ export function composeCodeEmail({ code, locale, minutes }) {
       t(locale, "codeExpiry", { minutes: String(minutes) }),
       t(locale, "codeIgnore"),
     ].join("\n"),
+  };
+}
+
+/// An invitation, in the language of the person sending it — the only
+/// language we know before the invitee has an account. A link when the
+/// deployment has a web address, the code either way.
+export function composeInviteEmail({ inviter, team, code, url, days, locale }) {
+  const vars = { inviter: inviter || "A teammate", team: team || t(locale, "yourTeam"), code, url: url || "", days: String(days) };
+  return {
+    subject: t(locale, "inviteSubject", vars),
+    text: [
+      t(locale, "inviteIntro", vars),
+      "",
+      url ? t(locale, "inviteOpen", vars) : null,
+      t(locale, "inviteCode", vars),
+      "",
+      t(locale, "inviteExpiry", vars),
+      t(locale, "inviteIgnore"),
+    ].filter((line) => line !== null).join("\n"),
   };
 }

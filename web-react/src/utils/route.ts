@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react'
 //   #/feed/<cardId>   this card
 //   #/list            the same cards as a list
 //   #/history … #/tools … #/you … #/team … #/insights … #/plans … #/notifications
+//   #/join/<code>     an invitation: sign up into the team, or join it
 
 export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights'
 export type Mode = 'cards' | 'classic'
@@ -21,6 +22,8 @@ export interface Route {
   /// back to the remembered one.
   mode: Mode | null
   cardId: string | null
+  /// An invite code carried by the URL — the link a teammate was sent.
+  join: string | null
 }
 
 const SCREEN_BY_PATH: Record<string, Screen> = {
@@ -35,20 +38,25 @@ const PATH_BY_SCREEN: Record<Screen, string> = {
 export function parseRoute(hash: string): Route {
   const path = (hash || '').replace(/^#\/?/, '')
   const [head, ...rest] = path.split('/').filter(Boolean)
-  if (!head) return { screen: null, mode: null, cardId: null }
+  if (!head) return { screen: null, mode: null, cardId: null, join: null }
   if (head === 'feed') {
     let cardId: string | null = null
     if (rest[0]) { try { cardId = decodeURIComponent(rest[0]) } catch { cardId = rest[0] } }
-    return { screen: null, mode: 'cards', cardId }
+    return { screen: null, mode: 'cards', cardId, join: null }
   }
-  if (head === 'list') return { screen: null, mode: 'classic', cardId: null }
+  if (head === 'list') return { screen: null, mode: 'classic', cardId: null, join: null }
+  if (head === 'join') {
+    const code = (rest[0] || '').trim()
+    return { screen: null, mode: null, cardId: null, join: /^[0-9a-f]{16,64}$/i.test(code) ? code.toLowerCase() : null }
+  }
   const screen = SCREEN_BY_PATH[head]
-  return screen ? { screen, mode: null, cardId: null } : { screen: null, mode: null, cardId: null }
+  return screen ? { screen, mode: null, cardId: null, join: null } : { screen: null, mode: null, cardId: null, join: null }
 }
 
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
 export function hashForCard(cardId: string): string { return `#/feed/${encodeURIComponent(cardId)}` }
 export function hashForMode(mode: Mode): string { return mode === 'classic' ? '#/list' : '#/feed' }
+export function hashForJoin(code: string): string { return `#/join/${encodeURIComponent(code)}` }
 
 function currentHash(): string {
   return typeof location !== 'undefined' ? location.hash : ''
