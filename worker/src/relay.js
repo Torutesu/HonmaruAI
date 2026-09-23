@@ -53,9 +53,12 @@ export class OrgRelay {
       if (request.method !== "POST") return new Response("not found", { status: 404 });
       let cards = [];
       try { ({ cards = [] } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
+      // A card that changed (a translation landed) is an update, not a birth:
+      // nobody gets told twice that a decision is waiting.
+      const isNew = url.searchParams.get("kind") !== "updated";
       for (const card of cards) {
         if (!card?.id) continue;
-        const { forEveryone, forRecipient } = upsertEvents(card, { isNew: true });
+        const { forEveryone, forRecipient } = upsertEvents(card, { isNew });
         for (const ev of forEveryone) this.broadcast(orgId, ev);
         for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
       }

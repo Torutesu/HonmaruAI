@@ -33,6 +33,7 @@ import {
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
 import { jevConfig } from "./jev.js";
+import { localizeCard, needsLocalizing } from "./localize.js";
 import { ingestedItemForCard } from "./db.js";
 import { alert } from "./alert.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
@@ -1112,6 +1113,42 @@ async function handle(request, env, url) {
       if (denied) return denied;
       const hits = q ? await searchDecisions(env.DB, orgId, q, { limit: 12 }) : [];
       return json({ hits });
+    }
+
+    // A card in the reader's language, on request. The relay translates for
+    // the recipient when a card is made; everyone else — a teammate reading
+    // the feed, the sender after switching languages, a recipient whose
+    // language changed — asks here. Stored on the card, so the next reader
+    // of that language pays nothing, and re-broadcast so every open device
+    // shows the same words.
+    const localizeMatch = url.pathname.match(/^\/cards\/([^/]+)\/localize$/);
+    if (localizeMatch && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const cardId = decodeURIComponent(localizeMatch[1]);
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      const locale = typeof body.locale === "string" ? body.locale.toLowerCase().slice(0, 8) : "";
+      if (!orgId || !locale) return json({ message: "orgId and locale are required" }, 400);
+      if (!SUPPORTED_LOCALES.includes(locale)) return json({ message: "That language is not one the relay writes." }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      if (!needsLocalizing(card, locale)) {
+        return json({ localized: card.localized?.[locale] || null, already: true });
+      }
+      const provider = providerConfig(env, request.headers.get("x-ai-key") || undefined);
+      if (!provider) return json({ message: "Your AI has no model to translate with on this deployment." }, 503);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey: request.headers.get("x-ai-key") || undefined });
+      if (!allowance.allowed) return json({ message: "You have used today's AI answers.", quotaExceeded: true }, 429);
+      const localized = await localizeCard(card, { provider, locale, allowance });
+      if (!localized) return json({ message: "Your AI could not translate that just now." }, 502);
+      await saveCard(env.DB, orgId, localized);
+      await announceCards(env, orgId, [localized], { isNew: false });
+      return json({ localized: localized.localized[locale] });
     }
 
     // One card's history, for any member of its org. The older route is

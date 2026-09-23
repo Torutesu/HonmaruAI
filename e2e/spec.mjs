@@ -94,7 +94,7 @@ page.on('response', (r) => {
 
 // What this configuration is *supposed* to refuse: connectors need a Composio
 // key, web push needs a VAPID pair, and the screens for both say so out loud.
-const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai\/ask/, /^503 \/ai\/draft/]
+const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai\/ask/, /^503 \/ai\/draft/, /^503 \/cards\/[^/]+\/localize/]
 
 /// Back to the feed, whatever is open on top of it. Several steps were each
 /// rolling their own version of this loop, and each one that got it slightly

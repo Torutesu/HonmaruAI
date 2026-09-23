@@ -26,6 +26,7 @@ import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
 import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen } from '../utils/route'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
+import { needsLocalizing } from '../utils/language'
 import type { Screen, Mode } from '../utils/route'
 
 interface Props {
@@ -306,7 +307,37 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     addDebugLog(`Nudged: ${cardId}`)
   }, [addDebugLog])
 
-  const cards = Object.values(state.cardsById || {})
+  // Cards in this reader's language. The relay translates for the recipient
+  // when a card is made; for everyone else — a teammate, the sender after a
+  // language switch — the Worker is asked here, once per card and language,
+  // and the words are kept on the card for the next reader. A deployment
+  // with no model says so once, and is not asked again this session.
+  const [translations, setTranslations] = useState<Record<string, Record<string, { title: string; summary?: string; context?: string }>>>({})
+  const askedFor = useRef(new Set<string>())
+  const noTranslator = useRef(false)
+  const locale = getLocale()
+  const rawCards = Object.values(state.cardsById || {})
+  useEffect(() => {
+    if (noTranslator.current) return
+    const mine = rawCards.filter((c) => c.recipientUserID === userId || c.senderUserID === userId)
+    const wanted = mine.filter((c) => needsLocalizing(c, locale) && !translations[c.id]?.[locale] && !askedFor.current.has(`${c.id}|${locale}`)).slice(0, 6)
+    for (const card of wanted) {
+      askedFor.current.add(`${card.id}|${locale}`)
+      fetch(`${relayHttpUrl}/cards/${encodeURIComponent(card.id)}/localize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, locale }),
+      })
+        .then(async (r) => {
+          if (r.status === 503) { noTranslator.current = true; return }
+          if (!r.ok) return
+          const data = await r.json().catch(() => ({}))
+          if (data.localized?.title) setTranslations((prev) => ({ ...prev, [card.id]: { ...(prev[card.id] || {}), [locale]: data.localized } }))
+        })
+        .catch(() => { /* the card reads in its own language */ })
+    }
+  }, [rawCards, locale, userId, relayHttpUrl, orgId, sessionToken, translations, localeVersion])
+  const cards = rawCards.map((c) => (translations[c.id] ? { ...c, localized: { ...(c.localized || {}), ...translations[c.id] } } : c))
   const byUrgency = { urgent: 0, high: 1, medium: 2, low: 3 } as Record<string, number>
   // What is waiting on me, most urgent first, then oldest first: the order
   // the AI would read them to you.

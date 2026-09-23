@@ -155,6 +155,17 @@ The list of what is still missing, and why each item matters, is
       changes nothing. A name in the instruction still wins over Jev's
       pick. `npm run eval:jev` prints accuracy, who routed what, tokens and
       dollars. Nine tests, all mocked — no key here; owner task H
+- [x] **Every reader gets the card in their language.** The relay
+      translated for the recipient only, once, at creation; a teammate
+      reading the feed, the sender after switching languages, a recipient
+      whose language changed all saw the original. `POST /cards/:id/localize
+      {orgId, locale}` translates on request (member-checked, metered from
+      the caller's allowance, kept on the card so the next reader of that
+      language pays nothing, re-broadcast as an update — never a second
+      "a decision is waiting"). The web asks for it for the cards on screen
+      that are in another script (same detector as the Worker), six at a
+      time, once per card and language, and stops for the session when the
+      deployment has no model. Two Worker tests, two web tests
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

@@ -14,14 +14,14 @@
 export const ANNOUNCE_PATH = "/internal/announce";
 export const EVICT_PATH = "/internal/evict";
 
-export async function announceCards(env, orgId, cards) {
+export async function announceCards(env, orgId, cards, { isNew = true } = {}) {
   if (!cards?.length) return { announced: 0 };
   // No relay binding, nowhere to announce. The cards are stored either way;
   // this is the difference between "seen now" and "seen on reconnect".
   if (!env.ORG_RELAY) return { announced: 0, skipped: "no relay binding" };
   try {
     const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
-    await stub.fetch(`https://relay.internal${ANNOUNCE_PATH}?orgId=${encodeURIComponent(orgId)}`, {
+    await stub.fetch(`https://relay.internal${ANNOUNCE_PATH}?orgId=${encodeURIComponent(orgId)}${isNew ? "" : "&kind=updated"}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ cards }),
