@@ -96,11 +96,26 @@ export class OrgRelay {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /// One send that cannot take the handler down with it. A socket the
+  /// runtime still lists can already be closing — a member removed and
+  /// evicted in the same tick, a tab gone mid-broadcast — and `send()` on
+  /// it throws "Can't call WebSocket send() after close()", which used to
+  /// surface as an uncaught error out of `webSocketClose` and stop the rest
+  /// of the room from hearing the event.
+  static deliver(ws, text) {
+    try {
+      if (ws.readyState !== undefined && ws.readyState !== 1) return;
+      ws.send(text);
+    } catch (err) {
+      console.warn("ws send skipped", err?.message || err);
+    }
+  }
+
   broadcast(orgId, obj, exclude) {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && ws !== exclude) ws.send(text);
+      if (att?.orgId === orgId && ws !== exclude) OrgRelay.deliver(ws, text);
     }
   }
 
@@ -108,7 +123,7 @@ export class OrgRelay {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && att?.userId === userId) ws.send(text);
+      if (att?.orgId === orgId && att?.userId === userId) OrgRelay.deliver(ws, text);
     }
   }
 

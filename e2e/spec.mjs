@@ -540,11 +540,20 @@ await step('an unconfigured connector is said out loud, not hidden', async () =>
   await closeEverything()
   await openViaYou('Tools', '.rows')
   await page.waitForSelector('.screen .head-title:has-text("Tools")', { timeout: 10000 })
-  await shot('16-tools-unconfigured')
-  const text = await page.evaluate(() => document.querySelector('.screen').innerText)
-  if (!/not switched on|No connectors/i.test(text)) {
+  // The note arrives after /connectors answers; the head is drawn before
+  // it. `textContent`, not `innerText`: the latter is a layout question,
+  // and mid-transition it answered "‹" for a screen whose words were all in
+  // the DOM and on the screenshot.
+  await page.waitForFunction(
+    () => /not switched on|No connectors/i.test([...document.querySelectorAll('.screen')].map((el) => el.textContent || '').join('\n')),
+    null,
+    { timeout: 15000 }
+  ).catch(async () => {
+    const text = await page.evaluate(() => [...document.querySelectorAll('.screen')].map((el) => el.textContent || '').join('\n'))
+    await shot('16-tools-unconfigured-failed')
     throw new Error(`the Tools screen does not say connectors are unavailable: ${text.slice(0, 120)}`)
-  }
+  })
+  await shot('16-tools-unconfigured')
 })
 
 // The setting the complaint named: choosing 日本語 wrote the preference and
