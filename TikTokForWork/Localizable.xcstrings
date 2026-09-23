@@ -17092,6 +17092,17 @@
           }
         }
       }
+    },
+    "What is wrong with it?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どこが違いますか？"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
