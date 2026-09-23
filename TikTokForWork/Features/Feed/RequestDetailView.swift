@@ -14,6 +14,11 @@ struct RequestDetailView: View {
     @State private var confirmDecline = false
     @State private var confirmUndo = false
     @State private var nudged = false
+    /// "Is this card wrong?" — closed, open (the reasons), or sent (thanks).
+    /// One tap says the router got it wrong, and why; that becomes the row
+    /// the router is measured against (You → Insights shows the count).
+    @State private var flag: FlagState = .closed
+    private enum FlagState { case closed, open, sent }
 
     private var card: DecisionCard? { service.card(id: cardID) }
     private var canAct: Bool { appState.isGuest || appState.connectionState == .connected }
@@ -57,6 +62,9 @@ struct RequestDetailView: View {
                         if let videoURL = card.videoURL { CardVideoView(urlString: videoURL) }
                         if service.awaitingDeliveryIDs.contains(card.id) {
                             Label("Waiting for workspace sync", systemImage: "arrow.triangle.2.circlepath").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
+                        }
+                        if !appState.isGuest, let me = appState.currentUser?.id, card.recipientUserID == me || card.senderUserID == me {
+                            flagBlock(card)
                         }
                         if !card.isPending {
                             VStack(alignment: .leading, spacing: 12) {
@@ -106,6 +114,43 @@ struct RequestDetailView: View {
         } message: { Text("This reopens the request. Changes already made in GitHub will remain.") }
         .sheet(isPresented: $showNote) { noteSheet }
         .sheet(isPresented: $showDelegate) { delegateSheet }
+    }
+
+    /// Never in the way of deciding: a quiet line under the card, the four
+    /// reasons when tapped, a thank-you once one is picked.
+    @ViewBuilder
+    private func flagBlock(_ card: DecisionCard) -> some View {
+        switch flag {
+        case .closed:
+            Button(String(localized: "Is this card wrong?")) {
+                withAnimation(.easeOut(duration: 0.15)) { flag = .open }
+            }
+            .font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+        case .open:
+            VStack(alignment: .leading, spacing: 10) {
+                Text("What is wrong with it?").font(.subheadline.weight(.semibold))
+                ForEach(InsightsService.FlagReason.allCases) { reason in
+                    Button(reason.label) {
+                        Haptics.light()
+                        flag = .sent
+                        let orgId = appState.currentUser?.teamID ?? ""
+                        if let base = appState.backendBaseURL, !orgId.isEmpty {
+                            Task { _ = await InsightsService.flag(cardId: card.id, orgId: orgId, reason: reason, backendBaseURL: base) }
+                        }
+                    }
+                    .font(.subheadline).foregroundStyle(Theme.Colors.textPrimary)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(Theme.Colors.surfaceRaised, in: Capsule())
+                }
+                Button(String(localized: "Never mind")) {
+                    withAnimation(.easeOut(duration: 0.15)) { flag = .closed }
+                }
+                .font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+            }
+        case .sent:
+            Text(String(localized: "Noted. Your AI will do better."))
+                .font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+        }
     }
 
     private func section(_ title: LocalizedStringKey, text: String) -> some View {

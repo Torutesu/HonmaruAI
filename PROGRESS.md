@@ -42,7 +42,8 @@ The list of what is still missing, and why each item matters, is
       link from Team. Three end-to-end steps drive all of it
 - [x] **Merged `main` (Figma native UI 1.0.1, brand icon, member refs)**
       into the branch: six Swift conflicts taken on main's side, our string
-      keys and Insights row re-applied
+      keys and Insights row re-applied; "Is this card wrong?" re-added on the
+      native request details (sender or recipient, four reasons, one tap)
 - [x] **QA pass over the workbench, Jev, translation and connected context**
       (2026-09-23): five end-to-end steps added (keyboard walk, a decided
       card in the pane, Japanese and dark on a laptop, the thread on a
