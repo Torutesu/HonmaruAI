@@ -13,7 +13,7 @@
   --cloud: #d4d4d4;
   --bone: #e8e8e8;
   --mist: #f8f9fa;
-  --plaster: #e9ebf0;
+  --plaster: #f8f9fa;
   --mercury: #eeeeee;
   --brand-violet: #6647f0;
   --signal-blue: #0091ff;
@@ -331,20 +331,20 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .screen { background: #0e0e11; color: #ededef; }
-  .screen-foot { background: #0e0e11; border-top-color: #26262b; }
-  .display { color: #f5f5f7; }
-  .lede, .row .row-value { color: #a2a2ab; }
-  .btn-primary { background: #ededef; color: #17171a; }
-  .btn-primary[disabled] { background: #26262b; color: #6b6b75; }
-  .btn-ghost { background: #17171a; color: #ededef; border-color: #2c2c33; }
+  .screen { background: #0f0f0f; color: #f2f2f2; }
+  .screen-foot { background: #0f0f0f; border-top-color: #2a2a2a; }
+  .display { color: #f2f2f2; }
+  .lede, .row .row-value { color: #a3a3a3; }
+  .btn-primary { background: #f2f2f2; color: #1a1a1a; }
+  .btn-primary[disabled] { background: #2a2a2a; color: #646464; }
+  .btn-ghost { background: #1a1a1a; color: #f2f2f2; border-color: #2a2a2a; }
   .rows, .field input, .field select, .field textarea, .screen-head .back {
-    background: #17171a; border-color: #2c2c33; color: #ededef;
+    background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2;
   }
-  .row { color: #ededef; border-bottom-color: #26262b; }
-  .row:hover, .screen-head .back:hover, .btn-ghost:hover:not([disabled]) { background: #1e1e23; }
-  .row .row-icon { background: #26262b; }
-  .form-note { background: #17171a; border-color: #2c2c33; color: #a2a2ab; }
+  .row { color: #f2f2f2; border-bottom-color: #2a2a2a; }
+  .row:hover, .screen-head .back:hover, .btn-ghost:hover:not([disabled]) { background: #222222; }
+  .row .row-icon { background: #2a2a2a; }
+  .form-note { background: #1a1a1a; border-color: #2a2a2a; color: #a3a3a3; }
 }
 
 /* ── Wider than a phone ───────────────────────────────────────────────────
@@ -410,8 +410,8 @@
     color: var(--ash);
     transition: background-color .12s, color .12s;
   }
-  .tab:hover { background: rgba(9, 12, 29, 0.05); color: var(--onyx); }
-  .tab.on { background: var(--signal-white); color: var(--onyx); box-shadow: rgba(9, 12, 29, .06) 0 1px 2px; }
+  .tab:hover { background: rgba(32, 32, 32, 0.05); color: var(--onyx); }
+  .tab.on { background: var(--signal-white); color: var(--onyx); box-shadow: rgba(32, 32, 32, .06) 0 1px 2px; }
   /* Compose keeps its mark and goes first: on a rail the primary action
      belongs at the top, under the name. */
   .tab.compose {
@@ -421,7 +421,7 @@
     display: grid; place-items: center;
     background-image: none; background-color: transparent;
   }
-  .tab.compose:hover { background-color: rgba(9, 12, 29, 0.05); }
+  .tab.compose:hover { background-color: rgba(32, 32, 32, 0.05); }
   .tab.compose .fab-face {
     width: 36px; height: 36px;
     background: conic-gradient(
@@ -584,20 +584,41 @@
 }
 
 @media (min-width: 720px) and (prefers-color-scheme: dark) {
-  body { background: #08080a; }
-  .tab { color: #8a8a94; }
-  .tab:hover { background: #17171a; color: #f5f5f7; }
-  .tab.on { background: #17171a; color: #f5f5f7; box-shadow: none; }
-  .tab.compose { color: #f5f5f7; background-color: transparent; }
-  .tab.compose:hover { background-color: #17171a; }
-  .tab.compose::after { color: #f5f5f7; }
-  .tab.compose .fab-face { box-shadow: inset 0 0 0 5px #08080a; }
-  .tabbar { border-right-color: #26262b; }
-  .tabbar::before { color: #08080a; background: #f5f5f7; }
-  .feed, .screen { background: #08080a; }
+  body { background: #0f0f0f; }
+  .tab { color: #8a8a8a; }
+  .tab:hover { background: #1a1a1a; color: #f2f2f2; }
+  .tab.on { background: #1a1a1a; color: #f2f2f2; box-shadow: none; }
+  .tab.compose { color: #f2f2f2; background-color: transparent; }
+  .tab.compose:hover { background-color: #1a1a1a; }
+  .tab.compose::after { color: #f2f2f2; }
+  .tab.compose .fab-face { box-shadow: inset 0 0 0 5px #0f0f0f; }
+  .tabbar { border-right-color: #2a2a2a; }
+  .tabbar::before { color: #0f0f0f; background: #f2f2f2; }
+  .feed, .screen { background: #0f0f0f; }
+  /* The signed-out card's ground: the day-side rule above is more specific
+     than the plain `.screen` night rule, so it has to be said again here. */
+  .screen:not(.shell .screen), .shell .screen { background: #0f0f0f; }
   .screen:not(.shell .screen) .screen-body,
-  .screen:not(.shell .screen) .screen-foot { background: #111113; border-color: #26262b; box-shadow: none; }
+  .screen:not(.shell .screen) .screen-foot { background: #1a1a1a; border-color: #2a2a2a; box-shadow: none; }
 }
 @media (min-width: 1280px) and (prefers-color-scheme: dark) {
-  .tabbar::before { color: #f5f5f7; background: transparent; }
+  .tabbar::before { color: #f2f2f2; background: transparent; }
+}
+
+/* Last on purpose: screens.css is imported at the top of this file, so a
+   dark rule written there loses to the day-side rules below it that share a
+   selector. The night side of You, Team and the other pages: every surface that was
+   drawn white on the day side, and every word set in ink, said again in
+   the dark scale. These were the ones the dark pass had missed — a title
+   and a name in near-black on near-black, and a white slab of numbers. */
+@media (prefers-color-scheme: dark) {
+  .screen-head .head-title, .shell .screen-head .head-title, .profile-head b, .profile-stats b, .row-main, .team-name { color: #f2f2f2; }
+  .rows-title, .row-sub, .profile-head span, .hint { color: #a3a3a3; }
+  .profile-avatar { background: #f2f2f2; color: #1a1a1a; }
+  .profile-stats, .shell .profile-stats { background: #1a1a1a; border-color: #2a2a2a; }
+  .profile-stats div { border-right-color: #2a2a2a; }
+  .row-select, .alias-input, .key-input, .you-row input, .join-code, .context-input {
+    background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2;
+  }
+  .row-select option { background: #1a1a1a; }
 }

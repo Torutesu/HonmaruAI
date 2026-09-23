@@ -7,7 +7,7 @@
   overflow-y: auto;
   overscroll-behavior-y: contain;
   scroll-snap-type: y mandatory;
-  background: #f5f5f7;
+  background: #f8f9fa;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -51,10 +51,10 @@
 /* The card */
 .card {
   background: #ffffff;
-  border: 1px solid #ececf0;
+  border: 1px solid #e8e8e8;
   border-radius: 20px;
   padding: 20px;
-  box-shadow: 0 1px 2px rgba(16, 16, 24, 0.04), 0 12px 32px rgba(16, 16, 24, 0.06);
+  box-shadow: 0 1px 2px rgba(32, 32, 32, 0.04), 0 12px 32px rgba(32, 32, 32, 0.06);
   overflow-y: auto;
   will-change: transform;
 }
@@ -70,7 +70,7 @@
 .card-kind {
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: #8b8b93;
+  color: #838383;
   text-transform: capitalize;
 }
 
@@ -80,7 +80,7 @@
   align-items: center;
   gap: 4px;
   font-size: 10px;
-  color: #c2c2c9;
+  color: #b3b3b3;
 }
 .legend i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 /* Every level is listed; only the card's own is lit. The legend teaches the
@@ -94,7 +94,7 @@
 /* Not yet: the feed before the relay has answered. */
 .loading-mark {
   border-color: transparent;
-  background: conic-gradient(from 0deg, #e4e4ea 0 270deg, #101014 270deg 360deg);
+  background: conic-gradient(from 0deg, #e8e8e8 0 270deg, #202020 270deg 360deg);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
   animation: loading-turn 0.9s linear infinite;
@@ -108,23 +108,23 @@
   line-height: 1.24;
   font-weight: 700;
   letter-spacing: -0.015em;
-  color: #101014;
+  color: #202020;
 }
 
 .card-summary {
   margin: 12px 0 0;
   font-size: 15px;
   line-height: 1.5;
-  color: #6b6b75;
+  color: #646464;
 }
 
 .card-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .source-chip {
-  border: 1px solid #ececf0;
+  border: 1px solid #e8e8e8;
   border-radius: 9999px;
   padding: 7px 14px;
   font-size: 13px;
-  color: #45454f;
+  color: #646464;
   background: #fff;
 }
 .source-chip.business { color: #6647f0; border-color: #e2dcff; background: #f7f5ff; }
@@ -138,7 +138,7 @@
   flex-wrap: wrap;
 }
 .card-context li {
-  border: 1px solid #ececf0;
+  border: 1px solid #e8e8e8;
   border-radius: 9999px;
   padding: 6px 12px;
   font-size: 12px;
@@ -150,12 +150,12 @@
   max-width: 100%;
 }
 .card-context .ctx-detail { overflow-wrap: anywhere; }
-.ctx-label { color: #a0a0aa; text-transform: uppercase; font-size: 9px; letter-spacing: 0.05em; }
-.ctx-detail { color: #101014; }
+.ctx-label { color: #838383; text-transform: uppercase; font-size: 9px; letter-spacing: 0.05em; }
+.ctx-detail { color: #202020; }
 
 /* Requested by */
 .requested-by { margin-top: 18px; }
-.rb-label { font-size: 11px; color: #a0a0aa; margin-bottom: 10px; }
+.rb-label { font-size: 11px; color: #838383; margin-bottom: 10px; }
 .rb-row { display: flex; align-items: center; gap: 10px; }
 .avatar {
   width: 36px; height: 36px; border-radius: 50%;
@@ -165,8 +165,8 @@
   flex: none;
 }
 .rb-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.rb-who strong { font-size: 14px; color: #101014; }
-.rb-meta { font-size: 12px; color: #a0a0aa; }
+.rb-who strong { font-size: 14px; color: #202020; }
+.rb-meta { font-size: 12px; color: #838383; }
 .rb-quote {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -174,10 +174,10 @@
   overflow: hidden;
   margin: 10px 0 0;
   padding: 0 0 0 12px;
-  border-left: 2px solid #ececf0;
+  border-left: 2px solid #e8e8e8;
   font-size: 13px;
   line-height: 1.5;
-  color: #6b6b75;
+  color: #646464;
 }
 .rb-link { display: inline-block; margin-top: 8px; font-size: 13px; color: #6647f0; text-decoration: none; }
 
@@ -189,11 +189,11 @@
   border-radius: 14px;
   padding: 14px;
 }
-.rec-head { font-size: 14px; color: #45454f; display: flex; align-items: center; gap: 7px; }
+.rec-head { font-size: 14px; color: #646464; display: flex; align-items: center; gap: 7px; }
 .rec-head strong { color: #6647f0; text-transform: capitalize; }
 .rec-decline .rec-head strong { color: #d64545; }
 .ai-spark { color: #6647f0; }
-.rec-reason { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: #6b6b75; }
+.rec-reason { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: #646464; }
 
 /* The two answers */
 .decide-row { display: flex; justify-content: center; align-items: center; gap: 22px; margin: 18px 0 0; }
@@ -204,8 +204,8 @@
   transition: transform 120ms ease;
 }
 .decide:active { transform: scale(0.94); }
-.decide.decline { background: #fff; color: #45454f; border: 1px solid #e4e4ea; }
-.decide.approve { background: #101014; color: #fff; border: none; }
+.decide.decline { background: #fff; color: #646464; border: 1px solid #e8e8e8; }
+.decide.approve { background: #202020; color: #fff; border: none; }
 
 /* Ask anything */
 .ask-bar {
@@ -214,33 +214,33 @@
   align-items: center;
   gap: 10px;
   background: #fff;
-  border: 1px solid #ececf0;
+  border: 1px solid #e8e8e8;
   border-radius: 9999px;
   padding: 6px 6px 6px 8px;
 }
 .ask-bar input {
   flex: 1; min-width: 0;
   border: none; outline: none; background: transparent;
-  font-size: 15px; color: #101014;
+  font-size: 15px; color: #202020;
 }
-.ask-bar input::placeholder { color: #a0a0aa; }
+.ask-bar input::placeholder { color: #838383; }
 .ask-plus, .ask-send {
   width: 36px; height: 36px; border-radius: 50%;
   border: none; cursor: pointer; flex: none;
   display: grid; place-items: center; font-size: 15px;
 }
-.ask-plus { background: #f1f1f4; color: #45454f; }
-.ask-send { background: #101014; color: #fff; }
+.ask-plus { background: #eeeeee; color: #646464; }
+.ask-send { background: #202020; color: #fff; }
 .ask-send:disabled { opacity: 0.35; cursor: default; }
 
 /* Empty */
-.page-empty { flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #8b8b93; padding: 24px; }
-.page-empty h2 { color: #101014; font-weight: 600; margin: 12px 0 4px; }
+.page-empty { flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #838383; padding: 24px; }
+.page-empty h2 { color: #202020; font-weight: 600; margin: 12px 0 4px; }
 .page-empty p { margin: 0; max-width: 34ch; }
 .empty-mark {
   width: 56px; height: 56px; border-radius: 50%;
-  border: 1px solid #e4e4ea; background: #fff;
-  display: grid; place-items: center; font-size: 24px; color: #101014;
+  border: 1px solid #e8e8e8; background: #fff;
+  display: grid; place-items: center; font-size: 24px; color: #202020;
 }
 
 .page-indicator {
@@ -248,7 +248,7 @@
   position: fixed;
   right: 10px; top: 50%;
   transform: translateY(-50%);
-  font-size: 11px; color: #b4b4bd;
+  font-size: 11px; color: #b3b3b3;
   font-variant-numeric: tabular-nums;
   writing-mode: vertical-rl;
   letter-spacing: 0.1em;
@@ -257,83 +257,83 @@
 @media (min-width: 720px) and (max-width: 1023px) { .page-indicator { display: block; } }
 
 @media (prefers-color-scheme: dark) {
-  .feed { background: #0b0b0d; }
-  .card { background: #151518; border-color: #26262b; box-shadow: none; }
-  .card-title, .ctx-detail, .rb-who strong, .empty-mark, .page-empty h2 { color: #ededef; }
-  .card-summary, .rb-quote, .rec-reason, .rec-head { color: #a8a8b2; }
-  .source-chip, .card-context li, .ask-bar { background: #151518; border-color: #26262b; color: #ededef; }
-  .ask-bar input { color: #ededef; }
-  .decide.decline { background: #151518; border-color: #303038; color: #ededef; }
-  .decide.approve { background: #ededef; color: #0b0b0d; }
-  .ask-send { background: #ededef; color: #0b0b0d; }
-  .ask-plus { background: #26262b; color: #ededef; }
+  .feed { background: #0f0f0f; }
+  .card { background: #1a1a1a; border-color: #2a2a2a; box-shadow: none; }
+  .card-title, .ctx-detail, .rb-who strong, .empty-mark, .page-empty h2 { color: #f2f2f2; }
+  .card-summary, .rb-quote, .rec-reason, .rec-head { color: #a3a3a3; }
+  .source-chip, .card-context li, .ask-bar { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
+  .ask-bar input { color: #f2f2f2; }
+  .decide.decline { background: #1a1a1a; border-color: #333333; color: #f2f2f2; }
+  .decide.approve { background: #f2f2f2; color: #0f0f0f; }
+  .ask-send { background: #f2f2f2; color: #0f0f0f; }
+  .ask-plus { background: #2a2a2a; color: #f2f2f2; }
   .recommendation { background: #17142a; border-color: #2f2a52; }
-  .empty-mark { background: #151518; border-color: #26262b; }
-  .legend.on { color: #ededef; }
+  .empty-mark { background: #1a1a1a; border-color: #2a2a2a; }
+  .legend.on { color: #f2f2f2; }
 }
 
 /* "Is this card wrong?" — quiet, under everything, one tap to say why. */
-.card-flag { margin-top: 12px; min-height: 22px; text-align: center; font-size: 12.5px; color: #a0a0aa; }
-.flag-link { background: none; border: none; color: #8b8b93; font-size: 12.5px; cursor: pointer; padding: 4px 6px; text-decoration: underline; text-underline-offset: 3px; }
-.flag-link:hover { color: #101014; }
+.card-flag { margin-top: 12px; min-height: 22px; text-align: center; font-size: 12.5px; color: #838383; }
+.flag-link { background: none; border: none; color: #838383; font-size: 12.5px; cursor: pointer; padding: 4px 6px; text-decoration: underline; text-underline-offset: 3px; }
+.flag-link:hover { color: #202020; }
 .flag-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .flag-chip {
-  border: 1px solid #e4e4ea; background: #fff; color: #45454f;
+  border: 1px solid #e8e8e8; background: #fff; color: #646464;
   border-radius: 9999px; padding: 6px 12px; font-size: 12.5px; cursor: pointer;
 }
-.flag-chip:hover { border-color: #101014; color: #101014; }
-.flag-thanks { color: #6b6b75; }
+.flag-chip:hover { border-color: #202020; color: #202020; }
+.flag-thanks { color: #646464; }
 @media (prefers-color-scheme: dark) {
-  .flag-chip { background: #151518; border-color: #303038; color: #ededef; }
-  .flag-link:hover { color: #ededef; }
+  .flag-chip { background: #1a1a1a; border-color: #333333; color: #f2f2f2; }
+  .flag-link:hover { color: #f2f2f2; }
 }
 
 /* What your AI answered, under the ask bar. Grounded in the card and the
    team's past decisions; the ones it drew on are listed under it. */
 .answer {
   margin-top: 12px; padding: 12px 14px;
-  background: #fff; border: 1px solid #ececf0; border-radius: 14px;
+  background: #fff; border: 1px solid #e8e8e8; border-radius: 14px;
   font-size: 14px; line-height: 1.5;
 }
-.answer-q { color: #8b8b93; font-size: 12.5px; margin-bottom: 6px; }
+.answer-q { color: #838383; font-size: 12.5px; margin-bottom: 6px; }
 .answer-q::before { content: '“'; } .answer-q::after { content: '”'; }
-.answer-a { color: #101014; white-space: pre-wrap; }
-.answer-busy { color: #8b8b93; }
+.answer-a { color: #202020; white-space: pre-wrap; }
+.answer-busy { color: #838383; }
 .answer-error { color: #a11258; }
-.answer-related { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px solid #f0f0f4; font-size: 12.5px; color: #45454f; }
+.answer-related { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px solid #eeeeee; font-size: 12.5px; color: #646464; }
 .answer-related li { display: flex; gap: 8px; padding: 2px 0; }
-.answer-when { color: #a0a0aa; font-variant-numeric: tabular-nums; flex: none; }
+.answer-when { color: #838383; font-variant-numeric: tabular-nums; flex: none; }
 @media (prefers-color-scheme: dark) {
-  .answer { background: #151518; border-color: #26262b; }
-  .answer-a { color: #ededef; }
-  .answer-related { border-top-color: #26262b; color: #c9c9d1; }
+  .answer { background: #1a1a1a; border-color: #2a2a2a; }
+  .answer-a { color: #f2f2f2; }
+  .answer-related { border-top-color: #2a2a2a; color: #c4c4c4; }
 }
 
 /* A decided card: the decision where the buttons were, the way back, and the
    reply that follows it. */
 .decided-block { margin-top: 18px; }
 .decided-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.decided-when { font-size: 13px; color: #6b6b75; }
+.decided-when { font-size: 13px; color: #646464; }
 .decided-undo { margin-left: auto; }
 .decided-block .hist-quote { margin-top: 10px; }
 .decided-block .reply-draft { margin-top: 12px; }
 
 /* What happened to this card, oldest first. */
-.thread { margin-top: 14px; padding: 12px 14px; background: #fff; border: 1px solid #ececf0; border-radius: 14px; }
-.thread-title { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa5; margin-bottom: 8px; }
-.thread-empty { margin: 0; font-size: 13px; color: #9a9aa5; }
+.thread { margin-top: 14px; padding: 12px 14px; background: #fff; border: 1px solid #e8e8e8; border-radius: 14px; }
+.thread-title { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #838383; margin-bottom: 8px; }
+.thread-empty { margin: 0; font-size: 13px; color: #838383; }
 .thread-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .thread-row { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
-.thread-when { flex: none; width: 88px; color: #9a9aa5; font-variant-numeric: tabular-nums; }
+.thread-when { flex: none; width: 88px; color: #838383; font-variant-numeric: tabular-nums; }
 .thread-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.thread-head { color: #1c1c21; font-weight: 500; }
-.thread-who { color: #6b6b75; font-weight: 400; }
-.thread-note { color: #6b6b75; white-space: pre-wrap; word-break: break-word; }
+.thread-head { color: #202020; font-weight: 500; }
+.thread-who { color: #646464; font-weight: 400; }
+.thread-note { color: #646464; white-space: pre-wrap; word-break: break-word; }
 .thread-toggle { margin-top: 12px; background: none; border: none; padding: 0; font: inherit; font-size: 13px; color: #6647f0; cursor: pointer; }
 @media (prefers-color-scheme: dark) {
-  .thread { background: #18181b; border-color: #26262b; }
-  .thread-head { color: #ededef; }
-  .decided-when, .thread-note, .thread-who { color: #a1a1aa; }
+  .thread { background: #1a1a1a; border-color: #2a2a2a; }
+  .thread-head { color: #f2f2f2; }
+  .decided-when, .thread-note, .thread-who { color: #a3a3a3; }
 }
 
 .answer-sources { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }

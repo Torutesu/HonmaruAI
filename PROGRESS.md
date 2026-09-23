@@ -29,6 +29,12 @@ The list of what is still missing, and why each item matters, is
 ## Done
 
 ### The improvement loop (dogfooding)
+- [x] **One grey scale per side.** The web's cool, blue-tinted greys and
+      the laptop's `#e9ebf0` ground are gone; every value is on the design
+      system's neutral scale, and the night side is one scale too (`#0f0f0f`
+      / `#1a1a1a` / `#2a2a2a` / `#f2f2f2`). The dark pass covers the pages'
+      ground, the sign-in card and the profile; `DESIGN_DARK=1` on the
+      design audit photographs it
 - [x] **The web is responsive in three steps, not one.** Below 720px it is
       the phone app. From 720px (an iPad, a small window) a rail of icons
       takes the left edge, the feed becomes a queue, screens become pages

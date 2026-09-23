@@ -14,6 +14,22 @@ is something that ran, not something that was read.
 | End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 45 steps pass |
 | iOS (`xcodebuild test`, macOS CI) | not runnable here (Linux) | pass — [CI run #287](https://github.com/Torutesu/HonmaruAI/actions/runs/34561892140), dispatched by hand |
 
+## Greys, 2026-09-23
+
+The web had two grey scales: the design system's neutral one (`#202020`,
+`#646464`, `#838383`, `#e8e8e8`, `#eeeeee`, `#f8f9fa`) and a cool, blue-tinted
+one that had grown beside it (`#101014`, `#45454f`, `#6b6b75`, `#8b8b93`,
+`#9a9aa5`, `#ececf0`, `#f5f5f7`, plus a `#e9ebf0` ground on laptops), and the
+night side had eleven near-blacks. Every value is now on one neutral scale
+per side — day: the tokens above; night: `#0f0f0f` ground, `#1a1a1a`
+surface, `#2a2a2a` border, `#f2f2f2` / `#a3a3a3` text — mapped rule by rule
+with the dark blocks handled separately, so a light value that lived inside
+a dark block (a light pill's text) stayed light. `e2e/design-audit.mjs`
+takes `DESIGN_DARK=1` and photographed both sides at six widths; that
+turned up the night side's own gaps — the profile's title, name and
+numbers, the inputs, and the ground of every page and of the sign-in card,
+all still on day-side values — and they are fixed.
+
 ## Responsive pass, 2026-09-23
 
 Photographed every screen at 390, 834, 1024, 1280, 1440 and 1920px, signed

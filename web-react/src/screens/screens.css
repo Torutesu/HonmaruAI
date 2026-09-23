@@ -338,32 +338,32 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .brandmark span { background: #0e0e11; }
-  .otp-box { background: #17171a; border-color: #2c2c33; color: #ededef; }
-  .otp-box:focus, .otp-box.filled { background: #1e1e23; }
-  .ob-art { background: #17171a; border-color: #2c2c33; }
-  .ob-you { background: #17171a; border-color: #2c2c33; color: #a2a2ab; }
-  .ob-demo { background: #1b1b20; }
-  .ob-card { background: #17171a; border-color: #2c2c33; }
-  .ob-card p, .ob-demo-done { color: #a2a2ab; }
-  .ob-round { background: #17171a; border-color: #2c2c33; }
-  .ob-round.yes { background: #ededef; color: #17171a; border-color: #ededef; }
-  .radio { border-color: #3a3a42; }
-  .radio.on { border-color: #ededef; }
-  .radio.on::after { background: #ededef; }
-  .billing-toggle, .seg { background: #1b1b20; }
-  .billing-toggle button.on { background: #ededef; color: #17171a; }
-  .seg button.on { background: #2c2c33; color: #ededef; }
-  .plan-card { background: #17171a; border-color: #2c2c33; color: #ededef; }
-  .plan-tagline, .plan-features li { color: #a2a2ab; }
-  .pill-btn { background: #ededef; color: #17171a; border-color: #ededef; }
-  .profile-avatar { background: #ededef; color: #17171a; }
-  .profile-stats { border-color: #2c2c33; }
-  .profile-stats div { border-right-color: #2c2c33; }
-  .row-select, .join-code, .alias-input { background: #17171a; border-color: #2c2c33; color: #ededef; }
-  .btn-text { color: #a2a2ab; }
-  .btn-text:hover { color: #ededef; }
-  .welcome-points li { border-top-color: #26262b; }
+  .brandmark span { background: #0f0f0f; }
+  .otp-box { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
+  .otp-box:focus, .otp-box.filled { background: #222222; }
+  .ob-art { background: #1a1a1a; border-color: #2a2a2a; }
+  .ob-you { background: #1a1a1a; border-color: #2a2a2a; color: #a3a3a3; }
+  .ob-demo { background: #1a1a1a; }
+  .ob-card { background: #1a1a1a; border-color: #2a2a2a; }
+  .ob-card p, .ob-demo-done { color: #a3a3a3; }
+  .ob-round { background: #1a1a1a; border-color: #2a2a2a; }
+  .ob-round.yes { background: #f2f2f2; color: #1a1a1a; border-color: #f2f2f2; }
+  .radio { border-color: #3a3a3a; }
+  .radio.on { border-color: #f2f2f2; }
+  .radio.on::after { background: #f2f2f2; }
+  .billing-toggle, .seg { background: #1a1a1a; }
+  .billing-toggle button.on { background: #f2f2f2; color: #1a1a1a; }
+  .seg button.on { background: #2a2a2a; color: #f2f2f2; }
+  .plan-card { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
+  .plan-tagline, .plan-features li { color: #a3a3a3; }
+  .pill-btn { background: #f2f2f2; color: #1a1a1a; border-color: #f2f2f2; }
+  .profile-avatar { background: #f2f2f2; color: #1a1a1a; }
+  .profile-stats { border-color: #2a2a2a; }
+  .profile-stats div { border-right-color: #2a2a2a; }
+  .row-select, .join-code, .alias-input { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
+  .btn-text { color: #a3a3a3; }
+  .btn-text:hover { color: #f2f2f2; }
+  .welcome-points li { border-top-color: #2a2a2a; }
 }
 
 /* Inviting someone. The sheet above carries the title, so this is the row,
@@ -393,8 +393,8 @@
 .invite-copy { width: 100%; }
 
 @media (prefers-color-scheme: dark) {
-  .invite-code { background: #17171a; border-color: #2c2c33; color: #ededef; }
-  .invite .row.static { border-color: #2c2c33; }
+  .invite-code { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
+  .invite .row.static { border-color: #2a2a2a; }
 }
 
 /* ── Insights ────────────────────────────────────────────────────────── */
@@ -424,12 +424,12 @@
 .insights-hint { margin: 4px 4px 20px; color: var(--ash); font-size: 12.5px; line-height: 1.5; }
 
 @media (prefers-color-scheme: dark) {
-  .bars, .bars-axis { background: #17171a; border-color: #2c2c33; }
-  .bar i { background: #ededef; }
-  .bar i.zero { background: #2c2c33; }
-  .barlist-label { color: #ededef; }
-  .barlist-track { background: #26262b; }
-  .barlist-track i { background: #ededef; }
+  .bars, .bars-axis { background: #1a1a1a; border-color: #2a2a2a; }
+  .bar i { background: #f2f2f2; }
+  .bar i.zero { background: #2a2a2a; }
+  .barlist-label { color: #f2f2f2; }
+  .barlist-track { background: #2a2a2a; }
+  .barlist-track i { background: #f2f2f2; }
 }
 
 /* Its own class, not .join-code: the end-to-end suite fills ".join-code"
@@ -472,5 +472,6 @@
 }
 .app-toasts { z-index: 60; }
 @media (prefers-color-scheme: dark) {
-  .team-name-input, .invite-email, .invite-link { background: #17171a; border-color: #2c2c33; color: #ededef; }
+  .team-name-input, .invite-email, .invite-link { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
 }
+
