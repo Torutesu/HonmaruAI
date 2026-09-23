@@ -1,28 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
-
-interface Plan {
-  id: string
-  name: string
-  monthly: number
-  annualMonthly: number
-  perSeat?: boolean
-  available?: boolean
-  tagline: string
-  features: string[]
-}
-interface Status {
-  plan: string
-  pro: boolean
-  purchasable: boolean
-  trialDays: number
-  freeDailyRoutes: number
-  dailyLimit: number
-  usedToday: number
-  remainingToday: number | null
-  currency: string
-  plans: Plan[]
-}
+import { AccessCodeError, loadBillingStatus, redeemAccessCode, type BillingStatus } from '../utils/billing'
 
 interface Props {
   httpBase: string
@@ -30,142 +8,174 @@ interface Props {
   onClose: () => void
 }
 
-/// Choose your plan.
-///
-/// The prices come from the Worker, not from here: two clients read this
-/// screen and a price that disagrees between them is worse than no price. When
-/// billing has no credentials the Worker says `purchasable: false` and the
-/// screen says so too — an inert button would be the dishonest version.
-export const Plans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
+// A new account gets a fresh component before rendering, so the previous
+// person's access, input, and pending responses cannot leak into this view.
+export const Plans: React.FC<Props> = (props) => (
+  <AccountPlans key={`${props.httpBase}\0${props.sessionToken}`} {...props} />
+)
+
+const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
   const t = useT()
-  const [status, setStatus] = useState<Status | null>(null)
+  const [status, setStatus] = useState<BillingStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [annual, setAnnual] = useState(true)
-  const [chosen, setChosen] = useState('pro')
+  const [code, setCode] = useState('')
+  const [redeeming, setRedeeming] = useState(false)
+  const [checking, setChecking] = useState(true)
+  const [reload, setReload] = useState(0)
+  const lifecycle = useRef<AbortController | null>(null)
+  const submitting = useRef(false)
+  const statusLoading = useRef(true)
 
   useEffect(() => {
-    fetch(`${httpBase}/billing/status`, { headers: { 'x-session-token': sessionToken } })
-      .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || t('Could not load plans.'))
-        setStatus(await res.json())
+    const controller = new AbortController()
+    lifecycle.current = controller
+    statusLoading.current = true
+    setError(null); setChecking(true)
+    loadBillingStatus(httpBase, sessionToken, controller.signal)
+      .then((next) => { if (!controller.signal.aborted) setStatus(next) })
+      .catch((err) => {
+        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Could not load plans.')
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }, [httpBase, sessionToken])
+      .finally(() => { if (!controller.signal.aborted) { statusLoading.current = false; setChecking(false) } })
+    return () => {
+      controller.abort()
+      if (lifecycle.current === controller) lifecycle.current = null
+    }
+  }, [httpBase, sessionToken, reload])
 
-  // Two lists, because they are two different things. `buyable` is what a tap
-  // can actually start; `preview` is a tier the Worker prices but nothing
-  // sells yet. They were one list, so Business — which no store product backs —
-  // was selectable, and choosing it put its price under a trial button that
-  // would have charged for Pro or for nothing at all.
-  const paid = (status?.plans || []).filter((p) => p.monthly > 0)
-  const buyable = paid.filter((p) => p.available !== false)
-  const preview = paid.filter((p) => p.available === false)
-  const selected = buyable.find((p) => p.id === chosen) || buyable[0]
-  const price = (p: Plan) => (annual ? p.annualMonthly : p.monthly)
+  const retryStatus = () => {
+    if (statusLoading.current || submitting.current) return
+    statusLoading.current = true
+    setChecking(true)
+    setReload((value) => value + 1)
+  }
+
+  const redeem = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const controller = lifecycle.current
+    if (!controller || controller.signal.aborted || statusLoading.current || checking || submitting.current || !code.trim()) return
+    submitting.current = true
+    setRedeeming(true)
+    setError(null)
+    try {
+      const next = await redeemAccessCode(httpBase, sessionToken, code, controller.signal)
+      if (controller.signal.aborted) return
+      setStatus(next)
+      setCode('')
+      // GET /billing/status retries the server's pending iPhone sync once.
+      if (next.complimentarySyncPending) setReload((value) => value + 1)
+    } catch (err) {
+      if (controller.signal.aborted) return
+      setError(err instanceof Error ? err.message : 'Could not activate free access. Try again.')
+      if (err instanceof AccessCodeError && err.status === 503) {
+        try {
+          const next = await loadBillingStatus(httpBase, sessionToken, controller.signal)
+          if (controller.signal.aborted) return
+          setStatus(next)
+          if (next.complimentary) { setCode(''); setError(null) }
+        } catch { /* Keep the original safe error and the status retry action. */ }
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        submitting.current = false
+        setRedeeming(false)
+      }
+    }
+  }
+
+  const cancellationNote = t('Free access does not cancel an existing Apple subscription. Cancel it in iPhone Settings → your name → Subscriptions to stop future renewals.')
 
   return (
     <div className="screen">
       <div className="screen-head">
         <button className="back" onClick={onClose} aria-label={t('Close')}>‹</button>
-        <span className="head-title">{t('Choose your plan')}</span>
+        <span className="head-title">{t('Plan and usage')}</span>
       </div>
       <div className="screen-body">
-        {error && <div className="form-error">{error}</div>}
-        {!status && !error && <div className="empty">{t('Loading…')}</div>}
+        {error && <div className="form-error" role="alert">{t(error)}</div>}
+        {!status && !error && <div className="empty" role="status">{t('Loading…')}</div>}
+        {error && !status?.complimentarySyncPending && (
+          <button className="btn btn-secondary" disabled={checking || redeeming} onClick={retryStatus}>{t(checking ? 'Checking access…' : 'Try again')}</button>
+        )}
 
         {status && (
           <>
-            {status.pro ? (
-              <div className="form-note">{t('You are on Pro. Unlimited routing, every business, the full record.')}</div>
+            <section className="plan-card" style={{ cursor: 'default' }} aria-label={t('Current plan')}>
+              <div className="plan-head">
+                <div>
+                  <b>{status.complimentary ? t('Pro · Free access') : status.pro ? 'Pro' : t('Free')}</b>
+                  <span className="plan-tagline">
+                    {status.complimentary
+                      ? t('Lifetime access. No payment or renewal.')
+                      : status.pro ? t('Your subscription is active.') : t('Your free daily allowance')}
+                  </span>
+                </div>
+              </div>
+              <ul className="plan-features">
+                <li>{status.pro
+                  ? t('Unlimited AI routing')
+                  : t('{n} AI-routed decisions a day', { n: status.dailyLimit })}</li>
+                {!status.pro && status.remainingToday !== null && <li>{t('{n} left today', { n: status.remainingToday })}</li>}
+              </ul>
+              {status.complimentary && <p className="lede" role="status">{t(status.complimentarySyncPending
+                ? 'Pro is ready on the web. We are still syncing free access to the iPhone app.'
+                : 'Free access is synced. Open the iPhone app and sign in with the same account. The app may take up to 5 minutes to refresh your access.')}</p>}
+              {status.complimentarySyncPending && <>
+                <p className="form-note">{t('Your free access is saved. You do not need to enter the code again. Retry to sync iPhone access.')}</p>
+                <button className="btn btn-secondary" disabled={checking || redeeming} onClick={retryStatus}>{t(checking ? 'Checking access…' : 'Retry iPhone sync')}</button>
+              </>}
+            </section>
+
+            {status.complimentary ? (
+              <p className="form-note" role="status">{cancellationNote}</p>
             ) : (
-              <p className="lede" style={{ marginTop: 4 }}>
-                {t('Free gives you {n} AI-routed decisions a day', { n: status.dailyLimit })}
-                {status.remainingToday !== null && <> — <b style={{ color: 'var(--ink-black)' }}>{t('{n} left today', { n: status.remainingToday })}</b></>}.
-                {' '}{t('Paid removes the limit and turns on everything the AI does in the background.')}
-              </p>
+              <section aria-label={t('App Store subscription')}>
+                <div className="rows-title">{t('App Store subscription')}</div>
+                <p className="lede">
+                  {status.pro
+                    ? t('Manage or cancel your subscription in iPhone Settings → your name → Subscriptions.')
+                    : t('To subscribe, open the iOS app and go to You → Plan and usage → Upgrade to Pro. Prices, renewal periods, and any eligible offers are shown by the App Store before you confirm.')}
+                </p>
+                {!status.pro && status.purchasable && (
+                  <>
+                    <a className="btn btn-primary" href="https://apps.apple.com/jp/app/honmaruai/id6799302006" target="_blank" rel="noopener noreferrer">
+                      {t('Open in the App Store')}
+                    </a>
+                    <p className="foot-note">{t('Sign in to the iOS app with the same account you use here.')}</p>
+                  </>
+                )}
+                {!status.pro && !status.purchasable && <p className="form-note">{t('Paid upgrades are currently unavailable. You can continue with the free plan.')}</p>}
+              </section>
             )}
 
-            <div className="billing-toggle" role="tablist" aria-label={t('Billing period')}>
-              <button role="tab" aria-selected={annual} className={annual ? 'on' : ''} onClick={() => setAnnual(true)}>
-                {t('Annual')} <span className="save">{t('save 20%')}</span>
-              </button>
-              <button role="tab" aria-selected={!annual} className={!annual ? 'on' : ''} onClick={() => setAnnual(false)}>
-                {t('Monthly')}
-              </button>
-            </div>
-
-            {buyable.map((p) => (
-              <button
-                key={p.id}
-                className={`plan-card${selected?.id === p.id ? ' on' : ''}`}
-                onClick={() => setChosen(p.id)}
-                aria-pressed={selected?.id === p.id}
-              >
-                <div className="plan-head">
-                  <div>
-                    <b>{p.name}</b>
-                    <span className="plan-tagline">{p.tagline}</span>
-                  </div>
-                  <div className="plan-price">
-                    <b>${price(p)}</b>
-                    <span>{p.perSeat ? t('/user/mo') : t('/mo')}</span>
-                  </div>
+            {!status.complimentary && status.complimentaryAvailable && (
+              <form onSubmit={redeem} aria-label={t('Activate free access')} style={{ marginTop: 24 }}>
+                <div className="rows-title">{t('Have an access code?')}</div>
+                <p className="lede">{t('Activate lifetime Pro access for this account. No payment details or automatic renewal.')}</p>
+                <div className="field">
+                  <label htmlFor="complimentary-access-code">{t('Access code')}</label>
+                  <input
+                    id="complimentary-access-code"
+                    type="password"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    maxLength={128}
+                    value={code}
+                    disabled={redeeming || checking}
+                    onChange={(event) => setCode(event.target.value)}
+                    aria-describedby="access-code-note"
+                  />
                 </div>
-                <ul className="plan-features">
-                  {p.features.map((f) => <li key={f}>{f}</li>)}
-                </ul>
-                {annual && <span className="pill-tag blue">{t('Billed yearly · ${n}', { n: price(p) * 12 })}</span>}
-              </button>
-            ))}
-
-            {preview.map((p) => (
-              <div key={p.id} className="plan-card" aria-disabled="true">
-                <div className="plan-head">
-                  <div>
-                    <b>{p.name}</b>
-                    <span className="plan-tagline">{p.tagline}</span>
-                  </div>
-                  <div className="plan-price">
-                    <b>${price(p)}</b>
-                    <span>{p.perSeat ? t('/user/mo') : t('/mo')}</span>
-                  </div>
-                </div>
-                <ul className="plan-features">
-                  {p.features.map((f) => <li key={f}>{f}</li>)}
-                </ul>
-                <span className="pill-tag">{t('Not for sale yet')}</span>
-              </div>
-            ))}
-
-            <div className="rows-title">{t('Free')}</div>
-            <div className="rows">
-              {(status.plans.find((p) => p.id === 'free')?.features || []).map((f) => (
-                <div key={f} className="row static"><span className="row-main">{f}</span></div>
-              ))}
-            </div>
+                <p id="access-code-note" className="form-note">{cancellationNote}</p>
+                <button className="btn btn-primary" disabled={redeeming || checking || !code.trim()} type="submit">
+                  {redeeming ? t('Activating…') : t('Activate free access')}
+                </button>
+              </form>
+            )}
           </>
         )}
-        <div style={{ height: 12 }} />
       </div>
-
-      {status && !status.pro && (
-        <div className="screen-foot">
-          <button
-            className="btn btn-primary"
-            disabled={!status.purchasable}
-            onClick={() => setError(t('Subscriptions are bought in the iOS app, through the App Store.'))}
-          >
-            {status.purchasable
-              ? t('Start {n}-day free trial', { n: status.trialDays })
-              : t('Billing is not switched on yet')}
-          </button>
-          <p className="foot-note">
-            {status.purchasable
-              ? t(selected?.perSeat ? 'plans.trial.seat' : 'plans.trial', { days: status.trialDays, price: selected ? price(selected) : '' })
-              : t('plans.notForSale', { n: status.dailyLimit })}
-          </p>
-        </div>
-      )}
     </div>
   )
 }

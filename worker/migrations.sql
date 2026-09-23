@@ -31,3 +31,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_invites_ref ON invites(org_id, ref);
 /* Same again: inbound_token lives only on databases that have run the ALTER. */
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_inbound_token ON users(inbound_token);
+
+ALTER TABLE complimentary_access ADD COLUMN rc_synced_at TEXT;
+ALTER TABLE complimentary_access ADD COLUMN rc_attempted_at TEXT;
+ALTER TABLE complimentary_access ADD COLUMN rc_operation_until INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE complimentary_access ADD COLUMN deletion_requested_at TEXT;

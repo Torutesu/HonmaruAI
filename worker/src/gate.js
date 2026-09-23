@@ -35,6 +35,9 @@ export async function checkAIAllowance(env, { githubId, userKey }) {
   // on our model key, with nothing counting the calls.
   if (!githubId) return DENIED;
 
+  // Complimentary grants remain unlimited when the billing provider is absent.
+  if (await isPro(env, githubId)) return free;
+
   // Billing is not configured, so there is no upgrade to sell and no
   // entitlement to read. Metering someone against a paywall that does not
   // exist would only punish them — but "not metered" is not "unlimited", so a
@@ -51,8 +54,6 @@ export async function checkAIAllowance(env, { githubId, userKey }) {
       consume: async () => countAIUse(env.DB, githubId, day),
     };
   }
-
-  if (await isPro(env, githubId)) return free;
 
   const day = today();
   const used = await usedToday(env.DB, githubId, day);

@@ -108,3 +108,16 @@ test("every statement in migrations.sql is one the deploy will actually run", ()
   const terminators = (withoutComments.match(/;/g) || []).length;
   expect(deployStatements(migrationsSql)).toHaveLength(terminators);
 });
+
+test("an existing complimentary grant survives adding provider synchronization columns", async () => {
+  await env.DB.exec("DROP TABLE IF EXISTS complimentary_access");
+  await env.DB.exec("CREATE TABLE complimentary_access (user_github_id TEXT PRIMARY KEY, granted_at TEXT NOT NULL)");
+  await env.DB.prepare("INSERT INTO complimentary_access VALUES (?1, ?2)")
+    .bind("existing-account", "2026-09-22T00:00:00Z").run();
+  await applyDeploy(env.DB);
+  expect(await env.DB.prepare("SELECT * FROM complimentary_access WHERE user_github_id = ?1")
+    .bind("existing-account").first()).toMatchObject({
+      granted_at: "2026-09-22T00:00:00Z", rc_synced_at: null, rc_attempted_at: null,
+      rc_operation_until: 0, deletion_requested_at: null,
+    });
+});

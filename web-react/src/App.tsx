@@ -9,6 +9,7 @@ import { githubWebConfig, beginGitHubSignIn, readCallback, finishGitHubSignIn } 
 import type { GitHubWebConfig } from './utils/githubAuth'
 import { clearCardCache } from './utils/cardCache'
 import { parseRoute } from './utils/route'
+import { onboardingKey, needsOnboarding, completeOnboarding } from './utils/onboardingProgress'
 import { t } from './utils/i18n'
 import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush } from './utils/push'
@@ -38,6 +39,9 @@ type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'repo' | 'app'
 
 function App() {
   const [stage, setStage] = useState<Stage>('welcome')
+  const [restoring, setRestoring] = useState(true)
+  const [restoreError, setRestoreError] = useState(false)
+  const [restoreAttempt, setRestoreAttempt] = useState(0)
   const [mode, setMode] = useState<'signup' | 'login'>('signup')
   const [userId, setUserId] = useState<string | null>(null)
   // No placeholder. `web-team` used to sit here as the default, and a returning
@@ -102,30 +106,48 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
     const savedToken = localStorage.getItem('sessionToken')
     const savedUser = localStorage.getItem('userId')
     const savedOrg = localStorage.getItem('orgId')
-    const savedHost = localStorage.getItem('host')
-    if (savedHost) setHost(savedHost)
-    if (savedOrg) setOrgId(savedOrg)
-    if (savedToken && savedUser) {
-      setSessionToken(savedToken)
-      setUserId(savedUser)
-      setStage('app')
-      // A session restored without a workspace — signed in before this client
-      // knew to store one, or storage half cleared — has to ask where it is
-      // before the feed can connect to anything.
-      if (!savedOrg) {
-        fetch(`${httpBase(savedHost || DEFAULT_HOST)}/me`, { headers: { 'x-session-token': savedToken } })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((me) => {
-            const first = me?.orgs?.[0]?.id
-            if (first) { setOrgId(first); localStorage.setItem('orgId', first) }
-          })
-          .catch(() => { /* the Dashboard will surface the failed connection */ })
-      }
-    }
-  }, [])
+    const savedHost = localStorage.getItem('host') || DEFAULT_HOST
+    setHost(savedHost)
+    setRestoreError(false)
+    if (!savedToken || !savedUser) { setRestoring(false); return () => controller.abort() }
+    setRestoring(true)
+    fetch(`${httpBase(savedHost)}/me`, { headers: { 'x-session-token': savedToken }, signal: controller.signal })
+      .then(async (response) => {
+        if (controller.signal.aborted) return
+        if (response.status === 401 || response.status === 409) {
+          for (const key of ['sessionToken', 'userId', 'orgId']) localStorage.removeItem(key)
+          clearCardCache()
+          setUserId(null); setSessionToken(''); setOrgId(''); setStage('welcome'); setRestoring(false)
+          return
+        }
+        if (!response.ok) throw new Error('Session unavailable')
+        const me = await response.json()
+        if (controller.signal.aborted) return
+        if (typeof me.login !== 'string' || !Array.isArray(me.orgs)) throw new Error('Invalid session response')
+        const workspace = me.orgs.some((org: { id: string }) => org.id === savedOrg) ? savedOrg! : me.orgs[0]?.id || ''
+        setSessionToken(savedToken); setUserId(me.login); setOrgId(workspace)
+        localStorage.setItem('userId', me.login); localStorage.setItem('orgId', workspace)
+        setStage(needsOnboarding(localStorage, httpBase(savedHost), me.login) ? 'onboarding' : 'app')
+        setRestoring(false)
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        if (navigator.onLine === false) {
+          // Preserve this browser's existing offline workspace. Server calls
+          // remain authenticated; reconnect revalidates before fetching data.
+          setSessionToken(savedToken); setUserId(savedUser); setOrgId(savedOrg || '')
+          setStage(needsOnboarding(localStorage, httpBase(savedHost), savedUser) ? 'onboarding' : 'app')
+          setRestoring(false)
+        } else setRestoreError(true)
+      })
+    const revalidate = () => setRestoreAttempt((value) => value + 1)
+    window.addEventListener('online', revalidate)
+    return () => { controller.abort(); window.removeEventListener('online', revalidate) }
+  }, [restoreAttempt])
 
   // The link a teammate was sent: #/join/<code>. Signed in, it joins the
   // team and opens the feed there; signed out, it lands on sign-up with the
@@ -133,6 +155,7 @@ function App() {
   // of the hash, so a link pasted into a tab that is already open works too.
   const joinedRef = useRef<string | null>(null)
   useEffect(() => {
+    if (restoring) return
     const onHash = () => {
       const { join } = parseRoute(location.hash)
       if (!join || joinedRef.current === join) return
@@ -171,7 +194,7 @@ function App() {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [restoring])
   useEffect(() => {
     if (!notice) return
     const id = setTimeout(() => setNotice(null), notice.error ? 8000 : 4000)
@@ -205,9 +228,7 @@ function App() {
     localStorage.setItem('host', host)
     // Onboarding is for a new account, and once. Someone signing in on a
     // second browser has already answered these questions.
-    let seen = false
-    try { seen = localStorage.getItem('onboarded') === 'yes' } catch { /* private mode */ }
-    setStage(!seen && firstTime ? 'onboarding' : 'app')
+    setStage(needsOnboarding(localStorage, httpBase(host), uid, firstTime) ? 'onboarding' : 'app')
   }
 
   finishAuthRef.current = finishAuth
@@ -248,7 +269,7 @@ function App() {
   const onLeft = useCallback(() => { void leftOrgRef.current() }, [])
 
   const finishOnboarding = () => {
-    try { localStorage.setItem('onboarded', 'yes') } catch { /* a preference, not a record */ }
+    if (userId) completeOnboarding(localStorage, httpBase(host), userId)
     setStage('app')
   }
 
@@ -264,6 +285,11 @@ function App() {
     // The workspace's cards stay readable on this machine otherwise.
     clearCardCache()
   }
+
+  if (restoring) return <div className="screen"><div className="screen-body">
+    <p role={restoreError ? 'alert' : 'status'}>{t(restoreError ? 'Could not reach the relay.' : 'Loading…')}</p>
+    {restoreError && <button className="btn btn-primary" onClick={() => setRestoreAttempt((value) => value + 1)}>{t('Try again')}</button>}
+  </div></div>
 
   if (stage === 'welcome') {
     return (
@@ -321,6 +347,8 @@ function App() {
   if (stage === 'onboarding' && userId) {
     return (
       <Onboarding
+        key={`${httpBase(host)}:${userId}`}
+        progressKey={onboardingKey(httpBase(host), userId)}
         httpBase={httpBase(host)}
         orgId={orgId}
         sessionToken={sessionToken}
