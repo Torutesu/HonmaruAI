@@ -9,7 +9,7 @@ import { mkdirSync } from 'node:fs'
 
 const WEB = 'http://127.0.0.1:4173'
 const SINK = 'http://127.0.0.1:9099'
-const OUT = process.env.DESIGN_SHOTS || '/tmp/design-shots'
+const OUT = process.env.DESIGN_SHOTS || (process.env.DESIGN_DARK === '1' ? '/tmp/design-shots-dark' : '/tmp/design-shots')
 mkdirSync(OUT, { recursive: true })
 const WIDTHS = [
   { name: 'phone', width: 390, height: 844 },
@@ -20,6 +20,8 @@ const WIDTHS = [
   { name: 'wide', width: 1920, height: 1080 },
 ]
 
+// DESIGN_DARK=1 photographs the night side.
+const DARK = process.env.DESIGN_DARK === '1'
 const browser = await chromium.launch({
   executablePath: process.env.E2E_CHROMIUM || undefined,
   args: ['--no-sandbox'],
@@ -42,7 +44,7 @@ const shot = (p, name, opts = {}) => p.screenshot({ path: `${OUT}/${name}.png`, 
 
 // Signed out, at every width: the welcome and the sign-in form.
 for (const w of WIDTHS) {
-  const ctx = await browser.newContext({ viewport: { width: w.width, height: w.height } })
+  const ctx = await browser.newContext({ viewport: { width: w.width, height: w.height }, colorScheme: DARK ? 'dark' : 'light' })
   const p = await ctx.newPage()
   await p.goto(WEB, { waitUntil: 'load' })
   await p.waitForSelector('text=Get started', { timeout: 15000 })
@@ -55,7 +57,7 @@ for (const w of WIDTHS) {
 
 // One account, made on a phone, then reopened at every width.
 const email = `design-${Date.now()}@example.com`
-const first = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+const first = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: DARK ? 'dark' : 'light' })
 const page = await first.newPage()
 await page.goto(WEB, { waitUntil: 'load' })
 await page.click('text=Get started')
@@ -98,7 +100,7 @@ await page.waitForTimeout(1500)
 const state = await first.storageState()
 
 for (const w of WIDTHS) {
-  const ctx = await browser.newContext({ viewport: { width: w.width, height: w.height }, storageState: state })
+  const ctx = await browser.newContext({ viewport: { width: w.width, height: w.height }, storageState: state, colorScheme: DARK ? 'dark' : 'light' })
   const p = await ctx.newPage()
   const go = async (hash, marker, name, full = false) => {
     await p.goto(`${WEB}/${hash}`, { waitUntil: 'load' })
