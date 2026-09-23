@@ -524,6 +524,13 @@ const ja: Dict = {
   'Which database your decisions are read from and written back to.': '決定を読み取り、書き戻す先のデータベース。',
   'Choose a database…': 'データベースを選ぶ…',
   'Could not list your databases.': 'データベースを一覧できませんでした。',
+  // GitHub on the web
+  'Continue with GitHub': 'GitHub で続ける',
+  'Choose a repository': 'リポジトリを選ぶ',
+  'Signed in as {login}. Your workspace is a repository you can write to; decisions there can become issues.': '{login} としてサインインしました。ワークスペースは書き込みできるリポジトリです。そこでの決定は Issue にできます。',
+  'Filter repositories': 'リポジトリを絞り込む',
+  'Could not list your repositories.': 'リポジトリを一覧できませんでした。',
+  'No repository you can write to.': '書き込みできるリポジトリがありません。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

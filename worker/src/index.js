@@ -306,6 +306,7 @@ async function handle(request, env, url) {
         ok: true,
         orgId: "core-team",
         githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+        githubOAuthWeb: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.GITHUB_WEB_REDIRECT_URI),
         aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),
         systemOne: Boolean(env.TYPESAFE_API_KEY),
         aiModel: env.OPENAI_API_KEY
@@ -436,6 +437,15 @@ async function handle(request, env, url) {
       if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
         return json({ message: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET as Worker secrets" }, 503);
       }
+      // The app comes back through its own URL scheme; the web through a page
+      // on its own origin. Each is a callback URL registered on the GitHub
+      // OAuth app, and the web one is offered only where it has been set.
+      if (url.searchParams.get("client") === "web") {
+        if (!env.GITHUB_WEB_REDIRECT_URI) {
+          return json({ message: "GitHub sign-in on the web is not set up on this deployment (GITHUB_WEB_REDIRECT_URI)." }, 503);
+        }
+        return json({ clientId: env.GITHUB_CLIENT_ID, redirectUri: env.GITHUB_WEB_REDIRECT_URI, scope: env.GITHUB_OAUTH_SCOPE || "repo" });
+      }
       return json({
         clientId: env.GITHUB_CLIENT_ID,
         redirectUri: env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback",
@@ -453,7 +463,14 @@ async function handle(request, env, url) {
     if (url.pathname === "/oauth/github/token" && request.method === "POST") {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
-      const { code, state } = await request.json().catch(() => ({}));
+      const { code, state, redirectUri } = await request.json().catch(() => ({}));
+      // The redirect the code was issued for. GitHub checks it against the
+      // authorize step, and we check it against the two we registered, so a
+      // caller cannot exchange a code through an address of their own.
+      const appRedirect = env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback";
+      const allowedRedirects = new Set([appRedirect, env.GITHUB_WEB_REDIRECT_URI].filter(Boolean));
+      const redirect = typeof redirectUri === "string" && redirectUri ? redirectUri : appRedirect;
+      if (!allowedRedirects.has(redirect)) return json({ message: "That is not a sign-in address this deployment knows." }, 400);
       if (!(await consumeOAuthState(env.DB, state))) {
         return json({ message: "This sign-in has expired. Try again." }, 400);
       }
@@ -464,7 +481,7 @@ async function handle(request, env, url) {
           client_id: env.GITHUB_CLIENT_ID,
           client_secret: env.GITHUB_CLIENT_SECRET,
           code,
-          redirect_uri: env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback",
+          redirect_uri: redirect,
         }),
         signal: AbortSignal.timeout(20_000),
       });
@@ -495,7 +512,10 @@ async function handle(request, env, url) {
       // repository this person can reach, code included — and the app does six
       // things with it, all of which now go through /github. A session cannot
       // be replayed against api.github.com; an access token can.
-      return json({ tokenType: "bearer", sessionToken, login: ghUser.login });
+      // The workspaces this account already belongs to, so a returning person
+      // lands in one instead of the repository picker.
+      const orgs = (await listUserOrgs(env.DB, String(ghUser.id)).catch(() => [])).map((o) => o?.id).filter(Boolean);
+      return json({ tokenType: "bearer", sessionToken, login: ghUser.login, orgs });
     }
     if (url.pathname === "/media" && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));

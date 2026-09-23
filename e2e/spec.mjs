@@ -94,7 +94,7 @@ page.on('response', (r) => {
 
 // What this configuration is *supposed* to refuse: connectors need a Composio
 // key, web push needs a VAPID pair, and the screens for both say so out loud.
-const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai\/ask/, /^503 \/ai\/draft/, /^503 \/cards\/[^/]+\/localize/]
+const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai\/ask/, /^503 \/ai\/draft/, /^503 \/cards\/[^/]+\/localize/, /^503 \/oauth\/github\/config/]
 
 /// Back to the feed, whatever is open on top of it. Several steps were each
 /// rolling their own version of this loop, and each one that got it slightly
@@ -173,6 +173,14 @@ await step('the welcome screen loads', async () => {
 // The first thing anyone sees on a laptop, signed out. It was offset by the
 // width of a navigation rail that does not exist until you are signed in,
 // which left a bare white column down the left edge of the window.
+// GitHub sign-in is offered on the web only where the deployment registered a
+// web callback. This one has not, so the button must not be there — a button
+// that leads to a 503 is worse than none.
+await step('GitHub sign-in is not offered where it is not set up', async () => {
+  await page.waitForTimeout(800)
+  if (await page.$('.btn-github')) throw new Error('a "Continue with GitHub" button on a deployment with no web callback')
+})
+
 await step('the welcome screen is not offset by a rail that is not there', async () => {
   const wide = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const w = await wide.newPage()

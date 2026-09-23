@@ -251,6 +251,14 @@ Cloudflare 側のリソース 2 つと、その ID の貼り付けです。
    「決定の理由」に「Your AI is NN% sure…」が出れば Jev が動いています。
 5. 2 でメモした数字を報告してください。閾値（`CONFIDENT`）の調整判断に使います。
 
+## I. Web の GitHub サインインを有効にする（5 分、A の後）
+
+1. GitHub → Settings → Developer settings → OAuth Apps → 使っているアプリを開く。
+2. Authorization callback URL に Web の URL（`https://<Pages のホスト>/`、末尾の `/` まで）を追加して保存。
+3. `cd worker && npx wrangler@4 secret put GITHUB_WEB_REDIRECT_URI` に同じ URL を入れる。
+4. 確認: Web を開き「GitHub で続ける」→ GitHub で許可 → リポジトリ一覧から 1 つ選ぶ → フィードが開く。
+   Tools の GitHub 行が「Built in」になっていれば完了。
+
 ## 完了の定義
 
 - `curl -s https://tiktokforwork.torubj0904.workers.dev/health` が

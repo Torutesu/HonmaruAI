@@ -4,11 +4,14 @@ import { useT } from '../utils/i18n'
 interface Props {
   onStart: () => void
   onSignIn: () => void
+  /// Present only where this deployment has a GitHub OAuth app with a web
+  /// callback; a button that leads to a 503 is worse than none.
+  onGitHub?: () => void
 }
 
 /// The first screen. It has one job: say what happens when you open this app
 /// tomorrow morning, in one sentence, and then get out of the way.
-export const Welcome: React.FC<Props> = ({ onStart, onSignIn }) => {
+export const Welcome: React.FC<Props> = ({ onStart, onSignIn, onGitHub }) => {
   const t = useT()
   return (
   <div className="screen welcome">
@@ -28,6 +31,9 @@ export const Welcome: React.FC<Props> = ({ onStart, onSignIn }) => {
     </div>
     <div className="screen-foot bare">
       <button className="btn btn-primary" onClick={onStart}>{t('Get started')}</button>
+      {onGitHub && (
+        <button className="btn btn-ghost btn-github" onClick={onGitHub}>{t('Continue with GitHub')}</button>
+      )}
       <button className="btn btn-quiet" onClick={onSignIn}>{t('I already have an account')}</button>
     </div>
   </div>

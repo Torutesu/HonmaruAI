@@ -185,6 +185,16 @@ The list of what is still missing, and why each item matters, is
       connector's `connected` flag (which took the person out of the cron
       until the next visit to Tools). Two web tests; one e2e step for the
       key on the wire
+- [x] **GitHub sign-in on the web.** The same OAuth app the phone uses,
+      with a second callback on the web's origin (`GITHUB_WEB_REDIRECT_URI`;
+      `/oauth/github/config?client=web`, 503 until set — the welcome screen
+      offers "Continue with GitHub" only then). The code is exchanged only
+      through the two registered addresses. A returning account lands in a
+      workspace it belongs to; a new one picks a repository it can write to
+      (the rule the relay applies at join), and that repository is the
+      workspace — issues from decisions, GitHub as context. Pages serves the
+      SPA for any path (`_redirects`). Two Worker tests; one e2e step: no
+      button where it is not set up. Owner task I
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

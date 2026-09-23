@@ -112,6 +112,19 @@ npx wrangler deploy
 
 ---
 
+## 1-e. Web でも GitHub サインイン（5 分）
+
+iPhone と同じ GitHub OAuth App に、Web 用のコールバックをもう 1 つ登録します。
+
+1. GitHub → Settings → Developer settings → OAuth Apps → 該当アプリ →
+   **Authorization callback URL** に Web の URL（例 `https://honmaru.pages.dev/`、末尾スラッシュまで）を追加。
+   GitHub は 1 アプリに複数のコールバック URL を許します。
+2. Worker に同じ値を入れる: `npx wrangler@4 secret put GITHUB_WEB_REDIRECT_URI`
+   （staging があれば `--env staging` でプレビューの URL）。
+3. 確認: `/health` の `githubOAuthWeb` が `true`、Web の最初の画面に
+   「GitHub で続ける」が出る。サインイン後は書き込みできるリポジトリを選ぶ画面になり、
+   選んだリポジトリがワークスペース（Issue 作成と GitHub 検索が使える）になります。
+
 ## 2〜3 をまとめてやる場合（手動でやる場合の説明は下）
 
 段階 1 を終えて `npx wrangler login` が済んでいれば、2 と 3 と 4 の秘密情報は

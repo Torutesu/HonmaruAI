@@ -4,6 +4,9 @@ import { Welcome } from './screens/Welcome'
 import { SignIn } from './screens/SignIn'
 import { Otp } from './screens/Otp'
 import { Onboarding } from './screens/Onboarding'
+import { PickRepository } from './screens/PickRepository'
+import { githubWebConfig, beginGitHubSignIn, readCallback, finishGitHubSignIn } from './utils/githubAuth'
+import type { GitHubWebConfig } from './utils/githubAuth'
 import { disableWebPush } from './utils/push'
 import './theme.css'
 import './App.css'
@@ -27,7 +30,7 @@ function wsBase(host: string) {
 
 // Where someone is in getting into the product. `app` is the only stage with a
 // session behind it; everything before it is the way in.
-type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'app'
+type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'repo' | 'app'
 
 function App() {
   const [stage, setStage] = useState<Stage>('welcome')
@@ -42,6 +45,16 @@ function App() {
   const [host, setHost] = useState<string>(DEFAULT_HOST)
   // Carried from the email screen to the code screen and nowhere else.
   const [pending, setPending] = useState({ email: '', name: '', inviteCode: '' })
+  // GitHub sign-in on the web, where the deployment offers it; and the
+  // session that came back before it has a workspace to open.
+  const [github, setGithub] = useState<GitHubWebConfig | null>(null)
+  const [githubError, setGithubError] = useState<string | null>(null)
+  const [pendingGithub, setPendingGithub] = useState<{ token: string; login: string } | null>(null)
+  useEffect(() => {
+    let ignore = false
+    githubWebConfig(httpBase(host)).then((cfg) => { if (!ignore) setGithub(cfg) })
+    return () => { ignore = true }
+  }, [host])
 
   // A stage that needs a session, reached without one — storage cleared
   // under a running tab, say — goes back to the start. Setting state during
@@ -50,6 +63,25 @@ function App() {
   useEffect(() => {
     if ((stage === 'onboarding' || stage === 'app') && !userId) setStage('welcome')
   }, [stage, userId])
+
+  // The way back from GitHub: ?code&state on the page. Traded for a session
+  // before anything else is decided about where to land.
+  const finishAuthRef = useRef<(token: string, uid: string, org: string, firstTime: boolean) => Promise<void>>()
+  useEffect(() => {
+    const cb = readCallback()
+    if (!cb) return
+    const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+    finishGitHubSignIn(base, cb)
+      .then(({ sessionToken: token, login, orgs }) => {
+        if (orgs.length) { void finishAuthRef.current?.(token, login, orgs[0], false); return }
+        setSessionToken(token)
+        setUserId(login)
+        setPendingGithub({ token, login })
+        setStage('repo')
+      })
+      .catch((err) => { setGithubError(err instanceof Error ? err.message : String(err)); setStage('welcome') })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const savedToken = localStorage.getItem('sessionToken')
@@ -93,6 +125,7 @@ function App() {
   }
 
   const finishAuth = async (token: string, uid: string, org: string, firstTime: boolean) => {
+    finishAuthRef.current = finishAuth
     const workspace = await resolveOrg(token, org)
     setSessionToken(token)
     setUserId(uid)
@@ -107,6 +140,8 @@ function App() {
     try { seen = localStorage.getItem('onboarded') === 'yes' } catch { /* private mode */ }
     setStage(!seen && firstTime ? 'onboarding' : 'app')
   }
+
+  finishAuthRef.current = finishAuth
 
   /// Moving between the workspaces someone belongs to — their own, and any
   /// team they were invited into. Stored, because it is where they work.
@@ -158,9 +193,25 @@ function App() {
 
   if (stage === 'welcome') {
     return (
-      <Welcome
-        onStart={() => { setMode('signup'); setStage('auth') }}
-        onSignIn={() => { setMode('login'); setStage('auth') }}
+      <>
+        {githubError && <div className="toasts"><div className="toast error" role="alert" onClick={() => setGithubError(null)}>{githubError}</div></div>}
+        <Welcome
+          onStart={() => { setMode('signup'); setStage('auth') }}
+          onSignIn={() => { setMode('login'); setStage('auth') }}
+          onGitHub={github ? () => { beginGitHubSignIn(httpBase(host), github).catch((err) => setGithubError(err instanceof Error ? err.message : String(err))) } : undefined}
+        />
+      </>
+    )
+  }
+
+  if (stage === 'repo' && pendingGithub) {
+    return (
+      <PickRepository
+        httpBase={httpBase(host)}
+        sessionToken={pendingGithub.token}
+        login={pendingGithub.login}
+        onPick={(fullName) => { setPendingGithub(null); void finishAuth(pendingGithub.token, pendingGithub.login, fullName, false) }}
+        onLogout={() => { setPendingGithub(null); handleLogout() }}
       />
     )
   }
