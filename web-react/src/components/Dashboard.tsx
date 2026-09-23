@@ -267,7 +267,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: null, related: [], busy: false, error: why } }))
         return
       }
-      setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: data.answer, related: data.related || [], busy: false } }))
+      setAnswers((prev) => ({ ...prev, [card.id]: { question: text, answer: data.answer, related: data.related || [], sources: data.sources || [], busy: false } }))
       addDebugLog(`Asked about ${card.id}`)
     } catch (err) {
       const why = err instanceof Error ? err.message : String(err)

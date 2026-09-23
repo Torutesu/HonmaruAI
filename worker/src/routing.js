@@ -2,6 +2,7 @@
 
 import { cardText } from "./cardCopy.js";
 import { decideRoute, CONFIDENT } from "./jev.js";
+import { formatSourcesForModel } from "./context.js";
 
 export const DEMO_USER_IDS = ["user-toru", "user-tanaka", "user-yui", "user-alex"];
 
@@ -424,7 +425,7 @@ Routing (critical):
   recommendation; a recommendation that leans on a real recent decision is
   worth more than one that leans on the instruction alone.
 
-Research (when the search_decisions tool is offered):
+Research (when search_decisions, search_notion or search_github are offered):
 - If the instruction could repeat, revisit or depend on something this team
   has decided before — a supplier, a price, a person, a project — call
   search_decisions first with 2-4 keywords, then create the card using what
@@ -451,6 +452,37 @@ export const SEARCH_DECISIONS_TOOL = {
 const MAX_RESEARCH_RESULTS = 8;
 
 /// The tool result the model reads back: one line per decision.
+/// The team's connected tools, offered only when the person has them.
+export const SEARCH_NOTION_TOOL = {
+  type: "function",
+  function: {
+    name: "search_notion",
+    description: "Search the sender's Notion pages for what the team wrote about this: a plan, a note, a spec, a decision record. Use it when the instruction refers to something that would be written down.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "2-4 keywords, in the language the pages are likely written in" } },
+      required: ["query"],
+    },
+  },
+};
+export const SEARCH_GITHUB_TOOL = {
+  type: "function",
+  function: {
+    name: "search_github",
+    description: "Search the workspace's GitHub issues and pull requests. Use it when the instruction is about a bug, a feature, a release or anything that may already be tracked.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "2-4 keywords" } },
+      required: ["query"],
+    },
+  },
+};
+const RESEARCH_TOOLS = {
+  search_decisions: { tool: null, lookup: "searchDecisions", label: "Looked up past decisions", format: (rows) => formatDecisionsForModel(rows) },
+  search_notion: { tool: SEARCH_NOTION_TOOL, lookup: "searchNotion", label: "Searched Notion", format: formatSourcesForModel },
+  search_github: { tool: SEARCH_GITHUB_TOOL, lookup: "searchGithub", label: "Searched GitHub", format: formatSourcesForModel },
+};
+
 export function formatDecisionsForModel(rows) {
   if (!rows?.length) return "No earlier decision matches.";
   return rows
@@ -1045,7 +1077,14 @@ async function routeInstructionWithOpenRouter({
   // Research is offered when somebody can answer it, and the model then
   // chooses: look first, or write straight away. Once it has looked, the
   // second call is forced to write — one search, not a conversation.
-  const canResearch = typeof lookups?.searchDecisions === "function";
+  // Every lookup the caller can answer is a tool on offer. Past decisions
+  // always come first when they are there; Notion and GitHub only for a
+  // person who connected them.
+  const researchTools = [];
+  if (typeof lookups?.searchDecisions === "function") researchTools.push(SEARCH_DECISIONS_TOOL);
+  if (typeof lookups?.searchNotion === "function") researchTools.push(SEARCH_NOTION_TOOL);
+  if (typeof lookups?.searchGithub === "function") researchTools.push(SEARCH_GITHUB_TOOL);
+  const canResearch = researchTools.length > 0;
 
   const ask = async (tools, toolChoice) => {
     const response = await fetch(endpoint, {
@@ -1074,39 +1113,38 @@ async function routeInstructionWithOpenRouter({
     return data?.choices?.[0]?.message;
   };
 
-  let message = await ask(canResearch ? [SEARCH_DECISIONS_TOOL, ...cardTools] : cardTools, canResearch ? "auto" : forced);
+  let message = await ask(canResearch ? [...researchTools, ...cardTools] : cardTools, canResearch ? "auto" : forced);
   const researchSteps = [];
 
-  const search = message?.tool_calls?.find((c) => c.function?.name === "search_decisions");
-  if (search && canResearch) {
-    let query = "";
-    try { query = String(parseToolArguments(search.function?.arguments).query || ""); } catch { query = ""; }
-    let found = [];
-    try {
-      found = await lookups.searchDecisions(query);
-    } catch (err) {
-      // A failed lookup is an empty one: the card is still written.
-      console.error("search_decisions failed", err?.message || err);
+  // One research round: every lookup the model asked for in its first turn
+  // runs, its answers go back, and the second turn must write. A failed
+  // lookup is an empty one — the card is still written.
+  const research = (message?.tool_calls || []).filter((c) => RESEARCH_TOOLS[c.function?.name] && typeof lookups?.[RESEARCH_TOOLS[c.function.name].lookup] === "function");
+  if (research.length && canResearch) {
+    const results = new Map();
+    for (const c of research) {
+      const kind = RESEARCH_TOOLS[c.function.name];
+      let query = "";
+      try { query = String(parseToolArguments(c.function?.arguments).query || ""); } catch { query = ""; }
+      let found = [];
+      try {
+        found = await lookups[kind.lookup](query);
+      } catch (err) {
+        console.error(`${c.function.name} failed`, err?.message || err);
+      }
+      results.set(c.id, kind.format(found));
+      researchSteps.push({ name: c.function.name, label: kind.label, detail: `"${query}" · ${found.length} found` });
     }
-    researchSteps.push({
-      name: "search_decisions",
-      label: "Looked up past decisions",
-      detail: `"${query}" · ${found.length} found`,
-    });
     // The model's own turn goes back to it verbatim, tool calls included,
     // which is what the chat dialect requires before a tool result.
     messages.push({ role: "assistant", content: message.content ?? null, tool_calls: message.tool_calls });
     for (const c of message.tool_calls) {
-      messages.push({
-        role: "tool",
-        tool_call_id: c.id,
-        content: c.function?.name === "search_decisions" ? formatDecisionsForModel(found) : "Not available.",
-      });
+      messages.push({ role: "tool", tool_call_id: c.id, content: results.get(c.id) || "Not available." });
     }
     message = await ask(cardTools, forced);
   }
 
-  const toolCalls = message?.tool_calls?.filter((c) => c.function?.name !== "search_decisions");
+  const toolCalls = message?.tool_calls?.filter((c) => !RESEARCH_TOOLS[c.function?.name]);
 
   if (toolCalls?.length) {
     const { card, toolCalls: written } = materializeFromToolCalls(toolCalls, sender.name);

@@ -514,6 +514,7 @@ const ja: Dict = {
   'You are offline. What you decide will be sent when you are back.': 'オフラインです。決めたことは、つながったときに送られます。',
   'Could not connect: {why}': '接続できませんでした: {why}',
   'Could not connect. Retrying.': '接続できませんでした。再試行しています。',
+  'From your tools': '連携ツールから',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

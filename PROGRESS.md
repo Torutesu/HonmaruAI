@@ -166,6 +166,16 @@ The list of what is still missing, and why each item matters, is
       that are in another script (same detector as the Worker), six at a
       time, once per card and language, and stops for the session when the
       deployment has no model. Two Worker tests, two web tests
+- [x] **Connected tools as context.** Notion pages (through the person's
+      own Composio connection, `NOTION_SEARCH_NOTION_PAGE`) and the
+      workspace repository's GitHub issues and pull requests (the session's
+      own token, `owner/repo` workspaces only) are research the router may
+      run before it writes — `search_notion`, `search_github`, alongside
+      `search_decisions`, one round, every lookup the model asked for —
+      and what "Ask anything" reads too; the answer names the page or issue
+      it drew on and the web lists them as links under the answer. Bounded
+      to five hits and six seconds each; a tool that is down is an empty
+      list. Four Worker tests
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

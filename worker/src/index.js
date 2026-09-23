@@ -34,6 +34,7 @@ import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
 import { jevConfig } from "./jev.js";
 import { localizeCard, needsLocalizing } from "./localize.js";
+import { connectedSources, lookupsFor, searchNotion, searchGithubIssues } from "./context.js";
 import { ingestedItemForCard } from "./db.js";
 import { alert } from "./alert.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
@@ -395,6 +396,14 @@ async function handle(request, env, url) {
         // this team already decided about the same thing.
         const lookupOrg = routeOrgId;
         lookups = { searchDecisions: (query) => searchDecisions(env.DB, lookupOrg, query) };
+        // And the person's own connected tools, when they have them.
+        try {
+          const routeSession = await getSession(env.DB, request.headers.get("x-session-token"));
+          const sources = await connectedSources(env, routeSession, lookupOrg);
+          Object.assign(lookups, lookupsFor(env, routeSession, lookupOrg, sources));
+        } catch (err) {
+          console.error("connected sources failed", err?.message || err);
+        }
       }
 
       const result = await routeInstruction({
@@ -991,16 +1000,24 @@ async function handle(request, env, url) {
       }
       let related = [];
       let recent = [];
+      let sources = [];
       try {
-        [related, recent] = await Promise.all([
-          searchDecisions(env.DB, orgId, searchTermsFor(question, card)),
+        const terms = searchTermsFor(question, card);
+        const available = await connectedSources(env, session, orgId);
+        const [decisionsHit, recentHit, notionHit, githubHit] = await Promise.all([
+          searchDecisions(env.DB, orgId, terms),
           recentDecisions(env.DB, orgId, { limit: 8 }),
+          available.notion ? searchNotion(env, session.github_id, terms).catch((err) => { console.error("notion search failed", err?.message || err); return []; }) : [],
+          available.github ? searchGithubIssues(session, orgId, terms).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
         ]);
+        related = decisionsHit;
+        recent = recentHit;
+        sources = [...notionHit, ...githubHit];
       } catch (err) {
         console.error("ask context failed", err?.message || err);
       }
       const result = await answerQuestion({
-        provider, card, question, readerLanguage: body.readerLanguage, recent, related,
+        provider, card, question, readerLanguage: body.readerLanguage, recent, related, sources,
       });
       if (result.called && allowance.metered) await allowance.consume();
       if (!result.answer) return json({ message: "Your AI could not answer that just now." }, 502);
@@ -1011,6 +1028,7 @@ async function handle(request, env, url) {
       return json({
         answer: result.answer,
         related: related.slice(0, 5).map((d) => ({ title: d.title, status: d.status, decidedAt: d.decidedAt, recipient: d.recipient })),
+        sources: sources.slice(0, 6).map((r) => ({ app: r.app, title: r.title, url: r.url })),
       });
     }
 

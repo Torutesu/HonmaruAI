@@ -39,6 +39,8 @@ export interface Answer {
   question: string
   answer: string | null
   related: Array<{ title: string; status: string; decidedAt: string | null; recipient: string }>
+  /// Pages and issues from the person's connected tools the answer drew on.
+  sources?: Array<{ app: string; title: string; url: string | null }>
   busy: boolean
   error?: string
 }
@@ -375,6 +377,16 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             {answer.busy && <div className="answer-a answer-busy">{t('Your AI is looking…')}</div>}
             {answer.error && <div className="answer-a answer-error">{answer.error}</div>}
             {answer.answer && <div className="answer-a">{answer.answer}</div>}
+            {(answer.sources?.length || 0) > 0 && (
+              <ul className="answer-sources" aria-label={t('From your tools')}>
+                {answer.sources!.map((r) => (
+                  <li key={`${r.app}-${r.title}`}>
+                    <span className="answer-when">{r.app}</span>
+                    {r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title}</a> : r.title}
+                  </li>
+                ))}
+              </ul>
+            )}
             {answer.related.length > 0 && (
               <ul className="answer-related">
                 {answer.related.map((r) => (

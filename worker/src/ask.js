@@ -11,9 +11,10 @@ const SYSTEM_PROMPT = `You answer a question somebody has about one decision car
 
 Rules:
 - Answer in the reader's language, given below. Two to five sentences. No preamble.
-- Use ONLY the card and the past decisions listed. If they do not contain the
-  answer, say what is missing in one sentence — never invent a decision,
-  a number, a date or a person.
+- Use ONLY the card, the past decisions and the connected tools' pages listed.
+  If they do not contain the answer, say what is missing in one sentence —
+  never invent a decision, a number, a date or a person. Name the page or
+  issue you drew on.
 - When a past decision is relevant, name it (its date and who decided) so the
   reader can find it.
 - If the question is really "what should I do?", give your recommendation
@@ -27,7 +28,7 @@ const MAX_ANSWER = 1200;
 
 /// Ask. Returns { called, answer } — `called` is whether we paid a model
 /// for this (billing follows it), `answer` is the text or null.
-export async function answerQuestion({ provider, card, question, readerLanguage, recent = [], related = [] }) {
+export async function answerQuestion({ provider, card, question, readerLanguage, recent = [], related = [], sources = [] }) {
   if (!provider) return { called: false, answer: null };
   const clean = String(question || "").trim().slice(0, MAX_QUESTION);
   if (!clean) return { called: false, answer: null };
@@ -64,6 +65,10 @@ ${JSON.stringify({
 <past_decisions>
 ${decisions.length ? decisions.join("\n") : "(none found)"}
 </past_decisions>
+
+<connected_tools>
+${sources.length ? sources.slice(0, 10).map((r) => `- [${r.app}] ${r.title}${r.when ? ` (${String(r.when).slice(0, 10)})` : ""}${r.snippet ? ` — ${String(r.snippet).slice(0, 200)}` : ""}`).join("\n") : "(nothing connected, or nothing matched)"}
+</connected_tools>
 
 Question: ${clean}`;
 
