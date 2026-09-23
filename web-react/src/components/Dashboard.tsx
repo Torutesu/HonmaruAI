@@ -314,14 +314,24 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // and the words are kept on the card for the next reader. A deployment
   // with no model says so once, and is not asked again this session.
   const [translations, setTranslations] = useState<Record<string, Record<string, { title: string; summary?: string; context?: string }>>>({})
+  // A card the URL names that the socket never sent — a search hit from
+  // months ago. Fetched once; `card: null` remembers a miss.
+  const [fetched, setFetched] = useState<{ id: string; card: DecisionCard | null } | null>(null)
   const askedFor = useRef(new Set<string>())
   const noTranslator = useRef(false)
   const locale = getLocale()
   const rawCards = Object.values(state.cardsById || {})
   useEffect(() => {
     if (noTranslator.current) return
+    // Only what is on screen, and the card in front first: a workspace full
+    // of cards in another language must not spend a metered day's allowance
+    // before the person has typed anything. The Worker keeps the last call
+    // of a metered day for them regardless.
     const mine = rawCards.filter((c) => c.recipientUserID === userId || c.senderUserID === userId)
-    const wanted = mine.filter((c) => needsLocalizing(c, locale) && !translations[c.id]?.[locale] && !askedFor.current.has(`${c.id}|${locale}`)).slice(0, 6)
+    const inFront = focusCardId ? mine.filter((c) => c.id === focusCardId) : []
+    const wanted = [...inFront, ...mine.filter((c) => c.status === 'pending' && c.recipientUserID === userId && c.id !== focusCardId)]
+      .filter((c) => needsLocalizing(c, locale) && !translations[c.id]?.[locale] && !askedFor.current.has(`${c.id}|${locale}`))
+      .slice(0, 2)
     for (const card of wanted) {
       askedFor.current.add(`${card.id}|${locale}`)
       fetch(`${relayHttpUrl}/cards/${encodeURIComponent(card.id)}/localize`, {
@@ -330,14 +340,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         body: JSON.stringify({ orgId, locale }),
       })
         .then(async (r) => {
-          if (r.status === 503) { noTranslator.current = true; return }
+          if (r.status === 503 || r.status === 429) { noTranslator.current = true; return }
           if (!r.ok) return
           const data = await r.json().catch(() => ({}))
           if (data.localized?.title) setTranslations((prev) => ({ ...prev, [card.id]: { ...(prev[card.id] || {}), [locale]: data.localized } }))
         })
         .catch(() => { /* the card reads in its own language */ })
     }
-  }, [rawCards, locale, userId, relayHttpUrl, orgId, sessionToken, translations, localeVersion])
+  }, [rawCards, locale, userId, relayHttpUrl, orgId, sessionToken, translations, localeVersion, focusCardId])
   const cards = rawCards.map((c) => (translations[c.id] ? { ...c, localized: { ...(c.localized || {}), ...translations[c.id] } } : c))
   const byUrgency = { urgent: 0, high: 1, medium: 2, low: 3 } as Record<string, number>
   // What is waiting on me, most urgent first, then oldest first: the order
@@ -356,10 +366,26 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // URL names the card; with none named, the first thing waiting.
   const workbench = desktop && mode === 'cards'
   const inboxCards = [...pendingCards, ...decidedCards]
-  const selectedId = focusCardId && inboxCards.some((c) => c.id === focusCardId)
-    ? focusCardId
-    : (pendingCards[0]?.id ?? null)
-  const selected = selectedId ? inboxCards.find((c) => c.id === selectedId) ?? null : null
+  // A card the URL names opens whatever list it is on — sent, decided by
+  // someone else, or older than the socket's snapshot and fetched below.
+  // Only with no card named does the pane fall back to the first thing
+  // waiting: a "Decided before" hit must not silently show something else.
+  const named = focusCardId ? cards.find((c) => c.id === focusCardId) ?? (fetched?.id === focusCardId ? fetched.card : null) : null
+  const selectedId = named ? named.id : (pendingCards[0]?.id ?? null)
+  const selected = named ?? (selectedId ? inboxCards.find((c) => c.id === selectedId) ?? null : null)
+  useEffect(() => {
+    if (!focusCardId || cards.some((c) => c.id === focusCardId) || fetched?.id === focusCardId) return
+    let ignore = false
+    fetch(`${relayHttpUrl}/cards/${encodeURIComponent(focusCardId)}?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then(async (r) => {
+        if (ignore) return
+        const data = r.ok ? await r.json().catch(() => ({})) : {}
+        setFetched({ id: focusCardId, card: data.card ?? null })
+        if (!r.ok) setError(t('That card is not in this workspace.'))
+      })
+      .catch(() => { /* offline: the card the URL names is not here */ })
+    return () => { ignore = true }
+  }, [focusCardId, cards, fetched, relayHttpUrl, orgId, sessionToken, t])
   useEffect(() => {
     if (!workbench || panel || screen) return
     const onKey = (e: KeyboardEvent) => {
@@ -412,7 +438,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       ) : mode === 'cards' ? (
         <Feed
           key={localeVersion}
-          cards={pendingCards}
+          cards={named && !pendingCards.some((c) => c.id === named.id) ? [...pendingCards, named] : pendingCards}
           userId={userId}
           businesses={businesses}
           focusCardId={focusCardId}

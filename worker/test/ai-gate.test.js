@@ -127,3 +127,21 @@ test("an answer we reject is still an answer we paid for", async () => {
   expect(await usedByUser700()).toBe(1);
   expect("aiCalled" in card).toBe(false);
 });
+
+test("a guest never reaches System One: unmetered means spending nothing", async () => {
+  // A Jev interceptor that must stay unused. It persists, so an unused one
+  // is not "pending"; the flag is what the test reads.
+  let asked = false;
+  fetchMock.get("https://api.typesafe.ai")
+    .intercept({ path: "/v1/systemone", method: "POST" })
+    .reply(200, () => { asked = true; return { answers: {} }; }).persist();
+  const res = await worker.fetch(new Request("https://example.com/ai/route", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "Ask hubot to review the deploy",
+                           sender: { id: "octocat", name: "octocat" }, organization: ORG }),
+  }), { ...ENV(), TYPESAFE_API_KEY: "ts_test" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).routedBy).toBe("fallback");
+  expect(asked).toBe(false);
+});

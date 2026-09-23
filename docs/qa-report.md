@@ -8,11 +8,94 @@ is something that ran, not something that was read.
 
 | Suite | Before | After |
 |-------|--------|-------|
-| Worker (`worker/`, real workerd) | 391 pass | 461 pass |
-| Web unit (`web-react/`, vitest) | 8 pass | 11 pass |
+| Worker (`worker/`, real workerd) | 391 pass | 465 pass |
+| Web unit (`web-react/`, vitest) | 8 pass | 24 pass |
 | Web typecheck + build | clean | clean |
-| End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 37 steps pass |
+| End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 42 steps pass |
 | iOS (`xcodebuild test`, macOS CI) | not runnable here (Linux) | pass — [CI run #287](https://github.com/Torutesu/HonmaruAI/actions/runs/34561892140), dispatched by hand |
+
+## QA pass, 2026-09-23 — the workbench, Jev, translation, connected context
+
+The second full pass, over everything added since the release candidate: the
+laptop workbench, ⌘K, voice input, the offline shell, Jev as the decision
+layer, translation on request, Notion/GitHub context, GitHub sign-in on the
+web. Same method: every suite run, five steps added to the end-to-end run
+for what the earlier run never looked at, every screenshot read, and the
+whole diff since `610693a` reviewed for correctness and security by a
+second reader with the findings verified against the code.
+
+### Added to the end-to-end run
+
+- **j and k walk the inbox, and the URL follows** — the keyboard walk on a
+  laptop, and `#/feed/<id>` tracking the selection.
+- **A decided card opens in the workbench** with its decision line, Undo,
+  no decide buttons, and "Draft the reply" answering in the pane.
+- **The workbench reads in Japanese** — the inbox heading and the palette
+  placeholder, not just the phone screens.
+- **The workbench holds up in the dark** — the page paints its own dark
+  ground under a dark shell.
+- **What happened to a card opens on a phone** — the thread under a card at
+  390×844.
+
+### Found by reading the screenshots, fixed
+
+- **In the dark, "Tell your AI" and the Cards count were invisible** — the
+  compose tab's label and the mode switch's badge kept their light-theme
+  colours on a dark laptop shell.
+- **The thread showed its wire format.** A flag came out as `feedback` with
+  `wrong-priority` under it; a translation as `localized`. Every event and
+  every reason has a word now, and the reader's own actions say "You".
+- **"4 urgent" for four high-priority cards.** The inbox's today line
+  counted high as urgent. Urgent and high are counted apart, and the chip
+  says "High or urgent", which is what it filters.
+- **The clock ignored the interface language.** Times in the thread were
+  formatted in the browser's locale under a Japanese interface.
+- **The phone page could not scroll with the thread open** — a card plus
+  its history overflowed a page that did not scroll.
+- **The inbox re-mounted every row on every render.** The row was an
+  inline component, a new type each time, so focus was lost mid j/k walk
+  and a click could land on a row that was no longer there (the end-to-end
+  run caught this: "Element is not attached to the DOM"). Hoisted.
+
+### Found by the code review, fixed
+
+- **A translation could erase a decision.** `POST /cards/:id/localize`
+  read the card, spent up to thirty seconds translating, and wrote the
+  whole card back, so a decision made in between was overwritten and
+  broadcast as undone. The route now writes only `localized.<locale>`
+  (`json_set` in D1), re-reads, and announces what is there. Tested with a
+  decision made inside the mocked model call.
+- **Auto-translation spent the free day.** The web client asked for up to
+  six translations per render for every card of yours, against the same
+  allowance and rate bucket as routing: three Japanese cards used a free
+  reader's three daily calls before they typed anything. The client now
+  asks only for the card in front and what is pending for you, two at a
+  time; the Worker keeps the last call of a metered day for the person's
+  own instruction (429, and the client stops asking); translation has its
+  own rate bucket.
+- **Login CSRF on the web sign-in.** The state check was skipped when this
+  browser had no nonce stored, so a callback URL pasted from elsewhere
+  would have signed the browser into whoever started it; and a callback was
+  honoured even for someone already signed in. Both refused now, tested.
+- **A guest reached Jev.** `/ai/route` passed the System One key for every
+  caller, signed in or not. Gated on a session; a guest is routed locally.
+  Tested with a Jev interceptor that must stay unused.
+- **"Decided before" never opened.** A palette hit outside the inbox fell
+  back to the first pending card without a word. A card the URL names now
+  opens from the whole snapshot, and one older than the snapshot is fetched
+  (`GET /cards/:id`, member-only, tested). A miss says so.
+- **The card cache outlived the sign-out.** Two hundred cards stayed in
+  `localStorage` after logout. Cleared on logout and on leaving a workspace.
+- **The service worker could cache a 404 as the app.** A failed navigation
+  during a bad deploy would have become the offline shell. Only an ok,
+  unredirected page is kept.
+
+### Reviewed and clean
+
+Jev answers are validated against server-derived option sets and every
+failure degrades to the previous path; the Notion/GitHub lookups run on the
+caller's own token with no privilege to gain; the new routes check
+membership and bind their parameters; the redirect allowlist is exact.
 
 ## The web client, screen by screen
 

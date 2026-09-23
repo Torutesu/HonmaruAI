@@ -406,6 +406,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             orgId={api.orgId}
             sessionToken={api.sessionToken}
             cardId={card.id}
+            userId={userId}
             version={`${card.status}|${card.decision?.decidedAt || ''}|${answer?.busy ? 'asking' : (answer?.answer || '')}`}
             alwaysOpen={layout === 'desk'}
           />

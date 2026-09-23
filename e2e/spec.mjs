@@ -382,6 +382,16 @@ await step('asking about a card answers under it, and does not make a card', asy
 
 // Every card carries "Is this card wrong?". Saying so is one tap, lands as a
 // row the router is measured against, and never gets in the way of deciding.
+// On a phone the thread sits behind one line under the card.
+await step('what happened to a card opens on a phone', async () => {
+  await page.click('.thread-toggle')
+  await page.waitForSelector('.thread', { timeout: 10000 })
+    .catch(() => { throw new Error('the thread did not open on a phone') })
+  await page.waitForFunction(() => /Created|作成/.test(document.querySelector('.thread')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the thread does not show the card being created') })
+  await shot('09f-thread')
+})
+
 await step('a card can be flagged as wrong, and the verdict lands', async () => {
   await page.click('.flag-link')
   await page.waitForSelector('.flag-chip', { timeout: 5000 })
@@ -916,6 +926,76 @@ await step('your own AI key is kept and rides on what you send', async () => {
   await d.keyboard.press('Escape')
   // Cleared, so the rest of the suite runs on the deployment's model.
   await d.evaluate(() => { localStorage.removeItem('aiKey') })
+})
+
+// A QA sweep of the workbench that the feature steps above do not cover:
+// the keys, a decided card, the language, the dark theme, the thread on a
+// phone. Each is a thing a person would try in the first ten minutes.
+await step('j and k walk the inbox, and the URL follows', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.inbox-row.on', { timeout: 10000 })
+  await d.keyboard.press('Escape')
+  const first = await d.$eval('.inbox-row.on', (el) => el.getAttribute('data-card'))
+  await d.keyboard.press('j')
+  await d.waitForFunction((id) => document.querySelector('.inbox-row.on')?.getAttribute('data-card') !== id, first, { timeout: 5000 })
+    .catch(() => { throw new Error('j did not move the selection') })
+  const second = await d.$eval('.inbox-row.on', (el) => el.getAttribute('data-card'))
+  if (!second) throw new Error('no second selection')
+  await d.waitForFunction((id) => location.hash === `#/feed/${encodeURIComponent(id)}`, second, { timeout: 5000 })
+    .catch(() => { throw new Error('the URL did not follow the selection') })
+  await d.keyboard.press('k')
+  await d.waitForFunction((id) => document.querySelector('.inbox-row.on')?.getAttribute('data-card') === id, first, { timeout: 5000 })
+    .catch(() => { throw new Error('k did not move the selection back') })
+})
+
+await step('a decided card opens in the workbench with its decision, Undo and the reply draft', async () => {
+  const d = desk.pages()[0]
+  // Click by selector, not by handle: a row can re-render between the
+  // lookup and the click while cards are still arriving.
+  const decided = '.inbox-list .inbox-row:has(.inbox-when.quiet)'
+  if (!(await d.$(decided))) throw new Error('no decided card in the inbox to open')
+  await d.click(decided)
+  await d.waitForSelector('.workbench .decided-line', { timeout: 10000 })
+    .catch(() => { throw new Error('a decided card does not show its decision in the pane') })
+  if (!(await d.$('.workbench .decided-undo'))) throw new Error('a decided card you decided has no Undo in the pane')
+  if (await d.$('.workbench .decide-row')) throw new Error('a decided card still shows the two decide buttons')
+  await d.click('.workbench .hist-draft')
+  await d.waitForSelector('.workbench .hist-draft-box .hist-draft-error, .workbench .hist-draft-box .hist-draft-text', { timeout: 15000 })
+    .catch(() => { throw new Error('Draft the reply answered nothing in the pane') })
+  await d.screenshot({ path: `${SHOTS}/20e-desktop-decided.png` })
+})
+
+await step('the workbench reads in Japanese', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { localStorage.setItem('locale', 'ja') })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.inbox', { timeout: 20000 })
+  await d.waitForFunction(() => /あなた待ち/.test(document.querySelector('.inbox')?.textContent || ''), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the inbox heading is not in Japanese') })
+  await d.keyboard.press('Control+k')
+  await d.waitForSelector('.palette-input', { timeout: 5000 })
+  const placeholder = await d.$eval('.palette-input', (el) => el.placeholder)
+  if (!/決定/.test(placeholder)) throw new Error(`the palette placeholder is not in Japanese: ${placeholder}`)
+  await d.keyboard.press('Escape')
+  await d.screenshot({ path: `${SHOTS}/20f-desktop-ja.png` })
+  await d.evaluate(() => { localStorage.removeItem('locale') })
+})
+
+await step('the workbench holds up in the dark', async () => {
+  const d = desk.pages()[0]
+  await d.emulateMedia({ colorScheme: 'dark' })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.inbox-row.on', { timeout: 20000 })
+  await d.screenshot({ path: `${SHOTS}/20g-desktop-dark.png` })
+  // The page paints its own ground: a white body behind a dark shell is the
+  // classic half-themed page.
+  const body = await d.evaluate(() => getComputedStyle(document.body).backgroundColor)
+  const m = body.match(/\d+/g) || []
+  if (m.length >= 3 && Number(m[0]) > 60) throw new Error(`the page ground is light in dark mode: ${body}`)
+  await d.emulateMedia({ colorScheme: 'light' })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.inbox-row.on', { timeout: 20000 })
 })
 
 await step('the other screens hold up on a laptop', async () => {

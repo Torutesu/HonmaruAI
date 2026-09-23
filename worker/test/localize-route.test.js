@@ -63,3 +63,36 @@ test("a card already in the reader's language is left alone; a stranger, an unkn
   res = await localize(toru, "l-1", "ja", { OPENAI_API_KEY: undefined });
   expect(res.status).toBe(503);
 });
+
+test("a decision made while the model was translating survives the translation", async () => {
+  const { getCard, saveCard } = await import("../src/db.js");
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, async () => {
+      // The recipient decides while the model is still writing.
+      const now = await getCard(env.DB, ORG, "l-1");
+      await saveCard(env.DB, ORG, { ...now, status: "approved", decision: { action: "approve", decidedAt: "2026-09-11T00:00:00Z", by: "toru" } });
+      return { choices: [{ message: { content: JSON.stringify({ title: "仕入価格の8%値上げを承認", summary: "美香はエチオピアの仕入先に変えたい。" }) } }] };
+    })
+    .times(1);
+  const res = await localize(toru, "l-1", "ja");
+  expect(res.status).toBe(200);
+  const after = await getCard(env.DB, ORG, "l-1");
+  expect(after.status).toBe("approved");
+  expect(after.decision.action).toBe("approve");
+  expect(after.localized.ja.title).toBe("仕入価格の8%値上げを承認");
+});
+
+test("the last of a metered day's allowance is kept for the person's own instruction", async () => {
+  const { countAIUse } = await import("../src/db.js");
+  const { FREE_DAILY_ROUTES } = await import("../src/gate.js");
+  fetchMock.get("https://api.revenuecat.com")
+    .intercept({ path: (p) => p.includes("/v1/subscribers/8901") })
+    .reply(200, { subscriber: { entitlements: {} } }).persist();
+  const day = new Date().toISOString().slice(0, 10);
+  for (let i = 0; i < FREE_DAILY_ROUTES - 1; i += 1) await countAIUse(env.DB, "8901", day);
+  // No OpenAI interceptor: reaching the model here would fail the test.
+  const res = await localize(toru, "l-1", "ja", { REVENUECAT_SECRET_KEY: "sk-rc" });
+  expect(res.status).toBe(429);
+  expect((await res.json()).quotaExceeded).toBe(true);
+});

@@ -29,6 +29,33 @@ function ago(iso: string): string {
   return tt('{n}d', { n: Math.round(hours / 24) })
 }
 
+/// One line of the inbox. Kept outside `Inbox` on purpose: an inline
+/// component is a new type every render, so React would unmount and remount
+/// every row each time a card arrives — focus lost mid j/k walk, and any
+/// handle a test holds goes stale.
+const Row: React.FC<{ card: DecisionCard; meta: string; tone?: string; locale: string; on: boolean; onSelect: (id: string) => void }> =
+  ({ card, meta, tone, locale, on, onSelect }) => {
+    const l = card.localized?.[locale]
+    return (
+      <li>
+        <button
+          type="button"
+          className={`inbox-row${on ? ' on' : ''}`}
+          aria-current={on ? 'true' : undefined}
+          onClick={() => onSelect(card.id)}
+          data-card={card.id}
+        >
+          <span className={`inbox-pri p-${card.priority}`} aria-hidden="true" />
+          <span className="inbox-text">
+            <span className="inbox-title">{l?.title || card.title}</span>
+            <span className="inbox-meta">{meta}</span>
+          </span>
+          <span className={`inbox-when${tone ? ` ${tone}` : ''}`}>{ago(card.decision?.decidedAt || card.createdAt)}</span>
+        </button>
+      </li>
+    )
+  }
+
 /// The left pane of the laptop workbench: everything waiting on you, then
 /// what you decided lately, one line each, with a search box on top. Pick a
 /// row and the card opens beside it. On a phone none of this renders — the
@@ -66,29 +93,6 @@ export const Inbox: React.FC<Props> = ({ pending, decided, businesses, selectedI
   const waiting = pending.filter(matches)
   const done = decided.filter(matches).slice(0, 40)
 
-  const Row: React.FC<{ card: DecisionCard; meta: string; tone?: string }> = ({ card, meta, tone }) => {
-    const l = card.localized?.[locale]
-    const on = card.id === selectedId
-    return (
-      <li>
-        <button
-          type="button"
-          className={`inbox-row${on ? ' on' : ''}`}
-          aria-current={on ? 'true' : undefined}
-          onClick={() => onSelect(card.id)}
-          data-card={card.id}
-        >
-          <span className={`inbox-pri p-${card.priority}`} aria-hidden="true" />
-          <span className="inbox-text">
-            <span className="inbox-title">{l?.title || card.title}</span>
-            <span className="inbox-meta">{meta}</span>
-          </span>
-          <span className={`inbox-when${tone ? ` ${tone}` : ''}`}>{ago(card.decision?.decidedAt || card.createdAt)}</span>
-        </button>
-      </li>
-    )
-  }
-
   return (
     <aside className="inbox" aria-label={t('Inbox')}>
       <div className="inbox-search">
@@ -108,13 +112,14 @@ export const Inbox: React.FC<Props> = ({ pending, decided, businesses, selectedI
         {pending.length === 0
           ? t('Nothing is waiting on you.')
           : t('{n} waiting on you', { n: pending.length })
-            + (pending.filter(isHot).length ? ` · ${t('{n} urgent', { n: pending.filter(isHot).length })}` : '')
+            + (pending.filter((c) => c.priority === 'urgent').length ? ` · ${t('{n} urgent', { n: pending.filter((c) => c.priority === 'urgent').length })}` : '')
+            + (pending.filter((c) => c.priority === 'high').length ? ` · ${t('{n} high priority', { n: pending.filter((c) => c.priority === 'high').length })}` : '')
             + (pending.filter(isStale).length ? ` · ${t('{n} older than 2 days', { n: pending.filter(isStale).length })}` : '')}
       </p>
       {(businessesInUse.length > 0 || pending.some(isHot) || pending.some(isStale)) && (
         <div className="inbox-chips" role="group" aria-label={t('Narrow')}>
           {pending.some(isHot) && (
-            <button type="button" className={`chip${hot ? ' on' : ''}`} aria-pressed={hot} onClick={() => setHot(!hot)}>{t('Urgent')}</button>
+            <button type="button" className={`chip${hot ? ' on' : ''}`} aria-pressed={hot} onClick={() => setHot(!hot)}>{t('High or urgent')}</button>
           )}
           {pending.some(isStale) && (
             <button type="button" className={`chip${stale ? ' on' : ''}`} aria-pressed={stale} onClick={() => setStale(!stale)}>{t('Waiting 2+ days')}</button>
@@ -139,6 +144,9 @@ export const Inbox: React.FC<Props> = ({ pending, decided, businesses, selectedI
             key={c.id}
             card={c}
             meta={[displayName(c.requestedBy?.name || c.senderUserID), nameOf(c.business), c.sourceApp].filter(Boolean).join(' · ')}
+            locale={locale}
+            on={c.id === selectedId}
+            onSelect={onSelect}
           />
         ))}
       </ul>
@@ -153,6 +161,9 @@ export const Inbox: React.FC<Props> = ({ pending, decided, businesses, selectedI
                 card={c}
                 meta={[t(ACTION_WORD[c.decision?.action || ''] || c.status), nameOf(c.business)].filter(Boolean).join(' · ')}
                 tone="quiet"
+                locale={locale}
+                on={c.id === selectedId}
+                onSelect={onSelect}
               />
             ))}
           </ul>

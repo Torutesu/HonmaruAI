@@ -17,7 +17,9 @@ function today() {
 
 /// The one place that decides whether an AI call may happen on our key.
 ///
-/// Returns `{ allowed, metered, quotaExceeded, consume() }`. `consume()` is
+/// Returns `{ allowed, metered, quotaExceeded, remaining?, consume() }`.
+/// `remaining` is how many calls are left of a metered day, so a caller that
+/// spends on the person's behalf can leave them the last one. `consume()` is
 /// called only after a model call actually happened, so a failed call does not
 /// burn someone's allowance.
 export async function checkAIAllowance(env, { githubId, userKey }) {
@@ -45,6 +47,7 @@ export async function checkAIAllowance(env, { githubId, userKey }) {
       allowed: true,
       metered: true,
       quotaExceeded: false,
+      remaining: UNBILLED_DAILY_ROUTES - used,
       consume: async () => countAIUse(env.DB, githubId, day),
     };
   }
@@ -60,6 +63,7 @@ export async function checkAIAllowance(env, { githubId, userKey }) {
     allowed: true,
     metered: true,
     quotaExceeded: false,
+    remaining: FREE_DAILY_ROUTES - used,
     consume: async () => countAIUse(env.DB, githubId, day),
   };
 }

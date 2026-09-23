@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-09-11
+Last updated: 2026-09-23
 
 ## Where this is
 
@@ -9,12 +9,12 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 440 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 465 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
-  Worker actually sent. 30 steps
+  Worker actually sent. 42 steps
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
-- **Web unit suite:** 11 tests over the AG-UI client, including the outbox
+- **Web unit suite:** 24 tests over the AG-UI client, the outbox, the card cache, the sign-in callback
 - **QA report:** [docs/qa-report.md](docs/qa-report.md) — what was checked
   before calling this sellable, what was found, what was fixed
 - **CI:** `.github/workflows/ci.yml` — Worker, the reference relay, the
@@ -29,6 +29,14 @@ The list of what is still missing, and why each item matters, is
 ## Done
 
 ### The improvement loop (dogfooding)
+- [x] **QA pass over the workbench, Jev, translation and connected context**
+      (2026-09-23): five end-to-end steps added (keyboard walk, a decided
+      card in the pane, Japanese and dark on a laptop, the thread on a
+      phone); six things found in the screenshots and seven in a code
+      review of the diff, all fixed — among them a translation that could
+      overwrite a decision, auto-translation spending the free day, a login
+      CSRF on the web sign-in, Jev spent on guests. Written up in
+      [docs/qa-report.md](docs/qa-report.md)
 - [x] **Feedback on every card.** "Is this card wrong?" sits under each card
       in the web feed; one tap says why (wrong person, not a decision, wrong
       priority, badly written). `POST /cards/:id/feedback`, sender or

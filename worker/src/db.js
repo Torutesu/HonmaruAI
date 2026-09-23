@@ -44,6 +44,22 @@ export async function saveCard(db, orgId, card) {
     .run();
 }
 
+/// One language's words onto a card, and nothing else. A translation takes
+/// up to thirty seconds, and the recipient may decide in that time: writing
+/// the whole card back afterwards would put the copy read before the
+/// decision over the decision. This touches only `localized.<locale>`, in
+/// the database, so whatever else changed meanwhile stays changed.
+export async function saveCardLocalization(db, orgId, cardId, locale, text) {
+  const label = String(locale).replace(/["\\]/g, "");
+  await db
+    .prepare(
+      `UPDATE cards SET data = json_set(data, '$.localized."${label}"', json(?3)), updated_at = ?4
+       WHERE org_id = ?1 AND card_id = ?2`
+    )
+    .bind(orgId, cardId, JSON.stringify(text), new Date().toISOString())
+    .run();
+}
+
 // One card, without paying to deserialize the whole org. The relay needs this
 // to answer "who does this card belong to?" before it lets anyone change it.
 export async function getCard(db, orgId, cardId) {

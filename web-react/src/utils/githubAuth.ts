@@ -53,7 +53,10 @@ export async function finishGitHubSignIn(httpBase: string, cb: { code: string; s
     url.searchParams.delete('code'); url.searchParams.delete('state')
     history.replaceState(null, '', url.pathname + url.search + url.hash)
   } catch { /* cosmetic */ }
-  if (expected && expected !== cb.state) throw new Error('This sign-in did not start in this browser. Try again.')
+  // The nonce must be the one this browser minted. No nonce at all is the
+  // same refusal: a callback URL pasted from somewhere else would otherwise
+  // sign this browser into whoever started that sign-in.
+  if (!expected || expected !== cb.state) throw new Error('This sign-in did not start in this browser. Try again.')
   const res = await fetch(`${httpBase}/oauth/github/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

@@ -15,6 +15,11 @@
   height: 100dvh;
   scroll-snap-align: start;
   scroll-snap-stop: always;
+  /* A card with an answer and its thread under it can be taller than a
+     phone. The page scrolls within itself then, so the flag link and the
+     thread's end stay reachable; a laptop page has no fixed height. */
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   display: flex;
   justify-content: center;
   position: relative;

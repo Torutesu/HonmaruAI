@@ -11,6 +11,10 @@
 export const LIMITS = {
   // The expensive one: every call spends money on someone's model.
   "ai/route": { max: 30, windowSeconds: 300 },
+  // A translation is a model call too, but one the client asks for on its
+  // own as cards arrive. Its own bucket, so a screen full of cards in
+  // another language cannot lock the person out of routing for five minutes.
+  "cards/localize": { max: 30, windowSeconds: 300 },
   // Guessing an authorization code should not be cheap.
   "oauth/token": { max: 10, windowSeconds: 300 },
   // A sync walks an inbox and can trigger many model calls.

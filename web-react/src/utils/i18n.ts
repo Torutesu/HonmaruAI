@@ -531,6 +531,12 @@ const ja: Dict = {
   'Filter repositories': 'リポジトリを絞り込む',
   'Could not list your repositories.': 'リポジトリを一覧できませんでした。',
   'No repository you can write to.': '書き込みできるリポジトリがありません。',
+  // QA sweep
+  '{n} high priority': '{n}件が優先度高',
+  'High or urgent': '優先度高・至急',
+  'Flagged as wrong': '「違う」と報告',
+  'Translated': '翻訳',
+  'That card is not in this workspace.': 'そのカードはこのワークスペースにありません。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

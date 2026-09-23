@@ -7,6 +7,7 @@ import { Onboarding } from './screens/Onboarding'
 import { PickRepository } from './screens/PickRepository'
 import { githubWebConfig, beginGitHubSignIn, readCallback, finishGitHubSignIn } from './utils/githubAuth'
 import type { GitHubWebConfig } from './utils/githubAuth'
+import { clearCardCache } from './utils/cardCache'
 import { disableWebPush } from './utils/push'
 import './theme.css'
 import './App.css'
@@ -70,6 +71,17 @@ function App() {
   useEffect(() => {
     const cb = readCallback()
     if (!cb) return
+    // Already signed in: the code in the URL is not this person's sign-in
+    // (theirs finished) and must not replace their session with another
+    // account's. Drop it from the URL and carry on as they were.
+    if (localStorage.getItem('sessionToken') && localStorage.getItem('userId')) {
+      try {
+        const url = new URL(location.href)
+        url.searchParams.delete('code'); url.searchParams.delete('state')
+        history.replaceState(null, '', url.pathname + url.search + url.hash)
+      } catch { /* cosmetic */ }
+      return
+    }
     const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
     finishGitHubSignIn(base, cb)
       .then(({ sessionToken: token, login, orgs }) => {
@@ -155,6 +167,9 @@ function App() {
   /// There is nothing there to show them now, so ask where they still belong
   /// — the same question a sign-in asks — and go there.
   const leftOrg = async () => {
+    // Whatever happens next, the cards of the workspace they are out of
+    // are not theirs to keep on this machine.
+    clearCardCache()
     try {
       const res = await fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken } })
       if (res.ok) {
@@ -189,6 +204,8 @@ function App() {
     setStage('welcome')
     localStorage.removeItem('sessionToken')
     localStorage.removeItem('userId')
+    // The workspace's cards stay readable on this machine otherwise.
+    clearCardCache()
   }
 
   if (stage === 'welcome') {

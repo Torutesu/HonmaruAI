@@ -6,7 +6,8 @@ import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
-  isIngested, markIngested, saveCard, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
+  isIngested, markIngested, saveCard,
+  saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
@@ -419,8 +420,10 @@ async function handle(request, env, url) {
         // No provider means the local keyword router — the graceful degradation.
         openRouter: allowance.allowed ? providerConfig(env, userKey) : undefined,
         // System One decides for a fraction of a cent, allowance or not; the
-        // language model is the second opinion, within the allowance.
-        systemOne: jevConfig(env),
+        // language model is the second opinion, within the allowance. But
+        // only for someone signed in: a guest is unmetered, and unmetered
+        // must mean spending nothing, however little.
+        systemOne: session ? jevConfig(env) : undefined,
       });
       // Only a model that actually answered is billable — including one whose
       // answer we then rejected, which still comes back as routedBy "fallback".
@@ -1165,7 +1168,7 @@ async function handle(request, env, url) {
     // shows the same words.
     const localizeMatch = url.pathname.match(/^\/cards\/([^/]+)\/localize$/);
     if (localizeMatch && request.method === "POST") {
-      const limited = await enforce(env, request, "ai/route");
+      const limited = await enforce(env, request, "cards/localize");
       if (limited) return limited;
       const cardId = decodeURIComponent(localizeMatch[1]);
       const body = await request.json().catch(() => null);
@@ -1186,11 +1189,35 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey: request.headers.get("x-ai-key") || undefined });
       if (!allowance.allowed) return json({ message: "You have used today's AI answers.", quotaExceeded: true }, 429);
+      // A translation is a convenience the client asks for on its own; it
+      // must not spend the last of a metered day's allowance, which the
+      // person needs for the instruction they are about to type.
+      if (allowance.metered && allowance.remaining !== undefined && allowance.remaining <= 1) {
+        return json({ message: "Today's AI answers are nearly used up; the card stays in its own language.", quotaExceeded: true }, 429);
+      }
       const localized = await localizeCard(card, { provider, locale, allowance });
       if (!localized) return json({ message: "Your AI could not translate that just now." }, 502);
-      await saveCard(env.DB, orgId, localized);
-      await announceCards(env, orgId, [localized], { isNew: false });
+      // Only the new words are written: the card may have been decided while
+      // the model was translating, and that decision must survive.
+      await saveCardLocalization(env.DB, orgId, cardId, locale, localized.localized[locale]);
+      const fresh = (await getCard(env.DB, orgId, cardId)) || localized;
+      await announceCards(env, orgId, [fresh], { isNew: false });
       return json({ localized: localized.localized[locale] });
+    }
+
+    // One card, for any member of its org: what a search hit older than the
+    // socket's snapshot opens from. The socket sends the recent window; the
+    // palette's "Decided before" reaches past it.
+    const cardById = url.pathname.match(/^\/cards\/([^/]+)$/);
+    if (cardById && request.method === "GET") {
+      const cardId = decodeURIComponent(cardById[1]);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      return json({ card });
     }
 
     // One card's history, for any member of its org. The older route is

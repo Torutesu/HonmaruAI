@@ -42,8 +42,13 @@ self.addEventListener('fetch', (event) => {
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).then((res) => {
-        const copy = res.clone()
-        caches.open(SHELL).then((cache) => cache.put('/', copy)).catch(() => {})
+        // Only a page that actually is the app becomes the shell: a 404 or
+        // a 5xx during a bad deploy would otherwise be what every offline
+        // open shows until the next good one.
+        if (res.ok && !res.redirected) {
+          const copy = res.clone()
+          caches.open(SHELL).then((cache) => cache.put('/', copy)).catch(() => {})
+        }
         return res
       }).catch(() => caches.match('/').then((hit) => hit || caches.match('/index.html')))
     )

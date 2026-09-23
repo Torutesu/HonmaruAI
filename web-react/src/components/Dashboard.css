@@ -514,3 +514,9 @@
 .key-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .key-row .key-input { flex: 1; min-width: 0; }
 .key-saved { color: #1f9d6b; }
+
+@media (prefers-color-scheme: dark) {
+  /* The count on the Cards tab: a dark pill on a dark pill said nothing —
+     the active tab's own rule outranked the dark one. */
+  .mode-switch .mode-count, .mode-switch button.on .mode-count { background: #ededef; color: #18181b; }
+}

@@ -44,3 +44,12 @@ test("a stranger, and a call with no org, are refused; a card with no history is
   expect(res.status).toBe(200);
   expect((await res.json()).events).toEqual([]);
 });
+
+test("one card by id: a member reads it, a stranger and a missing id are refused", async () => {
+  let res = await call(`/cards/t-1?orgId=${encodeURIComponent(ORG)}`, toru);
+  expect(res.status).toBe(200);
+  expect((await res.json()).card).toMatchObject({ id: "t-1", title: "Supplier price +8%", recipientUserID: "toru" });
+  expect((await call(`/cards/t-1?orgId=${encodeURIComponent(ORG)}`, outsider)).status).toBe(403);
+  expect((await call(`/cards/nope?orgId=${encodeURIComponent(ORG)}`, toru)).status).toBe(404);
+  expect((await call(`/cards/t-1`, toru)).status).toBe(400);
+});
