@@ -219,7 +219,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); setPalette((p) => !p); return }
       if (palette) return
       if (e.key === 'Escape') { setPanel(null); if (screen) setScreen(null) }
-      else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) setPanel('compose')
+      else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) { e.preventDefault(); setPanel('compose') }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -510,20 +510,25 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         )}
       </div>
 
-      {panel === null && (
+      {/* Always drawn: on a phone the sheet and its scrim cover it, on a
+          laptop the rail staying put is the app keeping its own chrome. */}
+      {(
         <nav className="tabbar" aria-label={t('Main')}>
+          {/* The lit tab is where you are: a screen while one is open, the
+              feed otherwise. The rail used to light Feed under History. */}
           <button
-            className={mode === 'cards' ? 'tab on' : 'tab'}
-            onClick={() => switchMode('cards')}
+            className={!screen && mode === 'cards' ? 'tab on' : 'tab'}
+            aria-current={!screen && mode === 'cards' ? 'page' : undefined}
+            onClick={() => { setScreen(null); switchMode('cards') }}
             data-tab="feed"
             aria-label={t('Feed')}
           ><Icon name="home" /></button>
-          <button className="tab" data-tab="history" onClick={() => setScreen('history')} aria-label={t('History')}><Icon name="history" /></button>
+          <button className={screen === 'history' ? 'tab on' : 'tab'} aria-current={screen === 'history' ? 'page' : undefined} data-tab="history" onClick={() => setScreen('history')} aria-label={t('History')}><Icon name="history" /></button>
           <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} aria-keyshortcuts="n">
             <span className="fab-face"><Icon name="plus" /></span>
           </button>
-          <button className="tab" data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
-          <button className="tab" data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /></button>
+          <button className={screen === 'tools' ? 'tab on' : 'tab'} aria-current={screen === 'tools' ? 'page' : undefined} data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
+          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /></button>
         </nav>
       )}
 

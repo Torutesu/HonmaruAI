@@ -29,6 +29,15 @@ The list of what is still missing, and why each item matters, is
 ## Done
 
 ### The improvement loop (dogfooding)
+- [x] **The web is responsive in three steps, not one.** Below 720px it is
+      the phone app. From 720px (an iPad, a small window) a rail of icons
+      takes the left edge, the feed becomes a queue, screens become pages
+      with a heading and room, and the composer is a dialog. From 1024px the
+      workbench opens (inbox beside the card, centred in the pane, labelled
+      Decline/Approve buttons with their keys). From 1280px the rail gains
+      its words. Signed out, welcome and sign-in are a card in the middle of
+      the ground. `e2e/design-audit.mjs` photographs every screen at six
+      widths (`E2E_SPEC=e2e/design-audit.mjs ./e2e/run.sh`)
 - [x] **Teams with names, and invitations that are links.** A team can be
       started on purpose (`POST /orgs`, You → Create a team, iOS Team →
       Create a team) and named or renamed by its admins (`PUT /orgs/name`,

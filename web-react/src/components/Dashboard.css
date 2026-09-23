@@ -145,6 +145,21 @@
   padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
   max-height: 80dvh;
 }
+/* Wider than a phone, a bottom sheet the width of the window is a banner.
+   The composer becomes a dialog where the eye already is. */
+@media (min-width: 720px) {
+  .sheet-bottom {
+    left: 50%; right: auto; bottom: auto; top: 16vh;
+    transform: translateX(-50%);
+    width: min(92vw, 640px);
+    border-radius: 20px;
+    padding: 24px 24px 22px;
+    box-shadow: 0 24px 64px rgba(9, 12, 29, .18);
+    box-sizing: border-box;
+  }
+  .shell .sheet-bottom { left: calc(var(--rail, 0px) + (100vw - var(--rail, 0px)) / 2); }
+  .sheet-side { width: min(100%, 520px); }
+}
 .sheet-side {
   top: 0; right: 0; bottom: 0;
   width: min(100%, 460px);
@@ -437,10 +452,35 @@
 }
 
 /* The laptop workbench: the inbox beside the card. Rendered only at and above
-   1080px (utils/route.ts draws the same line the stylesheet does). */
-.workbench { position: fixed; top: 0; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr); }
-.shell .workbench { left: 216px; }
+   1024px (utils/route.ts draws the same line the stylesheet does). */
+.workbench { position: fixed; top: 0; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+.shell .workbench { left: var(--rail, 0px); }
 .workbench .feed, .shell .workbench .feed { position: static; inset: auto; left: auto; height: 100%; min-width: 0; }
+/* The pane: one column, centred in whatever is left of the window, wide
+   enough for a title to breathe and narrow enough to still be a card. */
+.workbench .page { justify-content: center; }
+.workbench .page-inner { width: min(100%, 720px); margin: 0 auto; padding: 84px 40px 64px; }
+.workbench .card { padding: 28px 30px; border-radius: 22px; }
+.workbench .card-title { font-size: 30px; }
+.workbench .card-summary { font-size: 16px; }
+/* On a laptop a decision is a labelled button, not a bare glyph the size of
+   a thumb: the letter under the pointer says what it does, and the key it
+   answers to sits beside it. */
+.workbench .decide-row { justify-content: flex-start; gap: 12px; margin-top: 20px; }
+.workbench .decide {
+  width: auto; height: 46px; border-radius: 9999px; padding: 0 20px 0 16px;
+  display: inline-flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600;
+}
+.workbench .decide::after { content: attr(aria-label); font-size: 14.5px; }
+.workbench .decide .key, .workbench .decide::before {
+  content: attr(aria-keyshortcuts); order: 3;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  padding: 2px 6px; border-radius: 6px; margin-left: 2px;
+}
+.workbench .decide.decline::before { background: #f1f1f4; color: #6b6b75; }
+.workbench .decide.approve::before { background: rgba(255,255,255,.18); color: #fff; }
+@media (min-width: 1280px) { .workbench { grid-template-columns: 340px minmax(0, 1fr); } }
+@media (min-width: 1680px) { .workbench { grid-template-columns: 380px minmax(0, 1fr); } .workbench .page-inner { width: min(100%, 760px); } }
 .inbox { border-right: 1px solid #ececf0; overflow-y: auto; padding: 76px 12px 32px 20px; background: transparent; }
 .inbox-search { margin: 0 0 10px; }
 .inbox-today { margin: 0 6px 10px; font-size: 13px; color: #1c1c21; }
@@ -473,6 +513,8 @@
 .inbox-meta { font-size: 12px; color: #6b6b75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inbox-when { flex: none; font-size: 11.5px; color: #9a9aa5; margin-top: 2px; }
 @media (prefers-color-scheme: dark) {
+  .workbench .decide.decline::before { background: #26262b; color: #a1a1aa; }
+  .workbench .decide.approve::before { background: rgba(0,0,0,.12); color: #0b0b0d; }
   .inbox { border-right-color: #26262b; }
   .inbox-search input { background: #18181b; color: #ededef; border-color: #26262b; }
   .inbox-row:hover { background: #17171a; }

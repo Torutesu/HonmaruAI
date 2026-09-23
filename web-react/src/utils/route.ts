@@ -84,10 +84,11 @@ export function useRoute(): { route: Route; navigate: (hash: string, replace?: b
   return { route: parseRoute(hash), navigate }
 }
 
-/// A laptop, by the same line the stylesheet draws: the rail, the queue and
-/// the workbench begin at 1080px.
+/// A laptop, by the same line the stylesheet draws: the workbench — the
+/// inbox beside the card — begins at 1024px. (The rail and the queue begin
+/// at 720px; they need no JavaScript.)
 export function useDesktop(): boolean {
-  const query = '(min-width: 1080px)'
+  const query = '(min-width: 1024px)'
   const [wide, setWide] = useState(() => typeof matchMedia !== 'undefined' && matchMedia(query).matches)
   useEffect(() => {
     if (typeof matchMedia === 'undefined') return

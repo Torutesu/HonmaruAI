@@ -347,98 +347,83 @@
   .form-note { background: #17171a; border-color: #2c2c33; color: #a2a2ab; }
 }
 
-/* ── On a laptop ──────────────────────────────────────────────────────────
+/* ── Wider than a phone ───────────────────────────────────────────────────
    This is a phone app: one decision per screen, a bar of tabs under the
-   thumb. Shipped unchanged to a 1440px display that reads as a broken strip
-   of content stranded in white, and it was.
+   thumb. Shipped unchanged to a 1440px display it read as a strip of content
+   stranded in white — and to an iPad or a small laptop it still did, because
+   the only other layout began at 1080px.
 
-   Stretching the screens is the wrong fix — a decision card 1200px across is
+   Stretching the screens is the wrong fix: a decision card 1200px across is
    a worse card. So the column keeps its width and the space around it does
-   the work: navigation moves to a rail on the left where a pointer expects
-   it, the feed stops taking a whole screen per card and becomes a queue you
-   can scroll, and the ground behind it all stops being blank white.
+   the work, in three steps:
 
-   Below 1080px none of this applies, and the app is exactly what it was. */
-/* A screen owns the phone's viewport, so the tab bar goes away under it.
-   The rail on a laptop does not — see .shell.screen-open. */
-@media (max-width: 1079px) {
+     ≥ 720px   a rail of icons on the left, the feed as a queue, screens as
+               pages with room to breathe, the composer as a dialog
+     ≥ 1024px  the workbench: the inbox beside the card (utils/route.ts
+               draws the same line)
+     ≥ 1280px  the rail gains its words
+
+   Below 720px none of this applies, and the app is exactly what it was. */
+:root { --rail: 0px; }
+
+@media (max-width: 719px) {
   /* Three, as the design draws it: the feed, the thing you came to say, and
-     you. History and Tools are already rows under You — History is a place you
-     go to look something up, Tools is a place you go twice — and a tab bar
-     holding a configuration screen has quietly become a menu. The rail keeps
-     all five, because a column has room a thumb-width row does not. */
+     you. History and Tools are already rows under You. The rail keeps all
+     five, because a column has room a thumb-width row does not. */
   .tabbar .tab[data-tab="history"],
   .tabbar .tab[data-tab="tools"] { display: none; }
-  /* With three, the gaps land where the design puts them. */
   .tabbar { padding-left: 20px; padding-right: 20px; }
+  /* A screen owns the phone's viewport, so the tab bar goes away under it. */
   .shell.screen-open .tabbar { display: none; }
 }
 
-@media (min-width: 1080px) {
+@media (min-width: 720px) {
+  :root { --rail: 72px; }
   body { background: var(--plaster); }
 
-  /* The tab bar becomes a rail. Same buttons, same order, same targets. */
+  /* The tab bar becomes a rail. Same buttons, same order, same targets;
+     icons only until there is room for words. */
   .tabbar {
     top: 0;
     bottom: 0;
     right: auto;
-    width: 216px;
+    width: var(--rail);
     height: auto;
     flex-direction: column;
     justify-content: flex-start;
-    align-items: stretch;
-    gap: 4px;
-    padding: 88px 16px 24px;
+    align-items: center;
+    gap: 6px;
+    padding: 84px 0 24px;
     background: transparent;
     backdrop-filter: none;
     border-top: none;
     border-right: 1px solid var(--bone);
   }
   .tab {
-    width: auto;
-    height: 44px;
-    border-radius: var(--radius-pill);
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 0 14px;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    padding: 0;
     font-size: 18px;
+    color: var(--ash);
+    transition: background-color .12s, color .12s;
   }
-  .tab::after {
-    content: attr(aria-label);
-    font-family: var(--font-body);
-    font-size: 14.5px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-  }
-  .tab:hover { background: rgba(9, 12, 29, 0.045); }
-  .tab.on { background: var(--signal-white); box-shadow: rgba(9, 12, 29, .06) 0 1px 2px; }
-  /* Compose keeps its weight, and gains the words. Its label comes from the
-     aria-label like every other tab: written out here it stayed English when
-     the interface was Japanese. */
+  .tab:hover { background: rgba(9, 12, 29, 0.05); color: var(--onyx); }
+  .tab.on { background: var(--signal-white); color: var(--onyx); box-shadow: rgba(9, 12, 29, .06) 0 1px 2px; }
+  /* Compose keeps its mark and goes first: on a rail the primary action
+     belongs at the top, under the name. */
   .tab.compose {
-    width: auto;
-    height: 44px;
     order: -1;
-    margin-bottom: 12px;
-    padding: 0 10px 0 6px;
-    /* Explicitly flex, not the grid the round button uses: `.tab.compose` is
-       more specific than `.tab`, so the grid won and put the label on a
-       second row underneath the mark. */
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 10px;
-    background-image: none;
-    background-color: transparent;
-    color: var(--onyx);
+    width: 48px; height: 48px;
+    margin-bottom: 10px;
+    display: grid; place-items: center;
+    background-image: none; background-color: transparent;
   }
-  .tab.compose:hover { background-color: rgba(9, 12, 29, 0.045); }
-  /* On the rail the gradient belongs to the mark, not to a pill the width of
-     a sentence — a 216px-wide conic gradient is a banner, not a button. */
+  .tab.compose:hover { background-color: rgba(9, 12, 29, 0.05); }
   .tab.compose .fab-face {
-    width: 32px; height: 32px;
+    width: 36px; height: 36px;
     background: conic-gradient(
       from 180deg,
       #7D5BE7 0%, #7D5BE7 19%, #BC3FDA 28%, #FA24CE 37%, #FB49A5 45%,
@@ -449,75 +434,170 @@
     box-shadow: inset 0 0 0 5px var(--plaster);
   }
   .tab.compose .fab-face svg { width: 18px; height: 18px; }
-  /* The words beside it read as the primary action, not as a disabled tab. */
-  .tab.compose::after { color: var(--onyx); font-weight: 600; }
-
-  /* The product's name where an app puts it, above the rail. */
+  /* The mark above the rail: the product's initial until the rail is wide
+     enough for its name. */
   .tabbar::before {
-    content: 'Honmaru AI';
+    content: 'H';
     position: absolute;
-    top: 26px; left: 30px;
+    top: 22px; left: 50%; transform: translateX(-50%);
+    width: 32px; height: 32px; border-radius: 10px;
+    display: grid; place-items: center;
     font-family: var(--font-display);
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 800;
     letter-spacing: -0.03em;
-    color: var(--onyx);
+    color: var(--signal-white);
+    background: var(--onyx);
   }
 
   /* Everything else starts to the right of the rail — but only where there
      is one. Signed out there is no rail, and offsetting the welcome and
      sign-in screens anyway left a bare white column down the left edge. */
-  .shell .topbar { left: 216px; padding-left: 28px; }
-  .shell .feed, .shell .classic { left: 216px; }
-  .shell .screen { left: 216px; }
+  .shell .topbar { left: var(--rail); padding-left: 24px; }
+  .shell .feed, .shell .classic { left: var(--rail); }
+  .shell .screen { left: var(--rail); }
 
   /* The feed becomes a queue: cards stack and scroll, instead of one filling
      the viewport and the next being a swipe away. The card itself is
      unchanged — it is the good part. */
   .feed { scroll-snap-type: none; background: var(--plaster); }
-  .page { height: auto; min-height: 0; scroll-snap-align: none; }
-  /* One column, one gutter. Centring the cards while the Cards/Classic bar
-     stayed at the left edge put the two on different left margins, which
-     reads as a mistake even when nothing is broken. */
-  .page { justify-content: flex-start; }
+  .page { height: auto; min-height: 0; scroll-snap-align: none; justify-content: center; }
   .page-inner { width: min(100%, 640px); padding: 20px 28px; }
   .page:first-child .page-inner { padding-top: 84px; }
   .page:last-child .page-inner { padding-bottom: 64px; }
   .page-empty { min-height: 60vh; align-items: center; }
+  .classic-inner { width: min(100%, 680px); }
 
-  /* Screens are a column on the ground, not a full white wall. */
+  /* Screens are pages on the ground, not a white wall: a heading with
+     weight, one comfortable column, and no phone chevron — the rail is the
+     way around, and Esc closes. */
   .shell .screen { background: var(--plaster); }
-  /* Left-aligned, on the same gutter as the feed and the Cards/Classic bar —
-     a screen that centres itself while the feed does not makes the content
-     jump sideways every time you open one. */
   .shell .screen-head, .shell .screen-body, .shell .screen-foot {
-    max-width: 668px;
+    max-width: 760px;
     margin-left: 0;
     margin-right: 0;
-    padding-left: 28px;
-    padding-right: 28px;
+    padding-left: 40px;
+    padding-right: 40px;
   }
+  .shell .screen-head { padding-top: 30px; padding-bottom: 10px; min-height: 0; }
+  .shell .screen-head .back { display: none; }
+  .shell .screen-head .head-title { font-size: 26px; letter-spacing: -0.025em; }
+  .shell .screen-body { padding-bottom: 48px; }
+  .shell .screen-foot { background: transparent; border-top: none; }
+  /* The numbers under your name sit on the ground like everything else
+     here: on white, with an edge, not three outlines on grey. */
+  .shell .profile-stats { background: var(--signal-white); border: 1px solid var(--bone); border-radius: 16px; overflow: hidden; }
 
   /* Signed out there is no rail to sit beside, so welcome and sign-in are a
-     centred column on the ground — wider than a phone, and not stranded at
-     one edge of a 1440px window. */
-  .screen:not(.shell .screen) { background: var(--plaster); }
+     card in the middle of the ground — not a phone column with its button
+     stranded at the bottom edge of a large window. */
+  .screen:not(.shell .screen) {
+    background: var(--plaster);
+    justify-content: center;
+    padding: 40px 24px;
+    box-sizing: border-box;
+  }
   .screen:not(.shell .screen) .screen-head,
   .screen:not(.shell .screen) .screen-body,
-  .screen:not(.shell .screen) .screen-foot { max-width: 520px; }
-  .screen-foot { background: transparent; border-top: none; }
+  .screen:not(.shell .screen) .screen-foot {
+    max-width: 520px;
+    box-sizing: border-box;
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+  .screen:not(.shell .screen) .screen-head {
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 12px;
+    background: transparent;
+  }
+  .screen:not(.shell .screen) .screen-body {
+    flex: 0 1 auto;
+    overflow: visible;
+    background: var(--signal-white);
+    border: 1px solid var(--bone);
+    border-bottom: none;
+    border-radius: 24px 24px 0 0;
+    padding-top: 36px;
+    padding-bottom: 8px;
+  }
+  .screen:not(.shell .screen) .screen-body.welcome-body,
+  .screen:not(.shell .screen) .screen-body.ob-body { justify-content: flex-start; }
+  .screen:not(.shell .screen) .screen-foot {
+    background: var(--signal-white);
+    border: 1px solid var(--bone);
+    border-top: none;
+    border-radius: 0 0 24px 24px;
+    padding-top: 12px;
+    padding-bottom: 36px;
+  }
+  .screen:not(.shell .screen) .screen-foot.bare { border-top: none; }
+  /* A welcome with no head: the card starts at its own top edge. */
+  .welcome-display { font-size: 34px; }
 }
 
-@media (min-width: 1080px) and (prefers-color-scheme: dark) {
+/* The rail gains its words. */
+@media (min-width: 1280px) {
+  :root { --rail: 216px; }
+  .tabbar { align-items: stretch; gap: 4px; padding: 88px 16px 24px; }
+  .tab {
+    width: auto;
+    height: 44px;
+    border-radius: var(--radius-pill);
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+  }
+  .tab::after {
+    content: attr(aria-label);
+    font-family: var(--font-body);
+    font-size: 14.5px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .tab.compose {
+    width: auto;
+    height: 44px;
+    margin-bottom: 12px;
+    padding: 0 10px 0 6px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    color: var(--onyx);
+  }
+  .tab.compose .fab-face { width: 32px; height: 32px; }
+  .tab.compose::after { color: var(--onyx); font-weight: 600; }
+  .tabbar::before {
+    content: 'Honmaru AI';
+    left: 30px; transform: none;
+    top: 26px;
+    width: auto; height: auto; border-radius: 0;
+    display: block;
+    font-size: 17px;
+    color: var(--onyx);
+    background: transparent;
+  }
+  .shell .topbar { padding-left: 28px; }
+}
+
+@media (min-width: 720px) and (prefers-color-scheme: dark) {
   body { background: #08080a; }
-  /* The words beside the compose mark, and the mark's ring: both were the
-     day's near-black on the night's near-black. */
-  .tab.compose { color: #f5f5f7; }
+  .tab { color: #8a8a94; }
+  .tab:hover { background: #17171a; color: #f5f5f7; }
+  .tab.on { background: #17171a; color: #f5f5f7; box-shadow: none; }
+  .tab.compose { color: #f5f5f7; background-color: transparent; }
+  .tab.compose:hover { background-color: #17171a; }
   .tab.compose::after { color: #f5f5f7; }
   .tab.compose .fab-face { box-shadow: inset 0 0 0 5px #08080a; }
   .tabbar { border-right-color: #26262b; }
-  .tabbar::before { color: #f5f5f7; }
-  .tab:hover { background: #17171a; }
-  .tab.on { background: #17171a; box-shadow: none; }
+  .tabbar::before { color: #08080a; background: #f5f5f7; }
   .feed, .screen { background: #08080a; }
+  .screen:not(.shell .screen) .screen-body,
+  .screen:not(.shell .screen) .screen-foot { background: #111113; border-color: #26262b; box-shadow: none; }
+}
+@media (min-width: 1280px) and (prefers-color-scheme: dark) {
+  .tabbar::before { color: #f5f5f7; background: transparent; }
 }

@@ -124,4 +124,6 @@ say "4. Clear the rate-limit window"
   --command "DELETE FROM rate_limits" --yes >/tmp/e2e-ratelimit.log 2>&1) || true
 
 say "5. Drive it"
-node e2e/spec.mjs
+# E2E_SPEC picks another driver against the same stack — the design audit
+# (e2e/design-audit.mjs) photographs every screen at five widths.
+node "${E2E_SPEC:-e2e/spec.mjs}"
