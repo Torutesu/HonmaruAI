@@ -159,6 +159,13 @@ Mailgun のドメインと 2 つの秘密だけが無い。
 
 ## E. App Store 初回提出（1〜2 時間、Mac が必要。A〜C の後）
 
+**近道（2026-09-23）**：TestFlight ワークフローが要る 7 つのシークレットは、
+App Store Connect の API キー 1 つから `scripts/testflight-secrets.sh` が全部
+作って入れます（配布証明書・プロファイルの発行、`gh secret set`、`--run 1.0.1`
+でワークフロー起動まで）。ブラウザでしかできない部分の指示文は
+[handoff-computer-use.md](handoff-computer-use.md) にあります。
+
+
 `docs/app-store-release.md` に沿う。`asc` CLI と `.asc.env` の設定は同ドキュメント 1 章。
 
 1. 事前確認（すべて緑になるまで先に進まない）：
