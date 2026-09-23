@@ -908,7 +908,11 @@ async function handle(request, env, url) {
       if (!session) return json({ message: "invalid session" }, 401);
       const body = await request.json().catch(() => ({}));
       if (typeof body.databaseId !== "string" || !body.databaseId) return json({ message: "databaseId is required" }, 400);
-      await setConnectorConfig(env.DB, session.github_id, "notion", { databaseId: body.databaseId });
+      // Beside what the connector already remembers (that it is connected),
+      // not instead of it: this used to drop the `connected` flag, and the
+      // person disappeared from the cron until the next time they opened Tools.
+      const existing = await getConnectorConfig(env.DB, session.github_id, "notion");
+      await setConnectorConfig(env.DB, session.github_id, "notion", { ...(existing || {}), databaseId: body.databaseId });
       return json({ ok: true });
     }
 

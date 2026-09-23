@@ -3,6 +3,7 @@ import { properName } from '../utils/names'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { getSenderContext } from '../utils/context'
+import { aiHeaders } from '../utils/aiKey'
 import { dictationAvailable, startDictation } from '../utils/dictation'
 import type { Dictation } from '../utils/dictation'
 import { Icon } from './Icon'
@@ -64,6 +65,7 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         headers: {
           'content-type': 'application/json',
           'x-session-token': sessionToken,
+          ...aiHeaders(),
         },
         body: JSON.stringify({
           text: text.trim(),

@@ -176,6 +176,15 @@ The list of what is still missing, and why each item matters, is
       it drew on and the web lists them as links under the answer. Bounded
       to five hits and six seconds each; a tool that is down is an empty
       list. Four Worker tests
+- [x] **Web parity: your own key, and the Notion database.** Under You,
+      "Your own AI key" — kept in this browser like the phone's Keychain,
+      sent as `x-ai-key` on every request that may spend a model (route,
+      ask, draft, translate), never stored on our side. Under Tools, once
+      Notion is connected, the database it reads from and writes back to is
+      chosen there, as on the phone; choosing one no longer drops the
+      connector's `connected` flag (which took the person out of the cron
+      until the next visit to Tools). Two web tests; one e2e step for the
+      key on the wire
 - [x] **The router looks before it writes.** With a session and an org, the
       model is offered `search_decisions` — 2-4 keywords in, the team's
       matching decisions out, one line each — and told to use it when the

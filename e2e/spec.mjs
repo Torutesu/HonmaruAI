@@ -879,6 +879,37 @@ await step('the app opens offline', async () => {
   await d.waitForSelector('.workbench .card-title, .page-empty', { timeout: 25000 })
 })
 
+// Your own model key, as the phone has had: kept in this browser, sent only
+// with your own requests, on every request that may spend a model.
+await step('your own AI key is kept and rides on what you send', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/you' })
+  await d.waitForSelector('.key-input', { timeout: 10000 })
+    .catch(() => { throw new Error('You has no field for your own AI key') })
+  await d.fill('.key-input', 'sk-e2e-own-key')
+  await d.press('.key-input', 'Tab')
+  await d.waitForSelector('.key-saved', { timeout: 5000 })
+    .catch(() => { throw new Error('the key did not say it was saved') })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.key-input', { timeout: 20000 })
+  const kept = await d.$eval('.key-input', (el) => el.value)
+  if (kept !== 'sk-e2e-own-key') throw new Error(`a reload lost the key: ${JSON.stringify(kept)}`)
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.workbench', { timeout: 10000 })
+  await d.click('[data-tab="compose"]')
+  await d.waitForSelector('.create-decision textarea')
+  const sent = d.waitForRequest((req) => req.url().endsWith('/ai/route') && req.method() === 'POST', { timeout: 15000 })
+  await d.fill('.create-decision textarea', 'Ask Kenji to sign off the menu photos')
+  await d.click('.create-decision button:not(.mic)')
+  const req = await sent
+  const header = req.headers()['x-ai-key']
+  if (header !== 'sk-e2e-own-key') throw new Error(`the instruction went without the key: ${JSON.stringify(header)}`)
+  await d.waitForSelector('.card-title', { timeout: 25000 })
+  await d.keyboard.press('Escape')
+  // Cleared, so the rest of the suite runs on the deployment's model.
+  await d.evaluate(() => { localStorage.removeItem('aiKey') })
+})
+
 await step('the other screens hold up on a laptop', async () => {
   const d = desk.pages()[0]
   for (const [label, marker, name] of [

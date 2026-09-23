@@ -510,3 +510,7 @@
   .palette-item.on { background: #26233a; }
   .palette-foot { border-top-color: #26262b; }
 }
+
+.key-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.key-row .key-input { flex: 1; min-width: 0; }
+.key-saved { color: #1f9d6b; }

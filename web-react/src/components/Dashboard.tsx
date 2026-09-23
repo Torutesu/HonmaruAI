@@ -27,6 +27,7 @@ import { displayName } from '../utils/names'
 import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen } from '../utils/route'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { needsLocalizing } from '../utils/language'
+import { aiHeaders } from '../utils/aiKey'
 import type { Screen, Mode } from '../utils/route'
 
 interface Props {
@@ -254,7 +255,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     try {
       const res = await fetch(`${relayHttpUrl}/ai/ask`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken, ...aiHeaders() },
         body: JSON.stringify({ orgId, cardId: card.id, question: text, readerLanguage: getLocale() }),
       })
       const data = await res.json().catch(() => ({}))
@@ -325,7 +326,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       askedFor.current.add(`${card.id}|${locale}`)
       fetch(`${relayHttpUrl}/cards/${encodeURIComponent(card.id)}/localize`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken, ...aiHeaders() },
         body: JSON.stringify({ orgId, locale }),
       })
         .then(async (r) => {

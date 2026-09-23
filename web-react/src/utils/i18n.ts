@@ -515,6 +515,15 @@ const ja: Dict = {
   'Could not connect: {why}': '接続できませんでした: {why}',
   'Could not connect. Retrying.': '接続できませんでした。再試行しています。',
   'From your tools': '連携ツールから',
+  // Your own key, and the Notion database
+  'Your own AI key': '自分の AI キー',
+  'Use your own OpenAI key for routing, answers, drafts and translations. It stays in this browser and is sent only with your own requests — we never store it on our servers.': '自分の OpenAI キーでルーティング・回答・下書き・翻訳を動かします。このブラウザにだけ保存され、自分のリクエストにだけ添えられます。サーバーには保存しません。',
+  'Clear': '消す',
+  'Saved in this browser.': 'このブラウザに保存しました。',
+  'Database': 'データベース',
+  'Which database your decisions are read from and written back to.': '決定を読み取り、書き戻す先のデータベース。',
+  'Choose a database…': 'データベースを選ぶ…',
+  'Could not list your databases.': 'データベースを一覧できませんでした。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read

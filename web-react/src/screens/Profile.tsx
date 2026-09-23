@@ -5,6 +5,7 @@ import { useT, changeLocale as applyLocale } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { getSenderContext, setSenderContext, MAX_CONTEXT_CHARS } from '../utils/context'
 import { canInstall, promptInstall, onInstallChange } from '../utils/install'
+import { getAIKey, setAIKey } from '../utils/aiKey'
 
 interface Props {
   httpBase: string
@@ -71,6 +72,9 @@ export const Profile: React.FC<Props> = ({
   const [aliases, setAliases] = useState('')
   // "How I work": kept in this browser, sent with every instruction.
   const [howIWork, setHowIWork] = useState(getSenderContext)
+  // Your own model key, kept in this browser, sent only with your requests.
+  const [aiKey, setAIKeyState] = useState(getAIKey)
+  const [keySaved, setKeySaved] = useState(false)
   const [installable, setInstallable] = useState(canInstall)
   useEffect(() => onInstallChange(() => setInstallable(canInstall())), [])
   // Typed before the profile arrived: the fetch must not overwrite it. That
@@ -224,6 +228,28 @@ export const Profile: React.FC<Props> = ({
                 placeholder={t('e.g. I run the cafe and the hotel. Kenji owns suppliers. Anything about the lease is mine.')}
                 aria-label={t('How I work')}
               />
+            </span>
+          </div>
+          <div className="row static">
+            <span className="row-main">
+              {t('Your own AI key')}
+              <span className="row-sub">{t('Use your own OpenAI key for routing, answers, drafts and translations. It stays in this browser and is sent only with your own requests — we never store it on our servers.')}</span>
+              <div className="key-row">
+                <input
+                  className="alias-input key-input"
+                  type="password"
+                  autoComplete="off"
+                  value={aiKey}
+                  onChange={(e) => { setAIKeyState(e.target.value); setKeySaved(false) }}
+                  onBlur={() => { setAIKey(aiKey); setKeySaved(Boolean(aiKey.trim())) }}
+                  placeholder="sk-…"
+                  aria-label={t('Your own AI key')}
+                />
+                {aiKey && (
+                  <button type="button" className="pill-btn" onClick={() => { setAIKey(''); setAIKeyState(''); setKeySaved(false) }}>{t('Clear')}</button>
+                )}
+              </div>
+              {keySaved && <span className="row-sub key-saved">{t('Saved in this browser.')}</span>}
             </span>
           </div>
           <div className="row static">

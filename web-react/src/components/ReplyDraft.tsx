@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import type { DecisionCard } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { useT } from '../utils/i18n'
+import { aiHeaders } from '../utils/aiKey'
 
 interface Props {
   httpBase: string
@@ -33,7 +34,7 @@ export const ReplyDraft: React.FC<Props> = ({ httpBase, orgId, sessionToken, car
     try {
       const res = await fetch(`${httpBase}/ai/draft`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken, ...aiHeaders() },
         body: JSON.stringify({ orgId, cardId: card.id, readerLanguage: getLocale() }),
       })
       const data = await res.json().catch(() => ({}))

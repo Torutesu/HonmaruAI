@@ -47,6 +47,11 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   // it since inbound mail was built, and nothing has ever shown it to anyone —
   // so the connector existed and there was no way to use it.
   const [inbox, setInbox] = useState<string | null>(null)
+  // Notion needs a database to read from and write back to. The phone has
+  // had a picker for it; the web had the row and no way to point it.
+  const [databases, setDatabases] = useState<Array<{ id: string; title: string }> | null>(null)
+  const [databaseId, setDatabaseId] = useState<string>('')
+  const [databaseError, setDatabaseError] = useState<string | null>(null)
   const [copiedInbox, setCopiedInbox] = useState(false)
 
   const load = useCallback(async () => {
@@ -137,6 +142,34 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   }
 
   const active = (connectors || []).filter((c) => c.status === 'active')
+  const notionOn = active.some((c) => c.id === 'notion')
+  useEffect(() => {
+    if (!notionOn) return
+    let ignore = false
+    Promise.all([
+      fetch(`${httpBase}/connectors/notion/config`, { headers: { 'x-session-token': sessionToken } })
+        .then((r) => (r.ok ? r.json() : {})).catch(() => ({})) as Promise<{ databaseId?: string | null }>,
+      fetch(`${httpBase}/connectors/notion/databases`, { headers: { 'x-session-token': sessionToken } })
+        .then(async (r) => (r.ok ? r.json() : Promise.reject(new Error((await r.json().catch(() => ({}))).message || '')))) as Promise<{ databases?: Array<{ id: string; title: string }> }>,
+    ]).then(([config, list]) => {
+      if (ignore) return
+      setDatabaseId(String(config?.databaseId || ''))
+      setDatabases(list?.databases || [])
+    }).catch((err) => { if (!ignore) { setDatabases([]); setDatabaseError(err instanceof Error && err.message ? err.message : t('Could not list your databases.')) } })
+    return () => { ignore = true }
+  }, [notionOn, httpBase, sessionToken, t])
+  const chooseDatabase = async (id: string) => {
+    setDatabaseId(id)
+    if (!id) return
+    try {
+      const res = await fetch(`${httpBase}/connectors/notion/config`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ databaseId: id }),
+      })
+      if (!res.ok) setError((await res.json().catch(() => ({}))).message || t('That did not save.'))
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+  }
 
   return (
     <div className="screen">
@@ -174,6 +207,28 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
               </div>
             ))}
           </div>
+        )}
+
+        {notionOn && (
+          <>
+            <div className="rows-title">{t('Database')}</div>
+            <div className="rows">
+              <div className="row static" data-notion-database="1">
+                <span className="row-icon"><Icon name="notion" size={18} /></span>
+                <span className="row-main">
+                  {t('Database')}
+                  <span className="row-sub">{databaseError || t('Which database your decisions are read from and written back to.')}</span>
+                  {databases === null && !databaseError && <span className="row-sub">{t('Loading…')}</span>}
+                  {databases && databases.length > 0 && (
+                    <select className="row-select" value={databaseId} onChange={(e) => chooseDatabase(e.target.value)} aria-label={t('Database')}>
+                      <option value="">{t('Choose a database…')}</option>
+                      {databases.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
+                    </select>
+                  )}
+                </span>
+              </div>
+            </div>
+          </>
         )}
 
         {connectors !== null && connectors.length === 0 && !unavailable && (
