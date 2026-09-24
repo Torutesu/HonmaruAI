@@ -15,6 +15,15 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'Switch workspace': 'ワークスペースを切り替え',
+  Workspaces: 'ワークスペース',
+  'Workspace settings': 'ワークスペース設定',
+  'Workspace logo': 'ワークスペースのロゴ',
+  'Upload a logo': 'ロゴをアップロード',
+  'Change logo': 'ロゴを変更',
+  'Remove logo': 'ロゴを削除',
+  'Uploading…': 'アップロード中…',
+  'PNG, JPEG, WebP or GIF, up to 2 MB. Shown at the top of the rail and in the workspace switcher.': 'PNG・JPEG・WebP・GIF、2 MB まで。サイドバー上部とワークスペース切り替えに表示されます。',
   'Connect with GitHub': 'GitHub で接続',
   'Waiting for GitHub…': 'GitHub を待っています…',
   'Finish in the tab that opened. This page updates by itself.': '開いたタブで承認してください。この画面は自動で更新されます。',
@@ -837,6 +846,15 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'Switch workspace': 'Cambiar de espacio de trabajo',
+  Workspaces: 'Espacios de trabajo',
+  'Workspace settings': 'Ajustes del espacio de trabajo',
+  'Workspace logo': 'Logo del espacio de trabajo',
+  'Upload a logo': 'Subir un logo',
+  'Change logo': 'Cambiar el logo',
+  'Remove logo': 'Quitar el logo',
+  'Uploading…': 'Subiendo…',
+  'PNG, JPEG, WebP or GIF, up to 2 MB. Shown at the top of the rail and in the workspace switcher.': 'PNG, JPEG, WebP o GIF, hasta 2 MB. Se muestra arriba en la barra lateral y en el selector de espacio de trabajo.',
   'Connect with GitHub': 'Conectar con GitHub',
   'Waiting for GitHub…': 'Esperando a GitHub…',
   'Finish in the tab that opened. This page updates by itself.': 'Termina en la pestaña que se abrió. Esta página se actualiza sola.',
@@ -1338,6 +1356,15 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'Switch workspace': 'Changer d’espace de travail',
+  Workspaces: 'Espaces de travail',
+  'Workspace settings': 'Paramètres de l’espace de travail',
+  'Workspace logo': 'Logo de l’espace de travail',
+  'Upload a logo': 'Téléverser un logo',
+  'Change logo': 'Changer le logo',
+  'Remove logo': 'Retirer le logo',
+  'Uploading…': 'Téléversement…',
+  'PNG, JPEG, WebP or GIF, up to 2 MB. Shown at the top of the rail and in the workspace switcher.': 'PNG, JPEG, WebP ou GIF, jusqu’à 2 Mo. Affiché en haut de la barre latérale et dans le sélecteur d’espace de travail.',
   'Connect with GitHub': 'Connecter avec GitHub',
   'Waiting for GitHub…': 'En attente de GitHub…',
   'Finish in the tab that opened. This page updates by itself.': 'Terminez dans l’onglet ouvert. Cette page se met à jour toute seule.',
@@ -1842,6 +1869,15 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'Switch workspace': 'Arbeitsbereich wechseln',
+  Workspaces: 'Arbeitsbereiche',
+  'Workspace settings': 'Arbeitsbereich-Einstellungen',
+  'Workspace logo': 'Logo des Arbeitsbereichs',
+  'Upload a logo': 'Logo hochladen',
+  'Change logo': 'Logo ändern',
+  'Remove logo': 'Logo entfernen',
+  'Uploading…': 'Wird hochgeladen…',
+  'PNG, JPEG, WebP or GIF, up to 2 MB. Shown at the top of the rail and in the workspace switcher.': 'PNG, JPEG, WebP oder GIF, bis 2 MB. Oben in der Leiste und im Arbeitsbereich-Wechsler zu sehen.',
   'Connect with GitHub': 'Mit GitHub verbinden',
   'Waiting for GitHub…': 'Warte auf GitHub…',
   'Finish in the tab that opened. This page updates by itself.': 'Schließe es im geöffneten Tab ab. Diese Seite aktualisiert sich von selbst.',

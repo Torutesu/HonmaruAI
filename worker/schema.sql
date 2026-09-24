@@ -454,3 +454,12 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   last_used_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(github_id, org_id);
+
+/* A workspace's own mark: the logo on the rail and in the switcher. The
+   bytes live in R2 under media_id; this is the one row that names them. */
+CREATE TABLE IF NOT EXISTS org_icons (
+  org_id        TEXT PRIMARY KEY,
+  media_id      TEXT NOT NULL,
+  content_type  TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);

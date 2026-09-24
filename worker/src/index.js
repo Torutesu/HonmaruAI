@@ -51,6 +51,7 @@ import { listComments, addComment, listReactions, toggleReaction, REACTIONS, MAX
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
+import { uploadOrgIcon, removeOrgIcon, serveOrgIcon, getOrgIcon, iconsFor, iconUrl } from "./orgIcon.js";
 import { CONNECTORS, connectorById, authConfigFor, availableConnectors } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
 import { syncAll } from "./sync.js";
@@ -335,6 +336,29 @@ async function handle(request, env, url, ctx) {
       }
       return json({ orgId, canEdit, ...(await aiStatus(env, orgId)) });
     }
+    // The workspace's mark. Anyone can see it (the id is unguessable, like a
+    // card's video); its admins set and remove it.
+    const iconMatch = url.pathname.match(/^\/orgs\/icon\/([^/]+)$/);
+    if (iconMatch && request.method === "GET") {
+      return serveOrgIcon(decodeURIComponent(iconMatch[1]), env);
+    }
+    if (url.pathname === "/orgs/icon" && (request.method === "POST" || request.method === "DELETE")) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      if (!(await canRename(env.DB, orgId, session.github_id))) return json({ message: "Only an admin of this workspace can change its logo." }, 403);
+      if (request.method === "DELETE") {
+        await removeOrgIcon(env, orgId);
+        return json({ orgId, icon: null });
+      }
+      const result = await uploadOrgIcon(request, env, orgId);
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      return json({ orgId, icon: iconUrl(url.origin, result.mediaId) });
+    }
     if (url.pathname === "/orgs/name" && request.method === "PUT") {
       const limited = await enforce(env, request, "team");
       if (limited) return limited;
@@ -368,6 +392,8 @@ async function handle(request, env, url, ctx) {
         // What the team calls itself, and whether this person may change it.
         name: await teamName(env.DB, orgId),
         canRename: await canRename(env.DB, orgId, session.github_id),
+        // And its mark, when it has one.
+        icon: iconUrl(url.origin, (await getOrgIcon(env.DB, orgId))?.mediaId),
       });
     }
 
@@ -862,7 +888,11 @@ async function handle(request, env, url, ctx) {
         // borrowed laptop — had nothing to ask and fell back to a placeholder
         // nobody is a member of, so the relay refused the socket and the feed
         // never arrived.
-        orgs: await listUserOrgs(env.DB, session.github_id),
+        orgs: await (async () => {
+          const orgs = await listUserOrgs(env.DB, session.github_id);
+          const icons = await iconsFor(env.DB, orgs.map((o) => o.id));
+          return orgs.map((o) => ({ ...o, icon: iconUrl(url.origin, icons[o.id]) }));
+        })(),
       });
     }
     // How this person works, as the router should know it — stored per

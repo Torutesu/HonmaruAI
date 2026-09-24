@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { ClassicList, type Presence } from './ClassicList'
+import { WorkspaceSwitcher, type Workspace } from './WorkspaceSwitcher'
 import { Inbox } from './Inbox'
 import { Palette } from './Palette'
 import type { PaletteAction } from './Palette'
@@ -239,6 +240,24 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     } catch { /* a label is a convenience */ }
   }, [relayHttpUrl, orgId, sessionToken])
   useEffect(() => { loadBusinesses() }, [loadBusinesses])
+  // Every workspace this person is in, with its name and mark, for the
+  // switcher at the top of the rail. Re-read when the team screen changes
+  // a name or a logo (it says so through a window event).
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const loadWorkspaces = useCallback(async () => {
+    try {
+      const res = await fetch(`${relayHttpUrl}/me`, { headers: { 'x-session-token': sessionToken } })
+      if (!res.ok) return
+      const me = await res.json()
+      if (Array.isArray(me.orgs)) setWorkspaces(me.orgs)
+    } catch { /* the switcher shows what it last knew */ }
+  }, [relayHttpUrl, sessionToken])
+  useEffect(() => { void loadWorkspaces() }, [loadWorkspaces])
+  useEffect(() => {
+    const onChange = () => { void loadWorkspaces() }
+    window.addEventListener('honmaru:workspace', onChange)
+    return () => window.removeEventListener('honmaru:workspace', onChange)
+  }, [loadWorkspaces])
   // A channel made, renamed or deleted: the reply carries the whole list,
   // and the room hears it as well (below), so every open list agrees.
   const channelCall = useCallback(async (method: 'POST' | 'PUT' | 'DELETE', body: Record<string, unknown>): Promise<string | null> => {
@@ -457,6 +476,18 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => window.removeEventListener('keydown', onKey)
   }, [workbench, panel, screen, inboxCards, selectedId, navigate])
   const api = { httpBase: relayHttpUrl, orgId, sessionToken }
+  const workspaceSwitcher = (variant: 'rail' | 'header') => (
+    <WorkspaceSwitcher
+      variant={variant}
+      workspaces={workspaces.length ? workspaces : [{ id: orgId, name: orgName || null, role: 'member' }]}
+      currentId={orgId}
+      onSwitch={onSwitchOrg}
+      onSettings={() => setScreen('team')}
+      onCreate={() => setScreen('profile')}
+      onJoin={() => setScreen('profile')}
+      onLogout={onLogout}
+    />
+  )
 
   return (
     // `screen-open` is what lets the rail stay on a laptop while a screen is
@@ -523,6 +554,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
           onWorkspace={() => setScreen('team')}
+          workspaceMenu={workspaceSwitcher('header')}
           onCreateChannel={(name) => channelCall('POST', { name })}
           onRenameChannel={(slug, name) => channelCall('PUT', { slug, name })}
           onDeleteChannel={(slug) => channelCall('DELETE', { slug })}
@@ -578,7 +610,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {/* Always drawn: on a phone the sheet and its scrim cover it, on a
           laptop the rail staying put is the app keeping its own chrome. */}
       {(
-        <nav className="tabbar" aria-label={t('Main')}>
+        <nav className="tabbar has-ws" aria-label={t('Main')}>
+          {/* The workspace's mark and name, and the way into every other
+              workspace — at the top of the rail on a laptop; on a phone the
+              list's header and the You screen carry it. */}
+          {workspaceSwitcher('rail')}
           {/* The lit tab is where you are: a screen while one is open, the
               feed otherwise. The rail used to light Feed under History. */}
           <button
@@ -611,7 +647,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel === 'compose' && (
-        <div className="sheet sheet-bottom" role="dialog" aria-modal="true" aria-label={t('Tell your AI')}>
+        <div className="sheet sheet-bottom sheet-compose" role="dialog" aria-modal="true" aria-label={t('Tell your AI')}>
           <div className="sheet-title">{t('Tell your AI')}</div>
           <p className="sheet-hint">{t('compose.hint')}</p>
           <CreateDecision

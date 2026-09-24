@@ -36,7 +36,8 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
     const el = box.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`
+    // Tall enough to read a pasted paragraph whole before it is sent.
+    el.style.height = `${Math.min(el.scrollHeight, 360)}px`
   }, [text])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

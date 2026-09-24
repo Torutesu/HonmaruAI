@@ -9,7 +9,7 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 607 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 610 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
   Worker actually sent. 54 steps
@@ -299,6 +299,9 @@ than into a chat app — [docs/viktor-gap-plan.md](docs/viktor-gap-plan.md).
       the Worker writes every decision as an issue in the named repository
 - [x] **Tools → Your AI is editable per workspace**: model, OpenAI key and
       TypeSafe key set by an admin, used by every model call, billed as theirs
+- [x] **The workspace's mark and a switcher** at the top-left: the logo an
+      admin uploads (or the initial), every workspace to switch to, settings,
+      create, join, sign out
 - [x] **Channels are made, renamed and deleted from the list** (Slack-style):
       `PUT /businesses` renames, `DELETE` empties the channel (its cards are
       unfiled, not lost) and the room hears every change; empty channels show
