@@ -1,5 +1,6 @@
 import { isPro } from "./entitlements.js";
 import { usedToday, countAIUse } from "./db.js";
+import { loadAISettings } from "./orgAI.js";
 
 export const FREE_DAILY_ROUTES = 3;
 
@@ -22,11 +23,12 @@ function today() {
 /// spends on the person's behalf can leave them the last one. `consume()` is
 /// called only after a model call actually happened, so a failed call does not
 /// burn someone's allowance.
-export async function checkAIAllowance(env, { githubId, userKey }) {
+export async function checkAIAllowance(env, { githubId, userKey, workspaceKey }) {
   const free = { allowed: true, metered: false, quotaExceeded: false, consume: async () => {} };
 
-  // Their key, their bill.
-  if (userKey) return free;
+  // Their key, their bill — the person's own, or the workspace's (entered
+  // once from Tools). Neither is metered against our budget.
+  if (userKey || workspaceKey) return free;
 
   // Anonymous callers cannot be metered, so they never spend our budget —
   // checked before the billing question, not after it. Ordering these the
@@ -67,4 +69,15 @@ export async function checkAIAllowance(env, { githubId, userKey }) {
     remaining: FREE_DAILY_ROUTES - used,
     consume: async () => countAIUse(env.DB, githubId, day),
   };
+}
+
+/// The same question, asked for a workspace: a workspace that runs on its
+/// own key is never metered. Every caller that knows the workspace goes
+/// through here.
+export async function allowanceFor(env, orgId, { githubId, userKey }) {
+  let workspaceKey = false;
+  if (orgId && !userKey) {
+    try { workspaceKey = Boolean((await loadAISettings(env.DB, orgId)).openaiKey); } catch { workspaceKey = false; }
+  }
+  return checkAIAllowance(env, { githubId, userKey, workspaceKey });
 }

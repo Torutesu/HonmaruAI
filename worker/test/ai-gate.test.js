@@ -145,3 +145,39 @@ test("a guest never reaches System One: unmetered means spending nothing", async
   expect((await res.json()).routedBy).toBe("fallback");
   expect(asked).toBe(false);
 });
+
+test("a workspace on its own key is never metered, and the plan says so", async () => {
+  freeSubscriber();
+  const { upsertMembership, upsertUser } = await import("../src/db.js");
+  const { saveAISettings } = await import("../src/orgAI.js");
+  await upsertUser(env.DB, { githubId: "700", login: "octocat", name: "Octo", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "team:keyed", "700", "admin");
+  await saveAISettings(env.DB, "team:keyed", { openaiKey: "sk-workspace-abcdefghijkl1234" }, "700");
+  const day = new Date().toISOString().slice(0, 10);
+  for (let i = 0; i < FREE_DAILY_ROUTES + 2; i += 1) await countAIUse(env.DB, "700", day);
+
+  let calls = 0;
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, () => { calls += 1; return {
+      choices: [{ message: { tool_calls: [{ id: "t1", type: "function", function: {
+        name: "create_decision_card",
+        arguments: JSON.stringify({ recipientUserID: "octocat", cardType: "task", title: "Review",
+          summary: "Review the deploy.", context: "deploy", priority: "medium", routingReason: "Only member." }),
+      } }] } }],
+      usage: { prompt_tokens: 10, completion_tokens: 5 },
+    }; })
+    .times(1);
+  const res = await worker.fetch(new Request("https://example.com/ai/route", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-session-token": token },
+    body: JSON.stringify({ text: "Ask octocat to review the deploy", orgId: "team:keyed" }),
+  }), ENV());
+  expect(res.status).toBe(200);
+  expect(calls).toBe(1);
+
+  const status = await (await worker.fetch(new Request("https://example.com/billing/status?orgId=team%3Akeyed", {
+    headers: { "x-session-token": token },
+  }), ENV())).json();
+  expect(status).toMatchObject({ workspaceKey: true, accessSource: "workspace", remainingToday: null });
+});

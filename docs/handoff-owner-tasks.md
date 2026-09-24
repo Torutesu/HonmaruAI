@@ -328,6 +328,28 @@ Figma ネイティブ UI（#44, #45）はマージ済みです。
    翻訳 / チームが乗ります。
 5. App Store 提出は E の手順のまま。
 
+## 本番で「各自のユーザー」が使える状態か（2026-09-24 時点）
+
+`/health` が返す実際の設定値で確認済み：
+
+| 項目 | 状態 | 誰でも使えるか |
+|------|------|----------------|
+| メール（サインインコード・通知・招待） | `mailSender: verified` — 検証済みドメインから送信 | **はい**。誰のアドレスにも届く |
+| サインアップ／サインイン（Web） | メールのコード、またはパスワード | **はい** |
+| AI ルーティング | `aiRouting: true`（gpt-4o-mini） | **はい** |
+| 課金（RevenueCat） | `billing: true` → 無料枠は 1 日 3 件 | 無料枠を超えるとローカルのルーターに落ちる。**ワークスペース自前の OpenAI キー**（ツール → あなたの AI）を入れると無制限・自社請求 |
+| Gmail / Slack / Notion / Calendar / Drive | `connectors: true`（Composio） | **はい**。各自がツール画面から接続 |
+| GitHub | ワークスペース単位で接続（ツール → GitHub） | **はい**（トークン or GitHub サインイン） |
+| プッシュ／Web プッシュ | `push: true`, `webPush: true` | **はい** |
+| 招待リンク（3 日） | `inviteLinks: true` | **はい** |
+| Jev（System One） | `systemOne: false` | 任意。ツール画面から TypeSafe キーを入れれば ON |
+| Web の GitHub サインイン | `githubOAuthWeb: false` | **オーナー作業**（I 章）。それまで Web はメールでサインイン |
+| iPhone アプリの配布 | TestFlight 未設定 | **オーナー作業**（E 章、Mac と署名シークレットが必要） |
+
+つまり Web（https://honmaru-web.pages.dev）は、誰でもアカウントを作り、チームを
+作って招待し、ツールをつなぎ、決定を回せる状態です。残りはオーナーにしかできない
+2 点（Web の GitHub サインインの callback 登録、TestFlight の署名）だけです。
+
 ## 完了の定義
 
 - `curl -s https://tiktokforwork.torubj0904.workers.dev/health` が

@@ -52,7 +52,7 @@ import { uploadMedia, serveMedia } from "./media.js";
 import { CONNECTORS, connectorById, authConfigFor, availableConnectors } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
 import { syncAll } from "./sync.js";
-import { checkAIAllowance } from "./gate.js";
+import { checkAIAllowance, allowanceFor } from "./gate.js";
 import { billingStatus } from "./plans.js";
 import { complimentaryAvailable, limitRedemption, readRedemptionCode, redeemComplimentaryAccess, prepareComplimentaryDeletion } from "./complimentary.js";
 import { fileCardUnderBusiness } from "./classify.js";
@@ -469,7 +469,7 @@ async function handle(request, env, url, ctx) {
       // The route is usable without a session (guests), but only a session can
       // be metered — and an unmetered guest must not spend our AI budget.
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
-      const allowance = await checkAIAllowance(env, {
+      const allowance = await allowanceFor(env, body.organization?.orgId || body.orgId, {
         githubId: session ? String(session.github_id) : null,
         userKey,
       });
@@ -789,7 +789,9 @@ async function handle(request, env, url, ctx) {
     if (url.pathname === "/billing/status" && request.method === "GET") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      return json(await billingStatus(env, session.github_id), 200, { "cache-control": "no-store" });
+      const orgId = url.searchParams.get("orgId") || "";
+      if (orgId && !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      return json(await billingStatus(env, session.github_id, orgId || undefined), 200, { "cache-control": "no-store" });
     }
 
     // Who am I, and how do I want to be told. The locale here is the language
@@ -1271,7 +1273,7 @@ async function handle(request, env, url, ctx) {
       const userKey = request.headers.get("x-ai-key") || undefined;
       const provider = await providerFor(env, orgId, userKey);
       if (!provider) return json({ message: "Your AI has no model to answer with on this deployment." }, 503);
-      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey });
+      const allowance = await allowanceFor(env, orgId, { githubId: String(session.github_id), userKey });
       if (!allowance.allowed) {
         return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
       }
@@ -1336,7 +1338,7 @@ async function handle(request, env, url, ctx) {
       const userKey = request.headers.get("x-ai-key") || undefined;
       const provider = await providerFor(env, orgId, userKey);
       if (!provider) return json({ message: "Your AI has no model to draft with on this deployment." }, 503);
-      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey });
+      const allowance = await allowanceFor(env, orgId, { githubId: String(session.github_id), userKey });
       if (!allowance.allowed) {
         return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
       }
@@ -1439,7 +1441,7 @@ async function handle(request, env, url, ctx) {
       const provider = await providerFor(env, orgId, request.headers.get("x-ai-key") || undefined);
       if (!provider) return json({ message: "Your AI has no model to translate with on this deployment." }, 503);
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
-      const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey: request.headers.get("x-ai-key") || undefined });
+      const allowance = await allowanceFor(env, orgId, { githubId: String(session.github_id), userKey: request.headers.get("x-ai-key") || undefined });
       if (!allowance.allowed) return json({ message: "You have used today's AI answers.", quotaExceeded: true }, 429);
       // A translation is a convenience the client asks for on its own; it
       // must not spend the last of a metered day's allowance, which the
@@ -1684,7 +1686,7 @@ async function handle(request, env, url, ctx) {
         return json({ status: "duplicate" });
       }
 
-      const allowance = await checkAIAllowance(env, { githubId: String(githubId) });
+      const allowance = await allowanceFor(env, orgId, { githubId: String(githubId) });
       const provider = allowance.allowed ? await providerFor(env, orgId) : undefined;
       const result = provider
         ? await triageMessage(message, { provider, readerLanguage: user.locale || "en", sourceLabel: "Email" })
@@ -1698,7 +1700,7 @@ async function handle(request, env, url, ctx) {
         const business = await fileCardUnderBusiness(env, {
           orgId, provider, githubId,
           card: { ...result.card, sourceDetail: `${message.from} · ${message.subject}` },
-          allowance: await checkAIAllowance(env, { githubId: String(githubId) }),
+          allowance: await allowanceFor(env, orgId, { githubId: String(githubId) }),
         });
         const card = {
           id: cardId,
