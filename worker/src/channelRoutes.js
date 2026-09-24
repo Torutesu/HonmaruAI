@@ -21,7 +21,7 @@ import { sha256Hex } from "./auth.js";
 import { applyAutoRule, listAutoRules, addAutoRule, removeAutoRule } from "./autorules.js";
 import { setStatus, rememberTimezone, redirectIfAway, setChannelPref, prefsFor, memberProfile } from "./people.js";
 import { scheduleMessage, listScheduled, cancelScheduled, saveForLater, listSaved, finishSaved } from "./later.js";
-import { channelDetails, setDescription } from "./channelDetails.js";
+import { channelDetails, setDescription, channelRow } from "./channelDetails.js";
 import { channelJournal, forgetJournalDay, validDay, validZone } from "./journal.js";
 import { providerFor } from "./orgAI.js";
 import { allowanceFor } from "./gate.js";
@@ -516,7 +516,8 @@ export async function handleChannels(request, env, url, { route, after }) {
       const page = await channelJournal(env, orgId, {
         resolved: ctx.resolved, members: ctx.members, tz, before, locale, provider, allowance, channelName: name,
       });
-      return json({ ...page, channel: ctx.view, tz });
+      const row = await channelRow(env.DB, orgId, ctx.resolved.key);
+      return json({ ...page, channel: ctx.view, tz, description: row?.description || null, describable: ctx.resolved.kind === "business" });
     } finally {
       await settleUsage(env.DB, provider, { orgId, githubId: ctx.who.session.github_id });
     }

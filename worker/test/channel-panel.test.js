@@ -84,6 +84,15 @@ test("without a model a day is its busiest conversations, in the order they happ
   ]);
 });
 
+test("a message in the journal's digest reads as prose, not markup", async () => {
+  const { plain } = await import("../src/journal.js");
+  expect(plain("*What I did today*\n- Approved the fridge\n- Wrote 5 messages\n\n*Tomorrow*\n- Call the roaster")).toBe(
+    "What I did today: Approved the fridge; Wrote 5 messages; Tomorrow: Call the roaster"
+  );
+  expect(plain("Price is up.\nTake it?")).toBe("Price is up. Take it?");
+  expect(plain("See `config.js` and _this_")).toBe("See config.js and this");
+});
+
 test("the links shared in a channel, once each, with who shared them", () => {
   const members = [{ login: "mika", name: "Mika" }];
   const links = linksIn([
@@ -159,12 +168,13 @@ test("the journal: a page of days, newest first, each citing its messages, to th
   const res = await get(`/channels/journal?${q({ orgId: ORG, channel: "b:cafe", tz: "Asia/Tokyo" })}`, mika, QUIET);
   expect(res.status).toBe(200);
   const page = await res.json();
-  expect(page).toMatchObject({ channel: "b:cafe", tz: "Asia/Tokyo", more: false, next: null });
+  expect(page).toMatchObject({ channel: "b:cafe", tz: "Asia/Tokyo", more: false, next: null, description: null, describable: true });
   expect(page.days.map((d) => [d.day, d.count])).toEqual([["2026-09-24", 2], ["2026-09-20", 1]]);
   expect(page.days[0].byModel).toBe(false);
   expect(page.days[0].items[0]).toEqual({
     text: "Mika: The roaster wants +8% from Friday https://docs.test/quote",
     messageIds: [roaster],
+    cites: [{ id: roaster, parentId: null, at: "2026-09-23T23:30:00Z" }],
     links: [{ url: "https://docs.test/quote", host: "docs.test" }],
   });
 
@@ -190,7 +200,12 @@ test("with a model the journal is written in the reader's language, cited, and k
   expect(prompt.messages[1].content).toContain("#cafe");
   expect(page.days[0]).toMatchObject({ day: "2026-09-24", count: 2, byModel: true });
   // A citation past the end is dropped, not invented.
-  expect(page.days[0].items).toEqual([{ text: "焙煎所の8%値上げを受け入れることにした。", messageIds: [a, b], links: [] }]);
+  expect(page.days[0].items).toEqual([{
+    text: "焙煎所の8%値上げを受け入れることにした。",
+    messageIds: [a, b],
+    cites: [{ id: a, parentId: null, at: "2026-09-24T01:00:00Z" }, { id: b, parentId: null, at: "2026-09-24T02:00:00Z" }],
+    links: [],
+  }]);
 
   // The same day, unchanged: from what was kept, no second call.
   const again = await (await get(`/channels/journal?${q({ orgId: ORG, channel: "b:cafe", tz: "UTC" })}`, toru, over)).json();

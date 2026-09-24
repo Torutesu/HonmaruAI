@@ -115,12 +115,15 @@ npx wrangler tail                              # live logs
 | `GITHUB_CLIENT_SECRET` | pending | Stays server-side; never returned to the client |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | pending | Web Push. `node scripts/vapid-keys.mjs` prints a pair — [docs/notifications.md](../docs/notifications.md) |
 | `MAILGUN_API_KEY` / `MAILGUN_DOMAIN` | pending | Email, the floor when no push reaches someone. `NOTIFY_EMAIL_FROM`, `MAILGUN_API_BASE`, `APP_WEB_URL` optional |
+| `CF_TURN_KEY_ID` / `CF_TURN_API_TOKEN` | optional | Jam (voice in a channel): Cloudflare TURN, for networks where browsers cannot reach each other directly. Or a fixed server: `JAM_TURN_URLS` (comma-separated), `JAM_TURN_USERNAME`, `JAM_TURN_CREDENTIAL`. Without either, STUN only |
 
 GitHub OAuth App: callback `tiktokforwork://oauth/callback`, homepage the base
 URL above.
 
 Optional env: `OPENAI_MODEL`, `GITHUB_REDIRECT_URI`, `GITHUB_OAUTH_SCOPE`
-(default `repo`), `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` (dev fallback).
+(default `repo`), `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` (dev fallback),
+`JAM_TRANSCRIBE_MODEL` (default `gpt-4o-mini-transcribe`; a recorded Jam's
+notes need an OpenAI key).
 
 ## Composio (Gmail connector)
 

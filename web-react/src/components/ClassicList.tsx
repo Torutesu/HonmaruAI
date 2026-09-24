@@ -9,6 +9,10 @@ import { useT } from '../utils/i18n'
 import { useMembers } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
 import { MessageActions, Reactions, EmojiPicker, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
+import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
+import type { DetailsTab, JournalCite } from './ChannelPanes'
+import { JamCall } from '../utils/jam'
+import type { JamMode, JamState } from '../utils/jam'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -996,7 +1000,113 @@ export const ClassicList: React.FC<Props> = ({
   // thread — never by leaving the list for the feed.
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = detailId ? cardsById.get(detailId) : undefined
-  const openCard = (id: string) => { setThread(null); setProfile(null); setDetailId(id) }
+  const openCard = (id: string) => { setThread(null); setProfile(null); setSide(null); setDetailId(id) }
+
+  // ---- What the header opens ----
+  // The journal ("Context"), or the channel's details on one of its tabs.
+  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const openSide = (next: { kind: 'journal' } | { kind: 'details'; tab: DetailsTab }) => {
+    setDetailId(null); setThread(null); setProfile(null); setPins(null)
+    setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
+  }
+  useEffect(() => { setSide(null) }, [current?.key])
+  // How many automations run into each channel, for the header's count.
+  const [automationCount, setAutomationCount] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!view || !view.startsWith('b:') || automationCount[view] !== undefined) return
+    let ignore = false
+    fetch(`${api.httpBase}/channels/details?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(view)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!ignore && d?.counts) setAutomationCount((prev) => ({ ...prev, [view]: d.counts.automations })) })
+      .catch(() => { /* the button still opens the panel */ })
+    return () => { ignore = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, api.httpBase, api.orgId, authHeaders])
+  /// A journal line's citation: the message, in its conversation — loading
+  /// back to it when it is further up than what is loaded — or its thread.
+  const goToCite = async (channel: string, cite: JournalCite) => {
+    if (cite.parentId) {
+      const list = messagesRef.current[channel] || []
+      const parent = list.find((m) => m.id === cite.parentId) || ({ id: cite.parentId, channel, kind: 'message', body: '', authorName: null, authorRef: null, mine: false, cardId: null, createdAt: '' } as ChannelMessage)
+      setSide(null)
+      void openThread(channel, parent)
+      return
+    }
+    let list = messagesRef.current[channel] || []
+    let older = more[channel]
+    for (let page = 0; page < 20 && older && list.length && !list.some((m) => m.id === cite.id); page += 1) {
+      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&before=${encodeURIComponent(list[0].createdAt)}`, { headers: authHeaders }).catch(() => null)
+      const data = res?.ok ? await res.json().catch(() => null) : null
+      if (!data) break
+      const got = (data.messages || []) as ChannelMessage[]
+      const known = new Set(list.map((m) => m.id))
+      list = [...got.filter((m) => !known.has(m.id)), ...list]
+      older = got.length >= PAGE
+    }
+    const merged = list
+    setMessages((prev) => ({ ...prev, [channel]: merged }))
+    setMore((prev) => ({ ...prev, [channel]: Boolean(older) }))
+    setTimeout(() => jumpTo(cite.id), 80)
+  }
+
+  // ---- Jam ----
+  // Who is talking in which channel, and the call this tab is in.
+  const [jams, setJams] = useState<Record<string, JamState>>({})
+  const [call, setCall] = useState<JamCall | null>(null)
+  const [, setCallTick] = useState(0)
+  const [jamBusy, setJamBusy] = useState(false)
+  const callRef = useRef<JamCall | null>(null)
+  callRef.current = call
+  useEffect(() => {
+    const on = (e: Event) => {
+      const { name, value } = (e as CustomEvent<{ name: string; value: any }>).detail || {}
+      if (name === 'jam_state' && value?.channel) {
+        setJams((prev) => {
+          const next = { ...prev }
+          if (value.active) next[value.channel] = value as JamState
+          else delete next[value.channel]
+          return next
+        })
+      } else if (name === 'reset') {
+        // The relay sends what is going on again after this.
+        setJams({})
+      }
+    }
+    window.addEventListener('honmaru:jam', on)
+    return () => window.removeEventListener('honmaru:jam', on)
+  }, [])
+  // Leaving the list — or the page — leaves the call.
+  useEffect(() => () => { void callRef.current?.leave() }, [])
+  const leaveJam = async () => {
+    const c = callRef.current
+    setCall(null)
+    if (c) { setJamBusy(true); await c.leave(); setJamBusy(false) }
+  }
+  const startJam = async (channel: string, opts: { micId?: string; speakerId?: string; mode: JamMode }) => {
+    if (jamBusy) return
+    setJamBusy(true); setProblem(null)
+    if (callRef.current) await callRef.current.leave()
+    const where = everything.find((x) => x.view === channel)
+    const c: JamCall = new JamCall({
+      channel, mode: opts.mode, micId: opts.micId, speakerId: opts.speakerId,
+      onChange: () => { setCallTick((n) => n + 1); if (c.ended && callRef.current === c) setCall(null) },
+      onProblem: (m) => setProblem(t(m)),
+      upload: async (blob, meta) => {
+        const q = new URLSearchParams({ orgId: api.orgId, channel, mode: meta.mode, startedAt: meta.startedAt, endedAt: meta.endedAt, people: meta.people.join(',') })
+        const res = await fetch(`${api.httpBase}/channels/jam/recording?${q}`, { method: 'POST', headers: { ...authHeaders, 'content-type': blob.type || 'audio/webm' }, body: blob })
+        if (!res.ok) throw new Error('upload')
+        note(channel, t('Your AI is writing notes from the Jam. They will appear in {where}.', { where: where?.kind === 'channel' ? `#${where.name}` : (where?.name || '') }))
+      },
+    })
+    setCall(c)
+    try {
+      await c.start()
+    } catch {
+      setCall(null)
+      setProblem(t('Your microphone could not be opened. Allow it for this site and try again.'))
+    }
+    setJamBusy(false)
+  }
   useEffect(() => {
     if (!detailId && !thread) return
     const onKey = (e: KeyboardEvent) => {
@@ -1407,6 +1517,45 @@ export const ClassicList: React.FC<Props> = ({
             </p>
           </div>
           {thread.view && (
+            <div className="slk-head-actions">
+              <button
+                type="button"
+                className={`slk-head-btn slk-context-button${side?.kind === 'journal' ? ' on' : ''}`}
+                onClick={() => openSide({ kind: 'journal' })}
+                aria-label={t('Context')} title={t('Context')} aria-expanded={side?.kind === 'journal'}
+              >
+                <Icon name="book" size={15} />
+              </button>
+              {thread.kind === 'channel' && (
+                <button
+                  type="button"
+                  className={`slk-head-btn slk-automations-button${side?.kind === 'details' && side.tab === 'automations' ? ' on' : ''}`}
+                  onClick={() => openSide({ kind: 'details', tab: 'automations' })}
+                  aria-label={t('Automations ({n})', { n: automationCount[thread.view] ?? 0 })} title={t('Automations')}
+                >
+                  <Icon name="repeat" size={14} /><span>{automationCount[thread.view] ?? 0}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className={`slk-head-btn slk-members-button${side?.kind === 'details' && side.tab === 'members' ? ' on' : ''}`}
+                onClick={() => openSide({ kind: 'details', tab: 'members' })}
+                aria-label={t('Members ({n})', { n: thread.kind === 'channel' ? members.length : 2 })} title={t('Members')}
+              >
+                <Icon name="you" size={14} /><span>{thread.kind === 'channel' ? members.length : 2}</span>
+              </button>
+              {thread.kind !== 'app' && (
+                <JamButton
+                  state={jams[thread.view]}
+                  inThis={Boolean(call && call.channel === thread.view)}
+                  busy={jamBusy}
+                  onStart={(opts) => void startJam(thread.view!, opts)}
+                  onLeave={() => void leaveJam()}
+                />
+              )}
+            </div>
+          )}
+          {thread.view && (
             <button
               className={`slk-pins-button${pins ? ' on' : ''}`}
               onClick={() => void loadPins(thread.view!)}
@@ -1447,6 +1596,14 @@ export const ClassicList: React.FC<Props> = ({
               ))}
             </ul>
           </div>
+        )}
+        {call && !call.ended && (
+          <JamBar
+            call={call}
+            where={(() => { const w = everything.find((x) => x.view === call.channel); return w ? (w.kind === 'channel' ? `#${w.name}` : w.name) : '' })()}
+            onMute={(m) => call.setMuted(m)}
+            onLeave={() => void leaveJam()}
+          />
         )}
         <nav className="slk-tabs" role="tablist" aria-label={t('View')}>
           <button role="tab" aria-selected={tab === 'messages'} className={tab === 'messages' ? 'on' : ''} onClick={() => setTab('messages')}>
@@ -1828,6 +1985,32 @@ export const ClassicList: React.FC<Props> = ({
             )
           })()}
         </aside>
+      )}
+      {!detail && !thread && !profile && side && current?.view && (
+        side.kind === 'journal'
+          ? (
+            <ChannelJournal
+              api={api} headers={authHeaders} view={current.view} locale={locale}
+              title={current.kind === 'channel' ? `#${current.name}` : current.name}
+              onCite={(c) => void goToCite(current.view!, c)}
+              onClose={() => setSide(null)}
+            />
+          )
+          : (
+            <ChannelDetails
+              api={api} headers={authHeaders} view={current.view} locale={locale}
+              tab={side.tab}
+              onTab={(tab) => setSide({ kind: 'details', tab })}
+              level={prefs[current.view] || 'all'}
+              onLevel={(lv) => void setPref(current.view!, lv)}
+              onSettings={current.kind === 'channel' && current.slug ? () => { setSettings(true); setRenaming(null) } : null}
+              onInvite={() => (onOpenScreen ? onOpenScreen('team') : onWorkspace())}
+              onProfile={(ref) => void openProfile(ref)}
+              onJump={(id) => void goToCite(current.view!, { id, parentId: null, at: '' })}
+              onCounts={(n) => setAutomationCount((prev) => ({ ...prev, [current.view!]: n.automations }))}
+              onClose={() => setSide(null)}
+            />
+          )
       )}
       {!detail && thread && (
         <aside className="slk-pane slk-thread-pane" aria-label={t('Thread')}>

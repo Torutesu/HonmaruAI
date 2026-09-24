@@ -227,11 +227,15 @@ export function renderRich(text: string, mentionClass: (name: string) => string)
   return out
 }
 
+const JAM_AUDIO = /^https?:\/\/[^\s]+\/channels\/jam\/audio\/[0-9a-f-]{36}$/
+
 function inline(line: string, mentionClass: (name: string) => string): React.ReactNode[] {
   const tokens = line.split(/(`[^`\n]+`|https?:\/\/[^\s<>"）」]+|[@＠][^\s@＠,，。、!?！？:;]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g)
   return tokens.map((part, i) => {
     if (!part) return null
     if (/^`[^`]+`$/.test(part)) return <code key={i} className="slk-code">{part.slice(1, -1)}</code>
+    // A Jam's recording plays where it was posted.
+    if (JAM_AUDIO.test(part)) return <audio key={i} className="slk-jam-audio" controls preload="none" src={part} />
     if (/^https?:\/\//.test(part)) return <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
     if (/^[@＠]/.test(part)) return <span key={i} className={mentionClass(part)}>{part}</span>
     if (/^\*[^*]+\*$/.test(part)) return <b key={i}>{inline(part.slice(1, -1), mentionClass)}</b>

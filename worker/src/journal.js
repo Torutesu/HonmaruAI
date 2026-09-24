@@ -85,11 +85,27 @@ export function dayDigest(rows, members, locale) {
   for (const r of rows) if (r.parent_id) replies.set(r.parent_id, (replies.get(r.parent_id) || 0) + 1);
   const tops = rows.filter((r) => !r.parent_id && String(r.body || "").trim());
   const picked = [...tops]
-    .sort((a, b) => (replies.get(b.id) || 0) - (replies.get(a.id) || 0) || (b.kind === "ai") - (a.kind === "ai") || String(b.body).length - String(a.body).length)
+    .sort((a, b) => (replies.get(b.id) || 0) - (replies.get(a.id) || 0) || (a.kind === "ai") - (b.kind === "ai") || String(b.body).length - String(a.body).length)
     .slice(0, 4);
   return tops
     .filter((r) => picked.includes(r))
-    .map((r) => ({ text: `${authorOf(r, members, locale)}: ${clip(r.body, 180)}`, messageIds: [r.id] }));
+    .map((r) => ({ text: `${authorOf(r, members, locale)}: ${clip(plain(r.body), 180)}`, messageIds: [r.id] }));
+}
+
+/// A message as a line of prose: its formatting marks gone, its lines and
+/// list items run together.
+export function plain(body) {
+  const lines = String(body || "")
+    .split("\n")
+    .map((line) => ({
+      // A line that is all bold is a heading: what follows is under it.
+      heading: /^\s*\*[^*]+\*\s*$/.test(line),
+      text: line.replace(/^\s*(?:[-•]\s+|\d+[.)]\s+|>\s?)/, "").replace(/[*_~`]+/g, "").trim(),
+    }))
+    .filter((l) => l.text);
+  return lines
+    .map((l, i) => (i === lines.length - 1 || /[.!?。！？:：;]$/.test(l.text) ? l.text : `${l.text}${l.heading ? ":" : ";"}`))
+    .join(" ");
 }
 
 /// The day by the model, in the reader's language. Null when it could not.
@@ -137,15 +153,18 @@ export async function summarizeDay(rows, { locale, members, provider, allowance,
   }
 }
 
-/// The links an item's messages carried, for chips under it.
+/// Each item's citations — where the message is, so a click can go to it,
+/// a reply by way of its thread — and the links they carried, for chips.
 function withLinks(items, rows, members) {
   const byId = new Map(rows.map((r) => [r.id, r]));
-  return items.map((item) => ({
-    ...item,
-    links: linksIn(item.messageIds.map((id) => byId.get(id)).filter(Boolean), members)
-      .slice(0, 3)
-      .map(({ url, host }) => ({ url, host })),
-  }));
+  return items.map((item) => {
+    const cited = item.messageIds.map((id) => byId.get(id)).filter(Boolean);
+    return {
+      ...item,
+      cites: cited.map((r) => ({ id: r.id, parentId: r.parent_id || null, at: r.created_at })),
+      links: linksIn(cited, members).slice(0, 3).map(({ url, host }) => ({ url, host })),
+    };
+  });
 }
 
 /// One page of the journal: the `JOURNAL_DAYS` days with messages before

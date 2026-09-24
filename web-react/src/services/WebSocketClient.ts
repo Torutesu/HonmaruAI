@@ -52,6 +52,9 @@ export class WebSocketClient {
   onChannelProgress?: (progress: { channel: string; parentId: string | null; messageId: string; step: string; cardId?: string; recipientName?: string | null }) => void
   onComment?: (cardId: string, comment: { id: string; author: string; authorName?: string | null; body: string; mentions: string[]; createdAt: string }) => void
   onReaction?: (cardId: string, emoji: string, on: boolean, by: string, reactions: Record<string, number>) => void
+  /// A Jam: who is talking where, this browser's place in one, the signals
+  /// its calls need, and a channel's description changing.
+  onJam?: (name: string, value: any) => void
   /// The workspace's channels changed: somebody made, renamed or deleted one.
   onBusinesses?: (businesses: Array<{ slug: string; name: string }>) => void
   onError?: (message: string) => void
@@ -238,6 +241,14 @@ export class WebSocketClient {
     }
   }
 
+  /// A Jam message goes now or not at all: an offer or a candidate kept for
+  /// a later socket belongs to a call that socket is not in.
+  sendJam(type: string, payload: unknown): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.joined) return false
+    this.ws.send(JSON.stringify({ type, payload }))
+    return true
+  }
+
   /// Send now if the relay will take it, otherwise keep it for when it will.
   private post(message: { type: string; payload: unknown }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.joined) {
@@ -358,6 +369,8 @@ export class WebSocketClient {
       this.onChannelMessage?.(event.value.message)
     } else if (event.name === 'channel_ai_progress' && event.value?.channel) {
       this.onChannelProgress?.(event.value)
+    } else if (typeof event.name === 'string' && (event.name.startsWith('jam_') || event.name === 'channel_described') && event.value) {
+      this.onJam?.(event.name, event.value)
     } else if (event.name === 'reaction' && event.value) {
       this.onReaction?.(event.value.cardId, event.value.emoji, Boolean(event.value.on), event.value.by, event.value.reactions || {})
     }
