@@ -5,6 +5,7 @@ import { AccessCodeError, loadBillingStatus, redeemAccessCode, type BillingStatu
 interface Props {
   httpBase: string
   sessionToken: string
+  orgId?: string
   onClose: () => void
 }
 
@@ -14,7 +15,7 @@ export const Plans: React.FC<Props> = (props) => (
   <AccountPlans key={`${props.httpBase}\0${props.sessionToken}`} {...props} />
 )
 
-const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
+const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose, orgId }) => {
   const t = useT()
   const [status, setStatus] = useState<BillingStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -31,7 +32,7 @@ const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
     lifecycle.current = controller
     statusLoading.current = true
     setError(null); setChecking(true)
-    loadBillingStatus(httpBase, sessionToken, controller.signal)
+    loadBillingStatus(httpBase, sessionToken, controller.signal, orgId)
       .then((next) => { if (!controller.signal.aborted) setStatus(next) })
       .catch((err) => {
         if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Could not load plans.')
@@ -69,7 +70,7 @@ const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
       setError(err instanceof Error ? err.message : 'Could not activate free access. Try again.')
       if (err instanceof AccessCodeError && err.status === 503) {
         try {
-          const next = await loadBillingStatus(httpBase, sessionToken, controller.signal)
+          const next = await loadBillingStatus(httpBase, sessionToken, controller.signal, orgId)
           if (controller.signal.aborted) return
           setStatus(next)
           if (next.complimentary) { setCode(''); setError(null) }
@@ -114,7 +115,9 @@ const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose }) => {
               <ul className="plan-features">
                 <li>{status.pro
                   ? t('Unlimited AI routing')
-                  : t('{n} AI-routed decisions a day', { n: status.dailyLimit })}</li>
+                  : status.workspaceKey
+                    ? t('Unlimited: this workspace runs on its own OpenAI key.')
+                    : t('{n} AI-routed decisions a day', { n: status.dailyLimit })}</li>
                 {!status.pro && status.remainingToday !== null && <li>{t('{n} left today', { n: status.remainingToday })}</li>}
               </ul>
               {status.complimentary && <p className="lede" role="status">{t(status.complimentarySyncPending

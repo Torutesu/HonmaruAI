@@ -4,7 +4,9 @@ export interface BillingStatus {
   plan: string
   pro: boolean
   purchasable: boolean
-  accessSource: 'complimentary' | 'subscription' | 'free'
+  accessSource: 'complimentary' | 'subscription' | 'workspace' | 'free'
+  /// The workspace runs on its own OpenAI key, so nothing here is metered.
+  workspaceKey: boolean
   complimentary: boolean
   complimentarySyncPending: boolean
   complimentaryAvailable: boolean
@@ -25,7 +27,8 @@ function statusFrom(body: Record<string, unknown>): BillingStatus {
     plan: body.pro ? 'pro' : 'free',
     pro: body.pro,
     purchasable: body.purchasable,
-    accessSource: complimentary ? 'complimentary' : body.pro ? 'subscription' : 'free',
+    accessSource: complimentary ? 'complimentary' : body.pro ? 'subscription' : body.workspaceKey === true ? 'workspace' : 'free',
+    workspaceKey: body.workspaceKey === true,
     complimentary,
     complimentarySyncPending: complimentary && body.complimentarySyncPending === true,
     complimentaryAvailable: body.complimentaryAvailable === true,
@@ -39,8 +42,8 @@ export class AccessCodeError extends Error {
   constructor(message: string, readonly status: number) { super(message) }
 }
 
-export async function loadBillingStatus(base: string, token: string, signal: AbortSignal): Promise<BillingStatus> {
-  const response = await fetch(`${base}/billing/status`, {
+export async function loadBillingStatus(base: string, token: string, signal: AbortSignal, orgId?: string): Promise<BillingStatus> {
+  const response = await fetch(`${base}/billing/status${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ''}`, {
     headers: { 'x-session-token': token },
     cache: 'no-store',
     signal,

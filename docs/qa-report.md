@@ -58,6 +58,13 @@ decided it and however they signed in; the card carries the issue back to
 every client. The router's GitHub lookup and "ask" search use the
 workspace's repository too.
 
+**A workspace key is unmetered.** `allowanceFor(env, orgId, …)` treats the
+workspace's own OpenAI key like a person's: no daily allowance, their bill.
+Every metered call (route, ask, draft, translate, triage, sync, filing, the
+relay's enrichment) goes through it, and `GET /billing/status?orgId=` says
+`workspaceKey: true` with no remaining count, which the Plans screen shows
+as unlimited.
+
 **Your AI is editable.** Tools → Your AI was a read-out of the Worker's
 secrets, with nothing to change or enter. Now `org_ai_settings` holds a
 model, an OpenAI key and a TypeSafe key per workspace; `GET/PUT /orgs/ai`

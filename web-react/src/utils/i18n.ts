@@ -15,6 +15,7 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'Unlimited: this workspace runs on its own OpenAI key.': '無制限：このワークスペースは自前の OpenAI キーで動いています。',
   'Connected with your GitHub account; the workspace writes issues as you.': 'あなたの GitHub アカウントで接続。ワークスペースはあなたとして Issue を書きます。',
   'Every decision here becomes an issue in {repo}.': 'ここでの決定はすべて {repo} の Issue になります。',
   Repository: 'リポジトリ',
@@ -715,6 +716,7 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'Unlimited: this workspace runs on its own OpenAI key.': 'Ilimitado: este espacio de trabajo usa su propia clave de OpenAI.',
   'Connected with your GitHub account; the workspace writes issues as you.': 'Conectado con tu cuenta de GitHub; el espacio de trabajo escribe los issues como tú.',
   'Every decision here becomes an issue in {repo}.': 'Cada decisión aquí se convierte en un issue en {repo}.',
   Repository: 'Repositorio',
@@ -1092,6 +1094,7 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'Unlimited: this workspace runs on its own OpenAI key.': 'Illimité : cet espace de travail utilise sa propre clé OpenAI.',
   'Connected with your GitHub account; the workspace writes issues as you.': 'Connecté avec votre compte GitHub ; l’espace de travail écrit les issues en votre nom.',
   'Every decision here becomes an issue in {repo}.': 'Chaque décision ici devient une issue dans {repo}.',
   Repository: 'Dépôt',
@@ -1472,6 +1475,7 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'Unlimited: this workspace runs on its own OpenAI key.': 'Unbegrenzt: Dieser Arbeitsbereich läuft auf seinem eigenen OpenAI-Schlüssel.',
   'Connected with your GitHub account; the workspace writes issues as you.': 'Mit deinem GitHub-Konto verbunden; der Arbeitsbereich schreibt Issues als du.',
   'Every decision here becomes an issue in {repo}.': 'Jede Entscheidung hier wird zu einem Issue in {repo}.',
   Repository: 'Repository',

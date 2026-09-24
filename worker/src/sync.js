@@ -2,7 +2,7 @@ import { executeTool } from "./composio.js";
 import { toolSlugFor } from "./connectors/index.js";
 import { triageMessage } from "./triage.js";
 import { isIngested, markIngested, saveCard, getConnectorConfig } from "./db.js";
-import { checkAIAllowance } from "./gate.js";
+import { allowanceFor } from "./gate.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { jevFor } from "./orgAI.js";
 
@@ -36,7 +36,7 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     let cardId = null;
     // Checked per message, so a sync stops creating cards the moment the day's
     // allowance runs out rather than blowing through it.
-    const allowance = await checkAIAllowance(env, { githubId: String(session.github_id) });
+    const allowance = await allowanceFor(env, orgId, { githubId: String(session.github_id) });
     // System One asks "does this need a decision?" for a fraction of a cent
     // whether or not the person has language-model allowance left; the
     // model is only offered for the words, and only within the allowance.
@@ -57,7 +57,7 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
       const business = await fileCardUnderBusiness(env, {
         orgId, provider, githubId: session.github_id,
         card: { ...triaged, sourceDetail: `${message.from} · ${message.subject}` },
-        allowance: await checkAIAllowance(env, { githubId: String(session.github_id) }),
+        allowance: await allowanceFor(env, orgId, { githubId: String(session.github_id) }),
       });
       await saveCard(env.DB, orgId, {
         id: cardId,

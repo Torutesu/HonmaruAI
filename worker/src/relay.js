@@ -17,7 +17,7 @@ import { localizeCard } from "./localize.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { providerFor } from "./orgAI.js";
 import { syncCardToGitHub, getWorkspaceGitHub } from "./githubWorkspace.js";
-import { checkAIAllowance } from "./gate.js";
+import { allowanceFor } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 import { listMembers } from "./team.js";
@@ -668,7 +668,7 @@ export class OrgRelay {
     try {
       if (translate && provider) {
         const allowance = senderGithubId
-          ? await checkAIAllowance(this.env, { githubId: String(senderGithubId) })
+          ? await allowanceFor(this.env, orgId, { githubId: String(senderGithubId) })
           : undefined;
         let changed = false;
         // Which business this is about, decided here rather than asked.

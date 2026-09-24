@@ -636,7 +636,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         <Insights httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
       )}
       {screen === 'plans' && (
-        <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+        <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={() => setScreen(null)} />
       )}
       {screen === 'profile' && (
         <Profile
