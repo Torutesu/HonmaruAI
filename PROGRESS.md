@@ -250,6 +250,22 @@ The list of what is still missing, and why each item matters, is
       from 50% to 75% with no model at all
 
 ### Product
+- [x] **Threads, mentions, reactions**: a comment thread under every card
+      (web and phone), "@" offers the team's names and reaches whoever is named,
+      one mention names the recipient of an instruction, six reactions; the
+      card carries its reply count so every list shows it
+- [x] **Invitations are three-day links**, never a bare code; a pasted link
+      joins wherever a code did
+- [x] **Roles in your own words**: any member sets their own title (any script,
+      40 characters), presets as suggestions; standing never changes
+- [x] **Tools → Your AI is editable per workspace**: model, OpenAI key and
+      TypeSafe key set by an admin, used by every model call, billed as theirs
+- [x] **Classic is a chat client's home**: team header, jump-to search, Channels
+      (businesses), Direct messages (people, with presence) and Apps (Gmail,
+      Slack, your AI); unread in bold with a count, a conversation opens its
+      decisions, each opens as a card
+- [x] **"How I work" is stored per person, per workspace** (`/me/context`), shared
+      by the phone and the web, and read by the router when a client sends none
 - [x] Vertical decision feed, swipe to approve/decline, delegate, revise, undo
 - [x] Instruction → Decision Card via OpenAI, keyword router as the always-available fallback
 - [x] Real org graph from GitHub repository collaborators
@@ -350,6 +366,11 @@ The list of what is still missing, and why each item matters, is
       and desktop sizes against a fake relay
 
 ### Access and safety
+- [x] **One workspace, never another.** Every org-scoped read is membership-checked,
+      the socket upgrade requires an `orgId` (no default room), the web
+      Dashboard is keyed by workspace so a switch restarts its state and cache,
+      and `workspace-isolation.test.js` holds a member of one team against
+      every read of another
 - [x] A card cannot be overwritten by reusing its id. `saveCard` is an upsert
       and `card_created` never asked whether the id was taken, so any member
       could replace any card in the org — decision included — and have it

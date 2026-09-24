@@ -36,4 +36,13 @@ describe('sender context', () => {
     expect(getSenderContext()).toBe('')
     expect(localStorage.getItem('senderContext')).toBeNull()
   })
+
+  it('keeps one copy per workspace, and never reads one for another', () => {
+    setSenderContext('I run the cafe.', 'team:a')
+    setSenderContext('I run the hotel.', 'team:b')
+    expect(getSenderContext('team:a')).toBe('I run the cafe.')
+    expect(getSenderContext('team:b')).toBe('I run the hotel.')
+    expect(getSenderContext('team:c')).toBe('')
+    expect(getSenderContext()).toBe('')
+  })
 })

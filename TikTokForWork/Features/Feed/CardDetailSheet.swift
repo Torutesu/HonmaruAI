@@ -26,6 +26,13 @@ struct CardDetailSheet: View {
     @State private var sentVia: String?
     @State private var sendError: String?
 
+    /// The thread: what people said under this card, the reactions, and
+    /// the box for the next thing. "@Name" reaches that person.
+    @State private var thread: ThreadService.Thread?
+    @State private var threadError: String?
+    @State private var comment = ""
+    @State private var posting = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -43,6 +50,10 @@ struct CardDetailSheet: View {
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .lineSpacing(4)
+                    }
+
+                    detailSection(title: "Thread") {
+                        threadBlock
                     }
 
                     detailSection(title: "Ask your AI") {
@@ -129,6 +140,125 @@ struct CardDetailSheet: View {
         }
         .presentationBackground(Theme.Colors.surface)
         .presentationDragIndicator(.visible)
+        .task { await loadThread() }
+    }
+
+    private var orgIdForThread: String { appState.currentUser?.teamID ?? SessionStore.orgId ?? "" }
+
+    @ViewBuilder private var threadBlock: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            if let thread, !thread.reactions.isEmpty || !thread.available.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(thread.reactions) { r in
+                            Button { react(r.emoji) } label: {
+                                Text("\(r.emoji) \(r.count)")
+                                    .font(Theme.TypeScale.caption)
+                                    .padding(.horizontal, 9).padding(.vertical, 4)
+                                    .background(r.mine ? Theme.Colors.interactive.opacity(0.15) : Theme.Colors.surfaceRaised)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text("\(r.emoji) \(r.count)"))
+                        }
+                        Menu {
+                            ForEach(thread.available, id: \.self) { emoji in
+                                Button(emoji) { react(emoji) }
+                            }
+                        } label: {
+                            Image(systemName: "face.smiling")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                                .padding(6)
+                        }
+                        .accessibilityLabel(Text("Add a reaction"))
+                    }
+                }
+            }
+            if let threadError {
+                Text(threadError).font(Theme.TypeScale.caption).foregroundStyle(Theme.Colors.reject)
+            } else if let thread {
+                if thread.comments.isEmpty {
+                    Text("Nobody has said anything yet.")
+                        .font(Theme.TypeScale.caption)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+                ForEach(thread.comments) { c in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(c.author == appState.currentUser?.id ? String(localized: "You") : c.displayAuthor)
+                                .font(Theme.TypeScale.caption.weight(.semibold))
+                                .foregroundStyle(Theme.Colors.textPrimary)
+                            Text(String(c.createdAt.prefix(10)))
+                                .font(Theme.TypeScale.caption)
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                        }
+                        Text(c.body)
+                            .font(Theme.TypeScale.body)
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                            .textSelection(.enabled)
+                    }
+                    .padding(.vertical, 4)
+                }
+            } else {
+                ProgressView().controlSize(.small)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(String(localized: "Reply in thread — @ to name someone"), text: $comment, axis: .vertical)
+                    .lineLimit(1...4)
+                    .font(Theme.TypeScale.body)
+                    .padding(8)
+                    .background(Theme.Colors.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .disabled(posting)
+                Button(posting ? String(localized: "Sending…") : String(localized: "Send")) { postComment() }
+                    .font(Theme.TypeScale.caption.weight(.semibold))
+                    .disabled(posting || comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
+    @MainActor private func loadThread() async {
+        guard let base = appState.backendBaseURL, !orgIdForThread.isEmpty else { return }
+        do {
+            thread = try await ThreadService.load(cardId: card.id, orgId: orgIdForThread, backendBaseURL: base)
+            threadError = nil
+        } catch {
+            threadError = error.localizedDescription
+        }
+    }
+
+    private func postComment() {
+        let text = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !posting, !text.isEmpty, let base = appState.backendBaseURL, !orgIdForThread.isEmpty else { return }
+        Haptics.light()
+        posting = true
+        Task { @MainActor in
+            do {
+                let posted = try await ThreadService.post(cardId: card.id, orgId: orgIdForThread, body: text, backendBaseURL: base)
+                let current = thread ?? ThreadService.Thread(comments: [], reactions: [], available: [])
+                thread = ThreadService.Thread(comments: current.comments + [posted], reactions: current.reactions, available: current.available)
+                comment = ""
+                threadError = nil
+            } catch {
+                threadError = error.localizedDescription
+            }
+            posting = false
+        }
+    }
+
+    private func react(_ emoji: String) {
+        guard let base = appState.backendBaseURL, !orgIdForThread.isEmpty else { return }
+        Haptics.light()
+        Task { @MainActor in
+            do {
+                let reactions = try await ThreadService.react(cardId: card.id, orgId: orgIdForThread, emoji: emoji, backendBaseURL: base)
+                let current = thread ?? ThreadService.Thread(comments: [], reactions: [], available: [])
+                thread = ThreadService.Thread(comments: current.comments, reactions: reactions, available: current.available)
+            } catch {
+                threadError = error.localizedDescription
+            }
+        }
     }
 
     private var issueLabel: String {

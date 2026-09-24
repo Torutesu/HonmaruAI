@@ -5,7 +5,7 @@ import { notifyCard } from "./notify.js";
 import { sweepRateLimits } from "./ratelimit.js";
 import { cardsCreatedSince, primaryOrgId } from "./db.js";
 import { announceCards } from "./announce.js";
-import { providerConfig } from "./provider.js";
+import { providerFor } from "./orgAI.js";
 import { alert } from "./alert.js";
 import { safe } from "./log.js";
 
@@ -56,7 +56,6 @@ async function candidates(db) {
 }
 
 export async function runScheduledSync(env, ctx) {
-  const provider = providerConfig(env);
   const rows = await candidates(env.DB);
   let synced = 0;
   let created = 0;
@@ -69,6 +68,8 @@ export async function runScheduledSync(env, ctx) {
       github_access_token: row.github_access_token,
     };
     try {
+      // The workspace's own model and key, when it has set them.
+      const provider = await providerFor(env, row.org_id);
       // One user's broken connector must not stop the rest of the run, exactly
       // as one connector's outage does not silence the others inside syncAll.
       // The connectors this deployment can actually run — not the whole

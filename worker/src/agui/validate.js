@@ -93,5 +93,18 @@ export function validateIncomingCard(card) {
     if (typeof card.decision !== "object" || card.decision === null) return "decision must be an object.";
     if (!ACTIONS.has(card.decision.action)) return `Unknown decision action: ${card.decision.action}`;
   }
+  // Who the sender named with an @: member refs, a handful at most. The relay
+  // resolves them against the real member list; here they only have to be
+  // short strings.
+  if (card.mentions !== undefined) {
+    if (!Array.isArray(card.mentions) || card.mentions.length > 10) return "mentions must be a list of at most 10.";
+    for (const m of card.mentions) {
+      if (typeof m !== "string" || !m || m.length > 128) return "Each mention must be a short string.";
+    }
+  }
+  // The thread's summary is the server's to write (see threads.js); a client
+  // may carry it back unchanged, but not invent it.
+  if (card.commentCount !== undefined && (typeof card.commentCount !== "number" || card.commentCount < 0)) return "commentCount must be a number.";
+  if (card.reactions !== undefined && (typeof card.reactions !== "object" || card.reactions === null)) return "reactions must be an object.";
   return null;
 }

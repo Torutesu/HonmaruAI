@@ -339,3 +339,66 @@
 .answer-sources { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .answer-sources a { color: #6647f0; text-decoration: none; }
 .answer-sources a:hover { text-decoration: underline; }
+
+/* The thread: comments among the events, a box to add one, reactions on top. */
+.thread-comment { color: #202020; white-space: pre-wrap; word-break: break-word; }
+.t-comment .thread-head { font-weight: 600; }
+.t-comment.mentions-you { background: #fff8e1; margin: 0 -8px; padding: 4px 8px; border-radius: 8px; }
+.mention { color: #1264a3; background: #e8f5fa; border-radius: 4px; padding: 0 3px; font-weight: 500; }
+.thread-reply { position: relative; display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+.thread-box {
+  flex: 1; min-width: 0; resize: none; font: inherit; font-size: 13px; line-height: 1.4;
+  padding: 8px 10px; border: 1px solid #e8e8e8; border-radius: 10px; background: #fff; color: #202020;
+}
+.thread-box:focus { outline: none; border-color: #838383; }
+.thread-send {
+  flex: none; border: none; border-radius: 9999px; padding: 8px 14px; font: inherit; font-size: 13px;
+  background: #202020; color: #fff; cursor: pointer;
+}
+.thread-send[disabled] { opacity: .5; cursor: default; }
+.reactions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.reactions:empty { display: none; }
+.reaction {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid #e8e8e8; background: #f8f9fa; color: #202020; border-radius: 9999px;
+  padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.reaction.mine { border-color: #1264a3; background: #e8f5fa; color: #1264a3; }
+.reaction-add { position: relative; display: inline-block; }
+.reaction-add-btn {
+  cursor: pointer; width: 26px; height: 26px; border-radius: 9999px; background: none; padding: 0;
+  border: 1px dashed #d4d4d4; color: #838383; display: grid; place-items: center; font-size: 15px; line-height: 1;
+}
+.reaction-choices {
+  position: absolute; z-index: 5; top: 30px; left: 0;
+  display: flex; gap: 2px; padding: 4px; background: #fff; border: 1px solid #e8e8e8; border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+}
+.reaction-choices button { border: none; background: none; font-size: 18px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+.reaction-choices button:hover { background: #eeeeee; }
+.mention-menu {
+  position: absolute; z-index: 6; left: 0; bottom: calc(100% + 6px);
+  list-style: none; margin: 0; padding: 4px; min-width: 200px; max-width: 320px;
+  background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.14);
+}
+.mention-option {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: none; background: none; padding: 6px 8px; border-radius: 8px; font: inherit; font-size: 13px; color: #202020; cursor: pointer;
+}
+.mention-option.on { background: #1264a3; color: #fff; }
+.mention-avatar { width: 22px; height: 22px; border-radius: 6px; background: #e8e8e8; color: #202020; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
+.mention-option.on .mention-avatar { background: rgba(255,255,255,.25); color: #fff; }
+.create-decision { position: relative; }
+@media (prefers-color-scheme: dark) {
+  .thread-comment { color: #f2f2f2; }
+  .t-comment.mentions-you { background: #2a2410; }
+  .mention { background: #163b4f; color: #8ed1f5; }
+  .thread-box { background: #0f0f0f; border-color: #2a2a2a; color: #f2f2f2; }
+  .thread-send { background: #f2f2f2; color: #0f0f0f; }
+  .reaction { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
+  .reaction.mine { background: #163b4f; border-color: #4fb9fa; color: #8ed1f5; }
+  .reaction-choices, .mention-menu { background: #1a1a1a; border-color: #2a2a2a; }
+  .reaction-choices button:hover { background: #2a2a2a; }
+  .mention-option { color: #f2f2f2; }
+  .mention-avatar { background: #2a2a2a; color: #f2f2f2; }
+}

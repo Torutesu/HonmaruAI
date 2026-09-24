@@ -53,6 +53,10 @@ final class AppState: ObservableObject {
             workspaceName = named.name; canRenameWorkspace = named.canRename
         }
         organization = OrganizationGraph(nodes: members.map { OrgNode(id: $0.id, kind: .person, label: "\($0.name) · \($0.role)") }, edges: [])
+        // "How I work" is per workspace: the one you wrote for the team you
+        // are leaving must not ride along. The new team's snapshot brings
+        // the one you wrote there, if any.
+        userContext = ""
         cardService.setActiveUser(user.id); cardService.adoptOrganization(orgID)
         try await webSocketService.connect(urlString: relayURL, userId: user.id, orgId: orgID, sessionToken: token)
     }

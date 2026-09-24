@@ -15,9 +15,9 @@ import { authorizeOrgAccess } from "./membership.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { localizeCard } from "./localize.js";
 import { fileCardUnderBusiness } from "./classify.js";
-import { providerConfig } from "./provider.js";
+import { providerFor } from "./orgAI.js";
 import { checkAIAllowance } from "./gate.js";
-import { ANNOUNCE_PATH, EVICT_PATH } from "./announce.js";
+import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 import { listMembers } from "./team.js";
 
@@ -42,7 +42,10 @@ export class OrgRelay {
 
   async fetch(request) {
     const url = new URL(request.url);
-    const orgId = url.searchParams.get("orgId") || "core-team";
+    // The public handler already refused a socket without an orgId; the
+    // internal paths always carry one. Nothing here belongs to a default room.
+    const orgId = url.searchParams.get("orgId");
+    if (!orgId) return new Response("orgId is required", { status: 400 });
 
     // Cards written outside this object — a connector sync, which runs in the
     // Worker and writes straight to D1 — are announced through here so they
@@ -65,6 +68,16 @@ export class OrgRelay {
         for (const ev of forRecipient) this.sendTo(orgId, card.recipientUserID, ev);
       }
       return new Response(JSON.stringify({ announced: cards.length }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.pathname === EVENTS_PATH && request.headers.get("Upgrade") !== "websocket") {
+      if (request.method !== "POST") return new Response("not found", { status: 404 });
+      let events = [];
+      try { ({ events = [] } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
+      for (const ev of events) if (ev && typeof ev === "object") this.broadcast(orgId, ev);
+      return new Response(JSON.stringify({ announced: events.length }), {
         status: 200, headers: { "content-type": "application/json" },
       });
     }
@@ -195,7 +208,8 @@ export class OrgRelay {
 
   async webSocketMessage(ws, raw) {
     const att = ws.deserializeAttachment() || {};
-    const orgId = att.orgId || "core-team";
+    const orgId = att.orgId;
+    if (!orgId) { ws.close(1008, "no workspace"); return; }
 
     // Checked on the raw frame, before parsing: a 5 MB string is expensive to
     // JSON.parse and there is no message this product sends that is anywhere
@@ -477,6 +491,12 @@ export class OrgRelay {
           senderGithubId: att.githubId,
         })
       );
+      // Whoever the sender named with an @ hears too — the recipient already
+      // did, above, and the sender knows. Refs from the client, resolved
+      // against the real member list: a ref that names nobody names nobody.
+      if (type === "card_created" && Array.isArray(card.mentions) && card.mentions.length && anyChannelConfigured(this.env)) {
+        this.state.waitUntil(this.notifyMentioned(orgId, card, att.userId));
+      }
       return;
     }
 
@@ -600,8 +620,25 @@ export class OrgRelay {
   /// carries a version for them. When it produces something, the card is saved
   /// again and re-broadcast so every open device shows the same words the
   /// notification did.
+  async notifyMentioned(orgId, card, authorLogin) {
+    try {
+      const members = await listMembers(this.db, orgId, null);
+      const wanted = new Set(card.mentions.map((m) => String(m).replace(/^member:/, "")).slice(0, 10));
+      const told = new Set([authorLogin, card.recipientUserID]);
+      const who = { author: authorLogin, name: card.requestedBy?.name || null, text: card.title || card.sourceInstruction || "" };
+      for (const m of members) {
+        if (!wanted.has(m.ref) && !wanted.has(m.login)) continue;
+        if (told.has(m.login)) continue;
+        told.add(m.login);
+        await notifyCard(this.env, { card, kind: "mentioned", toLogin: m.login, comment: who });
+      }
+    } catch (err) {
+      console.error("mention notify failed", err?.message || err);
+    }
+  }
+
   async deliver(orgId, card, { kind, excludeLogin, translate, senderGithubId }) {
-    const provider = providerConfig(this.env);
+    const provider = await providerFor(this.env, orgId);
     const canNotify = anyChannelConfigured(this.env);
     // Nothing to enrich with and nobody to tell: not a single query. This
     // runs after the broadcast, in waitUntil, and a database round trip

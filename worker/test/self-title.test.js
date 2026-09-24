@@ -84,3 +84,17 @@ test("the org graph shows the title, so the router can match on it", async () =>
   const node = nodes.find((n) => n.id === admin.login);
   expect(node.role).toBe("designer");
 });
+
+test("a member can say what they do in their own words", async () => {
+  const res = await put(member.token, { orgId: member.orgId, role: "  Head of   suppliers " });
+  expect(res.status).toBe(200);
+  expect((await res.json()).role).toBe("Head of suppliers");
+  expect((await me(member.token, member.orgId)).role).toBe("Head of suppliers");
+  // In any script, and a preset keeps its canonical spelling.
+  expect((await (await put(member.token, { orgId: member.orgId, role: "店長" })).json()).role).toBe("店長");
+  expect((await (await put(member.token, { orgId: member.orgId, role: "Designer" })).json()).role).toBe("designer");
+  // But not forty-one characters, and not a word that reads as standing.
+  expect((await put(member.token, { orgId: member.orgId, role: "x".repeat(41) })).status).toBe(400);
+  expect((await put(member.token, { orgId: member.orgId, role: "Maintainer" })).status).toBe(400);
+});
+

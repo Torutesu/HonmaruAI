@@ -60,6 +60,9 @@ export function jevEntry(purpose, usage, model = "jev-latest") {
 export async function settleUsage(db, provider, { orgId, githubId, byok = false } = {}, extra = []) {
   const entries = [...(Array.isArray(provider?.usage) ? provider.usage.splice(0) : []), ...extra.filter(Boolean)];
   if (!db || !orgId || entries.length === 0) return 0;
+  // Whose bill: a person's own key (the caller says so) or the workspace's
+  // (the provider says so). Either way, not ours.
+  byok = byok || Boolean(provider?.byok);
   const now = new Date().toISOString();
   try {
     const stmt = db.prepare(

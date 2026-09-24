@@ -13,6 +13,26 @@
 // because "unreachable" is a property of code someone can change.
 export const ANNOUNCE_PATH = "/internal/announce";
 export const EVICT_PATH = "/internal/evict";
+export const EVENTS_PATH = "/internal/events";
+
+// Any already-built AG-UI events for one workspace's open sockets — a context
+// saved over REST, which the relay would otherwise have broadcast itself.
+export async function announceEvents(env, orgId, events) {
+  if (!events?.length) return { announced: 0 };
+  if (!env.ORG_RELAY) return { announced: 0, skipped: "no relay binding" };
+  try {
+    const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
+    await stub.fetch(`https://relay.internal${EVENTS_PATH}?orgId=${encodeURIComponent(orgId)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events }),
+    });
+    return { announced: events.length };
+  } catch (err) {
+    console.error("event announce failed", err?.message || err);
+    return { announced: 0, error: err?.message || String(err) };
+  }
+}
 
 export async function announceCards(env, orgId, cards, { isNew = true } = {}) {
   if (!cards?.length) return { announced: 0 };

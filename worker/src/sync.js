@@ -4,7 +4,7 @@ import { triageMessage } from "./triage.js";
 import { isIngested, markIngested, saveCard, getConnectorConfig } from "./db.js";
 import { checkAIAllowance } from "./gate.js";
 import { fileCardUnderBusiness } from "./classify.js";
-import { jevConfig } from "./jev.js";
+import { jevFor } from "./orgAI.js";
 
 // The loop is deliberately ignorant of which connector it is running: fetch,
 // skip what we have seen, ask whether it needs a decision, and record the answer
@@ -40,7 +40,7 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     // System One asks "does this need a decision?" for a fraction of a cent
     // whether or not the person has language-model allowance left; the
     // model is only offered for the words, and only within the allowance.
-    const systemOne = jevConfig(env);
+    const systemOne = await jevFor(env, orgId);
     const result = (provider && allowance.allowed) || systemOne
       ? await triageMessage(message, { provider: allowance.allowed ? provider : null, systemOne, readerLanguage, sourceLabel: connector.label })
       : { called: false, card: null };

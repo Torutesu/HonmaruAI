@@ -13,7 +13,8 @@
 
 import { listBusinesses, upsertBusiness, businessSlug } from "./db.js";
 import { noteUsage } from "./ledger.js";
-import { decideBusiness, jevConfig, CONFIDENT } from "./jev.js";
+import { decideBusiness, CONFIDENT } from "./jev.js";
+import { jevFor } from "./orgAI.js";
 
 const SYSTEM_PROMPT = `You file a workplace Decision Card under the business it is about.
 
@@ -85,7 +86,7 @@ ${JSON.stringify({ title: card.title || "", summary: card.summary || "", context
 /// stores the slug on the card; this function touches only the businesses
 /// table.
 export async function fileCardUnderBusiness(env, { orgId, card, provider, allowance, githubId }) {
-  const systemOne = jevConfig(env);
+  const systemOne = await jevFor(env, orgId);
   if ((!provider && !systemOne) || !orgId || card?.business) return card?.business || null;
   try {
     const businesses = await listBusinesses(env.DB, orgId);

@@ -41,6 +41,13 @@ export interface DecisionCard {
   localized?: Record<string, { title: string; summary?: string; context?: string }>
   // Which of the org's businesses this decision belongs to, by slug.
   business?: string
+  // The thread under the card, summarised by the Worker: how many said
+  // something, when the last one did, and the reactions by emoji.
+  commentCount?: number
+  lastCommentAt?: string | null
+  reactions?: Record<string, number>
+  // Member refs the sender named with an @.
+  mentions?: string[]
   // What the AI would advise, and why. A starting point the person can
   // ignore, never a decision — the card still waits for them.
   recommendation?: { action: 'approve' | 'decline' | 'revise'; reason?: string }

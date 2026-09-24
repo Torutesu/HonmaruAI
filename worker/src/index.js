@@ -11,12 +11,15 @@ import {
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
+  loadContexts, saveContext,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
-import { announceCards, evictMember } from "./announce.js";
+import { announceCards, evictMember, announceEvents } from "./announce.js";
+import { custom as customEvent } from "./agui/events.js";
+import { contextEvents } from "./agui/adapter.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, inboundTokenFromAddress, userForInboundAddress, inboundAddressFor } from "./connectors/email.js";
 import { triageMessage } from "./triage.js";
-import { notifyCard } from "./notify.js";
+import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount, exportAccount } from "./account.js";
 import { listMembers, listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
@@ -35,12 +38,13 @@ import {
 } from "./insights.js";
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
-import { jevConfig } from "./jev.js";
+import { providerFor, jevFor, aiStatus, saveAISettings } from "./orgAI.js";
 import { localizeCard, needsLocalizing } from "./localize.js";
 import { connectedSources, lookupsFor, searchNotion, searchGithubIssues } from "./context.js";
 import { ingestedItemForCard } from "./db.js";
 import { alert } from "./alert.js";
 import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
+import { listComments, addComment, listReactions, toggleReaction, REACTIONS, MAX_COMMENT_CHARS } from "./threads.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
@@ -50,7 +54,6 @@ import { syncAll } from "./sync.js";
 import { checkAIAllowance } from "./gate.js";
 import { billingStatus } from "./plans.js";
 import { complimentaryAvailable, limitRedemption, readRedemptionCode, redeemComplimentaryAccess, prepareComplimentaryDeletion } from "./complimentary.js";
-import { providerConfig } from "./provider.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { buildRecord, recordToMarkdown } from "./record.js";
 
@@ -78,6 +81,13 @@ export function localeFromRequest(request) {
 // null when they may. History is served straight from D1, so unlike the org
 // graph — where GitHub enforces access when we call its API — nothing else would
 // stop one org reading another's.
+/// Work that outlives the response — an announcement, a notification — where
+/// the runtime lets it, and inline where it does not.
+function after(ctx, work) {
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work());
+  else return work();
+}
+
 async function requireMember(env, request, orgId) {
   const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return json({ message: "invalid session" }, 401);
@@ -103,7 +113,7 @@ export default {
     const url = new URL(request.url);
     const route = routeLabel(request.method, url.pathname);
     try {
-      const response = await handle(request, env, url);
+      const response = await handle(request, env, url, ctx);
       logJSON({ requestId, route, status: response.status, ms: Date.now() - startedAt });
       // A 101 carries the client end of the socket pair on a property, not in
       // the body. Rebuilding it to add a header would hand back a response with
@@ -125,7 +135,7 @@ export default {
   },
 };
 
-async function handle(request, env, url) {
+async function handle(request, env, url, ctx) {
     // Browsers send a preflight OPTIONS before a cross-origin POST with custom
     // headers. Answer it with the CORS headers and no body.
     if (request.method === "OPTIONS") {
@@ -272,7 +282,7 @@ async function handle(request, env, url) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const body = await request.json().catch(() => ({}));
-      const result = await acceptInvite(env, { code: body.code, userId: session.github_id });
+      const result = await acceptInvite(env, { code: body.code || body.link, userId: session.github_id });
       if (result.error) return json({ message: result.error }, 400);
       return json(result);
     }
@@ -292,6 +302,28 @@ async function handle(request, env, url) {
     }
 
     // Name, or rename, the team. Admins of it, and never a repository.
+    // What this workspace runs its AI on. Everyone in it may read the
+    // status; an admin may change it. Keys never come back out.
+    if (url.pathname === "/orgs/ai" && (request.method === "GET" || request.method === "PUT")) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = request.method === "PUT" ? await request.json().catch(() => null) : null;
+      if (request.method === "PUT" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+      const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
+      if (!orgId || typeof orgId !== "string") return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      const canEdit = await canRename(env.DB, orgId, session.github_id);
+      if (request.method === "PUT") {
+        if (!canEdit) return json({ message: "Only an admin of this workspace can change what its AI runs on." }, 403);
+        const result = await saveAISettings(env.DB, orgId, {
+          model: body.model, openaiKey: body.openaiKey, typesafeKey: body.typesafeKey,
+        }, session.github_id);
+        if (result.error) return json({ message: result.error }, 400);
+      }
+      return json({ orgId, canEdit, ...(await aiStatus(env, orgId)) });
+    }
     if (url.pathname === "/orgs/name" && request.method === "PUT") {
       const limited = await enforce(env, request, "team");
       if (limited) return limited;
@@ -387,7 +419,6 @@ async function handle(request, env, url) {
     if (url.pathname === "/health" && request.method === "GET") {
       return json({
         ok: true,
-        orgId: "core-team",
         githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
         githubOAuthWeb: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.GITHUB_WEB_REDIRECT_URI),
         aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),
@@ -440,7 +471,14 @@ async function handle(request, env, url) {
       let teamContext;
       let lookups;
       const routeOrgId = body.organization?.orgId || body.orgId;
-      const chosenId = body.recipientUserID;
+      // A mention is a choice: "@Kenji, approve the price" is for Kenji.
+      // One mention names the recipient outright; several leave it to the
+      // router, which then sees the whole member list.
+      const mentions = Array.isArray(body.mentions) ? body.mentions.filter((m) => typeof m === "string" && m.trim()).slice(0, 10) : [];
+      if (mentions.length > 1) body.memberReferences = true;
+      const chosenId = body.recipientUserID !== undefined
+        ? body.recipientUserID
+        : (mentions.length === 1 ? (mentions[0].startsWith("member:") ? mentions[0] : `member:${mentions[0]}`) : undefined);
       if (chosenId !== undefined && (typeof chosenId !== "string" || !chosenId.trim())) {
         return json({ message: "Choose a workspace member." }, 400);
       }
@@ -512,14 +550,27 @@ async function handle(request, env, url) {
         organization = { ...organization, nodes: [{ id: chosenMember.login, kind: "person",
           role: chosenMember.title || chosenMember.role, label: `${chosenMember.name} · ${chosenMember.title || chosenMember.role}` }], edges: [] };
       }
-      const routeProvider = allowance.allowed ? providerConfig(env, userKey) : undefined;
+      // The sender's own "how I work", from the workspace's stored row when
+      // the client did not carry it — a browser that never wrote one locally
+      // still routes with what the phone saved.
+      let senderContext = typeof body.senderContext === "string" ? body.senderContext : undefined;
+      if (!senderContext && session && routeOrgId) {
+        try {
+          const user = await getUserByGithubId(env.DB, session.github_id);
+          const stored = user ? (await loadContexts(env.DB, routeOrgId))[user.login] : undefined;
+          if (typeof stored?.text === "string" && stored.text.trim()) senderContext = stored.text;
+        } catch (err) {
+          console.error("stored context failed", err?.message || err);
+        }
+      }
+      const routeProvider = allowance.allowed ? await providerFor(env, routeOrgId, userKey) : undefined;
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
         organization,
         priorityOverride: body.priorityOverride,
         readerLanguage: body.readerLanguage,
-        senderContext: body.senderContext,
+        senderContext,
         teamContext,
         lookups,
         // No provider means the local keyword router — the graceful degradation.
@@ -528,7 +579,7 @@ async function handle(request, env, url) {
         // language model is the second opinion, within the allowance. But
         // only for someone signed in: a guest is unmetered, and unmetered
         // must mean spending nothing, however little.
-        systemOne: session ? jevConfig(env) : undefined,
+        systemOne: session ? await jevFor(env, routeOrgId) : undefined,
       });
       if (chosenMember) {
         result.recipientUserID = chosenMember.login;
@@ -767,6 +818,40 @@ async function handle(request, env, url) {
         // never arrived.
         orgs: await listUserOrgs(env.DB, session.github_id),
       });
+    }
+    // How this person works, as the router should know it — stored per
+    // person, per workspace, on the server. The same row the app's relay
+    // writes (`context_updated`), so a phone and a browser see one answer.
+    // Nothing here crosses a workspace: the row is read by (org, login) and
+    // only for an org the caller belongs to.
+    if (url.pathname === "/me/context" && (request.method === "GET" || request.method === "PUT")) {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = request.method === "PUT" ? await request.json().catch(() => null) : null;
+      if (request.method === "PUT" && (!body || typeof body !== "object")) {
+        return json({ message: "Invalid JSON body." }, 400);
+      }
+      const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
+      if (!orgId || typeof orgId !== "string" || !orgId.trim()) return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) {
+        return json({ message: "not a member of this org" }, 403);
+      }
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user) return json({ message: "unknown user" }, 409);
+      if (request.method === "PUT") {
+        if (typeof body.text !== "string") return json({ message: "text must be a string" }, 400);
+        if (body.text.length > MAX_INSTRUCTION_CHARS) return json({ message: "That context is too long." }, 400);
+        const existing = await loadContexts(env.DB, orgId);
+        const isNew = !(user.login in existing);
+        const context = { ...(existing[user.login] || {}), text: body.text };
+        await saveContext(env.DB, orgId, user.login, context);
+        // Tell the workspace's open sockets, as the relay would have.
+        await announceEvents(env, orgId, contextEvents(user.login, context, { isNew }));
+        return json({ orgId, text: body.text });
+      }
+      const contexts = await loadContexts(env.DB, orgId);
+      const mine = contexts[user.login];
+      return json({ orgId, text: typeof mine?.text === "string" ? mine.text : "" });
     }
     if (url.pathname === "/me" && request.method === "PUT") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -1125,7 +1210,7 @@ async function handle(request, env, url) {
       if (typeof syncMatch === "object" && !only) return json({ message: "unknown connector" }, 404);
 
       const startedAt = new Date().toISOString();
-      const syncProvider = providerConfig(env);
+      const syncProvider = await providerFor(env, body.orgId);
       const results = await syncAll(only ? [only] : availableConnectors(env), {
         env, session,
         orgId: body.orgId, userId: me.login,
@@ -1164,7 +1249,7 @@ async function handle(request, env, url) {
       if (!card) return json({ message: "no such card" }, 404);
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       const userKey = request.headers.get("x-ai-key") || undefined;
-      const provider = providerConfig(env, userKey);
+      const provider = await providerFor(env, orgId, userKey);
       if (!provider) return json({ message: "Your AI has no model to answer with on this deployment." }, 503);
       const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey });
       if (!allowance.allowed) {
@@ -1229,7 +1314,7 @@ async function handle(request, env, url) {
         return json({ message: "Decide first; the reply follows the decision." }, 409);
       }
       const userKey = request.headers.get("x-ai-key") || undefined;
-      const provider = providerConfig(env, userKey);
+      const provider = await providerFor(env, orgId, userKey);
       if (!provider) return json({ message: "Your AI has no model to draft with on this deployment." }, 503);
       const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey });
       if (!allowance.allowed) {
@@ -1331,7 +1416,7 @@ async function handle(request, env, url) {
       if (!needsLocalizing(card, locale)) {
         return json({ localized: card.localized?.[locale] || null, already: true });
       }
-      const provider = providerConfig(env, request.headers.get("x-ai-key") || undefined);
+      const provider = await providerFor(env, orgId, request.headers.get("x-ai-key") || undefined);
       if (!provider) return json({ message: "Your AI has no model to translate with on this deployment." }, 503);
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       const allowance = await checkAIAllowance(env, { githubId: String(session.github_id), userKey: request.headers.get("x-ai-key") || undefined });
@@ -1356,6 +1441,80 @@ async function handle(request, env, url) {
     // One card, for any member of its org: what a search hit older than the
     // socket's snapshot opens from. The socket sends the recent window; the
     // palette's "Decided before" reaches past it.
+    // The thread under a card: what people said, and one-emoji reactions.
+    // Members of the card's workspace only; the author is the session,
+    // never the body.
+    const commentsMatch = url.pathname.match(/^\/cards\/([^/]+)\/comments$/);
+    if (commentsMatch && (request.method === "GET" || request.method === "POST")) {
+      const limited = request.method === "POST" ? await enforce(env, request, "team") : null;
+      if (limited) return limited;
+      const cardId = decodeURIComponent(commentsMatch[1]);
+      const body = request.method === "POST" ? await request.json().catch(() => null) : null;
+      if (request.method === "POST" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+      const orgId = request.method === "GET" ? (url.searchParams.get("orgId") || "") : (typeof body.orgId === "string" ? body.orgId : "");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user) return json({ message: "unknown user" }, 409);
+      if (request.method === "GET") {
+        const card = await getCard(env.DB, orgId, cardId);
+        if (!card) return json({ message: "no such card" }, 404);
+        return json({
+          comments: await listComments(env.DB, orgId, cardId),
+          reactions: await listReactions(env.DB, orgId, cardId, user.login),
+          available: REACTIONS,
+          maxChars: MAX_COMMENT_CHARS,
+        });
+      }
+      const result = await addComment(env.DB, { orgId, cardId, authorLogin: user.login, body: body.body });
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      const { comment, card, mentioned } = result;
+      // Everyone with the workspace open sees the comment now and the
+      // card's count with it; everyone it concerns hears about it.
+      after(ctx, async () => {
+        await announceEvents(env, orgId, [customEvent("comment", { cardId, comment })]);
+        await announceCards(env, orgId, [card], { isNew: false });
+        if (!anyChannelConfigured(env)) return;
+        const who = { author: user.login, name: user.name || null, text: comment.body };
+        const told = new Set([user.login]);
+        for (const login of mentioned) {
+          if (told.has(login)) continue;
+          told.add(login);
+          await notifyCard(env, { card, kind: "mentioned", toLogin: login, comment: who });
+        }
+        for (const login of [card.recipientUserID, card.senderUserID]) {
+          if (!login || told.has(login) || login === "deleted-user") continue;
+          told.add(login);
+          await notifyCard(env, { card, kind: "commented", toLogin: login, comment: who });
+        }
+      });
+      return json({ comment, card }, 201);
+    }
+    const reactionsMatch = url.pathname.match(/^\/cards\/([^/]+)\/reactions$/);
+    if (reactionsMatch && request.method === "POST") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const cardId = decodeURIComponent(reactionsMatch[1]);
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user) return json({ message: "unknown user" }, 409);
+      const result = await toggleReaction(env.DB, { orgId, cardId, login: user.login, emoji: String(body.emoji || "") });
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      after(ctx, async () => {
+        await announceEvents(env, orgId, [customEvent("reaction", { cardId, emoji: body.emoji, on: result.on, by: user.login, reactions: result.card.reactions })]);
+        await announceCards(env, orgId, [result.card], { isNew: false });
+      });
+      return json({ on: result.on, reactions: result.reactions, card: result.card });
+    }
+
     const cardById = url.pathname.match(/^\/cards\/([^/]+)$/);
     if (cardById && request.method === "GET") {
       const cardId = decodeURIComponent(cardById[1]);
@@ -1506,7 +1665,7 @@ async function handle(request, env, url) {
       }
 
       const allowance = await checkAIAllowance(env, { githubId: String(githubId) });
-      const provider = allowance.allowed ? providerConfig(env) : undefined;
+      const provider = allowance.allowed ? await providerFor(env, orgId) : undefined;
       const result = provider
         ? await triageMessage(message, { provider, readerLanguage: user.locale || "en", sourceLabel: "Email" })
         : { called: false, card: null };
@@ -1562,7 +1721,11 @@ async function handle(request, env, url) {
     }
 
     if (request.headers.get("Upgrade") === "websocket") {
-      const orgId = url.searchParams.get("orgId") || "core-team";
+      // A socket belongs to one workspace, named by the client. There is no
+      // default: a client that has lost its orgId asks /me for its
+      // workspaces, it does not land in a shared placeholder team.
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId || !orgId.trim()) return json({ message: "orgId is required" }, 400);
       const id = env.ORG_RELAY.idFromName(orgId);
       const stub = env.ORG_RELAY.get(id);
       return stub.fetch(request);

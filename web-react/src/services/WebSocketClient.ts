@@ -43,6 +43,10 @@ export class WebSocketClient {
   onCardUpdated?: (card: DecisionCard) => void
   onCardDeleted?: (cardId: string) => void
   onPresence?: (userId: string, status: string) => void
+  /// Somebody said something under a card, or reacted to one. The card's
+  /// own counts arrive as a card update; these carry the words.
+  onComment?: (cardId: string, comment: { id: string; author: string; authorName?: string | null; body: string; mentions: string[]; createdAt: string }) => void
+  onReaction?: (cardId: string, emoji: string, on: boolean, by: string, reactions: Record<string, number>) => void
   onError?: (message: string) => void
   /// The relay refused this socket and will refuse the next one too. `code` is
   /// the machine-readable reason — `not-a-member`, `sign-in-required`,
@@ -75,8 +79,8 @@ export class WebSocketClient {
     return new Promise((resolve, reject) => {
       try {
         // The relay reads orgId from the URL query string, not the join
-        // payload. Without it the server falls back to the "core-team" demo
-        // org and rejects everyone else as "not a member".
+        // payload. Without it the server refuses the socket outright: there
+        // is no default workspace.
         const wsUrl = new URL(url)
         wsUrl.searchParams.set('orgId', orgId)
         const ws = new WebSocket(wsUrl.toString())
@@ -339,6 +343,10 @@ export class WebSocketClient {
   private handleCustom(event: any): void {
     if (event.name === 'presence' && event.value) {
       this.onPresence?.(event.value.userId, event.value.status)
+    } else if (event.name === 'comment' && event.value?.comment) {
+      this.onComment?.(event.value.cardId, event.value.comment)
+    } else if (event.name === 'reaction' && event.value) {
+      this.onReaction?.(event.value.cardId, event.value.emoji, Boolean(event.value.on), event.value.by, event.value.reactions || {})
     }
   }
 

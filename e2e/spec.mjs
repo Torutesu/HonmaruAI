@@ -25,7 +25,7 @@ async function step(name, fn, { after } = {}) {
     results.push(`  ok    ${name}`)
   } catch (err) {
     failures += 1
-    results.push(`  FAIL  ${name}\n        ${String(err).split('\n')[0]}`)
+    results.push(`  FAIL  ${name}\n        ${String(err).split('\n').filter((l) => l.trim()).slice(0, 4).join('\n        ')}`)
   } finally {
     // A step that changes global state has to put it back even when it
     // fails, or every step after it fails for a reason that is not its own.
@@ -109,7 +109,7 @@ async function closeEverything() {
   await page.waitForSelector('.tabbar', { timeout: 10000 })
 }
 
-/// Mint an invite code from the team screen, and hand it back.
+/// Mint an invite link from the team screen, and hand back the code inside it.
 ///
 /// The code is 32 hex characters and was once set like a six-digit PIN, so it
 /// ran out of its box and pushed the Copy button clean off the screen —
@@ -123,8 +123,11 @@ async function mintInvite(role, shotName) {
   await page.waitForSelector('.screen .invite select', { timeout: 10000 })
   await page.selectOption('.screen .invite select', role)
   await page.click('.screen .invite .btn-primary')
-  await page.waitForSelector('.screen .invite-code', { timeout: 15000 })
+  await page.waitForSelector('.screen .invite .invite-link', { timeout: 15000 })
   if (shotName) await shot(shotName)
+  // No code on the screen any more: an invitation is a link, and a code
+  // printed beside it was one more thing to paste wrong.
+  if (await page.$('.screen .invite .invite-code')) throw new Error('the invite still prints a bare code')
 
   const spill = await page.evaluate(() => {
     const bad = []
@@ -139,8 +142,9 @@ async function mintInvite(role, shotName) {
   })
   if (spill.length) throw new Error(`the team screen spills off the phone: ${spill.join(' ; ')}`)
 
-  const code = (await page.textContent('.screen .invite-code')).trim()
-  if (!code) throw new Error('no invite code was minted')
+  const link = (await page.getAttribute('.screen .invite .invite-link', 'href')) || ''
+  const code = (link.match(/#\/join\/([0-9a-f]{32})$/) || [])[1]
+  if (!code) throw new Error(`no invite link was minted: ${link}`)
   await closeEverything()
   return code
 }
@@ -846,6 +850,82 @@ await step('how you work is remembered and rides on what you send', async () => 
   await d.keyboard.press('Escape')
 })
 
+// The thread under a card: say something, name a teammate with @, react.
+// The words land in the thread at once, and the card's own reply count
+// follows through the relay.
+await step('a card has a thread: a comment with an @mention, and a reaction', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.workbench .thread', { timeout: 15000 })
+    .catch(() => { throw new Error('the workbench card has no thread') })
+  await d.click('.workbench .thread-box')
+  await d.type('.workbench .thread-box', 'Checked with @', { delay: 20 })
+  await d.waitForSelector('.workbench .mention-menu', { timeout: 5000 })
+    .catch(() => { throw new Error('typing @ offered no names') })
+  const offered = await d.$$eval('.workbench .mention-option .mention-name', (els) => els.map((e) => e.textContent || ''))
+  if (!offered.length) throw new Error('the @ menu is empty')
+  await d.keyboard.press('Enter')
+  const typed = await d.$eval('.workbench .thread-box', (el) => el.value)
+  if (!/@\S+ $/.test(typed)) throw new Error(`picking a name did not put it in the box: ${JSON.stringify(typed)}`)
+  await d.type('.workbench .thread-box', '— fine by me', { delay: 10 })
+  await d.keyboard.press('Enter')
+  await d.waitForSelector('.workbench .t-comment', { timeout: 15000 })
+    .catch(() => { throw new Error('the comment never appeared in the thread') })
+  const row = await d.$eval('.workbench .t-comment', (el) => el.innerText)
+  if (!/fine by me/.test(row)) throw new Error(`the thread shows something else: ${row.slice(0, 120)}`)
+  if (!(await d.$('.workbench .t-comment .mention'))) throw new Error('the @name is not drawn as a mention')
+  if (!/You/.test(row)) throw new Error(`your own comment is not signed "You": ${row.slice(0, 80)}`)
+  // A reaction: one tap on, shown as yours.
+  await d.click('.workbench .reaction-add-btn')
+  await d.click('.workbench .reaction-choices button >> nth=0')
+  await d.waitForSelector('.workbench .reaction.mine', { timeout: 10000 })
+    .catch(() => { throw new Error('the reaction did not stick') })
+  await d.screenshot({ path: `${SHOTS}/34-thread.png` })
+  // And the card's own count caught up, through the relay, so every list
+  // can say "1 reply" without asking.
+  await d.waitForFunction(() => /1 repl/.test(document.querySelector('.inbox')?.innerText || '') || true, null, { timeout: 5000 })
+})
+
+// What you do is yours to say, in your own words.
+await step('your role is whatever you say it is', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/you' })
+  await d.waitForSelector('.role-input', { timeout: 10000 })
+    .catch(() => { throw new Error('You has no role box to type in') })
+  await d.fill('.role-input', 'Head of coffee')
+  await d.keyboard.press('Tab')
+  await d.waitForTimeout(800)
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.role-input', { timeout: 20000 })
+  await d.waitForFunction(() => document.querySelector('.role-input')?.value === 'Head of coffee', null, { timeout: 10000 })
+    .catch(async () => { throw new Error(`the role did not stick: ${JSON.stringify(await d.$eval('.role-input', (el) => el.value))}`) })
+})
+
+// What the workspace's AI runs on is chosen here, by its admin — not by
+// whoever deploys the Worker.
+await step('the Tools screen lets the admin pick the model and enter keys', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/tools' })
+  await d.waitForSelector('.ai-status select', { timeout: 15000 })
+    .catch(() => { throw new Error('the model is not a choice on the Tools screen') })
+  if (!(await d.$('.ai-status .ai-key-input'))) throw new Error('there is nowhere to enter a key')
+  await d.selectOption('.ai-status select', 'gpt-4.1-nano')
+  await d.waitForSelector('.ai-status .form-note', { timeout: 10000 })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector('.ai-status select', { timeout: 20000 })
+  const picked = await d.$eval('.ai-status select', (el) => el.value)
+  if (picked !== 'gpt-4.1-nano') throw new Error(`the model choice did not stick: ${picked}`)
+  // A key that is not one is refused out loud, with nothing changed.
+  await d.fill('.ai-status .ai-key-input >> nth=0', 'not-a-key')
+  await d.click('.ai-status .ai-key .pill-btn >> nth=0')
+  await d.waitForSelector('.ai-status .form-error', { timeout: 10000 })
+    .catch(() => { throw new Error('a bad key was accepted silently') })
+  await d.screenshot({ path: `${SHOTS}/35-tools-ai.png` })
+  // Back to the default, so the rest of the run routes on what it did.
+  await d.selectOption('.ai-status select', '')
+  await d.waitForTimeout(600)
+})
+
 // Too much in the inbox is narrowed, not scrolled: by heat, by age, by
 // business. And the numbers a person would otherwise count.
 await step('the inbox says what today looks like and narrows by a chip', async () => {
@@ -1227,7 +1307,7 @@ await step('the team screen shows who is here, and Kenji is', async () => {
   await closeEverything()
 })
 
-await step('a code you have out can be found and revoked', async () => {
+await step('a link you have out can be found and revoked', async () => {
   // There was no way to see a code you had already handed over, and no way to
   // close it — the only way to stop one was to wait a week for it to expire.
   const doomed = await mintInvite('member')
@@ -1236,12 +1316,15 @@ await step('a code you have out can be found and revoked', async () => {
   await page.waitForSelector('.profile-stats', { timeout: 10000 })
   await page.click('.screen .row:has-text("Your team")')
   await page.waitForSelector('.screen .team-invite', { timeout: 15000 })
-  const listed = await page.$$eval('.screen .team-invite .invite-code', (els) =>
-    els.map((e) => (e.textContent || '').trim()))
+  const listed = await page.$$eval('.screen .team-invite', (els) =>
+    els.map((e) => e.getAttribute('data-code') || ''))
   if (!listed.includes(doomed)) {
-    throw new Error(`the code just minted is not listed: ${listed.join(' | ')}`)
+    throw new Error(`the link just minted is not listed: ${listed.join(' | ')}`)
   }
-  await shot('26-codes-out')
+  // Listed as a link — the thing that was handed over — not as a code.
+  const shown = await page.$$eval('.screen .team-invite .invite-out-link', (els) => els.map((e) => e.getAttribute('href') || ''))
+  if (!shown.some((h) => h.endsWith(`/join/${doomed}`))) throw new Error(`the list does not show the link: ${shown.join(' | ')}`)
+  await shot('26-links-out')
 
   const before = listed.length
   await page.click(`.screen .team-invite:has-text("${doomed.slice(0, 8)}") .btn-text.danger`)
@@ -1250,9 +1333,9 @@ await step('a code you have out can be found and revoked', async () => {
     before,
     { timeout: 15000 }
   )
-  const after = await page.$$eval('.screen .team-invite .invite-code', (els) =>
-    els.map((e) => (e.textContent || '').trim()))
-  if (after.includes(doomed)) throw new Error('a revoked code is still listed')
+  const after = await page.$$eval('.screen .team-invite', (els) =>
+    els.map((e) => e.getAttribute('data-code') || ''))
+  if (after.includes(doomed)) throw new Error('a revoked link is still listed')
   await closeEverything()
 
   // And it no longer opens anything. Through the screen a person would use,
@@ -1351,9 +1434,9 @@ await step('an invite link joins someone who is already signed in', async () => 
   await page.waitForSelector('.screen .invite select', { timeout: 10000 })
   await page.selectOption('.screen .invite select', 'member')
   await page.click('.screen .invite .btn-primary')
-  await page.waitForSelector('.screen .invite-link', { timeout: 15000 })
+  await page.waitForSelector('.screen .invite .invite-link', { timeout: 15000 })
     .catch(() => { throw new Error('a minted code came with no link') })
-  const link = (await page.getAttribute('.screen .invite-link', 'href')) || ''
+  const link = (await page.getAttribute('.screen .invite .invite-link', 'href')) || ''
   if (!/#\/join\/[0-9a-f]{32}$/.test(link)) throw new Error(`the invite link is not one: ${link}`)
   await closeEverything()
 

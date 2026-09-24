@@ -7,6 +7,8 @@ import { aiHeaders } from '../utils/aiKey'
 import { dictationAvailable, startDictation } from '../utils/dictation'
 import type { Dictation } from '../utils/dictation'
 import { Icon } from './Icon'
+import { useMembers, mentionedRefs } from '../utils/mentions'
+import { useMentionMenu } from './MentionMenu'
 
 interface Props {
   relayHttpUrl: string
@@ -24,6 +26,9 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
   const t = useT()
   const [text, setText] = useState('')
   const box = useRef<HTMLTextAreaElement>(null)
+  // "@" offers the team's names; whoever you name is who it is for.
+  const members = useMembers(relayHttpUrl, orgId, sessionToken)
+  const mention = useMentionMenu(box, text, setText, members)
 
   // Grow to fit what is in it, up to a point, so a long instruction is
   // readable without becoming a page of its own.
@@ -59,6 +64,7 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
     if (!text.trim()) return
     setBusy(true)
     setError(null)
+    const mentions = mentionedRefs(text, members)
     try {
       const res = await fetch(`${relayHttpUrl}/ai/route`, {
         method: 'POST',
@@ -77,7 +83,10 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
           // line — and without this it writes them in English.
           readerLanguage: getLocale(),
           // "How I work", from You. The router reads it on every send.
-          ...(getSenderContext() ? { senderContext: getSenderContext() } : {}),
+          ...(getSenderContext(orgId) ? { senderContext: getSenderContext(orgId) } : {}),
+          // Whoever was named with an @. One name is the recipient; more
+          // than one and the router chooses among the team.
+          ...(mentions.length ? { mentions } : {}),
           organization: {
             orgId,
             // The router reads members from `nodes` (kind: "person"). Sending
@@ -110,6 +119,9 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         // The business the AI filed this under. Absent, the relay files it
         // in the background; nobody picks one by hand.
         ...(routed.business ? { business: routed.business } : {}),
+        // Kept on the card, so the people named hear about it and the card
+        // can say who was asked along.
+        ...(mentions.length ? { mentions } : {}),
       }
 
       onSendCard(card)
@@ -134,13 +146,17 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
         value={text}
         rows={1}
         autoFocus={autoFocus}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={t('Tell your AI — e.g. ask Yuki to approve the spring menu by Friday')}
+        onChange={(e) => { setText(e.target.value); mention.track() }}
+        onKeyUp={mention.track}
+        onClick={mention.track}
+        placeholder={t('Tell your AI — e.g. ask @Yuki to approve the spring menu by Friday')}
         disabled={busy}
         onKeyDown={(e) => {
+          if (mention.onKeyDown(e)) return
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCreate() }
         }}
       />
+      {mention.menu}
       {canListen && (
         <button
           type="button"

@@ -8,11 +8,96 @@ is something that ran, not something that was read.
 
 | Suite | Before | After |
 |-------|--------|-------|
-| Worker (`worker/`, real workerd) | 391 pass | 477 pass |
-| Web unit (`web-react/`, vitest) | 8 pass | 26 pass |
+| Worker (`worker/`, real workerd) | 391 pass | 553 pass |
+| Web unit (`web-react/`, vitest) | 8 pass | 52 pass |
 | Web typecheck + build | clean | clean |
-| End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 45 steps pass |
+| End to end (`e2e/run.sh`, real Worker + D1 + browser) | 27 steps pass | 48 steps pass |
 | iOS (`xcodebuild test`, macOS CI) | not runnable here (Linux) | pass — [CI run #287](https://github.com/Torutesu/HonmaruAI/actions/runs/34561892140), dispatched by hand |
+
+## Threads, mentions, links, roles, and the AI you can change, 2026-09-24
+
+**A card has a thread.** `card_comments` and `card_reactions` per workspace
+and card; `GET/POST /cards/:id/comments` and `POST /cards/:id/reactions`
+(membership-checked; a comment is at most 2000 characters; reactions are
+one of six). A comment is logged as a card event, the card's own row keeps
+`commentCount`, `lastCommentAt` and `reactions`, and the relay announces
+both the words (a `comment` / `reaction` custom event) and the card, so
+every list shows "3 replies" without a join. Whoever the card concerns —
+recipient, sender — is notified of a comment; whoever is named with an @ is
+notified of the mention, once, in their own language (five new copy
+strings, checked by the completeness test). On the web the thread under a
+card interleaves comments with what happened, has a reply box where "@"
+offers the team's names (arrows, Enter, Escape), and a reaction bar; on
+the phone the card sheet gains a Thread section with the same. Classic rows
+say how many replies a decision has.
+
+**@mentions name the recipient.** The composer offers names on "@"; one
+mention becomes the recipient outright (`mentions: [ref]` on `/ai/route`),
+several leave it to the router with the member list in front of it. The
+card carries the refs; the relay notifies the people named.
+
+**Invitations are three-day links.** `INVITE_TTL_DAYS` is 3; every endpoint
+reads the code out of whatever was pasted (`inviteCodeFrom`), so a link
+works wherever a code did; the list of invitations carries the link; the web
+and the phone show a link, never a bare code; the join box takes a link.
+
+**Roles are the member's own words.** `setOwnTitle` accepts any title up to
+40 characters in any script (presets keep their canonical spelling; a word
+that reads as standing — admin, maintainer, triager — is refused); the
+Profile row is a text box with the presets as suggestions; the phone gets a
+Role field under "Your work context".
+
+**Your AI is editable.** Tools → Your AI was a read-out of the Worker's
+secrets, with nothing to change or enter. Now `org_ai_settings` holds a
+model, an OpenAI key and a TypeSafe key per workspace; `GET/PUT /orgs/ai`
+(admins write; keys never come back, only a hint) and every model call —
+routing, ask, draft, translate, triage, sync, filing, the scheduled run —
+is built through `providerFor` / `jevFor` with the order person's key →
+workspace key → deployment secret. A workspace key is the workspace's bill,
+and the ledger records it as such.
+
+Worker 553, web 52, e2e 48 (three new steps: the thread with an @mention
+and a reaction, a role in your own words, the model picked and a bad key
+refused on Tools).
+
+## Workspaces and the list, 2026-09-24
+
+**Nothing of one workspace is readable from another.** Every REST read that
+takes an `orgId` was already behind `requireMember`; the socket upgrade was
+not — a client with no `orgId` landed in a shared `"core-team"` room, which
+membership then refused, but the room existed. It no longer does: the
+upgrade answers 400 without an `orgId`, the Durable Object refuses a request
+without one, and the health probe no longer advertises a default. On the
+web, `<Dashboard>` is keyed by `orgId`, so switching teams is a new
+Dashboard: state, the synced flag and the card cache restart, and the old
+team's cards can no longer be written to the cache under the new team's
+name (they could, for one render, before). `worker/test/workspace-isolation.test.js`
+holds a member of team A against every read of team B — members, invites,
+businesses, record, search, a card, its events, metrics, the eval export,
+the stored context, businesses and AI calls that name a card, the rename,
+and the socket join — and asserts a 403 whose body names nothing of B.
+
+**"How I work" is stored per person, per workspace, on the server.** The web
+kept it in `localStorage` alone, one copy for every team; the phone published
+it to the relay, which already wrote it to `contexts (org_id, user_id)`. Now
+both sides share that row: `GET/PUT /me/context?orgId=` reads and writes it
+(membership-checked; the write is announced to the workspace's open sockets
+through the relay's new internal events path, so a phone sees the browser's
+edit), the web's copy lives under `senderContext:<orgId>` as a cache, and
+`/ai/route` falls back to the stored row when a client sends no
+`senderContext`. On iOS, switching teams clears the field before the new
+team's snapshot fills it.
+
+**The list is a chat client's home.** Classic was three flat sections. It is
+now the Slack-shaped surface the design calls for: the team's name as the
+header (with the team screen behind it), a "Jump to or search…" pill that
+opens ⌘K, then **Channels** (one per business, `#`), **Direct messages** (one
+per person you trade decisions with, with the relay's presence as a green
+dot) and **Apps** (Gmail, Slack, your own AI). A conversation with something
+waiting on you is bold with a red count; opening it lists its decisions,
+each of which opens as a card, and a conversation with one decision opens
+that card directly. Slack's neutral scale (`#1d1c1d`, `#616061`, `#f2f2f2`,
+`#e01e5a`, `#2bac76`) on purpose, with a dark variant on `#1a1d21`.
 
 ## Greys, 2026-09-23
 
