@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DecisionCard, Business, ChannelMessage } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName, properName } from '../utils/names'
@@ -738,7 +738,8 @@ export const ClassicList: React.FC<Props> = ({
     return out
   })
   const draftView = useRef<string | undefined>(undefined)
-  useEffect(() => {
+  // Before paint, so a conversation never shows an empty box first.
+  useLayoutEffect(() => {
     // Leaving a conversation keeps what was being written there; arriving
     // brings back what was being written here.
     draftView.current = view

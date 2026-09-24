@@ -1583,7 +1583,8 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.fill('.slk-input', 'half-written thought')
     await d.click('[data-activity="1"]')
     await d.click('.cl-thread:has-text("Front desk") .cl-open')
-    if ((await d.$eval('.slk-input', (el) => el.value)) !== 'half-written thought') throw new Error('the draft did not come back')
+    await d.waitForFunction(() => document.querySelector('.slk-input')?.value === 'half-written thought', null, { timeout: 5000 })
+      .catch(() => { throw new Error('the draft did not come back') })
     // A command does its thing and says so, only to you.
     await d.fill('.slk-input', '/remember front desk questions go to the manager on duty')
     await d.keyboard.press('Enter')
