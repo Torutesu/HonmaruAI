@@ -53,3 +53,4 @@ ALTER TABLE memberships ADD COLUMN status_until TEXT;
 ALTER TABLE memberships ADD COLUMN away_until TEXT;
 ALTER TABLE memberships ADD COLUMN delegate_login TEXT;
 ALTER TABLE users ADD COLUMN timezone TEXT;
+ALTER TABLE routines ADD COLUMN channel TEXT;

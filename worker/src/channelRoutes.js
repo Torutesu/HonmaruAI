@@ -1,4 +1,5 @@
-import { getSession, isMember, getUserByGithubId, saveCard } from "./db.js";
+import { getSession, isMember, getUserByGithubId, saveCard, getCard } from "./db.js";
+import { claimDraft, releaseDraft, postedCard } from "./dailyReport.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
 import { resolveMentions } from "./threads.js";
@@ -331,6 +332,46 @@ export async function handleChannels(request, env, url, { route, after }) {
     after(() => broadcastWithParent(env, body.orgId, ctx.resolved, out.row, ctx.members));
     const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
     return json({ message });
+  }
+
+  // A daily report, posted: the draft its owner read and, perhaps, rewrote,
+  // said in the channel under their own name. Only its owner may, only once.
+  if (path === "/channels/daily-report/post" && request.method === "POST") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || typeof body.cardId !== "string") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const card = await getCard(env.DB, body.orgId, body.cardId);
+    if (!card?.dailyReport || card.recipientUserID !== who.user.login) return json({ message: "No such draft." }, 404);
+    if (card.dailyReport.status !== "draft") return json({ message: "This report has already been posted." }, 409);
+    const text = (typeof body.text === "string" ? body.text : card.dailyReport.text || "").trim();
+    if (!text) return json({ message: "The report is empty." }, 400);
+    if (text.length > MAX_MESSAGE_CHARS) return json({ message: `A message is at most ${MAX_MESSAGE_CHARS} characters.` }, 400);
+    const members = await listMembers(env.DB, body.orgId, who.session.github_id);
+    const resolved = await resolveChannel(env.DB, body.orgId, who.user, card.dailyReport.channel, members);
+    if (!resolved) return json({ message: "No such channel." }, 404);
+    if (!(await claimDraft(env.DB, body.orgId, card.id))) return json({ message: "This report has already been posted." }, 409);
+    const out = await postMessage(env.DB, { orgId: body.orgId, key: resolved.key, authorLogin: who.user.login, body: text });
+    if (out.error) {
+      await releaseDraft(env.DB, body.orgId, card.id);
+      return json({ message: out.error }, 400);
+    }
+    const posted = postedCard(card, { text, messageId: out.row.id, login: who.user.login, at: out.row.created_at });
+    await saveCard(env.DB, body.orgId, posted);
+    await appendCardEvent(env.DB, body.orgId, {
+      cardId: card.id, type: "decided", action: "acknowledge", actorUserId: who.user.login,
+      note: `posted to #${resolved.slug || ""}`, snapshot: posted,
+    });
+    await markRead(env.DB, body.orgId, who.user.login, resolved.key, out.row.created_at);
+    after(async () => {
+      await broadcastWithParent(env, body.orgId, resolved, out.row, members);
+      await announceCards(env, body.orgId, [posted], { isNew: false });
+    });
+    const view = viewOf(resolved.key, who.user.login, members);
+    const [message] = await present(env.DB, body.orgId, [out.row], who.user.login, view, members);
+    return json({ card: posted, message }, 201);
   }
 
   // A thread: the message and its replies.

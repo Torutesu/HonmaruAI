@@ -61,4 +61,16 @@ describe('sourceLabel', () => {
     expect(sourceLabel({ sourceApp: 'Gmail', sourceDetail: 'x' }, t)).toBe('Gmail')
     expect(sourceLabel({}, t)).toBe('')
   })
+
+  it('carries a daily report’s channel both ways, and no channel for anything else', () => {
+    const daily = { ...emptyDraft(), cadence: 'weekdays' as const, hour: 18, minute: 30, channel: 'b:kitchen', instruction: 'x' }
+    expect(routineBody(daily, 'Asia/Tokyo')).toMatchObject({ channel: 'b:kitchen', hour: 18, minute: 30, timezone: 'Asia/Tokyo' })
+    expect(routineBody({ ...emptyDraft(), instruction: 'x' }, 'UTC')).not.toHaveProperty('channel')
+    const routine = {
+      id: 'r', kind: 'daily_report', title: '日報', instruction: 'x', cadence: 'weekdays', weekday: null, monthday: null, hour: 18, minute: 30,
+      timezone: 'Asia/Tokyo', schedule: '平日 18:30', enabled: true, nextRunAt: null, lastRunAt: null, lastCardId: null, lastError: null,
+      lastUsd: null, runs: 0, origin: 'manual', recipient: { name: 'Toru', ref: null, self: true }, channel: 'b:kitchen', createdAt: '',
+    } as Routine
+    expect(draftFromRoutine(routine).channel).toBe('b:kitchen')
+  })
 })

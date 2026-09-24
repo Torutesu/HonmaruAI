@@ -120,7 +120,10 @@ export async function handleAutomation(request, env, url) {
     }
     const checked = validateRoutineInput(body, { locale });
     if (checked.error) return json({ message: checked.error }, 400);
-    const recipientLogin = await resolveRecipient(env, orgId, who.user, body.recipient);
+    // A daily report is a draft of your own day: it only ever comes to you.
+    const recipientLogin = checked.value.kind === "daily_report"
+      ? who.user.login
+      : await resolveRecipient(env, orgId, who.user, body.recipient);
     if (!recipientLogin) return json({ message: "That recipient is not a current member of this workspace." }, 400);
     const out = await createRoutine(env.DB, {
       orgId, owner: { github_id: who.session.github_id, login: who.user.login }, recipientLogin, input: checked.value,

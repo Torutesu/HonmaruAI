@@ -7,7 +7,7 @@ import {
   CADENCES, draftFromRoutine, emptyDraft, localTimeZone, money, parseTime, routineBody, timeValue, weekdayNames,
   type Routine, type RoutineDraft,
 } from '../utils/automation'
-import type { Cadence } from '../types/card'
+import type { Business, Cadence } from '../types/card'
 
 interface Props {
   httpBase: string
@@ -50,6 +50,9 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
   const [editing, setEditing] = useState<{ id: string; draft: RoutineDraft } | null>(null)
   const [confirm, setConfirm] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  // The daily report, being set up: when, and which channel it goes to.
+  const [businesses, setBusinesses] = useState<Business[]>([])
+  const [daily, setDaily] = useState<RoutineDraft | null>(null)
 
   const headers = useMemo(() => ({ 'content-type': 'application/json', 'x-session-token': sessionToken }), [sessionToken])
   const call = useCallback(async (method: string, path: string, body?: Record<string, unknown>) => {
@@ -73,6 +76,10 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
       .then((r) => (r.ok ? r.json() : { members: [] }))
       .then((data) => { if (!ignore) setMembers(data.members || []) })
       .catch(() => { /* the report goes to you, which needs no list */ })
+    fetch(`${httpBase}/businesses?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : { businesses: [] }))
+      .then((data) => { if (!ignore) setBusinesses(data.businesses || []) })
+      .catch(() => { /* no channels to offer: the daily report says so */ })
     return () => { ignore = true }
   }, [httpBase, orgId, sessionToken, t])
 
@@ -154,6 +161,13 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
   })
 
   const hasBrief = (routines || []).some((r) => r.kind === 'brief')
+  const hasDaily = (routines || []).some((r) => r.kind === 'daily_report')
+  const openDaily = () => setDaily({ ...emptyDraft(), cadence: 'weekdays', hour: 18, minute: 0, channel: businesses[0] ? `b:${businesses[0].slug}` : '' })
+  const createDaily = async () => {
+    if (!daily?.channel) return
+    await create({ kind: 'daily_report', cadence: daily.cadence, hour: daily.hour, minute: daily.minute, timezone: localTimeZone(), channel: daily.channel, recipient: 'me' })
+    setDaily(null)
+  }
   const composing = say.trim().length > 0
   const next = (iso: string) => new Date(iso).toLocaleString(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -234,6 +248,33 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
           </div>
         )}
 
+        {!hasDaily && routines !== null && (
+          daily ? (
+            <div className="auto-compose open daily-setup">
+              <span className="auto-question">{t('Daily report')}</span>
+              <p className="auto-hint">{t('At this time your AI drafts your day in your own words — what you said, how your tasks went, what you did, what went well, what to improve, and tomorrow. You read it, change anything, and post it.')}</p>
+              <DailyFields draft={daily} businesses={businesses} onChange={(patch) => setDaily((d) => (d ? { ...d, ...patch } : d))} />
+              <div className="auto-actions">
+                <button type="button" className="btn-text" onClick={() => setDaily(null)}>{t('Cancel')}</button>
+                <button type="button" className="pill-btn" disabled={creating || !daily.channel} onClick={createDaily}>
+                  {creating ? t('Creating…') : t('Create')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="rows">
+              <button className="row auto-preset" disabled={creating} onClick={openDaily}>
+                <span className="row-icon"><Icon name="send" size={18} /></span>
+                <span className="row-main">
+                  {t('Daily report')}
+                  <span className="row-sub">{t('At a time you choose: your day in your own words — what went well, what to improve, tomorrow — for you to check and post to a channel.')}</span>
+                </span>
+                <span className="pill-tag">{t('Add')}</span>
+              </button>
+            </div>
+          )
+        )}
+
         {error && <div className="form-error">{error}</div>}
 
         <div className="rows-title">{t('Your automations')}</div>
@@ -247,13 +288,21 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
               editing?.id === r.id ? (
                 <div className="row static routine-row editing" key={r.id} data-routine={r.id}>
                   <div className="routine-edit">
-                    <DraftFields
-                      draft={editing.draft}
-                      members={members}
-                      withTitle
-                      recipientName={r.recipient.name}
-                      onChange={(patch) => setEditing((e) => (e ? { ...e, draft: { ...e.draft, ...patch } } : e))}
-                    />
+                    {r.kind === 'daily_report' ? (
+                      <DailyFields
+                        draft={editing.draft}
+                        businesses={businesses}
+                        onChange={(patch) => setEditing((e) => (e ? { ...e, draft: { ...e.draft, ...patch } } : e))}
+                      />
+                    ) : (
+                      <DraftFields
+                        draft={editing.draft}
+                        members={members}
+                        withTitle
+                        recipientName={r.recipient.name}
+                        onChange={(patch) => setEditing((e) => (e ? { ...e, draft: { ...e.draft, ...patch } } : e))}
+                      />
+                    )}
                     <div className="auto-actions">
                       <button type="button" className="btn-text" onClick={() => setEditing(null)}>{t('Cancel')}</button>
                       <button type="button" className="pill-btn" disabled={busy === r.id || !editing.draft.instruction.trim()} onClick={() => save(r.id, editing.draft)}>
@@ -264,12 +313,13 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
                 </div>
               ) : (
                 <div className={`row static routine-row${r.enabled ? '' : ' off'}`} key={r.id} data-routine={r.id}>
-                  <span className="row-icon"><Icon name={r.kind === 'brief' ? 'calendar' : 'repeat'} size={18} /></span>
+                  <span className="row-icon"><Icon name={r.kind === 'brief' ? 'calendar' : r.kind === 'daily_report' ? 'send' : 'repeat'} size={18} /></span>
                   <span className="row-main">
                     <span className="routine-title">{r.title}</span>
                     <span className="row-sub">
                       {r.schedule}
                       {!r.recipient.self && ` · ${t('to {name}', { name: r.recipient.name })}`}
+                      {r.channel && ` · ${t('posted to {channel}', { channel: `#${r.channel.replace(/^b:/, '')}` })}`}
                     </span>
                     <span className="row-sub routine-times">{times(r)}</span>
                     {r.lastError && <span className="row-sub routine-error" role="status">{r.lastError}</span>}
@@ -286,7 +336,7 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
                           <button type="button" className="btn-text" disabled={busy === r.id} onClick={() => runNow(r)}>
                             {busy === r.id ? t('Running…') : t('Run now')}
                           </button>
-                          {r.lastCardId && <button type="button" className="btn-text" onClick={() => onOpenCard(r.lastCardId!)}>{t('Last report')}</button>}
+                          {r.lastCardId && <button type="button" className="btn-text" onClick={() => onOpenCard(r.lastCardId!)}>{r.kind === 'daily_report' ? t('Latest draft') : t('Last report')}</button>}
                           <button type="button" className="btn-text" onClick={() => { setConfirm(null); setEditing({ id: r.id, draft: draftFromRoutine(r) }) }}>{t('Edit')}</button>
                           <button type="button" className="btn-text danger" onClick={() => { setEditing(null); setConfirm(r.id) }}>{t('Delete')}</button>
                         </>
@@ -390,6 +440,48 @@ const DraftFields: React.FC<{
           {teammates.map((m) => <option key={m.ref} value={`member:${m.ref}`}>{m.name}</option>)}
           {!known && <option value={draft.recipient}>{recipientName || '—'}</option>}
         </select>
+      </div>
+    </>
+  )
+}
+
+/// A daily report's settings: what time, which days, and the channel it is
+/// posted to.
+const DailyFields: React.FC<{
+  draft: RoutineDraft
+  businesses: Business[]
+  onChange: (patch: Partial<RoutineDraft>) => void
+}> = ({ draft, businesses, onChange }) => {
+  const t = useT()
+  const known = businesses.some((b) => `b:${b.slug}` === draft.channel)
+  return (
+    <>
+      <div className="auto-field">
+        <span className="auto-label">{t('When')}</span>
+        <span className="auto-when">
+          <select className="row-select" value={draft.cadence === 'daily' ? 'daily' : 'weekdays'} onChange={(e) => onChange({ cadence: e.target.value as Cadence })} aria-label={t('How often')}>
+            <option value="weekdays">{t(CADENCE_WORD.weekdays)}</option>
+            <option value="daily">{t(CADENCE_WORD.daily)}</option>
+          </select>
+          <input
+            type="time"
+            className="row-select"
+            value={timeValue(draft.hour, draft.minute)}
+            onChange={(e) => { const time = parseTime(e.target.value); if (time) onChange(time) }}
+            aria-label={t('Time')}
+          />
+        </span>
+      </div>
+      <div className="auto-field">
+        <span className="auto-label">{t('Post to')}</span>
+        {businesses.length || draft.channel ? (
+          <select className="row-select" value={draft.channel || ''} onChange={(e) => onChange({ channel: e.target.value })} aria-label={t('Post to')}>
+            {!known && draft.channel && <option value={draft.channel}>#{draft.channel.replace(/^b:/, '')}</option>}
+            {businesses.map((b) => <option key={b.slug} value={`b:${b.slug}`}>#{b.slug}{b.name && b.name !== b.slug ? ` — ${b.name}` : ''}</option>)}
+          </select>
+        ) : (
+          <span className="auto-hint">{t('Make a channel first: the daily report is posted to one.')}</span>
+        )}
       </div>
     </>
   )

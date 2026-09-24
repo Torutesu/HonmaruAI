@@ -421,7 +421,10 @@ CREATE TABLE IF NOT EXISTS routines (
   runs           INTEGER NOT NULL DEFAULT 0,
   origin         TEXT NOT NULL DEFAULT 'manual',
   created_at     TEXT NOT NULL,
-  updated_at     TEXT NOT NULL
+  updated_at     TEXT NOT NULL,
+  /* A daily report's channel (`b:<slug>`): where the owner posts it once
+     they have read the draft. Null for every other kind. */
+  channel        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_routines_due ON routines(enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_routines_org ON routines(org_id);

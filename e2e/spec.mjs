@@ -1353,7 +1353,7 @@ await step('the cron delivers a routine that is due, live, to the open feed', as
   await d.click('.auto-preset')
   await d.waitForSelector('.routine-row:has-text("Morning brief")', { timeout: 15000 })
     .catch(() => { throw new Error('the Morning brief preset made nothing') })
-  if (await d.$('.auto-preset')) throw new Error('the preset is still offered once a brief exists')
+  if (await d.$('.auto-preset:has-text("Morning brief")')) throw new Error('the preset is still offered once a brief exists')
   const id = await d.$eval('.routine-row:has-text("Morning brief")', (el) => el.getAttribute('data-routine'))
   // Make it due, and fire the cron the way Cloudflare does.
   d1(`UPDATE routines SET next_run_at = '2026-01-01T00:00:00.000Z' WHERE id = '${id}'`)
@@ -1692,6 +1692,66 @@ await step('people talk in a channel, and @AI turns what was said into a decisio
     void beforeAI
   } finally {
     await ctx.close()
+  }
+})
+
+await step('a daily report is set for a time and a channel, drafted in the person’s words, edited, and posted by them', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
+  try {
+    await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
+    await d.waitForSelector('.auto-preset:has-text("Daily report")', { timeout: 20000 })
+      .catch(() => { throw new Error('the daily report is not offered') })
+    await d.click('.auto-preset:has-text("Daily report")')
+    await d.waitForSelector('.daily-setup select[aria-label="Post to"]', { timeout: 10000 })
+    await d.selectOption('.daily-setup select[aria-label="Post to"]', 'b:kitchen')
+    await d.fill('.daily-setup input[type="time"]', '18:30')
+    await d.screenshot({ path: `${SHOTS}/40-daily-setup.png` })
+    await d.click('.daily-setup .pill-btn')
+    const row = '.routine-row:has-text("Daily report")'
+    await d.waitForSelector(row, { timeout: 15000 }).catch(() => { throw new Error('the daily report was not listed after Create') })
+    const sub = await d.$eval(row, (el) => el.innerText)
+    if (!/18:30/.test(sub) || !/#kitchen/.test(sub)) throw new Error(`the row does not say when and where: ${sub.slice(0, 160)}`)
+    if (await d.$('.auto-preset:has-text("Daily report")')) throw new Error('the daily report is still offered once there is one')
+
+    // Run now: the draft, in the feed, for its owner to change.
+    await d.click(`${row} .btn-text:has-text("Run now")`)
+    await d.waitForFunction(() => /^#\/feed\/daily-/.test(location.hash), null, { timeout: 20000 })
+      .catch(() => { throw new Error('Run now did not open the draft') })
+    await d.waitForSelector('.daily-text', { timeout: 20000 }).catch(() => { throw new Error('the draft is not shown for editing') })
+    const draft = await d.$eval('.daily-text', (el) => el.value)
+    for (const heading of ['What I did today', 'Task progress', 'What went well', 'What to improve', 'Tomorrow']) {
+      if (!draft.includes(`*${heading}*`)) throw new Error(`the draft has no "${heading}": ${draft.slice(0, 200)}`)
+    }
+    // What was said today, in the channel it was said in.
+    if (!/#kitchen/.test(draft)) throw new Error(`the draft does not count what was said in #kitchen: ${draft.slice(0, 300)}`)
+    if (/@example\.com|\bu:|\bemail:/.test(draft)) throw new Error('the draft shows an account id')
+    await d.screenshot({ path: `${SHOTS}/41-daily-draft.png` })
+
+    // In the person's own words, then posted by them.
+    // Unique to this run: the local database outlives it.
+    const words = `Got the fridge quote in the same morning (${Date.now()}).`
+    const mine = draft.replace('(add this in your own words)', words)
+    await d.fill('.daily-text', mine)
+    await d.click('.daily-report .pill-btn:has-text("Post to #kitchen")')
+    await d.waitForSelector('.daily-posted', { timeout: 15000 }).catch(() => { throw new Error('posting the report did not say it was posted') })
+    // instr, not LIKE: D1 refuses a LIKE pattern this long.
+    const said = d1(`SELECT body FROM channel_messages WHERE channel = 'b:kitchen' AND instr(body, '${words}') > 0`)
+    if (said.length !== 1) throw new Error(`the report did not land in #kitchen exactly once: ${said.length}`)
+
+    // There, in the channel, under the person's name.
+    await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await d.waitForSelector('.cl-thread:has-text("Kitchen")', { timeout: 20000 })
+    await d.click('.cl-thread:has-text("Kitchen") .cl-open')
+    await d.waitForSelector(`.slk-msg:has-text("${words}")`, { timeout: 15000 })
+      .catch(() => { throw new Error('the posted report does not show in the channel') })
+    await d.screenshot({ path: `${SHOTS}/42-daily-posted.png` })
+  } finally {
+    await ctx.close()
+    // This step reads the team list several times for one person; the
+    // steps after it must not find that person's window already spent.
+    try { d1('DELETE FROM rate_limits') } catch { /* the next step says so if it matters */ }
   }
 })
 

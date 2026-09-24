@@ -1,5 +1,5 @@
 import { CADENCES, isTimeZone, nextRunAt, describeSchedule } from "./schedule.js";
-import { saveCard, getUserByLogin, isMember } from "./db.js";
+import { saveCard, getUserByLogin, isMember, businessSlug } from "./db.js";
 import { searchDecisions } from "./insights.js";
 import { searchTermsFor } from "./ask.js";
 import { relevantMemories, playbookBlock } from "./memory.js";
@@ -16,6 +16,7 @@ import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
 import { displayName } from "./notifyCopy.js";
 import { recentBusinessTalk } from "./channels.js";
+import { draftDailyReport } from "./dailyReport.js";
 
 // Routines: work the AI does on a schedule, delivered as a card.
 //
@@ -36,7 +37,11 @@ const MAX_REPORT_CHARS = 8000;
 /// How many routines one cron tick runs. The rest wait fifteen minutes.
 const MAX_RUNS_PER_TICK = 25;
 
-export const KINDS = ["report", "brief"];
+/// `daily_report`: the owner's own day — what they said, the tasks they were
+/// given and how far each got, what they did — written in their voice with
+/// what went well, what to improve and tomorrow's plan, delivered to them as
+/// a draft they read, change and post to a channel.
+export const KINDS = ["report", "brief", "daily_report"];
 
 /// What the morning brief asks for, when a routine is a brief.
 export function briefInstruction(locale) {
@@ -65,6 +70,7 @@ export function publicRoutine(r, { locale = "en", recipientName, recipientRef } 
     lastUsd: r.last_usd ?? null,
     runs: r.runs || 0,
     origin: r.origin,
+    channel: r.channel || null,
     mine: true,
     recipient: { name: recipientName || r.recipient_login, ref: recipientRef || null, self: r.recipient_login === r.owner_login },
     createdAt: r.created_at,
@@ -80,16 +86,27 @@ export function validateRoutineInput(body, { partial = false, locale = "en" } = 
 
   if (has("kind") || !partial) {
     const kind = body.kind ?? "report";
-    if (!KINDS.includes(kind)) return { error: "kind is report or brief." };
+    if (!KINDS.includes(kind)) return { error: "kind is report, brief or daily_report." };
     out.kind = kind;
   }
-  if (has("instruction") || (!partial && out.kind !== "brief")) {
+  // The kinds that know what to do without being told.
+  const standing = out.kind === "brief" || out.kind === "daily_report";
+  if (has("instruction") || (!partial && !standing)) {
     const instruction = typeof body.instruction === "string" ? body.instruction.trim() : "";
-    if (!instruction && out.kind !== "brief") return { error: "Say what your AI should do." };
+    if (!instruction && !standing) return { error: "Say what your AI should do." };
     if (instruction.length > MAX_ROUTINE_INSTRUCTION) return { error: `That is too long (over ${MAX_ROUTINE_INSTRUCTION} characters).` };
     if (instruction) out.instruction = instruction;
   }
   if (!partial && out.kind === "brief" && !out.instruction) out.instruction = briefInstruction(locale);
+  if (!partial && out.kind === "daily_report" && !out.instruction) out.instruction = serverText(locale, "daily.instruction");
+  // A daily report is posted to a business channel — the room the team
+  // reads — and has to name one.
+  if (has("channel") || (!partial && out.kind === "daily_report")) {
+    const channel = typeof body.channel === "string" ? body.channel.trim() : "";
+    const slug = channel.startsWith("b:") ? channel.slice(2) : "";
+    if (!slug || businessSlug(slug) !== slug) return { error: "Choose the channel your daily report is posted to." };
+    out.channel = channel;
+  }
   if (has("title") || !partial) {
     const raw = typeof body.title === "string" ? body.title.replace(/\s+/g, " ").trim() : "";
     const title = raw || titleFrom(out.instruction || "", out.kind, locale);
@@ -133,6 +150,7 @@ export function validateRoutineInput(body, { partial = false, locale = "en" } = 
 
 function titleFrom(instruction, kind, locale) {
   if (kind === "brief") return serverText(locale, "routine.briefTitle");
+  if (kind === "daily_report") return serverText(locale, "daily.routineTitle");
   const first = String(instruction).split(/[\n。.!?！？]/u)[0].trim();
   // A title starts with a capital, even when the sentence it came from
   // started mid-thought ("… summarise last week").
@@ -169,16 +187,17 @@ export async function createRoutine(db, { orgId, owner, recipientLogin, input, o
     cadence: input.cadence, weekday: input.weekday ?? null, monthday: input.monthday ?? null,
     hour: input.hour, minute: input.minute ?? 0, timezone: input.timezone || "UTC",
     enabled: input.enabled === 0 ? 0 : 1, origin: origin === "proposal" ? "proposal" : "manual",
+    channel: input.kind === "daily_report" ? input.channel : null,
   };
   r.next_run_at = r.enabled ? nextRunAt(r, now) : null;
   await db
     .prepare(
       `INSERT INTO routines (id, org_id, owner_github_id, owner_login, recipient_login, kind, title, instruction,
-         cadence, weekday, monthday, hour, minute, timezone, enabled, next_run_at, origin, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?18)`
+         cadence, weekday, monthday, hour, minute, timezone, enabled, next_run_at, origin, created_at, updated_at, channel)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?18, ?19)`
     )
     .bind(r.id, r.org_id, r.owner_github_id, r.owner_login, r.recipient_login, r.kind, r.title, r.instruction,
-      r.cadence, r.weekday, r.monthday, r.hour, r.minute, r.timezone, r.enabled, r.next_run_at, r.origin, stamp)
+      r.cadence, r.weekday, r.monthday, r.hour, r.minute, r.timezone, r.enabled, r.next_run_at, r.origin, stamp, r.channel)
     .run();
   return { routine: await getRoutine(db, orgId, id) };
 }
@@ -191,16 +210,20 @@ export async function updateRoutine(db, orgId, id, patch, { recipientLogin, now 
   // A cadence change clears the fields the new cadence does not use.
   if (next.cadence !== "weekly") next.weekday = null;
   if (next.cadence !== "monthly") next.monthday = null;
+  // Only a daily report has a channel, and it is always its owner's to read.
+  if (next.kind !== "daily_report") next.channel = null;
+  else next.recipient_login = next.owner_login;
   next.next_run_at = next.enabled ? nextRunAt(next, now) : null;
   await db
     .prepare(
       `UPDATE routines SET kind = ?3, title = ?4, instruction = ?5, cadence = ?6, weekday = ?7, monthday = ?8,
          hour = ?9, minute = ?10, timezone = ?11, enabled = ?12, next_run_at = ?13, recipient_login = ?14,
-         last_error = CASE WHEN ?12 = 1 THEN NULL ELSE last_error END, updated_at = ?15
+         last_error = CASE WHEN ?12 = 1 THEN NULL ELSE last_error END, updated_at = ?15, channel = ?16
        WHERE org_id = ?1 AND id = ?2`
     )
     .bind(orgId, id, next.kind, next.title, next.instruction, next.cadence, next.weekday, next.monthday,
-      next.hour, next.minute, next.timezone, next.enabled ? 1 : 0, next.next_run_at, next.recipient_login, now.toISOString())
+      next.hour, next.minute, next.timezone, next.enabled ? 1 : 0, next.next_run_at, next.recipient_login, now.toISOString(),
+      next.channel ?? null)
     .run();
   return getRoutine(db, orgId, id);
 }
@@ -476,46 +499,54 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
   const provider = await providerFor(env, routine.org_id);
   const allowance = provider ? await allowanceFor(env, routine.org_id, { githubId: String(routine.owner_github_id) }) : null;
   try {
-    const material = await gatherMaterial(db, routine.org_id, { ...routine, locale }, { now });
-    const written = await writeReport(env, routine, material, { locale, provider, allowance });
+    // Who set it up, by name — not the login it would otherwise be read
+    // off, which for most people is their email address.
+    const requestedBy = { login: routine.owner_login, name: (await namesFor(db, [routine.owner_login])).get(routine.owner_login) || plainName(routine.owner_login) };
+    let card;
+    let byModel;
+    if (routine.kind === "daily_report") {
+      ({ card, byModel } = await draftDailyReport(env, routine, { now, locale, provider, allowance, requestedBy }));
+    } else {
+      const material = await gatherMaterial(db, routine.org_id, { ...routine, locale }, { now });
+      const written = await writeReport(env, routine, material, { locale, provider, allowance });
+      byModel = written.byModel;
+      card = {
+        id: `routine-${routine.id.slice(0, 8)}-${now.getTime().toString(36)}`,
+        recipientUserID: routine.recipient_login,
+        senderUserID: routine.owner_login,
+        type: "notification",
+        format: "fyi",
+        title: written.report.title,
+        summary: written.report.summary,
+        context: "",
+        priority: material.waiting.some((d) => d.priority === "urgent") ? "high" : "low",
+        status: "pending",
+        createdAt: now.toISOString(),
+        sourceApp: "Routine",
+        sourceDetail: routine.title,
+        requestedBy,
+        originalLanguage: locale,
+        report: {
+          markdown: written.report.markdown,
+          routineId: routine.id,
+          routineTitle: routine.title,
+          schedule: describeSchedule(routine, locale),
+          periodStart: material.since,
+          periodEnd: material.until,
+          by: written.byModel ? "model" : "digest",
+          ...(written.sources?.length ? { sources: written.sources } : {}),
+        },
+      };
+    }
+    const cardId = card.id;
     const usd = (provider?.usage || []).reduce((sum, e) => sum + (e.usd || 0), 0);
     await settleUsage(db, provider, { orgId: routine.org_id, githubId: routine.owner_github_id });
 
-    const cardId = `routine-${routine.id.slice(0, 8)}-${now.getTime().toString(36)}`;
-    const card = {
-      id: cardId,
-      recipientUserID: routine.recipient_login,
-      senderUserID: routine.owner_login,
-      type: "notification",
-      format: "fyi",
-      title: written.report.title,
-      summary: written.report.summary,
-      context: "",
-      priority: material.waiting.some((d) => d.priority === "urgent") ? "high" : "low",
-      status: "pending",
-      createdAt: now.toISOString(),
-      sourceApp: "Routine",
-      sourceDetail: routine.title,
-      // Who set it up, by name — not the login it would otherwise be read
-      // off, which for most people is their email address.
-      requestedBy: { login: routine.owner_login, name: (await namesFor(db, [routine.owner_login])).get(routine.owner_login) || plainName(routine.owner_login) },
-      originalLanguage: locale,
-      report: {
-        markdown: written.report.markdown,
-        routineId: routine.id,
-        routineTitle: routine.title,
-        schedule: describeSchedule(routine, locale),
-        periodStart: material.since,
-        periodEnd: material.until,
-        by: written.byModel ? "model" : "digest",
-        ...(written.sources?.length ? { sources: written.sources } : {}),
-      },
-    };
     await saveCard(db, routine.org_id, card);
     await appendCardEvent(db, routine.org_id, {
       cardId, type: "created", actorUserId: routine.owner_login, note: `routine: ${routine.title}`.slice(0, 500), snapshot: card,
     });
-    await finish({ ranAt: now.toISOString(), cardId, usd: written.byModel ? usd : 0 });
+    await finish({ ranAt: now.toISOString(), cardId, usd: byModel ? usd : 0 });
     const shown = await localizeForRecipient(env, routine.org_id, card, { payerGithubId: routine.owner_github_id });
     await announceCards(env, routine.org_id, [shown]);
     if (anyChannelConfigured(env)) {

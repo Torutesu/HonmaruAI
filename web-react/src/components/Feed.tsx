@@ -7,6 +7,7 @@ import { useT } from '../utils/i18n'
 import { ReplyDraft } from './ReplyDraft'
 import { CardThread } from './CardThread'
 import { ReportDoc, ProposalNote } from './Report'
+import { DailyReportDraft } from './DailyReport'
 import { ago } from '../utils/ago'
 import { sourceLabel } from '../utils/automation'
 
@@ -353,7 +354,9 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             </div>
           )}
 
-          {card.report?.markdown && <ReportDoc report={card.report} title={title} />}
+          {card.dailyReport && api
+            ? <DailyReportDraft card={card} api={api} />
+            : card.report?.markdown && <ReportDoc report={card.report} title={title} />}
           {card.proposal && <ProposalNote proposal={card.proposal} />}
 
           {/* A proposal's context repeats its evidence as a sentence; the
