@@ -48,3 +48,21 @@ and Sometype Mono; #202020 pill buttons; brand violet for AI moments only.
 - Every scroll-linked effect runs off one `requestAnimationFrame` loop and
   only writes `transform` and `opacity`.
 - `prefers-reduced-motion` stops the loops and the autoplay.
+
+## Deploying
+
+**Deploy Landing Page** (`.github/workflows/deploy-lp.yml`) runs on every push
+to `main` that touches `lp/`, and can also be run by hand from Actions. It:
+
+1. checks that every string the page uses exists in all five languages;
+2. copies only the files the page serves (not this README);
+3. rewrites `og:image` and `og:url` to absolute addresses;
+4. creates the Pages project `honmaru-lp` if it doesn't exist yet;
+5. deploys, and checks that the live site serves this commit.
+
+It uses the same two secrets as Deploy Web.
+
+Once the site is up, add the custom domain once in the Cloudflare dashboard:
+Pages → `honmaru-lp` → Custom domains. After that, set the repository
+variable `LP_SITE_URL` (for example `https://honmaruai.com`) so link previews
+point at that domain.

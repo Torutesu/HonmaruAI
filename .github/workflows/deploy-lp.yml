@@ -1,0 +1,107 @@
+name: Deploy Landing Page
+
+# The landing page (lp/) is static: no build, no dependencies. This puts it on
+# Cloudflare Pages the way Deploy Web puts the client there, with the same two
+# repository secrets. The API token needs "Cloudflare Pages: Edit".
+#
+# The Pages project is created on the first run if it does not exist yet.
+# Attaching a custom domain (honmaruai.com) is a one-time step in the
+# Cloudflare dashboard: Pages → the project → Custom domains.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lp/**"
+      - ".github/workflows/deploy-lp.yml"
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Cloudflare Pages project"
+        type: string
+        default: honmaru-lp
+      site_url:
+        description: "Public URL the page is served from (for link previews). Empty = the pages.dev address"
+        type: string
+        default: ""
+
+concurrency:
+  group: deploy-lp
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Check and deploy
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PROJECT: ${{ inputs.project || 'honmaru-lp' }}
+      SITE_URL: ${{ inputs.site_url || vars.LP_SITE_URL || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check credentials
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in repository secrets."
+            exit 1
+          fi
+
+      # Every string the page asks for exists in every language, and the
+      # scripts parse. A missing key shows up as a blank on the live page.
+      - name: Check the page
+        run: |
+          node --check lp/main.js
+          node -e '
+            global.window = {};
+            require("./lp/i18n.js");
+            const I = window.I18N, fs = require("fs");
+            const used = [...fs.readFileSync("lp/index.html", "utf8").matchAll(/data-i18n(?:-html|-placeholder|-aria)?="([^"]+)"/g)].map(m => m[1]);
+            let bad = 0;
+            for (const lang of Object.keys(I)) {
+              const missing = [...new Set(used)].filter(k => !(k in I[lang]));
+              if (missing.length) { console.log(`::error::${lang} is missing ${missing.join(", ")}`); bad = 1; }
+            }
+            process.exit(bad);
+          '
+
+      # Only what the page serves goes up; og:image and og:url need an
+      # absolute address to show in link previews.
+      - name: Assemble
+        run: |
+          url="${SITE_URL:-https://$PROJECT.pages.dev}"
+          url="${url%/}"
+          mkdir dist
+          cp lp/index.html lp/styles.css lp/i18n.js lp/main.js lp/icon.svg lp/og.png dist/
+          sed -i "s#<meta property=\"og:image\" content=\"og.png\">#<meta property=\"og:image\" content=\"$url/og.png\">\n<meta property=\"og:url\" content=\"$url/\">#" dist/index.html
+          grep -q "$url/og.png" dist/index.html || { echo "::error::og:image was not rewritten."; exit 1; }
+          echo "site: $url"
+
+      - name: Create the Pages project if needed
+        run: |
+          if npx -y wrangler@4 pages project list 2>/dev/null | grep -qw "$PROJECT"; then
+            echo "$PROJECT exists"
+          else
+            npx -y wrangler@4 pages project create "$PROJECT" --production-branch=main
+          fi
+
+      - name: Deploy to Pages
+        run: npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
+
+      # The copy on the live page is this commit's copy.
+      - name: Verify
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS "https://$PROJECT.pages.dev/" | grep -q "Honmaru AI" \
+              && curl -fsS "https://$PROJECT.pages.dev/main.js" | cmp -s - dist/main.js; then
+              echo "https://$PROJECT.pages.dev serves this commit"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::https://$PROJECT.pages.dev does not serve this commit yet."
+          exit 1
