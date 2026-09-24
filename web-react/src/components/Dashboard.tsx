@@ -15,6 +15,8 @@ import { NotificationSettings } from '../screens/NotificationSettings'
 import { Plans } from '../screens/Plans'
 import { Profile } from '../screens/Profile'
 import { Insights } from '../screens/Insights'
+import { Automations } from '../screens/Automations'
+import { Playbook } from '../screens/Playbook'
 import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
@@ -655,6 +657,20 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
       {screen === 'insights' && (
         <Insights httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+      )}
+      {screen === 'automations' && (
+        <Automations
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          sessionToken={sessionToken}
+          // "Run now" delivers a card; the person goes to read it, in the
+          // cards view, where a report is drawn as a document.
+          onOpenCard={(id) => { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(id)) }}
+          onClose={() => setScreen(null)}
+        />
+      )}
+      {screen === 'playbook' && (
+        <Playbook httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
       )}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={() => setScreen(null)} />

@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName, properName } from '../utils/names'
 import { Icon } from './Icon'
 import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
+import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
 /// table History reads from, so one decision is not "approve" here and
@@ -13,8 +14,13 @@ const ACTION_WORD: Record<string, string> = {
   approve: 'Approved', decline: 'Declined', revise: 'Revision asked',
   choose: 'Chose', reply: 'Replied', acknowledge: 'Acknowledged',
   delegate: 'Delegated', later: 'Deferred', pending: 'Waiting',
+  approved: 'Approved', rejected: 'Declined', revised: 'Revision asked',
+  delegated: 'Delegated', completed: 'Acknowledged',
 }
 const actionWord = (value?: string) => (value ? ACTION_WORD[value] || value : '')
+
+/// The recipient's name when the relay stamped one, else their login.
+const recipientNameOf = (c: DecisionCard) => (c as DecisionCard & { recipientName?: string }).recipientName || c.recipientUserID
 
 export type Presence = Record<string, 'online' | 'offline'>
 
@@ -39,7 +45,7 @@ interface Props {
   onDeleteChannel: (slug: string) => Promise<string | null>
 }
 
-/// One conversation in the list: a channel (a business), a person, or an app.
+/// One conversation in the sidebar: a channel (a business), a person, or an app.
 interface Thread {
   key: string
   kind: 'channel' | 'person' | 'app'
@@ -51,22 +57,10 @@ interface Thread {
   slug?: string
   /// The connector id, for an app: gmail, slack, notion, github, ai.
   app?: string
+  /// Newest first, as the sidebar reads them; the conversation reverses.
   cards: DecisionCard[]
   unread: number
-  /// The newest card, when there is one — an empty channel has none.
   latest?: DecisionCard
-}
-
-function when(iso?: string): string {
-  if (!iso) return ''
-  const t = Date.parse(iso)
-  if (!Number.isFinite(t)) return ''
-  const d = new Date(t)
-  const today = new Date()
-  const sameDay = d.toDateString() === today.toDateString()
-  return sameDay
-    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 const stamp = (c: DecisionCard) => [c.lastCommentAt || '', c.decision?.decidedAt || '', c.createdAt].sort().pop() || c.createdAt
@@ -75,15 +69,39 @@ const newestFirst = (a: DecisionCard, b: DecisionCard) => stamp(b).localeCompare
 const APP_ICON: Record<string, Thread['icon']> = { gmail: 'mail', email: 'mail', slack: 'box', notion: 'notion', github: 'github' }
 const APP_NAME: Record<string, string> = { gmail: 'Gmail', email: 'Email', slack: 'Slack', notion: 'Notion', github: 'GitHub' }
 
-/// The same decisions, laid out the way a chat client lays out a workspace:
-/// channels are the team's businesses, direct messages are the people you
-/// trade decisions with, apps are where the rest came in from. A row in bold
-/// with a count is a conversation with something waiting on you; opening it
-/// lists the decisions in it, and each of those opens as a card.
+const WIDE = '(min-width: 720px)'
+const isWide = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(WIDE).matches
+
+function clock(iso?: string): string {
+  const t = iso ? Date.parse(iso) : NaN
+  if (!Number.isFinite(t)) return ''
+  return new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+/// The newest activity on a row, as a chat client shows it: the time today,
+/// the date before that.
+function when(iso?: string): string {
+  const t = iso ? Date.parse(iso) : NaN
+  if (!Number.isFinite(t)) return ''
+  const d = new Date(t)
+  return d.toDateString() === new Date().toDateString()
+    ? clock(iso)
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+/// The workspace laid out the way a chat client lays it out — and the one
+/// place in this product that deliberately does. On the left, channels are
+/// the team's businesses, direct messages are the people you trade
+/// decisions with, apps are where the rest came in from. On the right, the
+/// conversation you picked: its decisions in the order they happened, each
+/// one a message with who asked, what, and where it stands. A decision
+/// still opens as a card, where it is decided — the conversation is how you
+/// find it and see it in context, never a second place to decide.
 ///
-/// It is deliberately the same data as the card feed: everything here can be
-/// opened as a card, and nothing here exists that the feed does not know
-/// about. Presence is the relay's, not invented.
+/// It is the same data as the card feed: everything here opens as a card,
+/// and nothing here exists that the feed does not know about. Presence is
+/// the relay's, not invented. On a phone it is one pane at a time: the
+/// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
   userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onSearch, onCompose, onWorkspace,
@@ -92,6 +110,7 @@ export const ClassicList: React.FC<Props> = ({
   const t = useT()
   const locale = getLocale()
   const titleOf = (c: DecisionCard) => c.localized?.[locale]?.title || c.title
+  const summaryOf = (c: DecisionCard) => c.localized?.[locale]?.summary || c.summary
   const nameOfBusiness = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug || ''
   const isMine = (c: DecisionCard) => c.senderUserID === userId && c.recipientUserID !== userId
   const isUnread = (c: DecisionCard) => c.status === 'pending' && c.recipientUserID === userId
@@ -146,7 +165,33 @@ export const ClassicList: React.FC<Props> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, sent, decided, businesses, userId, locale])
 
-  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const everything = useMemo(() => [...channels, ...people, ...apps], [channels, people, apps])
+
+  // Which conversation is open. On a laptop one always is — the first with
+  // something waiting on you, else the first there is — the way a chat
+  // client never shows an empty right half. On a phone none is until tapped.
+  const [openKey, setOpenKey] = useState<string | null>(() => {
+    if (!isWide()) return null
+    try { return sessionStorage.getItem('list.open') } catch { return null }
+  })
+  const [wide, setWide] = useState(isWide)
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia(WIDE)
+    const on = () => setWide(mq.matches)
+    mq.addEventListener?.('change', on)
+    return () => mq.removeEventListener?.('change', on)
+  }, [])
+  const current = everything.find((th) => th.key === openKey)
+    || (wide ? (everything.find((th) => th.unread > 0) || everything[0]) : undefined)
+  const choose = (key: string | null) => {
+    setOpenKey(key)
+    setProblem(null)
+    setRenaming(null)
+    setSettings(false)
+    try { if (key) sessionStorage.setItem('list.open', key); else sessionStorage.removeItem('list.open') } catch {}
+  }
+
   const [folded, setFolded] = useState<Record<string, boolean>>({})
   // Making a channel, renaming one: the box, its text, and what went wrong.
   const [adding, setAdding] = useState(false)
@@ -155,12 +200,9 @@ export const ClassicList: React.FC<Props> = ({
   const [renameTo, setRenameTo] = useState('')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const toggle = (thread: Thread) => {
-    // One decision is one tap: a thread with a single card opens the card.
-    // A channel always opens as a channel, so its own controls are reachable.
-    if (thread.kind !== 'channel' && thread.cards.length === 1) { onOpen(thread.cards[0].id); return }
-    setOpen((prev) => ({ ...prev, [thread.key]: !prev[thread.key] }))
-  }
+  // The channel's own controls, behind ⋯ — as in a chat client, not in the way.
+  const [settings, setSettings] = useState(false)
+
   const createChannel = async () => {
     const name = newName.trim()
     if (!name || busy) return
@@ -188,124 +230,53 @@ export const ClassicList: React.FC<Props> = ({
     setBusy(true); setProblem(null)
     const err = await onDeleteChannel(thread.slug)
     setBusy(false)
-    if (err) setProblem(err)
+    if (err) { setProblem(err); return }
+    choose(null)
   }
 
-  const preview = (thread: Thread) => {
-    const c = thread.latest
-    if (!c) return t('No decisions here yet.')
-    const title = titleOf(c) + (c.commentCount ? ` · ${t('{n} replies', { n: c.commentCount })}` : '')
-    if (isMine(c)) {
-      return c.status === 'pending'
-        ? t('You: {title}', { title })
-        : `${t(actionWord(c.decision?.action || c.status))} · ${title}`
-    }
-    if (isUnread(c)) return title
-    return `${t(actionWord(c.decision?.action || c.status))} · ${title}`
-  }
+  // The newest message in view when a conversation opens, as in any chat.
+  const logRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = logRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [current?.key, current?.cards.length])
 
-  const CardRow: React.FC<{ card: DecisionCard }> = ({ card }) => {
-    const mine = isMine(card)
-    const meta = mine
-      ? (card.status === 'pending'
-        ? t('Waiting on {name}', { name: displayName(card.recipientUserID) })
-        : t(actionWord(card.decision?.action || card.status)))
-      : (isUnread(card)
-        ? `${displayName(card.requestedBy?.name || card.senderUserID)}${nameOfBusiness(card.business) ? ` · ${nameOfBusiness(card.business)}` : ''}`
-        : t(actionWord(card.decision?.action || card.status)))
-    return (
-      <li className={`cl-row cl-card${isUnread(card) ? ' unread' : ''}`}>
-        <button className="cl-open" onClick={() => onOpen(card.id)}>
-          <span className="cl-lead cl-dot-lead" aria-hidden="true">{isUnread(card) ? <span className="cl-unread-dot" /> : null}</span>
-          <span className="cl-text">
-            <span className="cl-line">
-              <span className="cl-title">{titleOf(card)}</span>
-              <span className="cl-when">{when(stamp(card))}</span>
-            </span>
-            <span className="cl-meta">{meta}{card.commentCount ? ` · ${t('{n} replies', { n: card.commentCount })}` : ''}</span>
-          </span>
-          {(card.priority === 'urgent' || card.priority === 'high') && isUnread(card) && (
-            <span className="cl-badge cl-priority">{t(card.priority === 'urgent' ? 'Urgent' : 'High')}</span>
-          )}
-        </button>
-        {mine && card.status === 'pending' && (
-          <button className="cl-nudge" onClick={() => onNudge(card.id)}>{t('Nudge')}</button>
-        )}
-      </li>
-    )
-  }
+  // ---- The sidebar ----
 
-  const ThreadRow: React.FC<{ thread: Thread }> = ({ thread }) => {
-    const expanded = Boolean(open[thread.key])
+  const lead = (thread: Thread, size: 'row' | 'head') => {
     const online = thread.login ? presence[thread.login] === 'online' : false
+    if (thread.kind === 'channel') return <span className={`cl-lead cl-hash sz-${size}`} aria-hidden="true">#</span>
+    if (thread.kind === 'person') {
+      return (
+        <span className={`cl-lead cl-avatar sz-${size}`} aria-hidden="true">
+          {thread.name.charAt(0).toUpperCase()}
+          <span className={`cl-presence${online ? ' on' : ''}`} />
+        </span>
+      )
+    }
     return (
-      <li className={`cl-row cl-thread${thread.unread ? ' unread' : ''}${expanded ? ' expanded' : ''}`}>
-        <button
-          className="cl-open"
-          onClick={() => toggle(thread)}
-          aria-expanded={thread.cards.length > 1 ? expanded : undefined}
-        >
-          {thread.kind === 'channel' && <span className="cl-lead cl-hash" aria-hidden="true">#</span>}
-          {thread.kind === 'person' && (
-            <span className="cl-lead cl-avatar" aria-hidden="true">
-              {thread.name.charAt(0).toUpperCase()}
-              <span className={`cl-presence${online ? ' on' : ''}`} />
-            </span>
-          )}
-          {thread.kind === 'app' && (
-            <span className="cl-lead cl-app" aria-hidden="true">
-              {thread.app === 'ai'
-                ? <img className="cl-own-mark" src="/icon.svg" alt="" width={32} height={32} />
-                : thread.app && isBrand(thread.app) ? <BrandLogo brand={thread.app} size={18} /> : <Icon name={thread.icon || 'box'} size={16} />}
-            </span>
-          )}
-          <span className="cl-text">
-            <span className="cl-line">
-              <span className="cl-title">{thread.name}</span>
-              {thread.latest && <span className="cl-when">{when(stamp(thread.latest))}</span>}
-            </span>
-            <span className="cl-meta">{preview(thread)}</span>
-          </span>
+      <span className={`cl-lead cl-app sz-${size}`} aria-hidden="true">
+        {thread.app === 'ai'
+          ? <img className="cl-own-mark" src="/icon.svg" alt="" width={20} height={20} />
+          : thread.app && isBrand(thread.app) ? <BrandLogo brand={thread.app} size={size === 'head' ? 18 : 14} /> : <Icon name={thread.icon || 'box'} size={14} />}
+      </span>
+    )
+  }
+
+  const row = (thread: Thread) => {
+    const on = current?.key === thread.key
+    return (
+      <li key={thread.key} className={`cl-row cl-thread${thread.unread ? ' unread' : ''}${on ? ' on' : ''}`}>
+        <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
+          {lead(thread, 'row')}
+          <span className="cl-title">{thread.name}</span>
           {thread.unread > 0 && <span className="cl-badge">{thread.unread}</span>}
-          {thread.unread === 0 && thread.cards.length > 1 && (
-            <span className="cl-count" aria-label={t('{n} decisions', { n: thread.cards.length })}>{thread.cards.length}</span>
-          )}
         </button>
-        {expanded && (
-          <ul className="cl-thread-cards">
-            {thread.kind === 'channel' && thread.slug && (
-              <li className="cl-channel-tools">
-                {renaming === thread.slug ? (
-                  <form className="cl-inline-form" onSubmit={(e) => { e.preventDefault(); void renameChannel(thread.slug!) }}>
-                    <input
-                      className="cl-input"
-                      value={renameTo}
-                      autoFocus
-                      maxLength={120}
-                      onChange={(e) => setRenameTo(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null) }}
-                      aria-label={t('Channel name')}
-                      disabled={busy}
-                    />
-                    <button type="submit" className="cl-nudge" disabled={busy || !renameTo.trim()}>{t('Save')}</button>
-                    <button type="button" className="cl-nudge" onClick={() => setRenaming(null)}>{t('Cancel')}</button>
-                  </form>
-                ) : (
-                  <>
-                    <button type="button" className="cl-nudge" onClick={() => { setRenaming(thread.slug!); setRenameTo(thread.name) }}>{t('Rename')}</button>
-                    <button type="button" className="cl-nudge cl-danger" onClick={() => void deleteChannel(thread)}>{t('Delete channel')}</button>
-                  </>
-                )}
-              </li>
-            )}
-            {thread.cards.map((c) => <CardRow key={c.id} card={c} />)}
-          </ul>
-        )}
       </li>
     )
   }
 
-  const Section: React.FC<{ id: string; label: string; threads: Thread[]; empty: string; action?: React.ReactNode; below?: React.ReactNode }> = ({ id, label, threads, empty, action, below }) => {
+  const section = (id: string, label: string, threads: Thread[], empty: string, action?: React.ReactNode, below?: React.ReactNode) => {
     const shut = Boolean(folded[id])
     const unread = threads.reduce((n, th) => n + th.unread, 0)
     return (
@@ -319,7 +290,7 @@ export const ClassicList: React.FC<Props> = ({
           {action}
         </h2>
         {!shut && threads.length === 0 && <p className="cl-empty">{empty}</p>}
-        {!shut && threads.length > 0 && <ul>{threads.map((th) => <ThreadRow key={th.key} thread={th} />)}</ul>}
+        {!shut && threads.length > 0 && <ul>{threads.map(row)}</ul>}
         {!shut && below}
       </section>
     )
@@ -348,33 +319,211 @@ export const ClassicList: React.FC<Props> = ({
     </form>
   ) : null
 
+  // ---- The conversation ----
+
+  /// Who a decision is from, as the message's author: the app it came in
+  /// through, your AI for one you routed to yourself, else the person.
+  const author = (c: DecisionCard) => {
+    const app = c.sourceApp ? String(c.sourceApp).toLowerCase() : ''
+    if (app) return { name: c.sourceApp === 'Your AI' ? t('Your AI') : (APP_NAME[app] || c.sourceApp!), app, initial: '' }
+    if (c.senderUserID === userId && c.recipientUserID === userId) return { name: t('Your AI'), app: 'ai', initial: '' }
+    const name = c.senderUserID === userId ? t('You') : (c.requestedBy?.name || properName(c.senderUserID))
+    return { name, app: '', initial: name.charAt(0).toUpperCase() }
+  }
+
+  const status = (c: DecisionCard) => {
+    if (c.status === 'pending') {
+      if (c.recipientUserID === userId) return { tone: 'waiting', text: t('Waiting on you') }
+      return { tone: 'sent', text: t('Waiting on {name}', { name: properName(recipientNameOf(c)) }) }
+    }
+    const decider = c.decision?.actorUserID
+    const who = decider === userId ? t('you') : properName(decider || c.recipientUserID)
+    return { tone: c.status === 'rejected' ? 'declined' : 'decided', text: t('{action} by {name}', { action: t(actionWord(c.decision?.action || c.status)), name: who }) }
+  }
+
+  const dayLabel = (iso: string) => {
+    const d = new Date(Date.parse(iso))
+    const today = new Date()
+    const yesterday = new Date(today.getTime() - 86400000)
+    if (d.toDateString() === today.toDateString()) return t('Today')
+    if (d.toDateString() === yesterday.toDateString()) return t('Yesterday')
+    return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+  }
+
+  const message = (c: DecisionCard, joined: boolean) => {
+    const who = author(c)
+    const s = status(c)
+    const note = c.decision?.note || c.decision?.replyText
+    const summary = summaryOf(c)
+    const to = c.senderUserID === userId && c.recipientUserID !== userId ? properName(recipientNameOf(c)) : ''
+    return (
+      <article key={c.id} className={`slk-msg${joined ? ' joined' : ''}${isUnread(c) ? ' unread' : ''}`}>
+        <div className="slk-gutter" aria-hidden="true">
+          {joined
+            ? <span className="slk-hover-time">{clock(c.createdAt)}</span>
+            : who.app
+              ? <span className="slk-avatar app">{who.app === 'ai'
+                  ? <img src="/icon.svg" alt="" width={36} height={36} />
+                  : isBrand(who.app) ? <BrandLogo brand={who.app} size={20} /> : <Icon name={APP_ICON[who.app] || 'box'} size={18} />}</span>
+              : <span className="slk-avatar">{who.initial}</span>}
+        </div>
+        <div className="slk-body">
+          {!joined && (
+            <div className="slk-meta">
+              <span className="slk-author">{who.name}</span>
+              {to && <span className="slk-to">→ {to}</span>}
+              <time className="slk-time" dateTime={c.createdAt}>{clock(c.createdAt)}</time>
+            </div>
+          )}
+          <button className="slk-title" onClick={() => onOpen(c.id)}>
+            {(c.priority === 'urgent' || c.priority === 'high') && c.status === 'pending' && (
+              <span className={`slk-chip ${c.priority}`}>{t(c.priority === 'urgent' ? 'Urgent' : 'High')}</span>
+            )}
+            {c.report && <span className="slk-chip report">{t('Report')}</span>}
+            {c.proposal && <span className="slk-chip proposal">{t('Proposal')}</span>}
+            <span>{titleOf(c)}</span>
+          </button>
+          {summary && <p className="slk-summary">{summary}</p>}
+          <div className={`slk-attach ${s.tone}`}>
+            <span className="slk-status">{s.text}</span>
+            {note && <span className="slk-note">“{note}”</span>}
+          </div>
+          <div className="slk-actions">
+            {isUnread(c) && <button className="slk-action primary" onClick={() => onOpen(c.id)}>{t('Decide')}</button>}
+            {!isUnread(c) && <button className="slk-action" onClick={() => onOpen(c.id)}>{t('Open')}</button>}
+            {isMine(c) && c.status === 'pending' && <button className="slk-action" onClick={() => onNudge(c.id)}>{t('Nudge')}</button>}
+            {Boolean(c.commentCount) && (
+              <button className="slk-replies" onClick={() => onOpen(c.id)}>{t('{n} replies', { n: c.commentCount! })}</button>
+            )}
+            {c.business && current?.kind !== 'channel' && <span className="slk-where">#{nameOfBusiness(c.business)}</span>}
+          </div>
+        </div>
+      </article>
+    )
+  }
+
+  const conversation = (thread: Thread) => {
+    const inOrder = [...thread.cards].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    const out: React.ReactNode[] = []
+    let day = ''
+    let prev: DecisionCard | null = null
+    for (const c of inOrder) {
+      const d = new Date(Date.parse(c.createdAt)).toDateString()
+      if (d !== day) {
+        day = d
+        prev = null
+        out.push(<div key={`day-${d}`} className="slk-day" role="separator"><span>{dayLabel(c.createdAt)}</span></div>)
+      }
+      // One author, a few minutes apart: one block, as a chat client groups it.
+      const joined = Boolean(prev && author(prev).name === author(c).name
+        && Date.parse(c.createdAt) - Date.parse(prev.createdAt) < 5 * 60000)
+      out.push(message(c, joined))
+      prev = c
+    }
+    const waitingHere = thread.cards.filter(isUnread).length
+    return (
+      <>
+        <header className="slk-head">
+          <button className="slk-back" onClick={() => choose(null)} aria-label={t('Back')}>
+            <span aria-hidden="true">‹</span>
+          </button>
+          {lead(thread, 'head')}
+          <div className="slk-head-text">
+            <h1>{thread.name}</h1>
+            <p>
+              {thread.cards.length ? t('{n} decisions', { n: thread.cards.length }) : t('No decisions here yet.')}
+              {waitingHere > 0 && <> · <b>{t('{n} waiting on you', { n: waitingHere })}</b></>}
+            </p>
+          </div>
+          {thread.kind === 'channel' && thread.slug && (
+            <button
+              className="slk-more"
+              onClick={() => { setSettings((v) => !v); setRenaming(null) }}
+              aria-label={t('Channel settings')}
+              aria-expanded={settings}
+            >
+              <span aria-hidden="true">⋯</span>
+            </button>
+          )}
+        </header>
+        {settings && thread.kind === 'channel' && thread.slug && (
+          <div className="cl-channel-tools">
+            {renaming === thread.slug ? (
+              <form className="cl-inline-form" onSubmit={(e) => { e.preventDefault(); void renameChannel(thread.slug!) }}>
+                <input
+                  className="cl-input"
+                  value={renameTo}
+                  autoFocus
+                  maxLength={120}
+                  onChange={(e) => setRenameTo(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null) }}
+                  aria-label={t('Channel name')}
+                  disabled={busy}
+                />
+                <button type="submit" className="cl-nudge" disabled={busy || !renameTo.trim()}>{t('Save')}</button>
+                <button type="button" className="cl-nudge" onClick={() => setRenaming(null)}>{t('Cancel')}</button>
+              </form>
+            ) : (
+              <>
+                <button type="button" className="cl-nudge" onClick={() => { setRenaming(thread.slug!); setRenameTo(thread.name) }}>{t('Rename')}</button>
+                <button type="button" className="cl-nudge cl-danger" onClick={() => void deleteChannel(thread)}>{t('Delete channel')}</button>
+              </>
+            )}
+          </div>
+        )}
+        {problem && <p className="cl-problem" role="alert">{problem}</p>}
+        <div className="slk-log" ref={logRef}>
+          {inOrder.length === 0 ? (
+            <div className="slk-start">
+              {lead(thread, 'head')}
+              <h2>{thread.kind === 'channel' ? t('This is the start of #{name}', { name: thread.name }) : thread.name}</h2>
+              <p>{thread.kind === 'channel'
+                ? t('Decisions about {name} land here — filed by your AI as they arrive, or by you.', { name: thread.name })
+                : t('No decisions here yet.')}</p>
+            </div>
+          ) : out}
+        </div>
+        <button className="slk-compose" onClick={onCompose}>
+          <Icon name="plus" size={15} />
+          <span>{thread.kind === 'channel'
+            ? t('Tell your AI about #{name}…', { name: thread.name })
+            : thread.kind === 'person'
+              ? t('Ask {name} for a decision…', { name: thread.name })
+              : t('Tell your AI…')}</span>
+        </button>
+      </>
+    )
+  }
+
   const waiting = pending.length
 
   return (
-    <div className="classic">
-      <div className="classic-inner">
+    <div className={`classic slk${current ? ' in-thread' : ''}`}>
+      <aside className="slk-side" aria-label={t('Conversations')}>
         <header className="cl-top">
           <button className="cl-workspace" onClick={onWorkspace} aria-label={t('Team')}>
             <span className="cl-workspace-name">{orgName || t('Your team')}</span>
             <span className="cl-caret" aria-hidden="true">▾</span>
           </button>
-          <div className="cl-top-actions">
-            <button className="cl-icon-button" onClick={onCompose} aria-label={t('Tell your AI')}><Icon name="plus" size={16} /></button>
-          </div>
+          <button className="cl-icon-button" onClick={onCompose} aria-label={t('Tell your AI')}><Icon name="plus" size={15} /></button>
         </header>
         <button className="cl-search" onClick={onSearch} aria-keyshortcuts="Meta+K Control+K">
-          <Icon name="search" size={15} />
+          <Icon name="search" size={14} />
           <span>{t('Jump to or search…')}</span>
         </button>
-        {waiting > 0 && (
-          <p className="cl-summary" role="status">{t('{n} waiting on you', { n: waiting })}</p>
+        {waiting > 0 && <p className="cl-summary" role="status">{t('{n} waiting on you', { n: waiting })}</p>}
+        {!current && problem && <p className="cl-problem" role="alert">{problem}</p>}
+        <nav className="slk-sections">
+          {section('channels', t('Channels'), channels, t('No channels yet. Make one, or let your AI file decisions under a business as they arrive.'), addChannel, addChannelForm)}
+          {section('people', t('Direct messages'), people, t('Nobody has sent you a decision yet.'))}
+          {section('apps', t('Apps'), apps, t('Connect Gmail or Slack under Tools and their decisions land here.'))}
+        </nav>
+      </aside>
+      <main className="slk-main">
+        {current ? conversation(current) : (
+          <div className="slk-none"><p>{t('Pick a conversation.')}</p></div>
         )}
-
-        {problem && <p className="cl-problem" role="alert">{problem}</p>}
-        <Section id="channels" label={t('Channels')} threads={channels} empty={t('No channels yet. Make one, or let your AI file decisions under a business as they arrive.')} action={addChannel} below={addChannelForm} />
-        <Section id="people" label={t('Direct messages')} threads={people} empty={t('Nobody has sent you a decision yet.')} />
-        <Section id="apps" label={t('Apps')} threads={apps} empty={t('Connect Gmail or Slack under Tools and their decisions land here.')} />
-      </div>
+      </main>
     </div>
   )
 }

@@ -402,3 +402,75 @@
   .mention-option { color: #f2f2f2; }
   .mention-avatar { background: #2a2a2a; color: #f2f2f2; }
 }
+
+/* A routine's report: a document inside the card. Its words can be selected
+   and copied — the card around it is swiped, the report is read. */
+.report { margin-top: 16px; }
+.report-doc { border-top: 1px solid #eeeeee; padding-top: 14px; }
+.report-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #838383;
+  margin-bottom: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.report-body { user-select: text; -webkit-user-select: text; cursor: text; font-size: 14.5px; line-height: 1.6; color: #202020; }
+.report-body > :first-child { margin-top: 0; }
+.report-body h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 18px 0 6px; color: #202020; }
+.report-body h3 { font-size: 14px; font-weight: 600; margin: 14px 0 4px; color: #202020; }
+.report-body p { margin: 0 0 10px; white-space: pre-line; }
+.report-body ul, .report-body ol { margin: 0 0 10px; padding-left: 20px; }
+.report-body li { margin: 3px 0; }
+.report-body li::marker { color: #b3b3b3; }
+.report-body strong { font-weight: 650; }
+.report-body code {
+  font-family: var(--font-mono); font-size: 12.5px;
+  background: #f4f4f5; border-radius: 5px; padding: 1px 5px;
+}
+.report-body a { color: #6647f0; text-decoration: none; }
+.report-body a:hover { text-decoration: underline; }
+.report-sources { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eeeeee; }
+.report-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.report-actions .pill-btn { font-size: 12.5px; padding: 6px 13px; }
+.report-sources li, .proposal-evidence li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.report-print-title { display: none; }
+
+/* An automation your AI is offering: violet, the AI's own colour, and small. */
+.source-chip.proposal-chip { color: #6647f0; border-color: #e2dcff; background: #f7f5ff; font-weight: 500; }
+.proposal { margin-top: 16px; }
+.proposal-what { margin: 0 0 14px; -webkit-line-clamp: 3; }
+.proposal .rb-label { margin-bottom: 6px; }
+.proposal-evidence { margin: 0; }
+.proposal-evidence a { overflow-wrap: anywhere; }
+.proposal-note { margin: 12px 0 0; font-size: 12.5px; line-height: 1.5; color: #838383; }
+
+@media (prefers-color-scheme: dark) {
+  .report-doc, .report-sources { border-top-color: #2a2a2a; }
+  .report-body, .report-body h2, .report-body h3 { color: #f2f2f2; }
+  .report-body li::marker { color: #646464; }
+  .report-body code { background: #2a2a2a; }
+  .report-body a, .proposal-evidence a { color: #a996ff; }
+  .source-chip.proposal-chip { background: #17142a; border-color: #2f2a52; color: #a996ff; }
+  .proposal-note { color: #a3a3a3; }
+}
+
+/* Print / Save as PDF: a copy of the report in a root of its own (see
+   components/Report.tsx), and nothing else on the page. */
+.print-root { display: none; }
+@media print {
+  body.printing-report > :not(.print-root) { display: none !important; }
+  body.printing-report { background: #ffffff !important; }
+  body.printing-report .print-root { display: block; color: #000000; font-family: var(--font-body); }
+  .print-root .report-doc { border: none; padding: 0; }
+  .print-root .report-print-title { display: block; font-size: 22pt; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 6pt; }
+  .print-root .report-meta { color: #555555; margin-bottom: 16pt; }
+  .print-root .report-body { font-size: 11pt; line-height: 1.55; color: #000000; }
+  .print-root .report-body h2 { font-size: 13pt; color: #000000; break-after: avoid; }
+  .print-root .report-body h3 { font-size: 11.5pt; color: #000000; break-after: avoid; }
+  .print-root .report-body li { break-inside: avoid; }
+  .print-root .report-body a, .print-root .report-sources a { color: #000000; text-decoration: underline; }
+  .print-root .report-body code { background: #f0f0f0; color: #000000; }
+  .print-root .report-sources { border-top-color: #cccccc; }
+}

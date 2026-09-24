@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
+import { sourceLabel } from '../utils/automation'
 import { useT, t as tt } from '../utils/i18n'
 
 interface Props {
@@ -143,7 +144,7 @@ export const Inbox: React.FC<Props> = ({ pending, decided, businesses, selectedI
           <Row
             key={c.id}
             card={c}
-            meta={[displayName(c.requestedBy?.name || c.senderUserID), nameOf(c.business), c.sourceApp].filter(Boolean).join(' · ')}
+            meta={[displayName(c.requestedBy?.name || c.senderUserID), nameOf(c.business), sourceLabel(c, t)].filter(Boolean).join(' · ')}
             locale={locale}
             on={c.id === selectedId}
             onSelect={onSelect}

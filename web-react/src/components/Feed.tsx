@@ -3,9 +3,12 @@ import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import './Feed.css'
 import { displayName } from '../utils/names'
-import { useT, t } from '../utils/i18n'
+import { useT } from '../utils/i18n'
 import { ReplyDraft } from './ReplyDraft'
 import { CardThread } from './CardThread'
+import { ReportDoc, ProposalNote } from './Report'
+import { ago } from '../utils/ago'
+import { sourceLabel } from '../utils/automation'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -70,21 +73,6 @@ function initials(name: string): string {
   if (!clean) return '?'
   // One character is enough at 40px, and it is right in every script.
   return [...clean][0].toUpperCase()
-}
-
-/// "12m ago", the way the design writes it. Anything past a week is a date,
-/// because "63d ago" is not something anyone reads as a duration.
-function ago(iso: string): string {
-  const then = Date.parse(iso)
-  if (!Number.isFinite(then)) return ''
-  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
-  if (mins < 1) return t('just now')
-  if (mins < 60) return t('{n}m ago', { n: mins })
-  const hours = Math.round(mins / 60)
-  if (hours < 24) return t('{n}h ago', { n: hours })
-  const days = Math.round(hours / 24)
-  if (days <= 7) return t('{n}d ago', { n: days })
-  return new Date(then).toLocaleDateString()
 }
 
 function segments(context: string): Array<{ label: string; detail: string }> {
@@ -216,7 +204,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   const who = card.requestedBy
   const whoName = who?.name || displayName(card.senderUserID)
   const quote = who?.quote || card.sourceInstruction || card.originalBody || ''
-  const sources = card.sourceApp ? [card.sourceApp] : []
+  const sources = card.sourceApp ? [sourceLabel(card, t)] : []
   // The legend draws three levels. "urgent" is the fourth the API can send,
   // and it used to light nothing at all — the one priority that most needed
   // to be seen was the one with no mark. It lights the top of the scale and
@@ -229,7 +217,9 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (decided) return
-    if ((e.target as HTMLElement).closest('button, textarea, input, a')) return
+    // A report is read, and its words can be selected; dragging across one
+    // must not decide the card.
+    if ((e.target as HTMLElement).closest('button, textarea, input, a, .report-body')) return
     start.current = { x: e.clientX, y: e.clientY }
     // Keep receiving moves after the pointer leaves the page, or a fast swipe
     // that ends off the card ends with no pointerup and a card stuck mid-drag.
@@ -265,7 +255,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
           style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? 'transform 160ms ease' : 'none' }}
         >
           <header className="card-top">
-            <span className="card-kind">{t(KIND[card.type] || card.type)}</span>
+            <span className="card-kind">{card.report ? t('Report') : t(KIND[card.type] || card.type)}</span>
             <span className="priority-legend" aria-label={t('Priority')}>
               {(['low', 'medium', 'high'] as const).map((step) => (
                 <span key={step} className={`legend ${level === step ? 'on' : ''} p-${step}${card.priority === 'urgent' && step === 'high' ? ' urgent' : ''}`}>
@@ -278,14 +268,20 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
           <h1 className="card-title">{title}</h1>
           {summary && <p className="card-summary">{summary}</p>}
 
-          {(sources.length > 0 || businessName) && (
+          {(sources.length > 0 || businessName || card.proposal) && (
             <div className="card-sources">
+              {card.proposal && <span className="source-chip proposal-chip">{t('Automation proposal')}</span>}
               {businessName && <span className="source-chip business">{businessName}</span>}
               {sources.map((s) => <span key={s} className="source-chip">{s}</span>)}
             </div>
           )}
 
-          {context && (
+          {card.report?.markdown && <ReportDoc report={card.report} title={title} />}
+          {card.proposal && <ProposalNote proposal={card.proposal} />}
+
+          {/* A proposal's context repeats its evidence as a sentence; the
+              note under it says the same thing as a list you can open. */}
+          {context && !card.proposal && (
             <ul className="card-context">
               {segments(context).map((seg, i) => (
                 <li key={i}>

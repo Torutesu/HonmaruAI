@@ -15,7 +15,7 @@ interface Props {
   businesses: Business[]
   pendingCount: number
   decidedCount: number
-  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team' | 'insights') => void
+  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team' | 'insights' | 'automations' | 'playbook') => void
   onLocaleChange: () => void
   onSwitchOrg: (orgId: string) => void
   onLogout: () => void
@@ -378,6 +378,16 @@ export const Profile: React.FC<Props> = ({
           <button className="row" onClick={() => onOpen('insights')}>
             <span className="row-icon"><Icon name="insights" size={18} /></span>
             <span className="row-main">{t('Insights')}<span className="row-sub">{t('How long decisions wait, what gets declined, what your AI got wrong.')}</span></span>
+            <span className="row-value">›</span>
+          </button>
+          <button className="row" onClick={() => onOpen('automations')}>
+            <span className="row-icon"><Icon name="repeat" size={18} /></span>
+            <span className="row-main">{t('Automations')}<span className="row-sub">{t('Work your AI does on a schedule, delivered to your feed as a card.')}</span></span>
+            <span className="row-value">›</span>
+          </button>
+          <button className="row" onClick={() => onOpen('playbook')}>
+            <span className="row-icon"><Icon name="book" size={18} /></span>
+            <span className="row-main">{t('Playbook')}<span className="row-sub">{t('The rules your AI has learned from your decisions, and the ones you told it.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row" onClick={() => onOpen('record')}>
