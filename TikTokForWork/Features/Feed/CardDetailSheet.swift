@@ -52,6 +52,12 @@ struct CardDetailSheet: View {
                             .lineSpacing(4)
                     }
 
+                    if card.dailyReport != nil, card.recipientUserID == appState.currentUser?.id {
+                        detailSection(title: "Daily report") {
+                            DailyReportEditor(card: card)
+                        }
+                    }
+
                     detailSection(title: "Thread") {
                         threadBlock
                     }

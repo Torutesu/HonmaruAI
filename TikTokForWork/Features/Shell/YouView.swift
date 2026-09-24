@@ -14,6 +14,7 @@ struct YouView: View {
     @State private var confirmSignOut = false
     @State private var confirmReset = false
     @State private var editingIdentity = false
+    @State private var showDailyReport = false
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,10 @@ struct YouView: View {
                         } label: { row("Language", icon: "globe", value: appState.language.label) }
                         separator
                         Button(action: openNotifications) { row("Notifications", icon: "bell", value: notificationStatus) }.disabled(!PushService.isEnabledInThisBuild || appState.isGuest)
+                        separator
+                        // When the morning plan and the evening report are
+                        // drafted, and where they are posted.
+                        Button { showDailyReport = true } label: { row("Daily report", icon: "square.and.pencil") }.disabled(appState.isGuest)
                         separator
                         NavigationLink { RequestHistoryView().environmentObject(appState) } label: { row("History", icon: "clock.arrow.circlepath") }
                         // The numbers: how long decisions wait, what gets
@@ -73,6 +78,7 @@ struct YouView: View {
             .navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
             .task { await appState.refreshWorkspaceMembers() }
             .sheet(isPresented: $showEmail) { emailSheet }
+            .sheet(isPresented: $showDailyReport) { DailyReportSetupView().environmentObject(appState) }
             .sheet(isPresented: $editingIdentity) { if let chat { ChatStatusEditor(store: chat).environmentObject(appState) } }
             .sheet(isPresented: $showGitHub) { ConnectGitHubSheet(context: .settings).environmentObject(appState).presentationDetents([.large]) }
             .confirmationDialog(appState.isGuest ? String(localized: "Leave the demo?") : String(localized: "Sign out of this workspace?"), isPresented: $confirmSignOut, titleVisibility: .visible) {

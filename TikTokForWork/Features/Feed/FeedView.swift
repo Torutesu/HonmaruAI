@@ -51,8 +51,14 @@ private struct CardHomeContent: View {
                                 DecisionCardView(card: card, linkedRepository: appState.githubService.linkedRepository, isGitHubConnected: !appState.isGuest && appState.githubService.isConnected, showsActions: false, onAction: { handle($0, card: card) }, onShowDetails: { detailCard = card })
                                     .disabled(isWorking).padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 8)
                             }
-                            DecisionCardActions(card: card, onAction: { handle($0, card: card) })
-                                .disabled(isWorking).padding(.top, 12).padding(.bottom, 20)
+                            if card.awaitsPost {
+                                // Not decided: read, changed and posted.
+                                PrimaryButton(title: String(localized: "Review and post")) { detailCard = card }
+                                    .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 20)
+                            } else {
+                                DecisionCardActions(card: card, onAction: { handle($0, card: card) })
+                                    .disabled(isWorking).padding(.top, 12).padding(.bottom, 20)
+                            }
                         }.tag(Optional(card.id))
                     }
                 }.tabViewStyle(.page(indexDisplayMode: .never))

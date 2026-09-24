@@ -116,6 +116,13 @@ final class DecisionCardService: ObservableObject {
         cardsByUser.values.lazy.flatMap { $0 }.first { $0.id == id }
     }
 
+    /// A card the Worker changed and handed back over HTTP — a daily report
+    /// just posted — shown now rather than when the socket repeats it.
+    func applyFromWorker(_ card: DecisionCard) {
+        guard !isDemo else { return }
+        upsert(card)
+    }
+
     func undo(cardID: String, actorUserID: String) async throws {
         let generation = scopeGeneration
         guard activeUserID == actorUserID else { throw CancellationError() }

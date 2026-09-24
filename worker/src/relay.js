@@ -26,6 +26,9 @@ import { listMembers } from "./team.js";
 import { learnFromDecision } from "./memory.js";
 import { settleProposal } from "./proposals.js";
 
+/// Said to a client that tries to put an unposted daily report away.
+const DRAFT_MUST_POST = "This daily report is a draft: check it and post it to finish it.";
+
 // One socket's allowance. Well above anything the app does — it sends a message
 // per decision, not per frame — and far below what a loop can produce.
 const MESSAGE_BUDGET = 120;
@@ -385,6 +388,9 @@ export class OrgRelay {
         // Translations are the relay's to write. One the sender supplied is
         // words the recipient would read as the card that are not the card.
         delete card.localized;
+        // And a daily report's draft is the Worker's to make: a client cannot
+        // hand someone a "draft" that posts in their name.
+        delete card.dailyReport;
         if (card.recipientUserID.startsWith("member:")) {
           const member = (await listMembers(this.db, orgId, att.githubId))
             .find(m => `member:${m.ref}` === card.recipientUserID);
@@ -472,6 +478,15 @@ export class OrgRelay {
           // drop the language somebody else asked for since.
           if (existing.localized !== undefined) card.localized = existing.localized;
           else delete card.localized;
+          // A daily report's state is the Worker's: posted only through Post.
+          if (existing.dailyReport !== undefined) card.dailyReport = existing.dailyReport;
+          else delete card.dailyReport;
+          // An unposted draft is not put away by deciding it — from any
+          // client, however old: the only way off the feed is to post it.
+          if (existing.dailyReport?.status === "draft" && card.decision?.action) {
+            ws.send(JSON.stringify(runError(DRAFT_MUST_POST)));
+            return;
+          }
           for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "reminder", "autoApproved", "coveringFor"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
@@ -772,6 +787,7 @@ export class OrgRelay {
       if (target && target.recipientUserID !== actorUserId) {
         throw new Error("Only the recipient can decide this card.");
       }
+      if (target?.dailyReport?.status === "draft") throw new Error(DRAFT_MUST_POST);
     }
     const out = applyDecision(store, content);
     if (out.removed) {

@@ -50,6 +50,8 @@ struct RequestDetailView: View {
                             }
                         }
                         Text(card.displaySummary).font(.body).lineSpacing(6).fixedSize(horizontal: false, vertical: true)
+                        // A daily report: the draft itself, to change and post.
+                        if card.dailyReport != nil, card.recipientUserID == appState.currentUser?.id { DailyReportEditor(card: card) }
                         if !card.displayContext.isEmpty { section("Context", text: card.displayContext) }
                         if let source = card.sourceApp {
                             VStack(alignment: .leading, spacing: 9) {
@@ -63,7 +65,7 @@ struct RequestDetailView: View {
                         if service.awaitingDeliveryIDs.contains(card.id) {
                             Label("Waiting for workspace sync", systemImage: "arrow.triangle.2.circlepath").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
                         }
-                        if !appState.isGuest, let me = appState.currentUser?.id, card.recipientUserID == me || card.senderUserID == me {
+                        if !appState.isGuest, card.dailyReport == nil, let me = appState.currentUser?.id, card.recipientUserID == me || card.senderUserID == me {
                             flagBlock(card)
                         }
                         if !card.isPending {
@@ -97,7 +99,9 @@ struct RequestDetailView: View {
                 }
                 .background(Theme.Colors.background)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if card.recipientUserID == appState.currentUser?.id { actions(card) }
+                    // A draft has one way out, its own Post: no Acknowledge,
+                    // no Decline, nothing in the menu that puts it away.
+                    if card.recipientUserID == appState.currentUser?.id, !card.awaitsPost { actions(card) }
                 }
             } else { ContentUnavailableView("Request unavailable", systemImage: "doc.questionmark") }
         }

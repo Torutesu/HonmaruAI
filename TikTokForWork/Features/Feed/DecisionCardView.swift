@@ -88,7 +88,7 @@ struct DecisionCardView: View {
                     Button("Delegate", systemImage: "person.badge.plus") { onAction(.delegate) }
                 }
             }
-            if showsActions, card.isPending { DecisionCardActions(card: card, onAction: onAction) }
+            if showsActions, card.isPending, !card.awaitsPost { DecisionCardActions(card: card, onAction: onAction) }
         }
         .sheet(isPresented: $showSource) {
             if let app = card.sourceApp { SourceSheet(app: app, detail: card.sourceDetail, card: card).presentationDetents([.medium, .large]) }

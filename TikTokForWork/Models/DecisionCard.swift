@@ -79,6 +79,35 @@ struct CardRequester: Codable, Hashable {
     let sourceUrl: String?
 }
 
+/// A daily report's draft on its card: the person's own day, written by
+/// their AI, that only their own "Post" puts in the channel. Every field but
+/// the words is the Worker's; the app reads them and never writes them back.
+struct DailyReportDraft: Codable, Hashable {
+    var routineId: String
+    /// "morning" (today's plan) or "evening" (how the day went).
+    var part: String?
+    /// "b:<slug>": the channel it is posted to.
+    var channel: String
+    var date: String?
+    /// draft, posting, posted — or expired, when a newer draft replaced it.
+    var status: String
+    /// The draft, or — once posted — the words as posted.
+    var text: String
+    /// The line the draft leaves where only its owner can write.
+    var fillIn: String?
+    var messageId: String?
+    var postedAt: String?
+
+    /// "#daily-reports", as the person reads the channel's name.
+    var channelName: String { "#" + (channel.hasPrefix("b:") ? String(channel.dropFirst(2)) : channel) }
+    var isMorning: Bool { part == "morning" }
+    /// How many lines still ask for the person's own words.
+    func unwrittenLines(in text: String) -> Int {
+        guard let fillIn, !fillIn.isEmpty else { return 0 }
+        return text.components(separatedBy: fillIn).count - 1
+    }
+}
+
 /// One reader's language's words for a card, written by the relay.
 struct CardTranslation: Codable, Hashable {
     let title: String
@@ -142,6 +171,14 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     /// they are what this client republishes on a decision, and a translation
     /// must never be written back over them.
     var localized: [String: CardTranslation]?
+    /// Set on a daily report's draft: see `DailyReportDraft`.
+    var dailyReport: DailyReportDraft?
+
+    /// A daily report's draft still waiting for its owner to post it. Not
+    /// something put away with Acknowledge: the only way off the feed is Post.
+    var awaitsPost: Bool {
+        isPending && (dailyReport?.status == "draft" || dailyReport?.status == "posting")
+    }
 
     /// What to show the person reading: their language's words when the relay
     /// has written them, the original otherwise.

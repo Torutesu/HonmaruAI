@@ -6,6 +6,7 @@ import worker from "../src/index.js";
 import { runRoutine, getRoutine } from "../src/routines.js";
 import { gatherDay, dailyDigest, dayOf, linesUnder, remindDailyDrafts } from "../src/dailyReport.js";
 import { composeAlert, composeEmail } from "../src/notifyCopy.js";
+import { joined, message } from "./helpers.js";
 
 // The daily report: at the hour its owner chose, their own day — what they
 // said, the tasks they were given and how far each got, what they did —
@@ -277,4 +278,36 @@ test("the notification says it is yours to check and where it goes; an unposted 
   expect((await remindDailyDrafts(env, { now: new Date(NOW.getTime() + 5 * 3600000) })).reminded).toBe(0);
   const { getCard } = await import("../src/db.js");
   expect((await getCard(env.DB, ORG, draft.id)).dailyReport.remindedAt).toBeTruthy();
+});
+
+test("an unposted draft cannot be put away by any client, and a client cannot forge one", async () => {
+  const { saveCard, getCard } = await import("../src/db.js");
+  const draft = {
+    id: "daily-x", recipientUserID: "toru", senderUserID: "toru", type: "notification", format: "fyi", status: "pending",
+    priority: "high", title: "日報 2026-09-24", summary: "…", createdAt: NOW.toISOString(),
+    report: { markdown: "x" }, dailyReport: { routineId: "r", part: "evening", channel: "b:general", date: "2026-09-24", status: "draft", text: "x" },
+  };
+  await saveCard(env.DB, ORG, draft);
+  const room = await joined(ORG, toru);
+
+  // An older app republishing it acknowledged.
+  room.ws.send(JSON.stringify({ type: "card_updated", payload: { card: {
+    ...draft, status: "completed", decision: { action: "acknowledge", actorUserID: "toru", decidedAt: new Date().toISOString() },
+  } } }));
+  const refused = await message(room.messages, (m) => m.type === "RUN_ERROR");
+  expect(refused.message).toContain("post it");
+  // And one answering the tool call instead.
+  room.messages.length = 0;
+  room.ws.send(JSON.stringify({ type: "tool_result", payload: { toolCallId: "t", content: { cardId: "daily-x", action: "acknowledge", actorUserID: "toru" } } }));
+  expect((await message(room.messages, (m) => m.type === "RUN_ERROR")).message).toContain("post it");
+  expect(await getCard(env.DB, ORG, "daily-x")).toMatchObject({ status: "pending", dailyReport: { status: "draft" } });
+
+  // A "draft" sent over the socket is not one.
+  room.messages.length = 0;
+  room.ws.send(JSON.stringify({ type: "card_created", payload: { card: {
+    id: "forged", type: "notification", status: "pending", recipientUserID: "toru", priority: "low", title: "x", createdAt: new Date().toISOString(),
+    dailyReport: { routineId: "r", channel: "b:general", status: "draft", text: "posted as Toru" },
+  } } }));
+  await message(room.messages, (m) => JSON.stringify(m).includes("forged"));
+  expect((await getCard(env.DB, ORG, "forged")).dailyReport).toBeUndefined();
 });

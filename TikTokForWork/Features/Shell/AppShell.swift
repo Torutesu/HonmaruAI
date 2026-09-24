@@ -13,6 +13,8 @@ struct AppShell: View {
     @State private var deliveryError: String?
     @State private var sentMessage: String?
     @State private var pendingSentMessage: String?
+    /// The daily report, offered once after sign-in to someone without one.
+    @State private var offerDailyReport = false
     @FocusState private var promptFocused: Bool
 
     var body: some View {
@@ -39,6 +41,9 @@ struct AppShell: View {
                 pendingSentMessage = appState.isGuest ? String(localized: "Created in the demo. You can follow the request in History.") : String(localized: "Request queued. You can follow delivery and the outcome in History.")
             }
         }
+        .sheet(isPresented: $offerDailyReport) {
+            DailyReportSetupView(firstRun: true).environmentObject(appState)
+        }
         .sheet(isPresented: $showHistory) {
             NavigationStack { RequestHistoryView().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { showHistory = false } } } }
         }
@@ -54,6 +59,7 @@ struct AppShell: View {
             await chat.refresh()
             await chat.loadInbox()
             await appState.refreshWorkspaceMembers()
+            await offerDailyReportIfNeeded()
             while !Task.isCancelled {
                 await appState.cardService.syncGitHubStatus(githubService: appState.githubService)
                 try? await Task.sleep(for: .seconds(30))
@@ -69,6 +75,20 @@ struct AppShell: View {
             Button("View history") { sentMessage = nil; showHistory = true }
             Button("OK", role: .cancel) { sentMessage = nil }
         } message: { Text(sentMessage ?? "") }
+    }
+
+    /// The phone's part of onboarding: once per person and workspace on this
+    /// phone, someone with no daily report yet is asked when theirs should be
+    /// drafted. Asked once — "Later" is an answer, and You has it after that.
+    @MainActor private func offerDailyReportIfNeeded() async {
+        guard !appState.isGuest, let me = appState.currentUser?.id,
+              let org = appState.currentUser?.teamID, !org.isEmpty,
+              let base = appState.backendBaseURL else { return }
+        let key = "dailyReportOffered:\(org):\(me)"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard let routines = try? await DailyReportService.routines(orgId: org, backendBaseURL: base) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        if !routines.contains(where: { DailyReportService.Part(rawValue: $0.kind) != nil }) { offerDailyReport = true }
     }
 
     private var promptBar: some View {
