@@ -108,7 +108,7 @@ button, input { font: inherit; color: inherit; }
 .display s { position: relative; text-decoration: none; color: var(--ink-3); white-space: nowrap; }
 .display s::after {
   content: ''; position: absolute; left: -.04em; right: -.04em; top: 54%; height: .075em; border-radius: 99px;
-  background: var(--violet); transform: scaleX(0); transform-origin: left; animation: strike .9s .5s var(--ease) forwards;
+  background: var(--violet); transform: scaleX(0); transform-origin: left; animation: strike .9s 1s var(--ease) forwards;
 }
 @keyframes strike { to { transform: scaleX(1); } }
 
@@ -160,6 +160,13 @@ button, input { font: inherit; color: inherit; }
 .theme-knob::after { opacity: 0; transition: opacity .3s; }
 :root[data-theme="dark"] .theme-knob::after { opacity: 1; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .theme-knob::after { opacity: 1; } }
+.nav-inner { transition: background-color .35s var(--ease), border-color .35s var(--ease); }
+.nav.over-dark {
+  --glass: rgba(18, 20, 36, .72); --line: rgba(255, 255, 255, .12); --line-2: rgba(255, 255, 255, .24);
+  --ink: #ececf1; --ink-2: rgba(236, 236, 241, .66); --ink-display: #fff; --card: rgba(255, 255, 255, .06); --surface: rgba(255, 255, 255, .08);
+  --cta: #f4f4f7; --cta-ink: #0b0c12; --violet: #a998ff;
+}
+.nav-cta-m { display: none !important; }
 .nav-more { display: none; }
 .burger { width: 16px; height: 10px; position: relative; }
 .burger i { position: absolute; left: 0; right: 0; height: 1.6px; border-radius: 2px; background: currentColor; transition: transform .3s var(--ease), top .3s var(--ease); }
@@ -180,6 +187,17 @@ button, input { font: inherit; color: inherit; }
 .menu-list li[aria-selected="true"] { color: var(--violet); font-weight: 600; }
 .menu-list li[aria-selected="true"] b { color: var(--violet); }
 @keyframes menu-in { from { opacity: 0; transform: scale(.95) translateY(-4px); } }
+
+/* ---------- first paint: the copy settles, the phone rises into its walls ---------- */
+@keyframes enter { from { opacity: 0; transform: translateY(26px); } }
+@keyframes fade { from { opacity: 0; } }
+.js .hero-text > * { animation: enter 1s var(--ease) both; }
+.js .hero-text > :nth-child(2) { animation-delay: .08s; }
+.js .hero-text > :nth-child(3) { animation-delay: .18s; }
+.js .hero-text > :nth-child(4) { animation-delay: .26s; }
+.js .hero-text > :nth-child(5) { animation-delay: .34s; }
+.js .device-frame { animation: enter 1.2s .2s var(--ease) both; }
+.js .rings { animation: fade 1.6s .45s ease both; }
 
 /* ---------- stage ---------- */
 .stage { position: relative; height: 540vh; }
@@ -353,6 +371,8 @@ button, input { font: inherit; color: inherit; }
 .keep-plan .w2 { --len: 960; stroke-dashoffset: calc(960 * (1 - var(--k2, 0))); }
 .keep-plan .w1 { --len: 480; stroke-dashoffset: calc(480 * (1 - var(--k1, 0))); stroke: #a998ff; stroke-width: 2; fill: rgba(139, 117, 255, calc(var(--k1, 0) * .14)); }
 .keep-plan text { font: 500 11px var(--body); letter-spacing: .2em; fill: rgba(242, 242, 246, .45); }
+.keep-plan text:nth-of-type(1) { opacity: var(--k3, 0); }
+.keep-plan text:nth-of-type(2) { opacity: var(--k2, 0); }
 .keep-kanji { position: absolute; left: 50%; top: 50%; translate: -50% -50%; font: 800 clamp(26px, 3vw, 40px)/1 var(--body); letter-spacing: .08em; color: #fff; opacity: var(--kk, 0); transform: scale(calc(.8 + var(--kk, 0) * .2)); }
 
 /* ---------- sections ---------- */
@@ -512,6 +532,7 @@ button, input { font: inherit; color: inherit; }
   .nav-links { display: none; position: absolute; top: 68px; left: 12px; right: 12px; flex-direction: column; padding: 10px; border-radius: 24px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
   .nav-links a { padding: 14px 16px; font: 700 20px var(--display); letter-spacing: -.02em; color: var(--ink); }
   .nav.open .nav-links { display: flex; animation: menu-in .25s var(--ease); }
+  .nav-links .nav-cta-m { display: flex !important; justify-content: space-between; margin-top: 6px; background: var(--cta); color: var(--cta-ink); border-radius: 16px; }
   .nav-more { display: inline-flex; }
   .nav-links + .nav-tools { margin-left: auto; }
   .gate-list { grid-template-columns: 1fr; }

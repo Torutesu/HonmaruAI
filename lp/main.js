@@ -107,7 +107,7 @@
     navEl.classList.toggle('open', open);
     this.setAttribute('aria-expanded', open ? 'true' : 'false');
   });
-  $$('#nav-links a').forEach(function (a) { a.addEventListener('click', function () { navEl.classList.remove('open'); }); });
+  $$('#nav-links a').forEach(function (a) { a.addEventListener('click', function () { navEl.classList.remove('open'); $('#more-btn').setAttribute('aria-expanded', 'false'); }); });
 
   /* ============ reveal ============ */
   if ('IntersectionObserver' in window && !reduce) {
@@ -132,6 +132,11 @@
     var RANGES = [[.12, .345], [.345, .545], [.545, .745], [.745, 1.01]];
     var m = {}, pose = { cx: 0, cy: 0, r: 200, p: 0 };
 
+    function copyRect() {
+      var a = hero.getBoundingClientRect(), b = story.getBoundingClientRect();
+      var box = [Math.min(a.left, b.left), Math.min(a.top, b.top), Math.max(a.right, b.right), Math.max(a.bottom, b.bottom)];
+      return m.wide ? box : null;
+    }
     function measure() {
       device.style.transform = 'none';
       var vw = window.innerWidth, vh = sticky.clientHeight, wide = vw >= 1000;
@@ -152,6 +157,8 @@
         var below = top + dh * m.s1, room = vh - below - capH;
         story.style.top = (below + Math.max(10, room * .42)) + 'px';
       }
+      hero.style.transform = 'none';
+      pose.avoid = copyRect();
     }
 
     function update() {
@@ -238,6 +245,18 @@
     function spawn(ring) {
       return { ring: ring, a: Math.random() * Math.PI * 2, w: (ring === 2 ? -1 : 1) * (.05 + Math.random() * .06), jitter: (Math.random() - .5) * .08, dive: -1, sz: 1.6 + Math.random() * 1.6 };
     }
+    var ANGLES = [];
+    for (var d = 0; d <= 18; d++) ANGLES.push(.8 + (d % 2 ? 1 : -1) * Math.ceil(d / 2) * .05);
+    function labelSpot(P, r) {
+      var av = stage.pose.avoid;
+      for (var i = 0; i < ANGLES.length; i++) {
+        var a = Math.PI * ANGLES[i], x = P.cx + Math.cos(a) * r, y = P.cy + Math.sin(a) * r;
+        if (x < 16 || x > W - 70 || y < 96 || y > H - 20) continue;
+        if (av && x > av[0] - 70 && x < av[2] + 16 && y > av[1] - 16 && y < av[3] + 16) continue;
+        return [x, y];
+      }
+      return null;
+    }
     function radii() { var R = Math.max(stage.pose.r, 150); return [R, R * 1.42, R * 1.9]; }
     function draw(dt) {
       var P = stage.pose, rr = radii();
@@ -252,11 +271,12 @@
         ctx.stroke();
       }
       ctx.setLineDash([]);
-      // wall names, where the wall crosses the lower left
+      // wall names: the first spot on each wall that is on screen and clear of the copy
       ctx.font = '500 11px "Sometype Mono", ui-monospace, monospace';
       for (var j = 0; j < 3; j++) {
-        var ang = Math.PI * .8, lx = P.cx + Math.cos(ang) * rr[j], ly = P.cy + Math.sin(ang) * rr[j];
-        if (lx < 8 || ly > H - 8) continue;
+        var spot = labelSpot(P, rr[j]);
+        if (!spot) continue;
+        var lx = spot[0], ly = spot[1];
         ctx.fillStyle = j === 0 ? 'rgba(' + vio + ',1)' : 'rgba(' + ink + ',.5)';
         ctx.beginPath(); ctx.arc(lx, ly, 2.5, 0, Math.PI * 2); ctx.fill();
         ctx.fillText(LABELS[j], lx + 8, ly + 4);
@@ -364,7 +384,10 @@
   function frame() {
     ticking = false;
     stage.update(); keep.update();
+    var kr = keepEl.getBoundingClientRect();
+    navEl.classList.toggle('over-dark', kr.top < 64 && kr.bottom > 40);
   }
+  var keepEl = $('#keep');
   function request() { if (!ticking) { ticking = true; requestAnimationFrame(frame); } }
   window.addEventListener('scroll', request, { passive: true });
   var rs;
