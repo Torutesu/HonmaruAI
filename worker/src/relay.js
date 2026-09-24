@@ -20,6 +20,8 @@ import { syncCardToGitHub, getWorkspaceGitHub } from "./githubWorkspace.js";
 import { allowanceFor } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
+import { applyAutoRule } from "./autorules.js";
+import { redirectIfAway } from "./people.js";
 import { listMembers } from "./team.js";
 import { learnFromDecision } from "./memory.js";
 import { settleProposal } from "./proposals.js";
@@ -418,6 +420,20 @@ export class OrgRelay {
           // A card that does not say who asked is still a card.
           console.error("requester lookup failed", err?.message || err);
         }
+        // Away, with somebody named to decide meanwhile: the card goes to
+        // them, and says whose it would have been.
+        try {
+          await redirectIfAway(await listMembers(this.db, orgId, att.githubId), card);
+        } catch (err) {
+          console.error("away redirect failed", err?.message || err);
+        }
+        // A standing yes from the recipient decides it on arrival, and the
+        // card says so.
+        try {
+          await applyAutoRule(this.db, orgId, card);
+        } catch (err) {
+          console.error("auto rule failed", err?.message || err);
+        }
       } else {
         // An update names a card the relay has. Without this, an unknown id
         // made `card_updated` a second way to create a card — one that did
@@ -448,7 +464,7 @@ export class OrgRelay {
         // created — the translation, the business, who asked, what the AI
         // advised. A client that does not know a field must not erase it.
         if (existing) {
-          for (const field of ["localized", "business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal"]) {
+          for (const field of ["localized", "business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "reminder", "autoApproved", "coveringFor"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
         }

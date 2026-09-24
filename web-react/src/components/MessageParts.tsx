@@ -87,8 +87,13 @@ export const MessageActions: React.FC<{
   onEdit?: () => void
   onDelete?: () => void
   onDecide?: () => void
+  /// Save for later; with a time, come back as a card then.
+  onLater?: (remindAt: string | null) => void
+  /// Add to the clip being gathered for one decision.
+  onClip?: () => void
+  clipped?: boolean
   onOpenChange: (open: boolean) => void
-}> = ({ message, inThread, onReact, onReply, onPin, onEdit, onDelete, onDecide, onOpenChange }) => {
+}> = ({ message, inThread, onReact, onReply, onPin, onEdit, onDelete, onDecide, onLater, onClip, clipped, onOpenChange }) => {
   const t = useT()
   const [picker, setPicker] = useState(false)
   const [menu, setMenu] = useState(false)
@@ -123,6 +128,16 @@ export const MessageActions: React.FC<{
             {onReply && !inThread && <button type="button" role="menuitem" onClick={() => { setMenu(false); onReply() }}>{t('Reply in thread')}<kbd>T</kbd></button>}
             {onDecide && <button type="button" role="menuitem" onClick={() => { setMenu(false); onDecide() }}>{t('Make it a decision')}</button>}
             {onPin && !inThread && <button type="button" role="menuitem" onClick={() => { setMenu(false); onPin() }}>{message.pinned ? t('Unpin') : t('Pin to channel')}<kbd>P</kbd></button>}
+            {onClip && <button type="button" role="menuitem" onClick={() => { setMenu(false); onClip() }}>{clipped ? t('Remove from clip') : t('Add to clip')}</button>}
+            {onLater && (
+              <>
+                <div className="slk-menu-sep" />
+                <button type="button" role="menuitem" onClick={() => { setMenu(false); onLater(null) }}>{t('Save for later')}</button>
+                <button type="button" role="menuitem" onClick={() => { setMenu(false); onLater(new Date(Date.now() + 3600000).toISOString()) }}>{t('Remind me in 1 hour')}</button>
+                <button type="button" role="menuitem" onClick={() => { setMenu(false); onLater(tomorrowAt(9)) }}>{t('Remind me tomorrow at 9:00')}</button>
+                <div className="slk-menu-sep" />
+              </>
+            )}
             {message.body && <button type="button" role="menuitem" onClick={copy}>{t('Copy text')}</button>}
             {onDelete && <div className="slk-menu-sep" />}
             {onDelete && <button type="button" role="menuitem" className="danger" onClick={() => { setMenu(false); onDelete() }}>{t('Delete message')}<kbd>⌫</kbd></button>}
@@ -220,4 +235,90 @@ function inline(line: string, mentionClass: (name: string) => string): React.Rea
     if (/^~[^~]+~$/.test(part)) return <s key={i}>{inline(part.slice(1, -1), mentionClass)}</s>
     return <React.Fragment key={i}>{part}</React.Fragment>
   })
+}
+
+/// Tomorrow at an hour, in this browser's time.
+export function tomorrowAt(hour: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  d.setHours(hour, 0, 0, 0)
+  return d.toISOString()
+}
+
+/// Next Monday at an hour.
+export function nextMondayAt(hour: number): string {
+  const d = new Date()
+  const add = ((8 - d.getDay()) % 7) || 7
+  d.setDate(d.getDate() + add)
+  d.setHours(hour, 0, 0, 0)
+  return d.toISOString()
+}
+
+/// The commands a composer understands after "/".
+export const SLASH_COMMANDS: Array<{ name: string; hint: string; example: string }> = [
+  { name: 'decide', hint: 'Send this as a decision for whoever should make it', example: '/decide approve the Friday price change' },
+  { name: 'remember', hint: 'Add a rule to the playbook your AI follows', example: '/remember invoices under ¥50,000 go to Kenji' },
+  { name: 'routine', hint: 'Have your AI do something on a schedule', example: '/routine every Monday at 9 summarise last week' },
+  { name: 'schedule', hint: 'Send a message later: 30m, 1h, 2h, tomorrow, monday', example: '/schedule tomorrow Morning all, doors at 8' },
+  { name: 'shortcuts', hint: 'Show keyboard shortcuts', example: '/shortcuts' },
+]
+
+/// "/schedule 1h text" → when and what, or null when the time is not one we read.
+export function parseScheduleCommand(rest: string): { at: string; text: string } | null {
+  const m = /^(\d+)\s*(m|min|h|hr|hours?)\s+([\s\S]+)$/i.exec(rest.trim())
+  if (m) {
+    const n = Number(m[1]); const unit = m[2].toLowerCase().startsWith('h') ? 3600000 : 60000
+    return { at: new Date(Date.now() + n * unit).toISOString(), text: m[3].trim() }
+  }
+  const w = /^(tomorrow|明日|monday|月曜)\s+([\s\S]+)$/i.exec(rest.trim())
+  if (w) return { at: /^(monday|月曜)$/i.test(w[1]) ? nextMondayAt(9) : tomorrowAt(9), text: w[2].trim() }
+  return null
+}
+
+/// The menu of commands while "/" is being typed at the start of a message.
+export const SlashMenu: React.FC<{ draft: string; onPick: (name: string) => void }> = ({ draft, onPick }) => {
+  const t = useT()
+  const m = /^\/(\w*)$/.exec(draft)
+  if (!m) return null
+  const list = SLASH_COMMANDS.filter((c) => c.name.startsWith(m[1].toLowerCase()))
+  if (!list.length) return null
+  return (
+    <div className="slk-slash" role="listbox" aria-label={t('Commands')}>
+      {list.map((c) => (
+        <button key={c.name} type="button" role="option" className="slk-slash-item" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(c.name)}>
+          <b>/{c.name}</b>
+          <span>{t(c.hint)}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/// When to send: the few times people pick, and any other.
+export const SchedulePicker: React.FC<{ onPick: (at: string) => void; onClose: () => void }> = ({ onPick, onClose }) => {
+  const t = useT()
+  const box = useRef<HTMLDivElement>(null)
+  const [custom, setCustom] = useState('')
+  useEffect(() => {
+    const down = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) onClose() }
+    document.addEventListener('mousedown', down)
+    return () => document.removeEventListener('mousedown', down)
+  }, [onClose])
+  const opt = (label: string, at: string) => (
+    <button type="button" role="menuitem" onClick={() => { onPick(at); onClose() }}>{label}<span>{new Date(at).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</span></button>
+  )
+  return (
+    <div className="slk-menu slk-schedule" ref={box} role="menu" aria-label={t('Schedule message')}>
+      <div className="slk-menu-title">{t('Schedule message')}</div>
+      {opt(t('In 30 minutes'), new Date(Date.now() + 30 * 60000).toISOString())}
+      {opt(t('In 1 hour'), new Date(Date.now() + 3600000).toISOString())}
+      {opt(t('Tomorrow at 9:00'), tomorrowAt(9))}
+      {opt(t('Monday at 9:00'), nextMondayAt(9))}
+      <div className="slk-menu-sep" />
+      <form className="slk-schedule-custom" onSubmit={(e) => { e.preventDefault(); if (custom) { onPick(new Date(custom).toISOString()); onClose() } }}>
+        <input type="datetime-local" value={custom} onChange={(e) => setCustom(e.target.value)} aria-label={t('Custom time')} />
+        <button type="submit" disabled={!custom}>{t('Schedule')}</button>
+      </form>
+    </div>
+  )
 }

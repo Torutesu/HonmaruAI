@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DecisionCard, Business, ChannelMessage } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName, properName } from '../utils/names'
@@ -7,7 +7,7 @@ import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
 import { useMembers } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
-import { MessageActions, Reactions, EmojiPicker, FormatBar, renderRich } from './MessageParts'
+import { MessageActions, Reactions, EmojiPicker, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -59,6 +59,8 @@ interface Props {
   onCreateChannel: (name: string) => Promise<string | null>
   onRenameChannel: (slug: string, name: string) => Promise<string | null>
   onDeleteChannel: (slug: string) => Promise<string | null>
+  /// Another screen: the team to invite, tools to connect, you.
+  onOpenScreen?: (screen: 'team' | 'tools' | 'profile') => void
 }
 
 /// One conversation in the sidebar: a channel (a business), a person, or an app.
@@ -103,7 +105,12 @@ const appKey = (c: DecisionCard) => {
 /// A teammate as the channel routes name them: a handle and a name, and a
 /// hash of their login so a card already in this browser can be matched to
 /// them without anyone's login being sent to match it.
-interface Member { ref: string; name: string; title?: string; mine: boolean; loginHash: string }
+interface Member {
+  ref: string; name: string; title?: string; mine: boolean; loginHash: string
+  handle?: string | null
+  status?: { emoji: string | null; text: string | null; until: string | null } | null
+  awayUntil?: string | null
+}
 interface Activity { channel: string; lastAt: string; preview: string; lastBy: string | null }
 
 async function hash16(text: string): Promise<string> {
@@ -152,7 +159,7 @@ function when(iso?: string): string {
 export const ClassicList: React.FC<Props> = ({
   userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onImmersive, renderCard, onWorkspace, workspaceMenu,
-  onCreateChannel, onRenameChannel, onDeleteChannel,
+  onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen,
 }) => {
   const t = useT()
   const locale = getLocale()
@@ -167,15 +174,24 @@ export const ClassicList: React.FC<Props> = ({
   const [members, setMembers] = useState<Member[]>([])
   const [activity, setActivity] = useState<Record<string, Activity>>({})
   const [seenTick, setSeenTick] = useState(0)
+  // How loud each conversation may be: all (the default), mentions, mute.
+  const [prefs, setPrefs] = useState<Record<string, 'mentions' | 'mute'>>({})
+  // Read positions from the server: the same on the phone and the laptop.
+  const [serverReads, setServerReads] = useState<Record<string, string>>({})
+  const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
   useEffect(() => {
     let ignore = false
-    fetch(`${api.httpBase}/channels?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+    let tz = ''
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '' } catch { /* the server keeps what it had */ }
+    fetch(`${api.httpBase}/channels?orgId=${encodeURIComponent(api.orgId)}${tz ? `&tz=${encodeURIComponent(tz)}` : ''}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (ignore || !data) return
         setMembers(data.members || [])
         setActivity(Object.fromEntries((data.activity || []).map((a: Activity) => [a.channel, a])))
+        setServerReads(data.reads || {})
+        setPrefs(data.prefs || {})
       })
       .catch(() => { /* the list still shows every decision */ })
     return () => { ignore = true }
@@ -211,7 +227,7 @@ export const ClassicList: React.FC<Props> = ({
     const withTalk = (th: Thread): Thread => {
       const a = th.view ? activity[th.view] : undefined
       if (!a) return th
-      return { ...th, lastAt: a.lastAt, fresh: a.lastBy !== 'me' && a.lastAt > seenAt(api.orgId, th.view!) }
+      return { ...th, lastAt: a.lastAt, fresh: !prefs[th.view!] && a.lastBy !== 'me' && a.lastAt > readAt(th.view!) }
     }
 
     // Channels: one per business the team has, in the team's order — empty
@@ -273,7 +289,7 @@ export const ClassicList: React.FC<Props> = ({
 
     return { channels, people, apps }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick])
+  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads, prefs])
 
   const everything = useMemo(() => [...channels, ...people, ...apps], [channels, people, apps])
 
@@ -295,12 +311,56 @@ export const ClassicList: React.FC<Props> = ({
   const current = everything.find((th) => th.key === openKey)
     || (wide ? (everything.find((th) => th.unread > 0) || everything[0]) : undefined)
   const choose = (key: string | null) => {
+    setActivityOpen(false)
+    setLaterOpen(false)
     setOpenKey(key)
     setProblem(null)
     setRenaming(null)
     setSettings(false)
     try { if (key) sessionStorage.setItem('list.open', key); else sessionStorage.removeItem('list.open') } catch {}
   }
+
+  // The Activity inbox: what named you, and replies in your threads.
+  const [activityOpen, setActivityOpen] = useState(false)
+  const [activityItems, setActivityItems] = useState<Array<{ type: 'mention' | 'reply'; message: ChannelMessage; unread: boolean }> | null>(null)
+  const loadActivity = useCallback(() => {
+    return fetch(`${api.httpBase}/channels/activity?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setActivityItems(data.items || []) })
+      .catch(() => { /* nothing new is the same as nothing loaded */ })
+  }, [api.httpBase, api.orgId, authHeaders])
+  useEffect(() => { void loadActivity() }, [loadActivity])
+  const activityUnread = (activityItems || []).filter((i) => i.unread).length
+  // Unread mentions per conversation: what still calls for you in a
+  // conversation set to mentions only, or muted.
+  const mentionsIn = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const i of activityItems || []) if (i.unread && i.type === 'mention') out[i.message.channel] = (out[i.message.channel] || 0) + 1
+    return out
+  }, [activityItems])
+  const openActivity = () => {
+    setOpenKey(null)
+    setLaterOpen(false)
+    setActivityOpen(true)
+    setDetailId(null)
+    void loadActivity().then(() => {
+      fetch(`${api.httpBase}/channels/read`, {
+        method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel: 'activity' }),
+      }).then(() => setActivityItems((prev) => prev && prev.map((i) => ({ ...i, unread: false })))).catch(() => {})
+    })
+  }
+  // A place to go to inside a conversation, once it has loaded: a message,
+  // or a reply in a thread.
+  const pendingJump = useRef<{ view: string; id: string; parentId?: string | null } | null>(null)
+  const openAt = (target: { view: string; id: string; parentId?: string | null }) => {
+    const th = everything.find((x) => x.view === target.view)
+    if (!th) return
+    pendingJump.current = target
+    choose(th.key)
+    setTick((n) => n + 1)
+  }
+  const [tick, setTick] = useState(0)
 
   const [folded, setFolded] = useState<Record<string, boolean>>({})
   // Making a channel, renaming one: the box, its text, and what went wrong.
@@ -345,6 +405,55 @@ export const ClassicList: React.FC<Props> = ({
   }
 
 
+  const setPref = async (v: string, level: 'all' | 'mentions' | 'mute') => {
+    const res = await fetch(`${api.httpBase}/channels/prefs`, { method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, channel: v, level }) }).catch(() => null)
+    if (!res?.ok) { setProblem(t('That did not save.')); return }
+    setPrefs((prev) => { const next = { ...prev }; if (level === 'all') delete next[v]; else next[v] = level; return next })
+  }
+  /// A routine that writes this channel up for you every evening.
+  const dailySummary = async (thread: Thread) => {
+    const text = locale === 'ja' ? `毎日18時に #${thread.name} の会話と決定をまとめて` : `Every day at 18:00 summarise the conversation and decisions in #${thread.name}`
+    const post = (path: string, body: unknown) => fetch(`${api.httpBase}${path}`, { method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    const parsed = await post('/routines/parse', { text, locale }).then((r) => r.json()).then((d) => d.parsed).catch(() => null)
+    if (!parsed) { setProblem(t('That did not save.')); return }
+    const res = await post('/routines', { orgId: api.orgId, kind: 'report', instruction: parsed.instruction || text, cadence: parsed.cadence, hour: parsed.hour, minute: parsed.minute }).catch(() => null)
+    if (!res?.ok) { setProblem(((await res?.json().catch(() => null))?.message) || t('That did not save.')); return }
+    if (thread.view) note(thread.view, t('Every evening at 18:00 your AI will send you a summary of #{name} as a card.', { name: thread.name }))
+    setSettings(false)
+  }
+
+  // A teammate's profile, beside the conversation.
+  const [profile, setProfile] = useState<null | { ref: string; data?: { name: string; handle: string | null; title: string; timezone: string | null; status: Member['status']; awayUntil: string | null; joinedAt: string; mine: boolean; stats: { waiting: number; decided90d: number; medianMinutes: number | null } } }>(null)
+  const openProfile = async (ref: string) => {
+    setDetailId(null); setThread(null)
+    setProfile({ ref })
+    const res = await fetch(`${api.httpBase}/channels/member?orgId=${encodeURIComponent(api.orgId)}&ref=${encodeURIComponent(ref)}`, { headers: authHeaders }).catch(() => null)
+    const d = res?.ok ? await res.json().catch(() => null) : null
+    if (d?.member) setProfile((prev) => (prev && prev.ref === ref ? { ref, data: d.member } : prev))
+  }
+
+  // Keys a chat client has: ⌥↑/⌥↓ between conversations, ⌘⇧A Activity,
+  // ⌘⇧D the sidebar.
+  const [sideHidden, setSideHidden] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        const list = [...channels, ...people, ...apps]
+        if (!list.length) return
+        e.preventDefault()
+        const i = list.findIndex((x) => x.key === current?.key)
+        const next = list[(i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]
+        if (next) choose(next.key)
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault(); openActivity()
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault(); setSideHidden((h) => !h)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   // ---- The sidebar ----
 
   const lead = (thread: Thread, size: 'row' | 'head') => {
@@ -368,14 +477,22 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   const row = (thread: Thread) => {
-    const on = current?.key === thread.key
+    const on = !activityOpen && !laterOpen && current?.key === thread.key
     return (
-      <li key={thread.key} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}`}>
+      <li key={thread.key} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
           {lead(thread, 'row')}
           <span className="cl-title">{thread.name}</span>
+          {thread.kind === 'person' && (() => {
+            const m = members.find((x) => thread.view === `dm:${x.ref}`)
+            if (!m) return null
+            return <>{m.status?.emoji && <span className="cl-status" title={m.status.text || ''}>{m.status.emoji}</span>}{m.awayUntil && <span className="cl-away" title={t('Away until {when}', { when: new Date(m.awayUntil).toLocaleDateString(locale) })}>{t('away')}</span>}</>
+          })()}
+          {thread.view && prefs[thread.view] === 'mute' && <span className="cl-muted" aria-label={t('Muted')}>🔕</span>}
+          {thread.view && (mentionsIn[thread.view] || 0) > 0 && thread.unread === 0 && <span className="cl-badge mention">@{mentionsIn[thread.view]}</span>}
           {thread.unread > 0 && <span className="cl-badge">{thread.unread}</span>}
           {thread.unread === 0 && thread.fresh && !on && <span className="cl-fresh" aria-label={t('New messages')} />}
+          {!on && thread.view && drafts[thread.view] && <span className="cl-draft" title={t('Draft')} aria-label={t('Draft')}>✏️</span>}
         </button>
       </li>
     )
@@ -435,21 +552,67 @@ export const ClassicList: React.FC<Props> = ({
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   // Conversations where the AI is writing a card right now.
-  const [thinking, setThinking] = useState<Record<string, boolean>>({})
+  // …and which step it is on: reading, routing, writing.
+  const [thinking, setThinking] = useState<Record<string, string | false>>({})
   const composer = useRef<HTMLTextAreaElement>(null)
   const view = current?.view
+  // Whether there is more above what is loaded, per conversation.
+  const [more, setMore] = useState<Record<string, boolean>>({})
+  const PAGE = 150
   const loadMessages = useCallback((channel: string) => {
     return fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setMessages((prev) => ({ ...prev, [channel]: data.messages || [] })) })
+      .then((data) => {
+        if (!data) return
+        setMessages((prev) => ({ ...prev, [channel]: data.messages || [] }))
+        setMore((prev) => ({ ...prev, [channel]: (data.messages || []).length >= PAGE }))
+      })
       .catch(() => { /* the decisions still show */ })
   }, [api.httpBase, api.orgId, authHeaders])
+  // Scrolled to the top: the page before, kept in place as it arrives.
+  const loadingOlder = useRef(false)
+  const keepScroll = useRef<number | null>(null)
+  const loadOlder = useCallback(async (channel: string) => {
+    const list = messagesRef.current[channel]
+    if (loadingOlder.current || !list?.length || !more[channel]) return
+    loadingOlder.current = true
+    try {
+      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&before=${encodeURIComponent(list[0].createdAt)}`, { headers: authHeaders })
+      const data = res.ok ? await res.json() : null
+      if (!data) return
+      const older = (data.messages || []) as ChannelMessage[]
+      keepScroll.current = logRef.current ? logRef.current.scrollHeight - logRef.current.scrollTop : null
+      setMessages((prev) => {
+        const cur = prev[channel] || []
+        const known = new Set(cur.map((m) => m.id))
+        return { ...prev, [channel]: [...older.filter((m) => !known.has(m.id)), ...cur] }
+      })
+      setMore((prev) => ({ ...prev, [channel]: older.length >= PAGE }))
+    } catch { /* try again on the next scroll */ } finally {
+      loadingOlder.current = false
+    }
+  }, [api.httpBase, api.orgId, authHeaders, more])
   useEffect(() => { if (view) void loadMessages(view) }, [view, loadMessages])
-  // Opened is read.
+  // Where you were up to when you opened it: the red "New" line goes there.
+  const [newSince, setNewSince] = useState<{ view: string; at: string } | null>(null)
+  useEffect(() => {
+    if (!view) { setNewSince(null); return }
+    setNewSince({ view, at: readAt(view) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
+  // Opened is read — here, and on the server for your other devices.
   useEffect(() => {
     if (!view) return
-    try { localStorage.setItem(seenKey(api.orgId, view), new Date().toISOString()) } catch { /* private mode: nothing remembered */ }
+    const now = new Date().toISOString()
+    try { localStorage.setItem(seenKey(api.orgId, view), now) } catch { /* private mode: nothing remembered */ }
     setSeenTick((n) => n + 1)
+    const id = setTimeout(() => {
+      fetch(`${api.httpBase}/channels/read`, {
+        method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel: view }),
+      }).then(() => setServerReads((prev) => ({ ...prev, [view]: now }))).catch(() => { /* this device still remembers */ })
+    }, 600)
+    return () => clearTimeout(id)
   }, [view, api.orgId, messages[view || '']?.length])
   // The composer grows with what is written, up to a point.
   useEffect(() => {
@@ -505,25 +668,51 @@ export const ClassicList: React.FC<Props> = ({
     window.addEventListener('honmaru:channel-message', on)
     return () => window.removeEventListener('honmaru:channel-message', on)
   }, [members, loadMessages])
+  // The AI's steps, as it takes them.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const p = (e as CustomEvent<{ channel: string; step: string }>).detail
+      if (!p?.channel) return
+      setThinking((prev) => ({ ...prev, [p.channel]: p.step === 'done' || p.step === 'failed' ? false : p.step }))
+    }
+    window.addEventListener('honmaru:channel-progress', on)
+    return () => window.removeEventListener('honmaru:channel-progress', on)
+  }, [])
 
-  const send = async (channel: string, decide: boolean, parentId?: string) => {
-    const body = (parentId ? threadDraft : draft).trim()
+  const send = async (channel: string, decide: boolean, parentId?: string, sendAt?: string) => {
+    let body = (parentId ? threadDraft : draft).trim()
     if (!body || sending) return
+    // A command, not a message: done here, with a note only you see.
+    const cmd = !parentId && !sendAt ? /^\/(\w+)\s*([\s\S]*)$/.exec(body) : null
+    if (cmd) {
+      const [, name, rest] = cmd
+      const done = await runCommand(channel, name.toLowerCase(), rest.trim())
+      if (done === 'send-decide') { body = rest.trim(); decide = true }
+      else if (done === 'send-later') return
+      else { if (done) setDraft(''); return }
+      if (!body) return
+    }
     setSending(true); setProblem(null)
     try {
       const res = await fetch(`${api.httpBase}/channels/messages`, {
         method: 'POST',
         headers: { ...authHeaders, 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId: api.orgId, channel, body, decide, ...(parentId ? { parentId } : {}) }),
+        body: JSON.stringify({ orgId: api.orgId, channel, body, decide, ...(parentId ? { parentId } : {}), ...(sendAt ? { sendAt } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setProblem(data.message || t('That did not send. Try again.')); return }
+      if (data.scheduled) {
+        setDraft('')
+        setScheduled((prev) => [...prev, data.scheduled].sort((a, b) => a.sendAt.localeCompare(b.sendAt)))
+        note(channel, t('Scheduled for {when}.', { when: new Date(data.scheduled.sendAt).toLocaleString(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) }))
+        return
+      }
       const msg = data.message as ChannelMessage
       if (parentId) {
         setThreadDraft('')
         setThread((prev) => (prev && prev.parent.id === parentId && !prev.replies.some((x) => x.id === msg.id) ? { ...prev, replies: [...prev.replies, msg] } : prev))
         setMessages((prev) => ({ ...prev, [channel]: (prev[channel] || []).map((x) => (x.id === parentId ? { ...x, replyCount: (x.replyCount || 0) + 1, lastReplyAt: msg.createdAt } : x)) }))
-        if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: true }))
+        if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
         return
       }
       setDraft('')
@@ -531,13 +720,141 @@ export const ClassicList: React.FC<Props> = ({
         const list = prev[channel] || []
         return list.some((x) => x.id === msg.id) ? prev : { ...prev, [channel]: [...list, msg] }
       })
-      if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: true }))
+      if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
     } catch {
       setProblem(t('That did not send. Try again.'))
     } finally {
       setSending(false)
       if (parentId) threadComposer.current?.focus(); else composer.current?.focus()
     }
+  }
+
+  // ---- Time and gathering: drafts, scheduled sends, Later, clips, notes ----
+  // A draft per conversation, kept in this browser, as in any chat client.
+  const draftKey = (v: string) => `draft:${api.orgId}:${v}`
+  const [drafts, setDrafts] = useState<Record<string, boolean>>(() => {
+    const out: Record<string, boolean> = {}
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i) || ''; if (k.startsWith(`draft:${api.orgId}:`) && localStorage.getItem(k)) out[k.slice(`draft:${api.orgId}:`.length)] = true } } catch { /* none kept */ }
+    return out
+  })
+  const draftView = useRef<string | undefined>(undefined)
+  // Before paint, so a conversation never shows an empty box first.
+  useLayoutEffect(() => {
+    // Leaving a conversation keeps what was being written there; arriving
+    // brings back what was being written here.
+    draftView.current = view
+    let kept = ''
+    try { kept = view ? localStorage.getItem(draftKey(view)) || '' : '' } catch {}
+    setDraft(kept)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
+  useEffect(() => {
+    const v = draftView.current
+    if (!v || v !== view) return
+    try { if (draft) localStorage.setItem(draftKey(v), draft); else localStorage.removeItem(draftKey(v)) } catch {}
+    setDrafts((prev) => (Boolean(prev[v]) === Boolean(draft) ? prev : { ...prev, [v]: Boolean(draft) }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft])
+
+  const [scheduled, setScheduled] = useState<Array<{ id: string; body: string; sendAt: string; channel: string; parentId?: string | null }>>([])
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [scheduledOpen, setScheduledOpen] = useState(false)
+  const loadScheduled = useCallback(() => {
+    fetch(`${api.httpBase}/channels/scheduled?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) setScheduled(d.scheduled || []) }).catch(() => {})
+  }, [api.httpBase, api.orgId, authHeaders])
+  useEffect(() => { loadScheduled() }, [loadScheduled, view])
+  const cancelScheduled = async (id: string) => {
+    const res = await fetch(`${api.httpBase}/channels/scheduled`, { method: 'DELETE', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, id }) }).catch(() => null)
+    if (res?.ok) setScheduled((prev) => prev.filter((x) => x.id !== id))
+  }
+
+  // Notes only you see: what a command did.
+  const [notes, setNotes] = useState<Record<string, Array<{ id: string; text: string }>>>({})
+  const note = (channel: string, text: string) => setNotes((prev) => ({ ...prev, [channel]: [...(prev[channel] || []), { id: `${Date.now()}-${Math.random()}`, text }] }))
+
+  // Later: saved messages.
+  const [laterOpen, setLaterOpen] = useState(false)
+  const [laterItems, setLaterItems] = useState<Array<{ id: string; remindAt: string | null; remindedAt: string | null; message: ChannelMessage }> | null>(null)
+  const loadLater = useCallback(() => {
+    return fetch(`${api.httpBase}/channels/later?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) setLaterItems(d.items || []) }).catch(() => {})
+  }, [api.httpBase, api.orgId, authHeaders])
+  useEffect(() => { void loadLater() }, [loadLater])
+  const saveLater = async (channel: string, m: ChannelMessage, remindAt: string | null) => {
+    const res = await fetch(`${api.httpBase}/channels/later`, { method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, channel, messageId: m.id, remindAt }) }).catch(() => null)
+    if (!res?.ok) { setProblem(t('That did not save.')); return }
+    note(channel, remindAt
+      ? t('Saved for later. Your AI will bring it back {when}.', { when: new Date(remindAt).toLocaleString(locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) })
+      : t('Saved for later.'))
+    void loadLater()
+  }
+  const finishLater = async (id: string) => {
+    const res = await fetch(`${api.httpBase}/channels/later`, { method: 'DELETE', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, id }) }).catch(() => null)
+    if (res?.ok) setLaterItems((prev) => (prev || []).filter((x) => x.id !== id))
+  }
+
+  // A clip: messages gathered from anywhere, made one decision.
+  const [clip, setClip] = useState<Array<{ channel: string; id: string; body: string; who: string }>>([])
+  const toggleClip = (channel: string, m: ChannelMessage) => setClip((prev) => prev.some((x) => x.id === m.id)
+    ? prev.filter((x) => x.id !== m.id)
+    : [...prev, { channel, id: m.id, body: m.body, who: m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate')) }].slice(-30))
+  const sendClip = async (channel: string) => {
+    if (!clip.length) return
+    setProblem(null)
+    const res = await fetch(`${api.httpBase}/channels/clip`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel, items: clip.map((c) => ({ channel: c.channel, messageId: c.id })), instruction: draft.trim() }),
+    }).catch(() => null)
+    const data = res ? await res.json().catch(() => ({})) : {}
+    if (!res?.ok) { setProblem(data.message || t('That could not become a decision. Try again.')); return }
+    setClip([]); setDraft('')
+    if (data.message) setMessages((prev) => ({ ...prev, [channel]: (prev[channel] || []).some((x) => x.id === data.message.id) ? prev[channel] : [...(prev[channel] || []), data.message] }))
+    setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
+  }
+
+  /// "/name rest": returns 'send-decide' to send the rest as a decision,
+  /// 'send-later' when it scheduled, true when handled, false when not a command.
+  const runCommand = async (channel: string, name: string, rest: string): Promise<'send-decide' | 'send-later' | boolean> => {
+    const post = (path: string, body: unknown) => fetch(`${api.httpBase}${path}`, { method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    if (name === 'decide') return rest ? 'send-decide' : (note(channel, t('Write what needs deciding after /decide.')), true)
+    if (name === 'remember') {
+      if (!rest) { note(channel, t('Write the rule after /remember.')); return true }
+      const res = await post('/memories', { orgId: api.orgId, text: rest }).catch(() => null)
+      note(channel, res?.ok ? t('Added to the playbook: “{rule}”', { rule: rest }) : t('That did not save.'))
+      return true
+    }
+    if (name === 'routine') {
+      if (!rest) { note(channel, t('Say what and when after /routine — e.g. every Monday at 9 summarise last week.')); return true }
+      const parsed = await post('/routines/parse', { text: rest, locale }).then((r) => r.json()).then((d) => d.parsed).catch(() => null)
+      if (!parsed) { note(channel, t('Say when, too — e.g. every Monday at 9, or every day at 18:00.')); return true }
+      const res = await post('/routines', { orgId: api.orgId, kind: 'report', instruction: parsed.instruction || rest, cadence: parsed.cadence, hour: parsed.hour, minute: parsed.minute, weekday: parsed.weekday, monthday: parsed.monthday }).catch(() => null)
+      note(channel, res?.ok ? t('Your AI will do this {when}.', { when: parsed.schedule || '' }) : ((await res?.json().catch(() => null))?.message || t('That did not save.')))
+      return true
+    }
+    if (name === 'schedule') {
+      const p = parseScheduleCommand(rest)
+      if (!p) { note(channel, t('Try /schedule 30m …, /schedule 2h …, /schedule tomorrow … or /schedule monday …')); return true }
+      setDraft(p.text)
+      await sendAtTime(channel, p.at, p.text)
+      return 'send-later'
+    }
+    if (name === 'shortcuts') { window.dispatchEvent(new CustomEvent('honmaru:shortcuts')); return true }
+    note(channel, t('/{name} is not a command. Try /decide, /remember, /routine, /schedule or /shortcuts.', { name }))
+    return true
+  }
+  const sendAtTime = async (channel: string, at: string, text?: string) => {
+    const body = (text ?? draft).trim()
+    if (!body) return
+    const res = await fetch(`${api.httpBase}/channels/messages`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel, body, sendAt: at }),
+    }).catch(() => null)
+    const data = res ? await res.json().catch(() => ({})) : {}
+    if (!res?.ok) { setProblem(data.message || t('That did not send. Try again.')); return }
+    setDraft('')
+    setScheduled((prev) => [...prev, data.scheduled].sort((a, b) => a.sendAt.localeCompare(b.sendAt)))
+    note(channel, t('Scheduled for {when}.', { when: new Date(data.scheduled.sendAt).toLocaleString(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) }))
   }
 
   // ---- What you can do to a message ----
@@ -603,6 +920,7 @@ export const ClassicList: React.FC<Props> = ({
   const togglePin = (channel: string, m: ChannelMessage) => void act('POST', '/channels/pins', channel, { messageId: m.id, pinned: !m.pinned })
   const openThread = async (channel: string, m: ChannelMessage) => {
     setDetailId(null)
+    setProfile(null)
     setThread({ channel, parent: m, replies: [] })
     setThreadDraft('')
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
@@ -623,6 +941,44 @@ export const ClassicList: React.FC<Props> = ({
   }
   // Leaving a conversation closes what was open on it.
   useEffect(() => { setEditing(null); setThread(null); setPins(null); setPickerFor(null) }, [current?.key])
+  useEffect(() => {
+    const j = pendingJump.current
+    if (!j || !current || current.view !== j.view) return
+    const list = messages[j.view]
+    if (!list) return
+    pendingJump.current = null
+    if (j.parentId) {
+      const parent = list.find((m) => m.id === j.parentId) || ({ id: j.parentId, channel: j.view, kind: 'message', body: '', authorName: null, authorRef: null, mine: false, cardId: null, createdAt: '' } as ChannelMessage)
+      void openThread(j.view, parent)
+    } else {
+      requestAnimationFrame(() => jumpTo(j.id))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.view, messages[current?.view || '']?.length, tick])
+  // Somebody named you, or answered in your thread: the inbox refreshes.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const on = (e: Event) => {
+      const m = (e as CustomEvent<ChannelMessage>).detail
+      if (!m || m.mine || (!m.parentId && !/[@＠]/.test(m.body || ''))) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { void loadActivity() }, 800)
+    }
+    window.addEventListener('honmaru:channel-message', on)
+    return () => { window.removeEventListener('honmaru:channel-message', on); if (timer) clearTimeout(timer) }
+  }, [loadActivity])
+  // From search: open the conversation and go to the message.
+  useEffect(() => {
+    const go = (target: { view: string; id: string; parentId?: string | null }) => openAt(target)
+    const on = (e: Event) => { try { sessionStorage.removeItem('list.jump') } catch {}; go((e as CustomEvent).detail) }
+    window.addEventListener('honmaru:open-message', on)
+    try {
+      const saved = sessionStorage.getItem('list.jump')
+      if (saved) { sessionStorage.removeItem('list.jump'); const j = JSON.parse(saved); setTimeout(() => go(j), 300) }
+    } catch { /* nothing to go to */ }
+    return () => window.removeEventListener('honmaru:open-message', on)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [everything.length])
   const decideMessage = async (channel: string, m: ChannelMessage) => {
     setProblem(null)
     const res = await fetch(`${api.httpBase}/channels/decide`, {
@@ -630,7 +986,7 @@ export const ClassicList: React.FC<Props> = ({
       headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel, messageId: m.id }),
     }).catch(() => null)
-    if (res?.ok) setThinking((prev) => ({ ...prev, [channel]: true }))
+    if (res?.ok) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
     else setProblem(t('That could not become a decision. Try again.'))
   }
 
@@ -639,7 +995,7 @@ export const ClassicList: React.FC<Props> = ({
   // thread — never by leaving the list for the feed.
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = detailId ? cardsById.get(detailId) : undefined
-  const openCard = (id: string) => { setThread(null); setDetailId(id) }
+  const openCard = (id: string) => { setThread(null); setProfile(null); setDetailId(id) }
   useEffect(() => {
     if (!detailId && !thread) return
     const onKey = (e: KeyboardEvent) => {
@@ -649,12 +1005,18 @@ export const ClassicList: React.FC<Props> = ({
     return () => window.removeEventListener('keydown', onKey)
   }, [detailId, thread])
   // A phone gives a conversation, or a decision, the whole screen.
-  useEffect(() => { onImmersive(!wide && (Boolean(current) || Boolean(detail) || Boolean(thread))) }, [wide, current?.key, detail?.id, thread, onImmersive])
+  useEffect(() => { onImmersive(!wide && (Boolean(current && !activityOpen && !laterOpen) || Boolean(detail) || Boolean(thread) || activityOpen || laterOpen)) }, [wide, current?.key, detail?.id, thread, activityOpen, laterOpen, onImmersive])
   useEffect(() => () => onImmersive(false), [onImmersive])
 
   // Messages, or the decisions in this conversation as a list.
   const [tab, setTab] = useState<'messages' | 'decisions'>('messages')
-  useEffect(() => { setTab('messages') }, [current?.key])
+  useEffect(() => { setTab('messages'); setPicked(new Set()) }, [current?.key])
+  // Several decisions at once: the ones ticked in the list.
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const approvePicked = () => {
+    for (const id of picked) onDecide(id, 'approve')
+    setPicked(new Set())
+  }
 
   // "@" in the composer offers the team — and the AI.
   const mentionable = useMembers(api.httpBase, api.orgId, api.sessionToken)
@@ -666,7 +1028,9 @@ export const ClassicList: React.FC<Props> = ({
   const logRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = logRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    if (keepScroll.current !== null) { el.scrollTop = el.scrollHeight - keepScroll.current; keepScroll.current = null; return }
+    el.scrollTop = el.scrollHeight
   }, [current?.key, current?.cards.length, messages[current?.view || '']?.length, thinking[current?.view || '']])
 
   // ---- The conversation ----
@@ -750,7 +1114,7 @@ export const ClassicList: React.FC<Props> = ({
 
   /// One block of a conversation: a gutter, a name and a time — or, joined
   /// to the one before, just the words — then what was said.
-  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean }, body: React.ReactNode) => (
+  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean; authorRef?: string | null }, body: React.ReactNode) => (
     <article key={key} id={opts.msgId ? `msg-${opts.msgId}` : undefined} tabIndex={opts.msgId ? -1 : undefined}
       className={`slk-msg${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}${opts.msgId && toolsOpen === opts.msgId ? ' tools-open' : ''}${opts.msgId && editing?.id === opts.msgId ? ' editing' : ''}${opts.pinned ? ' pinned' : ''}${opts.msgId && flash === opts.msgId ? ' flash' : ''}`}>
       <div className="slk-gutter" aria-hidden="true">
@@ -760,7 +1124,9 @@ export const ClassicList: React.FC<Props> = ({
         {opts.pinned && <div className="slk-pin-mark">📌 {t('Pinned')}</div>}
         {!opts.joined && (
           <div className="slk-meta">
-            <span className="slk-author">{opts.name}</span>
+            {opts.authorRef
+              ? <button type="button" className="slk-author link" onClick={() => void openProfile(opts.authorRef!)}>{opts.name}</button>
+              : <span className="slk-author">{opts.name}</span>}
             {opts.badge && <span className="slk-app-badge">{opts.badge}</span>}
             {opts.to && <span className="slk-to">→ {opts.to}</span>}
             <time className="slk-time" dateTime={opts.at}>{clock(opts.at)}</time>
@@ -840,11 +1206,114 @@ export const ClassicList: React.FC<Props> = ({
       onEdit={m.mine && m.kind === 'message' ? () => setEditing({ id: m.id, text: m.body }) : undefined}
       onDelete={m.mine && m.kind === 'message' ? () => void remove(channel, m) : undefined}
       onDecide={!m.cardId && m.kind === 'message' && !inThread ? () => void decideMessage(channel, m) : undefined}
+      onLater={(at) => void saveLater(channel, m, at)}
+      onClip={() => toggleClip(channel, m)}
+      clipped={clip.some((x) => x.id === m.id)}
       onOpenChange={(open) => setToolsOpen((cur) => (open ? m.id : cur === m.id ? null : cur))}
     />
   )
 
+  /// What the AI is doing, step by step, where a person is waiting for it.
+  const STEPS: Array<[string, string]> = [['reading', 'Reading the conversation'], ['routing', 'Deciding who decides'], ['writing', 'Writing the card']]
+  const aiSteps = (step: string | false) => {
+    if (!step) return null
+    const at = Math.max(0, STEPS.findIndex(([k]) => k === step))
+    return (
+      <div className="slk-typing slk-steps" role="status" aria-live="polite">
+        <span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>
+        <ol>
+          {STEPS.map(([k, label], i) => (
+            <li key={k} className={i < at ? 'done' : i === at ? 'now' : ''}>
+              <span aria-hidden="true">{i < at ? '✓' : i === at ? '›' : '·'}</span> {t(label)}
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
+
   type Item = { at: string; kind: 'card'; card: DecisionCard } | { at: string; kind: 'msg'; msg: ChannelMessage }
+
+  /// The Activity inbox, as a conversation of its own: each item says where
+  /// it was, who, and why it is here, and opens in place.
+  const laterView = () => (
+    <>
+      <header className="slk-head">
+        <button className="slk-back" onClick={() => setLaterOpen(false)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+        <span className="cl-lead cl-app sz-head" aria-hidden="true">🔖</span>
+        <div className="slk-head-text">
+          <h1>{t('Later')}</h1>
+          <p>{t('Messages you saved to come back to. A reminder brings one back to your feed as a card.')}</p>
+        </div>
+      </header>
+      <div className="slk-log slk-activity">
+        {laterItems && laterItems.length === 0 && (
+          <div className="slk-start">
+            <span className="cl-lead cl-app sz-head" aria-hidden="true">🔖</span>
+            <h2>{t('Nothing saved')}</h2>
+            <p>{t('Pick “Save for later” from any message’s ⋯ menu.')}</p>
+          </div>
+        )}
+        {(laterItems || []).map(({ id, remindAt, remindedAt, message: m }) => {
+          const th = everything.find((x) => x.view === m.channel)
+          return (
+            <div key={id} className="slk-act later" data-saved={id}>
+              <span className="slk-act-kind">
+                {th ? (th.kind === 'channel' ? `#${th.name}` : th.name) : ''}
+                {remindAt && ` · ${remindedAt ? t('Reminded') : t('Reminder {when}', { when: new Date(remindAt).toLocaleString(locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) })}`}
+              </span>
+              <span className="slk-act-line"><b>{m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate'))}</b><span className="slk-act-when">{when(m.createdAt)}</span></span>
+              <span className="slk-act-body">{m.body.slice(0, 280)}</span>
+              <span className="slk-act-actions">
+                <button type="button" className="cl-nudge" onClick={() => openAt({ view: m.channel, id: m.id, parentId: m.parentId })}>{t('Open')}</button>
+                <button type="button" className="cl-nudge" onClick={() => void finishLater(id)}>{t('Done')}</button>
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+
+  const activityView = () => {
+    const nameOfView = (v: string) => {
+      const th = everything.find((x) => x.view === v)
+      return th ? (th.kind === 'channel' ? `#${th.name}` : th.name) : v
+    }
+    return (
+      <>
+        <header className="slk-head">
+          <button className="slk-back" onClick={() => setActivityOpen(false)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+          <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
+          <div className="slk-head-text">
+            <h1>{t('Activity')}</h1>
+            <p>{t('Mentions of you, and replies in your threads.')}</p>
+          </div>
+        </header>
+        <div className="slk-log slk-activity">
+          {activityItems === null && <p className="slk-empty">{t('Loading…')}</p>}
+          {activityItems && activityItems.length === 0 && (
+            <div className="slk-start">
+              <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
+              <h2>{t('Nothing for you yet')}</h2>
+              <p>{t('When somebody writes @ your name, or replies in a thread you are part of, it shows up here.')}</p>
+            </div>
+          )}
+          {(activityItems || []).map(({ type, message: m, unread }) => (
+            <button key={`${type}-${m.id}`} type="button" className={`slk-act${unread ? ' unread' : ''}`}
+              onClick={() => openAt({ view: m.channel, id: m.id, parentId: m.parentId })}>
+              <span className="slk-act-kind">{type === 'mention' ? t('Mentioned you in {where}', { where: nameOfView(m.channel) }) : t('Replied in a thread in {where}', { where: nameOfView(m.channel) })}</span>
+              <span className="slk-act-line">
+                <b>{m.kind === 'ai' ? t('Your AI') : (m.authorName || t('a teammate'))}</b>
+                <span className="slk-act-when">{when(m.createdAt)}</span>
+              </span>
+              <span className="slk-act-body">{m.body.slice(0, 280)}</span>
+            </button>
+          ))}
+        </div>
+      </>
+    )
+  }
 
   const conversation = (thread: Thread) => {
     const said = thread.view ? (messages[thread.view] || []) : []
@@ -857,6 +1326,9 @@ export const ClassicList: React.FC<Props> = ({
 
     const out: React.ReactNode[] = []
     let day = ''
+    // The red line: the first thing somebody else said since you last read.
+    const since = newSince && newSince.view === thread.view ? newSince.at : ''
+    let lined = !since
     let prevWho = ''
     let prevAt = 0
     for (const item of items) {
@@ -867,6 +1339,10 @@ export const ClassicList: React.FC<Props> = ({
         out.push(<div key={`day-${d}`} className="slk-day" role="separator"><span>{dayLabel(item.at)}</span></div>)
       }
       const at = Date.parse(item.at)
+      if (!lined && item.kind === 'msg' && !item.msg.mine && item.at > since) {
+        lined = true
+        out.push(<div key="new-line" className="slk-new-line" role="separator"><span>{t('New')}</span></div>)
+      }
       if (item.kind === 'card') {
         const c = item.card
         const who = author(c)
@@ -890,7 +1366,7 @@ export const ClassicList: React.FC<Props> = ({
           const joined = prevWho === whoKey && at - prevAt < 5 * 60000
           const name = m.mine ? t('You') : (m.authorName || t('a teammate'))
           out.push(block(m.id, {
-            joined: joined && !m.pinned, at: m.createdAt, app: '', name, msgId: m.id, pinned: m.pinned,
+            joined: joined && !m.pinned, at: m.createdAt, app: '', name, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
             tools: toolsFor(thread.view!, m),
           }, (
             <>
@@ -916,7 +1392,12 @@ export const ClassicList: React.FC<Props> = ({
           </button>
           {lead(thread, 'head')}
           <div className="slk-head-text">
-            <h1>{thread.name}</h1>
+            {thread.kind === 'person' && thread.view
+              ? <h1><button type="button" className="slk-author link" onClick={() => void openProfile(thread.view!.slice(3))}>{thread.name}</button>
+                  {(() => { const m = members.find((x) => thread.view === `dm:${x.ref}`); return m?.status ? <span className="slk-head-status"> {m.status.emoji} {m.status.text}</span> : null })()}
+                  {(() => { const m = members.find((x) => thread.view === `dm:${x.ref}`); return m?.awayUntil ? <span className="slk-head-away"> · {t('Away until {when}', { when: new Date(m.awayUntil).toLocaleDateString(locale, { month: 'short', day: 'numeric' }) })}</span> : null })()}
+                </h1>
+              : <h1>{thread.name}</h1>}
             <p>
               {thread.cards.length ? t('{n} decisions', { n: thread.cards.length }) : t('No decisions here yet.')}
               {waitingHere > 0 && <> · <b>{t('{n} waiting on you', { n: waitingHere })}</b></>}
@@ -991,6 +1472,15 @@ export const ClassicList: React.FC<Props> = ({
               </form>
             ) : (
               <>
+                <span className="cl-pref" role="group" aria-label={t('Notifications')}>
+                  <span className="cl-pref-label">{t('Notify me about')}</span>
+                  {(['all', 'mentions', 'mute'] as const).map((lv) => (
+                    <button key={lv} type="button" className={`cl-nudge${(prefs[thread.view!] || 'all') === lv ? ' on' : ''}`} aria-pressed={(prefs[thread.view!] || 'all') === lv} onClick={() => void setPref(thread.view!, lv)}>
+                      {lv === 'all' ? t('Everything') : lv === 'mentions' ? t('Mentions only') : t('Nothing (mute)')}
+                    </button>
+                  ))}
+                </span>
+                <button type="button" className="cl-nudge" onClick={() => void dailySummary(thread)}>{t('Daily summary to me')}</button>
                 <button type="button" className="cl-nudge" onClick={() => { setRenaming(thread.slug!); setRenameTo(thread.name) }}>{t('Rename')}</button>
                 <button type="button" className="cl-nudge cl-danger" onClick={() => void deleteChannel(thread)}>{t('Delete channel')}</button>
               </>
@@ -1006,12 +1496,29 @@ export const ClassicList: React.FC<Props> = ({
               if (!list.length) return null
               return (
                 <section key={group} className="slk-dgroup">
-                  <h3>{group === 'waiting' ? t('Waiting') : t('Decided')}<span>{list.length}</span></h3>
+                  <h3>
+                    {group === 'waiting' ? t('Waiting') : t('Decided')}<span>{list.length}</span>
+                    {group === 'waiting' && (() => {
+                      const mine = list.filter((c) => isUnread(c) && c.format !== 'fyi' && !c.report)
+                      if (mine.length < 2) return null
+                      const all = mine.every((c) => picked.has(c.id))
+                      return (
+                        <span className="slk-bulk">
+                          <button type="button" className="cl-nudge" onClick={() => setPicked(all ? new Set() : new Set(mine.map((c) => c.id)))}>{all ? t('Clear selection') : t('Select all')}</button>
+                          {picked.size > 0 && <button type="button" className="slk-send ai" onClick={approvePicked} data-bulk-approve="1">{t('Approve {n}', { n: picked.size })}</button>}
+                        </span>
+                      )
+                    })()}
+                  </h3>
                   <ul>
                     {list.map((c) => {
                       const st = status(c)
                       return (
-                        <li key={c.id}>
+                        <li key={c.id} className={isUnread(c) && c.format !== 'fyi' && !c.report ? 'pickable' : ''}>
+                          {isUnread(c) && c.format !== 'fyi' && !c.report && (
+                            <input type="checkbox" className="slk-pick" checked={picked.has(c.id)} aria-label={t('Select {title}', { title: titleOf(c) })}
+                              onChange={() => setPicked((prev) => { const next = new Set(prev); if (next.has(c.id)) next.delete(c.id); else next.add(c.id); return next })} />
+                          )}
                           <button className={`slk-drow ${st.tone}${detailId === c.id ? ' on' : ''}${isUnread(c) ? ' unread' : ''}`} onClick={() => openCard(c.id)}>
                             <span className="slk-ddot" aria-hidden="true" />
                             <span className="slk-dmain">
@@ -1029,8 +1536,9 @@ export const ClassicList: React.FC<Props> = ({
             })}
           </div>
         ) : (
-        <div className="slk-log" ref={logRef}>
-          <div className="slk-start">
+        <div className="slk-log" ref={logRef} onScroll={(e) => { if (thread.view && e.currentTarget.scrollTop < 120) void loadOlder(thread.view) }}>
+          {thread.view && more[thread.view] && <div className="slk-older" role="status">{t('Loading earlier messages…')}</div>}
+          {!(thread.view && more[thread.view]) && <div className="slk-start">
             {lead(thread, 'head')}
             <h2>{thread.kind === 'channel' ? t('This is the start of #{name}', { name: thread.name }) : thread.name}</h2>
             <p>{thread.kind === 'channel'
@@ -1038,13 +1546,64 @@ export const ClassicList: React.FC<Props> = ({
               : thread.kind === 'person'
                 ? t('Just the two of you. Write @AI and your AI makes what you said a decision for {name}.', { name: thread.name })
                 : t('What {name} brought in. Each opens as a card.', { name: thread.name })}</p>
-          </div>
-          {out}
-          {thread.view && thinking[thread.view] && (
-            <div className="slk-typing" role="status"><span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>{t('Your AI is making a decision card…')}</div>
+          </div>}
+          {thread.app === 'ai' && out.length === 0 && (
+            block('ai-intro', { joined: false, at: new Date().toISOString(), app: 'ai', name: t('Your AI'), badge: t('AI') }, (
+              <>
+                <div className="slk-text">{t('Hi — I turn what you tell me into decisions for the right person, with what they need to decide. Try one of these, or write your own:')}</div>
+                <div className="slk-samples">
+                  {[t('Ask Kenji to approve the new supplier price, +8% from Friday'), t('Every Monday at 9, summarise last week’s decisions'), t('Remind the team to submit expenses by the 25th')].map((x) => (
+                    <button key={x} type="button" className="slk-sample" onClick={() => { setDraft(x); composer.current?.focus() }}>{x}</button>
+                  ))}
+                </div>
+              </>
+            ))
           )}
+          {out}
+          {thread.view && (notes[thread.view] || []).map((n) => (
+            <div key={n.id} className="slk-note-row" role="status">
+              <span className="slk-note-only">{t('Only visible to you')}</span>
+              <span>{n.text}</span>
+              <button type="button" onClick={() => setNotes((prev) => ({ ...prev, [thread.view!]: (prev[thread.view!] || []).filter((x) => x.id !== n.id) }))} aria-label={t('Dismiss')}>×</button>
+            </div>
+          ))}
+          {thread.view && aiSteps(thinking[thread.view])}
         </div>
         )}
+        {thread.view && (() => {
+          const here = scheduled.filter((x) => x.channel === thread.view)
+          return (
+            <>
+              {clip.length > 0 && (
+                <div className="slk-clip" role="region" aria-label={t('Clip')}>
+                  <span className="slk-clip-count">📎 {t('{n} messages clipped', { n: clip.length })}</span>
+                  <span className="slk-clip-list">{clip.map((c) => <span key={c.id} className="slk-clip-chip" title={c.body}>{c.who}: {c.body.slice(0, 30)}<button type="button" onClick={() => setClip((p) => p.filter((x) => x.id !== c.id))} aria-label={t('Remove')}>×</button></span>)}</span>
+                  <button type="button" className="slk-send ai" onClick={() => void sendClip(thread.view!)}>{t('Make one decision')}</button>
+                  <button type="button" className="cl-nudge" onClick={() => setClip([])}>{t('Clear')}</button>
+                </div>
+              )}
+              {here.length > 0 && (
+                <div className="slk-scheduled">
+                  <button type="button" className="slk-scheduled-toggle" onClick={() => setScheduledOpen((o) => !o)} aria-expanded={scheduledOpen}>
+                    ⏰ {here.length === 1 ? t('1 scheduled message') : t('{n} scheduled messages', { n: here.length })}
+                  </button>
+                  {scheduledOpen && (
+                    <ul>
+                      {here.map((x) => (
+                        <li key={x.id}>
+                          <span className="slk-scheduled-when">{new Date(x.sendAt).toLocaleString(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                          <span className="slk-scheduled-body">{x.body}</span>
+                          <button type="button" className="cl-nudge" onClick={() => { setDraft(x.body); void cancelScheduled(x.id) }}>{t('Edit')}</button>
+                          <button type="button" className="cl-nudge cl-danger" onClick={() => void cancelScheduled(x.id)}>{t('Cancel')}</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </>
+          )
+        })()}
         {thread.view ? (
           <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
             <textarea
@@ -1083,15 +1642,22 @@ export const ClassicList: React.FC<Props> = ({
               disabled={sending}
             />
             {mention.menu}
+            <SlashMenu draft={draft} onPick={(name) => { setDraft(`/${name} `); composer.current?.focus() }} />
             <div className="slk-composer-bar">
               <FormatBar target={composer} value={draft} set={setDraft} />
-              <span className="slk-composer-hint">{t('Enter to send · ⌘Enter sends and asks your AI for a decision')}</span>
+              <span className="slk-composer-hint">{t('Enter to send · ⌘Enter sends and asks your AI for a decision · / for commands')}</span>
               <button type="button" className="slk-send ai" disabled={sending || !draft.trim()} onClick={() => void send(thread.view!, true)}>
                 {t('Send as a decision')}
               </button>
-              <button type="submit" className="slk-send" disabled={sending || !draft.trim()} aria-label={t('Send')}>
-                <Icon name="send" size={16} />
-              </button>
+              <span className="slk-send-group">
+                <button type="submit" className="slk-send" disabled={sending || !draft.trim()} aria-label={t('Send')}>
+                  <Icon name="send" size={16} />
+                </button>
+                <button type="button" className="slk-send more" disabled={sending || !draft.trim() || draft.trim().startsWith('/')} onClick={() => setScheduleOpen((o) => !o)} aria-label={t('Schedule message')} title={t('Schedule message')} aria-expanded={scheduleOpen}>
+                  <span aria-hidden="true">⌄</span>
+                </button>
+                {scheduleOpen && <SchedulePicker onPick={(at) => void sendAtTime(thread.view!, at)} onClose={() => setScheduleOpen(false)} />}
+              </span>
             </div>
           </form>
         ) : thread.app === 'ai' ? (
@@ -1131,8 +1697,41 @@ export const ClassicList: React.FC<Props> = ({
 
   const waiting = pending.length
 
+  // Getting started: five things that make the list worth opening, ticked
+  // off as they happen, until they all have or the person says enough.
+  const onboardKey = `onboard.hidden:${api.orgId}`
+  const [onboardHidden, setOnboardHidden] = useState(() => { try { return Boolean(localStorage.getItem(onboardKey)) } catch { return false } })
+  const [toolsSeen, setToolsSeen] = useState(() => { try { return Boolean(localStorage.getItem(`onboard.tools:${api.orgId}`)) } catch { return false } })
+  const steps = [
+    { id: 'ai', done: sent.length > 0 || [...pending, ...decided].some((c) => c.senderUserID === userId), label: t('Tell your AI something to decide'), go: () => { const ai = apps.find((a) => a.app === 'ai'); if (ai) choose(ai.key); requestAnimationFrame(() => composer.current?.focus()) } },
+    { id: 'channel', done: businesses.length > 0, label: t('Make a channel for a business'), go: () => { setAdding(true) } },
+    { id: 'invite', done: members.length > 1, label: t('Invite a teammate'), go: () => (onOpenScreen ? onOpenScreen('team') : onWorkspace()) },
+    { id: 'decide', done: decided.length > 0, label: t('Decide your first card'), go: () => { const w = everything.find((x) => x.unread > 0); if (w) choose(w.key) } },
+    { id: 'tools', done: toolsSeen, label: t('Connect Gmail, Slack or another tool'), go: () => { try { localStorage.setItem(`onboard.tools:${api.orgId}`, '1') } catch {}; setToolsSeen(true); onOpenScreen?.('tools') } },
+  ]
+  const stepsDone = steps.filter((x) => x.done).length
+  const checklist = !onboardHidden && stepsDone < steps.length ? (
+    <section className="slk-onboard" aria-label={t('Getting started')}>
+      <div className="slk-onboard-head">
+        <b>{t('Getting started')}</b>
+        <span>{stepsDone}/{steps.length}</span>
+        <button type="button" onClick={() => { try { localStorage.setItem(onboardKey, '1') } catch {}; setOnboardHidden(true) }} aria-label={t('Hide')}>×</button>
+      </div>
+      <div className="slk-onboard-bar"><i style={{ width: `${(stepsDone / steps.length) * 100}%` }} /></div>
+      <ul>
+        {steps.map((x) => (
+          <li key={x.id} className={x.done ? 'done' : ''}>
+            <button type="button" onClick={x.go} disabled={x.done} data-step={x.id}>
+              <span aria-hidden="true">{x.done ? '✓' : '○'}</span>{x.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ) : null
+
   return (
-    <div className={`classic slk${current ? ' in-thread' : ''}${detail || thread ? ' with-pane' : ''}`}>
+    <div className={`classic slk${current || activityOpen || laterOpen ? ' in-thread' : ''}${detail || thread || profile ? ' with-pane' : ''}${sideHidden ? ' side-hidden' : ''}`}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         <header className="cl-top">
           {workspaceMenu || (
@@ -1150,15 +1749,32 @@ export const ClassicList: React.FC<Props> = ({
           <span>{t('Jump to or search…')}</span>
         </button>
         {waiting > 0 && <p className="cl-summary" role="status">{t('{n} waiting on you', { n: waiting })}</p>}
+        {checklist}
         {!current && problem && <p className="cl-problem" role="alert">{problem}</p>}
         <nav className="slk-sections">
+          <ul className="slk-special">
+            <li className={`cl-row cl-thread${activityOpen ? ' on' : ''}${activityUnread ? ' unread' : ''}`}>
+              <button className="cl-open" onClick={openActivity} aria-current={activityOpen ? 'true' : undefined} data-activity="1">
+                <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="bell" size={14} /></span>
+                <span className="cl-title">{t('Activity')}</span>
+                {activityUnread > 0 && <span className="cl-badge">{activityUnread}</span>}
+              </button>
+            </li>
+            <li className={`cl-row cl-thread${laterOpen ? ' on' : ''}`}>
+              <button className="cl-open" onClick={() => { setOpenKey(null); setActivityOpen(false); setLaterOpen(true); void loadLater() }} aria-current={laterOpen ? 'true' : undefined} data-later="1">
+                <span className="cl-lead cl-app sz-row" aria-hidden="true">🔖</span>
+                <span className="cl-title">{t('Later')}</span>
+                {(laterItems || []).length > 0 && <span className="cl-count">{laterItems!.length}</span>}
+              </button>
+            </li>
+          </ul>
           {section('channels', t('Channels'), channels, t('No channels yet. Make one, or let your AI file decisions under a business as they arrive.'), addChannel, addChannelForm)}
           {section('people', t('Direct messages'), people, t('Nobody has sent you a decision yet.'))}
           {section('apps', t('Apps'), apps, t('Connect Gmail or Slack under Tools and their decisions land here.'))}
         </nav>
       </aside>
       <main className="slk-main">
-        {current ? conversation(current) : (
+        {activityOpen ? activityView() : laterOpen ? laterView() : current ? conversation(current) : (
           <div className="slk-none"><p>{t('Pick a conversation.')}</p></div>
         )}
       </main>
@@ -1172,6 +1788,42 @@ export const ClassicList: React.FC<Props> = ({
             <button className="slk-pane-close" onClick={() => setDetailId(null)} aria-label={t('Close')}>×</button>
           </header>
           <div className="slk-pane-body">{renderCard(detail)}</div>
+        </aside>
+      )}
+      {!detail && !thread && profile && (
+        <aside className="slk-pane slk-profile" aria-label={t('Profile')}>
+          <header className="slk-pane-head">
+            <button className="slk-back pane" onClick={() => setProfile(null)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+            <h2>{t('Profile')}</h2>
+            <button className="slk-pane-close" onClick={() => setProfile(null)} aria-label={t('Close')}>×</button>
+          </header>
+          {!profile.data ? <p className="slk-empty">{t('Loading…')}</p> : (() => {
+            const p = profile.data
+            let local = ''
+            try { if (p.timezone) local = new Date().toLocaleTimeString(locale, { timeZone: p.timezone, hour: 'numeric', minute: '2-digit' }) } catch { /* unknown zone */ }
+            return (
+              <div className="slk-profile-body">
+                <div className="slk-profile-avatar" aria-hidden="true">{p.name.charAt(0).toUpperCase()}</div>
+                <h3>{p.name}</h3>
+                {p.handle && <p className="slk-profile-handle">@{p.handle}</p>}
+                <p className="slk-profile-title">{t(p.title.charAt(0).toUpperCase() + p.title.slice(1))}</p>
+                {p.status && <p className="slk-profile-status">{p.status.emoji} {p.status.text}</p>}
+                {p.awayUntil && <p className="slk-profile-away">{t('Away until {when}', { when: new Date(p.awayUntil).toLocaleDateString(locale, { month: 'short', day: 'numeric' }) })}</p>}
+                {local && <p className="slk-profile-local">🕒 {t('{time} local time', { time: local })}</p>}
+                <dl className="slk-profile-stats">
+                  <div><dt>{t('Waiting on them')}</dt><dd>{p.stats.waiting}</dd></div>
+                  <div><dt>{t('Decided (90 days)')}</dt><dd>{p.stats.decided90d}</dd></div>
+                  <div><dt>{t('Typical answer')}</dt><dd>{p.stats.medianMinutes === null ? '—' : p.stats.medianMinutes < 60 ? t('{n} min', { n: p.stats.medianMinutes }) : p.stats.medianMinutes < 1440 ? t('{n} h', { n: Math.round(p.stats.medianMinutes / 60) }) : t('{n} days', { n: Math.round(p.stats.medianMinutes / 1440) })}</dd></div>
+                </dl>
+                {!p.mine && (
+                  <div className="slk-profile-actions">
+                    <button type="button" className="slk-send" onClick={() => { const th = everything.find((x) => x.view === `dm:${profile.ref}`); if (th) choose(th.key); setProfile(null) }}>{t('Message')}</button>
+                    <button type="button" className="slk-send ai" onClick={() => { const th = everything.find((x) => x.view === `dm:${profile.ref}`); if (th) { choose(th.key); setTimeout(() => { setDraft('@AI '); composer.current?.focus() }, 50) } setProfile(null) }}>{t('Ask for a decision')}</button>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </aside>
       )}
       {!detail && thread && (
@@ -1204,9 +1856,7 @@ export const ClassicList: React.FC<Props> = ({
                 )}
               </React.Fragment>
             ))}
-            {thinking[thread.channel] && (
-              <div className="slk-typing" role="status"><span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>{t('Your AI is making a decision card…')}</div>
-            )}
+            {aiSteps(thinking[thread.channel])}
           </div>
           <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
             <textarea

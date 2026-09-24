@@ -11,6 +11,7 @@ export type PaletteAction =
   | { kind: 'feed' }
   | { kind: 'list' }
   | { kind: 'compose' }
+  | { kind: 'message'; view: string; id: string; parentId?: string | null }
 
 interface Props {
   httpBase: string
@@ -21,7 +22,7 @@ interface Props {
   onClose: () => void
 }
 
-interface Item { key: string; group: 'actions' | 'cards' | 'past'; label: string; meta?: string; action: PaletteAction }
+interface Item { key: string; group: 'actions' | 'cards' | 'past' | 'messages'; label: string; meta?: string; action: PaletteAction }
 
 const ACTION_WORD: Record<string, string> = {
   approve: 'Approved', decline: 'Declined', revise: 'Revision asked',
@@ -39,11 +40,15 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
   const [query, setQuery] = useState('')
   const [cursor, setCursor] = useState(0)
   const [past, setPast] = useState<Item[]>([])
+  const [said, setSaid] = useState<Item[]>([])
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => { input.current?.focus() }, [])
 
   const q = query.trim().toLowerCase()
+  // Slack's filters (from:@x in:#y before: after: is:pinned has:thread) go
+  // to message search as they are; the rest of the box searches the text.
+  const filtered = /(^|\s)(from|in|before|after|is|has):\S/i.test(query)
   const actions: Item[] = useMemo(() => {
     const all: Item[] = [
       { key: 'a:compose', group: 'actions', label: t('Tell your AI'), meta: 'n', action: { kind: 'compose' } },
@@ -105,7 +110,29 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
     return () => { ignore = true; clearTimeout(id) }
   }, [q, httpBase, orgId, sessionToken, cards, t])
 
-  const items = useMemo(() => [...here, ...past, ...actions], [here, past, actions])
+  // What was said in channels and DMs, from the Worker.
+  useEffect(() => {
+    const raw = query.trim()
+    if (raw.length < 2) { setSaid([]); return }
+    let ignore = false
+    const id = setTimeout(async () => {
+      try {
+        const res = await fetch(`${httpBase}/channels/search?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(raw)}`, { headers: { 'x-session-token': sessionToken } })
+        if (!res.ok) return
+        const data = await res.json()
+        if (ignore) return
+        setSaid((data.messages || []).slice(0, 12).map((m: { id: string; channel: string; body: string; authorName: string | null; mine: boolean; kind: string; createdAt: string; parentId?: string | null }) => ({
+          key: `m:${m.id}`, group: 'messages' as const,
+          label: m.body.replace(/\s+/g, ' ').slice(0, 140),
+          meta: `${m.kind === 'ai' ? t('Your AI') : m.mine ? t('You') : (m.authorName || '')} · ${m.createdAt.slice(0, 10)}`,
+          action: { kind: 'message' as const, view: m.channel, id: m.id, parentId: m.parentId || null },
+        })))
+      } catch { /* the rest of the palette stands */ }
+    }, 250)
+    return () => { ignore = true; clearTimeout(id) }
+  }, [query, httpBase, orgId, sessionToken, t])
+
+  const items = useMemo(() => filtered ? said : [...here, ...said, ...past, ...actions], [here, said, past, actions, filtered])
   useEffect(() => { setCursor(0) }, [q, items.length])
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -115,7 +142,7 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
     else if (e.key === 'Escape') { e.preventDefault(); onClose() }
   }
 
-  const GROUP_WORD: Record<Item['group'], string> = { actions: t('Go to'), cards: t('Cards'), past: t('Decided before') }
+  const GROUP_WORD: Record<Item['group'], string> = { actions: t('Go to'), cards: t('Cards'), past: t('Decided before'), messages: t('Messages') }
   let lastGroup: Item['group'] | null = null
 
   return (
@@ -128,7 +155,7 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKey}
-          placeholder={t('Search decisions, or type where to go…')}
+          placeholder={t('Search messages and decisions — from:@name in:#channel — or type where to go…')}
           aria-label={t('Search or jump to')}
           role="combobox"
           aria-expanded="true"

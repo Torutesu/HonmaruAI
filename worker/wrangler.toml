@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 # Connectors used to sync only while the app was open — the one moment you do
 # not need it. Fifteen minutes is the compromise between "already there when you
 # look" and a model bill that scales with idle installs.
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "* * * * *"]
 
 [[durable_objects.bindings]]
 name = "ORG_RELAY"
@@ -40,7 +40,7 @@ bucket_name = "tiktokforwork-media"
 name = "tiktokforwork-staging"
 
 [env.staging.triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "* * * * *"]
 
 [[env.staging.durable_objects.bindings]]
 name = "ORG_RELAY"

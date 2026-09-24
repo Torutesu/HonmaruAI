@@ -190,6 +190,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: message }))
     }
+    wsClient.onChannelProgress = (progress) => {
+      if (ignore) return
+      window.dispatchEvent(new CustomEvent('honmaru:channel-progress', { detail: progress }))
+    }
     wsClient.onReaction = (cardId, emoji, on, by, reactions) => {
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:reaction', { detail: { cardId, emoji, on, by, reactions } }))
@@ -303,6 +307,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); setPalette((p) => !p); return }
+      if ((e.metaKey || e.ctrlKey) && e.key === '/') { e.preventDefault(); setShortcuts((o) => !o); return }
       if (palette) return
       if (e.key === 'Escape') { setPanel(null); if (screen) closeScreen() }
       else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) { e.preventDefault(); setPanel('compose') }
@@ -318,6 +323,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     else if (action.kind === 'feed') { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForMode('cards')) }
     else if (action.kind === 'list') { try { localStorage.setItem('mode', 'classic') } catch {}; navigate(hashForMode('classic')) }
     else if (action.kind === 'compose') { navigate(hashForMode('cards')); setPanel('compose') }
+    else if (action.kind === 'message') {
+      // The list opens the conversation and goes to the message; if it is
+      // not mounted yet it picks the target up when it is.
+      const target = { view: action.view, id: action.id, parentId: action.parentId || null }
+      try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.jump', JSON.stringify(target)) } catch {}
+      navigate(hashForMode('classic'))
+      setTimeout(() => window.dispatchEvent(new CustomEvent('honmaru:open-message', { detail: target })), 150)
+    }
   }, [navigate])
 
   // A toast that stays until clicked is a banner. Errors clear themselves.
@@ -362,13 +375,45 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     }
   }, [relayHttpUrl, orgId, sessionToken, addDebugLog, t])
 
+  const decidedCardsRef = useRef<DecisionCard[]>([])
   const handleDecision = useCallback((cardId: string, action: string, options?: any) => {
     wsClientRef.current!.sendDecision(cardId, action, options)
     addDebugLog(`Sent decision: ${cardId} → ${action}`)
     const card = wsClientRef.current!.getCard(cardId)
     const title = card?.localized?.[getLocale()]?.title || card?.title || ''
     setUndo({ cardId, action, title })
-  }, [addDebugLog])
+    // The third yes in a row to the same kind of request from the same
+    // person: offer to make it a standing yes. Asked once per kind.
+    if (action === 'approve' && card && card.senderUserID && card.senderUserID !== userId && card.format !== 'fyi' && !card.report && !card.proposal) {
+      const same = (c: DecisionCard) => c.senderUserID === card.senderUserID && c.type === card.type && (c.business || '') === (card.business || '') && c.recipientUserID === userId
+      const before = decidedCardsRef.current.filter((c) => c.id !== cardId && same(c))
+        .sort((a, b) => (b.decision?.decidedAt || '').localeCompare(a.decision?.decidedAt || '')).slice(0, 2)
+      const askedKey = `autorule.asked:${orgId}:${card.senderUserID}|${card.type}|${card.business || ''}`
+      let asked = false
+      try { asked = Boolean(localStorage.getItem(askedKey)) } catch {}
+      if (!asked && before.length === 2 && before.every((c) => c.decision?.action === 'approve')) {
+        try { localStorage.setItem(askedKey, '1') } catch {}
+        setSuggestRule({ cardId, sender: card.requestedBy?.name || displayName(card.senderUserID), business: card.business || null })
+      }
+    }
+  }, [addDebugLog, userId, orgId])
+  // ⌘/ — every key the app answers to, in one place.
+  const [shortcuts, setShortcuts] = useState(false)
+  useEffect(() => {
+    const on = () => setShortcuts(true)
+    window.addEventListener('honmaru:shortcuts', on)
+    return () => window.removeEventListener('honmaru:shortcuts', on)
+  }, [])
+  const [suggestRule, setSuggestRule] = useState<{ cardId: string; sender: string; business: string | null } | null>(null)
+  const acceptRule = useCallback(async () => {
+    if (!suggestRule) return
+    const res = await fetch(`${relayHttpUrl}/channels/auto-rules`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+      body: JSON.stringify({ orgId, cardId: suggestRule.cardId }),
+    }).catch(() => null)
+    setSuggestRule(null)
+    if (!res?.ok) setError(t('That did not save.'))
+  }, [suggestRule, relayHttpUrl, sessionToken, orgId, t])
   const handleRollback = useCallback((cardId: string) => {
     wsClientRef.current!.sendRollback(cardId)
     addDebugLog(`Rolled back: ${cardId}`)
@@ -444,6 +489,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const decidedCards = cards
     .filter((c) => c.recipientUserID === userId && (c.status !== 'pending' || c.decision))
     .sort((a, b) => (b.decision?.decidedAt || b.createdAt).localeCompare(a.decision?.decidedAt || a.createdAt))
+  decidedCardsRef.current = decidedCards
   const sentCards = cards
     .filter((c) => c.senderUserID === userId && c.recipientUserID !== userId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -589,6 +635,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             />
           )}
           onWorkspace={() => setScreen('team')}
+          onOpenScreen={(sc) => setScreen(sc)}
           workspaceMenu={workspaceSwitcher('header')}
           onCreateChannel={(name) => channelCall('POST', { name })}
           onRenameChannel={(slug, name) => channelCall('PUT', { slug, name })}
@@ -638,6 +685,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       <div className="toasts">
         {error && <div className="toast error" role="alert" onClick={() => setError(null)}>{error}</div>}
+        {suggestRule && !error && (
+          <div className="toast rule-offer" role="status" data-rule-offer="1">
+            <span className="undo-text">{suggestRule.business
+              ? t('Approve {name}’s requests like this in #{business} automatically from now on?', { name: suggestRule.sender, business: suggestRule.business })
+              : t('Approve {name}’s requests like this automatically from now on?', { name: suggestRule.sender })}</span>
+            <button className="undo-button" onClick={() => void acceptRule()}>{t('Yes, automatically')}</button>
+            <button className="undo-button quiet" onClick={() => setSuggestRule(null)}>{t('Not now')}</button>
+          </div>
+        )}
         {undo && !error && (
           <div className="toast undo" role="status">
             <span className="undo-text">{t(DECIDED_WORD[undo.action] || 'Done')}{undo.title ? ` · ${undo.title}` : ''}</span>
@@ -673,6 +729,26 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel && <div className="scrim" onClick={() => { setPanel(null); setComposeSeed(null) }} />}
+
+      {shortcuts && (
+        <>
+          <div className="scrim" onClick={() => setShortcuts(false)} />
+          <div className="sheet shortcuts-sheet" role="dialog" aria-modal="true" aria-label={t('Keyboard shortcuts')} onKeyDown={(e) => { if (e.key === 'Escape') setShortcuts(false) }}>
+            <div className="sheet-title">{t('Keyboard shortcuts')}<button className="close" onClick={() => setShortcuts(false)} aria-label={t('Close')}>×</button></div>
+            {([
+              [t('Everywhere'), [['⌘K', t('Search, or jump anywhere')], ['N', t('Tell your AI')], ['⌘/', t('This list')]]],
+              [t('Cards'), [['A', t('Approve')], ['D', t('Decline')], ['J / K', t('Next / previous decision')], ['← →', t('Swipe the card')]]],
+              [t('List'), [['⌥↑ / ⌥↓', t('Previous / next conversation')], ['⌘⇧A', t('Activity')], ['⌘⇧D', t('Show or hide the sidebar')], ['Esc', t('Close the pane')]]],
+              [t('Writing'), [['Enter', t('Send')], ['⇧Enter', t('New line')], ['⌘Enter', t('Send as a decision')], ['↑', t('Edit your last message')], ['⌘B / ⌘I', t('Bold / italic')], ['/', t('Commands')], ['@', t('Mention someone, or @AI')]]],
+            ] as Array<[string, string[][]]>).map(([group, rows]) => (
+              <section key={group} className="shortcuts-group">
+                <h3>{group}</h3>
+                <dl>{rows.map(([k, what]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{what}</dd></div>)}</dl>
+              </section>
+            ))}
+          </div>
+        </>
+      )}
 
       {palette && (
         <Palette

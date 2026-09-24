@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS users (
   handle        TEXT,
   /* 1 once the person has named themselves: a GitHub sign-in no longer
      writes its profile name over theirs. */
-  name_locked   INTEGER NOT NULL DEFAULT 0
+  name_locked   INTEGER NOT NULL DEFAULT 0,
+  /* The IANA zone this person's browser reports, for "their local time". */
+  timezone      TEXT
 );
 
 
@@ -69,6 +71,13 @@ CREATE TABLE IF NOT EXISTS memberships (
   role              TEXT NOT NULL DEFAULT 'member',
   title             TEXT,
   created_at        TEXT NOT NULL,
+  /* A status, as a chat client has one: an emoji, a few words, until when.
+     Away until a time, with somebody to decide in your place meanwhile. */
+  status_emoji      TEXT,
+  status_text       TEXT,
+  status_until      TEXT,
+  away_until        TEXT,
+  delegate_login    TEXT,
   PRIMARY KEY (org_id, user_github_id)
 );
 
@@ -504,4 +513,68 @@ CREATE TABLE IF NOT EXISTS message_reactions (
   PRIMARY KEY (message_id, emoji, login)
 );
 CREATE INDEX IF NOT EXISTS idx_message_reactions ON message_reactions(org_id, message_id);
+
+/* How far each person has read each conversation — kept here, not in one
+   browser, so a phone and a laptop agree on what is new. `channel` is the
+   stored key (b:<slug>, dm:<a>|<b>) or "activity" for the Activity inbox. */
+CREATE TABLE IF NOT EXISTS channel_reads (
+  org_id        TEXT NOT NULL,
+  login         TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  last_read_at  TEXT NOT NULL,
+  PRIMARY KEY (org_id, login, channel)
+);
+
+/* How loudly a conversation may call for you: all, mentions, or mute. */
+CREATE TABLE IF NOT EXISTS channel_prefs (
+  org_id   TEXT NOT NULL,
+  login    TEXT NOT NULL,
+  channel  TEXT NOT NULL,
+  level    TEXT NOT NULL,
+  PRIMARY KEY (org_id, login, channel)
+);
+
+/* Messages written now and sent later. The every-minute cron posts them as
+   their author, in the conversation they were written in. */
+CREATE TABLE IF NOT EXISTS scheduled_messages (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  author_login  TEXT NOT NULL,
+  body          TEXT NOT NULL,
+  parent_id     TEXT,
+  send_at       TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  sent_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_messages(sent_at, send_at);
+
+/* Later: a message saved to come back to, optionally at a time — then it
+   arrives in the feed as a card. */
+CREATE TABLE IF NOT EXISTS saved_items (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  login         TEXT NOT NULL,
+  message_id    TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  remind_at     TEXT,
+  reminded_at   TEXT,
+  done_at       TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_saved_items ON saved_items(org_id, login);
+
+/* "Approve these automatically": a person's standing yes to one kind of
+   request from one sender, optionally in one business. The relay applies it
+   as the card arrives, and says so on the card. */
+CREATE TABLE IF NOT EXISTS auto_rules (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL,
+  recipient_login TEXT NOT NULL,
+  sender_login    TEXT NOT NULL,
+  card_type       TEXT NOT NULL,
+  business        TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auto_rules ON auto_rules(org_id, recipient_login);
 

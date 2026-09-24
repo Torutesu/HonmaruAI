@@ -32,7 +32,8 @@ import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
-import { handleChannels } from "./channelRoutes.js";
+import { handleChannels, broadcastStored } from "./channelRoutes.js";
+import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
 import { logJSON, routeLabel, safe } from "./log.js";
@@ -108,6 +109,13 @@ export default {
   // a card by the time they look. Nothing here bypasses the free-tier meter:
   // the sync loop checks the same allowance a manual sync does.
   async scheduled(event, env, ctx) {
+    // Every minute: scheduled messages and Later reminders, which a person
+    // set to a minute and would notice fifteen late.
+    if (event?.cron === "* * * * *") {
+      ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
+        .catch((err) => console.error("minute jobs failed", err?.message || err)));
+      return;
+    }
     ctx.waitUntil(runScheduledSync(env, ctx));
     // Routines whose hour has come, and once a day the automations the AI
     // would propose. Separate from the sync, so a slow inbox cannot make a

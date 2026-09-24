@@ -890,7 +890,7 @@
    the right. On a phone it is one column in the order it always was. */
 .profile-layout { display: flex; flex-direction: column; }
 .profile-side, .profile-main { display: contents; }
-.pf-head { order: 1; } .pf-stats { order: 2; } .pf-err { order: 3; } .pf-profile { order: 4; } .pf-ai { order: 5; }
+.pf-head { order: 1; } .pf-stats { order: 2; } .pf-err { order: 3; } .pf-profile { order: 4; } .pf-status { order: 4; } .pf-ai { order: 5; }
 .pf-where { order: 6; } .pf-ws { order: 7; } .pf-biz { order: 8; } .pf-acct { order: 9; }
 @media (min-width: 1024px) {
   .profile-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 32px; align-items: start; }
@@ -913,3 +913,28 @@
   :root:not([data-theme="light"]) .pf-head .profile-head { background: #1a1a1a; border-color: #2a2a2a; }
 }
 @media (min-width: 1024px) { :root[data-theme="dark"] .pf-head .profile-head { background: #1a1a1a; border-color: #2a2a2a; } }
+
+/* Status and away, on You. */
+.status-line { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.status-line .status-emoji { width: 56px; text-align: center; flex: none; }
+.status-line .status-text { flex: 1; min-width: 160px; }
+.status-away { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.status-actions { display: flex; align-items: center; gap: 12px; }
+/* ⌘/ — the shortcuts sheet. */
+.shortcuts-sheet { position: fixed; z-index: 41; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(92vw, 640px); max-height: 80vh; overflow-y: auto; background: var(--signal-white); border-radius: 18px; padding: 18px 22px 22px; box-shadow: 0 24px 64px rgba(0,0,0,.2); }
+.shortcuts-sheet .sheet-title { display: flex; justify-content: space-between; align-items: center; }
+.shortcuts-group h3 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ash); margin: 14px 0 6px; }
+.shortcuts-group dl { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 18px; }
+.shortcuts-group dl div { display: flex; gap: 10px; align-items: baseline; }
+.shortcuts-group dt { flex: none; min-width: 90px; }
+.shortcuts-group dd { margin: 0; font-size: 13.5px; color: var(--ink-black); }
+.shortcuts-group kbd { font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--bone); background: var(--mist, #f4f4f4); }
+.toast.rule-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: min(92vw, 640px); }
+.undo-button.quiet { background: transparent; color: inherit; border: 1px solid currentColor; opacity: .8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .shortcuts-sheet { background: #1a1a1a; }
+  :root:not([data-theme="light"]) .shortcuts-group dd { color: #f2f2f2; }
+  :root:not([data-theme="light"]) .shortcuts-group kbd { background: #2a2a2a; border-color: #3a3a3a; }
+}
+:root[data-theme="dark"] .shortcuts-sheet { background: #1a1a1a; }
+:root[data-theme="dark"] .shortcuts-group dd { color: #f2f2f2; }
