@@ -5,6 +5,19 @@ import { getAIKey } from '../utils/aiKey'
 
 interface Connector { id: string; label: string; status: string }
 
+/// GitHub for this workspace: built in (a repository workspace, synced as
+/// your own account from the phone), connected (the workspace names a
+/// repository and writes the issues itself), or neither — and whether you
+/// may change that, with your own GitHub sign-in or a token.
+interface GitHubStatus {
+  builtIn: boolean
+  connected: boolean
+  repo: string | null
+  canEdit: boolean
+  mine: boolean
+  reason: string | null
+}
+
 /// What this workspace runs its AI on, from the Worker: the model and where
 /// each piece comes from. Keys never come back — only whether one is set.
 interface AIStatus {
@@ -57,7 +70,28 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   // It used to be printed as "Built in" for everyone, and for an email account
   // in the workspace it was given at sign-up it is not built into anything:
   // there is no repository to open an issue in and no token to write with.
-  const [github, setGithub] = useState<{ builtIn: boolean; reason: string | null } | null>(null)
+  const [github, setGithub] = useState<GitHubStatus | null>(null)
+  const [ghRepo, setGhRepo] = useState('')
+  const [ghToken, setGhToken] = useState('')
+  const [ghBusy, setGhBusy] = useState(false)
+  const [ghError, setGhError] = useState<string | null>(null)
+  const [ghOpen, setGhOpen] = useState(false)
+  const githubCall = async (method: 'PUT' | 'DELETE', body: Record<string, unknown>) => {
+    setGhBusy(true); setGhError(null)
+    try {
+      const res = await fetch(`${httpBase}/connectors/github`, {
+        method,
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, ...body }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setGhError(data.message || t('That did not save.')); return }
+      setGithub(data)
+      setGhRepo(''); setGhToken(''); setGhOpen(false)
+    } catch (err) {
+      setGhError(err instanceof Error ? err.message : String(err))
+    } finally { setGhBusy(false) }
+  }
   // The address that turns an email into a card. The Worker has answered with
   // it since inbound mail was built, and nothing has ever shown it to anyone —
   // so the connector existed and there was no way to use it.
@@ -241,7 +275,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           <>
             <div className="rows-title">{t('Your AI')}</div>
             <div className="rows ai-status">
-              <div className="row static">
+              <div className="row static ai-model">
                 <span className="row-main">
                   {t('Language model')}
                   <span className="row-sub">
@@ -414,18 +448,64 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
 
         {github && (
           <>
-            <div className="rows-title">{github.builtIn ? t('Always on') : t('Not in this workspace')}</div>
+            <div className="rows-title">{github.builtIn ? t('Always on') : github.connected ? t('Connected') : t('Not in this workspace')}</div>
             <div className="rows">
-              <div className="row static" data-github={github.builtIn ? 'on' : 'off'}>
+              <div className="row static github-row" data-github={github.builtIn || github.connected ? 'on' : 'off'}>
                 <span className="row-icon"><Icon name="github" size={18} /></span>
                 <span className="row-main">
                   GitHub
-                  <span className="row-sub">{github.builtIn ? t(BLURB.github) : t(github.reason || '')}</span>
+                  <span className="row-sub">
+                    {github.connected
+                      ? t('Every decision here becomes an issue in {repo}.', { repo: github.repo || '' })
+                      : github.builtIn ? t(BLURB.github) : t(github.reason || '')}
+                  </span>
                 </span>
                 {github.builtIn
                   ? <span className="pill-tag mint">{t('Built in')}</span>
-                  : <span className="pill-tag quiet">{t('Off')}</span>}
+                  : github.connected
+                    ? (github.canEdit
+                      ? <button className="btn-text danger" disabled={ghBusy} onClick={() => githubCall('DELETE', {})}>{t('Disconnect')}</button>
+                      : <span className="pill-tag mint">{t('On')}</span>)
+                    : (github.canEdit
+                      ? <button className="pill-btn" onClick={() => { setGhOpen((o) => !o); setGhError(null) }}>{ghOpen ? t('Cancel') : t('Connect')}</button>
+                      : <span className="pill-tag quiet">{t('Off')}</span>)}
               </div>
+              {github.canEdit && !github.builtIn && ghOpen && (
+                <div className="row static github-form-row">
+                  <div className="github-form">
+                    <input
+                      className="ai-key-input"
+                      value={ghRepo}
+                      onChange={(e) => setGhRepo(e.target.value)}
+                      placeholder="owner/repo"
+                      aria-label={t('Repository')}
+                      disabled={ghBusy}
+                    />
+                    {!github.mine && (
+                      <input
+                        className="ai-key-input"
+                        type="password"
+                        autoComplete="off"
+                        value={ghToken}
+                        onChange={(e) => setGhToken(e.target.value)}
+                        placeholder={t('GitHub token (Issues: write)')}
+                        aria-label={t('GitHub token')}
+                        disabled={ghBusy}
+                      />
+                    )}
+                    <button className="pill-btn" disabled={ghBusy || !ghRepo.trim() || (!github.mine && !ghToken.trim())}
+                      onClick={() => githubCall('PUT', { repo: ghRepo.trim(), ...(ghToken.trim() ? { token: ghToken.trim() } : {}) })}>
+                      {ghBusy ? t('Connecting…') : t('Connect')}
+                    </button>
+                    <span className="row-sub github-hint">
+                      {github.mine
+                        ? t('Connected with your GitHub account; the workspace writes issues as you.')
+                        : t('A fine-grained token for that repository with Issues: read and write. Or sign in with GitHub and connect with one tap.')}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {ghError && <div className="form-error">{ghError}</div>}
             </div>
           </>
         )}

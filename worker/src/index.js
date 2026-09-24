@@ -39,6 +39,7 @@ import {
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
 import { providerFor, jevFor, aiStatus, saveAISettings } from "./orgAI.js";
+import { githubStatus, connectWorkspaceGitHub, disconnectWorkspaceGitHub } from "./githubWorkspace.js";
 import { localizeCard, needsLocalizing } from "./localize.js";
 import { connectedSources, lookupsFor, searchNotion, searchGithubIssues } from "./context.js";
 import { ingestedItemForCard } from "./db.js";
@@ -1083,23 +1084,33 @@ async function handle(request, env, url, ctx) {
     // neither. Saying so is the whole of this route — it is separate from
     // GET /connectors because that one refuses outright without a Composio
     // key, and this answer does not depend on Composio at all.
-    if (url.pathname === "/connectors/github" && request.method === "GET") {
+    // GitHub, for any workspace. A repository workspace syncs as the person's
+    // own account from the phone (`builtIn`); any workspace can name a
+    // repository and hold a token, and then the Worker writes the issues.
+    if (url.pathname === "/connectors/github" && (request.method === "GET" || request.method === "PUT" || request.method === "DELETE")) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
-      const orgId = url.searchParams.get("orgId") || "";
-      if (!orgId.includes("/")) {
-        return json({
-          builtIn: false,
-          reason: "This workspace is not backed by a GitHub repository, so there is nowhere to open an issue.",
-        });
+      const body = request.method === "GET" ? null : await request.json().catch(() => ({}));
+      const orgId = request.method === "GET" ? (url.searchParams.get("orgId") || "") : String(body?.orgId || "");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      const canEdit = await canRename(env.DB, orgId, session.github_id) || (await isMember(env.DB, orgId, session.github_id) && orgId.includes("/"));
+      if (request.method !== "GET") {
+        if (!canEdit) return json({ message: "Only an admin of this workspace can connect its repository." }, 403);
+        if (request.method === "DELETE") {
+          await disconnectWorkspaceGitHub(env.DB, orgId);
+        } else {
+          // Their own GitHub sign-in, or a token they entered. Never both
+          // silently: an entered token wins when given.
+          const token = typeof body.token === "string" && body.token.trim()
+            ? body.token.trim()
+            : (isGitHubSession(session) ? session.github_access_token : null);
+          if (!token) return json({ message: "Enter a GitHub token, or sign in with GitHub." }, 400);
+          const result = await connectWorkspaceGitHub(env, { orgId, repo: String(body.repo || "").trim(), token, byGithubId: session.github_id });
+          if (result.error) return json({ message: result.error }, 400);
+        }
       }
-      if (!isGitHubSession(session)) {
-        return json({
-          builtIn: false,
-          reason: "Decisions sync as your GitHub account. Sign in with GitHub to turn this on.",
-        });
-      }
-      return json({ builtIn: true, reason: null });
+      return json(await githubStatus(env, { session, orgId, canEdit, isGitHubSession: isGitHubSession(session) }));
     }
 
     const connectMatch = url.pathname.match(/^\/connectors\/([^/]+)\/connect$/);
@@ -1265,7 +1276,7 @@ async function handle(request, env, url, ctx) {
           searchDecisions(env.DB, orgId, terms),
           recentDecisions(env.DB, orgId, { limit: 8 }),
           available.notion ? searchNotion(env, session.github_id, terms).catch((err) => { console.error("notion search failed", err?.message || err); return []; }) : [],
-          available.github ? searchGithubIssues(session, orgId, terms).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
+          available.github ? searchGithubIssues(session, orgId, terms, env).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
         ]);
         related = decisionsHit;
         recent = recentHit;

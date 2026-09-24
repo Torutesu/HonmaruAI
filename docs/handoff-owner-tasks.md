@@ -263,6 +263,14 @@ Cloudflare 側のリソース 2 つと、その ID の貼り付けです。
    「決定の理由」に「Your AI is NN% sure…」が出れば Jev が動いています。
 5. 2 でメモした数字を報告してください。閾値（`CONFIDENT`）の調整判断に使います。
 
+## H2. GitHub をワークスペースにつなぐ（画面から・2 分）
+
+**ツール → GitHub → 接続する** で、管理者がリポジトリ（`owner/repo`）を指定して
+つなぎます。GitHub でサインインしていれば 1 タップ（自分のトークンで）、メールで
+サインインしている場合は Issues: read/write の fine-grained トークンを入力。
+以後、そのワークスペースの決定はすべて Worker が Issue として立て、却下・完了で
+閉じます（誰が決めても、どの端末からでも）。トークンは画面に戻りません。
+
 ## I. Web の GitHub サインインを有効にする（5 分、A の後）
 
 1. GitHub → Settings → Developer settings → OAuth Apps → 使っているアプリを開く。

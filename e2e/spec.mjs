@@ -1487,6 +1487,18 @@ await step('GitHub is not claimed where it cannot run', async () => {
   const said = await page.textContent('[data-github] .row-sub')
   if (!said || !said.trim()) throw new Error('GitHub is switched off without saying why')
   await shot('27-github-off')
+  // But it can be connected from here: an admin names a repository and a
+  // token, and a token GitHub will not take is refused out loud. (There is
+  // no GitHub to reach from this harness; the refusal is the part on test.)
+  await page.click('[data-github] .pill-btn')
+  await page.waitForSelector('.github-form', { timeout: 10000 })
+    .catch(() => { throw new Error('Connect opened no form to name a repository') })
+  await page.fill('.github-form input[aria-label="Repository"]', 'acme/ops')
+  await page.fill('.github-form input[type="password"]', 'github_pat_not_a_real_token_at_all')
+  await page.click('.github-form .pill-btn')
+  await page.waitForSelector('.screen .form-error', { timeout: 30000 })
+    .catch(() => { throw new Error('a token GitHub will not take was accepted silently') })
+  await shot('27b-github-connect')
   await closeEverything()
 })
 
