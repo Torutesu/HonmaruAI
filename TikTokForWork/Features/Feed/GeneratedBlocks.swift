@@ -101,10 +101,24 @@ struct GeneratedBlocks: View {
     /// Reads the agent's own `label: detail` segments. Nothing is inferred from
     /// the prose: if the agent did not state a fact, the card does not invent a
     /// block for it.
+    ///
+    /// The reader's translation first; the original when the translation's
+    /// labels are in a language this does not know, so a card never loses its
+    /// facts for having been translated.
     static func blocks(for card: DecisionCard) -> [Block] {
+        let translated = blocks(in: card.displayContext)
+        if !translated.isEmpty || card.displayContext == card.context { return translated }
+        return blocks(in: card.context)
+    }
+
+    private static let amountLabels = ["金額", "amount", "importe", "monto", "cantidad", "montant", "betrag"]
+    private static let deadlineLabels = ["期限", "deadline", "plazo", "fecha límite", "échéance", "date limite", "frist"]
+    private static let metricLabels = ["指標", "metric", "métrica", "métrique", "indicateur", "kennzahl", "metrik"]
+
+    private static func blocks(in context: String) -> [Block] {
         var blocks: [Block] = []
 
-        for segment in card.context.components(separatedBy: "·") {
+        for segment in context.components(separatedBy: "·") {
             let parts = segment.split(separator: ":", maxSplits: 1).map {
                 $0.trimmingCharacters(in: .whitespacesAndNewlines)
             }
@@ -112,7 +126,7 @@ struct GeneratedBlocks: View {
             let label = parts[0].lowercased()
             let value = parts[1]
 
-            if label.contains("金額") || label.contains("amount") {
+            if amountLabels.contains(where: { label.contains($0) }) {
                 // "¥500,000 / ¥120,000" is a choice wearing an amount label.
                 let options = value.components(separatedBy: "/").map {
                     $0.trimmingCharacters(in: .whitespaces)
@@ -122,9 +136,9 @@ struct GeneratedBlocks: View {
                 } else {
                     blocks.append(Block(kind: .amount, label: parts[0], value: value))
                 }
-            } else if label.contains("期限") || label.contains("deadline") {
+            } else if deadlineLabels.contains(where: { label.contains($0) }) {
                 blocks.append(Block(kind: .deadline, label: parts[0], value: value))
-            } else if label.contains("指標") || label.contains("metric") {
+            } else if metricLabels.contains(where: { label.contains($0) }) {
                 blocks.append(Block(kind: .metric, label: parts[0], value: value))
             }
         }

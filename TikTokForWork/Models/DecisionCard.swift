@@ -79,6 +79,13 @@ struct CardRequester: Codable, Hashable {
     let sourceUrl: String?
 }
 
+/// One reader's language's words for a card, written by the relay.
+struct CardTranslation: Codable, Hashable {
+    let title: String
+    let summary: String?
+    let context: String?
+}
+
 struct DecisionCard: Identifiable, Codable, Hashable {
     let id: String
     let recipientUserID: String
@@ -129,6 +136,39 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var mentions: [String]?
     var recipientMemberRef: String?
     var recipientName: String?
+    /// The card in other readers' languages, by primary language code: the
+    /// relay's translation for whoever has to decide it, and any other reader
+    /// who asked. `title`, `summary` and `context` stay the sender's words —
+    /// they are what this client republishes on a decision, and a translation
+    /// must never be written back over them.
+    var localized: [String: CardTranslation]?
+
+    /// What to show the person reading: their language's words when the relay
+    /// has written them, the original otherwise.
+    var displayTitle: String { readerTranslation?.title ?? title }
+
+    var displaySummary: String {
+        if let translated = readerTranslation?.summary, !translated.isEmpty { return translated }
+        return summary
+    }
+
+    var displayContext: String {
+        if let translated = readerTranslation?.context, !translated.isEmpty { return translated }
+        return context
+    }
+
+    /// The translation for a reader of `language` ("ja", "vi-VN"), if any.
+    func translation(for language: String) -> CardTranslation? {
+        let code = language.lowercased()
+            .split(whereSeparator: { $0 == "-" || $0 == "_" })
+            .first.map(String.init) ?? language
+        guard let translation = localized?[code], !translation.title.isEmpty else { return nil }
+        return translation
+    }
+
+    private var readerTranslation: CardTranslation? {
+        translation(for: AppLocalization.language.readerLanguageCode)
+    }
 
     var isPending: Bool { status == .pending }
 

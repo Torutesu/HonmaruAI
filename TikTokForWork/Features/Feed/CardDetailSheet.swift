@@ -46,7 +46,7 @@ struct CardDetailSheet: View {
                     }
 
                     detailSection(title: "Summary") {
-                        Text(card.summary)
+                        Text(card.displaySummary)
                             .font(Theme.TypeScale.body)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .lineSpacing(4)
@@ -66,9 +66,9 @@ struct CardDetailSheet: View {
                         }
                     }
 
-                    if !card.context.isEmpty {
+                    if !card.displayContext.isEmpty {
                         detailSection(title: "Context") {
-                            ContextInsightView(context: card.context)
+                            ContextInsightView(context: card.displayContext)
                         }
                     }
 
@@ -129,7 +129,7 @@ struct CardDetailSheet: View {
                 .padding(Theme.Spacing.screen)
             }
             .background(Theme.Colors.background)
-            .navigationTitle(card.title)
+            .navigationTitle(card.displayTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

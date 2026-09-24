@@ -382,6 +382,9 @@ export class OrgRelay {
         // checks. Legacy clients may continue sending a login.
         delete card.recipientMemberRef;
         delete card.recipientName;
+        // Translations are the relay's to write. One the sender supplied is
+        // words the recipient would read as the card that are not the card.
+        delete card.localized;
         if (card.recipientUserID.startsWith("member:")) {
           const member = (await listMembers(this.db, orgId, att.githubId))
             .find(m => `member:${m.ref}` === card.recipientUserID);
@@ -464,7 +467,12 @@ export class OrgRelay {
         // created — the translation, the business, who asked, what the AI
         // advised. A client that does not know a field must not erase it.
         if (existing) {
-          for (const field of ["localized", "business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "reminder", "autoApproved", "coveringFor"]) {
+          // The translations are the stored ones, whatever the client's copy
+          // says: a phone republishing what it loaded an hour ago must not
+          // drop the language somebody else asked for since.
+          if (existing.localized !== undefined) card.localized = existing.localized;
+          else delete card.localized;
+          for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "reminder", "autoApproved", "coveringFor"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
         }
@@ -527,7 +535,7 @@ export class OrgRelay {
       // did, above, and the sender knows. Refs from the client, resolved
       // against the real member list: a ref that names nobody names nobody.
       if (type === "card_created" && Array.isArray(card.mentions) && card.mentions.length && anyChannelConfigured(this.env)) {
-        this.state.waitUntil(this.notifyMentioned(orgId, card, att.userId));
+        this.state.waitUntil(this.notifyMentioned(orgId, card, att.userId, att.githubId));
       }
       return;
     }
@@ -652,7 +660,7 @@ export class OrgRelay {
   /// carries a version for them. When it produces something, the card is saved
   /// again and re-broadcast so every open device shows the same words the
   /// notification did.
-  async notifyMentioned(orgId, card, authorLogin) {
+  async notifyMentioned(orgId, card, authorLogin, authorGithubId) {
     try {
       const members = await listMembers(this.db, orgId, null);
       const wanted = new Set(card.mentions.map((m) => String(m).replace(/^member:/, "")).slice(0, 10));
@@ -662,7 +670,13 @@ export class OrgRelay {
         if (!wanted.has(m.ref) && !wanted.has(m.login)) continue;
         if (told.has(m.login)) continue;
         told.add(m.login);
-        await notifyCard(this.env, { card, kind: "mentioned", toLogin: m.login, comment: who });
+        // In the language of the one mentioned, which need not be the
+        // recipient's. No announce: this is the room, and it does not call
+        // itself; the words are stored for the next snapshot.
+        await notifyCard(this.env, {
+          card, kind: "mentioned", toLogin: m.login, comment: who,
+          orgId, payerGithubId: authorGithubId, announce: false,
+        });
       }
     } catch (err) {
       console.error("mention notify failed", err?.message || err);

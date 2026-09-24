@@ -5,6 +5,7 @@ import { notifyCard } from "./notify.js";
 import { sweepRateLimits } from "./ratelimit.js";
 import { cardsCreatedSince, primaryOrgId } from "./db.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
 import { providerFor } from "./orgAI.js";
 import { alert } from "./alert.js";
 import { safe } from "./log.js";
@@ -90,7 +91,10 @@ export async function runScheduledSync(env, ctx) {
       if (!newCards) continue;
       created += newCards;
 
-      const fresh = await cardsCreatedSince(env.DB, row.org_id, row.login, startedAt);
+      const fresh = [];
+      for (const c of await cardsCreatedSince(env.DB, row.org_id, row.login, startedAt)) {
+        fresh.push(await localizeForRecipient(env, row.org_id, c, { payerGithubId: row.github_id }));
+      }
       // Anyone with the app open sees these now. Without it the push below
       // announced a decision that was not yet in the feed it points at.
       await announceCards(env, row.org_id, fresh);

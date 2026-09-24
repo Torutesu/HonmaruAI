@@ -9,6 +9,7 @@ import { allowanceFor } from "./gate.js";
 import { noteUsage, settleUsage } from "./ledger.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
 import { displayName } from "./notifyCopy.js";
@@ -518,11 +519,12 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
       cardId, type: "created", actorUserId: routine.owner_login, note: `routine: ${routine.title}`.slice(0, 500), snapshot: card,
     });
     await finish({ ranAt: now.toISOString(), cardId, usd: written.byModel ? usd : 0 });
-    await announceCards(env, routine.org_id, [card]);
+    const shown = await localizeForRecipient(env, routine.org_id, card, { payerGithubId: routine.owner_github_id });
+    await announceCards(env, routine.org_id, [shown]);
     if (anyChannelConfigured(env)) {
-      await notifyCard(env, { card, kind: "created", excludeLogin: null }).catch((err) => console.error("routine notify failed", safe(err?.message)));
+      await notifyCard(env, { card: shown, kind: "created", excludeLogin: null, orgId: routine.org_id, payerGithubId: routine.owner_github_id }).catch((err) => console.error("routine notify failed", safe(err?.message)));
     }
-    return { card };
+    return { card: shown };
   } catch (err) {
     console.error("routine failed", routine.id, safe(err?.message));
     await settleUsage(db, provider, { orgId: routine.org_id, githubId: routine.owner_github_id });

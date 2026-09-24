@@ -27,11 +27,11 @@ struct RequestListRow: View {
                 Text(relativeTime).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
             }
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(card.title).font(.system(.body, weight: .semibold)).lineLimit(2)
+                Text(card.displayTitle).font(.system(.body, weight: .semibold)).lineLimit(2)
                     .foregroundStyle(Theme.Colors.textPrimary).frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right").font(.caption.weight(.medium)).foregroundStyle(Theme.Colors.textTertiary)
             }
-            Text(card.summary).font(.subheadline).lineLimit(2).foregroundStyle(Theme.Colors.textSecondary)
+            Text(card.displaySummary).font(.subheadline).lineLimit(2).foregroundStyle(Theme.Colors.textSecondary)
             HStack(spacing: 10) {
                 Text(awaitingDelivery ? String(localized: "Waiting for workspace sync") : (card.isPending ? card.type.label : card.status.label))
                     .foregroundStyle(Theme.Colors.textSecondary)

@@ -45,7 +45,8 @@ import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
 import { providerFor, jevFor, aiStatus, saveAISettings } from "./orgAI.js";
 import { githubStatus, connectWorkspaceGitHub, connectWorkspaceGitHubAs, disconnectWorkspaceGitHub, githubConnectLink, listMyRepositories, myGithubAccount, getWorkspaceGitHub } from "./githubWorkspace.js";
-import { localizeCard, needsLocalizing } from "./localize.js";
+import { localizeCard, needsLocalizing, localizeForRecipient } from "./localize.js";
+import { primaryLanguage, languageName } from "./language.js";
 import { connectedSources, lookupsFor, searchNotion, searchGithubIssues } from "./context.js";
 import { ingestedItemForCard } from "./db.js";
 import { alert } from "./alert.js";
@@ -1414,7 +1415,11 @@ async function handle(request, env, url, ctx) {
       // The sync wrote to D1; the sockets live in the Durable Object and heard
       // nothing about it. Announcing here is what puts a card someone just
       // pulled in front of them, instead of on their next reconnect.
-      await announceCards(env, body.orgId, await cardsCreatedSince(env.DB, body.orgId, me.login, startedAt));
+      const pulled = [];
+      for (const c of await cardsCreatedSince(env.DB, body.orgId, me.login, startedAt)) {
+        pulled.push(await localizeForRecipient(env, body.orgId, c, { payerGithubId: session.github_id }));
+      }
+      await announceCards(env, body.orgId, pulled);
 
       if (only) {
         const r = results[0];
@@ -1608,9 +1613,11 @@ async function handle(request, env, url, ctx) {
       const body = await request.json().catch(() => null);
       if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
       const orgId = typeof body.orgId === "string" ? body.orgId : "";
-      const locale = typeof body.locale === "string" ? body.locale.toLowerCase().slice(0, 8) : "";
+      // Any language a person reads, not only the five the notification
+      // chrome is written in: the card's words are the model's to translate.
+      const locale = primaryLanguage(typeof body.locale === "string" ? body.locale.slice(0, 16) : "");
       if (!orgId || !locale) return json({ message: "orgId and locale are required" }, 400);
-      if (!SUPPORTED_LOCALES.includes(locale)) return json({ message: "That language is not one the relay writes." }, 400);
+      if (!languageName(locale)) return json({ message: "That is not a language the relay knows." }, 400);
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
       const card = await getCard(env.DB, orgId, cardId);
@@ -1684,12 +1691,12 @@ async function handle(request, env, url, ctx) {
         for (const login of mentioned) {
           if (told.has(login)) continue;
           told.add(login);
-          await notifyCard(env, { card, kind: "mentioned", toLogin: login, comment: who });
+          await notifyCard(env, { card, kind: "mentioned", toLogin: login, comment: who, orgId, payerGithubId: session.github_id });
         }
         for (const login of [card.recipientUserID, card.senderUserID]) {
           if (!login || told.has(login) || login === "deleted-user") continue;
           told.add(login);
-          await notifyCard(env, { card, kind: "commented", toLogin: login, comment: who });
+          await notifyCard(env, { card, kind: "commented", toLogin: login, comment: who, orgId, payerGithubId: session.github_id });
         }
       });
       return json({ comment, card }, 201);
@@ -1899,9 +1906,10 @@ async function handle(request, env, url, ctx) {
           sourceDetail: `${message.from} · ${message.subject}`,
         };
         await saveCard(env.DB, orgId, card);
-        await announceCards(env, orgId, [card]);
+        const shown = await localizeForRecipient(env, orgId, card, { payerGithubId: githubId });
+        await announceCards(env, orgId, [shown]);
         // notifyCard never throws, and this handler has no ctx to defer with.
-        await notifyCard(env, { card, kind: "created", excludeLogin: null });
+        await notifyCard(env, { card: shown, kind: "created", excludeLogin: null });
       }
 
       await markIngested(env.DB, {

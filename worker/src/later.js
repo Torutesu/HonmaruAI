@@ -2,6 +2,7 @@ import { getMessage, postMessage } from "./channels.js";
 import { saveCard } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
 
 // Time, in a conversation: messages written now and sent later, messages
 // saved to come back to, and the reminder that brings one back as a card.
@@ -136,7 +137,8 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
       };
       await saveCard(db, r.org_id, card);
       await appendCardEvent(db, r.org_id, { cardId: card.id, type: "created", actorUserId: r.login, note: "reminder", snapshot: card });
-      await announceCards(env, r.org_id, [card]);
+      // The saved message may be a colleague's, in their language.
+      await announceCards(env, r.org_id, [await localizeForRecipient(env, r.org_id, card)]);
       reminded += 1;
     } catch (err) {
       console.error("reminder failed", err?.message || err);

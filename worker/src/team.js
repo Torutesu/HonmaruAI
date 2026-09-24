@@ -11,6 +11,7 @@ import { ROLE_RANK, sha256Hex, inviteLink } from "./auth.js";
 import { saveCard, removeCard, getUserByLogin, parseAliases } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
 import { notifyCard } from "./notify.js";
 import { cardText } from "./cardCopy.js";
 
@@ -350,9 +351,13 @@ export async function returnOrphanedCards(env, orgId, login) {
     // The cards were written straight to D1, so the sockets in the Durable
     // Object know nothing about it — the same reason a connector sync
     // announces what it produced.
-    await announceCards(env, orgId, returned);
-    for (const card of returned) {
-      await notifyCard(env, { card, kind: "created", excludeLogin: login }).catch(() => {});
+    // Back to the one who asked, who may not read the language it was
+    // translated into for the one who left.
+    const shown = [];
+    for (const card of returned) shown.push(await localizeForRecipient(env, orgId, card));
+    await announceCards(env, orgId, shown);
+    for (const card of shown) {
+      await notifyCard(env, { card, kind: "created", excludeLogin: login, orgId }).catch(() => {});
     }
   }
   return { returned: returned.length, dropped };

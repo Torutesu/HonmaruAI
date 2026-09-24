@@ -4,6 +4,7 @@ import { listMembers } from "./team.js";
 import { resolveMentions } from "./threads.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards, announceEvents, announceTo } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { custom as customEvent } from "./agui/events.js";
 import {
@@ -172,9 +173,12 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     await saveCard(env.DB, orgId, card);
     await appendCardEvent(env.DB, orgId, { cardId: card.id, type: "created", actorUserId: user.login, note: `from ${where}`, snapshot: card });
     await linkCard(env.DB, orgId, row.id, card.id);
-    await announceCards(env, orgId, [card]);
+    // Written in the asker's language; read in the decider's. The asker is
+    // answered below in their own words, off `card`.
+    const shown = await localizeForRecipient(env, orgId, card, { payerGithubId: user.github_id });
+    await announceCards(env, orgId, [shown]);
     if (!rule && anyChannelConfigured(env) && recipient.login !== user.login) {
-      await notifyCard(env, { card, kind: "created", excludeLogin: user.login }).catch((err) => console.error("channel notify failed", safe(err?.message)));
+      await notifyCard(env, { card: shown, kind: "created", excludeLogin: user.login, orgId, payerGithubId: user.github_id }).catch((err) => console.error("channel notify failed", safe(err?.message)));
     }
     const decider = covering ? covering.to : recipient;
     const who = decider.login === user.login ? (locale === "ja" ? "あなた" : "you") : decider.name;

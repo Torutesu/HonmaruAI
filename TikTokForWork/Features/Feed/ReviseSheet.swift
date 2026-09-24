@@ -11,7 +11,7 @@ struct ReviseSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-                Text(card.title)
+                Text(card.displayTitle)
                     .font(Theme.TypeScale.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
 

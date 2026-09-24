@@ -107,6 +107,20 @@ test("a Japanese reader gets a Japanese alert, in the words the relay translated
   expect(JSON.stringify(bodies[0])).not.toContain("4M yen");
 });
 
+test("a reader whose language the copy is not written in still gets the card in their language", () => {
+  const card = {
+    id: "c-vi", recipientUserID: "linh", senderUserID: "alice", status: "pending",
+    title: "Approve the office lease", summary: "Two floors.",
+    localized: { vi: { title: "Phê duyệt hợp đồng thuê văn phòng", summary: "Hai tầng." } },
+  };
+  const alert = composeAlert({ card, kind: "created", locale: "vi-VN" });
+  // The card's words are theirs; the routing line falls back to English.
+  expect(alert.title).toBe("Phê duyệt hợp đồng thuê văn phòng");
+  const mail = composeEmail({ card, kind: "created", locale: "vi" });
+  expect(mail.text).toContain("Hai tầng.");
+  expect(mail.subject).toContain("Phê duyệt hợp đồng thuê văn phòng");
+});
+
 test("the sender hears about the decision in their own language, with the action as a word", async () => {
   const bodies = [];
   interceptAPNs("tok-taro", bodies);

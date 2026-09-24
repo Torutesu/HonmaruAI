@@ -1,3 +1,4 @@
+import { primaryLanguage } from "./language.js";
 // Every word a notification says, in every language it can say it in.
 //
 // A notification is read on a lock screen, in a browser corner, or in a mail
@@ -226,12 +227,16 @@ export function actionLabel(locale, action) {
 /// The card's title in this person's language, when the relay has produced
 /// one; the original otherwise. The original is written in the sender's
 /// language, which is the right thing to show the sender.
+///
+/// The card's words are looked up under the reader's own language, not the
+/// table the chrome fell back to: a Vietnamese reader's card is translated
+/// into Vietnamese even while "From Mai's AI" is still in English.
 export function titleFor(card, locale) {
-  return card?.localized?.[locale]?.title || card?.title || "";
+  return card?.localized?.[primaryLanguage(locale)]?.title || card?.title || "";
 }
 
 export function summaryFor(card, locale) {
-  return card?.localized?.[locale]?.summary || card?.summary || "";
+  return card?.localized?.[primaryLanguage(locale)]?.summary || card?.summary || "";
 }
 
 /// The plain name to show for a login: "u:someone@x.com" → "someone".
@@ -247,6 +252,7 @@ export function displayName(login) {
 /// salary or a client's name. The card id rides alongside so a tap can open it.
 export function composeAlert({ card, kind, locale, count, comment }) {
   const lang = stringsFor(locale) === STRINGS.en ? "en" : locale;
+  const reader = primaryLanguage(locale) || lang;
   if (kind === "digest") {
     return { title: t(lang, "digest", { count }), subtitle: t(lang, "yourAI") };
   }
@@ -254,13 +260,13 @@ export function composeAlert({ card, kind, locale, count, comment }) {
     const action = actionLabel(lang, card.decision?.action || card.status);
     const actor = displayName(card.decision?.actorUserID) || displayName(card.recipientUserID);
     return {
-      title: titleFor(card, lang) || t(lang, "decided"),
+      title: titleFor(card, reader) || t(lang, "decided"),
       subtitle: t(lang, "decidedBy", { actor, action }),
     };
   }
   if (kind === "nudged") {
     return {
-      title: titleFor(card, lang) || t(lang, "waiting"),
+      title: titleFor(card, reader) || t(lang, "waiting"),
       subtitle: t(lang, "nudge", { name: displayName(card.senderUserID) }),
     };
   }
@@ -270,14 +276,14 @@ export function composeAlert({ card, kind, locale, count, comment }) {
     const text = String(comment?.text || "").replace(/\s+/g, " ").trim();
     const short = text.length > 90 ? `${text.slice(0, 89)}…` : text;
     return {
-      title: titleFor(card, lang) || t(lang, "waiting"),
+      title: titleFor(card, reader) || t(lang, "waiting"),
       subtitle: t(lang, kind, { name: comment?.name || displayName(comment?.author), text: short }),
     };
   }
   const sender = card.senderUserID;
   const selfSent = !sender || sender === "deleted-user" || sender === card.recipientUserID;
   return {
-    title: titleFor(card, lang) || t(lang, "waiting"),
+    title: titleFor(card, reader) || t(lang, "waiting"),
     subtitle: selfSent ? t(lang, "yourAI") : t(lang, "fromAI", { name: displayName(sender) }),
   };
 }
@@ -286,7 +292,7 @@ export function composeAlert({ card, kind, locale, count, comment }) {
 /// decision is not a newsletter.
 export function composeEmail({ card, kind, locale, count, url, comment }) {
   const lang = stringsFor(locale) === STRINGS.en ? "en" : locale;
-  const alert = composeAlert({ card, kind, locale: lang, count, comment });
+  const alert = composeAlert({ card, kind, locale, count, comment });
   const who = comment?.name || displayName(comment?.author);
   const intro = kind === "decided"
     ? t(lang, "emailDecidedIntro")
@@ -298,7 +304,7 @@ export function composeEmail({ card, kind, locale, count, url, comment }) {
           ? t(lang, "emailMentionIntro", { name: who })
           : t(lang, "emailIntro");
   const lines = [intro, "", alert.title, alert.subtitle];
-  const summary = kind === "digest" ? "" : summaryFor(card, lang);
+  const summary = kind === "digest" ? "" : summaryFor(card, locale);
   if (summary) lines.push("", summary);
   if (url) lines.push("", t(lang, "emailOpen", { url }));
   lines.push("", "—", t(lang, "emailFooter"));

@@ -23,6 +23,7 @@ import { sendPush, isDeadToken, isConfigured as apnsConfigured } from "./apns.js
 import { sendWebPush, isWebPushConfigured, isDeadSubscription } from "./webpush.js";
 import { sendMail, isMailConfigured } from "./mailer.js";
 import { composeAlert, composeEmail } from "./notifyCopy.js";
+import { localizeStored } from "./localize.js";
 
 export function anyChannelConfigured(env) {
   return apnsConfigured(env) || isWebPushConfigured(env) || isMailConfigured(env);
@@ -56,7 +57,13 @@ function deepLink(env, card) {
 /// `kind`: created | decided | nudged | digest. `count` is for a digest.
 /// `badge` is the recipient's pending count when the caller knows it — an
 /// absent badge leaves whatever is on the icon, which beats guessing.
-export async function notifyCard(env, { card, kind = "created", excludeLogin, badge, count, toLogin, comment }) {
+///
+/// `orgId`, when the caller has it, lets the hub put the card into this
+/// reader's language first — the one who was mentioned or commented at is not
+/// always the one it was translated for when it was made. `payerGithubId` is
+/// whose allowance that spends; `announce: false` is for the relay, which
+/// broadcasts its own changes rather than calling itself.
+export async function notifyCard(env, { card, kind = "created", excludeLogin, badge, count, toLogin, comment, orgId, payerGithubId, announce = true }) {
   const channels = { apns: 0, webpush: 0, email: 0 };
   // A comment or a mention names its reader; everything else is read off
   // the card.
@@ -70,6 +77,9 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
 
   const user = await getUserByLogin(env.DB, recipient);
   const locale = user?.locale || "en";
+  if (orgId && kind !== "digest") {
+    card = await localizeStored(env, orgId, card, { locale, payerGithubId, announce });
+  }
   const alert = composeAlert({ card, kind, locale, count, comment });
   const collapseId = card.id;
   let devices = [];

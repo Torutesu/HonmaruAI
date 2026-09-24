@@ -33,7 +33,7 @@ private struct CardHomeContent: View {
     private var cards: [DecisionCard] { service.cards(for: appState.currentUser?.id ?? "").filter(\.isPending) }
     private var selectedCard: DecisionCard? { cards.first { $0.id == selectedID } ?? cards.first }
     private var filtered: [DecisionCard] {
-        cards.filter { card in (!highPriorityOnly || card.priority == .high || card.priority == .urgent) && (search.isEmpty || [card.title, card.summary, memberName(card.senderUserID)].joined(separator: " ").localizedCaseInsensitiveContains(search)) }
+        cards.filter { card in (!highPriorityOnly || card.priority == .high || card.priority == .urgent) && (search.isEmpty || [card.title, card.summary, card.displayTitle, card.displaySummary, memberName(card.senderUserID)].joined(separator: " ").localizedCaseInsensitiveContains(search)) }
     }
 
     var body: some View {
@@ -158,8 +158,8 @@ private struct CardHomeContent: View {
                             HStack(spacing: 10) {
                                 Image(systemName: "number").font(.title3).foregroundStyle(Theme.Colors.accent).frame(width: 36, height: 36).background(Theme.Colors.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(card.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.Colors.textPrimary).lineLimit(1)
-                                    Text(card.summary).font(.caption).foregroundStyle(Theme.Colors.textSecondary).lineLimit(1)
+                                    Text(card.displayTitle).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.Colors.textPrimary).lineLimit(1)
+                                    Text(card.displaySummary).font(.caption).foregroundStyle(Theme.Colors.textSecondary).lineLimit(1)
                                 }
                             }.padding(.vertical, 4)
                         }
@@ -244,7 +244,7 @@ private struct CardHomeContent: View {
     private func noteSheet(_ card: DecisionCard) -> some View {
         NavigationStack {
             Form {
-                Section { Text(card.title).font(.headline) }
+                Section { Text(card.displayTitle).font(.headline) }
                 Section { TextEditor(text: $note).frame(minHeight: 140) } footer: {
                     Text(appState.isGuest ? String(localized: "This action stays in the demo. Nobody will be notified.") : (noteAction == .reply ? String(localized: "Sending a reply completes this request and notifies the sender.") : String(localized: "The sender will receive your revision request.")))
                 }

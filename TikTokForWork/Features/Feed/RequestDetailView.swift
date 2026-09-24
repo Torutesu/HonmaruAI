@@ -36,7 +36,7 @@ struct RequestDetailView: View {
                                 Spacer()
                                 if appState.isGuest { Text("Sample data").font(.caption).foregroundStyle(Theme.Colors.accent) }
                             }
-                            Text(card.title).font(.system(size: headingSize, weight: .bold)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                            Text(card.displayTitle).font(.system(size: headingSize, weight: .bold)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
                             HStack(spacing: 8) {
                                 Text(String(name(card.senderUserID).prefix(1))).font(.subheadline.weight(.semibold))
                                     .foregroundStyle(Theme.Colors.accent).frame(width: 34, height: 34)
@@ -49,8 +49,8 @@ struct RequestDetailView: View {
                                 Spacer()
                             }
                         }
-                        Text(card.summary).font(.body).lineSpacing(6).fixedSize(horizontal: false, vertical: true)
-                        if !card.context.isEmpty { section("Context", text: card.context) }
+                        Text(card.displaySummary).font(.body).lineSpacing(6).fixedSize(horizontal: false, vertical: true)
+                        if !card.displayContext.isEmpty { section("Context", text: card.displayContext) }
                         if let source = card.sourceApp {
                             VStack(alignment: .leading, spacing: 9) {
                                 Text(appState.isGuest ? String(localized: "Sample source") : String(localized: "Source")).font(.subheadline.weight(.semibold))

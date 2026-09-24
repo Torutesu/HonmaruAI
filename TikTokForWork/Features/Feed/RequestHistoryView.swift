@@ -25,7 +25,7 @@ private struct RequestHistoryContent: View {
         guard let userID = appState.currentUser?.id else { return [] }
         return service.allCards(for: userID).filter {
             let belongs = queue == .sent ? $0.senderUserID == userID && $0.sourceDetail != "decision-result" : $0.recipientUserID == userID && !$0.isPending
-            return belongs && (search.isEmpty || [$0.title, $0.summary].joined(separator: " ").localizedCaseInsensitiveContains(search))
+            return belongs && (search.isEmpty || [$0.title, $0.summary, $0.displayTitle, $0.displaySummary].joined(separator: " ").localizedCaseInsensitiveContains(search))
         }
     }
     var body: some View {

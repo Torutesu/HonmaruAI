@@ -5,6 +5,7 @@ import { describeSchedule, defaultTimeZoneFor, zonedParts } from "./schedule.js"
 import { createRoutine, plainName } from "./routines.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
 
@@ -199,10 +200,12 @@ export async function proposeForOrg(env, orgId, { now = new Date() } = {}) {
     made.push(card);
   }
   if (made.length) {
-    await announceCards(env, orgId, made);
+    const shown = [];
+    for (const card of made) shown.push(await localizeForRecipient(env, orgId, card));
+    await announceCards(env, orgId, shown);
     if (anyChannelConfigured(env)) {
-      for (const card of made) {
-        await notifyCard(env, { card, kind: "created", excludeLogin: null }).catch((err) => console.error("proposal notify failed", safe(err?.message)));
+      for (const card of shown) {
+        await notifyCard(env, { card, kind: "created", excludeLogin: null, orgId }).catch((err) => console.error("proposal notify failed", safe(err?.message)));
       }
     }
   }
