@@ -392,3 +392,119 @@
 @media (max-width: 719px) {
   .classic.slk.slk .slk-composer-hint { display: none; }
 }
+
+/* ---- Tabs under the header: what was said, or what was decided ---- */
+.classic.slk.slk .slk-composer { position: relative; overflow: visible; }
+.classic.slk.slk .slk-composer .mention-menu { left: 10px; }
+.classic.slk.slk .slk-tabs {
+  flex: none; display: flex; gap: 4px; padding: 0 12px;
+  border-bottom: 1px solid var(--slk-line);
+}
+.classic.slk.slk .slk-tabs button {
+  position: relative; border: none; background: none; cursor: pointer;
+  padding: 9px 10px 10px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--slk-dim);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.classic.slk.slk .slk-tabs button:hover { color: var(--slk-ink); }
+.classic.slk.slk .slk-tabs button.on { color: var(--slk-ink); }
+.classic.slk.slk .slk-tabs button.on::after {
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--slk-ink);
+}
+.classic.slk.slk .slk-tab-count { font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 9999px; background: var(--slk-field); color: var(--slk-dim); }
+
+/* ---- The decisions, as a list ---- */
+.classic.slk.slk .slk-decisions { padding: 12px 0 24px; }
+.classic.slk.slk .slk-empty { padding: 32px 20px; color: var(--slk-dim); font-size: 14px; }
+.classic.slk.slk .slk-dgroup h3 {
+  margin: 10px 20px 4px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--slk-dim);
+  display: flex; gap: 8px; align-items: center;
+}
+.classic.slk.slk .slk-dgroup h3 span { font-weight: 600; color: var(--slk-faint); }
+.classic.slk.slk .slk-dgroup ul { list-style: none; margin: 0; padding: 0 8px; }
+.classic.slk.slk .slk-drow {
+  width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer;
+  border: none; background: none; padding: 10px 12px; border-radius: 8px; font: inherit; color: var(--slk-ink);
+}
+.classic.slk.slk .slk-drow:hover { background: var(--slk-hover); }
+.classic.slk.slk .slk-drow.on { background: var(--slk-on); }
+.classic.slk.slk .slk-ddot { width: 8px; height: 8px; border-radius: 9999px; flex: none; background: var(--slk-line); }
+.classic.slk.slk .slk-drow.waiting .slk-ddot { background: var(--slk-amber); }
+.classic.slk.slk .slk-drow.decided .slk-ddot { background: var(--slk-green); }
+.classic.slk.slk .slk-drow.declined .slk-ddot { background: var(--slk-red); }
+.classic.slk.slk .slk-dmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.classic.slk.slk .slk-dtitle { font-size: 14.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-drow.unread .slk-dtitle { font-weight: 800; }
+.classic.slk.slk .slk-dmeta { font-size: 12px; color: var(--slk-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-dwhen { flex: none; font-size: 11.5px; color: var(--slk-faint); font-variant-numeric: tabular-nums; }
+
+/* ---- The decision pane: a chat client's thread pane ----
+   On a phone it is the screen, with a way back; on a tablet it slides over
+   the conversation; on a laptop it sits beside it. */
+.classic.slk.slk .slk-pane {
+  position: fixed; inset: 0; z-index: 25;
+  display: flex; flex-direction: column;
+  background: var(--slk-bg);
+  padding-top: env(safe-area-inset-top);
+  animation: slk-pane-in 200ms cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes slk-pane-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .classic.slk.slk .slk-pane { animation: none; } }
+.classic.slk.slk .slk-pane-head {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  min-height: 52px; padding: 6px 10px 6px 8px; border-bottom: 1px solid var(--slk-line);
+}
+.classic.slk.slk .slk-pane-head h2 { margin: 0; font-size: 16px; font-weight: 800; color: var(--slk-ink); }
+.classic.slk.slk .slk-pane-where { font-size: 13px; color: var(--slk-dim); }
+.classic.slk.slk .slk-pane-feed {
+  margin-left: auto; border: 1px solid var(--slk-line); background: var(--slk-bg); color: var(--slk-dim);
+  border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.classic.slk.slk .slk-pane-feed:hover { color: var(--slk-ink); background: var(--slk-hover); }
+.classic.slk.slk .slk-pane-close {
+  display: none; width: 32px; height: 32px; border-radius: 8px; border: none; background: none;
+  font-size: 22px; line-height: 1; color: var(--slk-dim); cursor: pointer;
+}
+.classic.slk.slk .slk-pane-close:hover { background: var(--slk-hover); color: var(--slk-ink); }
+.classic.slk.slk .slk-back.pane { display: grid; }
+.classic.slk.slk .slk-pane-body { flex: 1; min-height: 0; overflow: hidden; display: flex; }
+/* The feed's card, at home in a pane: no fixed viewport, no snap, no
+   floating shadow — the pane is the card's frame. */
+.classic.slk.slk .slk-pane .feed {
+  position: static; inset: auto; flex: 1; height: 100%; min-width: 0;
+  scroll-snap-type: none; background: var(--slk-bg); overflow-y: auto;
+}
+.classic.slk.slk .slk-pane .page { min-height: 0; height: auto; padding: 0; justify-content: flex-start; scroll-snap-align: none; }
+.classic.slk.slk .slk-pane .page-inner { width: 100%; max-width: none; margin: 0; padding: 16px 18px 40px; box-sizing: border-box; }
+.classic.slk.slk .slk-pane .card { border-radius: 14px; padding: 20px 20px 18px; }
+.classic.slk.slk .slk-pane .card-title { font-size: 22px; }
+.classic.slk.slk .slk-pane .page-indicator { display: none; }
+
+@media (min-width: 720px) {
+  .classic.slk.slk .slk-pane {
+    top: calc(56px + env(safe-area-inset-top)); left: auto; right: 0; bottom: 0;
+    width: min(460px, 92vw); padding-top: 0;
+    border-left: 1px solid var(--slk-line); border-top: 1px solid var(--slk-line);
+    box-shadow: -12px 0 32px rgba(0, 0, 0, .10);
+  }
+  .classic.slk.slk .slk-back.pane { display: none; }
+  .classic.slk.slk .slk-pane-close { display: grid; place-items: center; }
+  .classic.slk.slk .slk-pane-head { padding-left: 18px; }
+}
+/* A laptop has room for all three, side by side, as a chat client does. */
+@media (min-width: 1180px) {
+  .classic.slk.slk .slk-pane {
+    position: static; flex: none; width: 440px; box-shadow: none; animation: none;
+  }
+}
+@media (min-width: 1480px) {
+  .classic.slk.slk .slk-pane { width: 500px; }
+}
+
+/* ---- A phone gives the conversation the screen ---- */
+@media (max-width: 719px) {
+  .shell.immersive .topbar, .shell.immersive .tabbar { display: none; }
+  .shell.immersive .classic.slk.slk {
+    padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+  }
+  .classic.slk.slk .slk-composer { margin: 0 10px 10px; }
+}

@@ -5,6 +5,8 @@ import { displayName, properName } from '../utils/names'
 import { Icon } from './Icon'
 import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
+import { useMembers } from '../utils/mentions'
+import { useMentionMenu } from './MentionMenu'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -42,6 +44,11 @@ interface Props {
   onCompose: () => void
   /// Tell your AI something from the list, as you would write to anyone.
   onTellAI: (text: string) => void
+  /// A conversation (or a decision) fills a phone's screen: the shell hides
+  /// its own chrome while this is true.
+  onImmersive: (on: boolean) => void
+  /// The whole card, as the feed draws it, for the list's own pane.
+  renderCard: (card: DecisionCard) => React.ReactNode
   onWorkspace: () => void
   /// The workspace's mark, name and switcher, drawn by the shell.
   workspaceMenu?: React.ReactNode
@@ -114,7 +121,7 @@ const isWide = () => typeof window !== 'undefined' && typeof window.matchMedia =
 function clock(iso?: string): string {
   const t = iso ? Date.parse(iso) : NaN
   if (!Number.isFinite(t)) return ''
-  return new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return new Date(t).toLocaleTimeString(getLocale(), { hour: 'numeric', minute: '2-digit' })
 }
 
 /// The newest activity on a row, as a chat client shows it: the time today,
@@ -125,7 +132,7 @@ function when(iso?: string): string {
   const d = new Date(t)
   return d.toDateString() === new Date().toDateString()
     ? clock(iso)
-    : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    : d.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric' })
 }
 
 /// The workspace laid out the way a chat client lays it out — and the one
@@ -143,7 +150,7 @@ function when(iso?: string): string {
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
   userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onWorkspace, workspaceMenu,
+  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onImmersive, renderCard, onWorkspace, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel,
 }) => {
   const t = useT()
@@ -512,6 +519,33 @@ export const ClassicList: React.FC<Props> = ({
     else setProblem(t('That could not become a decision. Try again.'))
   }
 
+  // ---- The decision pane ----
+  // A decision opens beside the conversation — as a chat client opens a
+  // thread — never by leaving the list for the feed.
+  const [detailId, setDetailId] = useState<string | null>(null)
+  const detail = detailId ? cardsById.get(detailId) : undefined
+  const openCard = (id: string) => setDetailId(id)
+  useEffect(() => {
+    if (!detailId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest('textarea, input')) setDetailId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailId])
+  // A phone gives a conversation, or a decision, the whole screen.
+  useEffect(() => { onImmersive(!wide && (Boolean(current) || Boolean(detail))) }, [wide, current?.key, detail?.id, onImmersive])
+  useEffect(() => () => onImmersive(false), [onImmersive])
+
+  // Messages, or the decisions in this conversation as a list.
+  const [tab, setTab] = useState<'messages' | 'decisions'>('messages')
+  useEffect(() => { setTab('messages') }, [current?.key])
+
+  // "@" in the composer offers the team — and the AI.
+  const mentionable = useMembers(api.httpBase, api.orgId, api.sessionToken)
+  const withAI = useMemo(() => [{ ref: '__ai', name: 'AI' } as (typeof mentionable)[number], ...mentionable], [mentionable])
+  const mention = useMentionMenu(composer, draft, setDraft, withAI)
+
   // The newest message in view when a conversation opens, as in any chat.
   const logRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -547,7 +581,7 @@ export const ClassicList: React.FC<Props> = ({
     const yesterday = new Date(today.getTime() - 86400000)
     if (d.toDateString() === today.toDateString()) return t('Today')
     if (d.toDateString() === yesterday.toDateString()) return t('Yesterday')
-    return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+    return d.toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
   /// A decision as a chat app's attachment: what, where it stands, and the
@@ -559,7 +593,7 @@ export const ClassicList: React.FC<Props> = ({
     const fyi = Boolean(c.report) || c.format === 'fyi'
     return (
       <div className={`slk-card ${s.tone}`}>
-        <button className="slk-title" onClick={() => onOpen(c.id)}>
+        <button className="slk-title" onClick={() => openCard(c.id)}>
           {(c.priority === 'urgent' || c.priority === 'high') && c.status === 'pending' && (
             <span className={`slk-chip ${c.priority}`}>{t(c.priority === 'urgent' ? 'Urgent' : 'High')}</span>
           )}
@@ -581,10 +615,10 @@ export const ClassicList: React.FC<Props> = ({
               <button className="slk-action danger" onClick={() => onDecide(c.id, 'decline')}>{t('Decline')}</button>
             </>
           ))}
-          <button className="slk-action" onClick={() => onOpen(c.id)}>{t('Open')}</button>
+          <button className="slk-action" onClick={() => openCard(c.id)}>{t('Open')}</button>
           {isMine(c) && c.status === 'pending' && <button className="slk-action" onClick={() => onNudge(c.id)}>{t('Nudge')}</button>}
           {Boolean(c.commentCount) && (
-            <button className="slk-replies" onClick={() => onOpen(c.id)}>{c.commentCount === 1 ? t('1 reply') : t('{n} replies', { n: c.commentCount! })}</button>
+            <button className="slk-replies" onClick={() => openCard(c.id)}>{c.commentCount === 1 ? t('1 reply') : t('{n} replies', { n: c.commentCount! })}</button>
           )}
           {c.business && current?.kind !== 'channel' && <span className="slk-where">#{nameOfBusiness(c.business)}</span>}
         </div>
@@ -686,7 +720,7 @@ export const ClassicList: React.FC<Props> = ({
           }, (
             <>
               <div className="slk-text">{rich(m.body)}</div>
-              {m.cardId && <button className="slk-made" onClick={() => onOpen(m.cardId!)}>{t('→ Decision')}</button>}
+              {m.cardId && <button className="slk-made" onClick={() => openCard(m.cardId!)}>{t('→ Decision')}</button>}
             </>
           )))
           prevWho = whoKey
@@ -723,6 +757,14 @@ export const ClassicList: React.FC<Props> = ({
             </button>
           )}
         </header>
+        <nav className="slk-tabs" role="tablist" aria-label={t('View')}>
+          <button role="tab" aria-selected={tab === 'messages'} className={tab === 'messages' ? 'on' : ''} onClick={() => setTab('messages')}>
+            {thread.view ? t('Messages') : t('Activity')}
+          </button>
+          <button role="tab" aria-selected={tab === 'decisions'} className={tab === 'decisions' ? 'on' : ''} onClick={() => setTab('decisions')}>
+            {t('Decisions')}{thread.cards.length > 0 && <span className="slk-tab-count">{thread.cards.length}</span>}
+          </button>
+        </nav>
         {settings && thread.kind === 'channel' && thread.slug && (
           <div className="cl-channel-tools">
             {renaming === thread.slug ? (
@@ -749,6 +791,37 @@ export const ClassicList: React.FC<Props> = ({
           </div>
         )}
         {problem && <p className="cl-problem" role="alert">{problem}</p>}
+        {tab === 'decisions' ? (
+          <div className="slk-log slk-decisions">
+            {thread.cards.length === 0 && <p className="slk-empty">{t('No decisions here yet.')}</p>}
+            {(['waiting', 'decided'] as const).map((group) => {
+              const list = thread.cards.filter((c) => (group === 'waiting' ? c.status === 'pending' : c.status !== 'pending'))
+              if (!list.length) return null
+              return (
+                <section key={group} className="slk-dgroup">
+                  <h3>{group === 'waiting' ? t('Waiting') : t('Decided')}<span>{list.length}</span></h3>
+                  <ul>
+                    {list.map((c) => {
+                      const st = status(c)
+                      return (
+                        <li key={c.id}>
+                          <button className={`slk-drow ${st.tone}${detailId === c.id ? ' on' : ''}${isUnread(c) ? ' unread' : ''}`} onClick={() => openCard(c.id)}>
+                            <span className="slk-ddot" aria-hidden="true" />
+                            <span className="slk-dmain">
+                              <span className="slk-dtitle">{titleOf(c)}</span>
+                              <span className="slk-dmeta">{author(c).name} · {st.text}</span>
+                            </span>
+                            <span className="slk-dwhen">{when(stamp(c))}</span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </section>
+              )
+            })}
+          </div>
+        ) : (
         <div className="slk-log" ref={logRef}>
           <div className="slk-start">
             {lead(thread, 'head')}
@@ -764,6 +837,7 @@ export const ClassicList: React.FC<Props> = ({
             <div className="slk-typing" role="status"><span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>{t('Your AI is making a decision card…')}</div>
           )}
         </div>
+        )}
         {thread.view ? (
           <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
             <textarea
@@ -774,14 +848,18 @@ export const ClassicList: React.FC<Props> = ({
               maxLength={4000}
               placeholder={placeholder}
               aria-label={placeholder}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => { setDraft(e.target.value); mention.track() }}
+              onKeyUp={mention.track}
+              onClick={mention.track}
               onKeyDown={(e) => {
+                if (mention.onKeyDown(e)) return
                 // Enter sends; Shift-Enter is a new line; an IME converting
                 // Japanese owns Enter until it is done.
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(thread.view!, e.metaKey || e.ctrlKey) }
               }}
               disabled={sending}
             />
+            {mention.menu}
             <div className="slk-composer-bar">
               <span className="slk-composer-hint">{t('Enter to send · ⌘Enter sends and asks your AI for a decision')}</span>
               <button type="button" className="slk-send ai" disabled={sending || !draft.trim()} onClick={() => void send(thread.view!, true)}>
@@ -830,7 +908,7 @@ export const ClassicList: React.FC<Props> = ({
   const waiting = pending.length
 
   return (
-    <div className={`classic slk${current ? ' in-thread' : ''}`}>
+    <div className={`classic slk${current ? ' in-thread' : ''}${detail ? ' with-pane' : ''}`}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         <header className="cl-top">
           {workspaceMenu || (
@@ -860,6 +938,18 @@ export const ClassicList: React.FC<Props> = ({
           <div className="slk-none"><p>{t('Pick a conversation.')}</p></div>
         )}
       </main>
+      {detail && (
+        <aside className="slk-pane" aria-label={t('Decision')}>
+          <header className="slk-pane-head">
+            <button className="slk-back pane" onClick={() => setDetailId(null)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+            <h2>{t('Decision')}</h2>
+            {detail.business && <span className="slk-pane-where">#{nameOfBusiness(detail.business)}</span>}
+            <button className="slk-pane-feed" onClick={() => onOpen(detail.id)} title={t('Open in Cards')}>{t('Open in Cards')}</button>
+            <button className="slk-pane-close" onClick={() => setDetailId(null)} aria-label={t('Close')}>×</button>
+          </header>
+          <div className="slk-pane-body">{renderCard(detail)}</div>
+        </aside>
+      )}
     </div>
   )
 }

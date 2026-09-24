@@ -513,6 +513,23 @@ await step('the list view shows the same decisions', async () => {
     || ![...document.querySelectorAll('.cl-thread .cl-title')].some((el) => /Suppliers/.test(el.textContent || '')), null, { timeout: 15000 })
     .catch(() => { throw new Error('the deleted channel is still listed') })
 
+  // A conversation on a phone is the screen: no tab bar under its
+  // composer, and a decision opens over it with a way back.
+  const convo = '.cl-thread:has(.cl-own-mark) .cl-open'
+  await page.click(convo)
+  await page.waitForSelector('.slk-head', { timeout: 5000 })
+  if (await page.$('.tabbar:visible')) throw new Error('the tab bar sits under a conversation on a phone')
+  if (await page.$('.slk-msg .slk-title')) {
+    await page.click('.slk-msg .slk-title >> nth=0')
+    await page.waitForSelector('.slk-pane .card', { timeout: 10000 })
+      .catch(() => { throw new Error('a decision does not open in the list on a phone') })
+    await page.waitForTimeout(400)
+    await shot('09d-classic-pane')
+    await page.click('.slk-back.pane')
+  }
+  await page.click('.slk-head .slk-back')
+  await page.waitForSelector('.tabbar', { state: 'visible', timeout: 5000 })
+
   await page.click('.mode-switch button >> nth=0')
   await page.waitForSelector('.feed', { timeout: 10000 })
 })
@@ -1437,10 +1454,22 @@ await step('the list is a chat client on a laptop: sidebar, conversation, and a 
   if (/\b1 replies\b/.test(listed)) throw new Error('“1 replies”')
   const apps = await d.$$eval('.slk-side .cl-thread .cl-title', (els) => els.map((el) => el.textContent))
   if (apps.filter((n) => n === 'Your AI').length > 1) throw new Error('Your AI is listed twice')
-  // A message opens its card.
+  // A decision opens beside the conversation — the list is not left.
   await d.click('.slk-msg .slk-title >> nth=0')
-  await d.waitForFunction(() => /^#\/feed\//.test(location.hash), null, { timeout: 10000 })
-    .catch(() => { throw new Error('a message does not open its card') })
+  await d.waitForSelector('.slk-pane .card', { timeout: 10000 })
+    .catch(() => { throw new Error('a decision in the list does not open in its pane') })
+  if (!/^#\/list/.test(await d.evaluate(() => location.hash))) throw new Error('opening a decision left the list')
+  const [convo, pane] = await Promise.all(['.slk-main', '.slk-pane'].map((sel) => d.$eval(sel, (el) => el.getBoundingClientRect().toJSON())))
+  if (!(convo.right <= pane.left + 1)) throw new Error('the decision pane covers the conversation on a laptop')
+  await d.screenshot({ path: `${SHOTS}/36b-list-pane.png` })
+  await d.keyboard.press('Escape')
+  await d.waitForSelector('.slk-pane', { state: 'detached', timeout: 5000 })
+    .catch(() => { throw new Error('Esc does not close the decision pane') })
+  // The decisions, as a list, a tab away.
+  await d.click('.slk-tabs button >> nth=1')
+  await d.waitForSelector('.slk-drow', { timeout: 5000 })
+    .catch(() => { throw new Error('the Decisions tab lists nothing') })
+  await d.click('.slk-tabs button >> nth=0')
   await d.emulateMedia({ colorScheme: 'dark' })
   await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
   await d.waitForSelector('.slk-main .slk-msg', { timeout: 20000 })

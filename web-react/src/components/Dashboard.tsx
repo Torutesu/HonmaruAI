@@ -111,6 +111,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // where you were — and to the feed otherwise.
   // Words written in the list's "Your AI" conversation, sent through the
   // same composer everything else is.
+  // A conversation open on a phone takes the whole screen, as a chat app's
+  // does: no mode switch above it, no tab bar under its composer.
+  const [immersive, setImmersive] = useState(false)
   const [composeSeed, setComposeSeed] = useState<{ id: string; text: string } | null>(null)
   const returnTo = useRef<Screen | null>(null)
   const setScreen = useCallback((next: Screen | null, from: Screen | null = null) => {
@@ -502,7 +505,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // open: on a phone a screen owns the viewport and the tab bar goes away,
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
-    <div className={`shell${screen ? ' screen-open' : ''}`}>
+    <div className={`shell${screen ? ' screen-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}`}>
       {workbench ? (
         <div className="workbench">
           <Inbox
@@ -564,6 +567,27 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
           onTellAI={(text) => { setComposeSeed({ id: String(Date.now()), text }); setPanel('compose') }}
+          onImmersive={setImmersive}
+          // The whole card — its thread, Ask, the reply draft — drawn in the
+          // list's own pane, so opening a decision never leaves the list.
+          renderCard={(card) => (
+            <Feed
+              key={`${card.id}-${card.status}-${localeVersion}`}
+              cards={[card]}
+              userId={userId}
+              businesses={businesses}
+              focusCardId={null}
+              ready
+              active={!panel && !screen && !palette}
+              onDecide={handleDecision}
+              onAsk={handleAsk}
+              onFlag={handleFlag}
+              answers={answers}
+              onUndo={handleRollback}
+              api={api}
+              layout="desk"
+            />
+          )}
           onWorkspace={() => setScreen('team')}
           workspaceMenu={workspaceSwitcher('header')}
           onCreateChannel={(name) => channelCall('POST', { name })}

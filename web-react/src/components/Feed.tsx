@@ -409,7 +409,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
               </span>
               <span className="decided-when">
                 {card.decision?.decidedAt ? ago(card.decision.decidedAt) : ''}
-                {card.decision?.actorUserID ? ` · ${displayName(card.decision.actorUserID)}` : ''}
+                {card.decision?.actorUserID ? ` · ${card.decision.actorUserID === userId ? t('you') : displayName(card.decision.actorUserID)}` : ''}
               </span>
               {card.recipientUserID === userId && card.decision && (
                 <button type="button" className="pill-btn decided-undo" onClick={() => onUndo(card.id)}>{t('Undo')}</button>
