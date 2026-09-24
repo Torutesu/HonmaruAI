@@ -546,6 +546,14 @@
 .workbench .page { justify-content: center; }
 .workbench .page-inner { width: min(100%, 720px); margin: 0 auto; padding: 84px 40px 64px; }
 .workbench .card { padding: 28px 30px; border-radius: 22px; }
+/* A stack, not a single sheet: the decisions after this one show at its
+   foot, so the pane reads as a pile to get through by swiping. */
+.workbench .card.swipeable {
+  box-shadow:
+    0 1px 2px rgba(32, 32, 32, 0.04), 0 12px 32px rgba(32, 32, 32, 0.08),
+    0 10px 0 -5px rgba(255, 255, 255, 1), 0 10px 0 -4px rgba(32, 32, 32, 0.10),
+    0 20px 0 -10px rgba(255, 255, 255, 1), 0 20px 0 -9px rgba(32, 32, 32, 0.07);
+}
 .workbench .card-title { font-size: 30px; }
 .workbench .card-summary { font-size: 16px; }
 /* On a laptop a decision is a labelled button, not a bare glyph the size of
@@ -646,4 +654,12 @@
   /* The count on the Cards tab: a dark pill on a dark pill said nothing —
      the active tab's own rule outranked the dark one. */
   .mode-switch .mode-count, .mode-switch button.on .mode-count { background: #f2f2f2; color: #1a1a1a; }
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .workbench .card.swipeable {
+    box-shadow: 0 10px 0 -5px #0f0f0f, 0 10px 0 -4px #2a2a2a, 0 20px 0 -10px #0f0f0f, 0 20px 0 -9px #222;
+  }
+}
+:root[data-theme="dark"] .workbench .card.swipeable {
+  box-shadow: 0 10px 0 -5px #0f0f0f, 0 10px 0 -4px #2a2a2a, 0 20px 0 -10px #0f0f0f, 0 20px 0 -9px #222;
 }

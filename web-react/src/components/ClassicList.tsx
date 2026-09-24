@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import type { DecisionCard, Business } from '../types/card'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { DecisionCard, Business, ChannelMessage } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName, properName } from '../utils/names'
 import { Icon } from './Icon'
@@ -34,6 +34,10 @@ interface Props {
   presence: Presence
   onOpen: (cardId: string) => void
   onNudge: (cardId: string) => void
+  /// Decide a card where it is shown, the way a chat app's buttons do.
+  onDecide: (cardId: string, action: string) => void
+  /// Where the channels' messages come from.
+  api: { httpBase: string; orgId: string; sessionToken: string }
   onSearch: () => void
   onCompose: () => void
   onWorkspace: () => void
@@ -59,6 +63,12 @@ interface Thread {
   slug?: string
   /// The connector id, for an app: gmail, slack, notion, github, ai.
   app?: string
+  /// The channel its messages live in — `b:<slug>` or `dm:<ref>` — when
+  /// people can talk in it. An app has none: it only brings decisions.
+  view?: string
+  /// Said since you last looked.
+  fresh?: boolean
+  lastAt?: string
   /// Newest first, as the sidebar reads them; the conversation reverses.
   cards: DecisionCard[]
   unread: number
@@ -78,6 +88,22 @@ const APP_NAME: Record<string, string> = { gmail: 'Gmail', email: 'Email', slack
 const appKey = (c: DecisionCard) => {
   const app = c.sourceApp ? String(c.sourceApp).toLowerCase() : ''
   return app === 'your ai' ? 'ai' : app
+}
+
+/// A teammate as the channel routes name them: a handle and a name, and a
+/// hash of their login so a card already in this browser can be matched to
+/// them without anyone's login being sent to match it.
+interface Member { ref: string; name: string; title?: string; mine: boolean; loginHash: string }
+interface Activity { channel: string; lastAt: string; preview: string; lastBy: string | null }
+
+async function hash16(text: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16)
+}
+
+const seenKey = (orgId: string, view: string) => `seen:${orgId}:${view}`
+function seenAt(orgId: string, view: string): string {
+  try { return localStorage.getItem(seenKey(orgId, view)) || '' } catch { return '' }
 }
 
 const WIDE = '(min-width: 720px)'
@@ -115,7 +141,7 @@ function when(iso?: string): string {
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
   userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onSearch, onCompose, onWorkspace, workspaceMenu,
+  onOpen, onNudge, onDecide, api, onSearch, onCompose, onWorkspace, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel,
 }) => {
   const t = useT()
@@ -126,6 +152,42 @@ export const ClassicList: React.FC<Props> = ({
   const isMine = (c: DecisionCard) => c.senderUserID === userId && c.recipientUserID !== userId
   const isUnread = (c: DecisionCard) => c.status === 'pending' && c.recipientUserID === userId
 
+  // The team, and what has been said where: loaded once, kept current by
+  // the relay's channel events.
+  const [members, setMembers] = useState<Member[]>([])
+  const [activity, setActivity] = useState<Record<string, Activity>>({})
+  const [seenTick, setSeenTick] = useState(0)
+  const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
+  useEffect(() => {
+    let ignore = false
+    fetch(`${api.httpBase}/channels?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (ignore || !data) return
+        setMembers(data.members || [])
+        setActivity(Object.fromEntries((data.activity || []).map((a: Activity) => [a.channel, a])))
+      })
+      .catch(() => { /* the list still shows every decision */ })
+    return () => { ignore = true }
+  }, [api.httpBase, api.orgId, authHeaders])
+
+  // Which login is which member, for the logins this browser already holds.
+  const [hashes, setHashes] = useState<Map<string, string>>(new Map())
+  useEffect(() => {
+    const logins = new Set<string>()
+    for (const c of [...pending, ...sent, ...decided]) { logins.add(c.senderUserID); logins.add(c.recipientUserID) }
+    for (const login of Object.keys(presence)) logins.add(login)
+    const missing = [...logins].filter((l) => l && !hashes.has(l))
+    if (!missing.length || !crypto?.subtle) return
+    let ignore = false
+    Promise.all(missing.map(async (l) => [l, await hash16(l)] as const)).then((pairs) => {
+      if (ignore) return
+      setHashes((prev) => { const next = new Map(prev); for (const [l, h] of pairs) next.set(l, h); return next })
+    })
+    return () => { ignore = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, sent, decided, presence])
+
   const { channels, people, apps } = useMemo(() => {
     const all = new Map<string, DecisionCard>()
     for (const c of [...pending, ...sent, ...decided]) all.set(c.id, c)
@@ -135,6 +197,12 @@ export const ClassicList: React.FC<Props> = ({
       if (!own.length && !keepEmpty) return null
       return { key, kind, name, cards: own, unread: own.filter(isUnread).length, latest: own[0], ...extra }
     }
+    // What was said in it, and whether that is news to you.
+    const withTalk = (th: Thread): Thread => {
+      const a = th.view ? activity[th.view] : undefined
+      if (!a) return th
+      return { ...th, lastAt: a.lastAt, fresh: a.lastBy !== 'me' && a.lastAt > seenAt(api.orgId, th.view!) }
+    }
 
     // Channels: one per business the team has, in the team's order — empty
     // ones too, a channel just made is a channel — plus any slug a card
@@ -143,8 +211,9 @@ export const ClassicList: React.FC<Props> = ({
     for (const c of cards) if (c.business) bySlug.set(c.business, [...(bySlug.get(c.business) || []), c])
     const slugs = [...businesses.map((b) => b.slug), ...[...bySlug.keys()].filter((s) => !businesses.some((b) => b.slug === s))]
     const channels = slugs
-      .map((slug) => build('channel', `channel:${slug}`, nameOfBusiness(slug), { slug }, bySlug.get(slug) || [], true))
+      .map((slug) => build('channel', `channel:${slug}`, nameOfBusiness(slug), { slug, view: `b:${slug}` }, bySlug.get(slug) || [], true))
       .filter((x): x is Thread => x !== null)
+      .map(withTalk)
 
     // Direct messages: the other party on every card that came from a person
     // rather than a connected app. A card you sent yourself is your AI's.
@@ -161,10 +230,27 @@ export const ClassicList: React.FC<Props> = ({
       const named = own.find((c) => c.senderUserID === login && c.requestedBy?.name)
       return named?.requestedBy?.name || properName(login)
     }
-    const people = [...byPerson.entries()]
+    // Every teammate is somebody you can write to, whether or not a
+    // decision has passed between you yet — as in any chat client.
+    const loginOf = new Map<string, string>()
+    for (const [login, h] of hashes) loginOf.set(h, login)
+    const claimed = new Set<string>()
+    const teammates = members.filter((m) => !m.mine).map((m) => {
+      const login = loginOf.get(m.loginHash)
+      const own = login ? (byPerson.get(login) || []) : []
+      if (login) claimed.add(login)
+      return withTalk(build('person', `person:${m.ref}`, m.name, { login, view: `dm:${m.ref}` }, own, true)!)
+    })
+    // Somebody a card names who is not on the member list (they left):
+    // their decisions still have a home, with nothing to write into.
+    const former = [...byPerson.entries()]
+      .filter(([login]) => !claimed.has(login))
       .map(([login, own]) => build('person', `person:${login}`, personName(login, own), { login }, own))
       .filter((x): x is Thread => x !== null)
-      .sort((a, b) => (b.unread > 0 ? 1 : 0) - (a.unread > 0 ? 1 : 0) || stamp(b.latest!).localeCompare(stamp(a.latest!)))
+    const latestOf = (th: Thread) => [th.lastAt || '', th.latest ? stamp(th.latest) : ''].sort().pop() || ''
+    const people = [...teammates, ...former]
+      .sort((a, b) => (b.unread + (b.fresh ? 1 : 0) > 0 ? 1 : 0) - (a.unread + (a.fresh ? 1 : 0) > 0 ? 1 : 0)
+        || latestOf(b).localeCompare(latestOf(a)) || a.name.localeCompare(b.name))
 
     const apps = [...byApp.entries()]
       .map(([app, own]) => build('app', `app:${app}`,
@@ -174,7 +260,7 @@ export const ClassicList: React.FC<Props> = ({
 
     return { channels, people, apps }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, sent, decided, businesses, userId, locale])
+  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick])
 
   const everything = useMemo(() => [...channels, ...people, ...apps], [channels, people, apps])
 
@@ -245,12 +331,6 @@ export const ClassicList: React.FC<Props> = ({
     choose(null)
   }
 
-  // The newest message in view when a conversation opens, as in any chat.
-  const logRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = logRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [current?.key, current?.cards.length])
 
   // ---- The sidebar ----
 
@@ -277,11 +357,12 @@ export const ClassicList: React.FC<Props> = ({
   const row = (thread: Thread) => {
     const on = current?.key === thread.key
     return (
-      <li key={thread.key} className={`cl-row cl-thread${thread.unread ? ' unread' : ''}${on ? ' on' : ''}`}>
+      <li key={thread.key} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
           {lead(thread, 'row')}
           <span className="cl-title">{thread.name}</span>
           {thread.unread > 0 && <span className="cl-badge">{thread.unread}</span>}
+          {thread.unread === 0 && thread.fresh && !on && <span className="cl-fresh" aria-label={t('New messages')} />}
         </button>
       </li>
     )
@@ -330,6 +411,109 @@ export const ClassicList: React.FC<Props> = ({
     </form>
   ) : null
 
+  // ---- What is said ----
+
+  const cardsById = useMemo(() => {
+    const map = new Map<string, DecisionCard>()
+    for (const c of [...pending, ...sent, ...decided]) map.set(c.id, c)
+    return map
+  }, [pending, sent, decided])
+  const [messages, setMessages] = useState<Record<string, ChannelMessage[]>>({})
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  // Conversations where the AI is writing a card right now.
+  const [thinking, setThinking] = useState<Record<string, boolean>>({})
+  const composer = useRef<HTMLTextAreaElement>(null)
+  const view = current?.view
+  const loadMessages = useCallback((channel: string) => {
+    return fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setMessages((prev) => ({ ...prev, [channel]: data.messages || [] })) })
+      .catch(() => { /* the decisions still show */ })
+  }, [api.httpBase, api.orgId, authHeaders])
+  useEffect(() => { if (view) void loadMessages(view) }, [view, loadMessages])
+  // Opened is read.
+  useEffect(() => {
+    if (!view) return
+    try { localStorage.setItem(seenKey(api.orgId, view), new Date().toISOString()) } catch { /* private mode: nothing remembered */ }
+    setSeenTick((n) => n + 1)
+  }, [view, api.orgId, messages[view || '']?.length])
+  // The composer grows with what is written, up to a point.
+  useEffect(() => {
+    const el = composer.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`
+  }, [draft])
+  // Somebody said something: into its conversation if it is loaded, into
+  // the sidebar's activity either way. The AI's answer reloads the
+  // conversation, so the message it answered shows the card it became.
+  useEffect(() => {
+    const myRef = members.find((m) => m.mine)?.ref
+    const on = (e: Event) => {
+      const m = (e as CustomEvent<ChannelMessage>).detail
+      if (!m?.channel) return
+      const mine = m.mine || (Boolean(myRef) && m.authorRef === myRef)
+      const msg = { ...m, mine }
+      setMessages((prev) => {
+        const list = prev[m.channel]
+        if (!list) return prev
+        return { ...prev, [m.channel]: list.some((x) => x.id === m.id) ? list.map((x) => (x.id === m.id ? msg : x)) : [...list, msg] }
+      })
+      setActivity((prev) => ({ ...prev, [m.channel]: { channel: m.channel, lastAt: m.createdAt, preview: m.body.slice(0, 120), lastBy: mine ? 'me' : m.authorName } }))
+      if (m.kind === 'ai') {
+        setThinking((prev) => ({ ...prev, [m.channel]: false }))
+        void loadMessages(m.channel)
+      }
+    }
+    window.addEventListener('honmaru:channel-message', on)
+    return () => window.removeEventListener('honmaru:channel-message', on)
+  }, [members, loadMessages])
+
+  const send = async (channel: string, decide: boolean) => {
+    const body = draft.trim()
+    if (!body || sending) return
+    setSending(true); setProblem(null)
+    try {
+      const res = await fetch(`${api.httpBase}/channels/messages`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel, body, decide }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setProblem(data.message || t('That did not send. Try again.')); return }
+      setDraft('')
+      const msg = data.message as ChannelMessage
+      setMessages((prev) => {
+        const list = prev[channel] || []
+        return list.some((x) => x.id === msg.id) ? prev : { ...prev, [channel]: [...list, msg] }
+      })
+      if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: true }))
+    } catch {
+      setProblem(t('That did not send. Try again.'))
+    } finally {
+      setSending(false)
+      composer.current?.focus()
+    }
+  }
+  const decideMessage = async (channel: string, m: ChannelMessage) => {
+    setProblem(null)
+    const res = await fetch(`${api.httpBase}/channels/decide`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel, messageId: m.id }),
+    }).catch(() => null)
+    if (res?.ok) setThinking((prev) => ({ ...prev, [channel]: true }))
+    else setProblem(t('That could not become a decision. Try again.'))
+  }
+
+  // The newest message in view when a conversation opens, as in any chat.
+  const logRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = logRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [current?.key, current?.cards.length, messages[current?.view || '']?.length, thinking[current?.view || '']])
+
   // ---- The conversation ----
 
   /// Who a decision is from, as the message's author: the app it came in
@@ -361,77 +545,154 @@ export const ClassicList: React.FC<Props> = ({
     return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
-  const message = (c: DecisionCard, joined: boolean) => {
-    const who = author(c)
+  /// A decision as a chat app's attachment: what, where it stands, and the
+  /// buttons that decide it right here — as a Slack app's message does.
+  const attachment = (c: DecisionCard) => {
     const s = status(c)
     const note = c.decision?.note || c.decision?.replyText
     const summary = summaryOf(c)
-    const to = c.senderUserID === userId && c.recipientUserID !== userId ? properName(recipientNameOf(c)) : ''
+    const fyi = Boolean(c.report) || c.format === 'fyi'
     return (
-      <article key={c.id} className={`slk-msg${joined ? ' joined' : ''}${isUnread(c) ? ' unread' : ''}`}>
-        <div className="slk-gutter" aria-hidden="true">
-          {joined
-            ? <span className="slk-hover-time">{clock(c.createdAt)}</span>
-            : who.app
-              ? <span className="slk-avatar app">{who.app === 'ai'
-                  ? <img src="/icon.svg" alt="" width={36} height={36} />
-                  : isBrand(who.app) ? <BrandLogo brand={who.app} size={20} /> : <Icon name={APP_ICON[who.app] || 'box'} size={18} />}</span>
-              : <span className="slk-avatar">{who.initial}</span>}
-        </div>
-        <div className="slk-body">
-          {!joined && (
-            <div className="slk-meta">
-              <span className="slk-author">{who.name}</span>
-              {to && <span className="slk-to">→ {to}</span>}
-              <time className="slk-time" dateTime={c.createdAt}>{clock(c.createdAt)}</time>
-            </div>
+      <div className={`slk-card ${s.tone}`}>
+        <button className="slk-title" onClick={() => onOpen(c.id)}>
+          {(c.priority === 'urgent' || c.priority === 'high') && c.status === 'pending' && (
+            <span className={`slk-chip ${c.priority}`}>{t(c.priority === 'urgent' ? 'Urgent' : 'High')}</span>
           )}
-          <button className="slk-title" onClick={() => onOpen(c.id)}>
-            {(c.priority === 'urgent' || c.priority === 'high') && c.status === 'pending' && (
-              <span className={`slk-chip ${c.priority}`}>{t(c.priority === 'urgent' ? 'Urgent' : 'High')}</span>
-            )}
-            {c.report && <span className="slk-chip report">{t('Report')}</span>}
-            {c.proposal && <span className="slk-chip proposal">{t('Proposal')}</span>}
-            <span>{titleOf(c)}</span>
-          </button>
-          {summary && <p className="slk-summary">{summary}</p>}
-          <div className={`slk-attach ${s.tone}`}>
-            <span className="slk-status">{s.text}</span>
-            {note && <span className="slk-note">“{note}”</span>}
-          </div>
-          <div className="slk-actions">
-            {isUnread(c) && <button className="slk-action primary" onClick={() => onOpen(c.id)}>{t('Decide')}</button>}
-            {!isUnread(c) && <button className="slk-action" onClick={() => onOpen(c.id)}>{t('Open')}</button>}
-            {isMine(c) && c.status === 'pending' && <button className="slk-action" onClick={() => onNudge(c.id)}>{t('Nudge')}</button>}
-            {Boolean(c.commentCount) && (
-              <button className="slk-replies" onClick={() => onOpen(c.id)}>{c.commentCount === 1 ? t('1 reply') : t('{n} replies', { n: c.commentCount! })}</button>
-            )}
-            {c.business && current?.kind !== 'channel' && <span className="slk-where">#{nameOfBusiness(c.business)}</span>}
-          </div>
+          {c.report && <span className="slk-chip report">{t('Report')}</span>}
+          {c.proposal && <span className="slk-chip proposal">{t('Proposal')}</span>}
+          <span>{titleOf(c)}</span>
+        </button>
+        {summary && <p className="slk-summary">{summary}</p>}
+        <div className="slk-status-line">
+          <span className="slk-status">{s.text}</span>
+          {note && <span className="slk-note">“{note}”</span>}
         </div>
-      </article>
+        <div className="slk-actions">
+          {isUnread(c) && (fyi ? (
+            <button className="slk-action primary" onClick={() => onDecide(c.id, 'acknowledge')}>{t('Got it')}</button>
+          ) : (
+            <>
+              <button className="slk-action primary" onClick={() => onDecide(c.id, 'approve')}>{t('Approve')}</button>
+              <button className="slk-action danger" onClick={() => onDecide(c.id, 'decline')}>{t('Decline')}</button>
+            </>
+          ))}
+          <button className="slk-action" onClick={() => onOpen(c.id)}>{t('Open')}</button>
+          {isMine(c) && c.status === 'pending' && <button className="slk-action" onClick={() => onNudge(c.id)}>{t('Nudge')}</button>}
+          {Boolean(c.commentCount) && (
+            <button className="slk-replies" onClick={() => onOpen(c.id)}>{c.commentCount === 1 ? t('1 reply') : t('{n} replies', { n: c.commentCount! })}</button>
+          )}
+          {c.business && current?.kind !== 'channel' && <span className="slk-where">#{nameOfBusiness(c.business)}</span>}
+        </div>
+      </div>
     )
   }
 
+  const avatarFor = (app: string, initial: string) => app
+    ? <span className="slk-avatar app">{app === 'ai'
+        ? <img src="/icon.svg" alt="" width={36} height={36} />
+        : isBrand(app) ? <BrandLogo brand={app} size={20} /> : <Icon name={APP_ICON[app] || 'box'} size={18} />}</span>
+    : <span className="slk-avatar">{initial}</span>
+
+  /// One block of a conversation: a gutter, a name and a time — or, joined
+  /// to the one before, just the words — then what was said.
+  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode }, body: React.ReactNode) => (
+    <article key={key} className={`slk-msg${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}`}>
+      <div className="slk-gutter" aria-hidden="true">
+        {opts.joined ? <span className="slk-hover-time">{clock(opts.at)}</span> : avatarFor(opts.app, opts.name.charAt(0).toUpperCase())}
+      </div>
+      <div className="slk-body">
+        {!opts.joined && (
+          <div className="slk-meta">
+            <span className="slk-author">{opts.name}</span>
+            {opts.badge && <span className="slk-app-badge">{opts.badge}</span>}
+            {opts.to && <span className="slk-to">→ {opts.to}</span>}
+            <time className="slk-time" dateTime={opts.at}>{clock(opts.at)}</time>
+          </div>
+        )}
+        {body}
+      </div>
+      {opts.tools && <div className="slk-tools">{opts.tools}</div>}
+    </article>
+  )
+
+  /// Words as written: lines kept, links clickable, @names marked.
+  const rich = (text: string) => text.split('\n').map((line, li) => (
+    <React.Fragment key={li}>
+      {li > 0 && <br />}
+      {line.split(/(https?:\/\/[^\s<>"）」]+|[@＠][^\s@＠,，。、!?！？:;]+)/g).map((part, pi) => {
+        if (/^https?:\/\//.test(part)) return <a key={pi} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
+        if (/^[@＠]/.test(part)) return <span key={pi} className={`slk-mention${/^[@＠]ai$/i.test(part.replace(/[にへ]$/, '')) ? ' ai' : ''}`}>{part}</span>
+        return <React.Fragment key={pi}>{part}</React.Fragment>
+      })}
+    </React.Fragment>
+  ))
+
+  type Item = { at: string; kind: 'card'; card: DecisionCard } | { at: string; kind: 'msg'; msg: ChannelMessage }
+
   const conversation = (thread: Thread) => {
-    const inOrder = [...thread.cards].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    const said = thread.view ? (messages[thread.view] || []) : []
+    // A card the AI announced sits under its announcement, not twice.
+    const announced = new Set(said.filter((m) => m.kind === 'ai' && m.cardId).map((m) => m.cardId!))
+    const items: Item[] = [
+      ...thread.cards.filter((c) => !announced.has(c.id)).map((card) => ({ at: card.createdAt, kind: 'card' as const, card })),
+      ...said.map((msg) => ({ at: msg.createdAt, kind: 'msg' as const, msg })),
+    ].sort((a, b) => a.at.localeCompare(b.at))
+
     const out: React.ReactNode[] = []
     let day = ''
-    let prev: DecisionCard | null = null
-    for (const c of inOrder) {
-      const d = new Date(Date.parse(c.createdAt)).toDateString()
+    let prevWho = ''
+    let prevAt = 0
+    for (const item of items) {
+      const d = new Date(Date.parse(item.at)).toDateString()
       if (d !== day) {
         day = d
-        prev = null
-        out.push(<div key={`day-${d}`} className="slk-day" role="separator"><span>{dayLabel(c.createdAt)}</span></div>)
+        prevWho = ''
+        out.push(<div key={`day-${d}`} className="slk-day" role="separator"><span>{dayLabel(item.at)}</span></div>)
       }
-      // One author, a few minutes apart: one block, as a chat client groups it.
-      const joined = Boolean(prev && author(prev).name === author(c).name
-        && Date.parse(c.createdAt) - Date.parse(prev.createdAt) < 5 * 60000)
-      out.push(message(c, joined))
-      prev = c
+      const at = Date.parse(item.at)
+      if (item.kind === 'card') {
+        const c = item.card
+        const who = author(c)
+        const joined = prevWho === `card:${who.name}` && at - prevAt < 5 * 60000
+        const to = c.senderUserID === userId && c.recipientUserID !== userId ? properName(recipientNameOf(c)) : ''
+        out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, to, unread: isUnread(c) }, attachment(c)))
+        prevWho = `card:${who.name}`
+      } else {
+        const m = item.msg
+        if (m.kind === 'ai') {
+          const card = m.cardId ? cardsById.get(m.cardId) : undefined
+          out.push(block(m.id, { joined: false, at: m.createdAt, app: 'ai', name: t('Your AI'), badge: t('AI') },
+            <>
+              <div className="slk-text">{rich(m.body)}</div>
+              {card && attachment(card)}
+            </>))
+          prevWho = 'ai'
+        } else {
+          const whoKey = `msg:${m.authorRef || m.authorName}`
+          const joined = prevWho === whoKey && at - prevAt < 5 * 60000
+          const name = m.mine ? t('You') : (m.authorName || t('a teammate'))
+          out.push(block(m.id, {
+            joined, at: m.createdAt, app: '', name,
+            tools: !m.cardId && thread.view ? (
+              <button className="slk-tool" onClick={() => void decideMessage(thread.view!, m)} title={t('Make it a decision')}>
+                <Icon name="plus" size={13} /> {t('Make it a decision')}
+              </button>
+            ) : undefined,
+          }, (
+            <>
+              <div className="slk-text">{rich(m.body)}</div>
+              {m.cardId && <button className="slk-made" onClick={() => onOpen(m.cardId!)}>{t('→ Decision')}</button>}
+            </>
+          )))
+          prevWho = whoKey
+        }
+      }
+      prevAt = at
     }
     const waitingHere = thread.cards.filter(isUnread).length
+    const placeholder = thread.kind === 'channel'
+      ? t('Message #{name} — @AI makes it a decision', { name: thread.name })
+      : t('Message {name} — @AI makes it a decision', { name: thread.name })
     return (
       <>
         <header className="slk-head">
@@ -484,24 +745,54 @@ export const ClassicList: React.FC<Props> = ({
         )}
         {problem && <p className="cl-problem" role="alert">{problem}</p>}
         <div className="slk-log" ref={logRef}>
-          {inOrder.length === 0 ? (
-            <div className="slk-start">
-              {lead(thread, 'head')}
-              <h2>{thread.kind === 'channel' ? t('This is the start of #{name}', { name: thread.name }) : thread.name}</h2>
-              <p>{thread.kind === 'channel'
-                ? t('Decisions about {name} land here — filed by your AI as they arrive, or by you.', { name: thread.name })
-                : t('No decisions here yet.')}</p>
-            </div>
-          ) : out}
+          <div className="slk-start">
+            {lead(thread, 'head')}
+            <h2>{thread.kind === 'channel' ? t('This is the start of #{name}', { name: thread.name }) : thread.name}</h2>
+            <p>{thread.kind === 'channel'
+              ? t('Talk about {name} here. Write @AI — or pick “Make it a decision” on any message — and your AI turns it into a decision card, written from what was said.', { name: thread.name })
+              : thread.kind === 'person'
+                ? t('Just the two of you. Write @AI and your AI makes what you said a decision for {name}.', { name: thread.name })
+                : t('What {name} brought in. Each opens as a card.', { name: thread.name })}</p>
+          </div>
+          {out}
+          {thread.view && thinking[thread.view] && (
+            <div className="slk-typing" role="status"><span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>{t('Your AI is making a decision card…')}</div>
+          )}
         </div>
-        <button className="slk-compose" onClick={onCompose}>
-          <Icon name="plus" size={15} />
-          <span>{thread.kind === 'channel'
-            ? t('Tell your AI about #{name}…', { name: thread.name })
-            : thread.kind === 'person'
-              ? t('Ask {name} for a decision…', { name: thread.name })
-              : t('Tell your AI…')}</span>
-        </button>
+        {thread.view ? (
+          <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
+            <textarea
+              ref={composer}
+              className="slk-input"
+              value={draft}
+              rows={1}
+              maxLength={4000}
+              placeholder={placeholder}
+              aria-label={placeholder}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter sends; Shift-Enter is a new line; an IME converting
+                // Japanese owns Enter until it is done.
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(thread.view!, e.metaKey || e.ctrlKey) }
+              }}
+              disabled={sending}
+            />
+            <div className="slk-composer-bar">
+              <span className="slk-composer-hint">{t('Enter to send · ⌘Enter sends and asks your AI for a decision')}</span>
+              <button type="button" className="slk-send ai" disabled={sending || !draft.trim()} onClick={() => void send(thread.view!, true)}>
+                {t('Send as a decision')}
+              </button>
+              <button type="submit" className="slk-send" disabled={sending || !draft.trim()} aria-label={t('Send')}>
+                <Icon name="send" size={16} />
+              </button>
+            </div>
+          </form>
+        ) : (
+          <button className="slk-compose" onClick={onCompose}>
+            <Icon name="plus" size={15} />
+            <span>{t('Tell your AI…')}</span>
+          </button>
+        )}
       </>
     )
   }

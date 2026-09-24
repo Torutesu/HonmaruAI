@@ -9,10 +9,10 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 610 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 616 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
-  Worker actually sent. 54 steps
+  Worker actually sent. 57 steps
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **Web unit suite:** 26 tests over the AG-UI client, the outbox, the card cache, the sign-in callback, the routes
 - **QA report:** [docs/qa-report.md](docs/qa-report.md) — what was checked
@@ -27,6 +27,24 @@ The list of what is still missing, and why each item matters, is
 [docs/production-release-plan.md](docs/production-release-plan.md).
 
 ## Done
+
+### Channels you talk in, and cards you swipe (2026-09-24)
+
+- [x] **The list is a chat.** Channels (a business's, the whole team) and
+      direct messages (the two of you) carry messages: Enter sends, links
+      and @names are live, every teammate is in Direct messages. Decisions
+      sit in the conversation as a chat app's attachments, with Approve /
+      Decline / Open right there. `/channels`, `/channels/messages`
+- [x] **What is said is context.** "@AI" in a message — or "Make it a
+      decision" on any message — sends it through `/ai/route` with the
+      conversation before it as context; the card is filed under the
+      channel's business (in a direct conversation it goes to the other
+      person), and the AI says so in the channel with the card under it.
+      "Ask anything" and routines read the channels too
+- [x] **Cards are swiped.** The card tilts as it is dragged, a stamp says
+      what letting go will do, past the line it flies off and the next one
+      rises; a flick, a trackpad's two-finger swipe, ← → and the buttons
+      all do the same. On a laptop the pane shows a stack
 
 ### The AI works on its own (from the Viktor research, 2026-09-24)
 

@@ -116,3 +116,18 @@ export interface User {
   name: string
   avatar: string
 }
+
+/// A message in a channel: a business's (`b:<slug>`) or a direct one with
+/// a teammate (`dm:<member ref>`). `kind: 'ai'` is the AI saying what it
+/// made of a message; `cardId` is the decision a message became.
+export interface ChannelMessage {
+  id: string
+  channel: string
+  kind: 'message' | 'ai'
+  body: string
+  authorName: string | null
+  authorRef: string | null
+  mine: boolean
+  cardId: string | null
+  createdAt: string
+}

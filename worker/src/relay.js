@@ -78,8 +78,14 @@ export class OrgRelay {
     if (url.pathname === EVENTS_PATH && request.headers.get("Upgrade") !== "websocket") {
       if (request.method !== "POST") return new Response("not found", { status: 404 });
       let events = [];
-      try { ({ events = [] } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
+      let deliveries = [];
+      try { ({ events = [], deliveries = [] } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
       for (const ev of events) if (ev && typeof ev === "object") this.broadcast(orgId, ev);
+      // Events for named people only — a direct conversation's message goes
+      // to the two people in it, never the room.
+      for (const d of Array.isArray(deliveries) ? deliveries : []) {
+        if (d && typeof d.to === "string" && d.event && typeof d.event === "object") this.sendTo(orgId, d.to, d.event);
+      }
       return new Response(JSON.stringify({ announced: events.length }), {
         status: 200, headers: { "content-type": "application/json" },
       });

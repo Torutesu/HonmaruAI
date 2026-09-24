@@ -300,3 +300,95 @@
 @media (min-width: 1280px) {
   .classic.slk.slk .slk-side { width: 300px; }
 }
+
+/* ---- Talking ---- */
+
+.classic.slk.slk .cl-fresh { width: 8px; height: 8px; border-radius: 9999px; background: var(--slk-ink); flex: none; }
+
+.classic.slk.slk .slk-msg { position: relative; }
+.classic.slk.slk .slk-text { font-size: 15px; line-height: 1.55; color: var(--slk-ink); word-wrap: break-word; overflow-wrap: anywhere; }
+.classic.slk.slk .slk-text a { color: var(--slk-accent); text-decoration: none; }
+.classic.slk.slk .slk-text a:hover { text-decoration: underline; }
+.classic.slk.slk .slk-mention { color: var(--slk-accent); background: rgba(29, 155, 209, 0.10); border-radius: 4px; padding: 0 2px; font-weight: 600; }
+.classic.slk.slk .slk-mention.ai { color: #7c3aed; background: rgba(124, 58, 237, 0.12); }
+.classic.slk.slk .slk-app-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 4px; background: var(--slk-field); color: var(--slk-dim);
+}
+.classic.slk.slk .slk-made {
+  margin-top: 4px; border: none; background: none; padding: 0; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; color: var(--slk-accent);
+}
+
+/* A message's hover tools, top right, as in a chat client. */
+.classic.slk.slk .slk-tools {
+  position: absolute; top: -12px; right: 20px; z-index: 2;
+  display: none; gap: 2px; padding: 2px;
+  background: var(--slk-bg); border: 1px solid var(--slk-line); border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+}
+.classic.slk.slk .slk-msg:hover .slk-tools, .classic.slk.slk .slk-msg:focus-within .slk-tools { display: flex; }
+@media (hover: none) { .classic.slk.slk .slk-tools { display: flex; position: static; margin: 4px 0 0 46px; box-shadow: none; } }
+.classic.slk.slk .slk-tool {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: none; background: none; padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 12.5px; font-weight: 600; color: var(--slk-ink); white-space: nowrap;
+}
+.classic.slk.slk .slk-tool:hover { background: var(--slk-hover); }
+
+/* A decision, as a chat app's attachment: a coloured edge for where it
+   stands, and buttons that decide it here. */
+.classic.slk.slk .slk-card {
+  margin-top: 6px; max-width: 620px;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--slk-line); border-left: 4px solid var(--slk-line); border-radius: 8px;
+  background: var(--slk-card);
+}
+.classic.slk.slk .slk-card.waiting { border-left-color: var(--slk-amber); }
+.classic.slk.slk .slk-card.decided { border-left-color: var(--slk-green); }
+.classic.slk.slk .slk-card.declined { border-left-color: var(--slk-red); }
+.classic.slk.slk .slk-card .slk-title { margin-top: 0; }
+.classic.slk.slk .slk-status-line { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.classic.slk.slk .slk-card.sent .slk-status { color: var(--slk-dim); font-weight: 500; }
+.classic.slk.slk .slk-action.danger { color: var(--slk-red); }
+.classic.slk.slk .slk-msg.unread .slk-title { font-weight: 800; }
+
+/* The AI at work. */
+.classic.slk.slk .slk-typing { display: flex; align-items: center; gap: 8px; padding: 6px 20px 10px 66px; font-size: 13px; color: var(--slk-dim); }
+.classic.slk.slk .slk-dots { display: inline-flex; gap: 3px; }
+.classic.slk.slk .slk-dots i { width: 5px; height: 5px; border-radius: 9999px; background: var(--slk-dim); animation: slk-dot 1s infinite ease-in-out; }
+.classic.slk.slk .slk-dots i:nth-child(2) { animation-delay: .15s; }
+.classic.slk.slk .slk-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes slk-dot { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .classic.slk.slk .slk-dots i { animation: none; } }
+
+/* The composer: where the message box sits in a chat client. */
+.classic.slk.slk .slk-composer {
+  flex: none; margin: 0 16px 14px;
+  border: 1px solid var(--slk-dim); border-radius: 10px; background: var(--slk-bg);
+  overflow: hidden;
+}
+.classic.slk.slk .slk-composer:focus-within { border-color: var(--slk-ink); box-shadow: 0 0 0 1px var(--slk-ink); }
+.classic.slk.slk .slk-input {
+  display: block; width: 100%; box-sizing: border-box; resize: none;
+  border: none; outline: none; background: transparent; color: var(--slk-ink);
+  font: inherit; font-size: 15px; line-height: 1.5; padding: 11px 14px 4px;
+  min-height: 44px;
+}
+.classic.slk.slk .slk-input::placeholder { color: var(--slk-faint); }
+.classic.slk.slk .slk-composer-bar { display: flex; align-items: center; gap: 8px; padding: 4px 6px 6px 14px; }
+.classic.slk.slk .slk-composer-hint { flex: 1; min-width: 0; font-size: 11.5px; color: var(--slk-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-send {
+  flex: none; height: 30px; min-width: 34px; padding: 0 10px; border-radius: 6px; border: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: #007a5a; color: #fff; font-size: 12.5px; font-weight: 700;
+}
+.classic.slk.slk .slk-send.ai { background: var(--slk-field); color: #7c3aed; }
+.classic.slk.slk .slk-send:disabled { background: var(--slk-field); color: var(--slk-faint); cursor: default; }
+@media (min-width: 720px) {
+  .classic.slk.slk .slk-composer { margin: 0 20px 18px; }
+  .classic.slk.slk .slk-tools { right: 24px; }
+}
+@media (max-width: 719px) {
+  .classic.slk.slk .slk-composer-hint { display: none; }
+}

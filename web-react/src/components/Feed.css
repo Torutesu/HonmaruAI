@@ -474,3 +474,32 @@
   .print-root .report-body code { background: #f0f0f0; color: #000000; }
   .print-root .report-sources { border-top-color: #cccccc; }
 }
+
+/* ---- Swiping a decision ----
+   The card is the control. It tilts as it is dragged; a stamp says what
+   letting go will do, darker the surer the gesture; past the line it flies
+   off that way and the next one rises into its place. */
+.card.swipeable { position: relative; touch-action: pan-y; cursor: grab; user-select: none; -webkit-user-select: none; }
+.card.swipeable:active { cursor: grabbing; }
+.card.swipeable .report-body, .card.swipeable .thread, .card.swipeable textarea, .card.swipeable input { user-select: text; -webkit-user-select: text; cursor: auto; }
+.swipe-stamp {
+  position: absolute; top: 22px; z-index: 2;
+  padding: 6px 14px; border: 3px solid currentColor; border-radius: 10px;
+  font-family: var(--font-display); font-weight: 800; font-size: 22px; letter-spacing: 0.04em; text-transform: uppercase;
+  pointer-events: none; opacity: 0; transition: opacity 80ms linear;
+  background: rgba(255, 255, 255, 0.86);
+}
+.swipe-stamp.yes { left: 22px; color: #16a34a; transform: rotate(-12deg); }
+.swipe-stamp.no { right: 22px; color: #dc2626; transform: rotate(12deg); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .swipe-stamp { background: rgba(15, 15, 15, 0.86); }
+}
+:root[data-theme="dark"] .swipe-stamp { background: rgba(15, 15, 15, 0.86); }
+
+/* The next decision rises into place. */
+@keyframes card-rise { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+.card.swipeable { animation: card-rise 260ms cubic-bezier(.2, .8, .2, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .card.swipeable { animation: none; }
+}
+.swipe-hint-desk { margin-left: 8px; font-size: 12.5px; color: #838383; }

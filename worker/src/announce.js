@@ -34,6 +34,23 @@ export async function announceEvents(env, orgId, events) {
   }
 }
 
+/// Events for named people in one workspace, each their own: `[{ to: login, event }]`.
+export async function announceTo(env, orgId, deliveries) {
+  if (!deliveries?.length || !env.ORG_RELAY) return { announced: 0 };
+  try {
+    const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
+    await stub.fetch(`https://relay.internal${EVENTS_PATH}?orgId=${encodeURIComponent(orgId)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deliveries }),
+    });
+    return { announced: deliveries.length };
+  } catch (err) {
+    console.error("targeted announce failed", err?.message || err);
+    return { announced: 0, error: true };
+  }
+}
+
 export async function announceCards(env, orgId, cards, { isNew = true } = {}) {
   if (!cards?.length) return { announced: 0 };
   // No relay binding, nowhere to announce. The cards are stored either way;

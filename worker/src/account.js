@@ -107,6 +107,9 @@ export async function exportAccount(db, githubId, login) {
     agentTokens: await tryAll(
       "SELECT org_id, name, prefix, created_at, last_used_at FROM api_tokens WHERE github_id = ?1", id
     ),
+    channelMessages: login
+      ? await tryAll("SELECT org_id, channel, body, created_at FROM channel_messages WHERE author_login = ?1", login)
+      : [],
     playbookRules: login
       ? await tryAll("SELECT org_id, text, origin, created_at FROM memories WHERE created_by = ?1", login)
       : [],
@@ -160,6 +163,10 @@ export async function deleteAccount(db, githubId, login) {
       ["UPDATE memories SET created_by = NULL WHERE created_by = ?1", [login]],
       ["DELETE FROM routines WHERE recipient_login = ?1", [login]],
       ["DELETE FROM proposals WHERE login = ?1", [login]],
+      // Their direct conversations go with them; what they said in a
+      // business's channel stays with the team, unsigned.
+      ["DELETE FROM channel_messages WHERE channel LIKE 'dm:%' AND (channel LIKE 'dm:' || ?1 || '|%' OR channel LIKE 'dm:%|' || ?1)", [login]],
+      ["UPDATE channel_messages SET author_login = NULL WHERE author_login = ?1", [login]],
     ]) {
       try {
         await db.prepare(sql).bind(...binds).run();

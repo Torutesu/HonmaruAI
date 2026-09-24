@@ -32,6 +32,8 @@ import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
+import { handleChannels } from "./channelRoutes.js";
+import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
 import { logJSON, routeLabel, safe } from "./log.js";
 import {
@@ -160,6 +162,28 @@ async function handle(request, env, url, ctx) {
     // Routines, the playbook, agent tokens and the MCP endpoint.
     const automated = await handleAutomation(request, env, url);
     if (automated) return automated;
+
+    // Channels: talking, and turning what was said into a decision through
+    // /ai/route itself, called in-process with the caller's own session.
+    if (url.pathname === "/channels" || url.pathname.startsWith("/channels/")) {
+      const channels = await handleChannels(request, env, url, {
+        route: (body) => {
+          const inner = new Request(new URL("/ai/route", url.origin), {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-session-token": request.headers.get("x-session-token") || "",
+              ...(request.headers.get("x-ai-key") ? { "x-ai-key": request.headers.get("x-ai-key") } : {}),
+              ...(request.headers.get("CF-Connecting-IP") ? { "CF-Connecting-IP": request.headers.get("CF-Connecting-IP") } : {}),
+            },
+            body: JSON.stringify(body),
+          });
+          return handle(inner, env, new URL(inner.url), ctx);
+        },
+        after: (work) => after(ctx, work),
+      });
+      if (channels) return channels;
+    }
 
         if (url.pathname === "/auth/signup" && request.method === "POST") {
       const limited = await enforce(env, request, "oauth/token");
@@ -1405,20 +1429,25 @@ async function handle(request, env, url, ctx) {
       let recent = [];
       let sources = [];
       let playbook = [];
+      let talk = [];
       try {
         const terms = searchTermsFor(question, card);
         const available = await connectedSources(env, session, orgId);
-        const [decisionsHit, recentHit, notionHit, githubHit, playbookHit] = await Promise.all([
+        const [decisionsHit, recentHit, notionHit, githubHit, playbookHit, talkHit] = await Promise.all([
           searchDecisions(env.DB, orgId, terms),
           recentDecisions(env.DB, orgId, { limit: 8 }),
           available.notion ? searchNotion(env, session.github_id, terms).catch((err) => { console.error("notion search failed", err?.message || err); return []; }) : [],
           available.github ? searchGithubIssues(session, orgId, terms, env).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
           relevantMemories(env.DB, orgId, `${card.title || ""} ${question}`),
+          // What the card's channel has been saying: the conversation the
+          // decision came out of is often the answer.
+          card.business ? recentBusinessTalk(env.DB, orgId, [card.business], { limit: 12 }).catch(() => []) : [],
         ]);
+        talk = talkHit;
         playbook = playbookHit;
         related = decisionsHit;
         recent = recentHit;
-        sources = [...notionHit, ...githubHit];
+        sources = [...notionHit, ...githubHit, ...talk.map((m) => ({ app: "Channel", title: `${m.channel} · ${m.who}`, snippet: m.text, when: m.when }))];
       } catch (err) {
         console.error("ask context failed", err?.message || err);
       }

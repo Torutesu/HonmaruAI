@@ -12,6 +12,7 @@ import { announceCards } from "./announce.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
 import { displayName } from "./notifyCopy.js";
+import { recentBusinessTalk } from "./channels.js";
 
 // Routines: work the AI does on a schedule, delivered as a card.
 //
@@ -314,7 +315,7 @@ function actionWord(action, locale) {
 
 const REPORT_PROMPT = `You are a team's AI, delivering a scheduled report into their decision feed.
 
-You are given the task the person set up, and the material: decisions made in the period, what waits on the reader, what has been stuck across the team, the team's playbook, past decisions that match the task, and pages from their connected tools.
+You are given the task the person set up, and the material: decisions made in the period, what waits on the reader, what has been stuck across the team, what the team said in its channels, the team's playbook, past decisions that match the task, and pages from their connected tools.
 
 Answer with JSON: {"title": "<under 70 characters>", "summary": "<one sentence, the single most important thing>", "markdown": "<the report>"}.
 
@@ -403,6 +404,9 @@ ${JSON.stringify({
     waitingOnReader: material.waiting,
     stuckAcrossTeam: material.stuck,
     cardsCreatedInPeriod: material.created,
+    // What the team said in its channels over the period: often where the
+    // week actually happened.
+    teamConversation: await recentBusinessTalk(env.DB, routine.org_id, null, { since: material.since, limit: 40 }).catch(() => []),
     relatedPastDecisions: related.slice(0, 8).map((d) => ({ title: d.title, status: d.status, decidedAt: d.decidedAt, who: d.recipient, note: d.note || null })),
     connectedTools: sources.slice(0, 8).map((s) => ({ app: s.app, title: s.title, when: s.when || null, snippet: s.snippet || null, url: s.url || null })),
   })}

@@ -1447,6 +1447,92 @@ await step('the list is a chat client on a laptop: sidebar, conversation, and a 
   await d.emulateMedia({ colorScheme: 'light' })
 }, { after: async () => { await work?.close() } })
 
+await step('people talk in a channel, and @AI turns what was said into a decision decided right there', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
+  try {
+    await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await d.waitForSelector('.slk-side', { timeout: 20000 })
+    await d.click('.cl-add')
+    await d.fill('.cl-add-form input', 'Kitchen')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.cl-thread:has-text("Kitchen")', { timeout: 15000 })
+    await d.click('.cl-thread:has-text("Kitchen") .cl-open')
+    await d.waitForSelector('.slk-head h1:has-text("Kitchen")', { timeout: 10000 })
+    // Talk: Enter sends, and the message is there without a reload.
+    await d.fill('.slk-input', 'The walk-in fridge died. Repair quote is ¥80,000, a new one ¥420,000.')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-msg:has-text("walk-in fridge died")', { timeout: 10000 })
+      .catch(() => { throw new Error('a message sent does not show in the channel') })
+    if ((await d.$eval('.slk-input', (el) => el.value))) throw new Error('the composer kept the sent text')
+    // @AI: the conversation becomes a card, announced in the channel.
+    await d.fill('.slk-input', '@AI approve the fridge repair')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-msg .slk-app-badge', { timeout: 30000 })
+      .catch(() => { throw new Error('the AI never answered in the channel') })
+    await d.waitForSelector('.slk-msg:has(.slk-app-badge) .slk-card', { timeout: 15000 })
+      .catch(() => { throw new Error('the AI answered without the card it made') })
+    await d.waitForSelector('.slk-msg:has-text("approve the fridge repair") .slk-made', { timeout: 15000 })
+      .catch(() => { throw new Error('the message that asked does not link to the decision it became') })
+    await d.screenshot({ path: `${SHOTS}/38-channel-ai.png` })
+    // Decided in place, as a chat app's buttons do.
+    await d.click('.slk-msg:has(.slk-app-badge) .slk-card .slk-action.primary')
+    await d.waitForSelector('.slk-msg:has(.slk-app-badge) .slk-card.decided', { timeout: 15000 })
+      .catch(() => { throw new Error('approving in the channel did not decide the card') })
+    // Kept: a reload brings the conversation back.
+    await d.reload({ waitUntil: 'load' })
+    await d.click('.cl-thread:has-text("Kitchen") .cl-open')
+    await d.waitForSelector('.slk-msg:has-text("walk-in fridge died")', { timeout: 15000 })
+      .catch(() => { throw new Error('the conversation did not survive a reload') })
+    const text = await d.$eval('.classic', (el) => el.innerText)
+    if (/@example\.com|\bu:|\bemail:/.test(text)) throw new Error('the channel shows an account id')
+    await noSpill(d, '.classic', 'the channel on a laptop')
+  } finally {
+    await ctx.close()
+  }
+})
+
+await step('a card is decided by dragging it off, the way it is swiped on a phone', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  try {
+    await d.goto(`${WEB}/#/feed`, { waitUntil: 'load' })
+    await d.waitForSelector('.tabbar', { timeout: 20000 })
+    await d.waitForTimeout(1500)
+    const before = await d.$$eval('.inbox-list .inbox-row', (els) => els.map((el) => el.getAttribute('data-card')))
+    await d.keyboard.press('n')
+    await d.waitForSelector('.sheet-compose textarea', { timeout: 10000 })
+    await d.fill('.sheet-compose textarea', 'Approve the new card stock for the menus')
+    await d.click('.sheet-compose .create-decision button:not(.mic)')
+    // The router words the title its own way; the new card is the new id.
+    const fresh = await d.waitForFunction((known) => {
+      const ids = [...document.querySelectorAll('.inbox-list .inbox-row')].map((el) => el.getAttribute('data-card'))
+      return ids.find((id) => id && !known.includes(id)) || null
+    }, before, { timeout: 25000 }).then((h) => h.jsonValue())
+    const row = `.inbox-list .inbox-row[data-card="${fresh}"]`
+    await d.click(row)
+    await d.waitForSelector('.workbench .card.swipeable', { timeout: 10000 })
+    const box = await (await d.$('.workbench .card.swipeable')).boundingBox()
+    const y = box.y + 60
+    await d.mouse.move(box.x + box.width / 2, y)
+    await d.mouse.down()
+    await d.mouse.move(box.x + box.width / 2 + 60, y, { steps: 6 })
+    await d.waitForTimeout(200)
+    const stamp = await d.$eval('.workbench .swipe-stamp.yes', (el) => Number(getComputedStyle(el).opacity))
+    if (!(stamp > 0.2)) throw new Error(`dragging shows no stamp (opacity ${stamp})`)
+    await d.mouse.move(box.x + box.width / 2 + 220, y, { steps: 6 })
+    await d.mouse.up()
+    await d.waitForFunction((id) => {
+      const el = document.querySelector(`.inbox-list .inbox-row[data-card="${id}"]`)
+      return !el || Boolean(el.querySelector('.inbox-when.quiet'))
+    }, fresh, { timeout: 15000 })
+      .catch(() => { throw new Error('dragging the card off did not decide it') })
+  } finally {
+    await ctx.close()
+  }
+})
+
 // The claim the whole product rests on: two people, and a card that crosses
 // between them without either of them touching a channel. Everything before
 // this is one person talking to their own AI, which proves the plumbing but

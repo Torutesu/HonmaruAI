@@ -179,6 +179,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       window.dispatchEvent(new CustomEvent('honmaru:comment', { detail: { cardId, comment } }))
     }
     wsClient.onBusinesses = (list) => { if (!ignore) setBusinesses(list) }
+    // Something said in a channel: the list listens for its own.
+    wsClient.onChannelMessage = (message) => {
+      if (ignore) return
+      window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: message }))
+    }
     wsClient.onReaction = (cardId, emoji, on, by, reactions) => {
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:reaction', { detail: { cardId, emoji, on, by, reactions } }))
@@ -551,6 +556,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           presence={presence}
           onOpen={(id) => { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(id)) }}
           onNudge={handleNudge}
+          onDecide={(id, action) => handleDecision(id, action)}
+          api={api}
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
           onWorkspace={() => setScreen('team')}

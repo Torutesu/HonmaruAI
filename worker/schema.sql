@@ -463,3 +463,19 @@ CREATE TABLE IF NOT EXISTS org_icons (
   content_type  TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+
+/* What people say in a channel: a business's (`b:<slug>`, the whole
+   workspace) or a direct one (`dm:<login>|<login>`, sorted; the two of
+   them). The AI reads it as context, and a message can become a decision:
+   `card_id` is the card made from it. */
+CREATE TABLE IF NOT EXISTS channel_messages (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  author_login  TEXT,
+  kind          TEXT NOT NULL DEFAULT 'message',
+  body          TEXT NOT NULL,
+  card_id       TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_channel_messages ON channel_messages(org_id, channel, created_at);

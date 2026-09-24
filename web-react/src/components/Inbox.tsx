@@ -144,7 +144,9 @@ export const Inbox: React.FC<Props> = ({ pending, decided, businesses, selectedI
           <Row
             key={c.id}
             card={c}
-            meta={[displayName(c.requestedBy?.name || c.senderUserID), nameOf(c.business), sourceLabel(c, t)].filter(Boolean).join(' · ')}
+            // A card an app brought in is from the app: the account id of whoever
+            // synced it is not a sender.
+            meta={[c.requestedBy?.name ? displayName(c.requestedBy.name) : (c.sourceApp ? '' : displayName(c.senderUserID)), nameOf(c.business), sourceLabel(c, t)].filter(Boolean).join(' · ')}
             locale={locale}
             on={c.id === selectedId}
             onSelect={onSelect}
