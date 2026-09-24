@@ -622,3 +622,41 @@
   }
   .row-select option { background: #1a1a1a; }
 }
+
+/* Classic in the dark: the same chat-client scale, on Slack's aubergine-free
+   dark neutral rather than ours, so the surface reads as one thing. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .classic { background: #1a1d21; color: #d1d2d3; }
+  :root:not([data-theme="light"]) .cl-workspace,
+  :root:not([data-theme="light"]) .cl-title,
+  :root:not([data-theme="light"]) .cl-avatar,
+  :root:not([data-theme="light"]) .cl-nudge { color: #d1d2d3; }
+  :root:not([data-theme="light"]) .cl-icon-button { background: #222529; border-color: #35373b; color: #d1d2d3; }
+  :root:not([data-theme="light"]) .cl-search, :root:not([data-theme="light"]) .cl-app { background: #222529; color: #ababad; }
+  :root:not([data-theme="light"]) .cl-avatar { background: #35373b; }
+  :root:not([data-theme="light"]) .cl-presence { background: #1a1d21; border-color: #ababad; box-shadow: 0 0 0 2px #1a1d21; }
+  :root:not([data-theme="light"]) .cl-presence.on { background: #2bac76; border-color: #2bac76; }
+  :root:not([data-theme="light"]) .cl-open:hover, :root:not([data-theme="light"]) .cl-thread.expanded > .cl-open { background: #222529; }
+  :root:not([data-theme="light"]) .cl-thread-cards { background: #1e2126; border-bottom-color: #2c2f33; }
+  :root:not([data-theme="light"]) .cl-nudge { background: #222529; border-color: #35373b; }
+  :root:not([data-theme="light"]) .unread > .cl-open .cl-meta { color: #d1d2d3; }
+  :root:not([data-theme="light"]) .cl-fold, :root:not([data-theme="light"]) .cl-empty,
+  :root:not([data-theme="light"]) .cl-when, :root:not([data-theme="light"]) .cl-meta,
+  :root:not([data-theme="light"]) .cl-summary, :root:not([data-theme="light"]) .cl-hash,
+  :root:not([data-theme="light"]) .cl-count, :root:not([data-theme="light"]) .cl-workspace .cl-caret { color: #ababad; }
+}
+:root[data-theme="dark"] .classic { background: #1a1d21; color: #d1d2d3; }
+:root[data-theme="dark"] .cl-workspace, :root[data-theme="dark"] .cl-title,
+:root[data-theme="dark"] .cl-avatar, :root[data-theme="dark"] .cl-nudge { color: #d1d2d3; }
+:root[data-theme="dark"] .cl-icon-button { background: #222529; border-color: #35373b; color: #d1d2d3; }
+:root[data-theme="dark"] .cl-search, :root[data-theme="dark"] .cl-app { background: #222529; color: #ababad; }
+:root[data-theme="dark"] .cl-avatar { background: #35373b; }
+:root[data-theme="dark"] .cl-presence { background: #1a1d21; border-color: #ababad; box-shadow: 0 0 0 2px #1a1d21; }
+:root[data-theme="dark"] .cl-presence.on { background: #2bac76; border-color: #2bac76; }
+:root[data-theme="dark"] .cl-open:hover, :root[data-theme="dark"] .cl-thread.expanded > .cl-open { background: #222529; }
+:root[data-theme="dark"] .cl-thread-cards { background: #1e2126; border-bottom-color: #2c2f33; }
+:root[data-theme="dark"] .cl-nudge { background: #222529; border-color: #35373b; }
+:root[data-theme="dark"] .unread > .cl-open .cl-meta { color: #d1d2d3; }
+:root[data-theme="dark"] .cl-fold, :root[data-theme="dark"] .cl-empty, :root[data-theme="dark"] .cl-when,
+:root[data-theme="dark"] .cl-meta, :root[data-theme="dark"] .cl-summary, :root[data-theme="dark"] .cl-hash,
+:root[data-theme="dark"] .cl-count, :root[data-theme="dark"] .cl-workspace .cl-caret { color: #ababad; }

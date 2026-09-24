@@ -29,6 +29,8 @@ interface Invite {
   /// Null for a code minted at a role above your own: reading it would be a
   /// promotion you could not otherwise grant. It can still be cancelled.
   code: string | null
+  /// The link that carries the code — what is actually handed over.
+  link: string | null
   role: string
   creator: string
   mine: boolean
@@ -142,8 +144,8 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
   }
 
   const copy = (invite: Invite) => {
-    if (!invite.code) return
-    navigator.clipboard?.writeText(invite.code)
+    if (!invite.link) return
+    navigator.clipboard?.writeText(invite.link)
     setCopied(invite.ref)
     setTimeout(() => setCopied(null), 1500)
   }
@@ -225,20 +227,23 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
 
         {invites.length > 0 && (
           <>
-            <div className="rows-title">{t('Codes you have out')}</div>
+            <div className="rows-title">{t('Links you have out')}</div>
             <div className="rows">
               {invites.map((i) => (
-                <div className="row static team-invite" key={i.ref} data-invite={i.ref}>
+                <div className="row static team-invite" key={i.ref} data-invite={i.ref} data-code={i.code || ''}>
                   <span className="row-main">
-                    <code className="invite-code sm">{i.code || `${i.ref.slice(0, 6)}…`}</code>
+                    {i.link
+                      ? <a className="invite-out-link" href={i.link} onClick={(e) => e.preventDefault()}>{i.link.replace(/^https?:\/\//, '')}</a>
+                      : <code className="invite-code sm">{`${i.ref.slice(0, 6)}…`}</code>}
                     <span className="row-sub">
                       {t(ROLE_LABEL[i.role] || i.role)}
                       {' · '}
                       {i.mine ? t('yours') : t('from {name}', { name: i.creator })}
+                      {i.expiresAt && ` · ${t('until {when}', { when: new Date(i.expiresAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) })}`}
                       {i.maxUses > 1 && ` · ${i.uses}/${i.maxUses}`}
                     </span>
                   </span>
-                  {i.code && (
+                  {i.link && (
                     <button className="btn-text" onClick={() => copy(i)}>
                       {copied === i.ref ? t('Copied!') : t('Copy')}
                     </button>

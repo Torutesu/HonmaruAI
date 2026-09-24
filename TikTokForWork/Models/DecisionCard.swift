@@ -120,6 +120,13 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var decision: Decision?
     var recommendation: DecisionRecommendation?
     var requestedBy: CardRequester?
+    /// The thread under the card, summarised by the Worker: how many said
+    /// something, when the last one did, and the reactions by emoji.
+    var commentCount: Int?
+    var lastCommentAt: String?
+    var reactions: [String: Int]?
+    /// Member refs the sender named with an @.
+    var mentions: [String]?
     var recipientMemberRef: String?
     var recipientName: String?
 

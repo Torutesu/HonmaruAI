@@ -19,6 +19,10 @@ const STRINGS = {
     digest: "{count} decisions need you",
     nudge: "{name} is still waiting on your decision",
     nudgeSubtitle: "A gentle reminder",
+    commented: "{name}: {text}",
+    mentioned: "{name} mentioned you: {text}",
+    emailCommentIntro: "{name} said something under a decision you are part of.",
+    emailMentionIntro: "{name} mentioned you under a decision.",
     emailSubject: "[Honmaru] {title}",
     emailIntro: "A decision is waiting on you.",
     emailDecidedIntro: "A decision you asked for has been made.",
@@ -51,6 +55,10 @@ const STRINGS = {
     digest: "{count}件の決定があなたを待っています",
     nudge: "{name}があなたの決定を待っています",
     nudgeSubtitle: "リマインダー",
+    commented: "{name}: {text}",
+    mentioned: "{name}があなたをメンションしました: {text}",
+    emailCommentIntro: "{name}が、あなたに関わる決定にコメントしました。",
+    emailMentionIntro: "{name}が決定のスレッドであなたをメンションしました。",
     emailSubject: "[Honmaru] {title}",
     emailIntro: "あなたの決定が必要な案件があります。",
     emailDecidedIntro: "あなたが依頼した案件が決定されました。",
@@ -83,6 +91,10 @@ const STRINGS = {
     digest: "{count} decisiones te esperan",
     nudge: "{name} sigue esperando tu decisión",
     nudgeSubtitle: "Un recordatorio amable",
+    commented: "{name}: {text}",
+    mentioned: "{name} te mencionó: {text}",
+    emailCommentIntro: "{name} dijo algo bajo una decisión de la que formas parte.",
+    emailMentionIntro: "{name} te mencionó bajo una decisión.",
     emailSubject: "[Honmaru] {title}",
     emailIntro: "Hay una decisión esperándote.",
     emailDecidedIntro: "Se ha tomado una decisión que pediste.",
@@ -115,6 +127,10 @@ const STRINGS = {
     digest: "{count} décisions vous attendent",
     nudge: "{name} attend toujours votre décision",
     nudgeSubtitle: "Un petit rappel",
+    commented: "{name} : {text}",
+    mentioned: "{name} vous a mentionné : {text}",
+    emailCommentIntro: "{name} a écrit sous une décision qui vous concerne.",
+    emailMentionIntro: "{name} vous a mentionné sous une décision.",
     emailSubject: "[Honmaru] {title}",
     emailIntro: "Une décision vous attend.",
     emailDecidedIntro: "Une décision que vous aviez demandée a été prise.",
@@ -147,6 +163,10 @@ const STRINGS = {
     digest: "{count} Entscheidungen warten auf dich",
     nudge: "{name} wartet noch auf deine Entscheidung",
     nudgeSubtitle: "Eine freundliche Erinnerung",
+    commented: "{name}: {text}",
+    mentioned: "{name} hat dich erwähnt: {text}",
+    emailCommentIntro: "{name} hat unter einer Entscheidung geschrieben, an der du beteiligt bist.",
+    emailMentionIntro: "{name} hat dich unter einer Entscheidung erwähnt.",
     emailSubject: "[Honmaru] {title}",
     emailIntro: "Eine Entscheidung wartet auf dich.",
     emailDecidedIntro: "Eine Entscheidung, um die du gebeten hast, wurde getroffen.",
@@ -225,7 +245,7 @@ export function displayName(login) {
 /// `kind` is created | decided | nudged | digest. The body is title and routing
 /// line only: the lock screen is a public surface, and a summary can carry a
 /// salary or a client's name. The card id rides alongside so a tap can open it.
-export function composeAlert({ card, kind, locale, count }) {
+export function composeAlert({ card, kind, locale, count, comment }) {
   const lang = stringsFor(locale) === STRINGS.en ? "en" : locale;
   if (kind === "digest") {
     return { title: t(lang, "digest", { count }), subtitle: t(lang, "yourAI") };
@@ -244,6 +264,16 @@ export function composeAlert({ card, kind, locale, count }) {
       subtitle: t(lang, "nudge", { name: displayName(card.senderUserID) }),
     };
   }
+  // The thread: what someone said, under the card's title. `comment` is
+  // the text and who wrote it, passed by the caller.
+  if (kind === "commented" || kind === "mentioned") {
+    const text = String(comment?.text || "").replace(/\s+/g, " ").trim();
+    const short = text.length > 90 ? `${text.slice(0, 89)}…` : text;
+    return {
+      title: titleFor(card, lang) || t(lang, "waiting"),
+      subtitle: t(lang, kind, { name: comment?.name || displayName(comment?.author), text: short }),
+    };
+  }
   const sender = card.senderUserID;
   const selfSent = !sender || sender === "deleted-user" || sender === card.recipientUserID;
   return {
@@ -254,14 +284,19 @@ export function composeAlert({ card, kind, locale, count }) {
 
 /// The same alert, as an email. Plain text: it renders everywhere, and a
 /// decision is not a newsletter.
-export function composeEmail({ card, kind, locale, count, url }) {
+export function composeEmail({ card, kind, locale, count, url, comment }) {
   const lang = stringsFor(locale) === STRINGS.en ? "en" : locale;
-  const alert = composeAlert({ card, kind, locale: lang, count });
+  const alert = composeAlert({ card, kind, locale: lang, count, comment });
+  const who = comment?.name || displayName(comment?.author);
   const intro = kind === "decided"
     ? t(lang, "emailDecidedIntro")
     : kind === "nudged"
       ? t(lang, "emailNudgeIntro", { name: displayName(card.senderUserID) })
-      : t(lang, "emailIntro");
+      : kind === "commented"
+        ? t(lang, "emailCommentIntro", { name: who })
+        : kind === "mentioned"
+          ? t(lang, "emailMentionIntro", { name: who })
+          : t(lang, "emailIntro");
   const lines = [intro, "", alert.title, alert.subtitle];
   const summary = kind === "digest" ? "" : summaryFor(card, lang);
   if (summary) lines.push("", summary);

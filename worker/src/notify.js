@@ -56,9 +56,11 @@ function deepLink(env, card) {
 /// `kind`: created | decided | nudged | digest. `count` is for a digest.
 /// `badge` is the recipient's pending count when the caller knows it — an
 /// absent badge leaves whatever is on the icon, which beats guessing.
-export async function notifyCard(env, { card, kind = "created", excludeLogin, badge, count }) {
+export async function notifyCard(env, { card, kind = "created", excludeLogin, badge, count, toLogin, comment }) {
   const channels = { apns: 0, webpush: 0, email: 0 };
-  const recipient = recipientFor(card, kind);
+  // A comment or a mention names its reader; everything else is read off
+  // the card.
+  const recipient = toLogin || recipientFor(card, kind);
   // Telling you about the thing you just did is noise, and it is the most
   // common shape of a bad notification.
   if (!recipient || recipient === excludeLogin || recipient === "deleted-user") {
@@ -68,7 +70,7 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
 
   const user = await getUserByLogin(env.DB, recipient);
   const locale = user?.locale || "en";
-  const alert = composeAlert({ card, kind, locale, count });
+  const alert = composeAlert({ card, kind, locale, count, comment });
   const collapseId = card.id;
   let devices = [];
   let subscriptions = [];
@@ -126,7 +128,7 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
   // one of them is gone — and they have an address and have not said no.
   const reached = channels.apns + channels.webpush > 0;
   if (!reached && isMailConfigured(env) && user?.email && Number(user.notify_email ?? 1) !== 0) {
-    const mail = composeEmail({ card, kind, locale, count, url: deepLink(env, card) });
+    const mail = composeEmail({ card, kind, locale, count, url: deepLink(env, card), comment });
     const result = await sendMail(env, { to: user.email, ...mail });
     if (result.ok) channels.email += 1;
   }

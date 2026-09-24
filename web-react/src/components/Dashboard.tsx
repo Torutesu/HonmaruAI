@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
-import { ClassicList } from './ClassicList'
+import { ClassicList, type Presence } from './ClassicList'
 import { Inbox } from './Inbox'
 import { Palette } from './Palette'
 import type { PaletteAction } from './Palette'
@@ -84,6 +84,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const desktop = useDesktop()
   const screen: Screen | null = route.screen
   const [businesses, setBusinesses] = useState<Business[]>([])
+  // Who is here right now, by login — the relay's word, shown as a dot.
+  const [presence, setPresence] = useState<Presence>({})
+  // The team's name, for the list's header. From /members, which is the one
+  // read that carries it and is already membership-checked.
+  const [orgName, setOrgName] = useState('')
   const [debugLog, setDebugLog] = useState<Array<{ timestamp: string; message: string }>>([])
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
   // Bumped when the language changes, so cards re-read their localized text.
@@ -150,7 +155,21 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     }
     wsClient.onCardUpdated = (card) => { if (!ignore) addDebugLog(`Card updated: ${card.id}`) }
     wsClient.onCardDeleted = (cardId) => { if (!ignore) addDebugLog(`Card deleted: ${cardId}`) }
-    wsClient.onPresence = (who, status) => { if (!ignore) addDebugLog(`Presence: ${who} → ${status}`) }
+    wsClient.onPresence = (who, status) => {
+      if (ignore) return
+      addDebugLog(`Presence: ${who} → ${status}`)
+      setPresence((prev) => ({ ...prev, [who]: status === 'online' ? 'online' : 'offline' }))
+    }
+    // A comment or a reaction: the thread under the open card listens for
+    // its own card; the counts ride in on the card update that follows.
+    wsClient.onComment = (cardId, comment) => {
+      if (ignore) return
+      window.dispatchEvent(new CustomEvent('honmaru:comment', { detail: { cardId, comment } }))
+    }
+    wsClient.onReaction = (cardId, emoji, on, by, reactions) => {
+      if (ignore) return
+      window.dispatchEvent(new CustomEvent('honmaru:reaction', { detail: { cardId, emoji, on, by, reactions } }))
+    }
     wsClient.onError = (message) => { if (!ignore) { setError(message); addDebugLog(`Error: ${message}`) } }
     // The relay will not have this socket, and will not have the next one
     // either. Retrying is not the answer to any of these — where the answer is
@@ -208,6 +227,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     } catch { /* a label is a convenience */ }
   }, [relayHttpUrl, orgId, sessionToken])
   useEffect(() => { loadBusinesses() }, [loadBusinesses])
+  useEffect(() => {
+    let ignore = false
+    fetch(`${relayHttpUrl}/members?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!ignore && data && typeof data.name === 'string') setOrgName(data.name) })
+      .catch(() => { /* the header falls back to a generic name */ })
+    return () => { ignore = true }
+  }, [relayHttpUrl, orgId, sessionToken])
   useEffect(() => {
     const known = new Set(businesses.map((b) => b.slug))
     if (Object.values(state.cardsById || {}).some((c) => c.business && !known.has(c.business))) loadBusinesses()
@@ -455,12 +482,18 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       ) : (
         <ClassicList
           key={localeVersion}
+          userId={userId}
+          orgName={orgName}
           pending={pendingCards}
           sent={sentCards}
           decided={decidedCards}
           businesses={businesses}
+          presence={presence}
           onOpen={(id) => { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(id)) }}
           onNudge={handleNudge}
+          onSearch={() => setPalette(true)}
+          onCompose={() => setPanel('compose')}
+          onWorkspace={() => setScreen('team')}
         />
       )}
 

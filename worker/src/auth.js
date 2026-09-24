@@ -7,7 +7,22 @@ import { createSession, upsertUser, upsertMembership, primaryOrgId } from "./db.
 const ENC = new TextEncoder();
 
 // How long an invite stays redeemable.
-const INVITE_TTL_DAYS = 7;
+// Three days. An invitation is a link somebody opens this week, not a
+// standing door: a leaked one is closed by the calendar before anyone has
+// to notice it.
+const INVITE_TTL_DAYS = 3;
+
+/// The code inside whatever was pasted: a bare code, the link the app
+/// hands out (`…#/join/<code>`), or a code with spaces around it. A person
+/// forwards a link; the endpoints read the code out of it.
+export function inviteCodeFrom(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  const inLink = raw.match(/join\/([0-9a-fA-F]{32})/);
+  if (inLink) return inLink[1].toLowerCase();
+  const bare = raw.match(/^([0-9a-fA-F]{32})$/);
+  return bare ? bare[1].toLowerCase() : raw;
+}
 
 // Sessions carry a GitHub access token. An email account has none, so it gets
 // this marker in that column instead. Anything that would spend the token has
@@ -135,7 +150,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
       org = invite.org_id;
       joinRole = invite.role || "member";
     } else {
-      inviteError = "That invite code is not valid.";
+      inviteError = "That invitation is not valid, or it has expired.";
     }
   }
   if (!org) {
@@ -202,7 +217,7 @@ export async function login(env, { email, password, inviteCode }) {
 async function readInvite(db, code) {
   const row = await db
     .prepare("SELECT org_id, role, expires_at, max_uses, uses FROM invites WHERE code = ?1")
-    .bind(code)
+    .bind(inviteCodeFrom(code))
     .first();
   if (!row) return null;
   if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
@@ -216,7 +231,7 @@ async function readInvite(db, code) {
 async function spendInvite(db, code) {
   const { meta } = await db
     .prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?1 AND uses < max_uses")
-    .bind(code)
+    .bind(inviteCodeFrom(code))
     .run();
   return Boolean(meta?.changes);
 }
@@ -290,7 +305,7 @@ export async function peekInvite(env, code) {
          LEFT JOIN users u ON u.github_id = i.created_by
         WHERE i.code = ?1`
     )
-    .bind(code.trim())
+    .bind(inviteCodeFrom(code))
     .first();
   if (!row) return null;
   if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
@@ -310,7 +325,7 @@ export async function acceptInvite(env, { code, userId }) {
   // One message for unknown, expired and spent: distinguishing them tells a
   // guesser which of their guesses was once real.
   const row = await readInvite(env.DB, code.trim());
-  if (!row) return { error: "That invite code is not valid." };
+  if (!row) return { error: "That invitation is not valid, or it has expired." };
   // upsertMembership assigns the role outright, so redeeming a member link for
   // an org you already administer used to demote you. An invite can add you,
   // and can raise you, but must never take standing away.
@@ -328,7 +343,7 @@ export async function acceptInvite(env, { code, userId }) {
   // not valid. Only a redemption that adds someone, or raises them, takes one.
   if (!existing || keep !== held) {
     if (!(await spendInvite(env.DB, code.trim()))) {
-      return { error: "That invite code is not valid." };
+      return { error: "That invitation is not valid, or it has expired." };
     }
     await upsertMembership(env.DB, row.org_id, userId, keep);
   }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Membership changes happen only after an explicit invite/join action.
 struct TeamSettingsView: View {
@@ -48,27 +49,29 @@ struct TeamSettingsView: View {
                 }
                 Section {
                     if inviteCode.isEmpty {
-                        Button("Create invite code") { Task { await perform(join: false) } }
+                        Button("Create invite link") { Task { await perform(join: false) } }
+                    } else if let inviteLink {
+                        // The link is what you hand over: opened, it joins
+                        // or signs the person up into this team. It works
+                        // for three days.
+                        Text(inviteLink.absoluteString).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(2)
+                        ShareLink(item: inviteLink, message: Text("Join my team on Honmaru AI")) { Label("Share invite link", systemImage: "link") }
+                        Button("Copy link") { UIPasteboard.general.string = inviteLink.absoluteString }
+                        Button("Create another") { Task { await perform(join: false) } }
                     } else {
-                        if let inviteLink {
-                            // The link is what you hand over: opened, it joins
-                            // or signs the person up into this team.
-                            ShareLink(item: inviteLink, message: Text("Join my team on Honmaru AI")) { Label("Share invite link", systemImage: "link") }
-                        }
-                        Text(inviteCode).font(.title3.monospaced()).textSelection(.enabled)
-                        ShareLink(item: inviteCode) { Label("Share invite code", systemImage: "square.and.arrow.up") }
-                        Button("Create invite code") { Task { await perform(join: false) } }
+                        Text("This deployment has no web address to put in a link yet.").foregroundStyle(.secondary)
+                        Button("Create invite link") { Task { await perform(join: false) } }
                     }
-                } header: { Text("Invite a teammate") } footer: { Text("People with this code can join your team and access its shared work.") }
+                } header: { Text("Invite a teammate") } footer: { Text("Whoever opens the link within three days joins your team.") }
                 Section {
                     TextField("Team name", text: $newTeamName)
                     Button("Create team") { Task { await createTeam() } }.disabled(newTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } header: { Text("Create a team") } footer: { Text("A workspace of its own, with a name, that you invite people into.") }
                 Section {
-                    TextField("Invite code", text: $joinCode).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Invite link", text: $joinCode).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     Button("Join team") { Task { await perform(join: true) } }.disabled(joinCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     if joined { Text("Team joined. Your draft is still available.").foregroundStyle(.secondary) }
-                } header: { Text("Join a team") } footer: { Text("Enter a code from your teammate to switch to their team.") }
+                } header: { Text("Join a team") } footer: { Text("Paste the invite link your teammate sent you to switch to their team.") }
             }
             if busy { ProgressView() }
             if let error { Section { Text(error).foregroundStyle(Theme.Colors.reject) } }

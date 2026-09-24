@@ -5,6 +5,20 @@ import { getAIKey } from '../utils/aiKey'
 
 interface Connector { id: string; label: string; status: string }
 
+/// What this workspace runs its AI on, from the Worker: the model and where
+/// each piece comes from. Keys never come back — only whether one is set.
+interface AIStatus {
+  canEdit: boolean
+  model: string | null
+  modelSource: 'workspace' | 'deployment' | 'none'
+  openai: 'workspace' | 'deployment' | 'none'
+  openaiHint: string | null
+  systemOne: boolean
+  jev: 'workspace' | 'deployment' | 'none'
+  jevHint: string | null
+  models: Array<{ id: string; priceIn: number; priceOut: number }>
+}
+
 interface Props {
   httpBase: string
   orgId: string
@@ -58,12 +72,37 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   // model, whether System One (Jev) is switched on, and whether this
   // browser sends its own key. Nothing here is a promise the server has
   // not made.
-  const [health, setHealth] = useState<{ aiRouting: boolean; aiModel: string; systemOne: boolean } | null>(null)
+  const [ai, setAI] = useState<AIStatus | null>(null)
+  const [aiBusy, setAIBusy] = useState(false)
+  const [aiError, setAIError] = useState<string | null>(null)
+  const [aiNote, setAINote] = useState<string | null>(null)
+  const [openaiDraft, setOpenaiDraft] = useState('')
+  const [jevDraft, setJevDraft] = useState('')
   useEffect(() => {
     let ignore = false
-    fetch(`${httpBase}/health`).then((r) => (r.ok ? r.json() : null)).then((h) => { if (!ignore && h) setHealth(h) }).catch(() => {})
+    fetch(`${httpBase}/orgs/ai?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((a) => { if (!ignore && a) setAI(a) })
+      .catch(() => {})
     return () => { ignore = true }
-  }, [httpBase])
+  }, [httpBase, orgId, sessionToken])
+  const saveAI = async (body: Record<string, unknown>, said: string) => {
+    setAIBusy(true); setAIError(null); setAINote(null)
+    try {
+      const res = await fetch(`${httpBase}/orgs/ai`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, ...body }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setAIError(data.message || t('That did not save.')); return }
+      setAI(data)
+      setOpenaiDraft(''); setJevDraft('')
+      setAINote(said)
+    } catch (err) {
+      setAIError(err instanceof Error ? err.message : String(err))
+    } finally { setAIBusy(false) }
+  }
   const ownKey = Boolean(getAIKey())
 
   const load = useCallback(async () => {
@@ -198,18 +237,97 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         {note && <div className="form-note">{note}</div>}
         {error && <div className="form-error">{error}</div>}
 
-        {health && (
+        {ai && (
           <>
             <div className="rows-title">{t('Your AI')}</div>
             <div className="rows ai-status">
               <div className="row static">
-                <span className="row-main">{t('Language model')}<span className="row-sub">{t('Writes cards, answers, drafts and translations.')}</span></span>
-                <span className="row-value">{ownKey ? t('Your own key') : health.aiRouting ? health.aiModel : t('Off')}</span>
+                <span className="row-main">
+                  {t('Language model')}
+                  <span className="row-sub">
+                    {t('Writes cards, answers, drafts and translations.')}
+                    {' '}
+                    {ai.modelSource === 'workspace' ? t('Chosen for this workspace.') : ai.modelSource === 'deployment' ? t('The deployment\u2019s default.') : t('No model is set up yet.')}
+                  </span>
+                </span>
+                {ai.canEdit ? (
+                  <select
+                    className="row-select"
+                    value={ai.modelSource === 'workspace' ? (ai.model || '') : ''}
+                    disabled={aiBusy}
+                    onChange={(e) => saveAI({ model: e.target.value || null }, t('Model saved for this workspace.'))}
+                    aria-label={t('Language model')}
+                  >
+                    <option value="">{t('Default ({model})', { model: ai.modelSource === 'workspace' ? t('deployment') : (ai.model || t('none')) })}</option>
+                    {ai.models.map((m) => (
+                      <option key={m.id} value={m.id}>{m.id} · ${m.priceIn}/${m.priceOut} {t('per 1M tokens')}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="row-value">{ownKey ? t('Your own key') : ai.model || t('Off')}</span>
+                )}
               </div>
-              <div className="row static">
-                <span className="row-main">{t('Jev (System One)')}<span className="row-sub">{health.systemOne ? t('Decides who and how urgent for a fraction of a cent; the model is asked only when it is unsure.') : t('Not switched on here. Set TYPESAFE_API_KEY on the Worker and routing gets cheaper.')}</span></span>
-                <span className={`row-value ${health.systemOne ? 'on' : ''}`}>{health.systemOne ? t('On') : t('Off')}</span>
+              <div className="row static ai-key">
+                <span className="row-main">
+                  {t('OpenAI key for this workspace')}
+                  <span className="row-sub">
+                    {ai.openai === 'workspace'
+                      ? t('Set ({hint}). Calls are billed to it.', { hint: ai.openaiHint || '' })
+                      : ai.openai === 'deployment' ? t('Not set. Calls run on the deployment\u2019s key.') : t('Not set, and the deployment has none: the AI is off until one is entered.')}
+                  </span>
+                  {ai.canEdit && (
+                    <span className="ai-key-form">
+                      <input
+                        className="ai-key-input"
+                        type="password"
+                        autoComplete="off"
+                        value={openaiDraft}
+                        onChange={(e) => setOpenaiDraft(e.target.value)}
+                        placeholder="sk-…"
+                        aria-label={t('OpenAI key for this workspace')}
+                        disabled={aiBusy}
+                      />
+                      <button className="pill-btn" disabled={aiBusy || !openaiDraft.trim()} onClick={() => saveAI({ openaiKey: openaiDraft.trim() }, t('OpenAI key saved for this workspace.'))}>{t('Save')}</button>
+                      {ai.openai === 'workspace' && (
+                        <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ openaiKey: null }, t('OpenAI key removed.'))}>{t('Remove')}</button>
+                      )}
+                    </span>
+                  )}
+                </span>
               </div>
+              <div className="row static ai-key">
+                <span className="row-main">
+                  {t('Jev (System One)')}
+                  <span className="row-sub">
+                    {ai.systemOne
+                      ? t('Decides who and how urgent for a fraction of a cent; the model is asked only when it is unsure.')
+                      : t('Off. Enter a TypeSafe API key and routing gets cheaper.')}
+                    {ai.jev === 'workspace' && ` (${ai.jevHint})`}
+                  </span>
+                  {ai.canEdit && (
+                    <span className="ai-key-form">
+                      <input
+                        className="ai-key-input"
+                        type="password"
+                        autoComplete="off"
+                        value={jevDraft}
+                        onChange={(e) => setJevDraft(e.target.value)}
+                        placeholder={t('TypeSafe API key')}
+                        aria-label={t('TypeSafe API key')}
+                        disabled={aiBusy}
+                      />
+                      <button className="pill-btn" disabled={aiBusy || !jevDraft.trim()} onClick={() => saveAI({ typesafeKey: jevDraft.trim() }, t('Jev switched on for this workspace.'))}>{t('Save')}</button>
+                      {ai.jev === 'workspace' && (
+                        <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ typesafeKey: null }, t('Jev key removed.'))}>{t('Remove')}</button>
+                      )}
+                    </span>
+                  )}
+                </span>
+                <span className={`row-value ${ai.systemOne ? 'on' : ''}`}>{ai.systemOne ? t('On') : t('Off')}</span>
+              </div>
+              {!ai.canEdit && <div className="form-note">{t('An admin of this workspace can change these.')}</div>}
+              {aiNote && <div className="form-note">{aiNote}</div>}
+              {aiError && <div className="form-error">{aiError}</div>}
             </div>
           </>
         )}

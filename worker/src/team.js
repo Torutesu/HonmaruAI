@@ -7,8 +7,8 @@
 // session to do it — so for everyone who signed in with an email address, in
 // the `personal:` workspace they were given, it answered nothing at all.
 
-import { ROLE_RANK, sha256Hex } from "./auth.js";
-import { saveCard, removeCard, getUserByLogin } from "./db.js";
+import { ROLE_RANK, sha256Hex, inviteLink } from "./auth.js";
+import { saveCard, removeCard, getUserByLogin, parseAliases } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
 import { notifyCard } from "./notify.js";
@@ -66,6 +66,7 @@ export async function listMembers(db, orgId, viewerId) {
               COALESCE(u.name, u.login, m.user_github_id)   AS name,
               m.role                                        AS role,
               m.title                                       AS title,
+              u.aliases                                     AS aliases,
               m.created_at                                  AS joinedAt
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
@@ -85,6 +86,8 @@ export async function listMembers(db, orgId, viewerId) {
       role: String(r.role || "member").toLowerCase(),
       // What they say they do, when that differs from the standing they hold.
       title: r.title || null,
+      // Other names they answer to, for "@美香" reaching Mika.
+      aliases: parseAliases(r.aliases),
       joinedAt: r.joinedAt,
       mine: String(r.userId) === String(viewerId),
     }))
@@ -194,6 +197,8 @@ export async function listInvites(env, { orgId, viewerId }) {
       return {
         ref,
         code: readable ? r.code : null,
+        // The link is what is handed over; the code is what is inside it.
+        link: readable ? inviteLink(env, r.code) : null,
         role: String(r.role || "member").toLowerCase(),
         creator: r.creator,
         mine,

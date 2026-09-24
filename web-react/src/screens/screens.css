@@ -475,3 +475,17 @@
   .team-name-input, .invite-email, .invite-link { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
 }
 
+/* What you do, typed; what the AI runs on, entered. */
+.role-edit { align-items: stretch; }
+.role-input, .ai-key-input {
+  font: inherit; font-size: 14px; color: var(--ink);
+  background: var(--mist, #f8f9fa); border: 1px solid var(--bone); border-radius: 10px;
+  padding: 8px 10px; min-width: 0; width: 100%;
+}
+.role-input:focus, .ai-key-input:focus { outline: none; border-color: var(--ash); }
+.ai-key { align-items: flex-start; }
+.ai-key .row-main { display: block; }
+.ai-key .row-value { margin-top: 2px; }
+.ai-key-form { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.ai-key-form .ai-key-input { flex: 1; }
+.invite-out-link { font-size: 12px; color: var(--ink); text-decoration: none; word-break: break-all; }

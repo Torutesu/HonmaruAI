@@ -342,24 +342,31 @@ export async function upsertMembership(db, orgId, githubId, role) {
 /// `admin`, `triager` and `maintainer` are absent because those are standing:
 /// granted by an invite or by GitHub, never claimed.
 export const SELF_ASSIGNABLE_ROLES = ["member", "designer", "engineer", "operator", "founder"];
+export const MAX_TITLE_CHARS = 40;
+const STANDING_WORDS = new Set(["admin", "administrator", "owner", "maintainer", "triager", "moderator"]);
 
-/// Say what you do. Any member, any of the titles above, no standing changed.
-///
-/// This used to write `memberships.role`, and refuse anyone holding standing
-/// so that an admin could not demote themselves by answering an onboarding
-/// question. That made the question unanswerable in the commonest case:
-/// signing up alone makes you admin of your own organization, so every new
-/// account was told no. Standing and description are different columns now,
-/// and this one touches only the description.
+/// Say what you do. Any member, in their own words — "CFO", "店長", "head of
+/// suppliers" — or one of the presets above. No standing changes: an admin
+/// who says they are a designer is still an admin. The title is what the
+/// router reads when it decides who a thing is for, so it is the one line
+/// every member gets to write about themselves.
 export async function setOwnTitle(db, orgId, githubId, title) {
-  const wanted = String(title || "").trim().toLowerCase();
-  if (!SELF_ASSIGNABLE_ROLES.includes(wanted)) return { error: "That is not a role you can pick." };
+  const wanted = String(title || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  if (!wanted) return { error: "Say what you do, in a word or a few." };
+  if (wanted.length > MAX_TITLE_CHARS) return { error: `A role is at most ${MAX_TITLE_CHARS} characters.` };
+  // A title that reads as standing — "admin", "maintainer", "triager" — is
+  // refused: it would look like a promotion on every screen that shows it,
+  // and standing is granted by an invite, never by the person themselves.
+  if (STANDING_WORDS.has(wanted.toLowerCase()) && !SELF_ASSIGNABLE_ROLES.includes(wanted.toLowerCase())) {
+    return { error: "That is not a role you can pick." };
+  }
+  const stored = SELF_ASSIGNABLE_ROLES.includes(wanted.toLowerCase()) ? wanted.toLowerCase() : wanted;
   const { meta } = await db
     .prepare("UPDATE memberships SET title = ?3 WHERE org_id = ?1 AND user_github_id = ?2")
-    .bind(orgId, String(githubId), wanted)
+    .bind(orgId, String(githubId), stored)
     .run();
   if (!meta?.changes) return { error: "You are not a member of this organization." };
-  return { role: wanted };
+  return { role: stored };
 }
 
 /// What this person does in this org, for the client and the router: the title
@@ -370,7 +377,9 @@ export async function ownTitle(db, orgId, githubId) {
     .bind(orgId, String(githubId))
     .first();
   if (!row) return null;
-  return String(row.title || row.role || "member").toLowerCase();
+  const title = String(row.title || "").trim();
+  if (title) return SELF_ASSIGNABLE_ROLES.includes(title.toLowerCase()) ? title.toLowerCase() : title;
+  return String(row.role || "member").toLowerCase();
 }
 
 /// Remove everyone from an org except the github ids given.

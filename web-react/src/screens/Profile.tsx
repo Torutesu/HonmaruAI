@@ -3,7 +3,7 @@ import { getLocale, LOCALE_NAMES } from '../utils/locale'
 import type { Business } from '../types/card'
 import { useT, changeLocale as applyLocale } from '../utils/i18n'
 import { Icon } from '../components/Icon'
-import { getSenderContext, setSenderContext, MAX_CONTEXT_CHARS } from '../utils/context'
+import { getSenderContext, setSenderContext, loadSenderContext, saveSenderContext, MAX_CONTEXT_CHARS } from '../utils/context'
 import { canInstall, promptInstall, onInstallChange } from '../utils/install'
 import { getAIKey, setAIKey } from '../utils/aiKey'
 
@@ -77,8 +77,45 @@ export const Profile: React.FC<Props> = ({
   // matches an instruction against these, so 「美香に」 reaches an account
   // whose login is "mika".
   const [aliases, setAliases] = useState('')
-  // "How I work": kept in this browser, sent with every instruction.
-  const [howIWork, setHowIWork] = useState(getSenderContext)
+  // What you do, in your own words — typed, then saved when you leave the box.
+  const [roleDraft, setRoleDraft] = useState<string | null>(null)
+  // "How I work": stored on the server per person and per workspace, sent
+  // with every instruction. The local copy shows first; the server's replaces
+  // it unless you have already started typing.
+  const [howIWork, setHowIWork] = useState(() => getSenderContext(orgId))
+  const howTouched = useRef(false)
+  const howSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [howSaved, setHowSaved] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  useEffect(() => {
+    let ignore = false
+    loadSenderContext(httpBase, orgId, sessionToken).then((text) => {
+      if (ignore || text === null || howTouched.current) return
+      setHowIWork(text)
+    })
+    return () => { ignore = true }
+  }, [httpBase, orgId, sessionToken])
+  const howPending = useRef<string | null>(null)
+  const flushHow = async () => {
+    if (howSaveTimer.current) { clearTimeout(howSaveTimer.current); howSaveTimer.current = null }
+    const text = howPending.current
+    if (text === null) return
+    howPending.current = null
+    const ok = await saveSenderContext(httpBase, orgId, sessionToken, text)
+    setHowSaved(ok ? 'saved' : 'failed')
+  }
+  const saveHow = (text: string) => {
+    if (howSaveTimer.current) clearTimeout(howSaveTimer.current)
+    howPending.current = text
+    setHowSaved('saving')
+    howSaveTimer.current = setTimeout(() => { void flushHow() }, 600)
+  }
+  // Leaving the screen, or the page, must not lose what was typed.
+  useEffect(() => {
+    const onHide = () => { void flushHow() }
+    window.addEventListener('pagehide', onHide)
+    return () => { window.removeEventListener('pagehide', onHide); void flushHow() }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Your own model key, kept in this browser, sent only with your requests.
   const [aiKey, setAIKeyState] = useState(getAIKey)
   const [keySaved, setKeySaved] = useState(false)
@@ -212,19 +249,27 @@ export const Profile: React.FC<Props> = ({
           <div className="row static">
             <span className="row-main">
               {t('Role')}
-              <span className="row-sub">{t('What gets routed to you first.')}</span>
+              <span className="row-sub">{t('What gets routed to you first. In your own words — anyone can change theirs.')}</span>
             </span>
-            {me && me.assignableRoles?.includes(me.role || '') ? (
-              <select
-                className="row-select"
-                value={me.role || 'member'}
-                onChange={(e) => patch({ role: e.target.value, orgId })}
-                aria-label={t('Role')}
-              >
-                {me.assignableRoles.map((r) => <option key={r} value={r}>{t(ROLE_LABEL[r] || r)}</option>)}
-              </select>
+            {me ? (
+              <span className="row-main role-edit">
+                <input
+                  className="role-input"
+                  list="role-presets"
+                  value={roleDraft ?? (me.role ? (ROLE_LABEL[me.role] ? t(ROLE_LABEL[me.role]) : me.role) : '')}
+                  maxLength={40}
+                  onChange={(e) => setRoleDraft(e.target.value)}
+                  onBlur={() => { if (roleDraft !== null && roleDraft.trim() && roleDraft.trim() !== me.role) patch({ role: roleDraft.trim(), orgId }); setRoleDraft(null) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                  placeholder={t('e.g. store manager, CFO, designer')}
+                  aria-label={t('Role')}
+                />
+                <datalist id="role-presets">
+                  {(me.assignableRoles || []).map((r) => <option key={r} value={r}>{t(ROLE_LABEL[r] || r)}</option>)}
+                </datalist>
+              </span>
             ) : (
-              <span className="row-value">{me?.role ? t(ROLE_LABEL[me.role] || me.role) : '—'}</span>
+              <span className="row-value">—</span>
             )}
           </div>
           <div className="row static">
@@ -253,10 +298,16 @@ export const Profile: React.FC<Props> = ({
                 value={howIWork}
                 rows={3}
                 maxLength={MAX_CONTEXT_CHARS}
-                onChange={(e) => { setHowIWork(e.target.value); setSenderContext(e.target.value) }}
+                onChange={(e) => { howTouched.current = true; setHowIWork(e.target.value); setSenderContext(e.target.value, orgId); saveHow(e.target.value) }}
+                onBlur={() => { void flushHow() }}
                 placeholder={t('e.g. I run the cafe and the hotel. Kenji owns suppliers. Anything about the lease is mine.')}
                 aria-label={t('How I work')}
               />
+              {howSaved !== 'idle' && (
+                <span className="row-sub context-state" role="status">
+                  {howSaved === 'saving' ? t('Saving…') : howSaved === 'saved' ? t('Saved to this workspace.') : t('That did not save.')}
+                </span>
+              )}
             </span>
           </div>
           <div className="row static">
@@ -352,12 +403,12 @@ export const Profile: React.FC<Props> = ({
           </button>
           <button className="row" onClick={() => onOpen('team')}>
             <span className="row-icon"><Icon name="invite" size={18} /></span>
-            <span className="row-main">{t('Your team')}<span className="row-sub">{t('Who is here, the codes you have out, and one more way in.')}</span></span>
+            <span className="row-main">{t('Your team')}<span className="row-sub">{t('Who is here, the links you have out, and one more way in.')}</span></span>
             <span className="row-value">›</span>
           </button>
           <button className="row join-team" onClick={() => { setJoining(!joining); setJoinError(null) }}>
             <span className="row-icon"><Icon name="invite" size={18} /></span>
-            <span className="row-main">{t('Join a team')}<span className="row-sub">{t('Paste a code somebody sent you.')}</span></span>
+            <span className="row-main">{t('Join a team')}<span className="row-sub">{t('Paste the invite link somebody sent you.')}</span></span>
             <span className="row-value">{joining ? '⌄' : '›'}</span>
           </button>
           {joining && (
@@ -367,8 +418,8 @@ export const Profile: React.FC<Props> = ({
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') join() }}
-                placeholder={t('Invite code')}
-                aria-label={t('Invite code')}
+                placeholder={t('Invite link')}
+                aria-label={t('Invite link')}
               />
               <button className="pill-btn" onClick={join} disabled={!joinCode.trim()}>{t('Join')}</button>
             </div>

@@ -20,7 +20,7 @@ const ROLES: Array<{ id: string; label: string }> = [
   { id: 'triager', label: 'Triager' },
 ]
 
-/// One code, one role, one thing to hand over.
+/// One link, one role, one thing to hand over. It works for three days.
 ///
 /// The sheet around this already carries the title, so this does not repeat
 /// it, and it borrows the same rows, buttons and type as every other screen
@@ -33,7 +33,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
   const [role, setRole] = useState('member')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [copied, setCopied] = useState<'code' | 'link' | null>(null)
+  const [copied, setCopied] = useState<'link' | null>(null)
   // By address: the Worker mints a single-use code and mails it as a link.
   const [email, setEmail] = useState('')
   const [sending, setSending] = useState(false)
@@ -67,10 +67,9 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
     }
   }
 
-  const copy = (what: 'code' | 'link') => {
-    const text = what === 'link' ? link : code
-    if (!text) return
-    navigator.clipboard?.writeText(text)
+  const copy = (what: 'link') => {
+    if (!link) return
+    navigator.clipboard?.writeText(link)
     setCopied(what)
     setTimeout(() => setCopied(null), 1500)
   }
@@ -106,7 +105,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
     return (
       <div className="invite">
         <p className="sheet-hint">
-          {t('Anyone who signs up with this code joins your workspace as {role}.', {
+          {t('Anyone who opens this link within three days joins your workspace as {role}.', {
             role: t(ROLES.find((r) => r.id === role)?.label || role),
           })}
         </p>
@@ -121,12 +120,6 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
             </div>
           </div>
         )}
-        <div className="invite-row">
-          <code className="invite-code">{code}</code>
-          <button className="btn btn-quiet invite-copy" onClick={() => copy('code')}>
-            {copied === 'code' ? t('Copied!') : t('Copy code')}
-          </button>
-        </div>
         <button
           className="btn btn-quiet"
           onClick={() => { setCode(null); setLink(null); setError(null) }}
@@ -177,7 +170,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
       {sentTo && <div className="form-note invite-sent">{t('Invitation sent to {email}.', { email: sentTo })}</div>}
       {mailError && <div className="form-error">{mailError}</div>}
       <button className="btn btn-primary" onClick={handleInvite} disabled={busy}>
-        {busy ? t('Creating…') : t('Create invite code')}
+        {busy ? t('Creating…') : t('Create invite link')}
       </button>
       {error && <div className="form-error">{error}</div>}
     </div>

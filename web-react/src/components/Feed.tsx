@@ -407,7 +407,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             sessionToken={api.sessionToken}
             cardId={card.id}
             userId={userId}
-            version={`${card.status}|${card.decision?.decidedAt || ''}|${answer?.busy ? 'asking' : (answer?.answer || '')}`}
+            version={`${card.status}|${card.decision?.decidedAt || ''}|${answer?.busy ? 'asking' : (answer?.answer || '')}|${card.commentCount || 0}|${card.lastCommentAt || ''}`}
             alwaysOpen={layout === 'desk'}
           />
         )}

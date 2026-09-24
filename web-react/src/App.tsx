@@ -371,7 +371,12 @@ function App() {
           <div className={`toast${notice.error ? ' error' : ''}`} role={notice.error ? 'alert' : 'status'} onClick={() => setNotice(null)}>{notice.text}</div>
         </div>
       )}
+      {/* Keyed by workspace: switching teams is a new Dashboard, not the old
+          one with a different orgId. State, the synced flag and the card
+          cache all restart, so nothing of one workspace is ever held — or
+          written to the cache — under the name of another. */}
       <Dashboard
+        key={orgId}
         userId={userId}
         orgId={orgId}
         relayUrl={wsBase(host)}

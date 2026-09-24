@@ -320,3 +320,40 @@ CREATE TABLE IF NOT EXISTS complimentary_access (
   rc_operation_until INTEGER NOT NULL DEFAULT 0,
   deletion_requested_at TEXT
 );
+
+/* A thread under a card: what people said about it, in order. A comment can
+   name teammates (mentions are logins, resolved when it is written); the
+   card's own row keeps the count so every list shows it without a join. */
+CREATE TABLE IF NOT EXISTS card_comments (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  card_id       TEXT NOT NULL,
+  author_login  TEXT NOT NULL,
+  body          TEXT NOT NULL,
+  mentions      TEXT NOT NULL DEFAULT '[]',
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_comments_card ON card_comments (org_id, card_id, created_at);
+
+/* One emoji, one person, one card: a reaction is a toggle, not a message. */
+CREATE TABLE IF NOT EXISTS card_reactions (
+  org_id      TEXT NOT NULL,
+  card_id     TEXT NOT NULL,
+  user_login  TEXT NOT NULL,
+  emoji       TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (org_id, card_id, user_login, emoji)
+);
+CREATE INDEX IF NOT EXISTS idx_reactions_card ON card_reactions (org_id, card_id);
+
+/* What a workspace runs its AI on, chosen from the Tools screen: a model, a
+   key of its own (their bill), System One switched on. Absent, the Worker's
+   secrets apply. Keys sit here the way connector tokens do. */
+CREATE TABLE IF NOT EXISTS org_ai_settings (
+  org_id        TEXT PRIMARY KEY,
+  model         TEXT,
+  openai_key    TEXT,
+  typesafe_key  TEXT,
+  updated_by    TEXT,
+  updated_at    TEXT NOT NULL
+);
