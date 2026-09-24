@@ -69,16 +69,45 @@ jobs:
             process.exit(bad);
           '
 
-      # Only what the page serves goes up; og:image and og:url need an
-      # absolute address to show in link previews.
+      # Only what the page serves goes up, minified. The stylesheet is inlined
+      # so the first paint waits on nothing but the HTML, and og:image/og:url
+      # get absolute addresses so link previews show.
       - name: Assemble
         run: |
           url="${SITE_URL:-https://$PROJECT.pages.dev}"
           url="${url%/}"
-          mkdir dist
-          cp lp/index.html lp/styles.css lp/i18n.js lp/main.js lp/icon.svg lp/og.png dist/
-          sed -i "s#<meta property=\"og:image\" content=\"og.png\">#<meta property=\"og:image\" content=\"$url/og.png\">\n<meta property=\"og:url\" content=\"$url/\">#" dist/index.html
-          grep -q "$url/og.png" dist/index.html || { echo "::error::og:image was not rewritten."; exit 1; }
+          mkdir -p dist/fonts
+          cp lp/icon.svg lp/og.png dist/
+          cp lp/fonts/*.woff2 dist/fonts/
+          npx -y esbuild@0.24.2 lp/main.js --minify --target=es2019 --outfile=dist/main.js --log-level=warning
+          npx -y esbuild@0.24.2 lp/i18n.js --minify --target=es2019 --outfile=dist/i18n.js --log-level=warning
+          npx -y esbuild@0.24.2 lp/styles.css --minify --loader:.css=css --outfile=dist/styles.min.css --log-level=warning
+          URL="$url" node -e '
+            const fs = require("fs");
+            let html = fs.readFileSync("lp/index.html", "utf8");
+            const css = fs.readFileSync("dist/styles.min.css", "utf8");
+            const link = "<link rel=\"stylesheet\" href=\"styles.css\">";
+            if (!html.includes(link)) { console.log("::error::index.html no longer links styles.css"); process.exit(1); }
+            html = html.replace(link, () => "<style>" + css + "</style>");
+            const og = "<meta property=\"og:image\" content=\"og.png\">";
+            if (!html.includes(og)) { console.log("::error::og:image tag not found"); process.exit(1); }
+            html = html.replace(og, () => `<meta property="og:image" content="${process.env.URL}/og.png">\n<meta property="og:url" content="${process.env.URL}/">\n<link rel="canonical" href="${process.env.URL}/">`);
+            fs.writeFileSync("dist/index.html", html);
+          '
+          rm dist/styles.min.css
+          printf 'User-agent: *\nAllow: /\nSitemap: %s/sitemap.xml\n' "$url" > dist/robots.txt
+          printf '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>%s/</loc></url></urlset>\n' "$url" > dist/sitemap.xml
+          cat > dist/_headers <<'HEADERS'
+          /fonts/*
+            Cache-Control: public, max-age=31536000, immutable
+          /*.js
+            Cache-Control: public, max-age=3600, must-revalidate
+          /og.png
+            Cache-Control: public, max-age=86400
+          /icon.svg
+            Cache-Control: public, max-age=86400
+          HEADERS
+          ls -la dist dist/fonts
           echo "site: $url"
 
       - name: Create the Pages project if needed

@@ -45,6 +45,7 @@
     $$('[data-i18n-placeholder]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-placeholder')); });
     $$('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
     $('#lang-code').textContent = lang.toUpperCase();
+    $('#lang-btn').setAttribute('aria-label', lang.toUpperCase() + ' · ' + t('a11y.language'));
     $('#fregion').textContent = t('region');
     $$('#lang-list li').forEach(function (li) { li.setAttribute('aria-selected', li.dataset.lang === lang ? 'true' : 'false'); });
     onLang.forEach(function (fn) { fn(); });
@@ -161,8 +162,7 @@
       pose.avoid = copyRect();
     }
 
-    function update() {
-      var r = section.getBoundingClientRect();
+    function update(r) {
       var p = clamp(-r.top / (r.height - m.vh), 0, 1);
       var h = ease(clamp(p / .12, 0, 1)), ho = clamp(p / .08, 0, 1);
       hero.style.opacity = 1 - ho;
@@ -226,6 +226,11 @@
     var canvas = $('#rings'), ctx = canvas.getContext('2d'), section = $('.stage');
     var W = 0, H = 0, dpr = 1, parts = [], flashes = [], ink = '32,32,32', vio = '102,71,240';
     var running = false, raf = 0, last = 0, nextDive = 0;
+    // The walls and their names only change when the phone moves or the theme
+    // flips, so they are drawn once to their own canvas and stamped each frame.
+    var walls = document.createElement('canvas'), wctx = walls.getContext('2d'), wallsKey = '';
+    // Small or touch screens get 30 frames a second; the drift reads the same.
+    var frameGap = (window.innerWidth < 700 || window.matchMedia('(pointer: coarse)').matches) ? 32 : 0;
     var LABELS = ['本丸', '二の丸', '三の丸'];
 
     function colors() {
@@ -236,8 +241,10 @@
     function size() {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
       W = canvas.clientWidth; H = canvas.clientHeight;
-      canvas.width = W * dpr; canvas.height = H * dpr;
+      canvas.width = walls.width = W * dpr; canvas.height = walls.height = H * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      wctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      wallsKey = '';
       var n = W < 700 ? 26 : 46;
       parts = [];
       for (var i = 0; i < n; i++) parts.push(spawn(1 + (i % 2)));
@@ -258,29 +265,36 @@
       return null;
     }
     function radii() { var R = Math.max(stage.pose.r, 150); return [R, R * 1.42, R * 1.9]; }
-    function draw(dt) {
-      var P = stage.pose, rr = radii();
-      ctx.clearRect(0, 0, W, H);
-      // walls
+    function drawWalls(P, rr) {
+      var av = P.avoid || [];
+      var key = [P.cx | 0, P.cy | 0, rr[0] | 0, W, H, ink, vio, av.join()].join('|');
+      if (key === wallsKey) return;
+      wallsKey = key;
+      wctx.clearRect(0, 0, W, H);
       for (var i = 2; i >= 0; i--) {
-        ctx.beginPath();
-        ctx.setLineDash(i === 0 ? [] : [2, 7]);
-        ctx.lineWidth = i === 0 ? 1.3 : 1;
-        ctx.strokeStyle = i === 0 ? 'rgba(' + vio + ',.45)' : 'rgba(' + ink + ',' + (i === 1 ? .16 : .11) + ')';
-        ctx.arc(P.cx, P.cy, rr[i], 0, Math.PI * 2);
-        ctx.stroke();
+        wctx.beginPath();
+        wctx.setLineDash(i === 0 ? [] : [2, 7]);
+        wctx.lineWidth = i === 0 ? 1.3 : 1;
+        wctx.strokeStyle = i === 0 ? 'rgba(' + vio + ',.45)' : 'rgba(' + ink + ',' + (i === 1 ? .16 : .11) + ')';
+        wctx.arc(P.cx, P.cy, rr[i], 0, Math.PI * 2);
+        wctx.stroke();
       }
-      ctx.setLineDash([]);
+      wctx.setLineDash([]);
       // wall names: the first spot on each wall that is on screen and clear of the copy
-      ctx.font = '500 11px "Sometype Mono", ui-monospace, monospace';
+      wctx.font = '500 11px "Sometype Mono", ui-monospace, monospace';
       for (var j = 0; j < 3; j++) {
         var spot = labelSpot(P, rr[j]);
         if (!spot) continue;
-        var lx = spot[0], ly = spot[1];
-        ctx.fillStyle = j === 0 ? 'rgba(' + vio + ',1)' : 'rgba(' + ink + ',.5)';
-        ctx.beginPath(); ctx.arc(lx, ly, 2.5, 0, Math.PI * 2); ctx.fill();
-        ctx.fillText(LABELS[j], lx + 8, ly + 4);
+        wctx.fillStyle = j === 0 ? 'rgba(' + vio + ',1)' : 'rgba(' + ink + ',.5)';
+        wctx.beginPath(); wctx.arc(spot[0], spot[1], 2.5, 0, Math.PI * 2); wctx.fill();
+        wctx.fillText(LABELS[j], spot[0] + 8, spot[1] + 4);
       }
+    }
+    function draw(dt) {
+      var P = stage.pose, rr = radii();
+      drawWalls(P, rr);
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(walls, 0, 0, W, H);
       // messages
       var dts = dt / 1000;
       for (var k = 0; k < parts.length; k++) {
@@ -320,6 +334,7 @@
     }
     function loop(ts) {
       if (!running) return;
+      if (last && ts - last < frameGap) { raf = requestAnimationFrame(loop); return; }
       var dt = Math.min(50, ts - (last || ts)); last = ts;
       if (ts > nextDive) {
         var cand = parts.filter(function (q) { return q.dive < 0; });
@@ -333,7 +348,9 @@
     function start() { if (running || reduce) return; running = true; last = 0; raf = requestAnimationFrame(loop); }
     function stop() { running = false; cancelAnimationFrame(raf); }
     colors(); size();
-    themeListeners.push(function () { colors(); if (reduce) draw(0); });
+    themeListeners.push(function () { colors(); wallsKey = ''; if (reduce) draw(0); });
+    // the wall names are drawn in the mono face; redraw once it has arrived
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { wallsKey = ''; });
     var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(function () { size(); if (reduce) draw(0); }, 120); });
     if (reduce) { draw(0); window.addEventListener('scroll', function () { draw(0); }, { passive: true }); return; }
     if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { es[0].isIntersecting ? start() : stop(); }).observe(section);
@@ -364,8 +381,8 @@
       });
       box.setAttribute('aria-label', t('keep.text').replace(/\*/g, ''));
     }
-    function update() {
-      var r = section.getBoundingClientRect(), vh = window.innerHeight;
+    function update(r) {
+      var vh = window.innerHeight;
       var p = clamp((-r.top + vh * .2) / (r.height - vh * .8), 0, 1);
       var lit = Math.round(clamp(p / .8, 0, 1) * words.length);
       for (var i = 0; i < words.length; i++) words[i].classList.toggle('lit', i < lit);
@@ -375,19 +392,20 @@
       mark.style.setProperty('--kk', clamp((p - .65) / .2, 0, 1).toFixed(3));
     }
     build();
-    onLang.push(function () { build(); update(); });
+    onLang.push(function () { build(); request(); });
     return { update: update };
   })();
 
   /* ============ one scroll loop for everything scroll-linked ============ */
   var ticking = false;
+  var stageEl = $('.stage'), keepEl = $('#keep');
   function frame() {
     ticking = false;
-    stage.update(); keep.update();
-    var kr = keepEl.getBoundingClientRect();
+    // every read before any write, so the browser lays out once per frame
+    var sr = stageEl.getBoundingClientRect(), kr = keepEl.getBoundingClientRect();
+    stage.update(sr); keep.update(kr);
     navEl.classList.toggle('over-dark', kr.top < 64 && kr.bottom > 40);
   }
-  var keepEl = $('#keep');
   function request() { if (!ticking) { ticking = true; requestAnimationFrame(frame); } }
   window.addEventListener('scroll', request, { passive: true });
   var rs;
@@ -536,6 +554,11 @@
     }, 1500);
   })();
 
+  // the conic ring spins only while the finale is on screen
+  if ('IntersectionObserver' in window) {
+    var fin = $('#finale');
+    new IntersectionObserver(function (es) { fin.classList.toggle('live', es[0].isIntersecting); }).observe(fin);
+  }
   $('#year').textContent = new Date().getFullYear();
   applyLang();
   frame();
