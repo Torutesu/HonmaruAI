@@ -383,7 +383,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   }
 
   return (
-    <div className="screen">
+    <div className="screen screen-wide tools-screen">
       <div className="screen-head">
         <button className="back" onClick={onClose} aria-label={t('Close')}>‹</button>
         <span className="head-title">{t('Tools')}</span>
@@ -397,332 +397,349 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         {note && <div className="form-note">{note}</div>}
         {error && <div className="form-error">{error}</div>}
 
-        {ai && (
-          <>
-            <div className="rows-title">{t('Your AI')}</div>
-            <div className="rows ai-status">
-              <div className="row static ai-model">
-                <span className="row-main">
-                  {t('Language model')}
-                  <span className="row-sub">
-                    {t('Writes cards, answers, drafts and translations.')}
-                    {' '}
-                    {ai.modelSource === 'workspace' ? t('Chosen for this workspace.') : ai.modelSource === 'deployment' ? t('The deployment\u2019s default.') : t('No model is set up yet.')}
-                  </span>
-                </span>
-                {ai.canEdit ? (
-                  <select
-                    className="row-select"
-                    value={ai.modelSource === 'workspace' ? (ai.model || '') : ''}
-                    disabled={aiBusy}
-                    onChange={(e) => saveAI({ model: e.target.value || null }, t('Model saved for this workspace.'))}
-                    aria-label={t('Language model')}
-                  >
-                    <option value="">{t('Default ({model})', { model: ai.modelSource === 'workspace' ? t('deployment') : (ai.model || t('none')) })}</option>
-                    {ai.models.map((m) => (
-                      <option key={m.id} value={m.id}>{m.id} · ${m.priceIn}/${m.priceOut} {t('per 1M tokens')}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="row-value">{ownKey ? t('Your own key') : ai.model || t('Off')}</span>
-                )}
-              </div>
-              <div className="row static ai-key">
-                <span className="row-main">
-                  {t('OpenAI key for this workspace')}
-                  <span className="row-sub">
-                    {ai.openai === 'workspace'
-                      ? t('Set ({hint}). Calls are billed to it.', { hint: ai.openaiHint || '' })
-                      : ai.openai === 'deployment' ? t('Not set. Calls run on the deployment\u2019s key.') : t('Not set, and the deployment has none: the AI is off until one is entered.')}
-                  </span>
-                  {ai.canEdit && (
-                    <span className="ai-key-form">
-                      <input
-                        className="ai-key-input"
-                        type="password"
-                        autoComplete="off"
-                        value={openaiDraft}
-                        onChange={(e) => setOpenaiDraft(e.target.value)}
-                        placeholder="sk-…"
-                        aria-label={t('OpenAI key for this workspace')}
-                        disabled={aiBusy}
-                      />
-                      <button className="pill-btn" disabled={aiBusy || !openaiDraft.trim()} onClick={() => saveAI({ openaiKey: openaiDraft.trim() }, t('OpenAI key saved for this workspace.'))}>{t('Save')}</button>
-                      {ai.openai === 'workspace' && (
-                        <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ openaiKey: null }, t('OpenAI key removed.'))}>{t('Remove')}</button>
-                      )}
+        <div className="tools-grid">
+          <div className="tools-main">
+            <section className="tools-sec tools-connectors">
+              {connectors !== null && connectors.length > 0 && <div className="rows-title tools-wide-only">{t('Connectors')}</div>}
+            {connectors === null && <div className="empty">{t('Loading…')}</div>}
+
+            {connectors !== null && connectors.length > 0 && (
+              <div className="rows connector-rows">
+                {connectors.map((c) => (
+                  <div key={c.id} className="row static connector" data-connector={c.id}>
+                    <span className="row-icon brand-tile">{isBrand(c.id) ? <BrandLogo brand={c.id} size={20} /> : <Icon name={ICON[c.id] || 'box'} size={18} />}</span>
+                    <span className="row-main">
+                      {c.label}
+                      <span className="row-sub">{t(BLURB[c.id] || 'Feeds decisions into your feed.')}</span>
                     </span>
-                  )}
-                </span>
-              </div>
-              <div className="row static ai-key">
-                <span className="row-main">
-                  {t('Jev (System One)')}
-                  <span className="row-sub">
-                    {ai.systemOne
-                      ? t('Decides who and how urgent for a fraction of a cent; the model is asked only when it is unsure.')
-                      : t('Off. Enter a TypeSafe API key and routing gets cheaper.')}
-                    {ai.jev === 'workspace' && ` (${ai.jevHint})`}
-                  </span>
-                  {ai.canEdit && (
-                    <span className="ai-key-form">
-                      <input
-                        className="ai-key-input"
-                        type="password"
-                        autoComplete="off"
-                        value={jevDraft}
-                        onChange={(e) => setJevDraft(e.target.value)}
-                        placeholder={t('TypeSafe API key')}
-                        aria-label={t('TypeSafe API key')}
-                        disabled={aiBusy}
-                      />
-                      <button className="pill-btn" disabled={aiBusy || !jevDraft.trim()} onClick={() => saveAI({ typesafeKey: jevDraft.trim() }, t('Jev switched on for this workspace.'))}>{t('Save')}</button>
-                      {ai.jev === 'workspace' && (
-                        <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ typesafeKey: null }, t('Jev key removed.'))}>{t('Remove')}</button>
-                      )}
-                    </span>
-                  )}
-                </span>
-                <span className={`row-value ${ai.systemOne ? 'on' : ''}`}>{ai.systemOne ? t('On') : t('Off')}</span>
-              </div>
-              {!ai.canEdit && <div className="form-note">{t('An admin of this workspace can change these.')}</div>}
-              {aiNote && <div className="form-note">{aiNote}</div>}
-              {aiError && <div className="form-error">{aiError}</div>}
-            </div>
-          </>
-        )}
-
-        {connectors === null && <div className="empty">{t('Loading…')}</div>}
-
-        {connectors !== null && connectors.length > 0 && (
-          <div className="rows">
-            {connectors.map((c) => (
-              <div key={c.id} className="row static">
-                <span className="row-icon brand-tile">{isBrand(c.id) ? <BrandLogo brand={c.id} size={20} /> : <Icon name={ICON[c.id] || 'box'} size={18} />}</span>
-                <span className="row-main">
-                  {c.label}
-                  <span className="row-sub">{t(BLURB[c.id] || 'Feeds decisions into your feed.')}</span>
-                </span>
-                {c.status === 'active'
-                  ? <span className="pill-tag mint">{t('Connected')}</span>
-                  : (
-                    <button className="pill-btn" onClick={() => connect(c.id)} disabled={busy === c.id}>
-                      {busy === c.id ? '…' : t('Connect')}
-                    </button>
-                  )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {notionOn && (
-          <>
-            <div className="rows-title">{t('Database')}</div>
-            <div className="rows">
-              <div className="row static" data-notion-database="1">
-                <span className="row-icon brand-tile"><BrandLogo brand="notion" size={20} /></span>
-                <span className="row-main">
-                  {t('Database')}
-                  <span className="row-sub">{databaseError || t('Which database your decisions are read from and written back to.')}</span>
-                  {databases === null && !databaseError && <span className="row-sub">{t('Loading…')}</span>}
-                  {databases && databases.length > 0 && (
-                    <select className="row-select" value={databaseId} onChange={(e) => chooseDatabase(e.target.value)} aria-label={t('Database')}>
-                      <option value="">{t('Choose a database…')}</option>
-                      {databases.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
-                    </select>
-                  )}
-                </span>
-              </div>
-            </div>
-          </>
-        )}
-
-        {connectors !== null && connectors.length === 0 && !unavailable && (
-          <div className="empty">{t('No connectors are available on this deployment.')}</div>
-        )}
-
-        {active.length > 0 && (
-          <button className="btn btn-ghost" onClick={pull} disabled={syncing}>
-            {syncing ? t('Pulling…') : t('Pull now')}
-          </button>
-        )}
-
-        {inbox && (
-          <>
-            <div className="rows-title">{t('Forward anything here')}</div>
-            <div className="rows">
-              <div className="row static" data-inbox="1">
-                <span className="row-icon"><Icon name="mail" size={18} /></span>
-                <span className="row-main">
-                  <code className="invite-code sm">{inbox}</code>
-                  <span className="row-sub">{t('Mail sent here becomes a card, triaged the way your inbox is.')}</span>
-                </span>
-                <button
-                  className="pill-btn"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(inbox)
-                    setCopiedInbox(true)
-                    setTimeout(() => setCopiedInbox(false), 1500)
-                  }}
-                >
-                  {copiedInbox ? t('Copied!') : t('Copy')}
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {github && (
-          <>
-            <div className="rows-title">{github.builtIn ? t('Always on') : github.connected ? t('Connected') : t('Not in this workspace')}</div>
-            <div className="rows">
-              <div className="row static github-row" data-github={github.builtIn || github.connected ? 'on' : 'off'}>
-                <span className="row-icon brand-tile"><BrandLogo brand="github" size={20} /></span>
-                <span className="row-main">
-                  GitHub
-                  <span className="row-sub">
-                    {github.connected
-                      ? t('Every decision here becomes an issue in {repo}.', { repo: github.repo || '' })
-                      : github.builtIn ? t(BLURB.github) : t(github.reason || '')}
-                  </span>
-                </span>
-                {github.builtIn
-                  ? <span className="pill-tag mint">{t('Built in')}</span>
-                  : github.connected
-                    ? (github.canEdit
-                      ? <button className="btn-text danger" disabled={ghBusy} onClick={() => githubCall('DELETE', {})}>{t('Disconnect')}</button>
-                      : <span className="pill-tag mint">{t('On')}</span>)
-                    : (github.canEdit
-                      ? (github.mine || !github.oauth
-                        ? <button className="pill-btn" onClick={() => { setGhOpen((o) => !o); setGhError(null); if (!ghOpen && github.mine && github.oauth) void loadGithubRepos() }}>{ghOpen ? t('Cancel') : t('Connect')}</button>
-                        : <button className="pill-btn" disabled={ghWaiting} onClick={() => void connectGithubAccount()}>{ghWaiting ? t('Waiting for GitHub…') : t('Connect with GitHub')}</button>)
-                      : <span className="pill-tag quiet">{t('Off')}</span>)}
-              </div>
-              {github.canEdit && !github.builtIn && !github.connected && ghOpen && (
-                <div className="row static github-form-row">
-                  <div className="github-form">
-                    {ghWaiting && <span className="row-sub github-hint">{t('Finish in the tab that opened. This page updates by itself.')}</span>}
-                    {!ghWaiting && github.mine && github.oauth && !ghUseToken && (
-                      <>
-                        {ghRepos === null && <span className="row-sub github-hint">{t('Loading your repositories…')}</span>}
-                        {ghRepos && ghRepos.length === 0 && <span className="row-sub github-hint">{t('Your GitHub has no repository you can write issues to.')}</span>}
-                        {ghRepos && ghRepos.length > 0 && (
-                          <select className="row-select github-pick" value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} aria-label={t('Repository')} disabled={ghBusy}>
-                            {ghRepos.map((r) => <option key={r.repo} value={r.repo}>{r.repo}{r.private ? ` · ${t('private')}` : ''}</option>)}
-                          </select>
-                        )}
-                        <button className="pill-btn" disabled={ghBusy || !ghRepo.trim()} onClick={() => githubCall('PUT', { repo: ghRepo.trim() })}>
-                          {ghBusy ? t('Connecting…') : t('Use this repository')}
+                    {c.status === 'active'
+                      ? <span className="pill-tag mint">{t('Connected')}</span>
+                      : (
+                        <button className="pill-btn" onClick={() => connect(c.id)} disabled={busy === c.id}>
+                          {busy === c.id ? '…' : t('Connect')}
                         </button>
-                        <span className="row-sub github-hint">{t('Connected with your GitHub account; the workspace writes issues as you.')}</span>
-                      </>
-                    )}
-                    {!ghWaiting && (ghUseToken || !github.oauth || (!github.mine && !github.oauth)) && (
-                      <>
-                        <input
-                          className="ai-key-input"
-                          value={ghRepo}
-                          onChange={(e) => setGhRepo(e.target.value)}
-                          placeholder="owner/repo"
-                          aria-label={t('Repository')}
-                          disabled={ghBusy}
-                        />
-                        <input
-                          className="ai-key-input"
-                          type="password"
-                          autoComplete="off"
-                          value={ghToken}
-                          onChange={(e) => setGhToken(e.target.value)}
-                          placeholder={t('GitHub token (Issues: write)')}
-                          aria-label={t('GitHub token')}
-                          disabled={ghBusy}
-                        />
-                        <button className="pill-btn" disabled={ghBusy || !ghRepo.trim() || !ghToken.trim()}
-                          onClick={() => githubCall('PUT', { repo: ghRepo.trim(), token: ghToken.trim() })}>
-                          {ghBusy ? t('Connecting…') : t('Connect')}
-                        </button>
-                        <span className="row-sub github-hint">{t('A fine-grained token for that repository with Issues: read and write.')}</span>
-                      </>
-                    )}
-                    {!ghWaiting && github.oauth && github.mine && (
-                      <button className="btn-text github-alt" onClick={() => setGhUseToken((u) => !u)}>
-                        {ghUseToken ? t('Pick from my GitHub instead') : t('Use a token instead')}
-                      </button>
-                    )}
+                      )}
                   </div>
-                </div>
-              )}
-              {ghError && <div className="form-error">{ghError}</div>}
-            </div>
-          </>
-        )}
-
-        {agents && (
-          <>
-            <div className="rows-title">{t('Connect an agent')}</div>
-            <div className="rows agents">
-              <div className="row static agent-intro">
-                <span className="row-icon"><Icon name="terminal" size={18} /></span>
-                <span className="row-main">
-                  {t('Claude Code, Cursor, or your own agent')}
-                  <span className="row-sub">{t('agents.blurb')}</span>
-                  {!minted && (
-                    <span className="ai-key-form">
-                      <input
-                        className="ai-key-input"
-                        value={agentName}
-                        maxLength={60}
-                        onChange={(e) => setAgentName(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') void createAgentToken() }}
-                        placeholder={t('e.g. Claude Code on my laptop')}
-                        aria-label={t('Agent name')}
-                        disabled={agentBusy === 'create'}
-                      />
-                      <button className="pill-btn" disabled={agentBusy === 'create' || !agentName.trim()} onClick={() => void createAgentToken()}>
-                        {agentBusy === 'create' ? t('Creating…') : t('Create token')}
-                      </button>
-                    </span>
-                  )}
-                </span>
+                ))}
               </div>
-              {minted && (
-                <div className="row static agent-minted" data-agent-minted="1">
-                  <div className="agent-steps">
-                    <div className="agent-warn">{t('Copy this token now. It is shown once, and cannot be read again.')}</div>
-                    <AgentSnippet label={t('Token for {name}', { name: minted.name })} text={minted.token} copied={agentCopied === 'token'} onCopy={() => copyAgent('token', minted.token)} />
-                    <AgentSnippet label={t('Claude Code')} text={claudeCommand} copied={agentCopied === 'claude'} onCopy={() => copyAgent('claude', claudeCommand)} />
-                    <AgentSnippet label={t('Any MCP client')} text={mcpConfig} copied={agentCopied === 'json'} onCopy={() => copyAgent('json', mcpConfig)} />
-                    <button className="btn btn-ghost agent-done" onClick={() => setMinted(null)}>{t('Done')}</button>
-                  </div>
-                </div>
-              )}
-              {agents.tokens.map((tok) => (
-                <div className="row static agent-token" key={tok.id} data-token={tok.id}>
-                  <span className="row-main">
-                    {tok.name}
-                    <span className="row-sub">
-                      <code className="agent-prefix">{tok.prefix}…</code>
-                      {` · ${t('made {when}', { when: new Date(tok.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) })}`}
-                      {` · ${tok.lastUsedAt ? t('last used {when}', { when: ago(tok.lastUsedAt) }) : t('never used')}`}
-                    </span>
-                  </span>
-                  {revoking === tok.id ? (
-                    <span className="team-confirm">
-                      <button className="pill-btn" disabled={agentBusy === tok.id} onClick={() => void revokeAgentToken(tok.id)}>{t('Revoke')}</button>
-                      <button className="btn-text" onClick={() => setRevoking(null)}>{t('Keep')}</button>
-                    </span>
-                  ) : (
-                    <button className="btn-text danger" onClick={() => setRevoking(tok.id)}>{t('Revoke')}</button>
-                  )}
-                </div>
-              ))}
-              {agentError && <div className="form-error">{agentError}</div>}
-            </div>
-            {agents.tools.length > 0 && (
-              <p className="hint insights-hint">{t('What an agent can do: {tools}.', { tools: agents.tools.join(', ') })}</p>
             )}
-          </>
-        )}
+
+            {notionOn && (
+              <>
+                <div className="rows-title">{t('Database')}</div>
+                <div className="rows">
+                  <div className="row static" data-notion-database="1">
+                    <span className="row-icon brand-tile"><BrandLogo brand="notion" size={20} /></span>
+                    <span className="row-main">
+                      {t('Database')}
+                      <span className="row-sub">{databaseError || t('Which database your decisions are read from and written back to.')}</span>
+                      {databases === null && !databaseError && <span className="row-sub">{t('Loading…')}</span>}
+                      {databases && databases.length > 0 && (
+                        <select className="row-select" value={databaseId} onChange={(e) => chooseDatabase(e.target.value)} aria-label={t('Database')}>
+                          <option value="">{t('Choose a database…')}</option>
+                          {databases.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
+                        </select>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {connectors !== null && connectors.length === 0 && !unavailable && (
+              <div className="empty">{t('No connectors are available on this deployment.')}</div>
+            )}
+
+            {active.length > 0 && (
+              <button className="btn btn-ghost" onClick={pull} disabled={syncing}>
+                {syncing ? t('Pulling…') : t('Pull now')}
+              </button>
+            )}
+
+            </section>
+            <section className="tools-sec tools-inbox">
+            {inbox && (
+              <>
+                <div className="rows-title">{t('Forward anything here')}</div>
+                <div className="rows">
+                  <div className="row static" data-inbox="1">
+                    <span className="row-icon"><Icon name="mail" size={18} /></span>
+                    <span className="row-main">
+                      <code className="invite-code sm">{inbox}</code>
+                      <span className="row-sub">{t('Mail sent here becomes a card, triaged the way your inbox is.')}</span>
+                    </span>
+                    <button
+                      className="pill-btn"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(inbox)
+                        setCopiedInbox(true)
+                        setTimeout(() => setCopiedInbox(false), 1500)
+                      }}
+                    >
+                      {copiedInbox ? t('Copied!') : t('Copy')}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            </section>
+            <section className="tools-sec tools-github">
+            {github && (
+              <>
+                <div className="rows-title">{github.builtIn ? t('Always on') : github.connected ? t('Connected') : t('Not in this workspace')}</div>
+                <div className="rows">
+                  <div className="row static github-row" data-github={github.builtIn || github.connected ? 'on' : 'off'}>
+                    <span className="row-icon brand-tile"><BrandLogo brand="github" size={20} /></span>
+                    <span className="row-main">
+                      GitHub
+                      <span className="row-sub">
+                        {github.connected
+                          ? t('Every decision here becomes an issue in {repo}.', { repo: github.repo || '' })
+                          : github.builtIn ? t(BLURB.github) : t(github.reason || '')}
+                      </span>
+                    </span>
+                    {github.builtIn
+                      ? <span className="pill-tag mint">{t('Built in')}</span>
+                      : github.connected
+                        ? (github.canEdit
+                          ? <button className="btn-text danger" disabled={ghBusy} onClick={() => githubCall('DELETE', {})}>{t('Disconnect')}</button>
+                          : <span className="pill-tag mint">{t('On')}</span>)
+                        : (github.canEdit
+                          ? (github.mine || !github.oauth
+                            ? <button className="pill-btn" onClick={() => { setGhOpen((o) => !o); setGhError(null); if (!ghOpen && github.mine && github.oauth) void loadGithubRepos() }}>{ghOpen ? t('Cancel') : t('Connect')}</button>
+                            : <button className="pill-btn" disabled={ghWaiting} onClick={() => void connectGithubAccount()}>{ghWaiting ? t('Waiting for GitHub…') : t('Connect with GitHub')}</button>)
+                          : <span className="pill-tag quiet">{t('Off')}</span>)}
+                  </div>
+                  {github.canEdit && !github.builtIn && !github.connected && ghOpen && (
+                    <div className="row static github-form-row">
+                      <div className="github-form">
+                        {ghWaiting && <span className="row-sub github-hint">{t('Finish in the tab that opened. This page updates by itself.')}</span>}
+                        {!ghWaiting && github.mine && github.oauth && !ghUseToken && (
+                          <>
+                            {ghRepos === null && <span className="row-sub github-hint">{t('Loading your repositories…')}</span>}
+                            {ghRepos && ghRepos.length === 0 && <span className="row-sub github-hint">{t('Your GitHub has no repository you can write issues to.')}</span>}
+                            {ghRepos && ghRepos.length > 0 && (
+                              <select className="row-select github-pick" value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} aria-label={t('Repository')} disabled={ghBusy}>
+                                {ghRepos.map((r) => <option key={r.repo} value={r.repo}>{r.repo}{r.private ? ` · ${t('private')}` : ''}</option>)}
+                              </select>
+                            )}
+                            <button className="pill-btn" disabled={ghBusy || !ghRepo.trim()} onClick={() => githubCall('PUT', { repo: ghRepo.trim() })}>
+                              {ghBusy ? t('Connecting…') : t('Use this repository')}
+                            </button>
+                            <span className="row-sub github-hint">{t('Connected with your GitHub account; the workspace writes issues as you.')}</span>
+                          </>
+                        )}
+                        {!ghWaiting && (ghUseToken || !github.oauth || (!github.mine && !github.oauth)) && (
+                          <>
+                            <input
+                              className="ai-key-input"
+                              value={ghRepo}
+                              onChange={(e) => setGhRepo(e.target.value)}
+                              placeholder="owner/repo"
+                              aria-label={t('Repository')}
+                              disabled={ghBusy}
+                            />
+                            <input
+                              className="ai-key-input"
+                              type="password"
+                              autoComplete="off"
+                              value={ghToken}
+                              onChange={(e) => setGhToken(e.target.value)}
+                              placeholder={t('GitHub token (Issues: write)')}
+                              aria-label={t('GitHub token')}
+                              disabled={ghBusy}
+                            />
+                            <button className="pill-btn" disabled={ghBusy || !ghRepo.trim() || !ghToken.trim()}
+                              onClick={() => githubCall('PUT', { repo: ghRepo.trim(), token: ghToken.trim() })}>
+                              {ghBusy ? t('Connecting…') : t('Connect')}
+                            </button>
+                            <span className="row-sub github-hint">{t('A fine-grained token for that repository with Issues: read and write.')}</span>
+                          </>
+                        )}
+                        {!ghWaiting && github.oauth && github.mine && (
+                          <button className="btn-text github-alt" onClick={() => setGhUseToken((u) => !u)}>
+                            {ghUseToken ? t('Pick from my GitHub instead') : t('Use a token instead')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {ghError && <div className="form-error">{ghError}</div>}
+                </div>
+              </>
+            )}
+
+            </section>
+          </div>
+          <aside className="tools-side">
+            <section className="tools-sec tools-ai">
+            {ai && (
+              <>
+                <div className="rows-title">{t('Your AI')}</div>
+                <div className="rows ai-status">
+                  <div className="row static ai-model">
+                    <span className="row-main">
+                      {t('Language model')}
+                      <span className="row-sub">
+                        {t('Writes cards, answers, drafts and translations.')}
+                        {' '}
+                        {ai.modelSource === 'workspace' ? t('Chosen for this workspace.') : ai.modelSource === 'deployment' ? t('The deployment\u2019s default.') : t('No model is set up yet.')}
+                      </span>
+                    </span>
+                    {ai.canEdit ? (
+                      <select
+                        className="row-select"
+                        value={ai.modelSource === 'workspace' ? (ai.model || '') : ''}
+                        disabled={aiBusy}
+                        onChange={(e) => saveAI({ model: e.target.value || null }, t('Model saved for this workspace.'))}
+                        aria-label={t('Language model')}
+                      >
+                        <option value="">{t('Default ({model})', { model: ai.modelSource === 'workspace' ? t('deployment') : (ai.model || t('none')) })}</option>
+                        {ai.models.map((m) => (
+                          <option key={m.id} value={m.id}>{m.id} · ${m.priceIn}/${m.priceOut} {t('per 1M tokens')}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="row-value">{ownKey ? t('Your own key') : ai.model || t('Off')}</span>
+                    )}
+                  </div>
+                  <div className="row static ai-key">
+                    <span className="row-main">
+                      {t('OpenAI key for this workspace')}
+                      <span className="row-sub">
+                        {ai.openai === 'workspace'
+                          ? t('Set ({hint}). Calls are billed to it.', { hint: ai.openaiHint || '' })
+                          : ai.openai === 'deployment' ? t('Not set. Calls run on the deployment\u2019s key.') : t('Not set, and the deployment has none: the AI is off until one is entered.')}
+                      </span>
+                      {ai.canEdit && (
+                        <span className="ai-key-form">
+                          <input
+                            className="ai-key-input"
+                            type="password"
+                            autoComplete="off"
+                            value={openaiDraft}
+                            onChange={(e) => setOpenaiDraft(e.target.value)}
+                            placeholder="sk-…"
+                            aria-label={t('OpenAI key for this workspace')}
+                            disabled={aiBusy}
+                          />
+                          <button className="pill-btn" disabled={aiBusy || !openaiDraft.trim()} onClick={() => saveAI({ openaiKey: openaiDraft.trim() }, t('OpenAI key saved for this workspace.'))}>{t('Save')}</button>
+                          {ai.openai === 'workspace' && (
+                            <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ openaiKey: null }, t('OpenAI key removed.'))}>{t('Remove')}</button>
+                          )}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="row static ai-key">
+                    <span className="row-main">
+                      {t('Jev (System One)')}
+                      <span className="row-sub">
+                        {ai.systemOne
+                          ? t('Decides who and how urgent for a fraction of a cent; the model is asked only when it is unsure.')
+                          : t('Off. Enter a TypeSafe API key and routing gets cheaper.')}
+                        {ai.jev === 'workspace' && ` (${ai.jevHint})`}
+                      </span>
+                      {ai.canEdit && (
+                        <span className="ai-key-form">
+                          <input
+                            className="ai-key-input"
+                            type="password"
+                            autoComplete="off"
+                            value={jevDraft}
+                            onChange={(e) => setJevDraft(e.target.value)}
+                            placeholder={t('TypeSafe API key')}
+                            aria-label={t('TypeSafe API key')}
+                            disabled={aiBusy}
+                          />
+                          <button className="pill-btn" disabled={aiBusy || !jevDraft.trim()} onClick={() => saveAI({ typesafeKey: jevDraft.trim() }, t('Jev switched on for this workspace.'))}>{t('Save')}</button>
+                          {ai.jev === 'workspace' && (
+                            <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ typesafeKey: null }, t('Jev key removed.'))}>{t('Remove')}</button>
+                          )}
+                        </span>
+                      )}
+                    </span>
+                    <span className={`row-value ${ai.systemOne ? 'on' : ''}`}>{ai.systemOne ? t('On') : t('Off')}</span>
+                  </div>
+                  {!ai.canEdit && <div className="form-note">{t('An admin of this workspace can change these.')}</div>}
+                  {aiNote && <div className="form-note">{aiNote}</div>}
+                  {aiError && <div className="form-error">{aiError}</div>}
+                </div>
+              </>
+            )}
+
+            </section>
+            <section className="tools-sec tools-agents">
+            {agents && (
+              <>
+                <div className="rows-title">{t('Connect an agent')}</div>
+                <div className="rows agents">
+                  <div className="row static agent-intro">
+                    <span className="row-icon"><Icon name="terminal" size={18} /></span>
+                    <span className="row-main">
+                      {t('Claude Code, Cursor, or your own agent')}
+                      <span className="row-sub">{t('agents.blurb')}</span>
+                      {!minted && (
+                        <span className="ai-key-form">
+                          <input
+                            className="ai-key-input"
+                            value={agentName}
+                            maxLength={60}
+                            onChange={(e) => setAgentName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') void createAgentToken() }}
+                            placeholder={t('e.g. Claude Code on my laptop')}
+                            aria-label={t('Agent name')}
+                            disabled={agentBusy === 'create'}
+                          />
+                          <button className="pill-btn" disabled={agentBusy === 'create' || !agentName.trim()} onClick={() => void createAgentToken()}>
+                            {agentBusy === 'create' ? t('Creating…') : t('Create token')}
+                          </button>
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  {minted && (
+                    <div className="row static agent-minted" data-agent-minted="1">
+                      <div className="agent-steps">
+                        <div className="agent-warn">{t('Copy this token now. It is shown once, and cannot be read again.')}</div>
+                        <AgentSnippet label={t('Token for {name}', { name: minted.name })} text={minted.token} copied={agentCopied === 'token'} onCopy={() => copyAgent('token', minted.token)} />
+                        <AgentSnippet label={t('Claude Code')} text={claudeCommand} copied={agentCopied === 'claude'} onCopy={() => copyAgent('claude', claudeCommand)} />
+                        <AgentSnippet label={t('Any MCP client')} text={mcpConfig} copied={agentCopied === 'json'} onCopy={() => copyAgent('json', mcpConfig)} />
+                        <button className="btn btn-ghost agent-done" onClick={() => setMinted(null)}>{t('Done')}</button>
+                      </div>
+                    </div>
+                  )}
+                  {agents.tokens.map((tok) => (
+                    <div className="row static agent-token" key={tok.id} data-token={tok.id}>
+                      <span className="row-main">
+                        {tok.name}
+                        <span className="row-sub">
+                          <code className="agent-prefix">{tok.prefix}…</code>
+                          {` · ${t('made {when}', { when: new Date(tok.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) })}`}
+                          {` · ${tok.lastUsedAt ? t('last used {when}', { when: ago(tok.lastUsedAt) }) : t('never used')}`}
+                        </span>
+                      </span>
+                      {revoking === tok.id ? (
+                        <span className="team-confirm">
+                          <button className="pill-btn" disabled={agentBusy === tok.id} onClick={() => void revokeAgentToken(tok.id)}>{t('Revoke')}</button>
+                          <button className="btn-text" onClick={() => setRevoking(null)}>{t('Keep')}</button>
+                        </span>
+                      ) : (
+                        <button className="btn-text danger" onClick={() => setRevoking(tok.id)}>{t('Revoke')}</button>
+                      )}
+                    </div>
+                  ))}
+                  {agentError && <div className="form-error">{agentError}</div>}
+                </div>
+                {agents.tools.length > 0 && (
+                  <p className="hint insights-hint">{t('What an agent can do: {tools}.', { tools: agents.tools.join(', ') })}</p>
+                )}
+              </>
+            )}
+            </section>
+          </aside>
+        </div>
         <div style={{ height: 24 }} />
       </div>
     </div>

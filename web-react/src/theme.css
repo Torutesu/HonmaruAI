@@ -790,3 +790,126 @@
   :root:not([data-theme="light"]) .shell .workbench { background: #0f0f0f; }
 }
 @media (min-width: 720px) { :root[data-theme="dark"] .shell .workbench { background: #0f0f0f; } }
+
+/* ---- History and Tools on a laptop ----
+
+   Both were the phone's single 680px column pinned to the left of a wide
+   window. History becomes a list beside the decision it is on, the way a
+   mail client reads; Tools, a directory of what feeds the AI beside the
+   settings of the AI itself. */
+.hist-tools { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
+.hist-search {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
+  padding: 9px 12px; border-radius: 10px; border: 1px solid var(--bone); background: var(--signal-white); color: var(--ink-black);
+}
+.hist-search:focus { outline: none; border-color: var(--signal-blue, #6647f0); }
+.hist-tally { margin: 0 2px; font-size: 12.5px; color: var(--ash); }
+.tools-grid { display: flex; flex-direction: column; }
+.tools-main, .tools-side { display: contents; }
+.tools-ai { order: 1; } .tools-connectors { order: 2; } .tools-inbox { order: 3; } .tools-github { order: 4; } .tools-agents { order: 5; }
+.tools-wide-only { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hist-search { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
+}
+:root[data-theme="dark"] .hist-search { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
+
+@media (min-width: 1024px) {
+  .shell .screen.screen-wide .screen-head,
+  .shell .screen.screen-wide .screen-body { max-width: 1240px; }
+
+  /* History: the list, and the decision it is on. */
+  .shell .hist-screen .screen-body { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+  .hist-tools { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+  .hist-tools .seg { flex: none; width: auto; margin: 0; }
+  .hist-tools .seg button { padding-left: 18px; padding-right: 18px; }
+  .hist-search { flex: 1; min-width: 200px; max-width: 360px; }
+  .hist-tally { flex: 1 1 100%; }
+  .hist-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 440px) minmax(0, 1fr); gap: 20px; }
+  .hist-list { overflow-y: auto; min-height: 0; padding-right: 4px; }
+  .hist-list .hist-row .row { cursor: pointer; }
+  .hist-list .hist-row.open { background: #efeaff; }
+  .hist-list .hist-row.open .row-main { font-weight: 600; }
+  .hist-pane {
+    overflow-y: auto; min-height: 0; margin-bottom: 24px;
+    background: var(--signal-white); border: 1px solid var(--bone); border-radius: 18px;
+    padding: 26px 30px 30px;
+  }
+  .hist-pane-head h2 { margin: 12px 0 16px; font-family: var(--font-display); font-size: 26px; line-height: 1.2; letter-spacing: -0.02em; color: var(--ink-black); }
+  .hist-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 20px; margin: 0 0 18px; padding: 14px 0; border-top: 1px solid var(--bone); border-bottom: 1px solid var(--bone); }
+  .hist-facts dt { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ash); margin-bottom: 3px; }
+  .hist-facts dd { margin: 0; font-size: 14px; color: var(--ink-black); }
+  .hist-pane .hist-detail { padding: 0; font-size: 15px; }
+  .hist-pane .hist-summary { font-size: 16px; color: #3a3a3a; margin-bottom: 14px; }
+  .hist-context { margin-top: 22px; }
+  .hist-context p { margin: 6px 0 0; white-space: pre-wrap; font-size: 14px; line-height: 1.6; color: #4a4a4a; }
+
+  /* Tools: what feeds the AI on the left, the AI on the right. */
+  .tools-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 28px; align-items: start; margin-top: 8px; }
+  .tools-main, .tools-side { display: block; min-width: 0; }
+  .tools-side { position: sticky; top: 0; }
+  .tools-wide-only { display: block; }
+  .tools-sec + .tools-sec { margin-top: 8px; }
+  /* Connectors, as a directory of tiles. */
+  .rows.connector-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; background: none; border: none; box-shadow: none; overflow: visible; }
+  .rows.connector-rows .row.connector {
+    display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr auto; gap: 10px 12px; align-items: start;
+    background: var(--signal-white); border: 1px solid var(--bone); border-radius: 16px; padding: 16px; min-height: 150px;
+  }
+  .rows.connector-rows .row.connector .row-icon { grid-row: 1; grid-column: 1; }
+  .rows.connector-rows .row.connector .row-main { grid-row: 1 / span 2; grid-column: 2; font-weight: 600; }
+  .rows.connector-rows .row.connector .row-sub { font-weight: 400; margin-top: 4px; }
+  .rows.connector-rows .row.connector > .pill-btn,
+  .rows.connector-rows .row.connector > .pill-tag { grid-row: 3; grid-column: 1 / span 2; justify-self: start; }
+  .rows.connector-rows .row.connector:hover { border-color: #cfcfcf; }
+}
+@media (min-width: 1024px) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hist-pane,
+  :root:not([data-theme="light"]) .rows.connector-rows .row.connector { background: #1a1a1a; border-color: #2a2a2a; }
+  :root:not([data-theme="light"]) .hist-list .hist-row.open { background: #26233a; }
+  :root:not([data-theme="light"]) .hist-pane-head h2, :root:not([data-theme="light"]) .hist-facts dd { color: #f2f2f2; }
+  :root:not([data-theme="light"]) .hist-pane .hist-summary, :root:not([data-theme="light"]) .hist-context p { color: #c4c4c4; }
+  :root:not([data-theme="light"]) .hist-facts { border-color: #2a2a2a; }
+}
+@media (min-width: 1024px) {
+  :root[data-theme="dark"] .hist-pane, :root[data-theme="dark"] .rows.connector-rows .row.connector { background: #1a1a1a; border-color: #2a2a2a; }
+  :root[data-theme="dark"] .hist-list .hist-row.open { background: #26233a; }
+  :root[data-theme="dark"] .hist-pane-head h2, :root[data-theme="dark"] .hist-facts dd { color: #f2f2f2; }
+  :root[data-theme="dark"] .hist-pane .hist-summary, :root[data-theme="dark"] .hist-context p { color: #c4c4c4; }
+  :root[data-theme="dark"] .hist-facts { border-color: #2a2a2a; }
+}
+@media (min-width: 1024px) {
+  /* A narrow column: the model's picker goes under its words, not beside. */
+  .tools-side .row.static.ai-model { flex-direction: column; align-items: stretch; gap: 10px; }
+  .tools-side .ai-model .row-select { width: 100%; max-width: none; }
+  .hist-pane .hist-draft { margin-left: 0; }
+  .hist-pane .hist-undo { margin-right: 8px; margin-bottom: 8px; }
+}
+
+/* ---- You, on a laptop ----
+   Who you are and where to go on the left, kept in view; what you set on
+   the right. On a phone it is one column in the order it always was. */
+.profile-layout { display: flex; flex-direction: column; }
+.profile-side, .profile-main { display: contents; }
+.pf-head { order: 1; } .pf-stats { order: 2; } .pf-err { order: 3; } .pf-profile { order: 4; } .pf-ai { order: 5; }
+.pf-where { order: 6; } .pf-ws { order: 7; } .pf-biz { order: 8; } .pf-acct { order: 9; }
+@media (min-width: 1024px) {
+  .profile-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 32px; align-items: start; }
+  .profile-side { display: block; }
+  .profile-main { display: block; min-width: 0; max-width: 760px; }
+  .pf-head .profile-head {
+    flex-direction: column; align-items: flex-start; gap: 14px;
+    background: var(--signal-white); border: 1px solid var(--bone); border-radius: 18px 18px 0 0; border-bottom: none;
+    padding: 22px 22px 16px; margin: 0;
+  }
+  .pf-head .profile-avatar { width: 72px; height: 72px; font-size: 30px; }
+  .pf-head .profile-head b { font-size: 22px; }
+  .pf-head .profile-head span { word-break: break-all; }
+  .shell .pf-stats .profile-stats { border-radius: 0 0 18px 18px; margin: 0 0 18px; }
+  .pf-ws .rows .row-sub { display: none; }
+  .pf-ws .rows .row { min-height: 0; padding-top: 10px; padding-bottom: 10px; }
+  .pf-main-first, .profile-main > .pf-sec:first-child .rows-title:first-child { margin-top: 0; }
+}
+@media (min-width: 1024px) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pf-head .profile-head { background: #1a1a1a; border-color: #2a2a2a; }
+}
+@media (min-width: 1024px) { :root[data-theme="dark"] .pf-head .profile-head { background: #1a1a1a; border-color: #2a2a2a; } }

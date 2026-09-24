@@ -249,330 +249,354 @@ export const Profile: React.FC<Props> = ({
   const display = me?.name || handle.split('@')[0]
 
   return (
-    <div className="screen">
+    <div className="screen screen-wide profile-screen">
       <div className="screen-head">
         <button className="back" onClick={onClose} aria-label={t('Close')}>‹</button>
         <span className="head-title">{t('You')}</span>
       </div>
       <div className="screen-body">
-        <div className="profile-head">
-          <div className="profile-avatar">{(display[0] || '?').toUpperCase()}</div>
-          <div>
-            <b>{display}</b>
-            <span>{me?.handle ? `@${me.handle}` : ''}{me?.handle && (me?.email || handle) ? ' · ' : ''}{me?.email || handle}</span>
+        <div className="profile-layout">
+        <aside className="profile-side">
+          <section className="pf-sec pf-head">
+          <div className="profile-head">
+            <div className="profile-avatar">{(display[0] || '?').toUpperCase()}</div>
+            <div>
+              <b>{display}</b>
+              <span>{me?.handle ? `@${me.handle}` : ''}{me?.handle && (me?.email || handle) ? ' · ' : ''}{me?.email || handle}</span>
+            </div>
           </div>
-        </div>
 
-        <div className="profile-stats">
-          <div><b>{pendingCount}</b><span>{t('waiting')}</span></div>
-          <div><b>{decidedCount}</b><span>{t('decided')}</span></div>
-          <div><b>{businesses.length}</b><span>{t('businesses')}</span></div>
-        </div>
-
-        {error && <div className="form-error">{error}</div>}
-
-        <div className="rows-title">{t('Profile')}</div>
-        <div className="rows">
-          <div className="row static">
-            <span className="row-main">
-              {t('Name')}
-              <span className="row-sub">{t('What teammates see on cards, in channels and in the list.')}</span>
-              <input
-                className="alias-input name-input"
-                value={nameDraft ?? (me?.name || '')}
-                maxLength={60}
-                onChange={(e) => setNameDraft(e.target.value)}
-                onBlur={() => {
-                  const next = (nameDraft ?? '').trim()
-                  if (nameDraft !== null && next && next !== me?.name) void saveIdentity({ name: next })
-                  setNameDraft(null)
-                }}
-                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                placeholder={t('e.g. Toru Tano')}
-                aria-label={t('Name')}
-              />
-            </span>
+          </section>
+          <section className="pf-sec pf-stats">
+          <div className="profile-stats">
+            <div><b>{pendingCount}</b><span>{t('waiting')}</span></div>
+            <div><b>{decidedCount}</b><span>{t('decided')}</span></div>
+            <div><b>{businesses.length}</b><span>{t('businesses')}</span></div>
           </div>
-          <div className="row static">
-            <span className="row-main">
-              {t('Username')}
-              <span className="row-sub">{t('What @ finds you by — in a channel, on a card, when you tell your AI. Letters, numbers, “.”, “_” and “-”.')}</span>
-              <span className="handle-field">
-                <span className="handle-at" aria-hidden="true">@</span>
+
+          </section>
+          <section className="pf-sec pf-ws">
+          <div className="rows-title">{t('Your workspace')}</div>
+          <div className="rows">
+            <button className="row" onClick={() => onOpen('history')}>
+              <span className="row-icon"><Icon name="history" size={18} /></span>
+              <span className="row-main">{t('History')}<span className="row-sub">{t('Everything already settled.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            <button className="row" onClick={() => onOpen('insights')}>
+              <span className="row-icon"><Icon name="insights" size={18} /></span>
+              <span className="row-main">{t('Insights')}<span className="row-sub">{t('How long decisions wait, what gets declined, what your AI got wrong.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            <button className="row" onClick={() => onOpen('automations')}>
+              <span className="row-icon"><Icon name="repeat" size={18} /></span>
+              <span className="row-main">{t('Automations')}<span className="row-sub">{t('Work your AI does on a schedule, delivered to your feed as a card.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            <button className="row" onClick={() => onOpen('playbook')}>
+              <span className="row-icon"><Icon name="book" size={18} /></span>
+              <span className="row-main">{t('Playbook')}<span className="row-sub">{t('The rules your AI has learned from your decisions, and the ones you told it.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            <button className="row" onClick={() => onOpen('record')}>
+              <span className="row-icon"><Icon name="record" size={18} /></span>
+              <span className="row-main">{t('The record')}<span className="row-sub">{t('Every decision, by business, written by nobody.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            <button className="row" onClick={() => onOpen('tools')}>
+              <span className="row-icon"><Icon name="tools" size={18} /></span>
+              <span className="row-main">{t('Tools')}<span className="row-sub">{t('Gmail, Slack, Notion, GitHub.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            {installable && (
+              <button className="row" onClick={() => promptInstall()}>
+                <span className="row-main">{t('Install the app')}<span className="row-sub">{t('On your desktop or home screen, and it opens offline.')}</span></span>
+                <span className="row-chevron">›</span>
+              </button>
+            )}
+            <button className="row" onClick={() => onOpen('notifications')}>
+              <span className="row-icon"><Icon name="bell" size={18} /></span>
+              <span className="row-main">{t('Notifications')}<span className="row-sub">{t('Where a decision reaches you.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            <button className="row" onClick={() => onOpen('team')}>
+              <span className="row-icon"><Icon name="invite" size={18} /></span>
+              <span className="row-main">{t('Your team')}<span className="row-sub">{t('Who is here, the links you have out, and one more way in.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            <button className="row join-team" onClick={() => { setJoining(!joining); setJoinError(null) }}>
+              <span className="row-icon"><Icon name="invite" size={18} /></span>
+              <span className="row-main">{t('Join a team')}<span className="row-sub">{t('Paste the invite link somebody sent you.')}</span></span>
+              <span className="row-value">{joining ? '⌄' : '›'}</span>
+            </button>
+            {joining && (
+              <div className="row static">
                 <input
-                  className="alias-input handle-input"
-                  value={handleDraft ?? (me?.handle || '')}
-                  maxLength={30}
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  onChange={(e) => { setHandleDraft(e.target.value.replace(/^@/, '').toLowerCase()); setHandleNote(null) }}
-                  onBlur={async () => {
-                    if (handleDraft === null) return
-                    const next = handleDraft.trim()
-                    if (next !== (me?.handle || '')) {
-                      if (await saveIdentity({ handle: next })) setHandleDraft(null)
-                    } else setHandleDraft(null)
+                  className="join-code"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') join() }}
+                  placeholder={t('Invite link')}
+                  aria-label={t('Invite link')}
+                />
+                <button className="pill-btn" onClick={join} disabled={!joinCode.trim()}>{t('Join')}</button>
+              </div>
+            )}
+            {joinError && <div className="form-error">{joinError}</div>}
+            <button className="row create-team" onClick={() => { setCreating(!creating); setCreateError(null) }}>
+              <span className="row-icon"><Icon name="invite" size={18} /></span>
+              <span className="row-main">{t('Create a team')}<span className="row-sub">{t('A workspace of its own, with a name, that you invite people into.')}</span></span>
+              <span className="row-value">{creating ? '⌄' : '›'}</span>
+            </button>
+            {creating && (
+              <div className="row static">
+                <input
+                  className="team-name-input"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') createTeam() }}
+                  placeholder={t('Team name')}
+                  aria-label={t('Team name')}
+                  maxLength={60}
+                />
+                <button className="pill-btn" onClick={createTeam} disabled={createBusy || !teamName.trim()}>{t('Create')}</button>
+              </div>
+            )}
+            {createError && <div className="form-error">{createError}</div>}
+            <button className="row" onClick={() => onOpen('plans')}>
+              <span className="row-icon"><Icon name="plan" size={18} /></span>
+              <span className="row-main">{t('Plan')}<span className="row-sub">{t('What you are on, and what else there is.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+          </div>
+
+          </section>
+        </aside>
+        <div className="profile-main">
+          <section className="pf-sec pf-err">
+          {error && <div className="form-error">{error}</div>}
+
+          </section>
+          <section className="pf-sec pf-profile">
+          <div className="rows-title">{t('Profile')}</div>
+          <div className="rows">
+            <div className="row static">
+              <span className="row-main">
+                {t('Name')}
+                <span className="row-sub">{t('What teammates see on cards, in channels and in the list.')}</span>
+                <input
+                  className="alias-input name-input"
+                  value={nameDraft ?? (me?.name || '')}
+                  maxLength={60}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onBlur={() => {
+                    const next = (nameDraft ?? '').trim()
+                    if (nameDraft !== null && next && next !== me?.name) void saveIdentity({ name: next })
+                    setNameDraft(null)
                   }}
                   onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                  placeholder={t('e.g. toru')}
-                  aria-label={t('Username')}
-                  aria-invalid={handleNote ? !handleNote.ok : undefined}
+                  placeholder={t('e.g. Toru Tano')}
+                  aria-label={t('Name')}
                 />
               </span>
-              {handleNote && <span className={`row-sub handle-note${handleNote.ok ? ' ok' : ' bad'}`} role="status">{handleNote.text}</span>}
-            </span>
-          </div>
-        </div>
-
-        <div className="rows-title">{t('How your AI treats you')}</div>
-        <div className="rows">
-          <div className="row static">
-            <span className="row-main">
-              {t('Role')}
-              <span className="row-sub">{t('What gets routed to you first. In your own words — anyone can change theirs.')}</span>
-            </span>
-            {me ? (
-              <span className="row-main role-edit">
-                <input
-                  className="role-input"
-                  list="role-presets"
-                  value={roleDraft ?? (me.role ? (ROLE_LABEL[me.role] ? t(ROLE_LABEL[me.role]) : me.role) : '')}
-                  maxLength={40}
-                  onChange={(e) => setRoleDraft(e.target.value)}
-                  onBlur={() => { if (roleDraft !== null && roleDraft.trim() && roleDraft.trim() !== me.role) patch({ role: roleDraft.trim(), orgId }); setRoleDraft(null) }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                  placeholder={t('e.g. store manager, CFO, designer')}
-                  aria-label={t('Role')}
-                />
-                <datalist id="role-presets">
-                  {(me.assignableRoles || []).map((r) => <option key={r} value={r}>{t(ROLE_LABEL[r] || r)}</option>)}
-                </datalist>
-              </span>
-            ) : (
-              <span className="row-value">—</span>
-            )}
-          </div>
-          <div className="row static">
-            <span className="row-main">
-              {t('Also called')}
-              <span className="row-sub">{t('Names your AI should recognise as you — a first name, a nickname, in any language.')}</span>
-              <input
-                className="alias-input aliases-input"
-                value={aliases}
-                onChange={(e) => { aliasesTouched.current = true; setAliases(e.target.value) }}
-                onBlur={() => {
-                  const list = aliases.split(/[,、]/).map((a) => a.trim()).filter(Boolean)
-                  if (list.join(',') !== (me?.aliases || []).join(',')) patch({ aliases: list })
-                }}
-                placeholder={t('e.g. 美香, Mika')}
-                aria-label={t('Also called')}
-              />
-            </span>
-          </div>
-          <div className="row static">
-            <span className="row-main">
-              {t('How I work')}
-              <span className="row-sub">{t('What your AI should know before it routes anything you say: what you run, who owns what, what is always yours.')}</span>
-              <textarea
-                className="context-input"
-                value={howIWork}
-                rows={3}
-                maxLength={MAX_CONTEXT_CHARS}
-                onChange={(e) => { howTouched.current = true; setHowIWork(e.target.value); setSenderContext(e.target.value, orgId); saveHow(e.target.value) }}
-                onBlur={() => { void flushHow() }}
-                placeholder={t('e.g. I run the cafe and the hotel. Kenji owns suppliers. Anything about the lease is mine.')}
-                aria-label={t('How I work')}
-              />
-              {howSaved !== 'idle' && (
-                <span className="row-sub context-state" role="status">
-                  {howSaved === 'saving' ? t('Saving…') : howSaved === 'saved' ? t('Saved to this workspace.') : t('That did not save.')}
+            </div>
+            <div className="row static">
+              <span className="row-main">
+                {t('Username')}
+                <span className="row-sub">{t('What @ finds you by — in a channel, on a card, when you tell your AI. Letters, numbers, “.”, “_” and “-”.')}</span>
+                <span className="handle-field">
+                  <span className="handle-at" aria-hidden="true">@</span>
+                  <input
+                    className="alias-input handle-input"
+                    value={handleDraft ?? (me?.handle || '')}
+                    maxLength={30}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    onChange={(e) => { setHandleDraft(e.target.value.replace(/^@/, '').toLowerCase()); setHandleNote(null) }}
+                    onBlur={async () => {
+                      if (handleDraft === null) return
+                      const next = handleDraft.trim()
+                      if (next !== (me?.handle || '')) {
+                        if (await saveIdentity({ handle: next })) setHandleDraft(null)
+                      } else setHandleDraft(null)
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    placeholder={t('e.g. toru')}
+                    aria-label={t('Username')}
+                    aria-invalid={handleNote ? !handleNote.ok : undefined}
+                  />
                 </span>
+                {handleNote && <span className={`row-sub handle-note${handleNote.ok ? ' ok' : ' bad'}`} role="status">{handleNote.text}</span>}
+              </span>
+            </div>
+          </div>
+
+          </section>
+          <section className="pf-sec pf-ai">
+          <div className="rows-title">{t('How your AI treats you')}</div>
+          <div className="rows">
+            <div className="row static">
+              <span className="row-main">
+                {t('Role')}
+                <span className="row-sub">{t('What gets routed to you first. In your own words — anyone can change theirs.')}</span>
+              </span>
+              {me ? (
+                <span className="row-main role-edit">
+                  <input
+                    className="role-input"
+                    list="role-presets"
+                    value={roleDraft ?? (me.role ? (ROLE_LABEL[me.role] ? t(ROLE_LABEL[me.role]) : me.role) : '')}
+                    maxLength={40}
+                    onChange={(e) => setRoleDraft(e.target.value)}
+                    onBlur={() => { if (roleDraft !== null && roleDraft.trim() && roleDraft.trim() !== me.role) patch({ role: roleDraft.trim(), orgId }); setRoleDraft(null) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    placeholder={t('e.g. store manager, CFO, designer')}
+                    aria-label={t('Role')}
+                  />
+                  <datalist id="role-presets">
+                    {(me.assignableRoles || []).map((r) => <option key={r} value={r}>{t(ROLE_LABEL[r] || r)}</option>)}
+                  </datalist>
+                </span>
+              ) : (
+                <span className="row-value">—</span>
               )}
-            </span>
-          </div>
-          <div className="row static">
-            <span className="row-main">
-              {t('Your own AI key')}
-              <span className="row-sub">{t('Use your own OpenAI key for routing, answers, drafts and translations. It stays in this browser and is sent only with your own requests — we never store it on our servers.')}</span>
-              <div className="key-row">
+            </div>
+            <div className="row static">
+              <span className="row-main">
+                {t('Also called')}
+                <span className="row-sub">{t('Names your AI should recognise as you — a first name, a nickname, in any language.')}</span>
                 <input
-                  className="alias-input key-input"
-                  type="password"
-                  autoComplete="off"
-                  value={aiKey}
-                  onChange={(e) => { setAIKeyState(e.target.value); setKeySaved(false) }}
-                  onBlur={() => { setAIKey(aiKey); setKeySaved(Boolean(aiKey.trim())) }}
-                  placeholder="sk-…"
-                  aria-label={t('Your own AI key')}
+                  className="alias-input aliases-input"
+                  value={aliases}
+                  onChange={(e) => { aliasesTouched.current = true; setAliases(e.target.value) }}
+                  onBlur={() => {
+                    const list = aliases.split(/[,、]/).map((a) => a.trim()).filter(Boolean)
+                    if (list.join(',') !== (me?.aliases || []).join(',')) patch({ aliases: list })
+                  }}
+                  placeholder={t('e.g. 美香, Mika')}
+                  aria-label={t('Also called')}
                 />
-                {aiKey && (
-                  <button type="button" className="pill-btn" onClick={() => { setAIKey(''); setAIKeyState(''); setKeySaved(false) }}>{t('Clear')}</button>
-                )}
-              </div>
-              {keySaved && <span className="row-sub key-saved">{t('Saved in this browser.')}</span>}
-            </span>
-          </div>
-          <div className="row static">
-            <span className="row-main">
-              {t('Language')}
-              <span className="row-sub">{t('Every notification arrives written in it.')}</span>
-            </span>
-            <select className="row-select" value={locale} onChange={(e) => changeLocale(e.target.value)} aria-label={t('Language')}>
-              {Object.entries(LOCALE_NAMES).map(([code, label]) => (
-                <option key={code} value={code}>{label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {(me?.orgs?.length || 0) > 1 && (
-          <>
-            <div className="rows-title">{t('Where you work')}</div>
-            <div className="rows">
-              {me!.orgs!.map((org) => (
-                <button
-                  key={org.id}
-                  className="row"
-                  data-org={org.id}
-                  aria-current={org.id === orgId}
-                  onClick={() => { if (org.id !== orgId) onSwitchOrg(org.id) }}
-                >
-                  <span className="row-main">
-                    {orgLabel(org)}
-                    <span className="row-sub">{t(ROLE_LABEL[org.role] || org.role)}</span>
+              </span>
+            </div>
+            <div className="row static">
+              <span className="row-main">
+                {t('How I work')}
+                <span className="row-sub">{t('What your AI should know before it routes anything you say: what you run, who owns what, what is always yours.')}</span>
+                <textarea
+                  className="context-input"
+                  value={howIWork}
+                  rows={3}
+                  maxLength={MAX_CONTEXT_CHARS}
+                  onChange={(e) => { howTouched.current = true; setHowIWork(e.target.value); setSenderContext(e.target.value, orgId); saveHow(e.target.value) }}
+                  onBlur={() => { void flushHow() }}
+                  placeholder={t('e.g. I run the cafe and the hotel. Kenji owns suppliers. Anything about the lease is mine.')}
+                  aria-label={t('How I work')}
+                />
+                {howSaved !== 'idle' && (
+                  <span className="row-sub context-state" role="status">
+                    {howSaved === 'saving' ? t('Saving…') : howSaved === 'saved' ? t('Saved to this workspace.') : t('That did not save.')}
                   </span>
-                  <span className="row-value">{org.id === orgId ? '✓' : '›'}</span>
-                </button>
-              ))}
+                )}
+              </span>
             </div>
-          </>
-        )}
-
-        <div className="rows-title">{t('Your workspace')}</div>
-        <div className="rows">
-          <button className="row" onClick={() => onOpen('history')}>
-            <span className="row-icon"><Icon name="history" size={18} /></span>
-            <span className="row-main">{t('History')}<span className="row-sub">{t('Everything already settled.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-          <button className="row" onClick={() => onOpen('insights')}>
-            <span className="row-icon"><Icon name="insights" size={18} /></span>
-            <span className="row-main">{t('Insights')}<span className="row-sub">{t('How long decisions wait, what gets declined, what your AI got wrong.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-          <button className="row" onClick={() => onOpen('automations')}>
-            <span className="row-icon"><Icon name="repeat" size={18} /></span>
-            <span className="row-main">{t('Automations')}<span className="row-sub">{t('Work your AI does on a schedule, delivered to your feed as a card.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-          <button className="row" onClick={() => onOpen('playbook')}>
-            <span className="row-icon"><Icon name="book" size={18} /></span>
-            <span className="row-main">{t('Playbook')}<span className="row-sub">{t('The rules your AI has learned from your decisions, and the ones you told it.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-          <button className="row" onClick={() => onOpen('record')}>
-            <span className="row-icon"><Icon name="record" size={18} /></span>
-            <span className="row-main">{t('The record')}<span className="row-sub">{t('Every decision, by business, written by nobody.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-          <button className="row" onClick={() => onOpen('tools')}>
-            <span className="row-icon"><Icon name="tools" size={18} /></span>
-            <span className="row-main">{t('Tools')}<span className="row-sub">{t('Gmail, Slack, Notion, GitHub.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-          {installable && (
-            <button className="row" onClick={() => promptInstall()}>
-              <span className="row-main">{t('Install the app')}<span className="row-sub">{t('On your desktop or home screen, and it opens offline.')}</span></span>
-              <span className="row-chevron">›</span>
-            </button>
-          )}
-          <button className="row" onClick={() => onOpen('notifications')}>
-            <span className="row-icon"><Icon name="bell" size={18} /></span>
-            <span className="row-main">{t('Notifications')}<span className="row-sub">{t('Where a decision reaches you.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-          <button className="row" onClick={() => onOpen('team')}>
-            <span className="row-icon"><Icon name="invite" size={18} /></span>
-            <span className="row-main">{t('Your team')}<span className="row-sub">{t('Who is here, the links you have out, and one more way in.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-          <button className="row join-team" onClick={() => { setJoining(!joining); setJoinError(null) }}>
-            <span className="row-icon"><Icon name="invite" size={18} /></span>
-            <span className="row-main">{t('Join a team')}<span className="row-sub">{t('Paste the invite link somebody sent you.')}</span></span>
-            <span className="row-value">{joining ? '⌄' : '›'}</span>
-          </button>
-          {joining && (
             <div className="row static">
-              <input
-                className="join-code"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') join() }}
-                placeholder={t('Invite link')}
-                aria-label={t('Invite link')}
-              />
-              <button className="pill-btn" onClick={join} disabled={!joinCode.trim()}>{t('Join')}</button>
+              <span className="row-main">
+                {t('Your own AI key')}
+                <span className="row-sub">{t('Use your own OpenAI key for routing, answers, drafts and translations. It stays in this browser and is sent only with your own requests — we never store it on our servers.')}</span>
+                <div className="key-row">
+                  <input
+                    className="alias-input key-input"
+                    type="password"
+                    autoComplete="off"
+                    value={aiKey}
+                    onChange={(e) => { setAIKeyState(e.target.value); setKeySaved(false) }}
+                    onBlur={() => { setAIKey(aiKey); setKeySaved(Boolean(aiKey.trim())) }}
+                    placeholder="sk-…"
+                    aria-label={t('Your own AI key')}
+                  />
+                  {aiKey && (
+                    <button type="button" className="pill-btn" onClick={() => { setAIKey(''); setAIKeyState(''); setKeySaved(false) }}>{t('Clear')}</button>
+                  )}
+                </div>
+                {keySaved && <span className="row-sub key-saved">{t('Saved in this browser.')}</span>}
+              </span>
             </div>
-          )}
-          {joinError && <div className="form-error">{joinError}</div>}
-          <button className="row create-team" onClick={() => { setCreating(!creating); setCreateError(null) }}>
-            <span className="row-icon"><Icon name="invite" size={18} /></span>
-            <span className="row-main">{t('Create a team')}<span className="row-sub">{t('A workspace of its own, with a name, that you invite people into.')}</span></span>
-            <span className="row-value">{creating ? '⌄' : '›'}</span>
-          </button>
-          {creating && (
             <div className="row static">
-              <input
-                className="team-name-input"
-                value={teamName}
-                onChange={(e) => setTeamName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') createTeam() }}
-                placeholder={t('Team name')}
-                aria-label={t('Team name')}
-                maxLength={60}
-              />
-              <button className="pill-btn" onClick={createTeam} disabled={createBusy || !teamName.trim()}>{t('Create')}</button>
-            </div>
-          )}
-          {createError && <div className="form-error">{createError}</div>}
-          <button className="row" onClick={() => onOpen('plans')}>
-            <span className="row-icon"><Icon name="plan" size={18} /></span>
-            <span className="row-main">{t('Plan')}<span className="row-sub">{t('What you are on, and what else there is.')}</span></span>
-            <span className="row-value">›</span>
-          </button>
-        </div>
-
-        {businesses.length > 0 && (
-          <>
-            <div className="rows-title">{t('Businesses your AI has found')}</div>
-            <div className="chips">
-              {businesses.map((b) => <span key={b.slug} className="pill-tag">{b.name}</span>)}
-            </div>
-            <p className="hint" style={{ margin: '8px 4px 20px', color: 'var(--ash)', fontSize: 12.5 }}>
-              {t('businesses.blurb')}
-            </p>
-          </>
-        )}
-
-        <div className="rows">
-          <button className="row" onClick={onLogout}>
-            <span className="row-main" style={{ color: 'var(--slate)' }}>{t('Sign out')}</span>
-          </button>
-          <button className="row" onClick={() => setConfirmDelete(true)}>
-            <span className="row-main" style={{ color: '#a11258' }}>{t('Delete account')}</span>
-          </button>
-        </div>
-
-        {confirmDelete && (
-          <div className="form-error">
-            {t('delete.body')}
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>{t('Keep it')}</button>
-              <button className="btn btn-primary" onClick={deleteAccount}>{t('Delete')}</button>
+              <span className="row-main">
+                {t('Language')}
+                <span className="row-sub">{t('Every notification arrives written in it.')}</span>
+              </span>
+              <select className="row-select" value={locale} onChange={(e) => changeLocale(e.target.value)} aria-label={t('Language')}>
+                {Object.entries(LOCALE_NAMES).map(([code, label]) => (
+                  <option key={code} value={code}>{label}</option>
+                ))}
+              </select>
             </div>
           </div>
-        )}
+
+          </section>
+          <section className="pf-sec pf-where">
+          {(me?.orgs?.length || 0) > 1 && (
+            <>
+              <div className="rows-title">{t('Where you work')}</div>
+              <div className="rows">
+                {me!.orgs!.map((org) => (
+                  <button
+                    key={org.id}
+                    className="row"
+                    data-org={org.id}
+                    aria-current={org.id === orgId}
+                    onClick={() => { if (org.id !== orgId) onSwitchOrg(org.id) }}
+                  >
+                    <span className="row-main">
+                      {orgLabel(org)}
+                      <span className="row-sub">{t(ROLE_LABEL[org.role] || org.role)}</span>
+                    </span>
+                    <span className="row-value">{org.id === orgId ? '✓' : '›'}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          </section>
+          <section className="pf-sec pf-biz">
+          {businesses.length > 0 && (
+            <>
+              <div className="rows-title">{t('Businesses your AI has found')}</div>
+              <div className="chips">
+                {businesses.map((b) => <span key={b.slug} className="pill-tag">{b.name}</span>)}
+              </div>
+              <p className="hint" style={{ margin: '8px 4px 20px', color: 'var(--ash)', fontSize: 12.5 }}>
+                {t('businesses.blurb')}
+              </p>
+            </>
+          )}
+
+          </section>
+          <section className="pf-sec pf-acct">
+          <div className="rows">
+            <button className="row" onClick={onLogout}>
+              <span className="row-main" style={{ color: 'var(--slate)' }}>{t('Sign out')}</span>
+            </button>
+            <button className="row" onClick={() => setConfirmDelete(true)}>
+              <span className="row-main" style={{ color: '#a11258' }}>{t('Delete account')}</span>
+            </button>
+          </div>
+
+          {confirmDelete && (
+            <div className="form-error">
+              {t('delete.body')}
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>{t('Keep it')}</button>
+                <button className="btn btn-primary" onClick={deleteAccount}>{t('Delete')}</button>
+              </div>
+            </div>
+          )}
+          </section>
+        </div>
+        </div>
         <div style={{ height: 32 }} />
       </div>
     </div>

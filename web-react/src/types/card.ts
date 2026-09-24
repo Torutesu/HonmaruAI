@@ -130,4 +130,18 @@ export interface ChannelMessage {
   mine: boolean
   cardId: string | null
   createdAt: string
+  /// Changed after it was sent, and when.
+  editedAt?: string | null
+  /// Unsent. Kept only while a thread hangs off it; the words are gone.
+  deleted?: boolean
+  /// A reply in the thread under this message.
+  parentId?: string | null
+  replyCount?: number
+  lastReplyAt?: string | null
+  /// Who has replied, by member ref, first few only.
+  replyRefs?: string[]
+  pinned?: boolean
+  /// Who reacted, by member ref. `mine` is only set on a message fetched
+  /// by this person; a live event is shared, so the refs decide.
+  reactions?: Array<{ emoji: string; count: number; refs: string[]; mine: boolean }>
 }

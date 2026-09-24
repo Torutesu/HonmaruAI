@@ -1498,6 +1498,79 @@ await step('the list is a chat client on a laptop: sidebar, conversation, and a 
   await d.emulateMedia({ colorScheme: 'light' })
 }, { after: async () => { await work?.close() } })
 
+await step('a message is edited, reacted to, answered in a thread, pinned and unsent, the way Slack does', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
+  try {
+    await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await d.waitForSelector('.slk-side', { timeout: 20000 })
+    await d.click('.cl-add')
+    await d.fill('.cl-add-form input', 'Front desk')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.cl-thread:has-text("Front desk")', { timeout: 15000 })
+    await d.click('.cl-thread:has-text("Front desk") .cl-open')
+    await d.waitForSelector('.slk-head h1:has-text("Front desk")', { timeout: 10000 })
+    await d.fill('.slk-input', 'Check-in opens at *3pm* tomorrow')
+    await d.keyboard.press('Enter')
+    const msg = '.slk-msg:has-text("Check-in opens")'
+    await d.waitForSelector(`${msg} b:has-text("3pm")`, { timeout: 10000 })
+      .catch(() => { throw new Error('*bold* is not drawn bold') })
+    // ↑ in an empty composer edits what you last said.
+    await d.click('.slk-input')
+    await d.keyboard.press('ArrowUp')
+    await d.waitForSelector('.slk-edit textarea', { timeout: 5000 }).catch(() => { throw new Error('↑ did not open the last message for editing') })
+    await d.fill('.slk-edit textarea', 'Check-in opens at *2pm* tomorrow')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector(`${msg} .slk-edited`, { timeout: 10000 }).catch(() => { throw new Error('an edit does not say it was edited') })
+    if (!(await d.$(`${msg} b:has-text("2pm")`))) throw new Error('the edit did not take')
+    // A reaction from the hover bar, and its pill toggles.
+    await d.hover(msg)
+    await d.click(`${msg} .slk-tools .slk-tool.emoji >> nth=0`)
+    await d.waitForSelector(`${msg} .slk-reaction.mine`, { timeout: 10000 }).catch(() => { throw new Error('a reaction did not land') })
+    await d.click(`${msg} .slk-reaction.mine`)
+    await d.waitForSelector(`${msg} .slk-reaction.mine`, { state: 'detached', timeout: 10000 })
+      .catch(() => { throw new Error('clicking your reaction did not take it back') })
+    // A thread: the reply sits under the message, not in the channel.
+    await d.hover(msg)
+    await d.click(`${msg} .slk-tools [aria-label="Reply in thread"]`)
+    await d.waitForSelector('.slk-thread-pane textarea', { timeout: 10000 }).catch(() => { throw new Error('the thread did not open') })
+    await d.fill('.slk-thread-pane textarea', 'Housekeeping is fine with 2pm')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-thread-pane .slk-msg:has-text("Housekeeping")', { timeout: 10000 })
+      .catch(() => { throw new Error('a thread reply does not show in the thread') })
+    await d.waitForSelector(`${msg} .slk-thread-link:has-text("1")`, { timeout: 10000 })
+      .catch(() => { throw new Error('the message does not count its reply') })
+    if (await d.$('.slk-main .slk-msg:has-text("Housekeeping")')) throw new Error('a thread reply leaked into the channel')
+    await d.screenshot({ path: `${SHOTS}/39-thread.png` })
+    await d.click('.slk-thread-pane .slk-pane-close')
+    // Pinned, and listed under the pin.
+    await d.hover(msg)
+    await d.click(`${msg} .slk-tools [aria-label="Pin to channel"]`)
+    await d.waitForSelector(`${msg}.pinned`, { timeout: 10000 }).catch(() => { throw new Error('pinning did not mark the message') })
+    await d.click('.slk-pins-button')
+    await d.waitForSelector('.slk-pins .slk-pin-row:has-text("Check-in")', { timeout: 10000 }).catch(() => { throw new Error('the pin list does not hold it') })
+    await d.click('.slk-pins .slk-pane-close')
+    // Unsent: a second message, gone for good after a confirm.
+    await d.fill('.slk-input', 'oops, wrong channel')
+    await d.keyboard.press('Enter')
+    const oops = '.slk-msg:has-text("oops, wrong channel")'
+    await d.waitForSelector(oops, { timeout: 10000 })
+    await d.hover(oops)
+    await d.click(`${oops} [aria-label="More actions"]`)
+    d.once('dialog', (dl) => dl.accept())
+    await d.click(`${oops} .slk-menu button.danger`)
+    await d.waitForSelector(oops, { state: 'detached', timeout: 10000 }).catch(() => { throw new Error('a deleted message is still there') })
+    // And all of it survives a reload.
+    await d.reload({ waitUntil: 'load' })
+    await d.click('.cl-thread:has-text("Front desk") .cl-open')
+    await d.waitForSelector(`${msg}.pinned .slk-edited`, { timeout: 15000 }).catch(() => { throw new Error('edit and pin did not survive a reload') })
+    if (await d.$(oops)) throw new Error('the unsent message came back on reload')
+  } finally {
+    await ctx.close()
+  }
+})
+
 await step('people talk in a channel, and @AI turns what was said into a decision decided right there', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
@@ -1574,8 +1647,13 @@ await step('a card is decided by dragging it off, the way it is swiped on a phon
     }, before, { timeout: 25000 }).then((h) => h.jsonValue())
     const row = `.inbox-list .inbox-row[data-card="${fresh}"]`
     await d.click(row)
-    await d.waitForSelector('.workbench .card.swipeable', { timeout: 10000 })
-    const box = await (await d.$('.workbench .card.swipeable')).boundingBox()
+    // A locator, not a handle: the card re-renders as it settles, and a
+    // handle to the one it replaced has no box.
+    const cardLoc = d.locator('.workbench .card.swipeable').first()
+    await cardLoc.waitFor({ state: 'visible', timeout: 10000 })
+    await d.waitForTimeout(300)
+    const box = await cardLoc.boundingBox()
+    if (!box) throw new Error('the card in the pane has no box to drag')
     const y = box.y + 60
     await d.mouse.move(box.x + box.width / 2, y)
     await d.mouse.down()

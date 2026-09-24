@@ -7,6 +7,7 @@ import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
 import { useMembers } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
+import { MessageActions, Reactions, EmojiPicker, FormatBar, renderRich } from './MessageParts'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -466,13 +467,36 @@ export const ClassicList: React.FC<Props> = ({
       const m = (e as CustomEvent<ChannelMessage>).detail
       if (!m?.channel) return
       const mine = m.mine || (Boolean(myRef) && m.authorRef === myRef)
-      const msg = { ...m, mine }
+      // A live event is shared by the room: whose reactions are yours is
+      // read from the refs, not from a flag set for somebody else.
+      const reactions = (m.reactions || []).map((r) => ({ ...r, mine: myRef ? r.refs.includes(myRef) : r.mine }))
+      const msg = { ...m, mine, reactions }
+      if (m.parentId) {
+        // A reply: into the thread if it is open; its parent's count comes
+        // as an event of its own.
+        setThread((prev) => {
+          if (!prev || prev.parent.id !== m.parentId) return prev
+          const has = prev.replies.some((x) => x.id === m.id)
+          const replies = m.deleted ? prev.replies.filter((x) => x.id !== m.id)
+            : has ? prev.replies.map((x) => (x.id === m.id ? msg : x)) : [...prev.replies, msg]
+          return { ...prev, replies }
+        })
+        if (m.kind === 'ai') setThinking((prev) => ({ ...prev, [m.channel]: false }))
+        return
+      }
+      let isNew = false
       setMessages((prev) => {
         const list = prev[m.channel]
         if (!list) return prev
-        return { ...prev, [m.channel]: list.some((x) => x.id === m.id) ? list.map((x) => (x.id === m.id ? msg : x)) : [...list, msg] }
+        const has = list.some((x) => x.id === m.id)
+        isNew = !has
+        if (m.deleted && !m.replyCount) return { ...prev, [m.channel]: list.filter((x) => x.id !== m.id) }
+        return { ...prev, [m.channel]: has ? list.map((x) => (x.id === m.id ? msg : x)) : [...list, msg] }
       })
-      setActivity((prev) => ({ ...prev, [m.channel]: { channel: m.channel, lastAt: m.createdAt, preview: m.body.slice(0, 120), lastBy: mine ? 'me' : m.authorName } }))
+      setThread((prev) => (prev && prev.parent.id === m.id ? { ...prev, parent: msg } : prev))
+      if (!m.deleted && !m.editedAt && (isNew || !messagesRef.current[m.channel])) {
+        setActivity((prev) => ({ ...prev, [m.channel]: { channel: m.channel, lastAt: m.createdAt, preview: m.body.slice(0, 120), lastBy: mine ? 'me' : m.authorName } }))
+      }
       if (m.kind === 'ai') {
         setThinking((prev) => ({ ...prev, [m.channel]: false }))
         void loadMessages(m.channel)
@@ -482,20 +506,27 @@ export const ClassicList: React.FC<Props> = ({
     return () => window.removeEventListener('honmaru:channel-message', on)
   }, [members, loadMessages])
 
-  const send = async (channel: string, decide: boolean) => {
-    const body = draft.trim()
+  const send = async (channel: string, decide: boolean, parentId?: string) => {
+    const body = (parentId ? threadDraft : draft).trim()
     if (!body || sending) return
     setSending(true); setProblem(null)
     try {
       const res = await fetch(`${api.httpBase}/channels/messages`, {
         method: 'POST',
         headers: { ...authHeaders, 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId: api.orgId, channel, body, decide }),
+        body: JSON.stringify({ orgId: api.orgId, channel, body, decide, ...(parentId ? { parentId } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setProblem(data.message || t('That did not send. Try again.')); return }
-      setDraft('')
       const msg = data.message as ChannelMessage
+      if (parentId) {
+        setThreadDraft('')
+        setThread((prev) => (prev && prev.parent.id === parentId && !prev.replies.some((x) => x.id === msg.id) ? { ...prev, replies: [...prev.replies, msg] } : prev))
+        setMessages((prev) => ({ ...prev, [channel]: (prev[channel] || []).map((x) => (x.id === parentId ? { ...x, replyCount: (x.replyCount || 0) + 1, lastReplyAt: msg.createdAt } : x)) }))
+        if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: true }))
+        return
+      }
+      setDraft('')
       setMessages((prev) => {
         const list = prev[channel] || []
         return list.some((x) => x.id === msg.id) ? prev : { ...prev, [channel]: [...list, msg] }
@@ -505,9 +536,93 @@ export const ClassicList: React.FC<Props> = ({
       setProblem(t('That did not send. Try again.'))
     } finally {
       setSending(false)
-      composer.current?.focus()
+      if (parentId) threadComposer.current?.focus(); else composer.current?.focus()
     }
   }
+
+  // ---- What you can do to a message ----
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
+  const [toolsOpen, setToolsOpen] = useState<string | null>(null)
+  const [pickerFor, setPickerFor] = useState<string | null>(null)
+  const [thread, setThread] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[] } | null>(null)
+  const [threadDraft, setThreadDraft] = useState('')
+  const threadComposer = useRef<HTMLTextAreaElement>(null)
+  const [pins, setPins] = useState<ChannelMessage[] | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const myRef = members.find((m) => m.mine)?.ref
+  const nameOfRef = (ref: string) => (ref === myRef ? t('You') : members.find((m) => m.ref === ref)?.name || t('a teammate'))
+
+  /// Put a changed message wherever it shows: the log, the thread, the pins.
+  const replaceMessage = (channel: string, msg: ChannelMessage) => {
+    if (msg.parentId) {
+      setThread((prev) => (prev && prev.parent.id === msg.parentId
+        ? { ...prev, replies: msg.deleted ? prev.replies.filter((x) => x.id !== msg.id) : prev.replies.map((x) => (x.id === msg.id ? msg : x)) }
+        : prev))
+      return
+    }
+    setMessages((prev) => {
+      const list = prev[channel] || []
+      if (msg.deleted && !msg.replyCount) return { ...prev, [channel]: list.filter((x) => x.id !== msg.id) }
+      return { ...prev, [channel]: list.map((x) => (x.id === msg.id ? msg : x)) }
+    })
+    setThread((prev) => (prev && prev.parent.id === msg.id ? { ...prev, parent: msg } : prev))
+    setPins((prev) => (prev ? (msg.pinned ? (prev.some((x) => x.id === msg.id) ? prev.map((x) => (x.id === msg.id ? msg : x)) : [msg, ...prev]) : prev.filter((x) => x.id !== msg.id)) : prev))
+  }
+  const act = async (method: 'POST' | 'PUT' | 'DELETE', path: string, channel: string, extra: Record<string, unknown>) => {
+    setProblem(null)
+    try {
+      const res = await fetch(`${api.httpBase}${path}`, {
+        method,
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel, ...extra }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setProblem(data.message || t('That did not work. Try again.')); return null }
+      if (data.message && typeof data.message === 'object') replaceMessage(channel, data.message as ChannelMessage)
+      return data.message as ChannelMessage
+    } catch {
+      setProblem(t('That did not work. Try again.'))
+      return null
+    }
+  }
+  const react = (channel: string, m: ChannelMessage, emoji: string) => void act('POST', '/channels/reactions', channel, { messageId: m.id, emoji })
+  const saveEdit = async (channel: string) => {
+    if (!editing) return
+    const text = editing.text.trim()
+    if (!text) return
+    const done = await act('PUT', '/channels/messages', channel, { messageId: editing.id, body: text })
+    if (done) setEditing(null)
+  }
+  const remove = async (channel: string, m: ChannelMessage) => {
+    if (!window.confirm(t('Delete this message? This cannot be undone.'))) return
+    await act('DELETE', '/channels/messages', channel, { messageId: m.id })
+    if (editing?.id === m.id) setEditing(null)
+  }
+  const togglePin = (channel: string, m: ChannelMessage) => void act('POST', '/channels/pins', channel, { messageId: m.id, pinned: !m.pinned })
+  const openThread = async (channel: string, m: ChannelMessage) => {
+    setDetailId(null)
+    setThread({ channel, parent: m, replies: [] })
+    setThreadDraft('')
+    const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
+    const data = res?.ok ? await res.json().catch(() => null) : null
+    if (data) setThread((prev) => (prev && prev.parent.id === m.id ? { channel, parent: data.parent, replies: data.replies || [] } : prev))
+    requestAnimationFrame(() => threadComposer.current?.focus())
+  }
+  const loadPins = async (channel: string) => {
+    if (pins) { setPins(null); return }
+    const res = await fetch(`${api.httpBase}/channels/pins?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders }).catch(() => null)
+    const data = res?.ok ? await res.json().catch(() => null) : null
+    setPins(data?.messages || [])
+  }
+  const jumpTo = (id: string) => {
+    setPins(null)
+    const el = document.getElementById(`msg-${id}`)
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); setFlash(id); setTimeout(() => setFlash(null), 1600) }
+  }
+  // Leaving a conversation closes what was open on it.
+  useEffect(() => { setEditing(null); setThread(null); setPins(null); setPickerFor(null) }, [current?.key])
   const decideMessage = async (channel: string, m: ChannelMessage) => {
     setProblem(null)
     const res = await fetch(`${api.httpBase}/channels/decide`, {
@@ -524,17 +639,17 @@ export const ClassicList: React.FC<Props> = ({
   // thread — never by leaving the list for the feed.
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = detailId ? cardsById.get(detailId) : undefined
-  const openCard = (id: string) => setDetailId(id)
+  const openCard = (id: string) => { setThread(null); setDetailId(id) }
   useEffect(() => {
-    if (!detailId) return
+    if (!detailId && !thread) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest('textarea, input')) setDetailId(null)
+      if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest('textarea, input')) { setDetailId(null); setThread(null) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [detailId])
+  }, [detailId, thread])
   // A phone gives a conversation, or a decision, the whole screen.
-  useEffect(() => { onImmersive(!wide && (Boolean(current) || Boolean(detail))) }, [wide, current?.key, detail?.id, onImmersive])
+  useEffect(() => { onImmersive(!wide && (Boolean(current) || Boolean(detail) || Boolean(thread))) }, [wide, current?.key, detail?.id, thread, onImmersive])
   useEffect(() => () => onImmersive(false), [onImmersive])
 
   // Messages, or the decisions in this conversation as a list.
@@ -545,6 +660,7 @@ export const ClassicList: React.FC<Props> = ({
   const mentionable = useMembers(api.httpBase, api.orgId, api.sessionToken)
   const withAI = useMemo(() => [{ ref: '__ai', name: 'AI' } as (typeof mentionable)[number], ...mentionable], [mentionable])
   const mention = useMentionMenu(composer, draft, setDraft, withAI)
+  const threadMention = useMentionMenu(threadComposer, threadDraft, setThreadDraft, withAI)
 
   // The newest message in view when a conversation opens, as in any chat.
   const logRef = useRef<HTMLDivElement>(null)
@@ -634,12 +750,14 @@ export const ClassicList: React.FC<Props> = ({
 
   /// One block of a conversation: a gutter, a name and a time — or, joined
   /// to the one before, just the words — then what was said.
-  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode }, body: React.ReactNode) => (
-    <article key={key} className={`slk-msg${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}`}>
+  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean }, body: React.ReactNode) => (
+    <article key={key} id={opts.msgId ? `msg-${opts.msgId}` : undefined} tabIndex={opts.msgId ? -1 : undefined}
+      className={`slk-msg${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}${opts.msgId && toolsOpen === opts.msgId ? ' tools-open' : ''}${opts.msgId && editing?.id === opts.msgId ? ' editing' : ''}${opts.pinned ? ' pinned' : ''}${opts.msgId && flash === opts.msgId ? ' flash' : ''}`}>
       <div className="slk-gutter" aria-hidden="true">
         {opts.joined ? <span className="slk-hover-time">{clock(opts.at)}</span> : avatarFor(opts.app, opts.name.charAt(0).toUpperCase())}
       </div>
       <div className="slk-body">
+        {opts.pinned && <div className="slk-pin-mark">📌 {t('Pinned')}</div>}
         {!opts.joined && (
           <div className="slk-meta">
             <span className="slk-author">{opts.name}</span>
@@ -654,17 +772,77 @@ export const ClassicList: React.FC<Props> = ({
     </article>
   )
 
-  /// Words as written: lines kept, links clickable, @names marked.
-  const rich = (text: string) => text.split('\n').map((line, li) => (
-    <React.Fragment key={li}>
-      {li > 0 && <br />}
-      {line.split(/(https?:\/\/[^\s<>"）」]+|[@＠][^\s@＠,，。、!?！？:;]+)/g).map((part, pi) => {
-        if (/^https?:\/\//.test(part)) return <a key={pi} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
-        if (/^[@＠]/.test(part)) return <span key={pi} className={`slk-mention${/^[@＠]ai$/i.test(part.replace(/[にへ]$/, '')) ? ' ai' : ''}`}>{part}</span>
-        return <React.Fragment key={pi}>{part}</React.Fragment>
-      })}
-    </React.Fragment>
-  ))
+  /// Words as written, with Slack's formatting read back: lines kept,
+  /// links clickable, @names marked.
+  const rich = (text: string) => renderRich(text, (part) => `slk-mention${/^[@＠]ai$/i.test(part.replace(/[にへ]$/, '')) ? ' ai' : ''}`)
+
+  /// What sits under a message's words: its reactions and its thread.
+  const underneath = (channel: string, m: ChannelMessage, inThread = false) => (
+    <>
+      {!m.deleted && (
+        <Reactions message={m} nameOf={nameOfRef} onToggle={(e) => react(channel, m, e)} onAdd={() => setPickerFor(m.id)} />
+      )}
+      {pickerFor === m.id && <div className="slk-picker-anchor"><EmojiPicker onPick={(e) => react(channel, m, e)} onClose={() => setPickerFor(null)} /></div>}
+      {!inThread && (m.replyCount || 0) > 0 && (
+        <button type="button" className="slk-thread-link" onClick={() => void openThread(channel, m)}>
+          <span className="slk-thread-faces" aria-hidden="true">
+            {(m.replyRefs || []).slice(0, 3).map((r) => <span key={r} className="slk-face">{nameOfRef(r).charAt(0).toUpperCase()}</span>)}
+          </span>
+          <b>{m.replyCount === 1 ? t('1 reply') : t('{n} replies', { n: m.replyCount! })}</b>
+          {m.lastReplyAt && <span className="slk-thread-last">{t('Last reply {when}', { when: when(m.lastReplyAt) })}</span>}
+        </button>
+      )}
+    </>
+  )
+
+  /// A person's message: the words (or the box to change them), what is
+  /// under them, and on hover everything you can do to it.
+  const words = (channel: string, m: ChannelMessage) => {
+    if (editing?.id === m.id) {
+      return (
+        <form className="slk-edit" onSubmit={(e) => { e.preventDefault(); void saveEdit(channel) }}>
+          <textarea
+            className="slk-input"
+            value={editing.text}
+            autoFocus
+            rows={Math.min(8, editing.text.split('\n').length + 1)}
+            maxLength={4000}
+            onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { e.preventDefault(); setEditing(null) }
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void saveEdit(channel) }
+            }}
+            aria-label={t('Edit message')}
+          />
+          <div className="slk-edit-bar">
+            <span className="slk-composer-hint">{t('Escape to cancel · Enter to save')}</span>
+            <button type="button" className="cl-nudge" onClick={() => setEditing(null)}>{t('Cancel')}</button>
+            <button type="submit" className="slk-send save" disabled={!editing.text.trim()}>{t('Save')}</button>
+          </div>
+        </form>
+      )
+    }
+    if (m.deleted) return <div className="slk-text slk-deleted">{t('This message was deleted.')}</div>
+    return (
+      <div className="slk-text">
+        {rich(m.body)}
+        {m.editedAt && <span className="slk-edited" title={new Date(m.editedAt).toLocaleString(locale)}> {t('(edited)')}</span>}
+      </div>
+    )
+  }
+  const toolsFor = (channel: string, m: ChannelMessage, inThread = false) => (m.deleted || editing?.id === m.id) ? undefined : (
+    <MessageActions
+      message={m}
+      inThread={inThread}
+      onReact={(e) => react(channel, m, e)}
+      onReply={() => void openThread(channel, m)}
+      onPin={() => togglePin(channel, m)}
+      onEdit={m.mine && m.kind === 'message' ? () => setEditing({ id: m.id, text: m.body }) : undefined}
+      onDelete={m.mine && m.kind === 'message' ? () => void remove(channel, m) : undefined}
+      onDecide={!m.cardId && m.kind === 'message' && !inThread ? () => void decideMessage(channel, m) : undefined}
+      onOpenChange={(open) => setToolsOpen((cur) => (open ? m.id : cur === m.id ? null : cur))}
+    />
+  )
 
   type Item = { at: string; kind: 'card'; card: DecisionCard } | { at: string; kind: 'msg'; msg: ChannelMessage }
 
@@ -700,10 +878,11 @@ export const ClassicList: React.FC<Props> = ({
         const m = item.msg
         if (m.kind === 'ai') {
           const card = m.cardId ? cardsById.get(m.cardId) : undefined
-          out.push(block(m.id, { joined: false, at: m.createdAt, app: 'ai', name: t('Your AI'), badge: t('AI') },
+          out.push(block(m.id, { joined: false, at: m.createdAt, app: 'ai', name: t('Your AI'), badge: t('AI'), msgId: m.id, pinned: m.pinned, tools: toolsFor(thread.view!, m) },
             <>
               <div className="slk-text">{rich(m.body)}</div>
               {card && attachment(card)}
+              {underneath(thread.view!, m)}
             </>))
           prevWho = 'ai'
         } else {
@@ -711,16 +890,13 @@ export const ClassicList: React.FC<Props> = ({
           const joined = prevWho === whoKey && at - prevAt < 5 * 60000
           const name = m.mine ? t('You') : (m.authorName || t('a teammate'))
           out.push(block(m.id, {
-            joined, at: m.createdAt, app: '', name,
-            tools: !m.cardId && thread.view ? (
-              <button className="slk-tool" onClick={() => void decideMessage(thread.view!, m)} title={t('Make it a decision')}>
-                <Icon name="plus" size={13} /> {t('Make it a decision')}
-              </button>
-            ) : undefined,
+            joined: joined && !m.pinned, at: m.createdAt, app: '', name, msgId: m.id, pinned: m.pinned,
+            tools: toolsFor(thread.view!, m),
           }, (
             <>
-              <div className="slk-text">{rich(m.body)}</div>
+              {words(thread.view!, m)}
               {m.cardId && <button className="slk-made" onClick={() => openCard(m.cardId!)}>{t('→ Decision')}</button>}
+              {underneath(thread.view!, m)}
             </>
           )))
           prevWho = whoKey
@@ -746,6 +922,18 @@ export const ClassicList: React.FC<Props> = ({
               {waitingHere > 0 && <> · <b>{t('{n} waiting on you', { n: waitingHere })}</b></>}
             </p>
           </div>
+          {thread.view && (
+            <button
+              className={`slk-pins-button${pins ? ' on' : ''}`}
+              onClick={() => void loadPins(thread.view!)}
+              aria-label={t('Pinned messages')}
+              aria-expanded={Boolean(pins)}
+              title={t('Pinned messages')}
+            >
+              <span aria-hidden="true">📌</span>
+              {(messages[thread.view] || []).filter((m) => m.pinned).length > 0 && <span>{(messages[thread.view] || []).filter((m) => m.pinned).length}</span>}
+            </button>
+          )}
           {thread.kind === 'channel' && thread.slug && (
             <button
               className="slk-more"
@@ -757,6 +945,25 @@ export const ClassicList: React.FC<Props> = ({
             </button>
           )}
         </header>
+        {pins && thread.view && (
+          <div className="slk-pins" role="dialog" aria-label={t('Pinned messages')}>
+            <div className="slk-pins-head">
+              <b>{t('Pinned messages')}</b>
+              <button type="button" className="slk-pane-close" onClick={() => setPins(null)} aria-label={t('Close')}>×</button>
+            </div>
+            {pins.length === 0 && <p className="slk-empty">{t('Nothing pinned yet. Pin a message from its ⋯ menu to keep it here.')}</p>}
+            <ul>
+              {pins.map((m) => (
+                <li key={m.id}>
+                  <button type="button" className="slk-pin-row" onClick={() => jumpTo(m.id)}>
+                    <span className="slk-pin-who">{m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate'))} · {when(m.createdAt)}</span>
+                    <span className="slk-pin-body">{m.body.slice(0, 200)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <nav className="slk-tabs" role="tablist" aria-label={t('View')}>
           <button role="tab" aria-selected={tab === 'messages'} className={tab === 'messages' ? 'on' : ''} onClick={() => setTab('messages')}>
             {thread.view ? t('Messages') : t('Activity')}
@@ -853,6 +1060,22 @@ export const ClassicList: React.FC<Props> = ({
               onClick={mention.track}
               onKeyDown={(e) => {
                 if (mention.onKeyDown(e)) return
+                // ↑ in an empty box edits what you last said, as in Slack.
+                if (e.key === 'ArrowUp' && !draft && !e.nativeEvent.isComposing) {
+                  const last = [...(messages[thread.view!] || [])].reverse().find((m) => m.mine && m.kind === 'message' && !m.deleted)
+                  if (last) { e.preventDefault(); setEditing({ id: last.id, text: last.body }) }
+                  return
+                }
+                // Bold, italic, strike, as everywhere.
+                if ((e.metaKey || e.ctrlKey) && !e.shiftKey && ['b', 'i'].includes(e.key.toLowerCase())) {
+                  e.preventDefault()
+                  const el = e.currentTarget
+                  const mark = e.key.toLowerCase() === 'b' ? '*' : '_'
+                  const a = el.selectionStart, b = el.selectionEnd
+                  setDraft(draft.slice(0, a) + mark + draft.slice(a, b) + mark + draft.slice(b))
+                  requestAnimationFrame(() => el.setSelectionRange(a + 1, b + 1))
+                  return
+                }
                 // Enter sends; Shift-Enter is a new line; an IME converting
                 // Japanese owns Enter until it is done.
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(thread.view!, e.metaKey || e.ctrlKey) }
@@ -861,6 +1084,7 @@ export const ClassicList: React.FC<Props> = ({
             />
             {mention.menu}
             <div className="slk-composer-bar">
+              <FormatBar target={composer} value={draft} set={setDraft} />
               <span className="slk-composer-hint">{t('Enter to send · ⌘Enter sends and asks your AI for a decision')}</span>
               <button type="button" className="slk-send ai" disabled={sending || !draft.trim()} onClick={() => void send(thread.view!, true)}>
                 {t('Send as a decision')}
@@ -908,7 +1132,7 @@ export const ClassicList: React.FC<Props> = ({
   const waiting = pending.length
 
   return (
-    <div className={`classic slk${current ? ' in-thread' : ''}${detail ? ' with-pane' : ''}`}>
+    <div className={`classic slk${current ? ' in-thread' : ''}${detail || thread ? ' with-pane' : ''}`}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         <header className="cl-top">
           {workspaceMenu || (
@@ -948,6 +1172,69 @@ export const ClassicList: React.FC<Props> = ({
             <button className="slk-pane-close" onClick={() => setDetailId(null)} aria-label={t('Close')}>×</button>
           </header>
           <div className="slk-pane-body">{renderCard(detail)}</div>
+        </aside>
+      )}
+      {!detail && thread && (
+        <aside className="slk-pane slk-thread-pane" aria-label={t('Thread')}>
+          <header className="slk-pane-head">
+            <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+            <h2>{t('Thread')}</h2>
+            {current && <span className="slk-pane-where">{current.kind === 'channel' ? `#${current.name}` : current.name}</span>}
+            <button className="slk-pane-close" onClick={() => setThread(null)} aria-label={t('Close')}>×</button>
+          </header>
+          <div className="slk-thread-log">
+            {[thread.parent, ...thread.replies].map((m, i) => (
+              <React.Fragment key={m.id}>
+                {block(m.id, {
+                  joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : undefined,
+                  name: m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate')),
+                  msgId: i === 0 ? `thread-${m.id}` : m.id,
+                  tools: toolsFor(thread.channel, m, true),
+                }, (
+                  <>
+                    {words(thread.channel, m)}
+                    {m.cardId && cardsById.get(m.cardId) && attachment(cardsById.get(m.cardId)!)}
+                    {underneath(thread.channel, m, true)}
+                  </>
+                ))}
+                {i === 0 && (
+                  <div className="slk-thread-count" role="separator">
+                    <span>{thread.replies.length === 1 ? t('1 reply') : t('{n} replies', { n: thread.replies.length })}</span>
+                  </div>
+                )}
+              </React.Fragment>
+            ))}
+            {thinking[thread.channel] && (
+              <div className="slk-typing" role="status"><span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>{t('Your AI is making a decision card…')}</div>
+            )}
+          </div>
+          <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
+            <textarea
+              ref={threadComposer}
+              className="slk-input"
+              value={threadDraft}
+              rows={1}
+              maxLength={4000}
+              placeholder={t('Reply… — @AI makes it a decision')}
+              aria-label={t('Reply in thread')}
+              onChange={(e) => { setThreadDraft(e.target.value); threadMention.track() }}
+              onKeyUp={threadMention.track}
+              onClick={threadMention.track}
+              onKeyDown={(e) => {
+                if (threadMention.onKeyDown(e)) return
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(thread.channel, e.metaKey || e.ctrlKey, thread.parent.id) }
+              }}
+              disabled={sending}
+            />
+            {threadMention.menu}
+            <div className="slk-composer-bar">
+              <FormatBar target={threadComposer} value={threadDraft} set={setThreadDraft} />
+              <span className="slk-composer-hint" />
+              <button type="submit" className="slk-send" disabled={sending || !threadDraft.trim()} aria-label={t('Send')}>
+                <Icon name="send" size={16} />
+              </button>
+            </div>
+          </form>
         </aside>
       )}
     </div>
