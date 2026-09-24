@@ -33,7 +33,8 @@ test("with billing unconfigured the catalog is still readable and honestly unbuy
   expect(body.purchasePlatform).toBe("app_store");
   expect(body.complimentary).toBe(false);
   expect(body.complimentarySyncPending).toBe(false);
-  expect(body.complimentaryAvailable).toBe(false);
+  // The launch code is built in, so a code can always be redeemed.
+  expect(body.complimentaryAvailable).toBe(true);
   expect(body.accessSource).toBe("free");
   // With nothing to sell, the ceiling in force is the unbilled one, not the
   // free tier's — the screen must not warn about a limit nobody is enforcing.
