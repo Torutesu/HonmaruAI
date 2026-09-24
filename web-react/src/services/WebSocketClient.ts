@@ -47,6 +47,8 @@ export class WebSocketClient {
   /// own counts arrive as a card update; these carry the words.
   onComment?: (cardId: string, comment: { id: string; author: string; authorName?: string | null; body: string; mentions: string[]; createdAt: string }) => void
   onReaction?: (cardId: string, emoji: string, on: boolean, by: string, reactions: Record<string, number>) => void
+  /// The workspace's channels changed: somebody made, renamed or deleted one.
+  onBusinesses?: (businesses: Array<{ slug: string; name: string }>) => void
   onError?: (message: string) => void
   /// The relay refused this socket and will refuse the next one too. `code` is
   /// the machine-readable reason — `not-a-member`, `sign-in-required`,
@@ -345,6 +347,8 @@ export class WebSocketClient {
       this.onPresence?.(event.value.userId, event.value.status)
     } else if (event.name === 'comment' && event.value?.comment) {
       this.onComment?.(event.value.cardId, event.value.comment)
+    } else if (event.name === 'businesses' && Array.isArray(event.value?.businesses)) {
+      this.onBusinesses?.(event.value.businesses)
     } else if (event.name === 'reaction' && event.value) {
       this.onReaction?.(event.value.cardId, event.value.emoji, Boolean(event.value.on), event.value.by, event.value.reactions || {})
     }

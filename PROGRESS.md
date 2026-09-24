@@ -265,6 +265,11 @@ The list of what is still missing, and why each item matters, is
       the Worker writes every decision as an issue in the named repository
 - [x] **Tools → Your AI is editable per workspace**: model, OpenAI key and
       TypeSafe key set by an admin, used by every model call, billed as theirs
+- [x] **Channels are made, renamed and deleted from the list** (Slack-style):
+      `PUT /businesses` renames, `DELETE` empties the channel (its cards are
+      unfiled, not lost) and the room hears every change; empty channels show
+- [x] **Real brand marks** for Gmail, Slack, Notion, GitHub, Calendar and Drive
+      in Tools and in the list's Apps, inline SVG
 - [x] **Classic is a chat client's home**: team header, jump-to search, Channels
       (businesses), Direct messages (people, with presence) and Apps (Gmail,
       Slack, your AI); unread in bold with a count, a conversation opens its

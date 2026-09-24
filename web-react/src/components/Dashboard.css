@@ -396,7 +396,8 @@
   box-shadow: 0 0 0 2px #fff;
 }
 .cl-presence.on { background: #2bac76; border-color: #2bac76; }
-.cl-app { border-radius: 8px; background: #f2f2f2; color: #616061; }
+.cl-app { border-radius: 8px; background: #f2f2f2; color: #616061; overflow: hidden; }
+.cl-own-mark { width: 32px; height: 32px; display: block; border-radius: 8px; }
 .cl-dot-lead { width: 20px; }
 .cl-unread-dot { width: 8px; height: 8px; border-radius: 9999px; background: #e01e5a; display: block; }
 .cl-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
@@ -417,6 +418,27 @@
 .cl-count { flex: none; font-size: 11px; color: #616061; font-variant-numeric: tabular-nums; }
 .cl-thread-cards { list-style: none; margin: 0; padding: 2px 0 6px; background: #fafafa; border-bottom: 1px solid #eeeeee; }
 .cl-thread-cards .cl-open { padding: 7px 16px 7px 28px; }
+.cl-section h2 { display: flex; align-items: center; }
+.cl-section h2 .cl-fold { flex: 1; }
+.cl-add {
+  flex: none; width: 26px; height: 26px; margin: 10px 12px 0 0; border-radius: 6px;
+  background: none; border: none; color: #616061; display: grid; place-items: center; cursor: pointer;
+}
+.cl-add:hover { background: #f2f2f2; color: #1d1c1d; }
+.cl-inline-form { display: flex; align-items: center; gap: 8px; padding: 6px 16px; }
+.cl-add-form { padding-left: 16px; }
+.cl-hash-small { color: #616061; font-size: 15px; width: 12px; }
+.cl-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 14px; color: #1d1c1d;
+  background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 7px 10px;
+}
+.cl-input:focus { outline: none; border-color: #1264a3; box-shadow: 0 0 0 3px rgba(18,100,163,.15); }
+.cl-channel-tools { display: flex; align-items: center; gap: 8px; padding: 6px 16px 6px 28px; }
+.cl-channel-tools .cl-inline-form { flex: 1; padding: 0; }
+.cl-channel-tools .cl-nudge { margin-right: 0; }
+.cl-danger { color: #e01e5a; border-color: #f3c0cf; }
+.cl-empty-thread { padding: 6px 16px 8px 28px; font-size: 12.5px; color: #616061; }
+.cl-problem { margin: 6px 16px; font-size: 12.5px; color: #e01e5a; }
 .cl-nudge {
   margin-right: 16px; flex: none;
   border: 1px solid #ddd; background: #fff; color: #1d1c1d;

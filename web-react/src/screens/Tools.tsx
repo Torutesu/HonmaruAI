@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon, type IconName } from '../components/Icon'
+import { BrandLogo, isBrand } from '../components/BrandLogo'
 import { getAIKey } from '../utils/aiKey'
 
 interface Connector { id: string; label: string; status: string }
@@ -372,7 +373,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           <div className="rows">
             {connectors.map((c) => (
               <div key={c.id} className="row static">
-                <span className="row-icon"><Icon name={ICON[c.id] || 'box'} size={18} /></span>
+                <span className="row-icon brand-tile">{isBrand(c.id) ? <BrandLogo brand={c.id} size={20} /> : <Icon name={ICON[c.id] || 'box'} size={18} />}</span>
                 <span className="row-main">
                   {c.label}
                   <span className="row-sub">{t(BLURB[c.id] || 'Feeds decisions into your feed.')}</span>
@@ -394,7 +395,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             <div className="rows-title">{t('Database')}</div>
             <div className="rows">
               <div className="row static" data-notion-database="1">
-                <span className="row-icon"><Icon name="notion" size={18} /></span>
+                <span className="row-icon brand-tile"><BrandLogo brand="notion" size={20} /></span>
                 <span className="row-main">
                   {t('Database')}
                   <span className="row-sub">{databaseError || t('Which database your decisions are read from and written back to.')}</span>
@@ -451,7 +452,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             <div className="rows-title">{github.builtIn ? t('Always on') : github.connected ? t('Connected') : t('Not in this workspace')}</div>
             <div className="rows">
               <div className="row static github-row" data-github={github.builtIn || github.connected ? 'on' : 'off'}>
-                <span className="row-icon"><Icon name="github" size={18} /></span>
+                <span className="row-icon brand-tile"><BrandLogo brand="github" size={20} /></span>
                 <span className="row-main">
                   GitHub
                   <span className="row-sub">

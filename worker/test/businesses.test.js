@@ -167,3 +167,44 @@ test("/ai/route hands the router the org's businesses from the table", async () 
   expect(body.recipientUserID).toBe("member");
   expect(body.business).toBe("hotel-本丸");
 });
+
+test("a channel can be renamed, and deleting one empties it for everyone", async () => {
+  const { saveCard, getCard } = await import("../src/db.js");
+  let res = await SELF.fetch("https://example.com/businesses", {
+    method: "POST", headers: headers(memberToken), body: JSON.stringify({ orgId: ORG, name: "Cafe" }),
+  });
+  expect(res.status).toBe(200);
+  await saveCard(env.DB, ORG, {
+    id: "c-cafe", recipientUserID: "member", senderUserID: "owner", status: "pending",
+    title: "Approve the cafe menu", priority: "medium", createdAt: "2026-09-24T00:00:00Z", business: "cafe",
+  });
+
+  // Renamed: the slug stays, the name changes, the room hears.
+  const { ws, messages } = await joined(ORG, ownerToken);
+  res = await SELF.fetch("https://example.com/businesses", {
+    method: "PUT", headers: headers(memberToken), body: JSON.stringify({ orgId: ORG, slug: "cafe", name: "Cafe & Bakery" }),
+  });
+  expect(res.status).toBe(200);
+  expect((await res.json()).business).toEqual({ slug: "cafe", name: "Cafe & Bakery" });
+  const heard = await message(messages, (m) => m.type === "CUSTOM" && m.name === "businesses" && JSON.stringify(m).includes("Cafe & Bakery"));
+  expect(heard).toBeTruthy();
+
+  // Deleted: the channel is gone from the list, its card is unfiled, the
+  // room hears both.
+  res = await SELF.fetch("https://example.com/businesses", {
+    method: "DELETE", headers: headers(memberToken), body: JSON.stringify({ orgId: ORG, slug: "cafe" }),
+  });
+  expect(res.status).toBe(200);
+  const gone = await res.json();
+  expect(gone.businesses.some((b) => b.slug === "cafe")).toBe(false);
+  expect(gone.unfiled).toBe(1);
+  expect((await getCard(env.DB, ORG, "c-cafe")).business).toBeUndefined();
+  const unfiled = await message(messages, (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("c-cafe") && !JSON.stringify(m).includes('"business":"cafe"'));
+  expect(unfiled).toBeTruthy();
+  // An outsider can do none of it.
+  res = await SELF.fetch("https://example.com/businesses", {
+    method: "PUT", headers: headers(outsiderToken), body: JSON.stringify({ orgId: ORG, slug: "cafe", name: "Mine" }),
+  });
+  expect(res.status).toBe(403);
+  void ws;
+});

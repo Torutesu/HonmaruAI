@@ -8,7 +8,7 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
   saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
-  registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug,
+  registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness, unfileBusiness,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
   loadContexts, saveContext,
@@ -733,17 +733,38 @@ async function handle(request, env, url, ctx) {
       if (denied) return denied;
       if (!businessSlug(body.name)) return json({ message: "A business needs a name." }, 400);
       const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
-      return json({ business, businesses: await listBusinesses(env.DB, body.orgId) });
+      const businesses = await listBusinesses(env.DB, body.orgId);
+      // Everyone with the workspace open sees the new channel now.
+      await announceEvents(env, body.orgId, [customEvent("businesses", { businesses })]);
+      return json({ business, businesses });
+    }
+    // A channel's new name. Any member: a channel is the team's, like a
+    // card is.
+    if (url.pathname === "/businesses" && request.method === "PUT") {
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      const renamed = await renameBusiness(env.DB, body.orgId, String(body.slug), body.name);
+      if (!renamed) return json({ message: "A channel needs a name, and this one must exist." }, 400);
+      const businesses = await listBusinesses(env.DB, body.orgId);
+      await announceEvents(env, body.orgId, [customEvent("businesses", { businesses })]);
+      return json({ business: renamed, businesses });
     }
     if (url.pathname === "/businesses" && request.method === "DELETE") {
       const body = await request.json().catch(() => ({}));
       if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
       const denied = await requireMember(env, request, body.orgId);
       if (denied) return denied;
-      // Cards keep their tag: a deleted business is a chip that disappears,
-      // not history rewritten. Tagging a card with the name brings it back.
+      // Deleting a channel empties it: its cards are unfiled (the decisions
+      // themselves stay), so nothing keeps the channel alive in a list.
+      // Filing a card under the name again brings the channel back.
       await removeBusiness(env.DB, body.orgId, body.slug);
-      return json({ businesses: await listBusinesses(env.DB, body.orgId) });
+      const unfiled = await unfileBusiness(env.DB, body.orgId, String(body.slug));
+      const businesses = await listBusinesses(env.DB, body.orgId);
+      await announceEvents(env, body.orgId, [customEvent("businesses", { businesses })]);
+      if (unfiled.length) await announceCards(env, body.orgId, unfiled, { isNew: false });
+      return json({ businesses, unfiled: unfiled.length });
     }
 
     // The record: every decision, per business, as it stands right now.
