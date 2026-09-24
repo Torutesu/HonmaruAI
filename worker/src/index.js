@@ -39,7 +39,7 @@ import {
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
 import { providerFor, jevFor, aiStatus, saveAISettings } from "./orgAI.js";
-import { githubStatus, connectWorkspaceGitHub, disconnectWorkspaceGitHub } from "./githubWorkspace.js";
+import { githubStatus, connectWorkspaceGitHub, connectWorkspaceGitHubAs, disconnectWorkspaceGitHub, githubConnectLink, listMyRepositories, myGithubAccount } from "./githubWorkspace.js";
 import { localizeCard, needsLocalizing } from "./localize.js";
 import { connectedSources, lookupsFor, searchNotion, searchGithubIssues } from "./context.js";
 import { ingestedItemForCard } from "./db.js";
@@ -1116,6 +1116,34 @@ async function handle(request, env, url, ctx) {
     // neither. Saying so is the whole of this route — it is separate from
     // GET /connectors because that one refuses outright without a Composio
     // key, and this answer does not depend on Composio at all.
+    // Connect your GitHub: the same journey as Gmail or Slack — a page
+    // opens, GitHub asks, you say yes — hosted by Composio.
+    if (url.pathname === "/connectors/github/connect" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      try {
+        const link = await githubConnectLink(env, session.github_id);
+        if (link.error) return json({ message: link.error }, 503);
+        return json(link);
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+    }
+    // The repositories your connected GitHub can write to — to pick one for
+    // the workspace.
+    if (url.pathname === "/connectors/github/repos" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      if (!(await myGithubAccount(env, session.github_id))) return json({ message: "Connect your GitHub first." }, 409);
+      try {
+        return json({ repos: await listMyRepositories(env, session.github_id) });
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+    }
+
     // GitHub, for any workspace. A repository workspace syncs as the person's
     // own account from the phone (`builtIn`); any workspace can name a
     // repository and hold a token, and then the Worker writes the issues.
@@ -1132,13 +1160,21 @@ async function handle(request, env, url, ctx) {
         if (request.method === "DELETE") {
           await disconnectWorkspaceGitHub(env.DB, orgId);
         } else {
-          // Their own GitHub sign-in, or a token they entered. Never both
-          // silently: an entered token wins when given.
+          // A token they entered; else their GitHub connected through the
+          // OAuth journey; else a GitHub sign-in's own token.
           const token = typeof body.token === "string" && body.token.trim()
             ? body.token.trim()
-            : (isGitHubSession(session) ? session.github_access_token : null);
-          if (!token) return json({ message: "Enter a GitHub token, or sign in with GitHub." }, 400);
-          const result = await connectWorkspaceGitHub(env, { orgId, repo: String(body.repo || "").trim(), token, byGithubId: session.github_id });
+            : null;
+          let result;
+          if (token) {
+            result = await connectWorkspaceGitHub(env, { orgId, repo: String(body.repo || "").trim(), token, byGithubId: session.github_id });
+          } else if (env.COMPOSIO_API_KEY && (await myGithubAccount(env, session.github_id))) {
+            result = await connectWorkspaceGitHubAs(env, { orgId, repo: String(body.repo || "").trim(), githubId: session.github_id });
+          } else if (isGitHubSession(session)) {
+            result = await connectWorkspaceGitHub(env, { orgId, repo: String(body.repo || "").trim(), token: session.github_access_token, byGithubId: session.github_id });
+          } else {
+            return json({ message: "Connect your GitHub first, or enter a token." }, 400);
+          }
           if (result.error) return json({ message: result.error }, 400);
         }
       }

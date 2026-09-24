@@ -36,3 +36,4 @@ ALTER TABLE complimentary_access ADD COLUMN rc_synced_at TEXT;
 ALTER TABLE complimentary_access ADD COLUMN rc_attempted_at TEXT;
 ALTER TABLE complimentary_access ADD COLUMN rc_operation_until INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE complimentary_access ADD COLUMN deletion_requested_at TEXT;
+ALTER TABLE org_github ADD COLUMN composio_user TEXT;

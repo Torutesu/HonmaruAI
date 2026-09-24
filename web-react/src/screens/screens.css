@@ -498,3 +498,5 @@
   .ai-model { flex-wrap: wrap; }
   .ai-model .row-select { flex: 1 1 100%; max-width: none; }
 }
+.github-pick { flex: 1 1 220px; max-width: none; }
+.github-alt { flex: 1 1 100%; text-align: left; padding: 0; }

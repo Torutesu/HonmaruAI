@@ -15,6 +15,16 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'Connect with GitHub': 'GitHub で接続',
+  'Waiting for GitHub…': 'GitHub を待っています…',
+  'Finish in the tab that opened. This page updates by itself.': '開いたタブで承認してください。この画面は自動で更新されます。',
+  'Loading your repositories…': 'リポジトリを読み込み中…',
+  'Your GitHub has no repository you can write issues to.': 'Issue を書けるリポジトリが GitHub にありません。',
+  private: '非公開',
+  'Use this repository': 'このリポジトリを使う',
+  'A fine-grained token for that repository with Issues: read and write.': 'そのリポジトリの Issues に read/write 権限を持つ fine-grained トークン。',
+  'Pick from my GitHub instead': '自分の GitHub から選ぶ',
+  'Use a token instead': '代わりにトークンを使う',
   'New channel': '新しいチャンネル',
   'Channel name': 'チャンネル名',
   'e.g. hotel, suppliers, marketing': '例: ホテル、仕入先、マーケティング',
@@ -724,6 +734,17 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'Connect with GitHub': 'Conectar con GitHub',
+  'Waiting for GitHub…': 'Esperando a GitHub…',
+  'Finish in the tab that opened. This page updates by itself.': 'Termina en la pestaña que se abrió. Esta página se actualiza sola.',
+  'Loading your repositories…': 'Cargando tus repositorios…',
+  'Your GitHub has no repository you can write issues to.': 'Tu GitHub no tiene ningún repositorio en el que puedas escribir issues.',
+  private: 'privado',
+  'Use this repository': 'Usar este repositorio',
+  'A fine-grained token for that repository with Issues: read and write.': 'Un token fine-grained para ese repositorio con Issues: lectura y escritura.',
+  'Pick from my GitHub instead': 'Elegir de mi GitHub',
+  'Use a token instead': 'Usar un token en su lugar',
+  'Could not list your repositories.': 'No se pudieron listar tus repositorios.',
   'New channel': 'Nuevo canal',
   'Channel name': 'Nombre del canal',
   'e.g. hotel, suppliers, marketing': 'p. ej. hotel, proveedores, marketing',
@@ -1112,6 +1133,17 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'Connect with GitHub': 'Connecter avec GitHub',
+  'Waiting for GitHub…': 'En attente de GitHub…',
+  'Finish in the tab that opened. This page updates by itself.': 'Terminez dans l’onglet ouvert. Cette page se met à jour toute seule.',
+  'Loading your repositories…': 'Chargement de vos dépôts…',
+  'Your GitHub has no repository you can write issues to.': 'Votre GitHub n’a aucun dépôt où vous pouvez écrire des issues.',
+  private: 'privé',
+  'Use this repository': 'Utiliser ce dépôt',
+  'A fine-grained token for that repository with Issues: read and write.': 'Un jeton fine-grained pour ce dépôt avec Issues : lecture et écriture.',
+  'Pick from my GitHub instead': 'Choisir depuis mon GitHub',
+  'Use a token instead': 'Utiliser un jeton à la place',
+  'Could not list your repositories.': 'Impossible de lister vos dépôts.',
   'New channel': 'Nouveau canal',
   'Channel name': 'Nom du canal',
   'e.g. hotel, suppliers, marketing': 'p. ex. hôtel, fournisseurs, marketing',
@@ -1503,6 +1535,17 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'Connect with GitHub': 'Mit GitHub verbinden',
+  'Waiting for GitHub…': 'Warte auf GitHub…',
+  'Finish in the tab that opened. This page updates by itself.': 'Schließe es im geöffneten Tab ab. Diese Seite aktualisiert sich von selbst.',
+  'Loading your repositories…': 'Lade deine Repositories…',
+  'Your GitHub has no repository you can write issues to.': 'Dein GitHub hat kein Repository, in das du Issues schreiben kannst.',
+  private: 'privat',
+  'Use this repository': 'Dieses Repository verwenden',
+  'A fine-grained token for that repository with Issues: read and write.': 'Ein fine-grained Token für dieses Repository mit Issues: Lesen und Schreiben.',
+  'Pick from my GitHub instead': 'Aus meinem GitHub wählen',
+  'Use a token instead': 'Stattdessen ein Token verwenden',
+  'Could not list your repositories.': 'Deine Repositories konnten nicht geladen werden.',
   'New channel': 'Neuer Kanal',
   'Channel name': 'Kanalname',
   'e.g. hotel, suppliers, marketing': 'z. B. Hotel, Lieferanten, Marketing',

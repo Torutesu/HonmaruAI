@@ -14,8 +14,13 @@ interface GitHubStatus {
   builtIn: boolean
   connected: boolean
   repo: string | null
+  via: 'account' | 'token' | null
   canEdit: boolean
+  /// This person's own GitHub is connected (through the OAuth journey or a
+  /// GitHub sign-in), so they can pick a repository with no token.
   mine: boolean
+  /// The OAuth journey is offered on this deployment.
+  oauth: boolean
   reason: string | null
 }
 
@@ -77,6 +82,55 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   const [ghBusy, setGhBusy] = useState(false)
   const [ghError, setGhError] = useState<string | null>(null)
   const [ghOpen, setGhOpen] = useState(false)
+  const [ghRepos, setGhRepos] = useState<Array<{ repo: string; url: string; private: boolean }> | null>(null)
+  const [ghUseToken, setGhUseToken] = useState(false)
+  const [ghWaiting, setGhWaiting] = useState(false)
+  const loadGithubStatus = useCallback(async (): Promise<GitHubStatus | null> => {
+    try {
+      const res = await fetch(`${httpBase}/connectors/github?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      if (!res.ok) return null
+      const data = await res.json() as GitHubStatus
+      setGithub(data)
+      return data
+    } catch { return null }
+  }, [httpBase, orgId, sessionToken])
+  const loadGithubRepos = useCallback(async () => {
+    try {
+      const res = await fetch(`${httpBase}/connectors/github/repos`, { headers: { 'x-session-token': sessionToken } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setGhError(data.message || t('Could not list your repositories.')); return }
+      setGhRepos(data.repos || [])
+      if (!ghRepo && data.repos?.[0]) setGhRepo(data.repos[0].repo)
+    } catch (err) { setGhError(err instanceof Error ? err.message : String(err)) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [httpBase, sessionToken])
+  // The OAuth journey: a page opens, GitHub asks, they say yes. Back here,
+  // the status is watched until their GitHub shows as connected, then the
+  // repositories are offered.
+  const connectGithubAccount = async () => {
+    setGhError(null)
+    const tab = window.open('', '_blank')
+    try {
+      const res = await fetch(`${httpBase}/connectors/github/connect`, { method: 'POST', headers: { 'x-session-token': sessionToken } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.redirectUrl) { tab?.close(); setGhError(data.message || t('Could not start that connection.')); return }
+      if (tab) tab.location.href = data.redirectUrl
+      else window.location.href = data.redirectUrl
+      setGhWaiting(true)
+      setGhOpen(true)
+      const started = Date.now()
+      const tick = async () => {
+        const status = await loadGithubStatus()
+        if (status?.mine) { setGhWaiting(false); await loadGithubRepos(); return }
+        if (Date.now() - started < 3 * 60 * 1000) setTimeout(tick, 3000)
+        else setGhWaiting(false)
+      }
+      setTimeout(tick, 3000)
+    } catch (err) {
+      tab?.close()
+      setGhError(err instanceof Error ? err.message : String(err))
+    }
+  }
   const githubCall = async (method: 'PUT' | 'DELETE', body: Record<string, unknown>) => {
     setGhBusy(true); setGhError(null)
     try {
@@ -468,41 +522,62 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
                       ? <button className="btn-text danger" disabled={ghBusy} onClick={() => githubCall('DELETE', {})}>{t('Disconnect')}</button>
                       : <span className="pill-tag mint">{t('On')}</span>)
                     : (github.canEdit
-                      ? <button className="pill-btn" onClick={() => { setGhOpen((o) => !o); setGhError(null) }}>{ghOpen ? t('Cancel') : t('Connect')}</button>
+                      ? (github.mine || !github.oauth
+                        ? <button className="pill-btn" onClick={() => { setGhOpen((o) => !o); setGhError(null); if (!ghOpen && github.mine && github.oauth) void loadGithubRepos() }}>{ghOpen ? t('Cancel') : t('Connect')}</button>
+                        : <button className="pill-btn" disabled={ghWaiting} onClick={() => void connectGithubAccount()}>{ghWaiting ? t('Waiting for GitHub…') : t('Connect with GitHub')}</button>)
                       : <span className="pill-tag quiet">{t('Off')}</span>)}
               </div>
-              {github.canEdit && !github.builtIn && ghOpen && (
+              {github.canEdit && !github.builtIn && !github.connected && ghOpen && (
                 <div className="row static github-form-row">
                   <div className="github-form">
-                    <input
-                      className="ai-key-input"
-                      value={ghRepo}
-                      onChange={(e) => setGhRepo(e.target.value)}
-                      placeholder="owner/repo"
-                      aria-label={t('Repository')}
-                      disabled={ghBusy}
-                    />
-                    {!github.mine && (
-                      <input
-                        className="ai-key-input"
-                        type="password"
-                        autoComplete="off"
-                        value={ghToken}
-                        onChange={(e) => setGhToken(e.target.value)}
-                        placeholder={t('GitHub token (Issues: write)')}
-                        aria-label={t('GitHub token')}
-                        disabled={ghBusy}
-                      />
+                    {ghWaiting && <span className="row-sub github-hint">{t('Finish in the tab that opened. This page updates by itself.')}</span>}
+                    {!ghWaiting && github.mine && github.oauth && !ghUseToken && (
+                      <>
+                        {ghRepos === null && <span className="row-sub github-hint">{t('Loading your repositories…')}</span>}
+                        {ghRepos && ghRepos.length === 0 && <span className="row-sub github-hint">{t('Your GitHub has no repository you can write issues to.')}</span>}
+                        {ghRepos && ghRepos.length > 0 && (
+                          <select className="row-select github-pick" value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} aria-label={t('Repository')} disabled={ghBusy}>
+                            {ghRepos.map((r) => <option key={r.repo} value={r.repo}>{r.repo}{r.private ? ` · ${t('private')}` : ''}</option>)}
+                          </select>
+                        )}
+                        <button className="pill-btn" disabled={ghBusy || !ghRepo.trim()} onClick={() => githubCall('PUT', { repo: ghRepo.trim() })}>
+                          {ghBusy ? t('Connecting…') : t('Use this repository')}
+                        </button>
+                        <span className="row-sub github-hint">{t('Connected with your GitHub account; the workspace writes issues as you.')}</span>
+                      </>
                     )}
-                    <button className="pill-btn" disabled={ghBusy || !ghRepo.trim() || (!github.mine && !ghToken.trim())}
-                      onClick={() => githubCall('PUT', { repo: ghRepo.trim(), ...(ghToken.trim() ? { token: ghToken.trim() } : {}) })}>
-                      {ghBusy ? t('Connecting…') : t('Connect')}
-                    </button>
-                    <span className="row-sub github-hint">
-                      {github.mine
-                        ? t('Connected with your GitHub account; the workspace writes issues as you.')
-                        : t('A fine-grained token for that repository with Issues: read and write. Or sign in with GitHub and connect with one tap.')}
-                    </span>
+                    {!ghWaiting && (ghUseToken || !github.oauth || (!github.mine && !github.oauth)) && (
+                      <>
+                        <input
+                          className="ai-key-input"
+                          value={ghRepo}
+                          onChange={(e) => setGhRepo(e.target.value)}
+                          placeholder="owner/repo"
+                          aria-label={t('Repository')}
+                          disabled={ghBusy}
+                        />
+                        <input
+                          className="ai-key-input"
+                          type="password"
+                          autoComplete="off"
+                          value={ghToken}
+                          onChange={(e) => setGhToken(e.target.value)}
+                          placeholder={t('GitHub token (Issues: write)')}
+                          aria-label={t('GitHub token')}
+                          disabled={ghBusy}
+                        />
+                        <button className="pill-btn" disabled={ghBusy || !ghRepo.trim() || !ghToken.trim()}
+                          onClick={() => githubCall('PUT', { repo: ghRepo.trim(), token: ghToken.trim() })}>
+                          {ghBusy ? t('Connecting…') : t('Connect')}
+                        </button>
+                        <span className="row-sub github-hint">{t('A fine-grained token for that repository with Issues: read and write.')}</span>
+                      </>
+                    )}
+                    {!ghWaiting && github.oauth && github.mine && (
+                      <button className="btn-text github-alt" onClick={() => setGhUseToken((u) => !u)}>
+                        {ghUseToken ? t('Pick from my GitHub instead') : t('Use a token instead')}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

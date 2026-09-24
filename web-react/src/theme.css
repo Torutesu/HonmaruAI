@@ -617,9 +617,11 @@
   .profile-avatar { background: #f2f2f2; color: #1a1a1a; }
   .profile-stats, .shell .profile-stats { background: #1a1a1a; border-color: #2a2a2a; }
   .profile-stats div { border-right-color: #2a2a2a; }
-  .row-select, .alias-input, .key-input, .you-row input, .join-code, .context-input {
+  .row-select, .alias-input, .key-input, .you-row input, .join-code, .context-input,
+  .role-input, .ai-key-input, .invite-email {
     background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2;
   }
+  .role-input::placeholder, .ai-key-input::placeholder { color: #8a8a8a; }
   .row-select option { background: #1a1a1a; }
 }
 
@@ -684,3 +686,6 @@
 }
 :root[data-theme="dark"] .row-icon.brand-tile { background: #fff; border-color: #2a2a2a; }
 :root[data-theme="dark"] .cl-app:has(.brand) { background: #fff; }
+:root[data-theme="dark"] .role-input, :root[data-theme="dark"] .ai-key-input, :root[data-theme="dark"] .invite-email {
+  background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2;
+}

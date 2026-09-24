@@ -13,8 +13,11 @@
 // lives in D1 the way connector tokens and the workspace's AI keys do, and it
 // never comes back out.
 
+import { executeTool, createConnectLink, listConnectedAccounts, createManagedAuthConfig } from "./composio.js";
+
 const GH = "https://api.github.com";
 const REPO_SHAPE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const KV_AUTH_CONFIG = "composio_auth_config_github";
 
 const headers = (token) => ({
   authorization: `Bearer ${token}`,
@@ -26,12 +29,121 @@ const headers = (token) => ({
 export async function getWorkspaceGitHub(db, orgId) {
   if (!db || !orgId) return null;
   const row = await db
-    .prepare("SELECT repo, token, connected_by, updated_at FROM org_github WHERE org_id = ?1")
+    .prepare("SELECT repo, token, composio_user, connected_by, updated_at FROM org_github WHERE org_id = ?1")
     .bind(orgId)
     .first()
     .catch(() => null);
   if (!row?.repo) return null;
-  return { repo: row.repo, token: row.token || null, connectedBy: row.connected_by || null, updatedAt: row.updated_at || null };
+  return {
+    repo: row.repo, token: row.token || null, composioUser: row.composio_user || null,
+    connectedBy: row.connected_by || null, updatedAt: row.updated_at || null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Signing in with GitHub, from the web, without a token to paste.
+//
+// GitHub's own OAuth needs a callback URL registered on the OAuth app, and
+// the one this deployment registered is the phone's. Composio hosts the
+// OAuth for the same tools the Tools screen already connects — Gmail, Slack,
+// Notion — and does so for GitHub as well, on its own managed credentials.
+// So "connect GitHub" here is the same journey as connecting Gmail: a page
+// opens, GitHub asks, the person says yes, they come back. The auth config
+// that journey needs is made once, by the Worker, and remembered.
+
+/// The Composio auth config for GitHub: the one the deployment names, the
+/// one it made before, or one made now on Composio's managed OAuth.
+export async function githubAuthConfig(env) {
+  if (!env.COMPOSIO_API_KEY) return null;
+  const named = typeof env.CONNECTOR_AUTH_GITHUB === "string" ? env.CONNECTOR_AUTH_GITHUB.trim() : "";
+  if (named) return named;
+  const kept = await env.DB.prepare("SELECT value FROM kv WHERE key = ?1").bind(KV_AUTH_CONFIG).first().catch(() => null);
+  if (kept?.value) return kept.value;
+  try {
+    const id = await createManagedAuthConfig(env.COMPOSIO_API_KEY, "github", "Honmaru AI · GitHub");
+    if (!id) return null;
+    await env.DB
+      .prepare("INSERT INTO kv (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+      .bind(KV_AUTH_CONFIG, id, new Date().toISOString())
+      .run();
+    return id;
+  } catch (err) {
+    console.error("github auth config", err?.message || err);
+    return null;
+  }
+}
+
+/// Where to send someone to connect their GitHub.
+export async function githubConnectLink(env, githubId) {
+  const authConfig = await githubAuthConfig(env);
+  if (!authConfig) return { error: "GitHub sign-in is not available on this deployment." };
+  const link = await createConnectLink(env.COMPOSIO_API_KEY, String(githubId), authConfig);
+  return { redirectUrl: link.redirect_url, connectedAccountId: link.connected_account_id };
+}
+
+/// Whether this person's GitHub is connected through Composio.
+export async function myGithubAccount(env, githubId) {
+  if (!env.COMPOSIO_API_KEY) return null;
+  try {
+    const accounts = await listConnectedAccounts(env.COMPOSIO_API_KEY, String(githubId));
+    return accounts.find((a) => {
+      const slug = typeof a.toolkit === "string" ? a.toolkit : a.toolkit?.slug;
+      return String(slug).toLowerCase() === "github" && String(a.status).toUpperCase() === "ACTIVE";
+    }) || null;
+  } catch (err) {
+    console.error("github account lookup", err?.message || err);
+    return null;
+  }
+}
+
+const unwrap = (payload) => payload?.data?.data ?? payload?.data ?? payload?.results?.[0]?.response?.data ?? payload;
+
+/// The repositories this person's connected GitHub can write issues to.
+export async function listMyRepositories(env, githubId) {
+  const payload = await executeTool(env.COMPOSIO_API_KEY, "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER", String(githubId), {
+    per_page: 100, sort: "updated",
+  });
+  const data = unwrap(payload);
+  const list = Array.isArray(data) ? data : (data?.details || data?.repositories || data?.items || []);
+  return list
+    .filter((r) => r && r.full_name)
+    .filter((r) => { const p = r.permissions || {}; return p.push || p.maintain || p.admin || p.triage || r.permissions === undefined; })
+    .map((r) => ({ repo: r.full_name, url: r.html_url || `https://github.com/${r.full_name}`, private: Boolean(r.private) }));
+}
+
+async function checkRepositoryAs(env, githubId, repo) {
+  if (!REPO_SHAPE.test(String(repo || ""))) return { error: "Name the repository as owner/repo." };
+  const [owner, name] = repo.split("/");
+  let payload;
+  try {
+    payload = await executeTool(env.COMPOSIO_API_KEY, "GITHUB_GET_A_REPOSITORY", String(githubId), { owner, repo: name });
+  } catch (err) {
+    return { error: `GitHub did not answer: ${String(err?.message || err).slice(0, 120)}` };
+  }
+  const data = unwrap(payload) || {};
+  const p = data.permissions || {};
+  if (data.permissions && !(p.push || p.maintain || p.admin || p.triage)) {
+    return { error: "Your GitHub account can read that repository but not write issues there." };
+  }
+  return { ok: true, repo: data.full_name || repo, url: data.html_url || `https://github.com/${repo}` };
+}
+
+/// Connect the workspace to a repository through a member's connected
+/// GitHub: no token stored, the Worker writes issues as that person.
+export async function connectWorkspaceGitHubAs(env, { orgId, repo, githubId }) {
+  const account = await myGithubAccount(env, githubId);
+  if (!account) return { error: "Connect your GitHub first." };
+  const checked = await checkRepositoryAs(env, githubId, repo);
+  if (checked.error) return checked;
+  await env.DB
+    .prepare(
+      `INSERT INTO org_github (org_id, repo, token, composio_user, connected_by, updated_at) VALUES (?1, ?2, NULL, ?3, ?4, ?5)
+       ON CONFLICT(org_id) DO UPDATE SET repo = excluded.repo, token = NULL, composio_user = excluded.composio_user,
+         connected_by = excluded.connected_by, updated_at = excluded.updated_at`
+    )
+    .bind(orgId, checked.repo, String(githubId), String(githubId), new Date().toISOString())
+    .run();
+  return { ok: true, repo: checked.repo, url: checked.url };
 }
 
 /// Where this workspace's issues go: the repository it is, or the one it
@@ -74,8 +186,8 @@ export async function connectWorkspaceGitHub(env, { orgId, repo, token, byGithub
   if (checked.error) return checked;
   await env.DB
     .prepare(
-      `INSERT INTO org_github (org_id, repo, token, connected_by, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
-       ON CONFLICT(org_id) DO UPDATE SET repo = excluded.repo, token = excluded.token,
+      `INSERT INTO org_github (org_id, repo, token, composio_user, connected_by, updated_at) VALUES (?1, ?2, ?3, NULL, ?4, ?5)
+       ON CONFLICT(org_id) DO UPDATE SET repo = excluded.repo, token = excluded.token, composio_user = NULL,
          connected_by = excluded.connected_by, updated_at = excluded.updated_at`
     )
     .bind(orgId, checked.repo, token.trim(), String(byGithubId), new Date().toISOString())
@@ -93,14 +205,18 @@ export async function disconnectWorkspaceGitHub(db, orgId) {
 export async function githubStatus(env, { session, orgId, canEdit, isGitHubSession }) {
   const settings = await getWorkspaceGitHub(env.DB, orgId);
   const isRepoOrg = REPO_SHAPE.test(String(orgId || ""));
+  const account = session ? await myGithubAccount(env, session.github_id) : null;
   const base = {
     builtIn: isRepoOrg && isGitHubSession,
     connected: Boolean(settings?.repo),
     repo: settings?.repo || (isRepoOrg ? orgId : null),
+    via: settings?.composioUser ? "account" : settings?.token ? "token" : null,
     canEdit: Boolean(canEdit),
-    // A GitHub sign-in can connect the workspace with one tap; anyone else
-    // enters a token.
-    mine: Boolean(isGitHubSession),
+    // Whether this person can connect the workspace with their own GitHub:
+    // through the OAuth journey (Composio) or a GitHub sign-in.
+    mine: Boolean(account) || Boolean(isGitHubSession),
+    // Whether the OAuth journey is offered here at all.
+    oauth: Boolean(env.COMPOSIO_API_KEY),
     reason: null,
   };
   if (settings?.repo) return base;
@@ -140,10 +256,12 @@ const issueState = (status) => (status === "completed" || status === "rejected" 
 /// set, or null when there is nothing to do or GitHub would not have it.
 export async function syncCardToGitHub(env, orgId, card) {
   const settings = await getWorkspaceGitHub(env.DB, orgId);
-  if (!settings?.repo || !settings.token || !card?.id) return null;
-  const base = (env.GITHUB_API_BASE || GH).replace(/\/$/, "");
+  if (!settings?.repo || !card?.id) return null;
   const title = `[${TYPE_LABEL[card.type] || "Decision"}] ${card.title || card.id}`;
   const body = issueBody(card);
+  if (settings.composioUser && env.COMPOSIO_API_KEY) return syncThroughAccount(env, settings, card, title, body);
+  if (!settings.token) return null;
+  const base = (env.GITHUB_API_BASE || GH).replace(/\/$/, "");
   try {
     if (card.githubIssueNumber && (!card.githubRepository || card.githubRepository === settings.repo)) {
       const res = await fetch(`${base}/repos/${settings.repo}/issues/${card.githubIssueNumber}`, {
@@ -177,6 +295,31 @@ export async function syncCardToGitHub(env, orgId, card) {
     return next;
   } catch (err) {
     console.error("github sync failed", err?.message || err);
+    return null;
+  }
+}
+
+/// The same write, as the member whose GitHub is connected.
+async function syncThroughAccount(env, settings, card, title, body) {
+  const [owner, repo] = settings.repo.split("/");
+  const user = String(settings.composioUser);
+  try {
+    if (card.githubIssueNumber && (!card.githubRepository || card.githubRepository === settings.repo)) {
+      await executeTool(env.COMPOSIO_API_KEY, "GITHUB_UPDATE_AN_ISSUE", user, {
+        owner, repo, issue_number: card.githubIssueNumber, title, body, state: issueState(card.status),
+      });
+      return { ...card, githubRepository: settings.repo, githubIssueURL: card.githubIssueURL || `https://github.com/${settings.repo}/issues/${card.githubIssueNumber}` };
+    }
+    const payload = await executeTool(env.COMPOSIO_API_KEY, "GITHUB_CREATE_AN_ISSUE", user, { owner, repo, title, body });
+    const data = unwrap(payload) || {};
+    if (typeof data.number !== "number") return null;
+    const next = { ...card, githubIssueNumber: data.number, githubIssueURL: data.html_url || `https://github.com/${settings.repo}/issues/${data.number}`, githubRepository: settings.repo };
+    if (issueState(card.status) === "closed") {
+      await executeTool(env.COMPOSIO_API_KEY, "GITHUB_UPDATE_AN_ISSUE", user, { owner, repo, issue_number: data.number, state: "closed" }).catch(() => {});
+    }
+    return next;
+  } catch (err) {
+    console.error("github sync (account) failed", err?.message || err);
     return null;
   }
 }

@@ -364,6 +364,17 @@ CREATE TABLE IF NOT EXISTS org_github (
   org_id        TEXT PRIMARY KEY,
   repo          TEXT NOT NULL,
   token         TEXT,
+  /* Or, instead of a token: the account id of a member whose GitHub is
+     connected through Composio; the Worker writes issues as them. */
+  composio_user TEXT,
   connected_by  TEXT,
   updated_at    TEXT NOT NULL
+);
+
+/* Small things the deployment learns and keeps: an auth config it made at
+   Composio, and the like. */
+CREATE TABLE IF NOT EXISTS kv (
+  key         TEXT PRIMARY KEY,
+  value       TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
 );
