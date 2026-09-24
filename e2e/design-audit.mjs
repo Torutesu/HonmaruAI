@@ -77,6 +77,8 @@ await page.click('text=Next'); await page.waitForSelector('.ob-demo')
 await shot(page, `1440-05-onboarding-3`)
 await page.click('text=Set me up'); await page.waitForSelector('.radio')
 await shot(page, `1440-06-onboarding-4`)
+await page.click('.screen-foot .btn-primary:has-text("Next")'); await page.waitForSelector('.ob-daily input[type="time"]')
+await shot(page, `1440-06b-onboarding-daily`)
 await page.click('text=Open my feed')
 await page.waitForSelector('.dot.on', { timeout: 25000 })
 

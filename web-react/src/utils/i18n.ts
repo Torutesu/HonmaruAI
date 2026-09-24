@@ -15,6 +15,14 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'daily-reports': '日報',
+  'When should your AI draft your daily report?': 'AIが日報を下書きする時刻を決めましょう',
+  'Morning: today’s plan. Evening: how the day went. Your AI writes it in your own words from your day and tells you when it is ready; you check it and post it. Nothing goes out until you do.': '朝は今日の予定、夜は一日の振り返り。AIがあなたの一日からあなたの言葉で下書きし、できたら通知します。確認して投稿するまで、何も投稿されません。',
+  'What you will do today, where your tasks stand, where you need help.': '今日やること、タスクの状況、相談したいこと。',
+  'What you did, what went well, what to improve, tomorrow.': 'やったこと、良かった点、反省点、明日やること。',
+  'A new channel…': '新しいチャンネル…',
+  'New channel name': '新しいチャンネルの名前',
+  'Times are where you are ({zone}). You can change all of this later under Automations.': '時刻はあなたのタイムゾーン（{zone}）です。あとから「自動化」でいつでも変更できます。',
   'Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.': 'この時刻にAIがあなたの言葉で下書きし、できたら通知します。確認して「投稿」を押すまで、何も投稿されません。',
   'Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.': '朝は今日やること、夜は一日の振り返り（良かった点・反省点・明日やること）。好きな時刻に、あなたの言葉で下書きし、確認してから投稿します。',
   'Morning — today’s plan': '朝 — 今日やること',
@@ -1064,6 +1072,14 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'daily-reports': 'informes-diarios',
+  'When should your AI draft your daily report?': '¿Cuándo debe tu IA redactar tu informe diario?',
+  'Morning: today’s plan. Evening: how the day went. Your AI writes it in your own words from your day and tells you when it is ready; you check it and post it. Nothing goes out until you do.': 'Por la mañana: el plan del día. Por la noche: cómo fue el día. Tu IA lo escribe con tus propias palabras a partir de tu día y te avisa cuando está listo; tú lo revisas y lo publicas. No sale nada hasta que lo hagas.',
+  'What you will do today, where your tasks stand, where you need help.': 'Qué harás hoy, cómo van tus tareas, en qué necesitas ayuda.',
+  'What you did, what went well, what to improve, tomorrow.': 'Qué hiciste, qué salió bien, qué mejorar, mañana.',
+  'A new channel…': 'Un canal nuevo…',
+  'New channel name': 'Nombre del canal nuevo',
+  'Times are where you are ({zone}). You can change all of this later under Automations.': 'Las horas son las de tu zona ({zone}). Puedes cambiar todo esto más tarde en Automatizaciones.',
   'Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.': 'Tu IA lo redacta con tus propias palabras a estas horas y te avisa cuando está listo. No se publica nada hasta que lo revises y pulses Publicar.',
   'Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.': 'Por la mañana: el plan del día. Por la noche: cómo fue el día — qué salió bien, qué mejorar, mañana. Con tus propias palabras, a la hora que elijas, para que lo revises y lo publiques.',
   'Morning — today’s plan': 'Mañana — el plan del día',
@@ -1792,6 +1808,14 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'daily-reports': 'rapports-quotidiens',
+  'When should your AI draft your daily report?': 'Quand votre IA doit-elle rédiger votre rapport quotidien ?',
+  'Morning: today’s plan. Evening: how the day went. Your AI writes it in your own words from your day and tells you when it is ready; you check it and post it. Nothing goes out until you do.': 'Le matin : le plan du jour. Le soir : le bilan. Votre IA le rédige avec vos propres mots à partir de votre journée et vous prévient quand il est prêt ; vous le relisez et le publiez. Rien ne part avant.',
+  'What you will do today, where your tasks stand, where you need help.': 'Ce que vous ferez aujourd\'hui, où en sont vos tâches, sur quoi vous avez besoin d\'aide.',
+  'What you did, what went well, what to improve, tomorrow.': 'Ce que vous avez fait, ce qui a bien marché, ce qui est à améliorer, demain.',
+  'A new channel…': 'Un nouveau canal…',
+  'New channel name': 'Nom du nouveau canal',
+  'Times are where you are ({zone}). You can change all of this later under Automations.': 'Les heures sont celles de votre fuseau ({zone}). Vous pourrez tout changer plus tard dans Automatisations.',
   'Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.': 'Votre IA le rédige avec vos propres mots à ces heures et vous prévient quand il est prêt. Rien n\'est publié tant que vous ne l\'avez pas relu et publié.',
   'Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.': 'Le matin : le plan du jour. Le soir : le bilan — ce qui a bien marché, ce qui est à améliorer, demain. Avec vos propres mots, aux heures de votre choix, à relire puis publier.',
   'Morning — today’s plan': 'Matin — le plan du jour',
@@ -2525,6 +2549,14 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'daily-reports': 'tagesberichte',
+  'When should your AI draft your daily report?': 'Wann soll deine KI deinen Tagesbericht entwerfen?',
+  'Morning: today’s plan. Evening: how the day went. Your AI writes it in your own words from your day and tells you when it is ready; you check it and post it. Nothing goes out until you do.': 'Morgens: der Plan für heute. Abends: wie der Tag lief. Deine KI schreibt ihn aus deinem Tag in deinen eigenen Worten und sagt dir, wenn er fertig ist; du prüfst und postest ihn. Vorher geht nichts raus.',
+  'What you will do today, where your tasks stand, where you need help.': 'Was du heute tust, wie deine Aufgaben stehen, wobei du Hilfe brauchst.',
+  'What you did, what went well, what to improve, tomorrow.': 'Was du getan hast, was gut lief, was besser geht, morgen.',
+  'A new channel…': 'Ein neuer Kanal…',
+  'New channel name': 'Name des neuen Kanals',
+  'Times are where you are ({zone}). You can change all of this later under Automations.': 'Die Uhrzeiten gelten dort, wo du bist ({zone}). Du kannst das alles später unter Automatisierungen ändern.',
   'Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.': 'Deine KI entwirft ihn zu diesen Uhrzeiten in deinen eigenen Worten und sagt dir, wenn er fertig ist. Nichts wird gepostet, bevor du ihn prüfst und auf Posten drückst.',
   'Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.': 'Morgens: der Plan für heute. Abends: wie der Tag lief — was gut lief, was besser geht, morgen. In deinen eigenen Worten, zu Uhrzeiten deiner Wahl, zum Prüfen und Posten.',
   'Morning — today’s plan': 'Morgens — der Plan für heute',

@@ -545,6 +545,9 @@
 .daily-toggle input { width: 16px; height: 16px; flex: none; accent-color: var(--ink-black); }
 .daily-part input[type="time"] { flex: 0 0 auto; width: 9.5em; }
 .daily-part input[type="time"]:disabled { opacity: 0.45; }
+.daily-part-sub { display: block; font-size: 12.5px; margin-top: 2px; }
+.ob-daily .daily-part { padding: 10px 0; border-bottom: 1px solid var(--bone); }
+.ob-daily .auto-field { margin-top: 12px; }
 .auto-to { justify-self: start; max-width: 100%; }
 .auto-hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ash); }
 .auto-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
@@ -612,6 +615,7 @@
   .auto-compose { background: #1a1a1a; border-color: #2a2a2a; }
   .auto-question, .auto-say { color: #f2f2f2; }
   .daily-toggle { color: #f2f2f2; }
+  .ob-daily .daily-part { border-bottom-color: #2a2a2a; }
   .daily-toggle input { accent-color: #f2f2f2; }
   .auto-say::placeholder { color: #6a6a6a; }
   .auto-understood { border-top-color: #2a2a2a; }

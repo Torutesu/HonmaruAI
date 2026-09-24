@@ -260,6 +260,16 @@ await step('onboarding runs to the end and saves', async () => {
   await page.click('text=Set me up')
   await page.waitForSelector('.radio')
   await shot('06-onboarding-role')
+  await page.click('.screen-foot .btn-primary:has-text("Next")')
+  // The daily report, set up before the first card: 08:00 and 22:00 where
+  // the person is, into a channel made for it.
+  await page.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
+  const am = await page.$eval('.daily-part[data-part="morning"] input[type="time"]', (el) => el.value)
+  const pm = await page.$eval('.daily-part[data-part="evening"] input[type="time"]', (el) => el.value)
+  if (am !== '08:00' || pm !== '22:00') throw new Error(`onboarding does not offer 08:00 and 22:00: ${am} / ${pm}`)
+  const name = await page.$eval('.ob-daily input[aria-label="New channel name"]', (el) => el.value)
+  if (name !== 'daily-reports') throw new Error(`onboarding does not propose a channel for it: ${name}`)
+  await shot('06b-onboarding-daily')
   await page.click('text=Open my feed')
   await page.waitForSelector('.tabbar', { timeout: 20000 })
   await shot('07-feed-empty')
@@ -1701,27 +1711,27 @@ await step('the daily report: morning and evening at the person’s own times, d
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
   try {
     await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
-    await d.waitForSelector('.auto-preset:has-text("Daily report")', { timeout: 20000 })
-      .catch(() => { throw new Error('the daily report is not offered') })
-    await d.click('.auto-preset:has-text("Daily report")')
-    await d.waitForSelector('.daily-setup select[aria-label="Post to"]', { timeout: 10000 })
-    // 08:00 and 22:00 unless the person says otherwise — and they may.
-    const morning = await d.$eval('.daily-part[data-part="morning"] input[type="time"]', (el) => el.value)
-    const evening = await d.$eval('.daily-part[data-part="evening"] input[type="time"]', (el) => el.value)
-    if (morning !== '08:00' || evening !== '22:00') throw new Error(`the defaults are not 08:00 and 22:00: ${morning} / ${evening}`)
-    await d.selectOption('.daily-setup select[aria-label="Post to"]', 'b:kitchen')
-    await d.fill('.daily-part[data-part="evening"] input[type="time"]', '21:30')
-    await d.screenshot({ path: `${SHOTS}/40-daily-setup.png` })
-    await d.click('.daily-setup .pill-btn')
+    // Made in onboarding: both halves, at 08:00 and 22:00, already listed.
     const evRow = '.routine-row:has-text("Daily report")'
     const amRow = '.routine-row:has-text("Morning plan")'
-    await d.waitForSelector(evRow, { timeout: 15000 }).catch(() => { throw new Error('the evening report was not listed after Create') })
-    await d.waitForSelector(amRow, { timeout: 15000 }).catch(() => { throw new Error('the morning plan was not listed after Create') })
-    const ev = await d.$eval(evRow, (el) => el.innerText)
+    await d.waitForSelector(evRow, { timeout: 20000 }).catch(() => { throw new Error('onboarding did not set up the evening report') })
+    await d.waitForSelector(amRow, { timeout: 20000 }).catch(() => { throw new Error('onboarding did not set up the morning plan') })
+    const before = await d.$eval(evRow, (el) => el.innerText)
     const am = await d.$eval(amRow, (el) => el.innerText)
-    if (!/21:30/.test(ev) || !/#kitchen/.test(ev)) throw new Error(`the evening row does not say when and where: ${ev.slice(0, 160)}`)
-    if (!/08:00/.test(am) || !/#kitchen/.test(am)) throw new Error(`the morning row does not say when and where: ${am.slice(0, 160)}`)
+    if (!/22:00/.test(before) || !/#daily-reports/.test(before)) throw new Error(`the evening row is not 22:00 in #daily-reports: ${before.slice(0, 160)}`)
+    if (!/08:00/.test(am)) throw new Error(`the morning row is not at 08:00: ${am.slice(0, 160)}`)
     if (await d.$('.auto-preset:has-text("Daily report")')) throw new Error('the daily report is still offered once both halves exist')
+
+    // Each person's own time and channel: moved here.
+    await d.click(`${evRow} .btn-text:has-text("Edit")`)
+    await d.waitForSelector('.routine-row.editing select[aria-label="Post to"]', { timeout: 10000 })
+    await d.selectOption('.routine-row.editing select[aria-label="Post to"]', 'b:kitchen')
+    await d.fill('.routine-row.editing input[aria-label="Time"]', '21:30')
+    await d.screenshot({ path: `${SHOTS}/40-daily-setup.png` })
+    await d.click('.routine-row.editing .pill-btn:has-text("Save")')
+    await d.waitForFunction(() => !document.querySelector('.routine-row.editing'), null, { timeout: 10000 })
+    const ev = await d.$eval(evRow, (el) => el.innerText)
+    if (!/21:30/.test(ev) || !/#kitchen/.test(ev)) throw new Error(`the evening row did not take the new time and channel: ${ev.slice(0, 160)}`)
 
     // Run now: the draft, in the feed, for its owner to change.
     await d.click(`${evRow} .btn-text:has-text("Run now")`)
@@ -1856,6 +1866,11 @@ await step('a second person joins by invite and the card reaches them', async ()
   await b.click('text=Next'); await b.waitForSelector('.ob-art-route')
   await b.click('text=Next'); await b.waitForSelector('.ob-demo')
   await b.click('text=Set me up'); await b.waitForSelector('.radio')
+  await b.click('.screen-foot .btn-primary:has-text("Next")'); await b.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
+  // Joining a team whose first member set up a daily report: the same
+  // channel is offered, not a second one beside it.
+  const offered = await b.$eval('.ob-daily select[aria-label="Post to"]', (el) => el.value)
+  if (offered !== 'b:daily-reports') throw new Error(`a teammate is not offered the team's daily-report channel: ${offered}`)
   await b.click('text=Open my feed')
   await b.waitForSelector('.dot.on', { timeout: 25000 })
 
@@ -1934,6 +1949,7 @@ await step('an invite reaches someone who already has an account', async () => {
   await c.click('text=Next'); await c.waitForSelector('.ob-art-route')
   await c.click('text=Next'); await c.waitForSelector('.ob-demo')
   await c.click('text=Set me up'); await c.waitForSelector('.radio')
+  await c.click('.screen-foot .btn-primary:has-text("Next")'); await c.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
   await c.click('text=Open my feed')
   await c.waitForSelector('.dot.on', { timeout: 25000 })
 
@@ -2089,6 +2105,7 @@ async function freshAccount(name, email, { start } = {}) {
   await p.click('text=Next'); await p.waitForSelector('.ob-art-route')
   await p.click('text=Next'); await p.waitForSelector('.ob-demo')
   await p.click('text=Set me up'); await p.waitForSelector('.radio')
+  await p.click('.screen-foot .btn-primary:has-text("Next")'); await p.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
   await p.click('text=Open my feed')
   await p.waitForSelector('.dot.on', { timeout: 25000 })
   return p

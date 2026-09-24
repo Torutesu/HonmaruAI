@@ -28,4 +28,12 @@ describe('account scoped onboarding', () => {
     storage.setItem(`${key}:draft`, 'broken')
     expect(readOnboardingDraft(storage, key)).toEqual({})
   })
+  it('keeps the daily report setup and any language someone reads', () => {
+    const key = onboardingKey('api', 'new')
+    const daily = { cadence: 'weekdays', morning: { on: true, hour: 8, minute: 0 }, evening: { on: false, hour: 21, minute: 30 }, channel: '__new', newName: '日報' }
+    storage.setItem(`${key}:draft`, JSON.stringify({ page: 4, role: 'member', locale: 'vi', daily }))
+    expect(readOnboardingDraft(storage, key)).toEqual({ page: 4, role: 'member', locale: 'vi', daily })
+    storage.setItem(`${key}:draft`, JSON.stringify({ page: 4, daily: { ...daily, morning: { on: true, hour: 25, minute: 0 } } }))
+    expect(readOnboardingDraft(storage, key)).toEqual({ page: 4 })
+  })
 })
