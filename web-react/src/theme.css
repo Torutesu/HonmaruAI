@@ -722,7 +722,7 @@
   .shell .ws-rail { display: block; position: relative; order: -2; margin-bottom: 4px; }
   .shell .ws-rail .ws-button { padding: 0; border-radius: 10px; }
   .shell .ws-rail .ws-button:hover { background: none; box-shadow: 0 0 0 3px var(--chrome-hover); }
-  .shell .ws-rail .ws-mark { width: 36px !important; height: 36px !important; border-radius: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
+  .shell .ws-rail .ws-mark { width: 36px !important; height: 36px !important; border-radius: 10px; }
   .shell .ws-rail .ws-mark-letter { background: #fff; color: #1d1c1d; }
   .shell .ws-rail .ws-name, .shell .ws-rail .ws-caret { display: none; }
   .shell .ws-rail .ws-menu { left: calc(100% + 10px); top: 0; }
