@@ -86,14 +86,17 @@
 
   /* ============ appearance ============ */
   var mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+  var themeListeners = [];
+  if (mqDark.addEventListener) mqDark.addEventListener('change', function () { themeListeners.forEach(function (fn) { fn(); }); });
   function isDark() { var v = doc.getAttribute('data-theme'); return v ? v === 'dark' : mqDark.matches; }
   function paintThemeColor() {
-    $$('meta[name="theme-color"]').forEach(function (m) { m.setAttribute('content', isDark() ? '#000000' : '#ffffff'); });
+    $$('meta[name="theme-color"]').forEach(function (m) { m.setAttribute('content', isDark() ? '#0b0c12' : '#ffffff'); });
   }
   $('#theme-btn').addEventListener('click', function () {
     var next = isDark() ? 'light' : 'dark';
     doc.setAttribute('data-theme', next); store.set('honmaru-theme', next);
     paintThemeColor();
+    themeListeners.forEach(function (fn) { fn(); });
   });
   if (doc.getAttribute('data-theme')) paintThemeColor();
 
@@ -120,63 +123,70 @@
     $$('.reveal').forEach(function (el) { el.classList.add('in'); });
   }
 
-  /* ============ the stage: hero → pinned phone story ============ */
+  /* ============ the stage: hero, then the pinned phone story ============ */
   var stage = (function () {
-    var section = $('.stage'), sticky = $('.stage-sticky'), hero = $('#hero-text');
-    var device = $('#device'), caps = $$('.caption'), capsWrap = $('#captions');
+    var section = $('.stage'), sticky = $('.stage-sticky'), hero = $('#hero-text'), story = $('#story');
+    var device = $('#device'), caps = $$('.caption'), rail = $$('#rail li');
     var card1 = $('#pcard1'), card2 = $('#pcard2'), stamp = $('#stamp'), banner = $('#banner');
     var triage = $('#triage'), yes = $('#yes-btn'), count = $('#ph-count');
-    var RANGES = [[.15, .345], [.345, .545], [.545, .745], [.745, 1.01]];
-    var m = {};
+    var RANGES = [[.12, .345], [.345, .545], [.545, .745], [.745, 1.01]];
+    var m = {}, pose = { cx: 0, cy: 0, r: 200, p: 0 };
 
     function measure() {
       device.style.transform = 'none';
-      var vw = window.innerWidth, vh = sticky.clientHeight;
-      var wide = vw >= 1000;
+      var vw = window.innerWidth, vh = sticky.clientHeight, wide = vw >= 1000;
       var dh = device.offsetHeight, dw = device.offsetWidth;
-      var heroBottom = hero.offsetTop + hero.offsetHeight;
       m = { vw: vw, vh: vh, wide: wide, dh: dh, u: dw / 433 };
-      m.x0 = 0; m.s0 = 1;
-      m.y0 = heroBottom + (wide ? 56 : 36) + dh / 2 - vh / 2;
       if (wide) {
-        m.s1 = Math.min(1, (vh - 100) / dh);
-        m.x1 = Math.min(vw, 1000) * .25;
-        m.y1 = 22;
+        m.s1 = m.s0 = Math.min(1, (vh - 130) / dh);
+        m.x1 = m.x0 = Math.min(vw, 1160) * .25;
+        m.y1 = m.y0 = 34;
+        story.style.top = '';
       } else {
-        var capH = capsWrap.offsetHeight + 28;
-        m.s1 = Math.min(1, (vh - 52 - capH - 26) / dh);
-        m.x1 = 0;
-        m.y1 = 52 + 14 + dh * m.s1 / 2 - vh / 2;
-        // captions sit centered in whatever room the phone leaves below it
-        var below = 52 + 14 + dh * m.s1, room = vh - below - capsWrap.offsetHeight;
-        capsWrap.style.top = Math.max(below + 8, below + room * .45) + 'px';
+        var heroBottom = hero.offsetTop + hero.offsetHeight;
+        m.x0 = m.x1 = 0; m.s0 = 1;
+        m.y0 = heroBottom + 34 + dh / 2 - vh / 2;
+        var capH = story.offsetHeight, top = 84;
+        m.s1 = Math.min(1, (vh - top - capH - 30) / dh);
+        m.y1 = top + dh * m.s1 / 2 - vh / 2;
+        var below = top + dh * m.s1, room = vh - below - capH;
+        story.style.top = (below + Math.max(10, room * .42)) + 'px';
       }
-      if (wide) capsWrap.style.top = '';
     }
 
     function update() {
       var r = section.getBoundingClientRect();
       var p = clamp(-r.top / (r.height - m.vh), 0, 1);
-
-      var h = ease(clamp(p / .14, 0, 1));
-      var ho = clamp(p / .09, 0, 1);
+      var h = ease(clamp(p / .12, 0, 1)), ho = clamp(p / .08, 0, 1);
       hero.style.opacity = 1 - ho;
-      hero.style.transform = 'translate3d(0,' + (-h * 70).toFixed(1) + 'px,0) scale(' + (1 - h * .04).toFixed(4) + ')';
+      hero.style.transform = 'translate3d(0,' + (-h * 50).toFixed(1) + 'px,0)';
       hero.style.visibility = ho >= 1 ? 'hidden' : '';
+
+      var so = clamp((p - .1) / .04, 0, 1);
+      story.style.opacity = so;
+      story.style.visibility = so <= 0 ? 'hidden' : 'visible';
 
       var x = lerp(m.x0, m.x1, h), y = lerp(m.y0, m.y1, h), s = lerp(m.s0, m.s1, h);
       device.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0) scale(' + s.toFixed(4) + ')';
+      pose.cx = m.vw / 2 + x; pose.cy = m.vh / 2 + y; pose.r = m.dh * s * .56; pose.p = p;
+
+      var active = 0;
+      RANGES.forEach(function (rg, i) { if (p >= rg[0]) active = i; });
+      rail.forEach(function (li, i) {
+        var f = i < active ? 1 : i === active ? clamp((p - RANGES[i][0]) / (RANGES[i][1] - RANGES[i][0]), 0, 1) : 0;
+        li.style.setProperty('--f', f.toFixed(3));
+        li.classList.toggle('on', i === active);
+      });
 
       caps.forEach(function (c, i) {
         var a = RANGES[i][0], b = RANGES[i][1];
         var fin = clamp((p - a) / .045, 0, 1), fout = i < 3 ? clamp((b - p) / .045, 0, 1) : 1;
         var o = Math.min(fin, fout);
         c.style.opacity = o.toFixed(3);
-        c.style.transform = 'translate3d(0,' + ((1 - fin) * 36 - (1 - fout) * 36).toFixed(1) + 'px,0)';
+        c.style.transform = 'translate3d(0,' + ((1 - fin) * 28 - (1 - fout) * 28).toFixed(1) + 'px,0)';
         c.style.visibility = o <= 0 ? 'hidden' : '';
       });
 
-      // the AI glow while it "triages", fading once you start deciding
       var g = 1 - clamp((p - .29) / .06, 0, 1);
       device.style.setProperty('--glow', g.toFixed(3));
       triage.style.opacity = g.toFixed(3);
@@ -199,38 +209,150 @@
     }
 
     measure();
-    return { update: update, measure: measure };
+    return { update: update, measure: measure, pose: pose };
   })();
 
-  /* ============ statement: words light up as you read ============ */
-  var statement = (function () {
-    var section = $('#statement'), box = $('#statement-text'), words = [];
+  /* ============ the walls: rings around the phone ============
+     Three walls — 三の丸, 二の丸, 本丸. Messages drift along the outer walls;
+     every so often your AI lets one through and it falls inward to the phone. */
+  (function rings() {
+    var canvas = $('#rings'), ctx = canvas.getContext('2d'), section = $('.stage');
+    var W = 0, H = 0, dpr = 1, parts = [], flashes = [], ink = '32,32,32', vio = '102,71,240';
+    var running = false, raf = 0, last = 0, nextDive = 0;
+    var LABELS = ['本丸', '二の丸', '三の丸'];
+
+    function colors() {
+      var cs = getComputedStyle(doc);
+      ink = cs.getPropertyValue('--ring-rgb').trim() || ink;
+      vio = cs.getPropertyValue('--violet-rgb').trim() || vio;
+    }
+    function size() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = canvas.clientWidth; H = canvas.clientHeight;
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var n = W < 700 ? 26 : 46;
+      parts = [];
+      for (var i = 0; i < n; i++) parts.push(spawn(1 + (i % 2)));
+    }
+    function spawn(ring) {
+      return { ring: ring, a: Math.random() * Math.PI * 2, w: (ring === 2 ? -1 : 1) * (.05 + Math.random() * .06), jitter: (Math.random() - .5) * .08, dive: -1, sz: 1.6 + Math.random() * 1.6 };
+    }
+    function radii() { var R = Math.max(stage.pose.r, 150); return [R, R * 1.42, R * 1.9]; }
+    function draw(dt) {
+      var P = stage.pose, rr = radii();
+      ctx.clearRect(0, 0, W, H);
+      // walls
+      for (var i = 2; i >= 0; i--) {
+        ctx.beginPath();
+        ctx.setLineDash(i === 0 ? [] : [2, 7]);
+        ctx.lineWidth = i === 0 ? 1.3 : 1;
+        ctx.strokeStyle = i === 0 ? 'rgba(' + vio + ',.45)' : 'rgba(' + ink + ',' + (i === 1 ? .16 : .11) + ')';
+        ctx.arc(P.cx, P.cy, rr[i], 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      // wall names, where the wall crosses the lower left
+      ctx.font = '500 11px "Sometype Mono", ui-monospace, monospace';
+      for (var j = 0; j < 3; j++) {
+        var ang = Math.PI * .8, lx = P.cx + Math.cos(ang) * rr[j], ly = P.cy + Math.sin(ang) * rr[j];
+        if (lx < 8 || ly > H - 8) continue;
+        ctx.fillStyle = j === 0 ? 'rgba(' + vio + ',1)' : 'rgba(' + ink + ',.5)';
+        ctx.beginPath(); ctx.arc(lx, ly, 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillText(LABELS[j], lx + 8, ly + 4);
+      }
+      // messages
+      var dts = dt / 1000;
+      for (var k = 0; k < parts.length; k++) {
+        var q = parts[k], rad, alpha, col;
+        q.a += q.w * dts;
+        if (q.dive >= 0) {
+          q.dive += dts / 1.5;
+          var e = easeOut(Math.min(q.dive, 1));
+          rad = lerp(rr[q.ring], rr[0] * .98, e);
+          q.a += q.w * dts * 4;
+          col = vio; alpha = .9;
+          if (q.dive >= 1) {
+            flashes.push({ a: q.a, t: 0 });
+            parts[k] = spawn(1 + (Math.random() < .5 ? 1 : 0));
+            continue;
+          }
+        } else {
+          rad = rr[q.ring] * (1 + q.jitter * .3);
+          col = ink; alpha = q.ring === 2 ? .3 : .42;
+        }
+        var px = P.cx + Math.cos(q.a) * rad, py = P.cy + Math.sin(q.a) * rad;
+        if (px < -20 || px > W + 20 || py < -20 || py > H + 20) continue;
+        ctx.fillStyle = 'rgba(' + col + ',' + alpha + ')';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(px - q.sz * 2.2, py - q.sz, q.sz * 4.4, q.sz * 2, q.sz); else ctx.rect(px - q.sz * 2.2, py - q.sz, q.sz * 4.4, q.sz * 2);
+        ctx.fill();
+      }
+      // arrivals ripple on the keep's wall
+      for (var f = flashes.length - 1; f >= 0; f--) {
+        var fl = flashes[f]; fl.t += dts / .9;
+        if (fl.t >= 1) { flashes.splice(f, 1); continue; }
+        var fx = P.cx + Math.cos(fl.a) * rr[0], fy = P.cy + Math.sin(fl.a) * rr[0];
+        ctx.strokeStyle = 'rgba(' + vio + ',' + (1 - fl.t) * .7 + ')';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(fx, fy, 4 + fl.t * 22, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    function loop(ts) {
+      if (!running) return;
+      var dt = Math.min(50, ts - (last || ts)); last = ts;
+      if (ts > nextDive) {
+        var cand = parts.filter(function (q) { return q.dive < 0; });
+        if (cand.length) cand[(Math.random() * cand.length) | 0].dive = 0;
+        // busier while the AI is triaging, calmer once you are deciding
+        nextDive = ts + (stage.pose.p < .34 ? 650 : 1500) + Math.random() * 600;
+      }
+      draw(dt);
+      raf = requestAnimationFrame(loop);
+    }
+    function start() { if (running || reduce) return; running = true; last = 0; raf = requestAnimationFrame(loop); }
+    function stop() { running = false; cancelAnimationFrame(raf); }
+    colors(); size();
+    themeListeners.push(function () { colors(); if (reduce) draw(0); });
+    var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(function () { size(); if (reduce) draw(0); }, 120); });
+    if (reduce) { draw(0); window.addEventListener('scroll', function () { draw(0); }, { passive: true }); return; }
+    if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { es[0].isIntersecting ? start() : stop(); }).observe(section);
+    else start();
+    document.addEventListener('visibilitychange', function () { document.hidden ? stop() : start(); });
+  })();
+
+  /* ============ the keep: the name, read and drawn as you scroll ============ */
+  var keep = (function () {
+    var section = $('#keep'), box = $('#keep-text'), mark = $('.keep-mark'), plan = $('.keep-plan'), words = [];
     function build() {
       box.textContent = '';
       words = [];
-      t('statement').split('*').forEach(function (seg, i) {
-        var ai = i % 2 === 1;
+      t('keep.text').split('*').forEach(function (seg, i) {
+        var hl = i % 2 === 1;
         var tokens = lang === 'ja' ? seg.match(/[^、。]+[、。]?|[、。]/g) || [] : seg.split(/(\s+)/);
         tokens.forEach(function (tok) {
           if (!tok) return;
           if (/^\s+$/.test(tok)) { box.appendChild(document.createTextNode(tok)); return; }
-          var parts = lang === 'ja' ? Array.from(tok) : [tok];
-          parts.forEach(function (ch) {
+          (lang === 'ja' ? Array.from(tok) : [tok]).forEach(function (ch) {
             var s = document.createElement('span');
-            s.className = 'w' + (ai ? ' ai' : '');
+            s.className = 'w' + (hl ? ' hl' : '');
             s.textContent = ch;
             box.appendChild(s);
             words.push(s);
           });
         });
       });
-      box.setAttribute('aria-label', t('statement').replace(/\*/g, ''));
+      box.setAttribute('aria-label', t('keep.text').replace(/\*/g, ''));
     }
     function update() {
       var r = section.getBoundingClientRect(), vh = window.innerHeight;
-      var p = clamp((-r.top + vh * .15) / (r.height - vh * .9), 0, 1);
-      var lit = Math.round(p * words.length * 1.08);
+      var p = clamp((-r.top + vh * .2) / (r.height - vh * .8), 0, 1);
+      var lit = Math.round(clamp(p / .8, 0, 1) * words.length);
       for (var i = 0; i < words.length; i++) words[i].classList.toggle('lit', i < lit);
+      plan.style.setProperty('--k3', clamp(p / .3, 0, 1).toFixed(3));
+      plan.style.setProperty('--k2', clamp((p - .22) / .3, 0, 1).toFixed(3));
+      plan.style.setProperty('--k1', clamp((p - .45) / .25, 0, 1).toFixed(3));
+      mark.style.setProperty('--kk', clamp((p - .65) / .2, 0, 1).toFixed(3));
     }
     build();
     onLang.push(function () { build(); update(); });
@@ -241,8 +363,7 @@
   var ticking = false;
   function frame() {
     ticking = false;
-    stage.update(); statement.update();
-    navEl.classList.toggle('lined', window.scrollY > 10);
+    stage.update(); keep.update();
   }
   function request() { if (!ticking) { ticking = true; requestAnimationFrame(frame); } }
   window.addEventListener('scroll', request, { passive: true });
@@ -364,80 +485,6 @@
     }
   })();
 
-  /* ============ highlights gallery ============ */
-  (function gallery() {
-    var g = $('#gallery'), slides = $$('.slide', g), dotsWrap = $('#dots'), play = $('#play');
-    var DUR = 5200, idx = 0, playing = !reduce, inView = false, timer = 0, scrollT = 0, programmatic = false;
-    var dots = slides.map(function (s, i) {
-      var d = document.createElement('button');
-      d.type = 'button'; d.className = 'dot'; d.setAttribute('role', 'tab');
-      d.setAttribute('aria-label', (i + 1) + ' / ' + slides.length);
-      d.innerHTML = '<i></i>';
-      d.style.setProperty('--dur', DUR + 'ms');
-      d.addEventListener('click', function () { go(i, true); });
-      dotsWrap.appendChild(d);
-      return d;
-    });
-    function offset(i) { return slides[i].offsetLeft - slides[0].offsetLeft; }
-    function setActive(i) {
-      idx = i;
-      slides.forEach(function (s, k) { s.classList.toggle('active', k === i); });
-      dots.forEach(function (d, k) {
-        d.classList.toggle('active', k === i);
-        d.setAttribute('aria-selected', k === i ? 'true' : 'false');
-        d.classList.remove('run');
-      });
-      arm();
-    }
-    function arm() {
-      clearTimeout(timer);
-      var d = dots[idx];
-      d.classList.remove('run');
-      if (!(playing && inView)) return;
-      void d.offsetWidth; d.classList.add('run');
-      timer = setTimeout(function () { go((idx + 1) % slides.length); }, DUR);
-    }
-    function go(i) {
-      programmatic = true;
-      g.scrollTo({ left: offset(i), behavior: reduce ? 'auto' : 'smooth' });
-      setActive(i);
-      setTimeout(function () { programmatic = false; }, 700);
-    }
-    function setPlaying(v) {
-      playing = v;
-      play.classList.toggle('paused', !v);
-      play.setAttribute('aria-label', t(v ? 'hl.pause' : 'hl.play'));
-      arm();
-    }
-    g.addEventListener('scroll', function () {
-      if (programmatic) return;
-      clearTimeout(scrollT);
-      scrollT = setTimeout(function () {
-        var best = 0, bd = Infinity;
-        slides.forEach(function (s, k) { var d = Math.abs(offset(k) - g.scrollLeft); if (d < bd) { bd = d; best = k; } });
-        if (best !== idx) setActive(best);
-      }, 90);
-    }, { passive: true });
-    ['pointerdown', 'touchstart', 'wheel'].forEach(function (ev) {
-      g.addEventListener(ev, function (e) {
-        if (ev === 'wheel' && Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
-        if (playing) setPlaying(false);
-      }, { passive: true });
-    });
-    g.addEventListener('keydown', function (e) {
-      if (e.key === 'ArrowRight') { e.preventDefault(); setPlaying(false); go(Math.min(idx + 1, slides.length - 1)); }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); setPlaying(false); go(Math.max(idx - 1, 0)); }
-    });
-    play.addEventListener('click', function () { setPlaying(!playing); });
-    if ('IntersectionObserver' in window) {
-      new IntersectionObserver(function (es) { inView = es[0].isIntersecting; arm(); }, { threshold: .5 }).observe(g);
-    }
-    document.addEventListener('visibilitychange', function () { inView = !document.hidden && inView; arm(); });
-    setPlaying(playing);
-    setActive(0);
-    onLang.push(function () { play.setAttribute('aria-label', t(playing ? 'hl.pause' : 'hl.play')); });
-  })();
-
   /* ============ the language slide: one card, every reader ============ */
   (function langStack() {
     var box = $('#lang-stack'), S = window.I18N_SAMPLE, front = 0;
@@ -452,7 +499,7 @@
     function place() {
       cards.forEach(function (c, i) {
         var k = (i - front + cards.length) % cards.length;
-        var y = -50 - k * 11, sc = 1 - k * .06, o = k === 0 ? 1 : k === 1 ? .55 : k === 2 ? .22 : 0;
+        var y = -50 - k * 16, sc = 1 - k * .07, o = k === 0 ? 1 : k === 1 ? .35 : k === 2 ? .12 : 0;
         c.style.transform = 'translateY(' + y + '%) scale(' + sc + ')';
         c.style.opacity = o;
         c.style.zIndex = 10 - k;
@@ -461,33 +508,12 @@
     place();
     if (reduce) return;
     setInterval(function () {
-      if (document.hidden || !box.closest('.slide').classList.contains('active')) return;
+      if (document.hidden || !box.closest('.row').classList.contains('in')) return;
       front = (front + 1) % cards.length; place();
     }, 1500);
   })();
 
-  /* ============ numbers ============ */
-  (function numbers() {
-    var els = $$('[data-count]');
-    if (!('IntersectionObserver' in window) || reduce) return;
-    var io = new IntersectionObserver(function (es) {
-      es.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        io.unobserve(e.target);
-        var el = e.target, to = +el.dataset.count, from = to === 0 ? 40 : 0, start = null;
-        function step(ts) {
-          if (start === null) start = ts;
-          var k = clamp((ts - start) / 1400, 0, 1);
-          el.textContent = Math.round(lerp(from, to, easeOut(k)));
-          if (k < 1) requestAnimationFrame(step);
-        }
-        el.textContent = from;
-        requestAnimationFrame(step);
-      });
-    }, { threshold: .6 });
-    els.forEach(function (el) { io.observe(el); });
-  })();
-
+  $('#year').textContent = new Date().getFullYear();
   applyLang();
   frame();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { stage.measure(); frame(); });
