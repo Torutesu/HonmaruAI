@@ -2,8 +2,15 @@
 
 The public page for Honmaru AI. Static HTML, CSS and JS with no build step;
 it makes no third-party requests: the three faces are self-hosted in `fonts/` (see its README).
-Serve the folder with anything (`python3 -m http.server -d lp`) or upload it
-to Cloudflare Pages as is.
+Serve the folder with anything (`python3 -m http.server -d lp`) to work on
+it; the language then comes from `?lang=` or the browser. To see the site as
+it is published, build it and run it in the Pages runtime:
+
+```bash
+node lp/build.mjs dist            # a page per language, root worker, minified assets
+npx wrangler@4 pages dev dist     # / redirects, /ja/ /en/ … are the pages
+node --test lp/worker.test.mjs    # the root's redirect rules
+```
 
 | File | Holds |
 |------|-------|
@@ -11,6 +18,8 @@ to Cloudflare Pages as is.
 | `i18n.js` | Copy in the app's five languages: en, ja, es, fr, de |
 | `styles.css` | Page tokens (light and dark), the phone, every section |
 | `main.js` | The scroll engine, the ring canvas and the interactive parts |
+| `build.mjs` | Builds the published site: `/<lang>/` pages with their words already in the HTML, the stylesheet inlined, the scripts minified |
+| `worker.js` | The root `/`: sends Japan to `/ja/`, everyone else to `/en/`, unless the visitor chose a language on the page |
 
 ## The page, top to bottom
 
@@ -39,10 +48,36 @@ keep, where decisions are made; everything around it is wall.
 Type and colour come from docs/design-system.md: Plus Jakarta Sans, Inter
 and Sometype Mono; #202020 pill buttons; brand violet for AI moments only.
 
+## Where people go
+
+| Button | Destination |
+|--------|-------------|
+| iPhone | App Store: `apps.apple.com/jp/app/honmaruai/id6799302006` from the Japanese page, `apps.apple.com/app/id6799302006` from the others (Apple opens the visitor's own storefront) |
+| Web | `honmaru-web.pages.dev/?lang=<page language>`; the web app reads `?lang=` until someone picks a language in the app |
+| Mac, Windows, Android | Disabled buttons marked *Coming soon*, in the hero and in the last section |
+
+The links live in `i18n.js` as `href.web` and `href.ios`, per language.
+iPhone Safari also offers the app through the Smart App Banner
+(`apple-itunes-app`).
+
+## Language by location
+
+The published root `/` is answered by `worker.js`, which decides in this order:
+
+1. an old `?lang=` link: a permanent redirect to that language;
+2. the `hm_lang` cookie, set when someone picks a language in the menu;
+3. the country Cloudflare sees: Japan gets `/ja/`, everyone else `/en/`.
+
+The redirect is `private, no-store` and varies on the cookie, so no cache
+passes one visitor's language to the next. Each language page names the
+others with `hreflang`, and `x-default` points at the root.
+
 ## Behaviour
 
-- Language comes from `?lang=`, then the last choice, then the browser.
-  Switching rewrites `?lang=` so a shared link keeps it.
+- On the published site the language is the path (`/ja/`). Picking another
+  in the menu swaps the words in place, moves the URL to that language's
+  path and sets the `hm_lang` cookie the root reads. Served from the source
+  folder, it falls back to `?lang=`, then the last choice, then the browser.
 - Appearance follows the system until the toggle is used, then remembers.
   Both are applied before first paint.
 - Every scroll-linked effect runs off one `requestAnimationFrame` loop that
@@ -58,11 +93,16 @@ and Sometype Mono; #202020 pill buttons; brand violet for AI moments only.
 **Deploy Landing Page** (`.github/workflows/deploy-lp.yml`) runs on every push
 to `main` that touches `lp/`, and can also be run by hand from Actions. It:
 
-1. checks that every string the page uses exists in all five languages;
-2. minifies the scripts and inlines the stylesheet, so the first paint waits on the HTML alone;
-3. rewrites `og:image` and `og:url` to absolute addresses and adds `robots.txt`, `sitemap.xml` and cache headers (`_headers`: fonts cached for a year);
-4. creates the Pages project `honmaru-lp` if it doesn't exist yet;
-5. deploys, and checks that the live site serves this commit.
+1. tests the root's redirect rules (`worker.test.mjs`);
+2. runs `build.mjs`, which stops if any language lacks a string the page uses.
+   It writes a page per language with absolute `og:url`, `canonical` and
+   `hreflang` tags, inlines the stylesheet, minifies the scripts, and adds
+   `_worker.js`, `_routes.json`, `robots.txt`, `sitemap.xml` and `_headers`
+   (fonts are cached for a year);
+3. creates the Pages project `honmaru-lp` if it doesn't exist yet;
+4. deploys, then checks that every language page is the one just built and
+   that `/` redirects (to `/en/` from the runner, to `/ja/` with a Japanese
+   choice).
 
 It uses the same two secrets as Deploy Web.
 

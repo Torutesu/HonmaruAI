@@ -16,7 +16,12 @@
 
   /* ============ language ============ */
   var LANGS = ['en', 'ja', 'es', 'fr', 'de'];
+  // The published site has a page per language (/ja/, /en/ …); the root sends
+  // each visitor to one by where they are (_worker.js). The path wins, then an
+  // old ?lang= link, then what was chosen here before, then the browser.
+  var pathLang = (location.pathname.match(/^\/(en|ja|es|fr|de)\/?$/) || [])[1] || null;
   var lang = (function () {
+    if (pathLang) return pathLang;
     var q = new URLSearchParams(location.search).get('lang');
     if (LANGS.indexOf(q) > -1) return q;
     var s = store.get('honmaru-lang');
@@ -36,14 +41,19 @@
     if (typeof v === 'string' && vars) v = v.replace(/\{(\w+)\}/g, function (_, k) { return vars[k] != null ? vars[k] : ''; });
     return v;
   }
-  function applyLang() {
-    doc.lang = lang;
-    document.title = t('meta.title');
-    $('meta[name="description"]').setAttribute('content', t('meta.desc'));
-    $$('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
-    $$('[data-i18n-html]').forEach(function (el) { el.innerHTML = t(el.getAttribute('data-i18n-html')); });
-    $$('[data-i18n-placeholder]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-placeholder')); });
-    $$('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
+  function applyLang(first) {
+    // A page built for this language already carries its words; rewriting
+    // them on load would only cost a frame.
+    if (!(first && doc.getAttribute('data-prerendered') === lang)) {
+      doc.lang = lang;
+      document.title = t('meta.title');
+      $('meta[name="description"]').setAttribute('content', t('meta.desc'));
+      $$('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+      $$('[data-i18n-html]').forEach(function (el) { el.innerHTML = t(el.getAttribute('data-i18n-html')); });
+      $$('[data-i18n-placeholder]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-placeholder')); });
+      $$('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
+      $$('[data-i18n-href]').forEach(function (el) { el.setAttribute('href', t(el.getAttribute('data-i18n-href'))); });
+    }
     $('#lang-code').textContent = lang.toUpperCase();
     $('#lang-btn').setAttribute('aria-label', lang.toUpperCase() + ' · ' + t('a11y.language'));
     $('#fregion').textContent = t('region');
@@ -54,7 +64,11 @@
     if (l === lang) return;
     lang = l;
     store.set('honmaru-lang', l);
-    var url = new URL(location.href); url.searchParams.set('lang', l);
+    // the root reads this before it looks at the visitor's country
+    try { document.cookie = 'hm_lang=' + l + '; path=/; max-age=31536000; SameSite=Lax'; } catch (e) {}
+    var url = new URL(location.href);
+    if (pathLang) { url.pathname = '/' + l + '/'; url.searchParams.delete('lang'); pathLang = l; }
+    else url.searchParams.set('lang', l);
     history.replaceState(null, '', url);
     applyLang();
   }
@@ -560,7 +574,7 @@
     new IntersectionObserver(function (es) { fin.classList.toggle('live', es[0].isIntersecting); }).observe(fin);
   }
   $('#year').textContent = new Date().getFullYear();
-  applyLang();
+  applyLang(true);
   frame();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { stage.measure(); frame(); });
 })();

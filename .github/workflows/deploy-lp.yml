@@ -1,8 +1,10 @@
 name: Deploy Landing Page
 
-# The landing page (lp/) is static: no build, no dependencies. This puts it on
-# Cloudflare Pages the way Deploy Web puts the client there, with the same two
-# repository secrets. The API token needs "Cloudflare Pages: Edit".
+# The landing page (lp/) is static HTML with a small build (lp/build.mjs: a
+# page per language, a root worker that picks one by country, minified
+# assets). This puts it on Cloudflare Pages the way Deploy Web puts the client
+# there, with the same two repository secrets. The API token needs
+# "Cloudflare Pages: Edit".
 #
 # The Pages project is created on the first run if it does not exist yet.
 # Attaching a custom domain (honmaruai.com) is a one-time step in the
@@ -51,64 +53,17 @@ jobs:
             exit 1
           fi
 
-      # Every string the page asks for exists in every language, and the
-      # scripts parse. A missing key shows up as a blank on the live page.
-      - name: Check the page
+      # lp/build.mjs writes a page per language with its words already in the
+      # HTML, inlines the stylesheet, minifies the scripts, and adds the root
+      # worker that sends Japan to /ja/ and everyone else to /en/. It stops,
+      # naming the key, if a language is missing a string the page uses.
+      - name: Test and build
         run: |
           node --check lp/main.js
-          node -e '
-            global.window = {};
-            require("./lp/i18n.js");
-            const I = window.I18N, fs = require("fs");
-            const used = [...fs.readFileSync("lp/index.html", "utf8").matchAll(/data-i18n(?:-html|-placeholder|-aria)?="([^"]+)"/g)].map(m => m[1]);
-            let bad = 0;
-            for (const lang of Object.keys(I)) {
-              const missing = [...new Set(used)].filter(k => !(k in I[lang]));
-              if (missing.length) { console.log(`::error::${lang} is missing ${missing.join(", ")}`); bad = 1; }
-            }
-            process.exit(bad);
-          '
-
-      # Only what the page serves goes up, minified. The stylesheet is inlined
-      # so the first paint waits on nothing but the HTML, and og:image/og:url
-      # get absolute addresses so link previews show.
-      - name: Assemble
-        run: |
+          node --test lp/worker.test.mjs
           url="${SITE_URL:-https://$PROJECT.pages.dev}"
-          url="${url%/}"
-          mkdir -p dist/fonts
-          cp lp/icon.svg lp/og.png dist/
-          cp lp/fonts/*.woff2 dist/fonts/
-          npx -y esbuild@0.24.2 lp/main.js --minify --target=es2019 --outfile=dist/main.js --log-level=warning
-          npx -y esbuild@0.24.2 lp/i18n.js --minify --target=es2019 --outfile=dist/i18n.js --log-level=warning
-          npx -y esbuild@0.24.2 lp/styles.css --minify --loader:.css=css --outfile=dist/styles.min.css --log-level=warning
-          URL="$url" node -e '
-            const fs = require("fs");
-            let html = fs.readFileSync("lp/index.html", "utf8");
-            const css = fs.readFileSync("dist/styles.min.css", "utf8");
-            const link = "<link rel=\"stylesheet\" href=\"styles.css\">";
-            if (!html.includes(link)) { console.log("::error::index.html no longer links styles.css"); process.exit(1); }
-            html = html.replace(link, () => "<style>" + css + "</style>");
-            const og = "<meta property=\"og:image\" content=\"og.png\">";
-            if (!html.includes(og)) { console.log("::error::og:image tag not found"); process.exit(1); }
-            html = html.replace(og, () => `<meta property="og:image" content="${process.env.URL}/og.png">\n<meta property="og:url" content="${process.env.URL}/">\n<link rel="canonical" href="${process.env.URL}/">`);
-            fs.writeFileSync("dist/index.html", html);
-          '
-          rm dist/styles.min.css
-          printf 'User-agent: *\nAllow: /\nSitemap: %s/sitemap.xml\n' "$url" > dist/robots.txt
-          printf '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>%s/</loc></url></urlset>\n' "$url" > dist/sitemap.xml
-          cat > dist/_headers <<'HEADERS'
-          /fonts/*
-            Cache-Control: public, max-age=31536000, immutable
-          /*.js
-            Cache-Control: public, max-age=3600, must-revalidate
-          /og.png
-            Cache-Control: public, max-age=86400
-          /icon.svg
-            Cache-Control: public, max-age=86400
-          HEADERS
-          ls -la dist dist/fonts
-          echo "site: $url"
+          node lp/build.mjs dist "${url%/}"
+          ls -la dist dist/ja
 
       - name: Create the Pages project if needed
         run: |
@@ -122,15 +77,28 @@ jobs:
         run: npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
 
       # The copy on the live page is this commit's copy.
+      # This commit is live: each language page is the one just built, and
+      # the root redirects (a runner is outside Japan, so /en/; the cookie a
+      # language choice sets, to that language).
       - name: Verify
         run: |
-          for attempt in 1 2 3 4 5 6; do
-            if curl -fsS "https://$PROJECT.pages.dev/" | grep -q "Honmaru AI" \
-              && curl -fsS "https://$PROJECT.pages.dev/main.js" | cmp -s - dist/main.js; then
-              echo "https://$PROJECT.pages.dev serves this commit"
+          base="https://$PROJECT.pages.dev"
+          for attempt in 1 2 3 4 5 6 7 8; do
+            ok=1
+            for l in en ja es fr de; do
+              curl -fsS "$base/$l/" | cmp -s - "dist/$l/index.html" || ok=0
+            done
+            curl -fsS "$base/main.js" | cmp -s - dist/main.js || ok=0
+            root=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$base/")
+            [ "$root" = "302 $base/en/" ] || ok=0
+            chosen=$(curl -sS -o /dev/null -w '%{redirect_url}' -H 'Cookie: hm_lang=ja' "$base/")
+            [ "$chosen" = "$base/ja/" ] || ok=0
+            if [ $ok = 1 ]; then
+              echo "$base serves this commit; / -> /en/ from here, /ja/ for a Japanese choice"
               exit 0
             fi
+            echo "not yet (root: $root, with ja cookie: $chosen)"
             sleep 10
           done
-          echo "::error::https://$PROJECT.pages.dev does not serve this commit yet."
+          echo "::error::$base does not serve this commit as built."
           exit 1
