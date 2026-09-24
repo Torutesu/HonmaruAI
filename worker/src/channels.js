@@ -1,5 +1,6 @@
 import { listMembers } from "./team.js";
 import { businessSlug } from "./db.js";
+import { resolveMentions } from "./threads.js";
 
 // Channels you can talk in.
 //
@@ -356,4 +357,114 @@ export async function channelActivity(db, orgId, viewerLogin, members) {
     });
   }
   return out;
+}
+
+
+// ---- Reading: where each person is up to, what is new for them ----
+
+/// Read up to `at` (now, if not given). Never moves backwards.
+export async function markRead(db, orgId, login, key, at) {
+  const when = at && !Number.isNaN(Date.parse(at)) ? new Date(at).toISOString() : new Date().toISOString();
+  await db.prepare(
+    `INSERT INTO channel_reads (org_id, login, channel, last_read_at) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT (org_id, login, channel) DO UPDATE SET last_read_at = MAX(last_read_at, excluded.last_read_at)`
+  ).bind(orgId, login, key, when).run();
+  return when;
+}
+
+/// Every read position this person has, as they name the conversations.
+export async function readsFor(db, orgId, login, members) {
+  const { results } = await db.prepare("SELECT channel, last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2")
+    .bind(orgId, login).all();
+  const out = {};
+  for (const r of results || []) {
+    const view = r.channel === "activity" ? "activity" : viewOf(r.channel, login, members);
+    if (view) out[view] = r.last_read_at;
+  }
+  return out;
+}
+
+/// Where this person can read: every business channel, and their own DMs.
+const VISIBLE = "(m.channel LIKE 'b:%' OR m.channel LIKE 'dm:' || ?2 || '|%' OR m.channel LIKE 'dm:%|' || ?2)";
+
+/// The Activity inbox: messages that name you, and replies in threads you
+/// started or answered in — the last 30 days, newest first.
+export async function activityFeed(db, orgId, login, members, { days = 30, limit = 60 } = {}) {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const [recent, mine, read] = await Promise.all([
+    db.prepare(
+      `SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+        WHERE m.org_id = ?1 AND ${VISIBLE} AND m.deleted_at IS NULL AND m.created_at >= ?3
+          AND (m.author_login IS NULL OR m.author_login != ?2)
+        ORDER BY m.created_at DESC LIMIT 500`
+    ).bind(orgId, login, since).all(),
+    db.prepare(
+      `SELECT DISTINCT COALESCE(parent_id, id) AS thread FROM channel_messages
+        WHERE org_id = ?1 AND author_login = ?2 AND deleted_at IS NULL AND created_at >= ?3`
+    ).bind(orgId, login, new Date(Date.now() - 90 * 86400000).toISOString()).all(),
+    db.prepare("SELECT last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2 AND channel = 'activity'").bind(orgId, login).first(),
+  ]);
+  const threads = new Set((mine.results || []).map((r) => r.thread));
+  const picked = [];
+  for (const r of recent.results || []) {
+    const mention = r.body && resolveMentions(r.body, members).some((m) => m.login === login);
+    const reply = r.parent_id && threads.has(r.parent_id);
+    if (!mention && !reply) continue;
+    picked.push({ row: r, type: mention ? "mention" : "reply" });
+    if (picked.length >= limit) break;
+  }
+  const lastRead = read?.last_read_at || "";
+  const out = [];
+  for (const { row, type } of picked) {
+    const view = viewOf(row.channel, login, members);
+    if (!view) continue;
+    const [message] = await present(db, orgId, [row], login, view, members);
+    out.push({ type, message, unread: row.created_at > lastRead });
+  }
+  return { items: out, lastRead };
+}
+
+/// Search what was said. `q` may carry Slack's filters: from:@name,
+/// in:#channel, before:YYYY-MM-DD, after:YYYY-MM-DD, has:thread, is:pinned.
+export function parseQuery(raw) {
+  const out = { text: [], from: null, in: null, before: null, after: null, has: null, is: null };
+  for (const token of String(raw || "").trim().split(/\s+/).filter(Boolean)) {
+    const m = /^(from|in|before|after|has|is):(.+)$/i.exec(token);
+    if (m) out[m[1].toLowerCase()] = m[2].replace(/^[@#]/, "");
+    else out.text.push(token);
+  }
+  out.text = out.text.join(" ").slice(0, 200);
+  return out;
+}
+
+export async function searchMessages(db, orgId, login, members, raw, { limit = 30 } = {}) {
+  const q = parseQuery(raw);
+  const where = [`m.org_id = ?1`, VISIBLE, `m.deleted_at IS NULL`, `m.body != ''`];
+  const binds = [orgId, login];
+  const add = (sql, value) => { binds.push(value); where.push(sql.replace("?", `?${binds.length}`)); };
+  if (q.text) add("m.body LIKE ? ESCAPE '\\'", `%${q.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+  if (q.from) {
+    const who = resolveMentions(`@${q.from}`, members)[0];
+    if (!who) return { messages: [], query: q };
+    add("m.author_login = ?", who.login);
+  }
+  if (q.in) add("m.channel = ?", `b:${businessSlug(q.in)}`);
+  if (q.before && !Number.isNaN(Date.parse(q.before))) add("m.created_at < ?", new Date(q.before).toISOString());
+  if (q.after && !Number.isNaN(Date.parse(q.after))) add("m.created_at >= ?", new Date(q.after).toISOString());
+  if (q.is === "pinned") where.push("m.pinned_at IS NOT NULL");
+  if (q.has === "thread") where.push("EXISTS (SELECT 1 FROM channel_messages r WHERE r.org_id = m.org_id AND r.parent_id = m.id AND r.deleted_at IS NULL)");
+  if (!q.text && !q.from && !q.in && !q.is && !q.has) return { messages: [], query: q };
+  const { results } = await db.prepare(
+    `SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+      WHERE ${where.join(" AND ")} ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(50, limit))}`
+  ).bind(...binds).all();
+  const rows = results || [];
+  const out = [];
+  for (const r of rows) {
+    const view = viewOf(r.channel, login, members);
+    if (!view) continue;
+    const [message] = await present(db, orgId, [r], login, view, members);
+    out.push(message);
+  }
+  return { messages: out, query: q };
 }

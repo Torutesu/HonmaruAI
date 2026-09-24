@@ -635,3 +635,26 @@
 .classic.slk.slk .slk-thread-count::after { content: ''; flex: 1; height: 1px; background: var(--slk-line); }
 .classic.slk.slk .slk-composer.thread { margin: 0 12px 12px; }
 .classic.slk.slk .slk-thread-pane .slk-tools { right: 12px; }
+
+/* ---- Reading: the New line, older messages, the AI's steps, Activity ---- */
+.classic.slk.slk .slk-new-line { display: flex; align-items: center; gap: 8px; margin: 6px 16px; color: var(--slk-red); font-size: 11.5px; font-weight: 700; }
+.classic.slk.slk .slk-new-line::before { content: ''; flex: 1; height: 1px; background: var(--slk-red); order: 0; }
+.classic.slk.slk .slk-new-line span { order: 1; }
+.classic.slk.slk .slk-older { text-align: center; font-size: 12px; color: var(--slk-dim); padding: 10px 0; }
+.classic.slk.slk .slk-steps { align-items: flex-start; }
+.classic.slk.slk .slk-steps ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.classic.slk.slk .slk-steps li { color: var(--slk-faint); font-size: 12.5px; }
+.classic.slk.slk .slk-steps li.done { color: var(--slk-green); }
+.classic.slk.slk .slk-steps li.now { color: var(--slk-ink); font-weight: 700; }
+.classic.slk.slk .slk-special { list-style: none; margin: 4px 0 2px; padding: 0; }
+.classic.slk.slk .slk-activity { padding: 8px 0 16px; }
+.classic.slk.slk .slk-act {
+  display: flex; flex-direction: column; gap: 3px; width: calc(100% - 24px); margin: 0 12px 6px; padding: 10px 12px;
+  border: 1px solid var(--slk-line); border-radius: 10px; background: var(--slk-bg); text-align: left; cursor: pointer; font: inherit;
+}
+.classic.slk.slk .slk-act:hover { background: var(--slk-msg-hover); }
+.classic.slk.slk .slk-act.unread { border-left: 4px solid var(--slk-accent); }
+.classic.slk.slk .slk-act-kind { font-size: 12px; color: var(--slk-dim); }
+.classic.slk.slk .slk-act-line { display: flex; gap: 8px; align-items: baseline; font-size: 14px; color: var(--slk-ink); }
+.classic.slk.slk .slk-act-when { font-size: 12px; color: var(--slk-faint); }
+.classic.slk.slk .slk-act-body { font-size: 14px; color: var(--slk-ink); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: pre-wrap; }

@@ -167,6 +167,9 @@ export const ClassicList: React.FC<Props> = ({
   const [members, setMembers] = useState<Member[]>([])
   const [activity, setActivity] = useState<Record<string, Activity>>({})
   const [seenTick, setSeenTick] = useState(0)
+  // Read positions from the server: the same on the phone and the laptop.
+  const [serverReads, setServerReads] = useState<Record<string, string>>({})
+  const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
   useEffect(() => {
     let ignore = false
@@ -176,6 +179,7 @@ export const ClassicList: React.FC<Props> = ({
         if (ignore || !data) return
         setMembers(data.members || [])
         setActivity(Object.fromEntries((data.activity || []).map((a: Activity) => [a.channel, a])))
+        setServerReads(data.reads || {})
       })
       .catch(() => { /* the list still shows every decision */ })
     return () => { ignore = true }
@@ -211,7 +215,7 @@ export const ClassicList: React.FC<Props> = ({
     const withTalk = (th: Thread): Thread => {
       const a = th.view ? activity[th.view] : undefined
       if (!a) return th
-      return { ...th, lastAt: a.lastAt, fresh: a.lastBy !== 'me' && a.lastAt > seenAt(api.orgId, th.view!) }
+      return { ...th, lastAt: a.lastAt, fresh: a.lastBy !== 'me' && a.lastAt > readAt(th.view!) }
     }
 
     // Channels: one per business the team has, in the team's order — empty
@@ -273,7 +277,7 @@ export const ClassicList: React.FC<Props> = ({
 
     return { channels, people, apps }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick])
+  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads])
 
   const everything = useMemo(() => [...channels, ...people, ...apps], [channels, people, apps])
 
@@ -295,12 +299,47 @@ export const ClassicList: React.FC<Props> = ({
   const current = everything.find((th) => th.key === openKey)
     || (wide ? (everything.find((th) => th.unread > 0) || everything[0]) : undefined)
   const choose = (key: string | null) => {
+    setActivityOpen(false)
     setOpenKey(key)
     setProblem(null)
     setRenaming(null)
     setSettings(false)
     try { if (key) sessionStorage.setItem('list.open', key); else sessionStorage.removeItem('list.open') } catch {}
   }
+
+  // The Activity inbox: what named you, and replies in your threads.
+  const [activityOpen, setActivityOpen] = useState(false)
+  const [activityItems, setActivityItems] = useState<Array<{ type: 'mention' | 'reply'; message: ChannelMessage; unread: boolean }> | null>(null)
+  const loadActivity = useCallback(() => {
+    return fetch(`${api.httpBase}/channels/activity?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setActivityItems(data.items || []) })
+      .catch(() => { /* nothing new is the same as nothing loaded */ })
+  }, [api.httpBase, api.orgId, authHeaders])
+  useEffect(() => { void loadActivity() }, [loadActivity])
+  const activityUnread = (activityItems || []).filter((i) => i.unread).length
+  const openActivity = () => {
+    setOpenKey(null)
+    setActivityOpen(true)
+    setDetailId(null)
+    void loadActivity().then(() => {
+      fetch(`${api.httpBase}/channels/read`, {
+        method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel: 'activity' }),
+      }).then(() => setActivityItems((prev) => prev && prev.map((i) => ({ ...i, unread: false })))).catch(() => {})
+    })
+  }
+  // A place to go to inside a conversation, once it has loaded: a message,
+  // or a reply in a thread.
+  const pendingJump = useRef<{ view: string; id: string; parentId?: string | null } | null>(null)
+  const openAt = (target: { view: string; id: string; parentId?: string | null }) => {
+    const th = everything.find((x) => x.view === target.view)
+    if (!th) return
+    pendingJump.current = target
+    choose(th.key)
+    setTick((n) => n + 1)
+  }
+  const [tick, setTick] = useState(0)
 
   const [folded, setFolded] = useState<Record<string, boolean>>({})
   // Making a channel, renaming one: the box, its text, and what went wrong.
@@ -368,7 +407,7 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   const row = (thread: Thread) => {
-    const on = current?.key === thread.key
+    const on = !activityOpen && current?.key === thread.key
     return (
       <li key={thread.key} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
@@ -435,21 +474,67 @@ export const ClassicList: React.FC<Props> = ({
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   // Conversations where the AI is writing a card right now.
-  const [thinking, setThinking] = useState<Record<string, boolean>>({})
+  // …and which step it is on: reading, routing, writing.
+  const [thinking, setThinking] = useState<Record<string, string | false>>({})
   const composer = useRef<HTMLTextAreaElement>(null)
   const view = current?.view
+  // Whether there is more above what is loaded, per conversation.
+  const [more, setMore] = useState<Record<string, boolean>>({})
+  const PAGE = 150
   const loadMessages = useCallback((channel: string) => {
     return fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setMessages((prev) => ({ ...prev, [channel]: data.messages || [] })) })
+      .then((data) => {
+        if (!data) return
+        setMessages((prev) => ({ ...prev, [channel]: data.messages || [] }))
+        setMore((prev) => ({ ...prev, [channel]: (data.messages || []).length >= PAGE }))
+      })
       .catch(() => { /* the decisions still show */ })
   }, [api.httpBase, api.orgId, authHeaders])
+  // Scrolled to the top: the page before, kept in place as it arrives.
+  const loadingOlder = useRef(false)
+  const keepScroll = useRef<number | null>(null)
+  const loadOlder = useCallback(async (channel: string) => {
+    const list = messagesRef.current[channel]
+    if (loadingOlder.current || !list?.length || !more[channel]) return
+    loadingOlder.current = true
+    try {
+      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&before=${encodeURIComponent(list[0].createdAt)}`, { headers: authHeaders })
+      const data = res.ok ? await res.json() : null
+      if (!data) return
+      const older = (data.messages || []) as ChannelMessage[]
+      keepScroll.current = logRef.current ? logRef.current.scrollHeight - logRef.current.scrollTop : null
+      setMessages((prev) => {
+        const cur = prev[channel] || []
+        const known = new Set(cur.map((m) => m.id))
+        return { ...prev, [channel]: [...older.filter((m) => !known.has(m.id)), ...cur] }
+      })
+      setMore((prev) => ({ ...prev, [channel]: older.length >= PAGE }))
+    } catch { /* try again on the next scroll */ } finally {
+      loadingOlder.current = false
+    }
+  }, [api.httpBase, api.orgId, authHeaders, more])
   useEffect(() => { if (view) void loadMessages(view) }, [view, loadMessages])
-  // Opened is read.
+  // Where you were up to when you opened it: the red "New" line goes there.
+  const [newSince, setNewSince] = useState<{ view: string; at: string } | null>(null)
+  useEffect(() => {
+    if (!view) { setNewSince(null); return }
+    setNewSince({ view, at: readAt(view) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
+  // Opened is read — here, and on the server for your other devices.
   useEffect(() => {
     if (!view) return
-    try { localStorage.setItem(seenKey(api.orgId, view), new Date().toISOString()) } catch { /* private mode: nothing remembered */ }
+    const now = new Date().toISOString()
+    try { localStorage.setItem(seenKey(api.orgId, view), now) } catch { /* private mode: nothing remembered */ }
     setSeenTick((n) => n + 1)
+    const id = setTimeout(() => {
+      fetch(`${api.httpBase}/channels/read`, {
+        method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel: view }),
+      }).then(() => setServerReads((prev) => ({ ...prev, [view]: now }))).catch(() => { /* this device still remembers */ })
+    }, 600)
+    return () => clearTimeout(id)
   }, [view, api.orgId, messages[view || '']?.length])
   // The composer grows with what is written, up to a point.
   useEffect(() => {
@@ -505,6 +590,16 @@ export const ClassicList: React.FC<Props> = ({
     window.addEventListener('honmaru:channel-message', on)
     return () => window.removeEventListener('honmaru:channel-message', on)
   }, [members, loadMessages])
+  // The AI's steps, as it takes them.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const p = (e as CustomEvent<{ channel: string; step: string }>).detail
+      if (!p?.channel) return
+      setThinking((prev) => ({ ...prev, [p.channel]: p.step === 'done' || p.step === 'failed' ? false : p.step }))
+    }
+    window.addEventListener('honmaru:channel-progress', on)
+    return () => window.removeEventListener('honmaru:channel-progress', on)
+  }, [])
 
   const send = async (channel: string, decide: boolean, parentId?: string) => {
     const body = (parentId ? threadDraft : draft).trim()
@@ -523,7 +618,7 @@ export const ClassicList: React.FC<Props> = ({
         setThreadDraft('')
         setThread((prev) => (prev && prev.parent.id === parentId && !prev.replies.some((x) => x.id === msg.id) ? { ...prev, replies: [...prev.replies, msg] } : prev))
         setMessages((prev) => ({ ...prev, [channel]: (prev[channel] || []).map((x) => (x.id === parentId ? { ...x, replyCount: (x.replyCount || 0) + 1, lastReplyAt: msg.createdAt } : x)) }))
-        if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: true }))
+        if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
         return
       }
       setDraft('')
@@ -531,7 +626,7 @@ export const ClassicList: React.FC<Props> = ({
         const list = prev[channel] || []
         return list.some((x) => x.id === msg.id) ? prev : { ...prev, [channel]: [...list, msg] }
       })
-      if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: true }))
+      if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
     } catch {
       setProblem(t('That did not send. Try again.'))
     } finally {
@@ -623,6 +718,44 @@ export const ClassicList: React.FC<Props> = ({
   }
   // Leaving a conversation closes what was open on it.
   useEffect(() => { setEditing(null); setThread(null); setPins(null); setPickerFor(null) }, [current?.key])
+  useEffect(() => {
+    const j = pendingJump.current
+    if (!j || !current || current.view !== j.view) return
+    const list = messages[j.view]
+    if (!list) return
+    pendingJump.current = null
+    if (j.parentId) {
+      const parent = list.find((m) => m.id === j.parentId) || ({ id: j.parentId, channel: j.view, kind: 'message', body: '', authorName: null, authorRef: null, mine: false, cardId: null, createdAt: '' } as ChannelMessage)
+      void openThread(j.view, parent)
+    } else {
+      requestAnimationFrame(() => jumpTo(j.id))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.view, messages[current?.view || '']?.length, tick])
+  // Somebody named you, or answered in your thread: the inbox refreshes.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const on = (e: Event) => {
+      const m = (e as CustomEvent<ChannelMessage>).detail
+      if (!m || m.mine || (!m.parentId && !/[@＠]/.test(m.body || ''))) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { void loadActivity() }, 800)
+    }
+    window.addEventListener('honmaru:channel-message', on)
+    return () => { window.removeEventListener('honmaru:channel-message', on); if (timer) clearTimeout(timer) }
+  }, [loadActivity])
+  // From search: open the conversation and go to the message.
+  useEffect(() => {
+    const go = (target: { view: string; id: string; parentId?: string | null }) => openAt(target)
+    const on = (e: Event) => { try { sessionStorage.removeItem('list.jump') } catch {}; go((e as CustomEvent).detail) }
+    window.addEventListener('honmaru:open-message', on)
+    try {
+      const saved = sessionStorage.getItem('list.jump')
+      if (saved) { sessionStorage.removeItem('list.jump'); const j = JSON.parse(saved); setTimeout(() => go(j), 300) }
+    } catch { /* nothing to go to */ }
+    return () => window.removeEventListener('honmaru:open-message', on)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [everything.length])
   const decideMessage = async (channel: string, m: ChannelMessage) => {
     setProblem(null)
     const res = await fetch(`${api.httpBase}/channels/decide`, {
@@ -630,7 +763,7 @@ export const ClassicList: React.FC<Props> = ({
       headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel, messageId: m.id }),
     }).catch(() => null)
-    if (res?.ok) setThinking((prev) => ({ ...prev, [channel]: true }))
+    if (res?.ok) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
     else setProblem(t('That could not become a decision. Try again.'))
   }
 
@@ -649,7 +782,7 @@ export const ClassicList: React.FC<Props> = ({
     return () => window.removeEventListener('keydown', onKey)
   }, [detailId, thread])
   // A phone gives a conversation, or a decision, the whole screen.
-  useEffect(() => { onImmersive(!wide && (Boolean(current) || Boolean(detail) || Boolean(thread))) }, [wide, current?.key, detail?.id, thread, onImmersive])
+  useEffect(() => { onImmersive(!wide && (Boolean(current && !activityOpen) || Boolean(detail) || Boolean(thread) || activityOpen)) }, [wide, current?.key, detail?.id, thread, activityOpen, onImmersive])
   useEffect(() => () => onImmersive(false), [onImmersive])
 
   // Messages, or the decisions in this conversation as a list.
@@ -666,7 +799,9 @@ export const ClassicList: React.FC<Props> = ({
   const logRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = logRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    if (keepScroll.current !== null) { el.scrollTop = el.scrollHeight - keepScroll.current; keepScroll.current = null; return }
+    el.scrollTop = el.scrollHeight
   }, [current?.key, current?.cards.length, messages[current?.view || '']?.length, thinking[current?.view || '']])
 
   // ---- The conversation ----
@@ -844,7 +979,68 @@ export const ClassicList: React.FC<Props> = ({
     />
   )
 
+  /// What the AI is doing, step by step, where a person is waiting for it.
+  const STEPS: Array<[string, string]> = [['reading', 'Reading the conversation'], ['routing', 'Deciding who decides'], ['writing', 'Writing the card']]
+  const aiSteps = (step: string | false) => {
+    if (!step) return null
+    const at = Math.max(0, STEPS.findIndex(([k]) => k === step))
+    return (
+      <div className="slk-typing slk-steps" role="status" aria-live="polite">
+        <span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>
+        <ol>
+          {STEPS.map(([k, label], i) => (
+            <li key={k} className={i < at ? 'done' : i === at ? 'now' : ''}>
+              <span aria-hidden="true">{i < at ? '✓' : i === at ? '›' : '·'}</span> {t(label)}
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
+
   type Item = { at: string; kind: 'card'; card: DecisionCard } | { at: string; kind: 'msg'; msg: ChannelMessage }
+
+  /// The Activity inbox, as a conversation of its own: each item says where
+  /// it was, who, and why it is here, and opens in place.
+  const activityView = () => {
+    const nameOfView = (v: string) => {
+      const th = everything.find((x) => x.view === v)
+      return th ? (th.kind === 'channel' ? `#${th.name}` : th.name) : v
+    }
+    return (
+      <>
+        <header className="slk-head">
+          <button className="slk-back" onClick={() => setActivityOpen(false)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+          <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
+          <div className="slk-head-text">
+            <h1>{t('Activity')}</h1>
+            <p>{t('Mentions of you, and replies in your threads.')}</p>
+          </div>
+        </header>
+        <div className="slk-log slk-activity">
+          {activityItems === null && <p className="slk-empty">{t('Loading…')}</p>}
+          {activityItems && activityItems.length === 0 && (
+            <div className="slk-start">
+              <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
+              <h2>{t('Nothing for you yet')}</h2>
+              <p>{t('When somebody writes @ your name, or replies in a thread you are part of, it shows up here.')}</p>
+            </div>
+          )}
+          {(activityItems || []).map(({ type, message: m, unread }) => (
+            <button key={`${type}-${m.id}`} type="button" className={`slk-act${unread ? ' unread' : ''}`}
+              onClick={() => openAt({ view: m.channel, id: m.id, parentId: m.parentId })}>
+              <span className="slk-act-kind">{type === 'mention' ? t('Mentioned you in {where}', { where: nameOfView(m.channel) }) : t('Replied in a thread in {where}', { where: nameOfView(m.channel) })}</span>
+              <span className="slk-act-line">
+                <b>{m.kind === 'ai' ? t('Your AI') : (m.authorName || t('a teammate'))}</b>
+                <span className="slk-act-when">{when(m.createdAt)}</span>
+              </span>
+              <span className="slk-act-body">{m.body.slice(0, 280)}</span>
+            </button>
+          ))}
+        </div>
+      </>
+    )
+  }
 
   const conversation = (thread: Thread) => {
     const said = thread.view ? (messages[thread.view] || []) : []
@@ -857,6 +1053,9 @@ export const ClassicList: React.FC<Props> = ({
 
     const out: React.ReactNode[] = []
     let day = ''
+    // The red line: the first thing somebody else said since you last read.
+    const since = newSince && newSince.view === thread.view ? newSince.at : ''
+    let lined = !since
     let prevWho = ''
     let prevAt = 0
     for (const item of items) {
@@ -867,6 +1066,10 @@ export const ClassicList: React.FC<Props> = ({
         out.push(<div key={`day-${d}`} className="slk-day" role="separator"><span>{dayLabel(item.at)}</span></div>)
       }
       const at = Date.parse(item.at)
+      if (!lined && item.kind === 'msg' && !item.msg.mine && item.at > since) {
+        lined = true
+        out.push(<div key="new-line" className="slk-new-line" role="separator"><span>{t('New')}</span></div>)
+      }
       if (item.kind === 'card') {
         const c = item.card
         const who = author(c)
@@ -1029,8 +1232,9 @@ export const ClassicList: React.FC<Props> = ({
             })}
           </div>
         ) : (
-        <div className="slk-log" ref={logRef}>
-          <div className="slk-start">
+        <div className="slk-log" ref={logRef} onScroll={(e) => { if (thread.view && e.currentTarget.scrollTop < 120) void loadOlder(thread.view) }}>
+          {thread.view && more[thread.view] && <div className="slk-older" role="status">{t('Loading earlier messages…')}</div>}
+          {!(thread.view && more[thread.view]) && <div className="slk-start">
             {lead(thread, 'head')}
             <h2>{thread.kind === 'channel' ? t('This is the start of #{name}', { name: thread.name }) : thread.name}</h2>
             <p>{thread.kind === 'channel'
@@ -1038,11 +1242,9 @@ export const ClassicList: React.FC<Props> = ({
               : thread.kind === 'person'
                 ? t('Just the two of you. Write @AI and your AI makes what you said a decision for {name}.', { name: thread.name })
                 : t('What {name} brought in. Each opens as a card.', { name: thread.name })}</p>
-          </div>
+          </div>}
           {out}
-          {thread.view && thinking[thread.view] && (
-            <div className="slk-typing" role="status"><span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>{t('Your AI is making a decision card…')}</div>
-          )}
+          {thread.view && aiSteps(thinking[thread.view])}
         </div>
         )}
         {thread.view ? (
@@ -1132,7 +1334,7 @@ export const ClassicList: React.FC<Props> = ({
   const waiting = pending.length
 
   return (
-    <div className={`classic slk${current ? ' in-thread' : ''}${detail || thread ? ' with-pane' : ''}`}>
+    <div className={`classic slk${current || activityOpen ? ' in-thread' : ''}${detail || thread ? ' with-pane' : ''}`}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         <header className="cl-top">
           {workspaceMenu || (
@@ -1152,13 +1354,22 @@ export const ClassicList: React.FC<Props> = ({
         {waiting > 0 && <p className="cl-summary" role="status">{t('{n} waiting on you', { n: waiting })}</p>}
         {!current && problem && <p className="cl-problem" role="alert">{problem}</p>}
         <nav className="slk-sections">
+          <ul className="slk-special">
+            <li className={`cl-row cl-thread${activityOpen ? ' on' : ''}${activityUnread ? ' unread' : ''}`}>
+              <button className="cl-open" onClick={openActivity} aria-current={activityOpen ? 'true' : undefined} data-activity="1">
+                <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="bell" size={14} /></span>
+                <span className="cl-title">{t('Activity')}</span>
+                {activityUnread > 0 && <span className="cl-badge">{activityUnread}</span>}
+              </button>
+            </li>
+          </ul>
           {section('channels', t('Channels'), channels, t('No channels yet. Make one, or let your AI file decisions under a business as they arrive.'), addChannel, addChannelForm)}
           {section('people', t('Direct messages'), people, t('Nobody has sent you a decision yet.'))}
           {section('apps', t('Apps'), apps, t('Connect Gmail or Slack under Tools and their decisions land here.'))}
         </nav>
       </aside>
       <main className="slk-main">
-        {current ? conversation(current) : (
+        {activityOpen ? activityView() : current ? conversation(current) : (
           <div className="slk-none"><p>{t('Pick a conversation.')}</p></div>
         )}
       </main>
@@ -1204,9 +1415,7 @@ export const ClassicList: React.FC<Props> = ({
                 )}
               </React.Fragment>
             ))}
-            {thinking[thread.channel] && (
-              <div className="slk-typing" role="status"><span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>{t('Your AI is making a decision card…')}</div>
-            )}
+            {aiSteps(thinking[thread.channel])}
           </div>
           <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
             <textarea

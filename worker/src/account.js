@@ -168,6 +168,7 @@ export async function deleteAccount(db, githubId, login) {
       ["DELETE FROM channel_messages WHERE channel LIKE 'dm:%' AND (channel LIKE 'dm:' || ?1 || '|%' OR channel LIKE 'dm:%|' || ?1)", [login]],
       ["UPDATE channel_messages SET author_login = NULL WHERE author_login = ?1", [login]],
       ["DELETE FROM message_reactions WHERE login = ?1", [login]],
+      ["DELETE FROM channel_reads WHERE login = ?1", [login]],
       ["UPDATE channel_messages SET pinned_by = NULL WHERE pinned_by = ?1", [login]],
     ]) {
       try {

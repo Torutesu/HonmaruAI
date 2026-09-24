@@ -1566,6 +1566,18 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.click('.cl-thread:has-text("Front desk") .cl-open')
     await d.waitForSelector(`${msg}.pinned .slk-edited`, { timeout: 15000 }).catch(() => { throw new Error('edit and pin did not survive a reload') })
     if (await d.$(oops)) throw new Error('the unsent message came back on reload')
+    // ⌘K finds what was said, and takes you to it — a thread reply opens its thread.
+    await d.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k')
+    await d.waitForSelector('.palette-input', { timeout: 5000 })
+    await d.fill('.palette-input', 'Housekeeping')
+    await d.waitForSelector('.palette-item:has-text("Housekeeping is fine")', { timeout: 10000 })
+      .catch(() => { throw new Error('search does not find a message') })
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-thread-pane .slk-msg:has-text("Housekeeping")', { timeout: 10000 })
+      .catch(() => { throw new Error('picking a thread reply in search did not open its thread') })
+    // The Activity inbox is there and opens.
+    await d.click('[data-activity="1"]')
+    await d.waitForSelector('.slk-head h1:has-text("Activity")', { timeout: 5000 }).catch(() => { throw new Error('Activity did not open') })
   } finally {
     await ctx.close()
   }

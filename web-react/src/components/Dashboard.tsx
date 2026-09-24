@@ -190,6 +190,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: message }))
     }
+    wsClient.onChannelProgress = (progress) => {
+      if (ignore) return
+      window.dispatchEvent(new CustomEvent('honmaru:channel-progress', { detail: progress }))
+    }
     wsClient.onReaction = (cardId, emoji, on, by, reactions) => {
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:reaction', { detail: { cardId, emoji, on, by, reactions } }))
@@ -318,6 +322,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     else if (action.kind === 'feed') { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForMode('cards')) }
     else if (action.kind === 'list') { try { localStorage.setItem('mode', 'classic') } catch {}; navigate(hashForMode('classic')) }
     else if (action.kind === 'compose') { navigate(hashForMode('cards')); setPanel('compose') }
+    else if (action.kind === 'message') {
+      // The list opens the conversation and goes to the message; if it is
+      // not mounted yet it picks the target up when it is.
+      const target = { view: action.view, id: action.id, parentId: action.parentId || null }
+      try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.jump', JSON.stringify(target)) } catch {}
+      navigate(hashForMode('classic'))
+      setTimeout(() => window.dispatchEvent(new CustomEvent('honmaru:open-message', { detail: target })), 150)
+    }
   }, [navigate])
 
   // A toast that stays until clicked is a banner. Errors clear themselves.

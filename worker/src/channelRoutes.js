@@ -10,6 +10,7 @@ import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity,
   viewOf, asksTheAI, withoutAI, MAX_MESSAGE_CHARS,
   present, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned,
+  markRead, readsFor, activityFeed, searchMessages,
 } from "./channels.js";
 import { safe } from "./log.js";
 import { sha256Hex } from "./auth.js";
@@ -80,6 +81,17 @@ async function broadcastWithParent(env, orgId, resolved, row, members) {
 /// context, save the card, and say so in the channel. Never throws; a
 /// failure is said in the channel too, where the person is looking.
 export async function decideFromMessage(env, { orgId, session, user, resolved, row, members, route, locale }) {
+  // What the AI is doing, as it does it — shown in the conversation so a
+  // person sees reading, then routing, then writing, not one long wait.
+  const progress = async (step, extra = {}) => {
+    try {
+      const payload = (view) => customEvent("channel_ai_progress", { channel: view, parentId: row.parent_id || null, messageId: row.id, step, ...extra });
+      if (resolved.kind === "business") await announceEvents(env, orgId, [payload(resolved.key)]);
+      else await announceTo(env, orgId, resolved.logins.map((login) => ({ to: login, event: payload(viewOf(resolved.key, login, members)) })));
+    } catch (err) {
+      console.error("progress event failed", safe(err?.message));
+    }
+  };
   // Asked in a thread, the AI answers in that thread.
   const say = async (body, cardId = null) => {
     const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: null, body, kind: "ai", cardId, parentId: row.parent_id || null });
@@ -87,6 +99,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
   };
   try {
     const instruction = withoutAI(row.body) || row.body;
+    await progress("reading");
     const transcript = await transcriptUpTo(env.DB, orgId, resolved.key, row.created_at);
     const where = resolved.kind === "business" ? `#${resolved.slug}` : "a direct conversation";
     // The conversation, newest last and trimmed from the old end: the
@@ -98,6 +111,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     // nobody named, the other person does.
     const named = resolveMentions(instruction, members).filter((m) => m.login !== user.login);
     const mentions = named.length ? named.map((m) => m.ref) : (resolved.kind === "dm" ? [resolved.other.ref] : []);
+    await progress("routing");
     const res = await route({
       text: instruction.slice(0, 4000),
       sender: { id: user.login, role: "member" },
@@ -110,6 +124,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     const routed = await res.json().catch(() => ({}));
     if (!res.ok) {
       await say(locale === "ja" ? `決定カードにできませんでした: ${routed.message || "もう一度試してください。"}` : `Could not make that a decision: ${routed.message || "try again."}`);
+      await progress("failed");
       return null;
     }
     // A recipient the router named must be a member here; anything else
@@ -117,6 +132,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     const recipient = members.find((m) => m.login === routed.recipientUserID)
       || members.find((m) => `member:${m.ref}` === routed.recipientUserID)
       || members.find((m) => m.login === user.login);
+    await progress("writing", { recipientName: recipient.login === user.login ? null : recipient.name });
     const now = new Date().toISOString();
     const card = {
       id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -148,10 +164,16 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       await notifyCard(env, { card, kind: "created", excludeLogin: user.login }).catch((err) => console.error("channel notify failed", safe(err?.message)));
     }
     const who = recipient.login === user.login ? (locale === "ja" ? "あなた" : "you") : recipient.name;
-    await say(locale === "ja" ? `${who}への決定カードにしました: ${card.title}` : `Made this a decision for ${who}: ${card.title}`, card.id);
+    // Why this person: the router's own one line, so the choice is visible
+    // rather than taken on trust.
+    const why = String(routed.routingReason || "").replace(/\s+/g, " ").trim().slice(0, 240);
+    const whyLine = why ? (locale === "ja" ? `\n理由: ${why}` : `\nWhy: ${why}`) : "";
+    await say((locale === "ja" ? `${who}への決定カードにしました: ${card.title}` : `Made this a decision for ${who}: ${card.title}`) + whyLine, card.id);
+    await progress("done", { cardId: card.id });
     return card;
   } catch (err) {
     console.error("decide from message failed", safe(err?.message));
+    await progress("failed");
     await say(locale === "ja" ? "決定カードにできませんでした。もう一度試してください。" : "Could not make that a decision. Try again.").catch(() => {});
     return null;
   }
@@ -176,7 +198,43 @@ export async function handleChannels(request, env, url, { route, after }) {
         loginHash: (await sha256Hex(m.login)).slice(0, 16),
       }))),
       maxChars: MAX_MESSAGE_CHARS,
+      // Where you are up to in each conversation, from whichever device.
+      reads: await readsFor(env.DB, orgId, who.user.login, members),
     });
+  }
+
+  // "I have read this far." A conversation, or the Activity inbox.
+  if (path === "/channels/read" && request.method === "POST") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    if (body.channel === "activity") {
+      const who = await caller(env, request, body.orgId);
+      if (who.denied) return who.denied;
+      return json({ lastReadAt: await markRead(env.DB, body.orgId, who.user.login, "activity", body.at) });
+    }
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    return json({ lastReadAt: await markRead(env.DB, body.orgId, ctx.who.user.login, ctx.resolved.key, body.at) });
+  }
+
+  // Activity: what named you, and replies in your threads.
+  if (path === "/channels/activity" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    return json(await activityFeed(env.DB, orgId, who.user.login, members));
+  }
+
+  // Search what was said, with Slack's filters.
+  if (path === "/channels/search" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    return json(await searchMessages(env.DB, orgId, who.user.login, members, url.searchParams.get("q") || ""));
   }
 
   if (path === "/channels/messages" && (request.method === "GET" || request.method === "POST")) {
@@ -209,6 +267,8 @@ export async function handleChannels(request, env, url, { route, after }) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
     });
+    // What you said, you have read.
+    if (!parentId) await markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at);
     const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
     return json({ message, deciding: wantsDecision }, 201);
   }

@@ -505,3 +505,14 @@ CREATE TABLE IF NOT EXISTS message_reactions (
 );
 CREATE INDEX IF NOT EXISTS idx_message_reactions ON message_reactions(org_id, message_id);
 
+/* How far each person has read each conversation — kept here, not in one
+   browser, so a phone and a laptop agree on what is new. `channel` is the
+   stored key (b:<slug>, dm:<a>|<b>) or "activity" for the Activity inbox. */
+CREATE TABLE IF NOT EXISTS channel_reads (
+  org_id        TEXT NOT NULL,
+  login         TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  last_read_at  TEXT NOT NULL,
+  PRIMARY KEY (org_id, login, channel)
+);
+
