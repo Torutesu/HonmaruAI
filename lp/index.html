@@ -16,9 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Sometype+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preload" href="fonts/plus-jakarta-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <script>
   (function () {
     var d = document.documentElement;
@@ -34,9 +32,9 @@
 <!-- ============ NAV: a floating capsule ============ -->
 <header class="nav" id="nav">
   <div class="nav-inner">
-    <a class="brand" href="#top" aria-label="Honmaru AI">
+    <a class="brand" href="#top">
       <img src="icon.svg" width="28" height="28" alt="">
-      <span class="wordmark">Honmaru<span class="wm-ai">AI</span></span>
+      <span class="wordmark">Honmaru <span class="wm-ai">AI</span></span>
     </a>
     <nav class="nav-links" id="nav-links" aria-label="Primary">
       <a href="#keep" data-i18n="nav.why">Why Honmaru</a>
@@ -47,7 +45,7 @@
     </nav>
     <div class="nav-tools">
       <div class="menu" id="lang-menu">
-        <button class="nav-icon" id="lang-btn" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-aria="a11y.language" aria-label="Language">
+        <button class="nav-icon" id="lang-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
           <span class="lang-code" id="lang-code">EN</span>
           <svg viewBox="0 0 10 6" width="9" height="6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         </button>
@@ -242,7 +240,7 @@
           <div class="console-out" aria-live="polite">
             <article class="ocard" id="ocard">
               <p class="pk"><i id="o-dot"></i><span id="o-kind" data-i18n="how.waitingK">WAITING</span></p>
-              <h4 id="o-title" data-i18n="how.waiting">Pick an example, or type your own.</h4>
+              <h3 id="o-title" data-i18n="how.waiting">Pick an example, or type your own.</h3>
               <p class="o-route" id="o-route"><span class="spark"></span><span id="o-reason" data-i18n="how.waitingR">Why it went where it went appears here.</span></p>
             </article>
             <div class="o-gh" id="o-gh">
@@ -330,7 +328,7 @@
   </section>
 
   <!-- ============ 06 CTA ============ -->
-  <section class="section finale">
+  <section class="section finale" id="finale">
     <div class="wrap finale-inner">
       <p class="label reveal"><span class="idx">06</span><span data-i18n="cta.label">Step inside</span></p>
       <h2 class="display reveal" data-i18n-html="cta.title">Clear your first decision<br>in the next minute.</h2>
@@ -361,7 +359,7 @@
   </div>
 </footer>
 
-<script src="i18n.js"></script>
-<script src="main.js"></script>
+<script src="i18n.js" defer></script>
+<script src="main.js" defer></script>
 </body>
 </html>

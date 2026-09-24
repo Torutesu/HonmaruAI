@@ -5,6 +5,11 @@
    design system (docs/design-system.md): white canvas, #202020 pills, brand
    violet for AI moments, one conic ring per screen. */
 
+/* Faces are self-hosted (latin subsets, SIL OFL 1.1); Japanese uses the system's own. */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400 600; font-display: swap; src: url(fonts/inter-latin.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Plus Jakarta Sans'; font-style: normal; font-weight: 600 800; font-display: swap; src: url(fonts/plus-jakarta-sans-latin.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Sometype Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url(fonts/sometype-mono-latin.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
 :root {
   --bg: #ffffff;
   --surface: #f7f7f9;
@@ -30,7 +35,7 @@
   --p-cta: #202020; --p-cta-ink: #ffffff;
   --pink: #fa49a5; --blue: #0091ff; --green: #00c07a;
 
-  --conic: conic-gradient(from var(--angle), #7d5be7 19%, #bc3fda 28%, #fa24ce 37%, #fb49a5 45%, #fc6d7b 52%, #fd8461 55%, #fd9a46 58%, #f687c6 65%, #a3a0e0 80%, #4fb9fa 95%, #0091ff 100%);
+  --conic-stops: #7d5be7 19%, #bc3fda 28%, #fa24ce 37%, #fb49a5 45%, #fc6d7b 52%, #fd8461 55%, #fd9a46 58%, #f687c6 65%, #a3a0e0 80%, #4fb9fa 95%, #0091ff 100%;
 
   --display: 'Plus Jakarta Sans', Inter, 'Hiragino Sans', 'Noto Sans JP', ui-sans-serif, system-ui, sans-serif;
   --body: Inter, 'Hiragino Sans', 'Noto Sans JP', ui-sans-serif, system-ui, sans-serif;
@@ -70,7 +75,7 @@
   color-scheme: dark;
 }
 
-@property --angle { syntax: '<angle>'; inherits: true; initial-value: 0deg; }
+@property --angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 @keyframes spin { to { --angle: 360deg; } }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -129,7 +134,10 @@ button, input { font: inherit; color: inherit; }
 .btn:hover .arr { transform: translateX(4px); }
 /* the page's one conic ring (design-system rule) */
 .btn-ring { position: relative; background: var(--cta); color: var(--cta-ink); isolation: isolate; height: 56px; padding: 0 28px; font-size: 16px; }
-.btn-ring::before { content: ''; position: absolute; inset: -3px; border-radius: inherit; background: var(--conic); z-index: -2; animation: spin 4s linear infinite; }
+.btn-ring::before { content: ''; position: absolute; inset: -3px; border-radius: inherit; background: conic-gradient(from var(--angle), var(--conic-stops)); z-index: -2; animation: spin 4s linear infinite; }
+/* it only turns while it is on screen */
+.btn-ring::before { animation-play-state: paused; }
+.finale.live .btn-ring::before { animation-play-state: running; }
 .btn-ring::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--cta); z-index: -1; }
 .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
 
@@ -361,9 +369,10 @@ button, input { font: inherit; color: inherit; }
 .keep .label .idx { color: #a998ff; }
 .keep-text { margin: 0; font: 700 clamp(26px, 3.3vw, 44px)/1.22 var(--display); letter-spacing: -.025em; }
 :lang(ja) .keep-text { letter-spacing: 0; line-height: 1.45; font-size: clamp(22px, 2.8vw, 38px); }
-.keep-text .w { opacity: .18; transition: opacity .3s linear; }
-.keep-text .w.lit { opacity: 1; }
-.keep-text .w.hl { color: #a998ff; }
+.keep-text .w { color: rgba(242, 242, 246, .42); transition: color .3s linear; }
+.keep-text .w.lit { color: #f2f2f6; }
+.keep-text .w.hl { color: rgba(169, 152, 255, .62); }
+.keep-text .w.hl.lit { color: #a998ff; }
 .keep-mark { position: relative; aspect-ratio: 1; width: 100%; max-width: 440px; justify-self: end; }
 .keep-plan { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .keep-plan rect { fill: none; stroke: rgba(242, 242, 246, .5); stroke-width: 1.2; stroke-dasharray: var(--len) var(--len); }
@@ -415,7 +424,7 @@ button, input { font: inherit; color: inherit; }
 .ocard { padding: 24px; border-radius: 20px; background: var(--p-bg); color: var(--p-ink); border: 1px solid var(--p-line); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 12px; transition: opacity .4s var(--ease), transform .5s var(--ease); }
 .ocard .pk { font-size: 11px; gap: 7px; }
 .ocard .pk i { width: 7px; height: 7px; }
-.ocard h4 { margin: 0; font: 700 22px/1.25 var(--display); letter-spacing: -.02em; }
+.ocard h3 { margin: 0; font: 700 22px/1.25 var(--display); letter-spacing: -.02em; }
 .o-route { margin: 0; display: flex; gap: 8px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--violet-soft); color: var(--violet); font-size: 14px; line-height: 1.45; }
 .o-route .spark { margin-top: 3px; }
 .ocard.pending { opacity: .4; transform: scale(.98); }
@@ -504,8 +513,8 @@ button, input { font: inherit; color: inherit; }
 .foot-brand p { margin: 0; font: 700 18px var(--display); letter-spacing: -.02em; color: var(--ink-display); }
 .foot-nav { display: flex; flex-wrap: wrap; gap: 8px 26px; font-size: 14px; color: var(--ink-2); }
 .foot-nav a:hover { color: var(--ink); }
-.fnote { margin: 36px 0 0; max-width: 760px; font-size: 12.5px; line-height: 1.6; color: var(--ink-3); }
-.foot-base { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); font: 500 12px/1 var(--mono); letter-spacing: .04em; color: var(--ink-3); }
+.fnote { margin: 36px 0 0; max-width: 760px; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.foot-base { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); font: 500 12px/1 var(--mono); letter-spacing: .04em; color: var(--ink-2); }
 .fregion { border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 8px 12px; font: inherit; color: var(--ink-2); cursor: pointer; }
 .giant { margin: 30px 0 -0.2em; font: 800 clamp(90px, 21vw, 300px)/.8 var(--display); letter-spacing: -.06em; color: transparent; -webkit-text-stroke: 1px var(--line-2); white-space: nowrap; user-select: none; }
 

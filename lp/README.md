@@ -1,7 +1,7 @@
 # Landing page
 
 The public page for Honmaru AI. Static HTML, CSS and JS with no build step;
-the only outside request is Google Fonts (Plus Jakarta Sans, Inter, Sometype Mono).
+it makes no third-party requests: the three faces are self-hosted in `fonts/` (see its README).
 Serve the folder with anything (`python3 -m http.server -d lp`) or upload it
 to Cloudflare Pages as is.
 
@@ -45,8 +45,12 @@ and Sometype Mono; #202020 pill buttons; brand violet for AI moments only.
   Switching rewrites `?lang=` so a shared link keeps it.
 - Appearance follows the system until the toggle is used, then remembers.
   Both are applied before first paint.
-- Every scroll-linked effect runs off one `requestAnimationFrame` loop and
-  only writes `transform` and `opacity`.
+- Every scroll-linked effect runs off one `requestAnimationFrame` loop that
+  reads every rect first and then writes, so layout runs once per frame.
+- The ring canvas stamps its walls from a cached layer and redraws them only
+  when the phone moves or the theme flips. Touch and small screens draw at
+  30 fps, and the loop stops when the stage is off screen. The conic ring
+  turns only while it is visible.
 - `prefers-reduced-motion` stops the loops and the autoplay.
 
 ## Deploying
@@ -55,8 +59,8 @@ and Sometype Mono; #202020 pill buttons; brand violet for AI moments only.
 to `main` that touches `lp/`, and can also be run by hand from Actions. It:
 
 1. checks that every string the page uses exists in all five languages;
-2. copies only the files the page serves (not this README);
-3. rewrites `og:image` and `og:url` to absolute addresses;
+2. minifies the scripts and inlines the stylesheet, so the first paint waits on the HTML alone;
+3. rewrites `og:image` and `og:url` to absolute addresses and adds `robots.txt`, `sitemap.xml` and cache headers (`_headers`: fonts cached for a year);
 4. creates the Pages project `honmaru-lp` if it doesn't exist yet;
 5. deploys, and checks that the live site serves this commit.
 
