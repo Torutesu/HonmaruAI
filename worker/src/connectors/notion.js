@@ -19,9 +19,17 @@ export const notion = {
   label: "Notion",
   authConfigId: "ac_qtoaZ6G__JEd",
   toolSlug: "NOTION_QUERY_DATABASE_WITH_FILTER",
+  // Composio has renamed this tool once already; when the name above is
+  // gone, these are tried in turn (and CONNECTOR_TOOL_NOTION pins one).
+  fallbackToolSlugs: ["NOTION_QUERY_DATABASE", "NOTION_QUERY_DATA_SOURCE"],
   requiresConfig: true,
 
-  buildArgs(config) {
+  buildArgs(config, slug) {
+    // The plain query tool takes the database and a page; the sort shape
+    // below is the filtered tool's and is left off for the others.
+    if (slug && slug !== "NOTION_QUERY_DATABASE_WITH_FILTER") {
+      return { database_id: config?.databaseId, page_size: 10 };
+    }
     return {
       database_id: config?.databaseId,
       page_size: 10,

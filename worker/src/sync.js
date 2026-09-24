@@ -17,14 +17,32 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
     return { connector: connector.id, scanned: 0, created: 0, skipped: "not configured" };
   }
 
-  const payload = await executeTool(
-    env.COMPOSIO_API_KEY,
-    toolSlugFor(env, connector),
-    // Always the caller's own Composio identity. A shared id here would mean
-    // every user reading one person's messages.
-    String(session.github_id),
-    connector.buildArgs(config)
-  );
+  // Always the caller's own Composio identity. A shared id here would mean
+  // every user reading one person's messages.
+  let payload;
+  try {
+    payload = await executeTool(env.COMPOSIO_API_KEY, toolSlugFor(env, connector), String(session.github_id), connector.buildArgs(config));
+  } catch (err) {
+    const text = String(err?.message || err);
+    // Never connected: nothing to read, and nothing to report as broken.
+    if (/ConnectedAccountNotFound|No connected account/i.test(text)) {
+      return { connector: connector.id, scanned: 0, created: 0, skipped: "not connected" };
+    }
+    // Composio renamed the tool. The connector names what it moved to.
+    if (/ToolNotFound|not found/i.test(text) && Array.isArray(connector.fallbackToolSlugs)) {
+      let last = err;
+      for (const slug of connector.fallbackToolSlugs) {
+        try {
+          payload = await executeTool(env.COMPOSIO_API_KEY, slug, String(session.github_id), connector.buildArgs(config, slug));
+          last = null;
+          break;
+        } catch (e2) { last = e2; }
+      }
+      if (last) throw last;
+    } else {
+      throw err;
+    }
+  }
 
   const messages = connector.parse(payload);
   let created = 0;
