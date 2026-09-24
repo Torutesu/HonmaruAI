@@ -752,6 +752,10 @@ await step('the app is usable on a laptop', async () => {
     throw new Error(`the composer is cramped on a laptop: ${JSON.stringify(composer)}`)
   }
   await d.screenshot({ path: `${SHOTS}/20-desktop-compose.png` })
+  // Send is never greyed out: pressed empty, it says what goes in the box.
+  await d.click('.create-decision button:not(.mic)')
+  await d.waitForSelector('.create-empty', { timeout: 5000 })
+    .catch(() => { throw new Error('Send pressed with nothing written did nothing') })
   await d.fill('.create-decision textarea', 'Ask the designer to review the new card layout')
   await d.click('.create-decision button:not(.mic)')
   await d.waitForSelector('.card-title', { timeout: 25000 })
@@ -1488,6 +1492,17 @@ await step('people talk in a channel, and @AI turns what was said into a decisio
     const text = await d.$eval('.classic', (el) => el.innerText)
     if (/@example\.com|\bu:|\bemail:/.test(text)) throw new Error('the channel shows an account id')
     await noSpill(d, '.classic', 'the channel on a laptop')
+    // Your AI is written to from the list like anyone else, and what is
+    // written is routed as an instruction.
+    const beforeAI = await d.$$eval('.slk-msg', (els) => els.length)
+    await d.click('.cl-thread:has(.cl-own-mark) .cl-open')
+    await d.waitForSelector('.slk-head h1:has-text("Your AI")', { timeout: 10000 })
+    const aiCount = await d.$$eval('.slk-msg', (els) => els.length)
+    await d.fill('.slk-input', 'Approve the new aprons for the kitchen staff')
+    await d.keyboard.press('Enter')
+    await d.waitForFunction((n) => document.querySelectorAll('.slk-msg').length > n && !document.querySelector('.sheet-compose'), aiCount, { timeout: 25000 })
+      .catch(() => { throw new Error('writing to Your AI in the list made no card') })
+    void beforeAI
   } finally {
     await ctx.close()
   }

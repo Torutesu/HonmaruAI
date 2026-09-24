@@ -109,6 +109,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // Where a screen's back button goes: to You when You opened it — the
   // chevron on Automations used to drop you on the feed, two steps from
   // where you were — and to the feed otherwise.
+  // Words written in the list's "Your AI" conversation, sent through the
+  // same composer everything else is.
+  const [composeSeed, setComposeSeed] = useState<{ id: string; text: string } | null>(null)
   const returnTo = useRef<Screen | null>(null)
   const setScreen = useCallback((next: Screen | null, from: Screen | null = null) => {
     returnTo.current = from
@@ -560,6 +563,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           api={api}
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
+          onTellAI={(text) => { setComposeSeed({ id: String(Date.now()), text }); setPanel('compose') }}
           onWorkspace={() => setScreen('team')}
           workspaceMenu={workspaceSwitcher('header')}
           onCreateChannel={(name) => channelCall('POST', { name })}
@@ -640,7 +644,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         </nav>
       )}
 
-      {panel && <div className="scrim" onClick={() => setPanel(null)} />}
+      {panel && <div className="scrim" onClick={() => { setPanel(null); setComposeSeed(null) }} />}
 
       {palette && (
         <Palette
@@ -658,14 +662,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           <div className="sheet-title">{t('Tell your AI')}</div>
           <p className="sheet-hint">{t('compose.hint')}</p>
           <CreateDecision
+            key={composeSeed?.id || 'compose'}
             relayHttpUrl={relayHttpUrl}
             orgId={orgId}
             userId={userId}
             sessionToken={sessionToken}
+            initialText={composeSeed?.text}
+            autoSend={Boolean(composeSeed?.text)}
             autoFocus
             onSendCard={(card) => wsClientRef.current!.sendCardCreated(card)}
             onLog={addDebugLog}
-            onDone={() => setPanel(null)}
+            onDone={() => { setPanel(null); setComposeSeed(null) }}
           />
         </div>
       )}

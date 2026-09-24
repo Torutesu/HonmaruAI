@@ -40,6 +40,8 @@ interface Props {
   api: { httpBase: string; orgId: string; sessionToken: string }
   onSearch: () => void
   onCompose: () => void
+  /// Tell your AI something from the list, as you would write to anyone.
+  onTellAI: (text: string) => void
   onWorkspace: () => void
   /// The workspace's mark, name and switcher, drawn by the shell.
   workspaceMenu?: React.ReactNode
@@ -141,7 +143,7 @@ function when(iso?: string): string {
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
   userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onDecide, api, onSearch, onCompose, onWorkspace, workspaceMenu,
+  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onWorkspace, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel,
 }) => {
   const t = useT()
@@ -252,10 +254,13 @@ export const ClassicList: React.FC<Props> = ({
       .sort((a, b) => (b.unread + (b.fresh ? 1 : 0) > 0 ? 1 : 0) - (a.unread + (a.fresh ? 1 : 0) > 0 ? 1 : 0)
         || latestOf(b).localeCompare(latestOf(a)) || a.name.localeCompare(b.name))
 
+    // Your AI is always there to write to, first among the apps.
+    if (!byApp.has('ai')) byApp.set('ai', [])
     const apps = [...byApp.entries()]
+      .sort(([a], [b]) => (a === 'ai' ? -1 : b === 'ai' ? 1 : 0))
       .map(([app, own]) => build('app', `app:${app}`,
         app === 'ai' ? t('Your AI') : (APP_NAME[app] ? t(APP_NAME[app]) : app.charAt(0).toUpperCase() + app.slice(1)),
-        { icon: app === 'ai' ? 'plus' : (APP_ICON[app] || 'box'), app }, own))
+        { icon: app === 'ai' ? 'plus' : (APP_ICON[app] || 'box'), app }, own, app === 'ai'))
       .filter((x): x is Thread => x !== null)
 
     return { channels, people, apps }
@@ -785,6 +790,31 @@ export const ClassicList: React.FC<Props> = ({
               <button type="submit" className="slk-send" disabled={sending || !draft.trim()} aria-label={t('Send')}>
                 <Icon name="send" size={16} />
               </button>
+            </div>
+          </form>
+        ) : thread.app === 'ai' ? (
+          // Your AI is somebody you write to, like anyone else in the list:
+          // what you write here is an instruction, routed as one.
+          <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) { onTellAI(draft.trim()); setDraft('') } else composer.current?.focus() }}>
+            <textarea
+              ref={composer}
+              className="slk-input"
+              value={draft}
+              rows={1}
+              maxLength={4000}
+              placeholder={t('Tell your AI — who decides what, by when')}
+              aria-label={t('Tell your AI')}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  if (draft.trim()) { onTellAI(draft.trim()); setDraft('') }
+                }
+              }}
+            />
+            <div className="slk-composer-bar">
+              <span className="slk-composer-hint">{t('Enter to send — your AI makes it a card for whoever decides')}</span>
+              <button type="submit" className="slk-send" aria-label={t('Send')}><Icon name="send" size={16} /></button>
             </div>
           </form>
         ) : (

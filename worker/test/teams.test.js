@@ -98,10 +98,11 @@ test("a minted code comes with a link where the web has an address, and the link
   await put("/orgs/name", toru, { orgId: "personal:toru", name: "Honmaru Coffee" });
   expect((await get(`/invites/peek?code=${minted.code}`)).json()).resolves.toMatchObject({ team: "Honmaru Coffee" });
 
-  // A guess, and a spent code, look the same.
+  // A guess answers nothing; a link someone joined by still opens for the
+  // next person it was shared with.
   expect((await get("/invites/peek?code=deadbeef")).status).toBe(404);
   expect((await post("/invites/accept", mika, { code: minted.code })).status).toBe(200);
-  expect((await get(`/invites/peek?code=${minted.code}`)).status).toBe(404);
+  expect((await get(`/invites/peek?code=${minted.code}`)).status).toBe(200);
 });
 
 test("an invitation by email carries the link and the code, in the sender's language, and the code joins", async () => {

@@ -236,6 +236,7 @@
 }
 .context-input:focus { outline: none; border-color: #6647f0; }
 .create-error { color: #c62828; font-size: 13px; margin-top: 8px; width: 100%; }
+.create-empty { color: #838383; font-size: 13px; margin-top: 8px; width: 100%; }
 
 @media (prefers-color-scheme: dark) {
   .hist-draft-text { background: #222222; color: #f2f2f2; }
