@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { insertMention, matchMembers, mentionQuery } from '../utils/mentions'
 import type { Mentionable } from '../utils/mentions'
 
@@ -25,19 +25,27 @@ export function useMentionMenu(
     const el = box.current
     if (el) setCaret(el.selectionStart ?? el.value.length)
   }
+  // Where the caret goes once the picked name is in the box. Placed as soon
+  // as the new text is on screen, before any key after it: placed a frame
+  // later, a fast typist's next words — or a slow machine's — were already
+  // at the end, and the caret jumped back into the middle of them.
+  const pendingCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const at = pendingCaret.current
+    const target = box.current
+    if (at === null || !target || target.value !== text) return
+    pendingCaret.current = null
+    target.focus()
+    target.setSelectionRange(at, at)
+    setCaret(at)
+  }, [text, box])
   const pick = (member: Mentionable) => {
     const el = box.current
     const at = el ? (el.selectionStart ?? text.length) : caret
     const next = insertMention(text, at, member)
+    pendingCaret.current = next.caret
     setText(next.text)
     setDismissed(null)
-    requestAnimationFrame(() => {
-      const target = box.current
-      if (!target) return
-      target.focus()
-      target.setSelectionRange(next.caret, next.caret)
-      setCaret(next.caret)
-    })
   }
 
   /// Returns true when the key was the menu's to take.
