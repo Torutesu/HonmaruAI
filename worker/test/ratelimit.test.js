@@ -1,11 +1,17 @@
 import { SELF, env } from "cloudflare:test";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { LIMITS, enforce, subjectFor } from "../src/ratelimit.js";
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  // Windows start on the clock (every five minutes on the minute). A test
+  // that happened to run across one started counting again halfway and saw
+  // 200 where it meant 429, so the clock is held still, early in a window.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-24T12:00:05Z"));
 });
+afterEach(() => { vi.useRealTimers(); });
 
 function requestFrom(ip, token) {
   const headers = { "CF-Connecting-IP": ip };
