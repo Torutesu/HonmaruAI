@@ -56,7 +56,7 @@ function tooLarge() {
 /// Buffered rather than piped because R2 will not take a stream of unknown
 /// length, and the length is exactly what is in question here. Memory is
 /// bounded by the cap plus one chunk, which is the point.
-async function readCapped(body, maxBytes) {
+export async function readCapped(body, maxBytes) {
   const reader = body.getReader();
   const chunks = [];
   let seen = 0;

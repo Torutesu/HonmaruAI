@@ -25,6 +25,7 @@ import { redirectIfAway } from "./people.js";
 import { listMembers } from "./team.js";
 import { learnFromDecision } from "./memory.js";
 import { settleProposal } from "./proposals.js";
+import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
 
 /// Said to a client that tries to put an unposted daily report away.
 const DRAFT_MUST_POST = "This daily report is a draft: check it and post it to finish it.";
@@ -208,16 +209,18 @@ export class OrgRelay {
   /// In memory, so it is lost when the object hibernates. That fails toward
   /// letting someone through after an idle gap, which is the right way for a
   /// limiter to be wrong.
-  overBudget(userId) {
+  overBudget(userId, jam = false) {
     const now = Date.now();
-    const window = this.messageWindow ||= new Map();
+    // A Jam's signals are many and small, and counted on their own: a call
+    // setting up must not use up the budget for everything else.
+    const window = jam ? (this.jamWindow ||= new Map()) : (this.messageWindow ||= new Map());
     const seen = window.get(userId);
     if (!seen || now - seen.since > MESSAGE_WINDOW_MS) {
       window.set(userId, { since: now, count: 1 });
       return false;
     }
     seen.count += 1;
-    return seen.count > MESSAGE_BUDGET;
+    return seen.count > (jam ? JAM_SIGNAL_BUDGET : MESSAGE_BUDGET);
   }
 
   async webSocketMessage(ws, raw) {
@@ -242,7 +245,7 @@ export class OrgRelay {
     if (type !== "join" && !att.authed) {
       return this.refuse(ws, att.agui, "Join with a valid session before sending anything.");
     }
-    if (type !== "join" && this.overBudget(att.userId)) {
+    if (type !== "join" && this.overBudget(att.userId, JAM_TYPES.has(type))) {
       // Told, not closed: a burst is far more often a client bug than an
       // attack, and dropping the socket turns a recoverable moment into a
       // reconnect loop.
@@ -305,6 +308,13 @@ export class OrgRelay {
       // regardless of which one it spoke, so every client received it as a
       // CUSTOM event and again as a legacy message.
       for (const ev of presenceEvents(userId, "online")) this.broadcast(orgId, ev, ws);
+      // Who is talking where, for the channels this person can see.
+      for (const ev of await jamStatesFor(this, orgId, userId, String(session.github_id))) ws.send(JSON.stringify(ev));
+      return;
+    }
+
+    if (JAM_TYPES.has(type)) {
+      await handleJamMessage(this, ws, ws.deserializeAttachment() || att, type, payload || {});
       return;
     }
 
@@ -840,6 +850,10 @@ export class OrgRelay {
     const att = ws.deserializeAttachment() || {};
     if (att.userId) {
       for (const ev of presenceEvents(att.userId, "offline")) this.broadcast(att.orgId, ev, ws);
+    }
+    // A closed tab has left its Jam.
+    if (att.jam) {
+      try { await leaveJam(this, ws, att, { closing: true }); } catch (err) { console.error("jam leave failed", err?.message || err); }
     }
   }
 

@@ -21,6 +21,15 @@ import { sha256Hex } from "./auth.js";
 import { applyAutoRule, listAutoRules, addAutoRule, removeAutoRule } from "./autorules.js";
 import { setStatus, rememberTimezone, redirectIfAway, setChannelPref, prefsFor, memberProfile } from "./people.js";
 import { scheduleMessage, listScheduled, cancelScheduled, saveForLater, listSaved, finishSaved } from "./later.js";
+import { channelDetails, setDescription } from "./channelDetails.js";
+import { channelJournal, forgetJournalDay, validDay, validZone } from "./journal.js";
+import { providerFor } from "./orgAI.js";
+import { allowanceFor } from "./gate.js";
+import { settleUsage } from "./ledger.js";
+import { readCapped } from "./media.js";
+import {
+  MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
+} from "./jam.js";
 
 // The routes for talking in a channel, and for turning what was said into
 // a decision. The decision goes through `/ai/route` itself — the same
@@ -329,7 +338,11 @@ export async function handleChannels(request, env, url, { route, after }) {
       ? await editMessage(env.DB, { orgId: body.orgId, id: body.messageId, authorLogin: ctx.who.user.login, body: body.body })
       : await deleteMessage(env.DB, { orgId: body.orgId, id: body.messageId, authorLogin: ctx.who.user.login });
     if (out.error) return json({ message: out.error }, out.status || 400);
-    after(() => broadcastWithParent(env, body.orgId, ctx.resolved, out.row, ctx.members));
+    after(async () => {
+      await broadcastWithParent(env, body.orgId, ctx.resolved, out.row, ctx.members);
+      // The journal said what this message said; its day is written again.
+      await forgetJournalDay(env.DB, body.orgId, ctx.resolved.key, current.created_at);
+    });
     const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
     return json({ message });
   }
@@ -455,6 +468,120 @@ export async function handleChannels(request, env, url, { route, after }) {
     const out = await setStatus(env.DB, { orgId: body.orgId, githubId: who.session.github_id, emoji: body.emoji, text: body.text, until: body.until, awayUntil: body.awayUntil, delegateLogin });
     if (out.error) return json({ message: out.error }, 400);
     return json({ ok: true });
+  }
+
+  // A channel, described: what it is for, who is in it, what was shared
+  // in it, what runs into it — the panel behind its header.
+  if (path === "/channels/details" && request.method === "GET") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const orgId = url.searchParams.get("orgId");
+    const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
+    if (ctx.denied) return ctx.denied;
+    const locale = await loadCopy(env, ctx.who.user.locale || "en", { orgId });
+    const details = await channelDetails(env.DB, orgId, { resolved: ctx.resolved, viewer: ctx.who.user, members: ctx.members, locale });
+    return json({ ...details, channel: { ...details.channel, view: ctx.view } });
+  }
+
+  // What a channel is for, in a sentence anyone in it may write.
+  if (path === "/channels/description" && request.method === "PUT") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const out = await setDescription(env.DB, body.orgId, ctx.resolved.key, body.description);
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    after(() => announceEvents(env, body.orgId, [customEvent("channel_described", { channel: ctx.resolved.key, description: out.description })]));
+    return json(out);
+  }
+
+  // The channel's journal: a few lines a day, each citing its messages.
+  if (path === "/channels/journal" && request.method === "GET") {
+    const limited = await enforce(env, request, "journal");
+    if (limited) return limited;
+    const orgId = url.searchParams.get("orgId");
+    const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
+    if (ctx.denied) return ctx.denied;
+    const tzParam = url.searchParams.get("tz");
+    const tz = validZone(tzParam) ? tzParam : "UTC";
+    const before = url.searchParams.get("before");
+    if (before && !validDay(before)) return json({ message: "before is a date, YYYY-MM-DD." }, 400);
+    const locale = await loadCopy(env, ctx.who.user.locale || "en", { orgId });
+    const provider = await providerFor(env, orgId);
+    const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(ctx.who.session.github_id) }) : null;
+    const name = ctx.resolved.kind === "dm" ? (ctx.resolved.other?.name || "") : `#${ctx.resolved.slug}`;
+    try {
+      const page = await channelJournal(env, orgId, {
+        resolved: ctx.resolved, members: ctx.members, tz, before, locale, provider, allowance, channelName: name,
+      });
+      return json({ ...page, channel: ctx.view, tz });
+    } finally {
+      await settleUsage(env.DB, provider, { orgId, githubId: ctx.who.session.github_id });
+    }
+  }
+
+  // A Jam's recording, uploaded by the browser that recorded it when it
+  // ended: notes are written from it and said in the channel; a full
+  // recording is kept for the channel to play back.
+  if (path === "/channels/jam/recording" && request.method === "POST") {
+    const limited = await enforce(env, request, "jam/recording");
+    if (limited) return limited;
+    const orgId = url.searchParams.get("orgId");
+    const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
+    if (ctx.denied) return ctx.denied;
+    const contentType = recordingType(request.headers.get("content-type"));
+    if (!contentType) return json({ message: "That is not a recording." }, 415);
+    if (Number(request.headers.get("content-length") || 0) > MAX_RECORDING_BYTES) return json({ message: "That recording is too long." }, 413);
+    if (!request.body) return json({ message: "No recording in the request." }, 400);
+    const bytes = await readCapped(request.body, MAX_RECORDING_BYTES);
+    if (!bytes) return json({ message: "That recording is too long." }, 413);
+    if (bytes.byteLength < 1024) return json({ message: "That recording is empty." }, 400);
+    const mode = url.searchParams.get("mode") === "full" ? "full" : "notes";
+    const startedAt = url.searchParams.get("startedAt");
+    const endedAt = url.searchParams.get("endedAt") || new Date().toISOString();
+    const minutes = Number.isFinite(Date.parse(startedAt)) ? Math.min(minutesBetween(startedAt, endedAt), 600) : 1;
+    const refs = String(url.searchParams.get("people") || "").split(",").map((r) => r.trim()).filter(Boolean).slice(0, 20);
+    const names = refs.map((r) => ctx.members.find((m) => m.ref === r)?.name).filter(Boolean);
+    if (!names.length) names.push(ctx.who.user.name || ctx.who.user.login);
+    let recordingUrl = null;
+    let id = null;
+    if (mode === "full") {
+      id = crypto.randomUUID();
+      await env.MEDIA.put(`jam/${id}`, bytes, { httpMetadata: { contentType } });
+      recordingUrl = `${url.origin}/channels/jam/audio/${id}`;
+    }
+    const locale = await loadCopy(env, ctx.who.user.locale || "en", { orgId });
+    after(async () => {
+      const provider = await providerFor(env, orgId);
+      const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(ctx.who.session.github_id) }) : null;
+      let notes = null;
+      try {
+        if (provider && (!allowance || allowance.allowed)) {
+          const transcript = await transcribe(env, provider, bytes, contentType, { locale });
+          if (transcript) {
+            // Transcription is billed by the minute, not by the token.
+            provider.usage?.push({ purpose: "jam_transcript", provider: "OpenAI", model: env.JAM_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe", input: 0, output: 0, usd: minutes * 0.003 });
+            notes = await jamNotes(provider, transcript, { locale, allowance });
+          }
+        }
+      } finally {
+        await settleUsage(env.DB, provider, { orgId, githubId: ctx.who.session.github_id });
+      }
+      if (!notes && !recordingUrl) return;
+      const out = await postMessage(env.DB, {
+        orgId, key: ctx.resolved.key, authorLogin: null, kind: "ai",
+        body: recordingMessage(locale, { minutes, people: names.join(", "), notes, url: recordingUrl }),
+      });
+      if (out.row) await broadcastWithParent(env, orgId, ctx.resolved, out.row, ctx.members);
+    });
+    return json({ id, url: recordingUrl, notes: true }, 202);
+  }
+
+  const audio = path.match(/^\/channels\/jam\/audio\/([^/]+)$/);
+  if (audio && request.method === "GET") {
+    return serveRecording(env, audio[1]);
   }
 
   // How loudly one conversation may call for you.

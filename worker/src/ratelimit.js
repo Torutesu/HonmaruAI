@@ -43,6 +43,10 @@ export const LIMITS = {
   // writes — a burst of emoji is normal — so this is its own, wider bucket,
   // and chatting never locks a person out of their team screen.
   chat: { max: 600, windowSeconds: 300 },
+  // A channel's journal: reading one can have the model write a few days.
+  journal: { max: 60, windowSeconds: 300 },
+  // A Jam's recording: each one is a transcription and notes.
+  "jam/recording": { max: 20, windowSeconds: 3600 },
   // Anyone can post here — that is what a webhook is. Every accepted message
   // costs a model call, so the ceiling is what stops a flood of forged posts
   // becoming a bill. Counted per IP, since a webhook carries no session.

@@ -15,7 +15,8 @@ import { serverText } from "./serverCopy.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
 import { displayName } from "./notifyCopy.js";
-import { recentBusinessTalk } from "./channels.js";
+import { recentBusinessTalk, postMessage, MAX_MESSAGE_CHARS } from "./channels.js";
+import { broadcastStored } from "./channelRoutes.js";
 import { draftDailyReport, DAILY_KINDS, expireOlderDrafts, announceClosed } from "./dailyReport.js";
 
 // Routines: work the AI does on a schedule, delivered as a card.
@@ -78,6 +79,12 @@ export function publicRoutine(r, { locale = "en", recipientName, recipientRef } 
   };
 }
 
+/// The kinds that post into a channel: a daily report always, a report
+/// when its owner names one.
+export function postsToChannel(kind) {
+  return kind === "report" || DAILY_KINDS.includes(kind);
+}
+
 /// Check and normalize what a client sent. Returns `{ value }` or `{ error }`.
 /// `partial` lets an update leave fields out.
 export function validateRoutineInput(body, { partial = false, locale = "en" } = {}) {
@@ -104,12 +111,15 @@ export function validateRoutineInput(body, { partial = false, locale = "en" } = 
     out.instruction = serverText(locale, out.kind === "daily_plan" ? "daily.planInstruction" : "daily.instruction");
   }
   // A daily report is posted to a business channel — the room the team
-  // reads — and has to name one.
+  // reads — and has to name one. A report may name one too, and is posted
+  // there as well as to its reader's feed; without one it goes to the feed.
   if (has("channel") || (!partial && daily)) {
     const channel = typeof body.channel === "string" ? body.channel.trim() : "";
     const slug = channel.startsWith("b:") ? channel.slice(2) : "";
-    if (!slug || businessSlug(slug) !== slug) return { error: "Choose the channel your daily report is posted to." };
-    out.channel = channel;
+    if (!channel && !daily) out.channel = null;
+    else if (!slug || businessSlug(slug) !== slug) {
+      return { error: daily ? "Choose the channel your daily report is posted to." : "No such channel." };
+    } else out.channel = channel;
   }
   if (has("title") || !partial) {
     const raw = typeof body.title === "string" ? body.title.replace(/\s+/g, " ").trim() : "";
@@ -192,7 +202,7 @@ export async function createRoutine(db, { orgId, owner, recipientLogin, input, o
     cadence: input.cadence, weekday: input.weekday ?? null, monthday: input.monthday ?? null,
     hour: input.hour, minute: input.minute ?? 0, timezone: input.timezone || "UTC",
     enabled: input.enabled === 0 ? 0 : 1, origin: origin === "proposal" ? "proposal" : "manual",
-    channel: DAILY_KINDS.includes(input.kind) ? input.channel : null,
+    channel: postsToChannel(input.kind || "report") ? (input.channel || null) : null,
   };
   r.next_run_at = r.enabled ? nextRunAt(r, now) : null;
   await db
@@ -215,9 +225,13 @@ export async function updateRoutine(db, orgId, id, patch, { recipientLogin, now 
   // A cadence change clears the fields the new cadence does not use.
   if (next.cadence !== "weekly") next.weekday = null;
   if (next.cadence !== "monthly") next.monthday = null;
-  // Only a daily report has a channel, and it is always its owner's to read.
-  if (!DAILY_KINDS.includes(next.kind)) next.channel = null;
-  else next.recipient_login = next.owner_login;
+  // A daily report is always its owner's to read, and always has a channel;
+  // a report may have one; nothing else does.
+  if (!postsToChannel(next.kind)) next.channel = null;
+  if (DAILY_KINDS.includes(next.kind)) {
+    next.recipient_login = next.owner_login;
+    if (!next.channel) next.channel = current.channel;
+  }
   next.next_run_at = next.enabled ? nextRunAt(next, now) : null;
   await db
     .prepare(
@@ -554,6 +568,11 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
     await finish({ ranAt: now.toISOString(), cardId, usd: byModel ? usd : 0 });
     const shown = await localizeForRecipient(env, routine.org_id, card, { payerGithubId: routine.owner_github_id });
     await announceCards(env, routine.org_id, [shown]);
+    // A report with a channel is said there too, by the AI, for everyone
+    // in it — a daily report waits for its owner to post it.
+    if (!card.dailyReport && routine.channel) {
+      await postReportToChannel(env, routine, card).catch((err) => console.error("routine channel post failed", safe(err?.message)));
+    }
     // Today's draft supersedes the one before it nobody posted.
     if (card.dailyReport) {
       await announceClosed(env, routine.org_id, await expireOlderDrafts(db, routine.org_id, routine.id, card.id, { now }));
@@ -568,6 +587,16 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
     await finish({ error: clip(safe(err?.message) || "failed", 200) });
     return { error: "failed" };
   }
+}
+
+/// A report, said in its channel by the AI: its title, then the report.
+export async function postReportToChannel(env, routine, card) {
+  const markdown = card.report?.markdown || card.summary || "";
+  let body = `*${card.title}*\n${markdown}`.trim();
+  if (body.length > MAX_MESSAGE_CHARS) body = `${body.slice(0, MAX_MESSAGE_CHARS - 1)}…`;
+  const out = await postMessage(env.DB, { orgId: routine.org_id, key: routine.channel, authorLogin: null, body, kind: "ai", cardId: card.id });
+  if (out.row) await broadcastStored(env, routine.org_id, routine.channel, out.row);
+  return out.row || null;
 }
 
 /// The cron's part: every routine whose time has come, oldest first.

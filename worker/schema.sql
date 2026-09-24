@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS businesses (
   name        TEXT NOT NULL,
   created_by  TEXT,
   created_at  TEXT NOT NULL,
+  /* What the channel is for, in a sentence anyone may write. */
+  description TEXT,
   PRIMARY KEY (org_id, slug)
 );
 
@@ -593,4 +595,21 @@ CREATE TABLE IF NOT EXISTS copy_translations (
   strings    TEXT NOT NULL,
   created_at TEXT NOT NULL,
   PRIMARY KEY (locale, catalog)
+);
+
+/* A channel's journal: one day's conversation, summarized for a reader —
+   in their time zone and language — with each line pointing at the
+   messages it came from. Kept until the day gains a message, so reading
+   the journal again costs nothing. */
+CREATE TABLE IF NOT EXISTS channel_journal (
+  org_id     TEXT NOT NULL,
+  channel    TEXT NOT NULL,
+  day        TEXT NOT NULL,
+  tz         TEXT NOT NULL,
+  locale     TEXT NOT NULL,
+  count      INTEGER NOT NULL,
+  items      TEXT NOT NULL,
+  by_model   INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel, day, tz, locale)
 );
