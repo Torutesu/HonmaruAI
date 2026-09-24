@@ -261,6 +261,7 @@ The list of what is still missing, and why each item matters, is
 - [x] **A workspace on its own OpenAI key is never metered**: the free daily
       allowance applies only to calls on the deployment's key; the plan screen
       says so
+- [x] **GitHub connects by OAuth** (Composio-hosted): Connect with GitHub → approve → pick a repository, no token
 - [x] **GitHub connects per workspace** from Tools (own sign-in or a token);
       the Worker writes every decision as an issue in the named repository
 - [x] **Tools → Your AI is editable per workspace**: model, OpenAI key and

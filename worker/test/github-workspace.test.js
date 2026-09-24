@@ -146,3 +146,76 @@ test("disconnecting stops the writing, and the token is gone", async () => {
   const row = await env.DB.prepare("SELECT token FROM org_github WHERE org_id = ?1").bind(ORG).first();
   expect(row).toBeNull();
 });
+
+// The OAuth way: no token to paste. A page opens (Composio hosts it), GitHub
+// asks, you say yes; back here you pick a repository, and the Worker writes
+// issues as you from then on.
+const COMPOSIO = { COMPOSIO_API_KEY: "ck_test" };
+const composio = () => fetchMock.get("https://backend.composio.dev");
+
+test("connecting GitHub is a link to a page, made on an auth config the Worker makes once", async () => {
+  let made = 0;
+  composio().intercept({ path: "/api/v3/auth_configs", method: "POST", body: (b) => JSON.parse(b).toolkit?.slug === "github" })
+    .reply(200, () => { made += 1; return { auth_config: { id: "ac_github_made" }, toolkit: { slug: "github" } }; }).times(1);
+  composio().intercept({ path: "/api/v3/connected_accounts/link", method: "POST", body: (b) => JSON.parse(b).auth_config_id === "ac_github_made" })
+    .reply(200, { redirect_url: "https://connect.composio.dev/go/abc", connected_account_id: "ca_1" }).times(2);
+  let res = await call("/connectors/github/connect", { method: "POST", headers: { "x-session-token": toru } }, COMPOSIO);
+  expect(res.status).toBe(200);
+  expect((await res.json()).redirectUrl).toBe("https://connect.composio.dev/go/abc");
+  // The second person reuses the config; it is not made twice.
+  res = await call("/connectors/github/connect", { method: "POST", headers: { "x-session-token": mika } }, COMPOSIO);
+  expect(res.status).toBe(200);
+  expect(made).toBe(1);
+  const kept = await env.DB.prepare("SELECT value FROM kv WHERE key = 'composio_auth_config_github'").first();
+  expect(kept.value).toBe("ac_github_made");
+});
+
+test("once your GitHub is connected, you pick a repository and the Worker writes issues as you", async () => {
+  composio().intercept({ path: (p) => p.startsWith("/api/v3/connected_accounts?"), method: "GET" })
+    .reply(200, (opts) => ({ items: opts.path.includes("email%3Atoru") ? [{ id: "ca_1", status: "ACTIVE", toolkit: { slug: "github" } }] : [] }))
+    .persist();
+  composio().intercept({ path: "/api/v3/tools/execute/GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER", method: "POST" })
+    .reply(200, { successful: true, data: { details: [
+      { full_name: "acme/ops", html_url: "https://github.com/acme/ops", private: true, permissions: { push: true } },
+      { full_name: "acme/readonly", html_url: "https://github.com/acme/readonly", private: false, permissions: { pull: true } },
+    ] } }).times(1);
+  composio().intercept({ path: "/api/v3/tools/execute/GITHUB_GET_A_REPOSITORY", method: "POST", body: (b) => JSON.parse(b).arguments?.repo === "ops" })
+    .reply(200, { successful: true, data: { full_name: "acme/ops", html_url: "https://github.com/acme/ops", permissions: { push: true } } }).times(1);
+  let issueArgs;
+  composio().intercept({ path: "/api/v3/tools/execute/GITHUB_CREATE_AN_ISSUE", method: "POST", body: (b) => { issueArgs = JSON.parse(b); return true; } })
+    .reply(200, { successful: true, data: { number: 12, html_url: "https://github.com/acme/ops/issues/12" } }).times(1);
+
+  // Status says the journey is offered and that Toru's GitHub is in.
+  let status = await (await call(`/connectors/github?orgId=${encodeURIComponent(ORG)}`, { headers: { "x-session-token": toru } }, COMPOSIO)).json();
+  expect(status).toMatchObject({ oauth: true, mine: true, connected: false });
+  // Mika has not connected hers.
+  status = await (await call(`/connectors/github?orgId=${encodeURIComponent(ORG)}`, { headers: { "x-session-token": mika } }, COMPOSIO)).json();
+  expect(status.mine).toBe(false);
+  expect((await call("/connectors/github/repos", { headers: { "x-session-token": mika } }, COMPOSIO)).status).toBe(409);
+
+  // Only the repositories Toru can write to are offered.
+  const repos = await (await call("/connectors/github/repos", { headers: { "x-session-token": toru } }, COMPOSIO)).json();
+  expect(repos.repos.map((r) => r.repo)).toEqual(["acme/ops"]);
+
+  // Picking one connects the workspace, with no token anywhere.
+  let res = await call("/connectors/github", { method: "PUT", headers: headers(toru), body: JSON.stringify({ orgId: ORG, repo: "acme/ops" }) }, COMPOSIO);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ connected: true, repo: "acme/ops", via: "account" });
+  const row = await env.DB.prepare("SELECT token, composio_user FROM org_github WHERE org_id = ?1").bind(ORG).first();
+  expect(row).toEqual({ token: null, composio_user: "email:toru@x.jp" });
+
+  // A card becomes an issue, written as Toru.
+  const { ws: a } = await joined(ORG, toru, COMPOSIO);
+  const { messages: bMessages } = await joined(ORG, mika, COMPOSIO);
+  void a;
+  const { getCard, saveCard } = await import("../src/db.js");
+  void getCard;
+  const { syncCardToGitHub } = await import("../src/githubWorkspace.js");
+  const card = { id: "c-oauth", recipientUserID: "u:mika@x.jp", senderUserID: "u:toru@x.jp", type: "task", status: "pending", title: "Fix the sign", summary: "Front door.", priority: "low", createdAt: "2026-09-24T00:00:00Z" };
+  await saveCard(env.DB, ORG, card);
+  const synced = await syncCardToGitHub({ ...env, ...COMPOSIO }, ORG, card);
+  expect(synced).toMatchObject({ githubIssueNumber: 12, githubRepository: "acme/ops" });
+  expect(issueArgs.user_id).toBe("email:toru@x.jp");
+  expect(issueArgs.arguments).toMatchObject({ owner: "acme", repo: "ops", title: "[Task] Fix the sign" });
+  void bMessages;
+});

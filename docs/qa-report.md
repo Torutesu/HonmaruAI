@@ -47,6 +47,21 @@ that reads as standing — admin, maintainer, triager — is refused); the
 Profile row is a text box with the presets as suggestions; the phone gets a
 Role field under "Your work context".
 
+**GitHub connects by going there, not by pasting.** GitHub's own OAuth needs
+a callback registered on the OAuth app, and the registered one is the
+phone's; Composio hosts the OAuth for Gmail, Slack and Notion already and
+does so for GitHub, on its own managed credentials. So "Connect with
+GitHub" on Tools is the same journey as Gmail: a page opens, GitHub asks,
+you say yes, and back on Tools the page (polling the status) offers the
+repositories you can write issues to; picking one connects the workspace
+with no token anywhere (`org_github.composio_user`), and the Worker writes
+issues as you through Composio's GitHub tools. The auth config that journey
+needs is made once by the Worker (`POST /auth_configs`, managed auth) and
+kept in the new `kv` table; `CONNECTOR_AUTH_GITHUB` overrides it. The token
+path stays behind "Use a token instead". Dark mode: the role, key and
+invite inputs were white boxes with light text; they now take the dark
+scale.
+
 **GitHub is a tool any workspace connects.** A team made at sign-up had
 nowhere to open an issue. Now `org_github` holds a repository and a token
 per workspace; `GET/PUT/DELETE /connectors/github` (admins write; a GitHub

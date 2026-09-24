@@ -42,3 +42,18 @@ export async function listConnectedAccounts(apiKey, userId) {
   const body = await res.json();
   return body.items || body.data || [];
 }
+
+/// An auth config for a toolkit on Composio's own OAuth credentials — the
+/// thing a connect link needs, made once per deployment for the tools that
+/// ship without one. Returns the new config's id.
+export async function createManagedAuthConfig(apiKey, toolkitSlug, name) {
+  const res = await fetch(`${BASE}/auth_configs`, {
+    method: "POST",
+    headers: { "x-api-key": apiKey, "content-type": "application/json" },
+    body: JSON.stringify({ toolkit: { slug: toolkitSlug }, auth_config: { type: "use_composio_managed_auth", name } }),
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`Composio auth config ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const body = await res.json();
+  return body?.auth_config?.id || body?.id || null;
+}
