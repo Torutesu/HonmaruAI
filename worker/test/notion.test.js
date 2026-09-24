@@ -94,13 +94,10 @@ test("a user with no chosen database syncs nothing and errors nothing", async ()
 test("once a database is chosen, inbound queries it for the caller", async () => {
   await setConnectorConfig(env.DB, "900", "notion", { databaseId: "db-42" });
 
+  // Only Notion is pulled: it is the one tool this person has set up, and
+  // Gmail and Slack, never connected, are not asked (they used to be, and
+  // answered "no connected account" as an error on every pull).
   let sent;
-  fetchMock.get("https://backend.composio.dev")
-    .intercept({ path: "/api/v3/tools/execute/GMAIL_FETCH_EMAILS", method: "POST" })
-    .reply(200, () => ({ successful: true, data: { messages: [] } }));
-  fetchMock.get("https://backend.composio.dev")
-    .intercept({ path: "/api/v3/tools/execute/SLACK_SEARCH_MESSAGES", method: "POST" })
-    .reply(200, () => ({ successful: true, data: { messages: { matches: [] } } }));
   fetchMock.get("https://backend.composio.dev")
     .intercept({ path: "/api/v3/tools/execute/NOTION_QUERY_DATABASE_WITH_FILTER", method: "POST",
       body: (b) => { sent = JSON.parse(b); return true; } })
@@ -113,4 +110,25 @@ test("once a database is chosen, inbound queries it for the caller", async () =>
   expect(sent.user_id).toBe("900");
   expect(sent.arguments.database_id).toBe("db-42");
   expect(sent.arguments.sorts).toEqual([{ timestamp: "last_edited_time", direction: "descending" }]);
+});
+
+test("a pull skips tools never connected, and follows Notion's tool when Composio renames it", async () => {
+  const { setConnectorConfig } = await import("../src/db.js");
+  await setConnectorConfig(env.DB, "900", "notion", { databaseId: "db-42", connected: true });
+  // The old name is gone; the new one answers. Gmail and Slack were never
+  // connected, so they are not even asked.
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: "/api/v3/tools/execute/NOTION_QUERY_DATABASE_WITH_FILTER", method: "POST" })
+    .reply(404, { error: { message: "Tool NOTION_QUERY_DATABASE_WITH_FILTER not found", code: 2401, slug: "Tool_ToolNotFound" } }).times(1);
+  let args;
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: "/api/v3/tools/execute/NOTION_QUERY_DATABASE", method: "POST", body: (b) => { args = JSON.parse(b).arguments; return true; } })
+    .reply(200, { successful: true, data: { results: [] } }).times(1);
+  const res = await syncAllRoute();
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  const notion = body.results.find((r) => r.connector === "notion");
+  expect(notion.error).toBeUndefined();
+  expect(args).toEqual({ database_id: "db-42", page_size: 10 });
+  expect(body.results.filter((r) => r.connector !== "notion")).toEqual([]);
 });

@@ -689,3 +689,12 @@
 :root[data-theme="dark"] .role-input, :root[data-theme="dark"] .ai-key-input, :root[data-theme="dark"] .invite-email {
   background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2;
 }
+
+/* The app's own dark toggle (data-theme) has to paint the same grounds the
+   system's dark mode does: the screens, the feed, the shell — not only the
+   rows, which left dark cards floating on a light page. */
+:root[data-theme="dark"] .feed, :root[data-theme="dark"] .screen,
+:root[data-theme="dark"] .screen:not(.shell .screen), :root[data-theme="dark"] .shell .screen { background: #0f0f0f; color: #f2f2f2; }
+:root[data-theme="dark"] .screen:not(.shell .screen) .screen-foot { background: #1a1a1a; border-color: #2a2a2a; box-shadow: none; }
+:root[data-theme="dark"] .shell .screen-foot { background: transparent; border-top: none; }
+:root[data-theme="dark"] body, :root[data-theme="dark"] .app { background: #0f0f0f; }

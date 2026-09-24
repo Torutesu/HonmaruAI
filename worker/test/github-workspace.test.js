@@ -40,8 +40,10 @@ test("a team workspace starts unconnected, and says what would connect it", asyn
   const status = await (await get(`/connectors/github?orgId=${encodeURIComponent(ORG)}`, toru)).json();
   expect(status).toMatchObject({ builtIn: false, connected: false, repo: null, canEdit: true, mine: false });
   expect(status.reason).toMatch(/repository/);
+  // A member may connect it with their own GitHub (the OAuth journey), but
+  // not with a token — that is tested below.
   const member = await (await get(`/connectors/github?orgId=${encodeURIComponent(ORG)}`, mika)).json();
-  expect(member.canEdit).toBe(false);
+  expect(member).toMatchObject({ canEdit: true, mine: false });
 });
 
 test("an admin connects a repository with a token that can write issues", async () => {

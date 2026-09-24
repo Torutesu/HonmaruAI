@@ -47,6 +47,25 @@ that reads as standing — admin, maintainer, triager — is refused); the
 Profile row is a text box with the presets as suggestions; the phone gets a
 Role field under "Your work context".
 
+**A pull is of what you connected.** "Pull now" asked every tool the
+deployment offers, and answered with "no connected account" errors for the
+two a person had never connected. It now pulls the tools this person holds
+(remembered whenever Tools loads); with nothing remembered it still tries
+all, and "not connected" is a skip, not an error. Composio renamed Notion's
+query tool (`NOTION_QUERY_DATABASE_WITH_FILTER` is gone); the connector now
+names what it moved to (`NOTION_QUERY_DATABASE`, then
+`NOTION_QUERY_DATA_SOURCE`) and the sync follows on a "tool not found",
+with the plain tool's own arguments. `CONNECTOR_TOOL_NOTION` still pins one.
+
+**Members connect their own GitHub.** The OAuth journey is the member's own
+credential and writes issues as them, so any member may take it; a pasted
+token and a disconnect stay an admin's (or the connector's own).
+
+**The app's own dark toggle paints the ground.** With the in-app appearance
+set to dark on a light-mode device, the rows went dark and the screen behind
+them stayed light; the `data-theme` rules now cover the screen, feed and
+shell grounds the system dark mode already covered.
+
 **GitHub connects by going there, not by pasting.** GitHub's own OAuth needs
 a callback registered on the OAuth app, and the registered one is the
 phone's; Composio hosts the OAuth for Gmail, Slack and Notion already and

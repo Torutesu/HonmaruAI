@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, afterEach, expect, test } from "vitest";
+import { fetchMock } from "./helpers/fetch-mock.js";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 
@@ -313,6 +314,13 @@ test("a ref that was never written can still be revoked", async () => {
 });
 
 test("GitHub sync is claimed only where it can actually run", async () => {
+  // The status now also asks Composio whether this person's GitHub is
+  // connected; nobody's is here.
+  fetchMock.activate();
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.startsWith("/api/v3/connected_accounts"), method: "GET" })
+    .reply(200, { items: [] })
+    .persist();
   // The Tools screen said "Always on · Built in" to everybody. For an email
   // account in the workspace it was given at sign-up there is no repository to
   // open an issue in and no token to write with.

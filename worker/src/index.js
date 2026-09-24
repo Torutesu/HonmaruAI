@@ -39,7 +39,7 @@ import {
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
 import { providerFor, jevFor, aiStatus, saveAISettings } from "./orgAI.js";
-import { githubStatus, connectWorkspaceGitHub, connectWorkspaceGitHubAs, disconnectWorkspaceGitHub, githubConnectLink, listMyRepositories, myGithubAccount } from "./githubWorkspace.js";
+import { githubStatus, connectWorkspaceGitHub, connectWorkspaceGitHubAs, disconnectWorkspaceGitHub, githubConnectLink, listMyRepositories, myGithubAccount, getWorkspaceGitHub } from "./githubWorkspace.js";
 import { localizeCard, needsLocalizing } from "./localize.js";
 import { connectedSources, lookupsFor, searchNotion, searchGithubIssues } from "./context.js";
 import { ingestedItemForCard } from "./db.js";
@@ -1154,10 +1154,19 @@ async function handle(request, env, url, ctx) {
       const orgId = request.method === "GET" ? (url.searchParams.get("orgId") || "") : String(body?.orgId || "");
       if (!orgId) return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
-      const canEdit = await canRename(env.DB, orgId, session.github_id) || (await isMember(env.DB, orgId, session.github_id) && orgId.includes("/"));
+      const isAdmin = await canRename(env.DB, orgId, session.github_id) || orgId.includes("/");
+      // Connecting with your own GitHub is yours to do as a member — it is
+      // your credential, and the issues are written as you. A pasted token
+      // and a disconnect are the workspace's, so an admin's (or the person
+      // who connected it).
+      const canEdit = isAdmin || Boolean(env.COMPOSIO_API_KEY) || isGitHubSession(session);
       if (request.method !== "GET") {
         if (!canEdit) return json({ message: "Only an admin of this workspace can connect its repository." }, 403);
         if (request.method === "DELETE") {
+          const current = await getWorkspaceGitHub(env.DB, orgId);
+          if (!isAdmin && current && String(current.connectedBy) !== String(session.github_id)) {
+            return json({ message: "Only an admin, or whoever connected it, can disconnect this repository." }, 403);
+          }
           await disconnectWorkspaceGitHub(env.DB, orgId);
         } else {
           // A token they entered; else their GitHub connected through the
@@ -1167,6 +1176,7 @@ async function handle(request, env, url, ctx) {
             : null;
           let result;
           if (token) {
+            if (!isAdmin) return json({ message: "Only an admin of this workspace can connect it with a token." }, 403);
             result = await connectWorkspaceGitHub(env, { orgId, repo: String(body.repo || "").trim(), token, byGithubId: session.github_id });
           } else if (env.COMPOSIO_API_KEY && (await myGithubAccount(env, session.github_id))) {
             result = await connectWorkspaceGitHubAs(env, { orgId, repo: String(body.repo || "").trim(), githubId: session.github_id });
@@ -1290,7 +1300,21 @@ async function handle(request, env, url, ctx) {
 
       const startedAt = new Date().toISOString();
       const syncProvider = await providerFor(env, body.orgId);
-      const results = await syncAll(only ? [only] : availableConnectors(env), {
+      // Only the tools this person connected. The list of what they hold is
+      // remembered whenever the Tools screen loads; with nothing remembered
+      // yet, every tool is tried and "no connected account" is a skip, not
+      // an error — a pull used to fail loudly over the two tools somebody
+      // had never connected.
+      let chosen = only ? [only] : availableConnectors(env);
+      if (!only) {
+        const held = [];
+        for (const c of chosen) {
+          const cfg = await getConnectorConfig(env.DB, session.github_id, c.id);
+          if (cfg?.connected || (c.requiresConfig && cfg)) held.push(c);
+        }
+        if (held.length) chosen = held;
+      }
+      const results = await syncAll(chosen, {
         env, session,
         orgId: body.orgId, userId: me.login,
         readerLanguage: body.readerLanguage,
