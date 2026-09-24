@@ -500,3 +500,124 @@
 }
 .github-pick { flex: 1 1 220px; max-width: none; }
 .github-alt { flex: 1 1 100%; text-align: left; padding: 0; }
+
+/* A quieter pill: the second action beside a primary one, or the only
+   action on something that is read rather than decided. */
+.pill-btn.quiet { background: var(--signal-white); color: var(--ink-black); border-color: var(--bone); }
+.pill-btn.quiet:hover:not([disabled]) { background: var(--mist); }
+
+/* ── Automations ─────────────────────────────────────────────────────── */
+/* One box that takes a sentence, and — once there is one — what your AI
+   understood from it, as controls that can be corrected. */
+.auto-compose {
+  background: var(--signal-white);
+  border: 1px solid var(--bone);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  transition: border-color 0.15s;
+}
+.auto-compose:focus-within { border-color: var(--signal-blue); }
+.auto-question { display: block; font-size: 15px; font-weight: 600; color: var(--ink-black); margin-bottom: 6px; }
+.auto-say {
+  display: block; width: 100%; box-sizing: border-box;
+  border: none; outline: none; resize: none; padding: 0;
+  background: transparent; color: var(--ink-black);
+  font: inherit; font-size: 15px; line-height: 1.5;
+}
+.auto-say::placeholder { color: var(--fog); }
+.screen .auto-say:focus-visible { outline: none; }
+.auto-understood {
+  border-top: 1px solid var(--bone);
+  margin-top: 12px; padding-top: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.auto-field { display: grid; grid-template-columns: 4.5em 1fr; align-items: center; gap: 10px; min-width: 0; }
+.auto-label {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ash);
+}
+.auto-when { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.auto-time { font-variant-numeric: tabular-nums; min-width: 0; }
+.auto-what { resize: vertical; line-height: 1.45; }
+.auto-to { justify-self: start; max-width: 100%; }
+.auto-hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ash); }
+.auto-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.auto-preset .pill-tag { flex: none; }
+.auto-preset[disabled] { opacity: 0.5; cursor: default; }
+
+/* `.row` centres its children, and theme.css says so after this file. */
+.row.routine-row, .row.memory-row, .row.agent-intro { align-items: flex-start; }
+.routine-row .switch { margin-top: 2px; }
+.routine-row .routine-title { display: block; overflow-wrap: anywhere; }
+.routine-row.off .routine-title, .routine-row.off .row-icon { opacity: 0.55; }
+.routine-times { font-variant-numeric: tabular-nums; }
+.routine-cost { font-family: var(--font-mono); font-size: 11.5px; color: var(--slate); }
+/* A run that did not happen: said plainly, in amber rather than alarm red —
+   the routine is still there, it needs a look, not a rescue. Two classes
+   past `.row .row-sub`, which theme.css sets after this file. */
+.row .row-sub.routine-error { color: #8a5a00; }
+.row .row-sub.routine-origin { color: var(--brand-violet); }
+.routine-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin: 6px 0 -4px -4px; }
+.routine-actions .team-confirm { flex-wrap: wrap; }
+.routine-ask { font-size: 13px; color: var(--slate); padding-left: 4px; }
+.routine-edit { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.auto-empty { padding: 36px 24px; }
+
+/* ── Playbook ────────────────────────────────────────────────────────── */
+.playbook-add .row-main, .memory-row .row-main { display: block; }
+.playbook-input { resize: none; }
+.playbook-add-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.playbook-add-foot .row-sub { margin: 0; font-variant-numeric: tabular-nums; }
+.memory-text { display: block; line-height: 1.45; overflow-wrap: anywhere; }
+.memory-source { color: var(--brand-violet); text-decoration: none; }
+.memory-source:hover { text-decoration: underline; }
+
+/* ── Agents (in Tools) ───────────────────────────────────────────────── */
+.agent-intro .row-main { display: block; }
+.agent-minted { display: block; }
+.agent-steps { display: flex; flex-direction: column; gap: 12px; }
+.agent-warn {
+  font-size: 13px; line-height: 1.45; color: #8a5a00;
+  background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-card); padding: 10px 12px;
+}
+.agent-snippet { min-width: 0; }
+.agent-snippet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.agent-code {
+  margin: 0; padding: 10px 12px;
+  background: var(--mist); border: 1px solid var(--bone); border-radius: var(--radius-input);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--ink-black);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 220px; overflow: auto;
+  user-select: all;
+}
+.agent-done { min-height: 44px; }
+.agent-code code { font: inherit; background: none; padding: 0; color: inherit; border-radius: 0; }
+.agent-prefix { font-family: var(--font-mono); font-size: 11.5px; }
+
+@media (max-width: 719px) {
+  /* A phone has no room for a label column: the label sits over its field. */
+  .auto-field { grid-template-columns: 1fr; gap: 4px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .pill-btn.quiet { background: #1a1a1a; color: #f2f2f2; border-color: #2a2a2a; }
+  .pill-btn.quiet:hover:not([disabled]) { background: #222222; }
+  .auto-compose { background: #1a1a1a; border-color: #2a2a2a; }
+  .auto-question, .auto-say { color: #f2f2f2; }
+  .auto-say::placeholder { color: #6a6a6a; }
+  .auto-understood { border-top-color: #2a2a2a; }
+  .auto-hint, .routine-ask, .routine-cost { color: #a3a3a3; }
+  .row .row-sub.routine-error, .agent-warn { color: #e3b341; }
+  .agent-warn { background: rgba(227, 179, 65, 0.08); border-color: rgba(227, 179, 65, 0.25); }
+  .row .row-sub.routine-origin, .memory-source { color: #a996ff; }
+  .agent-code { background: #0f0f0f; border-color: #2a2a2a; color: #f2f2f2; }
+}
+
+/* A username: the @ is part of the field, not something to type. */
+.handle-field { position: relative; display: block; margin-top: 8px; }
+.handle-field .handle-at { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--ash); font-weight: 600; pointer-events: none; }
+.handle-field .handle-input { margin-top: 0; padding-left: 30px; }
+.handle-note { margin-top: 6px; }
+.handle-note.ok { color: #16a34a; }
+.handle-note.bad { color: #dc2626; }

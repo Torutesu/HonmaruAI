@@ -11,6 +11,14 @@ const ENC = new TextEncoder();
 // standing door: a leaked one is closed by the calendar before anyone has
 // to notice it.
 const INVITE_TTL_DAYS = 3;
+/// How many people one link can let in while it lives: in effect, anyone it
+/// is shared with, bounded so a leaked link is not a door forever.
+export const LINK_MAX_USES = 500;
+/// Links made before then were made for one person, and the second person a
+/// shared link reached was told it had expired. Until they expire — three
+/// days — they let in everyone they were shared with, like a link made now.
+const LEGACY_LINKS_BEFORE = "2026-09-24T09:00:00Z";
+const legacyLink = (row) => Number(row.max_uses) === 1 && String(row.created_at || "") < LEGACY_LINKS_BEFORE;
 
 /// The code inside whatever was pasted: a bare code, the link the app
 /// hands out (`…#/join/<code>`), or a code with spaces around it. A person
@@ -230,8 +238,9 @@ async function readInvite(db, code) {
 /// concurrent redemptions of a single-use code cannot both see room.
 async function spendInvite(db, code) {
   const { meta } = await db
-    .prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?1 AND uses < max_uses")
-    .bind(inviteCodeFrom(code))
+    .prepare(`UPDATE invites SET uses = uses + 1 WHERE code = ?1
+                AND (uses < max_uses OR (max_uses = 1 AND created_at < ?2))`)
+    .bind(inviteCodeFrom(code), LEGACY_LINKS_BEFORE)
     .run();
   return Boolean(meta?.changes);
 }
@@ -259,10 +268,13 @@ export async function createInvite(env, { orgId, createdBy, role, uses }) {
   const inviteRole = requested;
   // Invites expire. A code that works forever is a permanent unaudited way in,
   // and the only way to close it would be deleting the row by hand.
-  // One by default: an invite is normally "join my team", sent to one person.
-  // Unlimited was the old behaviour and is the wrong default for something
-  // whoever holds it can spend.
-  const maxUses = Math.min(Math.max(parseInt(uses, 10) || 1, 1), 50);
+  // A link is for whoever it is posted to: a team shares one in a group
+  // chat and everyone in it joins, for the three days it lives. It was one
+  // person by default, and the second person to open a shared link was
+  // told it had expired. A count still applies when one is asked for — an
+  // emailed invite is one person's, and asks for one.
+  const asked = parseInt(uses, 10);
+  const maxUses = Number.isFinite(asked) && asked > 0 ? Math.min(asked, LINK_MAX_USES) : LINK_MAX_USES;
   const now = new Date();
   const expires = new Date(now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
   // The non-secret name for this code, written now rather than derived on
@@ -298,7 +310,7 @@ export async function peekInvite(env, code) {
   if (!code || typeof code !== "string") return null;
   const row = await env.DB
     .prepare(
-      `SELECT i.org_id, i.role, i.expires_at, i.max_uses, i.uses,
+      `SELECT i.org_id, i.role, i.expires_at, i.max_uses, i.uses, i.created_at,
               (SELECT o.name FROM orgs o WHERE o.id = i.org_id) AS team,
               COALESCE(u.name, u.login, i.created_by) AS inviter
          FROM invites i
@@ -309,7 +321,7 @@ export async function peekInvite(env, code) {
     .first();
   if (!row) return null;
   if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
-  if (Number(row.uses) >= Number(row.max_uses)) return null;
+  if (Number(row.uses) >= Number(row.max_uses) && !legacyLink(row)) return null;
   return {
     orgId: row.org_id,
     team: row.team || null,

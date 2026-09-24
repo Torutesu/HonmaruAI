@@ -144,9 +144,9 @@ test("a code is spent after its permitted number of uses", async () => {
   await upsertUser(env.DB, { githubId: "7101", login: "first", name: "First", avatarUrl: null, locale: "en" });
   await upsertUser(env.DB, { githubId: "7102", login: "second", name: "Second", avatarUrl: null, locale: "en" });
 
-  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  // Asked for one — an emailed invite is — it admits one.
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG, uses: 1 }), env);
   const { code, maxUses } = await res.json();
-  // One by default: a leaked link should admit one stranger, not a stream.
   expect(maxUses).toBe(1);
 
   expect((await acceptInvite(env, { code, userId: "7101" })).error).toBeUndefined();
@@ -177,7 +177,7 @@ test("an already-member redemption does not spend the code", async () => {
   await upsertUser(env.DB, { githubId: "8100", login: "already", name: "Already", avatarUrl: null, locale: "en" });
   await upsertMembership(env.DB, VICTIM_ORG, "8100", "member");
 
-  const { code } = await createInvite(env, { orgId: VICTIM_ORG, createdBy: "7001", role: "member" });
+  const { code } = await createInvite(env, { orgId: VICTIM_ORG, createdBy: "7001", role: "member", uses: 1 });
   expect((await acceptInvite(env, { code, userId: "8100" })).error).toBeUndefined();
 
   // Still good for the person it was for.
@@ -202,4 +202,33 @@ test("maintainer is a role the ladder knows, in both directions", async () => {
   // But still not an admin.
   expect((await createInvite(env, { orgId: VICTIM_ORG, createdBy: "8200", role: "admin" })).error)
     .toBeTruthy();
+});
+
+test("a link, by default, lets in everyone it is shared with for its three days", async () => {
+  const { acceptInvite } = await import("../src/auth.js");
+  const { upsertUser } = await import("../src/db.js");
+  const ids = ["7301", "7302", "7303", "7304"];
+  for (const id of ids) await upsertUser(env.DB, { githubId: id, login: `l${id}`, name: id, avatarUrl: null, locale: "en" });
+  const res = await worker.fetch(createInviteReq(ownerToken, { orgId: VICTIM_ORG }), env);
+  const { code, maxUses, expiresAt } = await res.json();
+  expect(maxUses).toBeGreaterThan(100);
+  expect(Date.parse(expiresAt) - Date.now()).toBeGreaterThan(2.9 * 86400000);
+  for (const id of ids) expect((await acceptInvite(env, { code, userId: id })).error).toBeUndefined();
+  // And after three days it opens nothing.
+  await env.DB.prepare("UPDATE invites SET expires_at = ?2 WHERE code = ?1").bind(code, new Date(Date.now() - 1000).toISOString()).run();
+  await upsertUser(env.DB, { githubId: "7305", login: "late", name: "Late", avatarUrl: null, locale: "en" });
+  expect((await acceptInvite(env, { code, userId: "7305" })).error).toBeTruthy();
+});
+
+test("a link made for one person before links were for everyone lets the next person in too", async () => {
+  const { acceptInvite, peekInvite } = await import("../src/auth.js");
+  const { upsertUser } = await import("../src/db.js");
+  for (const id of ["7401", "7402"]) await upsertUser(env.DB, { githubId: id, login: `o${id}`, name: id, avatarUrl: null, locale: "en" });
+  const code = "a".repeat(32);
+  await env.DB.prepare(`INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, uses)
+    VALUES (?1, ?2, '7001', 'member', '2026-09-24T08:00:00Z', ?3, 1, 1)`)
+    .bind(code, VICTIM_ORG, new Date(Date.now() + 86400000).toISOString()).run();
+  expect(await peekInvite(env, code)).toBeTruthy();
+  expect((await acceptInvite(env, { code, userId: "7401" })).error).toBeUndefined();
+  expect((await acceptInvite(env, { code, userId: "7402" })).error).toBeUndefined();
 });

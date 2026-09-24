@@ -11,7 +11,7 @@ import {
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness, unfileBusiness,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
-  loadContexts, saveContext,
+  loadContexts, saveContext, cleanName, checkHandle, setUserName, setUserHandle, MAX_NAME_CHARS,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards, evictMember, announceEvents } from "./announce.js";
@@ -30,7 +30,11 @@ import { isMailConfigured, sendMail } from "./mailer.js";
 import { SUPPORTED_LOCALES, composeInviteEmail } from "./notifyCopy.js";
 import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { settleUsage, jevEntry } from "./ledger.js";
-import { runScheduledSync } from "./scheduled.js";
+import { runScheduledSync, runAutomations } from "./scheduled.js";
+import { handleAutomation } from "./automation.js";
+import { handleChannels } from "./channelRoutes.js";
+import { recentBusinessTalk } from "./channels.js";
+import { relevantMemories } from "./memory.js";
 import { logJSON, routeLabel, safe } from "./log.js";
 import {
   recordFeedback, orgMetrics, recipientLoad, recentDecisions, exportGolden, searchDecisions,
@@ -103,8 +107,12 @@ export default {
   // Every 15 minutes, so a decision that arrived in someone's inbox is already
   // a card by the time they look. Nothing here bypasses the free-tier meter:
   // the sync loop checks the same allowance a manual sync does.
-  async scheduled(_event, env, ctx) {
+  async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduledSync(env, ctx));
+    // Routines whose hour has come, and once a day the automations the AI
+    // would propose. Separate from the sync, so a slow inbox cannot make a
+    // Monday report late.
+    ctx.waitUntil(runAutomations(env, ctx, new Date(event?.scheduledTime || Date.now())));
   },
 
   async fetch(request, env, ctx) {
@@ -145,10 +153,36 @@ async function handle(request, env, url, ctx) {
         status: 204,
         headers: {
           "access-control-allow-origin": "*",
-          "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+          "access-control-allow-headers": "content-type, x-session-token, x-ai-key, authorization, mcp-session-id, mcp-protocol-version",
           "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
         },
       });
+    }
+
+    // Routines, the playbook, agent tokens and the MCP endpoint.
+    const automated = await handleAutomation(request, env, url);
+    if (automated) return automated;
+
+    // Channels: talking, and turning what was said into a decision through
+    // /ai/route itself, called in-process with the caller's own session.
+    if (url.pathname === "/channels" || url.pathname.startsWith("/channels/")) {
+      const channels = await handleChannels(request, env, url, {
+        route: (body) => {
+          const inner = new Request(new URL("/ai/route", url.origin), {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-session-token": request.headers.get("x-session-token") || "",
+              ...(request.headers.get("x-ai-key") ? { "x-ai-key": request.headers.get("x-ai-key") } : {}),
+              ...(request.headers.get("CF-Connecting-IP") ? { "CF-Connecting-IP": request.headers.get("CF-Connecting-IP") } : {}),
+            },
+            body: JSON.stringify(body),
+          });
+          return handle(inner, env, new URL(inner.url), ctx);
+        },
+        after: (work) => after(ctx, work),
+      });
+      if (channels) return channels;
     }
 
         if (url.pathname === "/auth/signup" && request.method === "POST") {
@@ -560,11 +594,14 @@ async function handle(request, env, url, ctx) {
         // prompt. Two queries, both bounded, both optional: a failure here is
         // a card routed the old way, not a card not routed.
         try {
-          const [load, recent] = await Promise.all([
+          const [load, recent, playbook] = await Promise.all([
             recipientLoad(env.DB, routeOrgId),
             recentDecisions(env.DB, routeOrgId),
+            // The rules this team has set, the ones that bear on this
+            // instruction first.
+            relevantMemories(env.DB, routeOrgId, body.text),
           ]);
-          if (load.length || recent.length) teamContext = { load, recent };
+          if (load.length || recent.length || playbook.length) teamContext = { load, recent, playbook };
         } catch (err) {
           console.error("team context failed", err?.message || err);
         }
@@ -855,6 +892,7 @@ async function handle(request, env, url, ctx) {
         userId: user.github_id,
         orgId: await primaryOrgId(env.DB, session.github_id),
         name: user.name,
+        handle: user.handle || null,
         locale: user.locale || "en",
         email: user.email || null,
         // An email account signs in with its address; only a GitHub account
@@ -927,6 +965,18 @@ async function handle(request, env, url, ctx) {
       if (body.notifyEmail !== undefined) {
         await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
       }
+      // What you are called, and the username @ finds you by.
+      if (body.name !== undefined) {
+        const name = cleanName(body.name);
+        if (!name) return json({ message: `A name is 1 to ${MAX_NAME_CHARS} characters.` }, 400);
+        await setUserName(env.DB, session.github_id, name);
+      }
+      if (body.handle !== undefined) {
+        const checked = checkHandle(body.handle);
+        if (checked.error) return json({ message: checked.error, field: "handle" }, 400);
+        const taken = await setUserHandle(env.DB, session.github_id, checked.handle);
+        if (taken.error) return json({ message: taken.error, field: "handle" }, 409);
+      }
       if (body.aliases !== undefined) {
         const aliases = normalizeAliases(body.aliases);
         if (!aliases) return json({ message: "aliases must be a list of names" }, 400);
@@ -954,6 +1004,8 @@ async function handle(request, env, url, ctx) {
         email: user?.email || null,
         notifyEmail: Number(user?.notify_email ?? 1) !== 0,
         aliases: parseAliases(user?.aliases),
+        name: user?.name || null,
+        handle: user?.handle || null,
         ...(role ? { role } : {}),
       });
     }
@@ -1391,23 +1443,31 @@ async function handle(request, env, url, ctx) {
       let related = [];
       let recent = [];
       let sources = [];
+      let playbook = [];
+      let talk = [];
       try {
         const terms = searchTermsFor(question, card);
         const available = await connectedSources(env, session, orgId);
-        const [decisionsHit, recentHit, notionHit, githubHit] = await Promise.all([
+        const [decisionsHit, recentHit, notionHit, githubHit, playbookHit, talkHit] = await Promise.all([
           searchDecisions(env.DB, orgId, terms),
           recentDecisions(env.DB, orgId, { limit: 8 }),
           available.notion ? searchNotion(env, session.github_id, terms).catch((err) => { console.error("notion search failed", err?.message || err); return []; }) : [],
           available.github ? searchGithubIssues(session, orgId, terms, env).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
+          relevantMemories(env.DB, orgId, `${card.title || ""} ${question}`),
+          // What the card's channel has been saying: the conversation the
+          // decision came out of is often the answer.
+          card.business ? recentBusinessTalk(env.DB, orgId, [card.business], { limit: 12 }).catch(() => []) : [],
         ]);
+        talk = talkHit;
+        playbook = playbookHit;
         related = decisionsHit;
         recent = recentHit;
-        sources = [...notionHit, ...githubHit];
+        sources = [...notionHit, ...githubHit, ...talk.map((m) => ({ app: "Channel", title: `${m.channel} · ${m.who}`, snippet: m.text, when: m.when }))];
       } catch (err) {
         console.error("ask context failed", err?.message || err);
       }
       const result = await answerQuestion({
-        provider, card, question, readerLanguage: body.readerLanguage, recent, related, sources,
+        provider, card, question, readerLanguage: body.readerLanguage, recent, related, sources, playbook,
       });
       if (result.called && allowance.metered) await allowance.consume();
       await settleUsage(env.DB, provider, { orgId, githubId: session.github_id, byok: Boolean(userKey) });
@@ -1453,8 +1513,9 @@ async function handle(request, env, url, ctx) {
       if (!allowance.allowed) {
         return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
       }
+      const playbook = await relevantMemories(env.DB, orgId, `${card.title || ""} ${card.summary || ""}`, { limit: 6 });
       const result = await draftReply({
-        provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage,
+        provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage, playbook,
       });
       if (result.called && allowance.metered) await allowance.consume();
       await settleUsage(env.DB, provider, { orgId, githubId: session.github_id, byok: Boolean(userKey) });

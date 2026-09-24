@@ -43,6 +43,11 @@ export const LIMITS = {
   // costs a model call, so the ceiling is what stops a flood of forged posts
   // becoming a bill. Counted per IP, since a webhook carries no session.
   "webhooks/email": { max: 120, windowSeconds: 300 },
+  // An agent speaking MCP, counted per access token. A request_decision is
+  // a card in somebody's feed and a notification on their phone; an agent
+  // in a loop must not be able to bury a person.
+  mcp: { max: 120, windowSeconds: 300 },
+  "mcp/request_decision": { max: 30, windowSeconds: 3600 },
 };
 
 /// Who this request counts against, given a token already known to be real.
@@ -89,7 +94,14 @@ export async function enforce(env, request, bucket) {
   if (!limit) return null;
 
   const verified = await verifySessionToken(env, request.headers.get("x-session-token"));
-  const subject = subjectFor(request, verified);
+  return enforceSubject(env, bucket, subjectFor(request, verified));
+}
+
+/// The same limit, for a caller the route has already identified some other
+/// way — an access token, which is not a session.
+export async function enforceSubject(env, bucket, subject) {
+  const limit = LIMITS[bucket];
+  if (!limit) return null;
   const now = Math.floor(Date.now() / 1000);
   const windowStart = now - (now % limit.windowSeconds);
 

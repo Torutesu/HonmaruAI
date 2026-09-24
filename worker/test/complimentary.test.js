@@ -60,11 +60,12 @@ test("private code saves permanent access but reports iOS activation pending wit
   const rows = await env.DB.prepare("SELECT * FROM complimentary_access").all();
   expect(rows.results).toHaveLength(1);
   expect(JSON.stringify(rows)).not.toContain(TEST_CODE);
-  // Secret removal stops new redemptions, not previously granted access.
-  expect((await redeem(TEST_CODE, account.token, env)).status).toBe(503);
+  // Secret removal stops the secret's redemptions, not previously granted
+  // access. (The launch code is built in, so redemption stays open.)
+  expect((await redeem(TEST_CODE, account.token, env)).status).toBe(400);
   const next = await status(account.token, env);
   expect(next.headers.get("cache-control")).toBe("no-store");
-  expect(await next.json()).toMatchObject({ complimentary: true, pro: true, complimentarySyncPending: true, complimentaryAvailable: false });
+  expect(await next.json()).toMatchObject({ complimentary: true, pro: true, complimentarySyncPending: true, complimentaryAvailable: true });
 });
 
 test("grant follows the same account across sessions and never another account", async () => {
@@ -108,4 +109,14 @@ test("account deletion removes free access and invalidates its session", async (
   await deleteAccount(env.DB, identity.github_id, account.login);
   expect(await hasComplimentaryAccess(env, identity.github_id)).toBe(false);
   expect((await status(account.token)).status).toBe(401);
+});
+
+test("the launch code ShogunAI1234 gives Pro for good, whatever the case, with no secret set", async () => {
+  expect(await hasComplimentaryAccess(env, identity.github_id)).toBe(false);
+  expect((await redeem("ShogunAI1234x", account.token, env)).status).toBe(400);
+  const res = await redeem(" shogunai1234 ", account.token, env);
+  // Saved; the iOS side reports pending without RevenueCat credentials.
+  expect(await res.json()).toMatchObject({ pro: true, complimentary: true });
+  expect(await hasComplimentaryAccess(env, identity.github_id)).toBe(true);
+  expect((await redeem("ShogunAI1234", account.token, env)).status).not.toBe(400);
 });

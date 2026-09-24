@@ -20,11 +20,15 @@ interface Props {
   // Called once the card is on its way, so a sheet can close.
   onDone?: () => void
   autoFocus?: boolean
+  /// Words already written somewhere else — the list's "Your AI"
+  /// conversation — and whether to send them straight away.
+  initialText?: string
+  autoSend?: boolean
 }
 
-export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, sessionToken, onSendCard, onLog, onDone, autoFocus }) => {
+export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, sessionToken, onSendCard, onLog, onDone, autoFocus, initialText, autoSend }) => {
   const t = useT()
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initialText || '')
   const box = useRef<HTMLTextAreaElement>(null)
   // "@" offers the team's names; whoever you name is who it is for.
   const members = useMembers(relayHttpUrl, orgId, sessionToken)
@@ -36,7 +40,8 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
     const el = box.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`
+    // Tall enough to read a pasted paragraph whole before it is sent.
+    el.style.height = `${Math.min(el.scrollHeight, 360)}px`
   }, [text])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -60,8 +65,16 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
   }
   useEffect(() => () => dictation.current?.stop(), [])
 
+  // Send is never greyed out: pressed with nothing written, it puts you in
+  // the box and says what goes there, rather than looking broken.
+  const [empty, setEmpty] = useState(false)
   const handleCreate = async () => {
-    if (!text.trim()) return
+    if (!text.trim()) {
+      setEmpty(true)
+      box.current?.focus()
+      setTimeout(() => setEmpty(false), 1600)
+      return
+    }
     setBusy(true)
     setError(null)
     const mentions = mentionedRefs(text, members)
@@ -135,6 +148,12 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
     }
   }
 
+  const sentOnce = useRef(false)
+  useEffect(() => {
+    if (autoSend && initialText?.trim() && !sentOnce.current) { sentOnce.current = true; void handleCreate() }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div className="create-decision">
       {/* A sentence, not a search box. On one line anything longer than the
@@ -170,9 +189,10 @@ export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, s
           <Icon name="mic" size={18} />
         </button>
       )}
-      <button onClick={handleCreate} disabled={busy || !text.trim()}>
+      <button onClick={handleCreate} disabled={busy} className={text.trim() ? 'ready' : 'idle'}>
         {busy ? t('Routing…') : t('Send')}
       </button>
+      {empty && <div className="create-empty" role="status">{t('Write who it is for and what they decide first.')}</div>}
       {error && <div className="create-error">{error}</div>}
     </div>
   )

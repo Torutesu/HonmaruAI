@@ -3,9 +3,12 @@ import type { DecisionCard, Business } from '../types/card'
 import { getLocale } from '../utils/locale'
 import './Feed.css'
 import { displayName } from '../utils/names'
-import { useT, t } from '../utils/i18n'
+import { useT } from '../utils/i18n'
 import { ReplyDraft } from './ReplyDraft'
 import { CardThread } from './CardThread'
+import { ReportDoc, ProposalNote } from './Report'
+import { ago } from '../utils/ago'
+import { sourceLabel } from '../utils/automation'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -72,21 +75,6 @@ function initials(name: string): string {
   return [...clean][0].toUpperCase()
 }
 
-/// "12m ago", the way the design writes it. Anything past a week is a date,
-/// because "63d ago" is not something anyone reads as a duration.
-function ago(iso: string): string {
-  const then = Date.parse(iso)
-  if (!Number.isFinite(then)) return ''
-  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
-  if (mins < 1) return t('just now')
-  if (mins < 60) return t('{n}m ago', { n: mins })
-  const hours = Math.round(mins / 60)
-  if (hours < 24) return t('{n}h ago', { n: hours })
-  const days = Math.round(hours / 24)
-  if (days <= 7) return t('{n}d ago', { n: days })
-  return new Date(then).toLocaleDateString()
-}
-
 function segments(context: string): Array<{ label: string; detail: string }> {
   return context.split(/\s+·\s+/).map((seg) => {
     const [label, ...rest] = seg.split(/[:：]/)
@@ -95,6 +83,11 @@ function segments(context: string): Array<{ label: string; detail: string }> {
   }).filter((s) => s.detail)
 }
 
+/// A card that asks nothing — a report, an FYI — is read and put away, not
+/// approved or declined: one button, "Got it", and a swipe right. Approving
+/// a report was a decision nobody had been asked for.
+const isFyi = (card: DecisionCard) => Boolean(card.report) || card.format === 'fyi'
+
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
@@ -102,6 +95,15 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
   const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
+  // Each card on screen registers how it leaves: a decision from the
+  // keyboard flies the card off the same way a swipe does, instead of the
+  // card vanishing under the finger that did not touch it.
+  const flingers = useRef(new Map<string, (action: string) => void>())
+  const fling = useCallback((card: DecisionCard, action: string) => {
+    const go = flingers.current.get(card.id)
+    if (go) go(action)
+    else onDecide(card.id, action)
+  }, [onDecide])
   const nameOf = useMemo(() => {
     const map = new Map(businesses.map((b) => [b.slug, b.name]))
     return (slug?: string) => (slug ? map.get(slug) || slug : '')
@@ -137,12 +139,12 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
       const card = cards[index]
       if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); scrollTo(index + 1) }
       else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); scrollTo(index - 1) }
-      else if (card && card.status === 'pending' && (e.key === 'a' || e.key === 'A')) onDecide(card.id, 'approve')
-      else if (card && card.status === 'pending' && (e.key === 'd' || e.key === 'D')) onDecide(card.id, 'decline')
+      else if (card && card.status === 'pending' && (e.key === 'a' || e.key === 'A' || e.key === 'ArrowRight')) { e.preventDefault(); fling(card, isFyi(card) ? 'acknowledge' : 'approve') }
+      else if (card && card.status === 'pending' && !isFyi(card) && (e.key === 'd' || e.key === 'D' || e.key === 'ArrowLeft')) { e.preventDefault(); fling(card, 'decline') }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [active, cards, index, scrollTo, onDecide])
+  }, [active, cards, index, scrollTo, fling])
 
   return (
     <div className="feed" ref={container}>
@@ -173,6 +175,7 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
           onUndo={onUndo}
           api={api}
           layout={layout}
+          flingers={flingers.current}
         />
       ))}
       {cards.length > 1 && (
@@ -193,6 +196,7 @@ interface PageProps {
   onUndo: Props['onUndo']
   api?: Props['api']
   layout: 'phone' | 'desk'
+  flingers: Map<string, (action: string) => void>
 }
 
 // What was done, as a word. English keys, translated where read.
@@ -202,7 +206,7 @@ const DONE_WORD: Record<string, string> = {
   delegate: 'Delegated', later: 'Deferred',
 }
 
-const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, onAsk, onFlag, answer, onUndo, api, layout }) => {
+const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, onAsk, onFlag, answer, onUndo, api, layout, flingers }) => {
   const t = useT()
   const [dx, setDx] = useState(0)
   const [ask, setAsk] = useState('')
@@ -216,7 +220,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   const who = card.requestedBy
   const whoName = who?.name || displayName(card.senderUserID)
   const quote = who?.quote || card.sourceInstruction || card.originalBody || ''
-  const sources = card.sourceApp ? [card.sourceApp] : []
+  const sources = card.sourceApp ? [sourceLabel(card, t)] : []
   // The legend draws three levels. "urgent" is the fourth the API can send,
   // and it used to light nothing at all — the one priority that most needed
   // to be seen was the one with no mark. It lights the top of the scale and
@@ -227,10 +231,39 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   const decided = card.status !== 'pending' || Boolean(card.decision)
   const onThisCard = card.recipientUserID === userId || card.senderUserID === userId
 
+  // The card leaves the way it was decided: off to the right for yes, to
+  // the left for no, turning as it goes — then the decision is sent. Every
+  // way of deciding goes through here: a drag, a flick, a trackpad swipe,
+  // a button, a key.
+  const [flying, setFlying] = useState<'approve' | 'decline' | null>(null)
+  const decide = useCallback((action: string) => {
+    if (decided || flying) return
+    const direction = action === 'decline' ? 'decline' : 'approve'
+    setFlying(direction)
+    const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    setTimeout(() => onDecide(card.id, action), reduced ? 0 : 230)
+  }, [decided, flying, onDecide, card.id])
+  useEffect(() => {
+    flingers.set(card.id, decide)
+    return () => { if (flingers.get(card.id) === decide) flingers.delete(card.id) }
+  }, [flingers, card.id, decide])
+  const yes = isFyi(card) ? 'acknowledge' : 'approve'
+  const release = (distance: number, speed: number) => {
+    // Far enough, or a quick flick that meant it.
+    const meant = Math.abs(distance) > SWIPE_THRESHOLD || (Math.abs(speed) > 0.55 && Math.abs(distance) > 36)
+    if (meant && distance > 0) decide(yes)
+    else if (meant && distance < 0 && !isFyi(card)) decide('decline')
+    setDx(0)
+  }
+
+  const last = useRef<{ x: number; t: number }[]>([])
   const onPointerDown = (e: React.PointerEvent) => {
-    if (decided) return
-    if ((e.target as HTMLElement).closest('button, textarea, input, a')) return
+    if (decided || flying) return
+    // A report is read, and its words can be selected; dragging across one
+    // must not decide the card.
+    if ((e.target as HTMLElement).closest('button, textarea, input, select, a, .report-body, .thread')) return
     start.current = { x: e.clientX, y: e.clientY }
+    last.current = [{ x: e.clientX, t: e.timeStamp }]
     // Keep receiving moves after the pointer leaves the page, or a fast swipe
     // that ends off the card ends with no pointerup and a card stuck mid-drag.
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch { /* not every pointer can be captured */ }
@@ -239,16 +272,37 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
     if (!start.current) return
     const ddx = e.clientX - start.current.x
     const ddy = e.clientY - start.current.y
+    last.current = [...last.current.slice(-4), { x: e.clientX, t: e.timeStamp }]
     if (Math.abs(ddx) > Math.abs(ddy)) setDx(ddx)
   }
   const onPointerUp = () => {
     if (!start.current) return
     start.current = null
-    if (dx > SWIPE_THRESHOLD) onDecide(card.id, 'approve')
-    else if (dx < -SWIPE_THRESHOLD) onDecide(card.id, 'decline')
-    setDx(0)
+    const pts = last.current
+    const speed = pts.length > 1 ? (pts[pts.length - 1].x - pts[0].x) / Math.max(1, pts[pts.length - 1].t - pts[0].t) : 0
+    release(dx, speed)
   }
-  const hint = dx > 24 ? 'approve' : dx < -24 ? 'decline' : null
+
+  // A trackpad's two-finger swipe, on a laptop: the same gesture as a
+  // finger on a phone. Sideways only — scrolling the card still scrolls.
+  const wheel = useRef<{ acc: number; timer: ReturnType<typeof setTimeout> | null }>({ acc: 0, timer: null })
+  const onWheel = (e: React.WheelEvent) => {
+    if (decided || flying) return
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || Math.abs(e.deltaX) < 1) return
+    const w = wheel.current
+    w.acc = Math.max(-SWIPE_THRESHOLD * 2, Math.min(SWIPE_THRESHOLD * 2, w.acc - e.deltaX))
+    setDx(w.acc)
+    if (w.timer) clearTimeout(w.timer)
+    w.timer = setTimeout(() => { const acc = w.acc; w.acc = 0; w.timer = null; release(acc, 0) }, 140)
+  }
+  useEffect(() => () => { if (wheel.current.timer) clearTimeout(wheel.current.timer) }, [])
+
+  const hint = flying || (dx > 24 ? 'approve' : dx < -24 ? 'decline' : null)
+  // How sure the gesture looks, 0 to 1: the stamp's ink.
+  const certainty = flying ? 1 : Math.min(1, Math.abs(dx) / SWIPE_THRESHOLD)
+  const cardStyle: React.CSSProperties = flying
+    ? { transform: `translateX(${flying === 'approve' ? 130 : -130}%) rotate(${flying === 'approve' ? 16 : -16}deg)`, opacity: 0, transition: 'transform 240ms cubic-bezier(.4,0,1,1), opacity 240ms ease-in' }
+    : { transform: `translateX(${dx}px) rotate(${dx / 22}deg)`, transition: dx === 0 ? 'transform 200ms cubic-bezier(.2,.9,.3,1.2)' : 'none' }
 
   return (
     <section
@@ -257,15 +311,28 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onWheel={onWheel}
     >
       <div className="page-inner">
         <article
-          className="card"
+          className={`card${decided ? '' : ' swipeable'}`}
           aria-label={title}
-          style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? 'transform 160ms ease' : 'none' }}
+          style={cardStyle}
         >
+          {!decided && (
+            <>
+              <span className="swipe-stamp yes" aria-hidden="true" style={{ opacity: hint === 'approve' ? certainty : 0 }}>
+                {isFyi(card) ? t('Got it') : t('Approve')}
+              </span>
+              {!isFyi(card) && (
+                <span className="swipe-stamp no" aria-hidden="true" style={{ opacity: hint === 'decline' ? certainty : 0 }}>
+                  {t('Decline')}
+                </span>
+              )}
+            </>
+          )}
           <header className="card-top">
-            <span className="card-kind">{t(KIND[card.type] || card.type)}</span>
+            <span className="card-kind">{card.report ? t('Report') : t(KIND[card.type] || card.type)}</span>
             <span className="priority-legend" aria-label={t('Priority')}>
               {(['low', 'medium', 'high'] as const).map((step) => (
                 <span key={step} className={`legend ${level === step ? 'on' : ''} p-${step}${card.priority === 'urgent' && step === 'high' ? ' urgent' : ''}`}>
@@ -278,14 +345,20 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
           <h1 className="card-title">{title}</h1>
           {summary && <p className="card-summary">{summary}</p>}
 
-          {(sources.length > 0 || businessName) && (
+          {(sources.length > 0 || businessName || card.proposal) && (
             <div className="card-sources">
+              {card.proposal && <span className="source-chip proposal-chip">{t('Automation proposal')}</span>}
               {businessName && <span className="source-chip business">{businessName}</span>}
               {sources.map((s) => <span key={s} className="source-chip">{s}</span>)}
             </div>
           )}
 
-          {context && (
+          {card.report?.markdown && <ReportDoc report={card.report} title={title} />}
+          {card.proposal && <ProposalNote proposal={card.proposal} />}
+
+          {/* A proposal's context repeats its evidence as a sentence; the
+              note under it says the same thing as a list you can open. */}
+          {context && !card.proposal && (
             <ul className="card-context">
               {segments(context).map((seg, i) => (
                 <li key={i}>
@@ -336,7 +409,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
               </span>
               <span className="decided-when">
                 {card.decision?.decidedAt ? ago(card.decision.decidedAt) : ''}
-                {card.decision?.actorUserID ? ` · ${displayName(card.decision.actorUserID)}` : ''}
+                {card.decision?.actorUserID ? ` · ${card.decision.actorUserID === userId ? t('you') : displayName(card.decision.actorUserID)}` : ''}
               </span>
               {card.recipientUserID === userId && card.decision && (
                 <button type="button" className="pill-btn decided-undo" onClick={() => onUndo(card.id)}>{t('Undo')}</button>
@@ -348,10 +421,17 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             )}
           </div>
         ) : (
-          <div className="decide-row">
-            <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
-            <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
-          </div>
+          isFyi(card) ? (
+            <div className="decide-row">
+              <button className="decide approve" onClick={() => decide('acknowledge')} aria-label={t('Got it')} aria-keyshortcuts="a">✓</button>
+            </div>
+          ) : (
+            <div className="decide-row">
+              <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
+              <button className="decide approve" onClick={() => decide('approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
+              {layout === 'desk' && <span className="swipe-hint-desk" aria-hidden="true">{t('Swipe, drag, or ← →')}</span>}
+            </div>
+          )
         )}
 
         <form

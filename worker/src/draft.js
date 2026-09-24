@@ -1,4 +1,5 @@
 import { noteUsage } from "./ledger.js";
+import { playbookBlock } from "./memory.js";
 // The message that goes back to whoever asked, after the decision is made.
 //
 // A decision in the feed is one tap; telling the person who asked for it is
@@ -27,7 +28,7 @@ export function draftLanguageFor(card, readerLanguage) {
 
 /// Draft. Returns { called, draft } — `called` is whether we paid a model for
 /// this (billing follows it), `draft` is the text or null.
-export async function draftReply({ provider, card, decider, readerLanguage }) {
+export async function draftReply({ provider, card, decider, readerLanguage, playbook = [] }) {
   if (!provider) return { called: false, draft: null };
   const decision = card?.decision;
   if (!decision) return { called: false, draft: null };
@@ -52,7 +53,8 @@ ${JSON.stringify({
     decidedAt: decision.decidedAt ? String(decision.decidedAt).slice(0, 10) : "",
     delegatedTo: decision.delegatedTo || "",
   })}
-</decision>`;
+</decision>
+${playbookBlock(playbook)}`;
 
   let data;
   try {

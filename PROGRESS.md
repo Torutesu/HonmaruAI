@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 
 ## Where this is
 
@@ -9,10 +9,10 @@ sync to GitHub, across users, in real time. The backend is Cloudflare Workers +
 Durable Objects + D1 + R2 (`worker/`), not the localhost Node relay this started
 on (`server/`, kept only as the reference client's host).
 
-- **Worker suite:** 477 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
+- **Worker suite:** 618 tests, real `workerd` via `@cloudflare/vitest-pool-workers`
 - **End to end:** `./e2e/run.sh` — a real Worker, a real D1, the built web
   client and a browser signing up with a code it reads out of the message the
-  Worker actually sent. 45 steps
+  Worker actually sent. 57 steps
 - **iOS suite:** `TikTokForWorkTests` — outbox, cache and card state
 - **Web unit suite:** 26 tests over the AG-UI client, the outbox, the card cache, the sign-in callback, the routes
 - **QA report:** [docs/qa-report.md](docs/qa-report.md) — what was checked
@@ -27,6 +27,57 @@ The list of what is still missing, and why each item matters, is
 [docs/production-release-plan.md](docs/production-release-plan.md).
 
 ## Done
+
+### Channels you talk in, and cards you swipe (2026-09-24)
+
+- [x] **The list is a chat.** Channels (a business's, the whole team) and
+      direct messages (the two of you) carry messages: Enter sends, links
+      and @names are live, every teammate is in Direct messages. Decisions
+      sit in the conversation as a chat app's attachments, with Approve /
+      Decline / Open right there. `/channels`, `/channels/messages`
+- [x] **What is said is context.** "@AI" in a message — or "Make it a
+      decision" on any message — sends it through `/ai/route` with the
+      conversation before it as context; the card is filed under the
+      channel's business (in a direct conversation it goes to the other
+      person), and the AI says so in the channel with the card under it.
+      "Ask anything" and routines read the channels too
+- [x] **Cards are swiped.** The card tilts as it is dragged, a stamp says
+      what letting go will do, past the line it flies off and the next one
+      rises; a flick, a trackpad's two-finger swipe, ← → and the buttons
+      all do the same. On a laptop the pane shows a stack
+
+### The AI works on its own (from the Viktor research, 2026-09-24)
+
+What an "AI employee" does that this did not, taken into the feed rather
+than into a chat app — [docs/viktor-gap-plan.md](docs/viktor-gap-plan.md).
+
+- [x] **Routines.** "毎週月曜9時に先週の決定をまとめて" is read locally (en/ja,
+      no model) into a cadence, a time and the work; the cron runs it in the
+      owner's time zone and the result lands as a **report card** — markdown
+      written from the team's decisions, what waits on the reader, what is
+      stuck, the playbook and the connected tools; with no model, a digest of
+      the same numbers. The morning brief is a preset. Each run's cost is on
+      the routine, so spend is seen before it surprises. `/routines`,
+      `/routines/parse`, `/routines/:id/run`
+- [x] **The AI proposes automations, as a decision.** Once a day, the same
+      person asking for nearly the same thing on three days in six weeks gets
+      an approval card: "automate this every Monday at 9?" Approve → a routine;
+      decline → never proposed again; one proposal a person a week. What gets
+      made is the routine stored with the proposal, never the card's copy
+- [x] **A playbook the AI learns and people can see.** A decision with a
+      reason is read once for a rule that will hold next time ("supplier price
+      rises wait until the lease is settled"); people write rules too, edit
+      and delete them, and an admin can make it forget everything it learned.
+      The router, "Ask anything", reply drafts and routines read the rules
+      that bear on the task. `/memories`
+- [x] **Any agent can ask a person for a decision (MCP).** `/mcp` speaks
+      Streamable HTTP; an access token per agent, per workspace, stored as a
+      hash and shown once. `request_decision` puts a card in a teammate's
+      feed, `get_decision` reads the answer; `list_pending`,
+      `search_decisions`, `list_members`, `get_playbook`. A token dies with
+      its owner's membership; thirty requests an hour per token
+- [x] Deleting an account takes its routines and tokens; the rules it
+      taught stay with the team, unsigned
 
 ### The improvement loop (dogfooding)
 - [x] **One grey scale per side.** The web's cool, blue-tinted greys and

@@ -159,6 +159,24 @@
   }
   .shell .sheet-bottom { left: calc(var(--rail, 0px) + (100vw - var(--rail, 0px)) / 2); }
   .sheet-side { width: min(100%, 520px); }
+
+  /* The composer is where the work is said, so it is given room: a wide
+     dialog, a box several lines tall that shows the whole instruction as
+     it is written, and the buttons under it, not squeezed beside it. */
+  .sheet-bottom.sheet-compose { width: min(92vw, 820px); top: 12vh; padding: 32px 32px 28px; }
+  .sheet-bottom.sheet-compose .sheet-title { font-size: 24px; }
+  .sheet-bottom.sheet-compose .sheet-hint { font-size: 14.5px; margin-bottom: 18px; }
+  .sheet-compose .create-decision { flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
+  .sheet-compose .create-decision textarea {
+    flex: 1 1 100%;
+    min-height: 168px;
+    border-radius: 16px;
+    padding: 18px 20px;
+    font-size: 17px;
+    line-height: 1.6;
+  }
+  .sheet-compose .create-decision button:not(.mic) { padding: 13px 28px; font-size: 15px; }
+  .sheet-compose .create-decision button.mic { width: 48px; height: 48px; }
 }
 .sheet-side {
   top: 0; right: 0; bottom: 0;
@@ -218,6 +236,7 @@
 }
 .context-input:focus { outline: none; border-color: #6647f0; }
 .create-error { color: #c62828; font-size: 13px; margin-top: 8px; width: 100%; }
+.create-empty { color: #838383; font-size: 13px; margin-top: 8px; width: 100%; }
 
 @media (prefers-color-scheme: dark) {
   .hist-draft-text { background: #222222; color: #f2f2f2; }
@@ -528,24 +547,32 @@
 .workbench .page { justify-content: center; }
 .workbench .page-inner { width: min(100%, 720px); margin: 0 auto; padding: 84px 40px 64px; }
 .workbench .card { padding: 28px 30px; border-radius: 22px; }
+/* A stack, not a single sheet: the decisions after this one show at its
+   foot, so the pane reads as a pile to get through by swiping. */
+.workbench .card.swipeable {
+  box-shadow:
+    0 1px 2px rgba(32, 32, 32, 0.04), 0 12px 32px rgba(32, 32, 32, 0.08),
+    0 10px 0 -5px rgba(255, 255, 255, 1), 0 10px 0 -4px rgba(32, 32, 32, 0.10),
+    0 20px 0 -10px rgba(255, 255, 255, 1), 0 20px 0 -9px rgba(32, 32, 32, 0.07);
+}
 .workbench .card-title { font-size: 30px; }
 .workbench .card-summary { font-size: 16px; }
 /* On a laptop a decision is a labelled button, not a bare glyph the size of
    a thumb: the letter under the pointer says what it does, and the key it
    answers to sits beside it. */
-.workbench .decide-row { justify-content: flex-start; gap: 12px; margin-top: 20px; }
-.workbench .decide {
+.workbench .decide-row, .slk-pane .decide-row { justify-content: flex-start; gap: 12px; margin-top: 20px; }
+.workbench .decide, .slk-pane .decide {
   width: auto; height: 46px; border-radius: 9999px; padding: 0 20px 0 16px;
   display: inline-flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600;
 }
-.workbench .decide::after { content: attr(aria-label); font-size: 14.5px; }
-.workbench .decide .key, .workbench .decide::before {
+.workbench .decide::after, .slk-pane .decide::after { content: attr(aria-label); font-size: 14.5px; }
+.workbench .decide .key, .workbench .decide::before, .slk-pane .decide .key, .slk-pane .decide::before {
   content: attr(aria-keyshortcuts); order: 3;
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
   padding: 2px 6px; border-radius: 6px; margin-left: 2px;
 }
-.workbench .decide.decline::before { background: #eeeeee; color: #646464; }
-.workbench .decide.approve::before { background: rgba(255,255,255,.18); color: #fff; }
+.workbench .decide.decline::before, .slk-pane .decide.decline::before { background: #eeeeee; color: #646464; }
+.workbench .decide.approve::before, .slk-pane .decide.approve::before { background: rgba(255,255,255,.18); color: #fff; }
 @media (min-width: 1280px) { .workbench { grid-template-columns: 340px minmax(0, 1fr); } }
 @media (min-width: 1680px) { .workbench { grid-template-columns: 380px minmax(0, 1fr); } .workbench .page-inner { width: min(100%, 760px); } }
 .inbox { border-right: 1px solid #e8e8e8; overflow-y: auto; padding: 76px 12px 32px 20px; background: transparent; }
@@ -580,8 +607,8 @@
 .inbox-meta { font-size: 12px; color: #646464; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inbox-when { flex: none; font-size: 11.5px; color: #838383; margin-top: 2px; }
 @media (prefers-color-scheme: dark) {
-  .workbench .decide.decline::before { background: #2a2a2a; color: #a3a3a3; }
-  .workbench .decide.approve::before { background: rgba(0,0,0,.12); color: #0f0f0f; }
+  .workbench .decide.decline::before, .slk-pane .decide.decline::before { background: #2a2a2a; color: #a3a3a3; }
+  .workbench .decide.approve::before, .slk-pane .decide.approve::before { background: rgba(0,0,0,.12); color: #0f0f0f; }
   .inbox { border-right-color: #2a2a2a; }
   .inbox-search input { background: #1a1a1a; color: #f2f2f2; border-color: #2a2a2a; }
   .inbox-row:hover { background: #1a1a1a; }
@@ -628,4 +655,12 @@
   /* The count on the Cards tab: a dark pill on a dark pill said nothing —
      the active tab's own rule outranked the dark one. */
   .mode-switch .mode-count, .mode-switch button.on .mode-count { background: #f2f2f2; color: #1a1a1a; }
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .workbench .card.swipeable {
+    box-shadow: 0 10px 0 -5px #0f0f0f, 0 10px 0 -4px #2a2a2a, 0 20px 0 -10px #0f0f0f, 0 20px 0 -9px #222;
+  }
+}
+:root[data-theme="dark"] .workbench .card.swipeable {
+  box-shadow: 0 10px 0 -5px #0f0f0f, 0 10px 0 -4px #2a2a2a, 0 20px 0 -10px #0f0f0f, 0 20px 0 -9px #222;
 }

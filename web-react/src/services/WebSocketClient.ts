@@ -1,3 +1,4 @@
+import type { ChannelMessage } from '../types/card'
 import { applyPatch, type Operation } from 'fast-json-patch'
 import type { StateSnapshot, StateDelta, ToolCallResult } from '../types/agui'
 import type { AppState, DecisionCard } from '../types/card'
@@ -45,6 +46,8 @@ export class WebSocketClient {
   onPresence?: (userId: string, status: string) => void
   /// Somebody said something under a card, or reacted to one. The card's
   /// own counts arrive as a card update; these carry the words.
+  /// Something said in a channel this person can see, in their own terms.
+  onChannelMessage?: (message: ChannelMessage) => void
   onComment?: (cardId: string, comment: { id: string; author: string; authorName?: string | null; body: string; mentions: string[]; createdAt: string }) => void
   onReaction?: (cardId: string, emoji: string, on: boolean, by: string, reactions: Record<string, number>) => void
   /// The workspace's channels changed: somebody made, renamed or deleted one.
@@ -349,6 +352,8 @@ export class WebSocketClient {
       this.onComment?.(event.value.cardId, event.value.comment)
     } else if (event.name === 'businesses' && Array.isArray(event.value?.businesses)) {
       this.onBusinesses?.(event.value.businesses)
+    } else if (event.name === 'channel_message' && event.value?.message) {
+      this.onChannelMessage?.(event.value.message)
     } else if (event.name === 'reaction' && event.value) {
       this.onReaction?.(event.value.cardId, event.value.emoji, Boolean(event.value.on), event.value.by, event.value.reactions || {})
     }

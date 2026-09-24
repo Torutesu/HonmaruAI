@@ -67,6 +67,7 @@ export async function listMembers(db, orgId, viewerId) {
               m.role                                        AS role,
               m.title                                       AS title,
               u.aliases                                     AS aliases,
+              u.handle                                      AS handle,
               m.created_at                                  AS joinedAt
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
@@ -88,6 +89,8 @@ export async function listMembers(db, orgId, viewerId) {
       title: r.title || null,
       // Other names they answer to, for "@美香" reaching Mika.
       aliases: parseAliases(r.aliases),
+      // Their username: what @ finds them by.
+      handle: r.handle || null,
       joinedAt: r.joinedAt,
       mine: String(r.userId) === String(viewerId),
     }))

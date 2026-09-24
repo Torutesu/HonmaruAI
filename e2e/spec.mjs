@@ -9,10 +9,12 @@
 // that finds them before anyone else does.
 
 import { chromium } from '../web-react/node_modules/playwright/index.mjs'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 
 const WEB = 'http://127.0.0.1:4173'
 const SINK = 'http://127.0.0.1:9099'
+const API = 'http://127.0.0.1:8787'
 const SHOTS = process.env.E2E_SHOTS || '/tmp/e2e-shots'
 mkdirSync(SHOTS, { recursive: true })
 
@@ -101,7 +103,9 @@ const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai
 /// wrong failed for a reason that belonged to the step before it.
 async function closeEverything() {
   for (let i = 0; i < 4; i++) {
-    const open = await page.$('.sheet .close, .screen .back')
+    // A conversation in the list hides the tab bar on a phone; back out
+    // of it (and of a decision open over it) the way a person would.
+    const open = await page.$('.sheet .close, .screen .back, .slk-back.pane:visible, .slk-head .slk-back:visible')
     if (!open) break
     await open.click().catch(() => {})
     await page.waitForTimeout(300)
@@ -491,19 +495,45 @@ await step('the list view shows the same decisions', async () => {
   await page.keyboard.press('Enter')
   await page.waitForSelector('.cl-thread:has-text("Suppliers")', { timeout: 15000 })
     .catch(() => { throw new Error('the new channel did not appear in the list') })
+  // A channel opens as a conversation; its own controls are behind ⋯.
   await page.click('.cl-thread:has-text("Suppliers") .cl-open')
+  await page.waitForSelector('.slk-head:has-text("Suppliers")', { timeout: 5000 })
+    .catch(() => { throw new Error('the channel did not open as a conversation') })
+  await page.click('.slk-more')
   await page.waitForSelector('.cl-channel-tools', { timeout: 5000 })
   await page.click('.cl-channel-tools button:has-text("Rename")')
   await page.fill('.cl-channel-tools input', 'Suppliers & logistics')
   await page.keyboard.press('Enter')
-  await page.waitForSelector('.cl-thread:has-text("Suppliers & logistics")', { timeout: 15000 })
+  await page.waitForSelector('.slk-head h1:has-text("Suppliers & logistics")', { timeout: 15000 })
     .catch(() => { throw new Error('the channel did not take its new name') })
   await shot('09c-classic-channel')
   page.once('dialog', (d) => d.accept())
-  await page.click('.cl-thread:has-text("Suppliers & logistics") .cl-danger')
+  await page.click('.cl-channel-tools .cl-danger')
+  // Deleted, the conversation closes and the sidebar is back.
+  await page.waitForSelector('.slk-side', { timeout: 5000 })
   await page.waitForFunction(() => !document.querySelector('.cl-thread .cl-title')
     || ![...document.querySelectorAll('.cl-thread .cl-title')].some((el) => /Suppliers/.test(el.textContent || '')), null, { timeout: 15000 })
     .catch(() => { throw new Error('the deleted channel is still listed') })
+
+  // A conversation on a phone is the screen: no tab bar under its
+  // composer, and a decision opens over it with a way back.
+  const convo = '.cl-thread:has(.cl-own-mark) .cl-open'
+  await page.click(convo)
+  await page.waitForSelector('.slk-head', { timeout: 5000 })
+  // The effect that hides it runs after the conversation renders; wait
+  // for it rather than read the first frame, which a slow runner catches.
+  await page.waitForSelector('.tabbar', { state: 'hidden', timeout: 5000 })
+    .catch(() => { throw new Error('the tab bar sits under a conversation on a phone') })
+  if (await page.$('.slk-msg .slk-title')) {
+    await page.click('.slk-msg .slk-title >> nth=0')
+    await page.waitForSelector('.slk-pane .card', { timeout: 10000 })
+      .catch(() => { throw new Error('a decision does not open in the list on a phone') })
+    await page.waitForTimeout(400)
+    await shot('09d-classic-pane')
+    await page.click('.slk-back.pane')
+  }
+  await page.click('.slk-head .slk-back')
+  await page.waitForSelector('.tabbar', { state: 'visible', timeout: 5000 })
 
   await page.click('.mode-switch button >> nth=0')
   await page.waitForSelector('.feed', { timeout: 10000 })
@@ -522,29 +552,42 @@ await step('every other screen opens', async () => {
   await page.click('text=Notifications')
   await page.waitForSelector('.switch', { timeout: 10000 })
   await shot('14-notifications')
+  // Back from a screen You opened is You again.
   await page.click('.screen .back')
-  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
   await page.click('text=Plan')
   await page.waitForSelector('.plan-card, .empty', { timeout: 10000 })
   await shot('15-plans')
   // What else you are called, saved on blur and read back — the router
   // matches instructions against it.
+  // Back from a screen You opened is You again.
   await page.click('.screen .back')
-  await page.click('nav [data-tab="you"]')
-  await page.waitForSelector('.alias-input', { timeout: 10000 })
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  await page.waitForSelector('.aliases-input', { timeout: 10000 })
   // The profile has to have arrived, or the fetch lands after the typing.
   await page.waitForFunction(() => (document.querySelector('.profile-head b')?.textContent || '').trim().length > 0, null, { timeout: 10000 })
   const [aliasRes] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/me') && r.request().method() === 'PUT', { timeout: 10000 }),
-    page.fill('.alias-input', '美香, Mika').then(() => page.press('.alias-input', 'Tab')),
+    page.fill('.aliases-input', '美香, Mika').then(() => page.press('.aliases-input', 'Tab')),
   ])
   if (aliasRes.status() !== 200) throw new Error(`aliases answered ${aliasRes.status()}`)
   const saved = await (await aliasRes.json()).aliases
   if (JSON.stringify(saved) !== JSON.stringify(['美香', 'Mika'])) throw new Error(`aliases saved as ${JSON.stringify(saved)}`)
+  // A username, chosen here, is what @ finds you by: shaped by the field,
+  // saved on blur, and shown back beside your name.
+  // Unique per run: the local database outlives a run, and usernames are
+  // unique across every account in it.
+  const wantHandle = `mika.${Date.now().toString(36).slice(-6)}`
+  const [handleRes] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/me') && r.request().method() === 'PUT', { timeout: 10000 }),
+    page.fill('.handle-input', `@${wantHandle.replace('mika', 'Mika')}`).then(() => page.press('.handle-input', 'Tab')),
+  ])
+  if (handleRes.status() !== 200) throw new Error(`the username answered ${handleRes.status()}`)
+  if ((await handleRes.json()).handle !== wantHandle) throw new Error('the username was not saved as typed, lowercased')
+  await page.waitForSelector(`.profile-head span:has-text("@${wantHandle}")`, { timeout: 5000 })
+    .catch(() => { throw new Error('the username is not shown beside the name') })
   // The numbers: the flagged card from earlier is the one thing the AI got
-  // wrong in this window, and the screen has to say so.
-  await page.click('.screen .back')
-  await page.click('nav [data-tab="you"]')
+  // wrong in this window, and the screen has to say so. Already on You.
   await page.click('text=Insights')
   await page.waitForSelector('.barlist, .insights-hint', { timeout: 15000 })
   await page.waitForFunction(() => /Wrong priority|優先度が違う/.test(document.body.innerText), null, { timeout: 15000 })
@@ -734,6 +777,20 @@ await step('the app is usable on a laptop', async () => {
   // the laptop, which also puts the compose sheet on this size under test.
   await d.click('[data-tab="compose"]')
   await d.waitForSelector('.create-decision textarea')
+  // Room to write in: a dialog, not a one-line field squeezed beside its
+  // buttons.
+  const composer = await d.$eval('.sheet-compose', (el) => {
+    const box = el.querySelector('textarea').getBoundingClientRect()
+    return { dialog: el.getBoundingClientRect().width, width: box.width, height: box.height }
+  })
+  if (composer.dialog < 760 || composer.height < 150 || composer.width < 680) {
+    throw new Error(`the composer is cramped on a laptop: ${JSON.stringify(composer)}`)
+  }
+  await d.screenshot({ path: `${SHOTS}/20-desktop-compose.png` })
+  // Send is never greyed out: pressed empty, it says what goes in the box.
+  await d.click('.create-decision button:not(.mic)')
+  await d.waitForSelector('.create-empty', { timeout: 5000 })
+    .catch(() => { throw new Error('Send pressed with nothing written did nothing') })
   await d.fill('.create-decision textarea', 'Ask the designer to review the new card layout')
   await d.click('.create-decision button:not(.mic)')
   await d.waitForSelector('.card-title', { timeout: 25000 })
@@ -1162,6 +1219,380 @@ await step('the other screens hold up on a laptop', async () => {
     await d.waitForTimeout(400)
   }
   await desk.close()
+})
+
+// ---- The AI's own work: automations, the playbook, agents -----------------
+//
+// Everything below is on a laptop, signed in as the same person, against the
+// same Worker: made through the screens, delivered through the relay, read
+// back from the feed. Nothing is posted around the UI except what an agent
+// posts, because an agent is not a person with a browser.
+
+/// SQL against the harness's local D1 — for the one thing a person cannot
+/// do from a screen: make it Monday.
+function d1(sql) {
+  const out = execSync(`npx -y wrangler@4 d1 execute tiktokforwork --local --json --command ${JSON.stringify(sql)} --yes`,
+    { cwd: new URL('../worker/', import.meta.url).pathname, stdio: ['ignore', 'pipe', 'ignore'] })
+  return JSON.parse(out.toString())[0]?.results || []
+}
+
+/// An MCP call, the way an agent makes one.
+let rpcId = 0
+async function mcp(token, method, params) {
+  const res = await fetch(`${API}/mcp`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, ...(params ? { params } : {}) }),
+  })
+  return { status: res.status, body: await res.json().catch(() => null) }
+}
+
+let work
+const workPage = () => work.pages()[0]
+/// Nothing outside the viewport, sideways.
+async function noSpill(p, scope, where) {
+  const spill = await p.evaluate((sel) => {
+    const bad = []
+    for (const el of document.querySelectorAll(`${sel} *`)) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      if (r.left < -1 || r.right > window.innerWidth + 1) bad.push(`${el.className || el.tagName} @ ${Math.round(r.left)} ${Math.round(r.width)}w`)
+    }
+    return bad.slice(0, 5)
+  }, scope)
+  if (spill.length) throw new Error(`${where} spills off the screen: ${spill.join(' ; ')}`)
+}
+
+await step('automations and the playbook open from You, and fit a phone', async () => {
+  await closeEverything()
+  await page.click('nav [data-tab="you"]')
+  await page.waitForSelector('.profile-stats', { timeout: 10000 })
+  for (const name of ['Automations', 'Playbook']) {
+    await page.click(`.screen .row:has-text("${name}")`)
+    await page.waitForSelector(`.screen .head-title:has-text("${name}")`, { timeout: 10000 })
+      .catch(() => { throw new Error(`the ${name} row under You opens nothing`) })
+    await noSpill(page, '.screen', `${name} on a phone`)
+    await shot(`30-${name.toLowerCase()}-phone`)
+    // Back goes back to You, where it was opened from — not to the feed.
+    await page.click('.screen .back')
+    await page.waitForSelector('.profile-stats', { timeout: 10000 })
+      .catch(() => { throw new Error(`back from ${name} does not return to You`) })
+  }
+  await closeEverything()
+})
+
+await step('an automation is made from one sentence and runs into the feed as a report', async () => {
+  work = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), acceptDownloads: true })
+  const d = await work.newPage()
+  d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
+  await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
+  await d.waitForSelector('#auto-say', { timeout: 20000 })
+  await d.fill('#auto-say', 'Every Monday at 9am summarise last week’s decisions')
+  // Read back as a schedule, not merely stored as words.
+  await d.waitForFunction(() => {
+    const how = document.querySelector('.auto-understood select[aria-label="How often"]')
+    const time = document.querySelector('.auto-understood input[type="time"]')
+    const what = document.querySelector('.auto-understood textarea')
+    return how?.value === 'weekly' && time?.value === '09:00' && /summarise last week/.test(what?.value || '') && !/Monday/.test(what?.value || '')
+  }, null, { timeout: 10000 }).catch(() => { throw new Error('the sentence was not read into a weekly 09:00 schedule') })
+  await d.screenshot({ path: `${SHOTS}/31-automation-understood.png` })
+  await d.click('.auto-actions .pill-btn')
+  const row = '.routine-row:has-text("summarise last week")'
+  await d.waitForSelector(row, { timeout: 15000 }).catch(() => { throw new Error('the automation was not listed after Create') })
+  const sub = await d.$eval(row, (el) => el.innerText)
+  if (!/Monday/.test(sub) || !/09:00/.test(sub)) throw new Error(`the row does not say when: ${sub.slice(0, 160)}`)
+  if (!/Next:/.test(sub)) throw new Error('the row does not say when it runs next')
+
+  // Run now: a card, opened, with the report as a document.
+  await d.click(`${row} .btn-text:has-text("Run now")`)
+  await d.waitForFunction(() => /^#\/feed\/routine-/.test(location.hash), null, { timeout: 20000 })
+    .catch(() => { throw new Error('Run now did not open the card it delivered') })
+  await d.waitForSelector('.report-doc', { timeout: 20000 }).catch(() => { throw new Error('the report card does not show its report') })
+  const doc = await d.$eval('.report-doc', (el) => el.innerText)
+  // No model on this deployment: the digest, honestly labelled.
+  if (!/Waiting on you/.test(doc) || !/Decided/.test(doc)) throw new Error(`the report is not the digest: ${doc.slice(0, 160)}`)
+  if (await d.$('.report-doc script, .report-doc [onclick]')) throw new Error('the report rendered markup it was given')
+  // A report is forwarded, downloaded and printed: nobody's address in it.
+  const pane = await d.$eval('.workbench', (el) => el.innerText)
+  if (/@example\.com|\bu:|\bemail:/.test(pane)) throw new Error(`the report shows an account id: ${pane.match(/\S*(@example\.com|u:|email:)\S*/)?.[0]}`)
+  if (/\b(approve|decline)\b/.test(doc)) throw new Error('the report shows the API’s verb, not the word')
+  if (await d.$('.workbench .decide.decline')) throw new Error('a report can be declined, as if it had asked something')
+  if (!(await d.$('.workbench .decide.approve[aria-label="Got it"]'))) throw new Error('a report is not put away with Got it')
+  await d.screenshot({ path: `${SHOTS}/32-report-card.png` })
+  const [download] = await Promise.all([
+    d.waitForEvent('download', { timeout: 10000 }),
+    d.click('.report-actions button >> nth=0'),
+  ])
+  // The name is not asserted: headless Chromium names a blob download
+  // "download" whatever the link says. What is in it is.
+  const md = readFileSync(await download.path(), 'utf8')
+  if (!/^## /m.test(md)) throw new Error(`the downloaded file is not the report: ${md.slice(0, 80)}`)
+
+  // Back on the list: it says it ran, and what that cost.
+  await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
+  await d.waitForSelector(`${row} .routine-times`, { timeout: 15000 })
+  const times = await d.$eval(`${row} .routine-times`, (el) => el.innerText)
+  if (!/Last run/.test(times) || !/\$0/.test(times)) throw new Error(`the row does not say it ran and what it cost: ${times}`)
+
+  // Paused, and still paused after a reload.
+  await d.click(`${row} .switch`)
+  await d.waitForSelector(`${row} .switch[aria-checked="false"]`, { timeout: 10000 })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector(`${row} .switch[aria-checked="false"]`, { timeout: 15000 })
+    .catch(() => { throw new Error('a paused automation came back running') })
+  if (!/Paused/.test(await d.$eval(row, (el) => el.innerText))) throw new Error('a paused automation does not say so')
+  await d.click(`${row} .switch`)
+  await d.waitForSelector(`${row} .switch[aria-checked="true"]`, { timeout: 10000 })
+})
+
+await step('the cron delivers a routine that is due, live, to the open feed', async () => {
+  const d = workPage()
+  await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
+  // The morning brief, made with one tap.
+  await d.waitForSelector('.auto-preset', { timeout: 20000 })
+  await d.click('.auto-preset')
+  await d.waitForSelector('.routine-row:has-text("Morning brief")', { timeout: 15000 })
+    .catch(() => { throw new Error('the Morning brief preset made nothing') })
+  if (await d.$('.auto-preset')) throw new Error('the preset is still offered once a brief exists')
+  const id = await d.$eval('.routine-row:has-text("Morning brief")', (el) => el.getAttribute('data-routine'))
+  // Make it due, and fire the cron the way Cloudflare does.
+  d1(`UPDATE routines SET next_run_at = '2026-01-01T00:00:00.000Z' WHERE id = '${id}'`)
+  await d.goto(`${WEB}/#/feed`, { waitUntil: 'load' })
+  await d.waitForSelector('.inbox', { timeout: 20000 })
+  await d.waitForTimeout(1500)
+  const before = await d.$$eval('.inbox-row', (els) => els.length)
+  const fired = await fetch(`${API}/__scheduled?cron=${encodeURIComponent('*/15 * * * *')}`)
+  if (!fired.ok) throw new Error(`the cron could not be fired: ${fired.status}`)
+  // Announced over the socket: no reload.
+  await d.waitForFunction((n) => document.querySelectorAll('.inbox-row').length > n, before, { timeout: 30000 })
+    .catch(() => { throw new Error('the brief the cron wrote never reached the open feed') })
+  const row = d1(`SELECT runs, next_run_at FROM routines WHERE id = '${id}'`)[0]
+  if (!row || row.runs !== 1) throw new Error(`the routine did not record its run: ${JSON.stringify(row)}`)
+  if (!(Date.parse(row.next_run_at) > Date.now())) throw new Error(`the routine was not moved to its next run: ${row.next_run_at}`)
+})
+
+await step('a rule in the playbook is written, kept, changed and removed', async () => {
+  const d = workPage()
+  await d.goto(`${WEB}/#/playbook`, { waitUntil: 'load' })
+  await d.waitForSelector('.playbook-add textarea', { timeout: 20000 })
+  await d.fill('.playbook-add textarea', 'Anything over $1,000 goes to Kenji first.')
+  await d.click('.playbook-add .pill-btn')
+  const rule = '.memory-row:has-text("goes to Kenji first")'
+  await d.waitForSelector(rule, { timeout: 10000 }).catch(() => { throw new Error('the rule was not listed') })
+  await d.reload({ waitUntil: 'load' })
+  await d.waitForSelector(rule, { timeout: 15000 }).catch(() => { throw new Error('the rule did not survive a reload') })
+  const byline = await d.$eval(rule, (el) => el.innerText)
+  if (!/Written by you/.test(byline)) throw new Error(`a rule you wrote does not say so: ${byline}`)
+  if (/@|e2e-\d/i.test(byline)) throw new Error(`a rule names its author by account id: ${byline}`)
+  await d.screenshot({ path: `${SHOTS}/33-playbook.png` })
+  await d.click(`${rule} .btn-text:has-text("Edit")`)
+  await d.fill('.memory-row textarea', 'Anything over $2,000 goes to Kenji first.')
+  await d.click('.memory-row .pill-btn')
+  await d.waitForSelector('.memory-row:has-text("$2,000")', { timeout: 10000 }).catch(() => { throw new Error('the edit did not take') })
+  await d.click('.memory-row:has-text("$2,000") .btn-text.danger')
+  await d.click('.memory-row:has-text("$2,000") .pill-btn')
+  await d.waitForFunction(() => !/\$2,000/.test(document.body.innerText), null, { timeout: 10000 })
+    .catch(() => { throw new Error('the deleted rule is still listed') })
+})
+
+await step('an agent asks over MCP, the person decides in the feed, and the agent reads the answer', async () => {
+  const d = workPage()
+  await d.goto(`${WEB}/#/tools`, { waitUntil: 'load' })
+  await d.waitForSelector('.agent-intro input', { timeout: 20000 }).catch(() => { throw new Error('Tools has no Connect an agent') })
+  await d.fill('.agent-intro input', 'E2E bot')
+  await d.click('.agent-intro .pill-btn')
+  await d.waitForSelector('.agent-minted .agent-code', { timeout: 10000 })
+  const snippets = await d.$$eval('.agent-minted .agent-code', (els) => els.map((el) => el.innerText))
+  const token = snippets[0].trim()
+  if (!/^hm_[0-9a-f]{64}$/.test(token)) throw new Error(`the token shown is not a token: ${token.slice(0, 20)}`)
+  if (!snippets[1].includes(`${API}/mcp`) || !snippets[1].includes(`Bearer ${token}`)) throw new Error(`the claude mcp add command is wrong: ${snippets[1]}`)
+  JSON.parse(snippets[2])
+  await d.screenshot({ path: `${SHOTS}/34-agent-token.png` })
+  await d.click('.agent-done')
+  if (await d.$(`text=${token}`)) throw new Error('the token is still on screen after Done')
+
+  const init = await mcp(token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } })
+  if (init.status !== 200 || init.body?.result?.serverInfo?.name !== 'honmaru') throw new Error(`initialize: ${init.status} ${JSON.stringify(init.body).slice(0, 120)}`)
+  const asked = await mcp(token, 'tools/call', { name: 'request_decision', arguments: { title: 'Ship the 2.4 release today?', summary: 'All checks are green; I recommend shipping.', priority: 'high' } })
+  const cardId = asked.body?.result?.structuredContent?.cardId
+  if (!cardId) throw new Error(`request_decision made no card: ${JSON.stringify(asked.body).slice(0, 160)}`)
+
+  // It arrives in the open feed, from the agent, and is decided there.
+  await d.goto(`${WEB}/#/feed/${encodeURIComponent(cardId)}`, { waitUntil: 'load' })
+  await d.waitForSelector(`.inbox-row[data-card="${cardId}"]`, { timeout: 20000 })
+    .catch(() => { throw new Error('the agent’s decision is not in the inbox') })
+  const pane = await d.$eval('.workbench', (el) => el.innerText)
+  if (!/E2E bot/.test(pane)) throw new Error('the card does not say which agent asked')
+  await d.screenshot({ path: `${SHOTS}/35-agent-card.png` })
+  await d.click('.workbench .decide.approve')
+  await d.waitForSelector('.workbench .decided-line', { timeout: 15000 })
+  let answer
+  for (let i = 0; i < 30; i++) {
+    answer = (await mcp(token, 'tools/call', { name: 'get_decision', arguments: { cardId } })).body?.result?.structuredContent
+    if (answer?.status === 'approved') break
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  if (answer?.status !== 'approved') throw new Error(`the agent reads: ${JSON.stringify(answer)}`)
+
+  // Revoked, the token opens nothing.
+  await d.goto(`${WEB}/#/tools`, { waitUntil: 'load' })
+  await d.waitForSelector('.agent-token:has-text("E2E bot")', { timeout: 20000 })
+  const lastUsed = await d.$eval('.agent-token:has-text("E2E bot")', (el) => el.innerText)
+  if (/never used/.test(lastUsed)) throw new Error('a token that was used says it never was')
+  await d.click('.agent-token:has-text("E2E bot") .btn-text.danger')
+  await d.click('.agent-token:has-text("E2E bot") .pill-btn')
+  await d.waitForFunction(() => !document.querySelector('.agent-token'), null, { timeout: 10000 })
+  const after = await mcp(token, 'tools/list')
+  if (after.status !== 401) throw new Error(`a revoked token still answers: ${after.status}`)
+})
+
+await step('the list is a chat client on a laptop: sidebar, conversation, and a way into the card', async () => {
+  const d = workPage()
+  await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+  await d.waitForSelector('.slk-side .cl-thread', { timeout: 20000 })
+  await d.waitForSelector('.slk-main .slk-msg', { timeout: 10000 })
+    .catch(() => { throw new Error('no conversation is open beside the sidebar') })
+  const [side, main, rail] = await Promise.all(['.slk-side', '.slk-main', '.tabbar'].map((sel) => d.$eval(sel, (el) => el.getBoundingClientRect().toJSON())))
+  if (!(side.right <= main.left + 1)) throw new Error('the sidebar and the conversation overlap')
+  if (!(rail.right <= side.left + 1)) throw new Error('the rail covers the sidebar')
+  await noSpill(d, '.classic', 'the list on a laptop')
+  const on = await d.$eval('.cl-thread.on .cl-title', (el) => el.textContent)
+  const head = await d.$eval('.slk-head h1', (el) => el.textContent)
+  if (on !== head) throw new Error(`the sidebar selects "${on}" and the conversation is "${head}"`)
+  // Every channel opens its own conversation.
+  const names = await d.$$eval('.slk-side .cl-thread .cl-title', (els) => els.map((el) => el.textContent))
+  for (const name of names.slice(0, 4)) {
+    await d.click(`.slk-side .cl-thread:has(.cl-title:text-is("${name}")) .cl-open`)
+    await d.waitForFunction((n) => document.querySelector('.slk-head h1')?.textContent === n, name, { timeout: 5000 })
+      .catch(() => { throw new Error(`${name} did not open`) })
+  }
+  await d.screenshot({ path: `${SHOTS}/36-list-laptop.png` })
+  const listed = await d.$eval('.classic', (el) => el.innerText)
+  if (/@example\.com|\bu:|\bemail:/.test(listed)) throw new Error('the list shows an account id')
+  if (/\b1 replies\b/.test(listed)) throw new Error('“1 replies”')
+  const apps = await d.$$eval('.slk-side .cl-thread .cl-title', (els) => els.map((el) => el.textContent))
+  if (apps.filter((n) => n === 'Your AI').length > 1) throw new Error('Your AI is listed twice')
+  // A decision opens beside the conversation — the list is not left.
+  await d.click('.slk-msg .slk-title >> nth=0')
+  await d.waitForSelector('.slk-pane .card', { timeout: 10000 })
+    .catch(() => { throw new Error('a decision in the list does not open in its pane') })
+  if (!/^#\/list/.test(await d.evaluate(() => location.hash))) throw new Error('opening a decision left the list')
+  const [convo, pane] = await Promise.all(['.slk-main', '.slk-pane'].map((sel) => d.$eval(sel, (el) => el.getBoundingClientRect().toJSON())))
+  if (!(convo.right <= pane.left + 1)) throw new Error('the decision pane covers the conversation on a laptop')
+  await d.screenshot({ path: `${SHOTS}/36b-list-pane.png` })
+  await d.keyboard.press('Escape')
+  await d.waitForSelector('.slk-pane', { state: 'detached', timeout: 5000 })
+    .catch(() => { throw new Error('Esc does not close the decision pane') })
+  // The decisions, as a list, a tab away.
+  await d.click('.slk-tabs button >> nth=1')
+  await d.waitForSelector('.slk-drow', { timeout: 5000 })
+    .catch(() => { throw new Error('the Decisions tab lists nothing') })
+  await d.click('.slk-tabs button >> nth=0')
+  await d.emulateMedia({ colorScheme: 'dark' })
+  await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+  await d.waitForSelector('.slk-main .slk-msg', { timeout: 20000 })
+  const bg = await d.$eval('.classic', (el) => getComputedStyle(el).backgroundColor)
+  const m = bg.match(/\d+/g) || []
+  if (Number(m[0]) > 60) throw new Error(`the list is light in dark mode: ${bg}`)
+  await d.screenshot({ path: `${SHOTS}/37-list-laptop-dark.png` })
+  await d.emulateMedia({ colorScheme: 'light' })
+}, { after: async () => { await work?.close() } })
+
+await step('people talk in a channel, and @AI turns what was said into a decision decided right there', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
+  try {
+    await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await d.waitForSelector('.slk-side', { timeout: 20000 })
+    await d.click('.cl-add')
+    await d.fill('.cl-add-form input', 'Kitchen')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.cl-thread:has-text("Kitchen")', { timeout: 15000 })
+    await d.click('.cl-thread:has-text("Kitchen") .cl-open')
+    await d.waitForSelector('.slk-head h1:has-text("Kitchen")', { timeout: 10000 })
+    // Talk: Enter sends, and the message is there without a reload.
+    await d.fill('.slk-input', 'The walk-in fridge died. Repair quote is ¥80,000, a new one ¥420,000.')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-msg:has-text("walk-in fridge died")', { timeout: 10000 })
+      .catch(() => { throw new Error('a message sent does not show in the channel') })
+    if ((await d.$eval('.slk-input', (el) => el.value))) throw new Error('the composer kept the sent text')
+    // @AI: the conversation becomes a card, announced in the channel.
+    await d.fill('.slk-input', '@AI approve the fridge repair')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-msg .slk-app-badge', { timeout: 30000 })
+      .catch(() => { throw new Error('the AI never answered in the channel') })
+    await d.waitForSelector('.slk-msg:has(.slk-app-badge) .slk-card', { timeout: 15000 })
+      .catch(() => { throw new Error('the AI answered without the card it made') })
+    await d.waitForSelector('.slk-msg:has-text("approve the fridge repair") .slk-made', { timeout: 15000 })
+      .catch(() => { throw new Error('the message that asked does not link to the decision it became') })
+    await d.screenshot({ path: `${SHOTS}/38-channel-ai.png` })
+    // Decided in place, as a chat app's buttons do.
+    await d.click('.slk-msg:has(.slk-app-badge) .slk-card .slk-action.primary')
+    await d.waitForSelector('.slk-msg:has(.slk-app-badge) .slk-card.decided', { timeout: 15000 })
+      .catch(() => { throw new Error('approving in the channel did not decide the card') })
+    // Kept: a reload brings the conversation back.
+    await d.reload({ waitUntil: 'load' })
+    await d.click('.cl-thread:has-text("Kitchen") .cl-open')
+    await d.waitForSelector('.slk-msg:has-text("walk-in fridge died")', { timeout: 15000 })
+      .catch(() => { throw new Error('the conversation did not survive a reload') })
+    const text = await d.$eval('.classic', (el) => el.innerText)
+    if (/@example\.com|\bu:|\bemail:/.test(text)) throw new Error('the channel shows an account id')
+    await noSpill(d, '.classic', 'the channel on a laptop')
+    // Your AI is written to from the list like anyone else, and what is
+    // written is routed as an instruction.
+    const beforeAI = await d.$$eval('.slk-msg', (els) => els.length)
+    await d.click('.cl-thread:has(.cl-own-mark) .cl-open')
+    await d.waitForSelector('.slk-head h1:has-text("Your AI")', { timeout: 10000 })
+    const aiCount = await d.$$eval('.slk-msg', (els) => els.length)
+    await d.fill('.slk-input', 'Approve the new aprons for the kitchen staff')
+    await d.keyboard.press('Enter')
+    await d.waitForFunction((n) => document.querySelectorAll('.slk-msg').length > n && !document.querySelector('.sheet-compose'), aiCount, { timeout: 25000 })
+      .catch(() => { throw new Error('writing to Your AI in the list made no card') })
+    void beforeAI
+  } finally {
+    await ctx.close()
+  }
+})
+
+await step('a card is decided by dragging it off, the way it is swiped on a phone', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  try {
+    await d.goto(`${WEB}/#/feed`, { waitUntil: 'load' })
+    await d.waitForSelector('.tabbar', { timeout: 20000 })
+    await d.waitForTimeout(1500)
+    const before = await d.$$eval('.inbox-list .inbox-row', (els) => els.map((el) => el.getAttribute('data-card')))
+    await d.keyboard.press('n')
+    await d.waitForSelector('.sheet-compose textarea', { timeout: 10000 })
+    await d.fill('.sheet-compose textarea', 'Approve the new card stock for the menus')
+    await d.click('.sheet-compose .create-decision button:not(.mic)')
+    // The router words the title its own way; the new card is the new id.
+    const fresh = await d.waitForFunction((known) => {
+      const ids = [...document.querySelectorAll('.inbox-list .inbox-row')].map((el) => el.getAttribute('data-card'))
+      return ids.find((id) => id && !known.includes(id)) || null
+    }, before, { timeout: 25000 }).then((h) => h.jsonValue())
+    const row = `.inbox-list .inbox-row[data-card="${fresh}"]`
+    await d.click(row)
+    await d.waitForSelector('.workbench .card.swipeable', { timeout: 10000 })
+    const box = await (await d.$('.workbench .card.swipeable')).boundingBox()
+    const y = box.y + 60
+    await d.mouse.move(box.x + box.width / 2, y)
+    await d.mouse.down()
+    await d.mouse.move(box.x + box.width / 2 + 60, y, { steps: 6 })
+    await d.waitForTimeout(200)
+    const stamp = await d.$eval('.workbench .swipe-stamp.yes', (el) => Number(getComputedStyle(el).opacity))
+    if (!(stamp > 0.2)) throw new Error(`dragging shows no stamp (opacity ${stamp})`)
+    await d.mouse.move(box.x + box.width / 2 + 220, y, { steps: 6 })
+    await d.mouse.up()
+    await d.waitForFunction((id) => {
+      const el = document.querySelector(`.inbox-list .inbox-row[data-card="${id}"]`)
+      return !el || Boolean(el.querySelector('.inbox-when.quiet'))
+    }, fresh, { timeout: 15000 })
+      .catch(() => { throw new Error('dragging the card off did not decide it') })
+  } finally {
+    await ctx.close()
+  }
 })
 
 // The claim the whole product rests on: two people, and a card that crosses

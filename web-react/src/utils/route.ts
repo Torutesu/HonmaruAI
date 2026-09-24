@@ -11,9 +11,11 @@ import { useCallback, useEffect, useState } from 'react'
 //   #/feed/<cardId>   this card
 //   #/list            the same cards as a list
 //   #/history … #/tools … #/you … #/team … #/insights … #/plans … #/notifications
+//   #/automations     what your AI does on a schedule
+//   #/playbook        the rules it follows
 //   #/join/<code>     an invitation: sign up into the team, or join it
 
-export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights'
+export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights' | 'automations' | 'playbook'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
@@ -29,10 +31,12 @@ export interface Route {
 const SCREEN_BY_PATH: Record<string, Screen> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', you: 'profile', team: 'team', insights: 'insights',
+  automations: 'automations', playbook: 'playbook',
 }
 const PATH_BY_SCREEN: Record<Screen, string> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', profile: 'you', team: 'team', insights: 'insights',
+  automations: 'automations', playbook: 'playbook',
 }
 
 export function parseRoute(hash: string): Route {
@@ -49,7 +53,8 @@ export function parseRoute(hash: string): Route {
     const code = (rest[0] || '').trim()
     return { screen: null, mode: null, cardId: null, join: /^[0-9a-f]{16,64}$/i.test(code) ? code.toLowerCase() : null }
   }
-  const screen = SCREEN_BY_PATH[head]
+  // Own keys only: `#/constructor` is not a screen.
+  const screen = Object.prototype.hasOwnProperty.call(SCREEN_BY_PATH, head) ? SCREEN_BY_PATH[head] : undefined
   return screen ? { screen, mode: null, cardId: null, join: null } : { screen: null, mode: null, cardId: null, join: null }
 }
 

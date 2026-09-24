@@ -39,3 +39,20 @@ describe('mentions', () => {
     ])
   })
 })
+
+describe('usernames', () => {
+  const team = [
+    { ref: 'r1', name: 'Mika Sato', handle: 'mikas' },
+    { ref: 'r2', name: 'Kenji', handle: null },
+  ]
+  it('finds a person by username and writes the username', () => {
+    expect(matchMembers(team, 'mik').map((m) => m.ref)).toEqual(['r1'])
+    expect(insertMention('ask @mi', 7, team[0]).text).toBe('ask @mikas ')
+    // No username: the first name, as before.
+    expect(insertMention('ask @ke', 7, team[1]).text).toBe('ask @Kenji ')
+  })
+  it('reads a username back out of a sentence', () => {
+    expect(mentionedRefs('@mikas approve the price', team)).toEqual(['r1'])
+    expect(mentionedRefs('@Mika approve the price', team)).toEqual(['r1'])
+  })
+})

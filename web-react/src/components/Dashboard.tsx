@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { ClassicList, type Presence } from './ClassicList'
-import { WorkspaceSwitcher, type Workspace } from './WorkspaceSwitcher'
+import { WorkspaceSwitcher, workspaceLabel, type Workspace } from './WorkspaceSwitcher'
 import { Inbox } from './Inbox'
 import { Palette } from './Palette'
 import type { PaletteAction } from './Palette'
@@ -16,6 +16,8 @@ import { NotificationSettings } from '../screens/NotificationSettings'
 import { Plans } from '../screens/Plans'
 import { Profile } from '../screens/Profile'
 import { Insights } from '../screens/Insights'
+import { Automations } from '../screens/Automations'
+import { Playbook } from '../screens/Playbook'
 import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setTabBadge } from '../utils/notifications'
@@ -104,9 +106,24 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     try { localStorage.setItem('mode', next) } catch {}
     navigate(hashForMode(next))
   }
-  const setScreen = useCallback((next: Screen | null) => {
+  // Where a screen's back button goes: to You when You opened it — the
+  // chevron on Automations used to drop you on the feed, two steps from
+  // where you were — and to the feed otherwise.
+  // Words written in the list's "Your AI" conversation, sent through the
+  // same composer everything else is.
+  // A conversation open on a phone takes the whole screen, as a chat app's
+  // does: no mode switch above it, no tab bar under its composer.
+  const [immersive, setImmersive] = useState(false)
+  const [composeSeed, setComposeSeed] = useState<{ id: string; text: string } | null>(null)
+  const returnTo = useRef<Screen | null>(null)
+  const setScreen = useCallback((next: Screen | null, from: Screen | null = null) => {
+    returnTo.current = from
     navigate(next ? hashForScreen(next) : hashForMode(mode))
   }, [navigate, mode])
+  const closeScreen = useCallback(() => {
+    const back = returnTo.current
+    setScreen(back && back !== screen ? back : null)
+  }, [setScreen, screen])
   // The card the URL names — from a notification tap, a pasted link, or a
   // row picked in the inbox.
   const focusCardId = route.cardId
@@ -168,6 +185,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       window.dispatchEvent(new CustomEvent('honmaru:comment', { detail: { cardId, comment } }))
     }
     wsClient.onBusinesses = (list) => { if (!ignore) setBusinesses(list) }
+    // Something said in a channel: the list listens for its own.
+    wsClient.onChannelMessage = (message) => {
+      if (ignore) return
+      window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: message }))
+    }
     wsClient.onReaction = (cardId, emoji, on, by, reactions) => {
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:reaction', { detail: { cardId, emoji, on, by, reactions } }))
@@ -282,12 +304,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); setPalette((p) => !p); return }
       if (palette) return
-      if (e.key === 'Escape') { setPanel(null); if (screen) setScreen(null) }
+      if (e.key === 'Escape') { setPanel(null); if (screen) closeScreen() }
       else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) { e.preventDefault(); setPanel('compose') }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [panel, screen, setScreen, palette])
+  }, [panel, screen, setScreen, closeScreen, palette])
   const pickFromPalette = useCallback((action: PaletteAction) => {
     setPalette(false)
     setPanel(null)
@@ -483,7 +505,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // open: on a phone a screen owns the viewport and the tab bar goes away,
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
-    <div className={`shell${screen ? ' screen-open' : ''}`}>
+    <div className={`shell${screen ? ' screen-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}`}>
       {workbench ? (
         <div className="workbench">
           <Inbox
@@ -540,8 +562,32 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           presence={presence}
           onOpen={(id) => { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(id)) }}
           onNudge={handleNudge}
+          onDecide={(id, action) => handleDecision(id, action)}
+          api={api}
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
+          onTellAI={(text) => { setComposeSeed({ id: String(Date.now()), text }); setPanel('compose') }}
+          onImmersive={setImmersive}
+          // The whole card — its thread, Ask, the reply draft — drawn in the
+          // list's own pane, so opening a decision never leaves the list.
+          renderCard={(card) => (
+            <Feed
+              key={`${card.id}-${card.status}-${localeVersion}`}
+              cards={[card]}
+              userId={userId}
+              businesses={businesses}
+              focusCardId={null}
+              ready
+              active={!panel && !screen && !palette}
+              onDecide={handleDecision}
+              onAsk={handleAsk}
+              onFlag={handleFlag}
+              answers={answers}
+              onUndo={handleRollback}
+              api={api}
+              layout="desk"
+            />
+          )}
           onWorkspace={() => setScreen('team')}
           workspaceMenu={workspaceSwitcher('header')}
           onCreateChannel={(name) => channelCall('POST', { name })}
@@ -578,6 +624,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} aria-hidden="true" />
           <button className="palette-button" onClick={() => setPalette(true)} aria-label={t('Search or jump to')} title="⌘K" aria-keyshortcuts="Meta+K Control+K">
             <Icon name="search" size={18} />
+            {/* The search field a chat client puts across its top: words on a
+                laptop, a magnifier on a phone. */}
+            <span className="palette-label">{t('Search {name}', { name: workspaceLabel(workspaces.find((w) => w.id === orgId) || (orgName ? { id: orgId, name: orgName, role: 'member' } : undefined), t) })}</span>
+            <kbd className="palette-kbd">⌘K</kbd>
           </button>
           <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
           <button className="avatar-button" onClick={() => setScreen('profile')} aria-label={t('You')}>
@@ -614,15 +664,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             aria-label={t('Feed')}
           ><Icon name="home" /></button>
           <button className={screen === 'history' ? 'tab on' : 'tab'} aria-current={screen === 'history' ? 'page' : undefined} data-tab="history" onClick={() => setScreen('history')} aria-label={t('History')}><Icon name="history" /></button>
-          <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} aria-keyshortcuts="n">
+          <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} title={`${t('Tell your AI')} (N)`} aria-keyshortcuts="n">
             <span className="fab-face"><Icon name="plus" /></span>
           </button>
           <button className={screen === 'tools' ? 'tab on' : 'tab'} aria-current={screen === 'tools' ? 'page' : undefined} data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
-          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /></button>
+          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /><span className="tab-avatar" aria-hidden="true" data-initial={(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()} /></button>
         </nav>
       )}
 
-      {panel && <div className="scrim" onClick={() => setPanel(null)} />}
+      {panel && <div className="scrim" onClick={() => { setPanel(null); setComposeSeed(null) }} />}
 
       {palette && (
         <Palette
@@ -636,18 +686,21 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel === 'compose' && (
-        <div className="sheet sheet-bottom" role="dialog" aria-modal="true" aria-label={t('Tell your AI')}>
+        <div className="sheet sheet-bottom sheet-compose" role="dialog" aria-modal="true" aria-label={t('Tell your AI')}>
           <div className="sheet-title">{t('Tell your AI')}</div>
           <p className="sheet-hint">{t('compose.hint')}</p>
           <CreateDecision
+            key={composeSeed?.id || 'compose'}
             relayHttpUrl={relayHttpUrl}
             orgId={orgId}
             userId={userId}
             sessionToken={sessionToken}
+            initialText={composeSeed?.text}
+            autoSend={Boolean(composeSeed?.text)}
             autoFocus
             onSendCard={(card) => wsClientRef.current!.sendCardCreated(card)}
             onLog={addDebugLog}
-            onDone={() => setPanel(null)}
+            onDone={() => { setPanel(null); setComposeSeed(null) }}
           />
         </div>
       )}
@@ -667,11 +720,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           // here to show them. Asking the server where they still belong is
           // the same question a sign-in asks.
           onLeft={() => { setScreen(null); onLeft() }}
-          onClose={() => setScreen(null)}
+          onClose={closeScreen}
         />
       )}
       {screen === 'tools' && (
-        <Tools httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+        <Tools httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'history' && (
         <History
@@ -680,20 +733,34 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           businesses={businesses}
           userId={userId}
           onUndo={handleRollback}
-          onClose={() => setScreen(null)}
+          onClose={closeScreen}
           httpBase={relayHttpUrl}
           orgId={orgId}
           sessionToken={sessionToken}
         />
       )}
       {screen === 'notifications' && (
-        <NotificationSettings httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+        <NotificationSettings httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'insights' && (
-        <Insights httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+        <Insights httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
+      )}
+      {screen === 'automations' && (
+        <Automations
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          sessionToken={sessionToken}
+          // "Run now" delivers a card; the person goes to read it, in the
+          // cards view, where a report is drawn as a document.
+          onOpenCard={(id) => { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(id)) }}
+          onClose={closeScreen}
+        />
+      )}
+      {screen === 'playbook' && (
+        <Playbook httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'plans' && (
-        <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={() => setScreen(null)} />
+        <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />
       )}
       {screen === 'profile' && (
         <Profile
@@ -706,12 +773,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           decidedCount={decidedCards.length}
           onOpen={(where) => {
             if (where === 'record') { setScreen(null); setPanel('record') }
-            else setScreen(where)
+            else setScreen(where, 'profile')
           }}
           onLocaleChange={() => setLocaleVersion((v) => v + 1)}
           onSwitchOrg={(next) => { setScreen(null); onSwitchOrg(next) }}
           onLogout={onLogout}
-          onClose={() => setScreen(null)}
+          onClose={closeScreen}
         />
       )}
 

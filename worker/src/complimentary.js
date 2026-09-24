@@ -8,9 +8,27 @@ const PRO_ENTITLEMENT = "honmaruai Pro";
 export const COMPLIMENTARY_PROMO_END_MS = Date.parse("2226-01-01T00:00:00Z");
 const OPERATION_LEASE_MS = 60_000;
 
-export function complimentaryAvailable(env) {
+// The launch code, handed out in public: anyone who enters it gets Pro for
+// good. Kept as its SHA-256, of the lower-cased code, so the words are not
+// in the source and it is forgiving about case the way a code read aloud
+// should be. The secret above still works beside it, exactly as it did.
+const LAUNCH_CODE_SHA256 = "d370761db73a1bf4f9acb3be1026b10274919d156aefac2b4e155f448a817dcb";
+
+function secretConfigured(env) {
   return typeof env.COMPLIMENTARY_ACCESS_CODE === "string" &&
     env.COMPLIMENTARY_ACCESS_CODE.trim().length >= 8;
+}
+
+/// Whether a code can be redeemed here at all: always, now that the launch
+/// code is built in.
+export function complimentaryAvailable(_env) {
+  return true;
+}
+
+async function isLaunchCode(code) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(code.toLowerCase()));
+  const expected = new Uint8Array(LAUNCH_CODE_SHA256.match(/../g).map((h) => parseInt(h, 16)));
+  return crypto.subtle.timingSafeEqual(digest, expected.buffer);
 }
 
 export async function hasComplimentaryAccess(env, userID) {
@@ -231,14 +249,17 @@ export async function readRedemptionCode(request) {
 }
 
 export async function redeemComplimentaryAccess(env, userID, code) {
-  if (!complimentaryAvailable(env)) return false;
   if (typeof code !== "string" || !code.length || code.length > 128) return false;
-  const encoder = new TextEncoder();
-  const [actual, expected] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(code)),
-    crypto.subtle.digest("SHA-256", encoder.encode(env.COMPLIMENTARY_ACCESS_CODE.trim())),
-  ]);
-  if (!crypto.subtle.timingSafeEqual(actual, expected)) return false;
+  let matches = await isLaunchCode(code);
+  if (!matches && secretConfigured(env)) {
+    const encoder = new TextEncoder();
+    const [actual, expected] = await Promise.all([
+      crypto.subtle.digest("SHA-256", encoder.encode(code)),
+      crypto.subtle.digest("SHA-256", encoder.encode(env.COMPLIMENTARY_ACCESS_CODE.trim())),
+    ]);
+    matches = crypto.subtle.timingSafeEqual(actual, expected);
+  }
+  if (!matches) return false;
   // Repeating redemption is idempotent; it never starts a subscription or
   // changes workspace membership. Existing grants survive code rotation.
   await env.DB.prepare(

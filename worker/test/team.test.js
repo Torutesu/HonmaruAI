@@ -213,7 +213,8 @@ test("the codes you have out are listed, and yours are readable", async () => {
   expect(found.mine).toBe(true);
   expect(found.role).toBe("engineer");
   expect(found.uses).toBe(0);
-  expect(found.maxUses).toBe(1);
+  // A link is for everyone it is shared with.
+  expect(found.maxUses).toBeGreaterThan(1);
   expect(found.ref).toMatch(/^[0-9a-f]{16}$/);
 });
 

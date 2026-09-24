@@ -224,7 +224,8 @@ export async function upsertUser(db, { githubId, login, name, avatarUrl, locale 
       `INSERT INTO users (github_id, login, name, avatar_url, locale, created_at)
        VALUES (?1, ?2, ?3, ?4, COALESCE(?5, 'en'), ?6)
        ON CONFLICT(github_id) DO UPDATE SET
-         login = excluded.login, name = excluded.name,
+         login = excluded.login,
+         name = CASE WHEN users.name_locked = 1 THEN users.name ELSE excluded.name END,
          avatar_url = excluded.avatar_url,
          locale = COALESCE(?5, users.locale)`
     )
@@ -277,7 +278,7 @@ export async function getUserByGithubId(db, githubId) {
   return (
     (await db
       .prepare(
-        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, aliases FROM users WHERE github_id = ?1"
+        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, aliases, handle FROM users WHERE github_id = ?1"
       )
       .bind(String(githubId))
       .first()) || null
@@ -303,6 +304,48 @@ export function normalizeAliases(value) {
     if (out.length >= MAX_ALIASES) break;
   }
   return out;
+}
+
+export const MAX_NAME_CHARS = 60;
+/// Usernames nobody may take: words that already mean something after an @.
+const RESERVED_HANDLES = new Set(["ai", "everyone", "here", "channel", "all", "admin", "team", "you", "me", "honmaru", "shogun", "shogunai"]);
+
+/// A display name, cleaned: one line, bounded; null when there is nothing.
+export function cleanName(value) {
+  if (typeof value !== "string") return null;
+  const clean = value.replace(/[\u0000-\u001f]/g, "").replace(/\s+/g, " ").trim();
+  return clean && clean.length <= MAX_NAME_CHARS ? clean : null;
+}
+
+/// A username: what follows the @. Lowercase letters, digits, "." "_" "-",
+/// 2 to 30 of them, starting with a letter or digit. Returns the handle, or
+/// `{ error }` saying what is wrong with it.
+export function checkHandle(value) {
+  const h = String(value || "").trim().replace(/^@/, "").toLowerCase();
+  if (!h) return { handle: null };
+  if (!/^[a-z0-9][a-z0-9._-]{1,29}$/.test(h)) return { error: "A username is 2–30 letters, numbers, “.”, “_” or “-”, starting with a letter or number." };
+  if (RESERVED_HANDLES.has(h)) return { error: "That username is reserved." };
+  return { handle: h };
+}
+
+export async function setUserName(db, githubId, name) {
+  await db.prepare("UPDATE users SET name = ?2, name_locked = 1 WHERE github_id = ?1").bind(String(githubId), name).run();
+}
+
+/// Take a username, or say it is someone else's. The unique index is the
+/// judge, so two people choosing the same one at once cannot both have it.
+export async function setUserHandle(db, githubId, handle) {
+  if (handle) {
+    const other = await db.prepare("SELECT 1 FROM users WHERE handle = ?1 AND github_id != ?2").bind(handle, String(githubId)).first();
+    if (other) return { error: "That username is taken." };
+  }
+  try {
+    await db.prepare("UPDATE users SET handle = ?2 WHERE github_id = ?1").bind(String(githubId), handle).run();
+    return { ok: true };
+  } catch (err) {
+    if (/UNIQUE|constraint/i.test(String(err?.message))) return { error: "That username is taken." };
+    throw err;
+  }
 }
 
 export async function setUserAliases(db, githubId, aliases) {
@@ -691,7 +734,8 @@ export async function listOrgNodes(db, orgId) {
       `SELECT COALESCE(u.login, m.user_github_id) AS id,
               COALESCE(m.title, m.role) AS role,
               COALESCE(u.name, u.login, m.user_github_id) AS name,
-              u.aliases AS aliases
+              u.aliases AS aliases,
+              u.handle AS handle
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
         WHERE m.org_id = ?1`
@@ -705,7 +749,8 @@ export async function listOrgNodes(db, orgId) {
     kind: "person",
     role: (r.role || "member").toLowerCase(),
     label: `${r.name} · ${r.role || "member"}`,
-    ...(parseAliases(r.aliases).length ? { aliases: parseAliases(r.aliases) } : {}),
+    // A username is one more name the router matches on.
+    ...((parseAliases(r.aliases).length || r.handle) ? { aliases: [...parseAliases(r.aliases), ...(r.handle ? [r.handle] : [])] } : {}),
   }));
 }
 
