@@ -3,30 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Honmaru AI — Decisions, not messages</title>
-<meta name="description" content="Tell your own AI what you need. It finds the right person, talks to their AI, and hands them one card to swipe. No channels. No inbox.">
+<title>Honmaru AI</title>
+<meta name="description" content="Your AI talks to their AI. You just swipe. An AI-native decision feed for teams.">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0a0b10" media="(prefers-color-scheme: dark)">
-<meta property="og:title" content="Honmaru AI — Decisions, not messages">
-<meta property="og:description" content="An AI-native decision feed for teams. Say it once; your AI routes it to the right person as one card to swipe.">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="Honmaru AI — Decisions, not messages.">
+<meta property="og:description" content="Your AI talks to their AI. You just swipe.">
 <meta property="og:type" content="website">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="alternate" hreflang="en" href="?lang=en">
-<link rel="alternate" hreflang="ja" href="?lang=ja">
-<link rel="alternate" hreflang="es" href="?lang=es">
-<link rel="alternate" hreflang="fr" href="?lang=fr">
-<link rel="alternate" hreflang="de" href="?lang=de">
+<link rel="apple-touch-icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&family=Sometype+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap" rel="stylesheet">
 <script>
-  // Set theme and language before first paint so nothing flashes.
   (function () {
     var d = document.documentElement;
-    try {
-      var t = localStorage.getItem('honmaru-theme');
-      if (t === 'light' || t === 'dark') d.setAttribute('data-theme', t);
-    } catch (e) {}
+    try { var t = localStorage.getItem('honmaru-theme'); if (t === 'light' || t === 'dark') d.setAttribute('data-theme', t); } catch (e) {}
+    d.classList.add('js');
   })();
 </script>
 <link rel="stylesheet" href="styles.css">
@@ -34,244 +27,314 @@
 <body>
 <a class="skip" href="#main" data-i18n="a11y.skip">Skip to content</a>
 
+<!-- ============ NAV ============ -->
 <header class="nav" id="nav">
-  <a class="brand" href="#top" aria-label="Honmaru AI">
-    <img src="icon.svg" width="28" height="28" alt="">
-    <span>Honmaru AI</span>
-  </a>
-  <nav class="nav-links" aria-label="Primary">
-    <a href="#noise" data-i18n="nav.why">Why</a>
-    <a href="#how" data-i18n="nav.how">How it works</a>
-    <a href="#features" data-i18n="nav.features">Features</a>
-  </nav>
-  <div class="nav-tools">
-    <label class="lang">
-      <span class="sr-only" data-i18n="a11y.language">Language</span>
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-8.5 9h17M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3Z"/></svg>
-      <select id="lang-select">
-        <option value="en">English</option>
-        <option value="ja">日本語</option>
-        <option value="es">Español</option>
-        <option value="fr">Français</option>
-        <option value="de">Deutsch</option>
-      </select>
-    </label>
-    <button class="icon-btn" id="theme-toggle" type="button" data-i18n-aria="a11y.theme" aria-label="Toggle dark mode">
-      <svg class="i-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M12 2.5v2.2M12 19.3v2.2M4.3 4.3l1.6 1.6M18.1 18.1l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.3 19.7l1.6-1.6M18.1 5.9l1.6-1.6"/></svg>
-      <svg class="i-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
-    </button>
-    <a class="btn btn-primary btn-sm nav-cta" href="https://honmaru-web.pages.dev/" data-i18n="nav.cta">Open the app</a>
+  <div class="nav-inner">
+    <a class="brand" href="#top" aria-label="Honmaru AI">
+      <img src="icon.svg" width="24" height="24" alt="">
+      <span>Honmaru AI</span>
+    </a>
+    <nav class="nav-links" id="nav-links" aria-label="Primary">
+      <a href="#how" data-i18n="nav.how">How it works</a>
+      <a href="#highlights" data-i18n="nav.features">Features</a>
+      <a href="#privacy" data-i18n="nav.privacy">Privacy</a>
+    </nav>
+    <div class="nav-tools">
+      <div class="menu" id="lang-menu">
+        <button class="nav-icon" id="lang-btn" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-aria="a11y.language" aria-label="Language">
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-8.5 9h17M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3Z"/></svg>
+          <span class="lang-code" id="lang-code">EN</span>
+        </button>
+        <ul class="menu-list" id="lang-list" role="listbox" hidden>
+          <li role="option" data-lang="en">English</li>
+          <li role="option" data-lang="ja">日本語</li>
+          <li role="option" data-lang="es">Español</li>
+          <li role="option" data-lang="fr">Français</li>
+          <li role="option" data-lang="de">Deutsch</li>
+        </ul>
+      </div>
+      <button class="nav-icon" id="theme-btn" type="button" data-i18n-aria="a11y.theme" aria-label="Switch appearance">
+        <svg class="i-sun" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><path stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M12 2.8v2M12 19.2v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.8 12h2M19.2 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+      </button>
+      <a class="pill pill-sm" href="https://honmaru-web.pages.dev/" data-i18n="nav.cta">Try free</a>
+      <button class="nav-icon nav-more" id="more-btn" type="button" aria-expanded="false" aria-controls="nav-links" data-i18n-aria="a11y.menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M6 9.5l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
   </div>
 </header>
 
 <main id="main">
-  <!-- HERO -->
-  <section class="hero" id="top">
-    <canvas class="hero-graph" id="graph" aria-hidden="true"></canvas>
-    <div class="hero-inner">
-      <div class="hero-copy">
-        <p class="eyebrow reveal"><span class="dot"></span><span data-i18n="hero.eyebrow">AI-native decision feed for teams</span></p>
-        <h1 class="display reveal" data-i18n-html="hero.title">Decisions,<br>not messages.</h1>
-        <p class="lead reveal" data-i18n="hero.sub">Tell your own AI what you need. It finds the right person, talks to their AI, and hands them one card to swipe. No channels. No inbox.</p>
-        <div class="hero-ctas reveal">
-          <a class="btn btn-primary" href="https://honmaru-web.pages.dev/" data-i18n="hero.cta1">Try it in the browser</a>
-          <a class="btn btn-ghost" href="#how" data-i18n="hero.cta2">See how it works</a>
+
+  <!-- ============ STAGE: hero + pinned iPhone story ============ -->
+  <section class="stage" id="top">
+    <div class="stage-sticky">
+      <div class="hero-text" id="hero-text">
+        <p class="kicker ai-text">Honmaru AI</p>
+        <h1 class="headline" data-i18n-html="hero.title">Decisions,<br>not messages.</h1>
+        <p class="hero-sub" data-i18n="hero.sub">Your AI talks to their AI. You just swipe.</p>
+        <div class="hero-ctas">
+          <a class="pill" href="https://honmaru-web.pages.dev/" data-i18n="hero.cta">Try it free</a>
+          <a class="more-link" href="#how"><span data-i18n="hero.link">See how it works</span> <span class="chev">›</span></a>
         </div>
-        <ul class="hero-proof reveal">
-          <li><b>1</b><span data-i18n="hero.stat1">swipe per decision</span></li>
-          <li><b>0</b><span data-i18n="hero.stat2">channels to manage</span></li>
-          <li><b>5</b><span data-i18n="hero.stat3">languages, per reader</span></li>
-        </ul>
       </div>
 
-      <div class="phone-wrap reveal">
-        <div class="phone" id="phone">
-          <div class="phone-notch"></div>
-          <div class="phone-top">
-            <span class="mono" data-i18n="phone.header">Your feed</span>
-            <span class="pill-count"><span id="pending-count">3</span> <span data-i18n="phone.pending">pending</span></span>
-          </div>
-          <p class="triage mono"><span class="ai-spark"></span><span data-i18n="phone.triaged">Your AI triaged 3 decisions overnight</span></p>
-          <div class="stack" id="stack" aria-live="polite"></div>
-          <div class="done" id="done" hidden>
-            <div class="done-ring"><svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-            <p class="done-title" data-i18n="phone.clearTitle">All clear.</p>
-            <p class="done-sub" data-i18n="phone.clearSub">Every decision landed on GitHub.</p>
-            <button class="btn btn-ghost btn-sm" id="replay" type="button" data-i18n="phone.replay">Replay</button>
-          </div>
-          <div class="phone-actions">
-            <button class="round reject" id="btn-reject" type="button" data-i18n-aria="phone.reject" aria-label="Reject">
-              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            </button>
-            <span class="swipe-hint mono" data-i18n="phone.hint">← swipe →</span>
-            <button class="round approve" id="btn-approve" type="button" data-i18n-aria="phone.approve" aria-label="Approve">
-              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
+      <ol class="captions" id="captions" aria-label="Story">
+        <li class="caption"><h2 data-i18n="c1.t">Already there.</h2><p data-i18n="c1.d">Overnight, your AI read everything and kept only what needs you.</p></li>
+        <li class="caption"><h2 data-i18n="c2.t">Swipe to decide.</h2><p data-i18n="c2.d">Right to approve. Left to decline. That’s the whole interface.</p></li>
+        <li class="caption"><h2 data-i18n="c3.t">Recorded. Instantly.</h2><p data-i18n="c3.d">The decision lands on GitHub as an Issue before your thumb leaves the glass.</p></li>
+        <li class="caption"><h2 data-i18n="c4.t">Next.</h2><p data-i18n="c4.d">Ordered by urgency, so the next card is always the right one.</p></li>
+      </ol>
+
+      <div class="device" id="device" aria-hidden="true">
+        <div class="device-glow" id="device-glow"></div>
+        <div class="device-frame">
+          <div class="btn-side b1"></div><div class="btn-side b2"></div><div class="btn-side b3"></div><div class="btn-side b4"></div>
+          <div class="screen">
+            <div class="ai-edge" id="ai-edge"></div>
+
+            <div class="status">
+              <span class="time">9:41</span>
+              <span class="island"></span>
+              <span class="sys">
+                <svg viewBox="0 0 18 12" aria-hidden="true"><rect x="0" y="8" width="3" height="4" rx=".8"/><rect x="5" y="5.5" width="3" height="6.5" rx=".8"/><rect x="10" y="3" width="3" height="9" rx=".8"/><rect x="15" y="0" width="3" height="12" rx=".8"/></svg>
+                <svg viewBox="0 0 16 12" aria-hidden="true"><path d="M8 11.5 5.6 9a3.4 3.4 0 0 1 4.8 0L8 11.5Zm-4-4.1L2.3 5.7a8 8 0 0 1 11.4 0L12 7.4a5.6 5.6 0 0 0-8 0ZM.6 4 0 3.4a11.3 11.3 0 0 1 16 0l-.6.6-1 1a10 10 0 0 0-12.8 0L.6 4Z"/></svg>
+                <svg viewBox="0 0 27 13" aria-hidden="true"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.2"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2Z" opacity=".45"/></svg>
+              </span>
+            </div>
+
+            <div class="banner" id="banner">
+              <span class="banner-icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="#fff" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></span>
+              <span class="banner-body">
+                <span class="banner-top"><b>GitHub</b><span data-i18n="ph.now">now</span></span>
+                <b class="banner-title" data-i18n="ph.banner.t">Issue #128 opened</b>
+                <span class="banner-text" data-i18n="ph.banner.b">Approve the spring campaign budget · approved by you</span>
+              </span>
+            </div>
+
+            <div class="app">
+              <div class="app-head">
+                <span class="ws"><span class="ws-mark">H</span>Honmaru HQ<svg viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+                <span class="seg"><span class="on"><span data-i18n="ph.cards">Cards</span> <b id="ph-count">3</b></span><span data-i18n="ph.classic">Classic</span></span>
+              </div>
+              <div class="feed-meta">
+                <span data-i18n="ph.decisions">DECISIONS</span>
+                <span class="legend"><i class="lo"></i><span data-i18n="ph.low">Low</span><i class="hi"></i><span data-i18n="ph.high">High</span></span>
+              </div>
+
+              <div class="triage" id="triage"><span class="spark"></span><span data-i18n="ph.triage">Your AI triaged 3 requests overnight</span></div>
+
+              <div class="cards">
+                <article class="pcard" id="pcard2">
+                  <p class="pk"><i class="blue"></i><span data-i18n="ph.c2.k">CHOICE · CAFE SAKURA</span></p>
+                  <h4 data-i18n="ph.c2.t">Pick the new seasonal menu photo</h4>
+                  <p class="ps" data-i18n="ph.c2.s">Mio shot three options. The printer needs a choice by 5 pm today.</p>
+                  <div class="req">
+                    <span class="req-l" data-i18n="ph.req">REQUESTED BY</span>
+                    <div class="req-row"><span class="av av2">M</span><span class="req-b"><span><b>Mio</b> <span class="muted" data-i18n="ph.c2.meta">Design · 9m</span></span><span class="q" data-i18n="ph.c2.q">Option B tested best with regulars.</span></span></div>
+                  </div>
+                  <div class="rec"><span class="rec-h"><span class="spark"></span><span data-i18n="ph.rec">Recommended:</span> <em data-i18n="ph.c2.a">Option B</em></span></div>
+                </article>
+                <article class="pcard" id="pcard1">
+                  <span class="stamp" id="stamp" data-i18n="ph.stamp">APPROVED</span>
+                  <p class="pk"><i class="pink"></i><span data-i18n="ph.c1.k">DECISION · HOTEL 本丸</span></p>
+                  <h4 data-i18n="ph.c1.t">Approve the ¥480k spring campaign budget?</h4>
+                  <p class="ps" data-i18n="ph.c1.s">Bookings are 12% behind March. Ken proposes Instagram plus two travel blogs, launching Friday.</p>
+                  <span class="src"><span class="src-i"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m4.5 7 7.5 6 7.5-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span><b>Gmail</b><span data-i18n="ph.source">Source</span></span>
+                  <div class="req">
+                    <span class="req-l" data-i18n="ph.req">REQUESTED BY</span>
+                    <div class="req-row"><span class="av">K</span><span class="req-b"><span><b>Ken</b> <span class="muted" data-i18n="ph.c1.meta">Marketing · 2m</span></span><span class="q" data-i18n="ph.c1.q">Need a yes by Thursday to book the slots.</span></span></div>
+                  </div>
+                  <div class="rec"><span class="rec-h"><span class="spark"></span><span data-i18n="ph.rec">Recommended:</span> <em data-i18n="ph.approve">Approve</em></span><p data-i18n="ph.c1.why">Within the quarter’s budget. Last spring’s campaign returned 3.1×.</p></div>
+                </article>
+              </div>
+
+              <div class="decide">
+                <span class="dbtn no"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+                <span class="dbtn yes" id="yes-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              </div>
+            </div>
+
+            <div class="tabbar">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7V20a.5.5 0 0 1-.5.5h-5v-6h-6v6H4a.5.5 0 0 1-.5-.5v-9.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+              <span class="fab"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+              <svg class="dim" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 20.5c1.2-3.8 4.3-5.5 8-5.5s6.8 1.7 8 5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </div>
+            <div class="home-ind"></div>
           </div>
         </div>
-        <div class="toast" id="toast" role="status"></div>
       </div>
     </div>
-    <a class="scroll-cue" href="#noise" aria-label="Scroll"><span></span></a>
   </section>
 
-  <!-- NOISE → SIGNAL (scroll-driven) -->
-  <section class="noise" id="noise">
-    <div class="noise-sticky">
-      <div class="noise-field" id="noise-field" aria-hidden="true"></div>
-      <div class="noise-signal" id="noise-signal" aria-hidden="true">
-        <div class="mini-card">
-          <div class="mc-top"><span class="tag tag-decision">DECISION</span><span class="mono mc-biz">HOTEL 本丸</span></div>
-          <p class="mc-title" data-i18n="noise.cardTitle">Approve the ¥480k spring campaign budget?</p>
-          <p class="mc-route mono"><span class="ai-spark"></span><span data-i18n="noise.cardRoute">Ken's AI → Your AI · you own the marketing budget</span></p>
-          <div class="mc-actions"><span class="chip-dark" data-i18n="phone.approve">Approve</span><span class="chip-ghost" data-i18n="phone.reject">Reject</span></div>
-        </div>
-      </div>
-      <div class="noise-copy">
-        <p class="eyebrow"><span class="dot"></span><span data-i18n="noise.eyebrow">The old way</span></p>
-        <div class="noise-steps">
-          <h2 class="display-md noise-step is-active" data-i18n-html="noise.s1">Forty channels.<br>Four hundred pings.</h2>
-          <h2 class="display-md noise-step" data-i18n-html="noise.s2">Somewhere in there<br>is one thing only you can decide.</h2>
-          <h2 class="display-md noise-step" data-i18n-html="noise.s3">Honmaru finds it,<br>and brings you just that.</h2>
-        </div>
-        <div class="noise-progress" aria-hidden="true"><span id="noise-bar"></span></div>
-      </div>
+  <!-- ============ STATEMENT ============ -->
+  <section class="statement" id="statement">
+    <div class="statement-sticky">
+      <p class="statement-text" id="statement-text" data-i18n="statement">You talk to your AI. Your AI talks to theirs. Nobody has to talk into a channel ever again.</p>
     </div>
   </section>
 
-  <!-- HOW IT WORKS (interactive router) -->
+  <!-- ============ HOW IT WORKS ============ -->
   <section class="section how" id="how">
-    <div class="container">
-      <div class="section-head reveal">
-        <p class="eyebrow"><span class="dot"></span><span data-i18n="how.eyebrow">How it works</span></p>
-        <h2 class="display-md" data-i18n-html="how.title">Say it once.<br>Your AI does the routing.</h2>
-        <p class="lead" data-i18n="how.sub">You only ever talk to your own AI. It reads the org graph — who owns what, who can approve — and delivers your intent to the right person's AI, which turns it into a card they can act on.</p>
+    <div class="wrap">
+      <header class="section-head reveal">
+        <p class="kicker" data-i18n="how.kicker">How it works</p>
+        <h2 class="title" data-i18n-html="how.title">Say it once.<br>It finds the right person.</h2>
+        <p class="intro" data-i18n="how.sub">Your AI reads the org graph — who owns what, who can approve — and hands your intent to the right person’s AI. It arrives as a card, not a message.</p>
+      </header>
+
+      <div class="flow reveal" id="flow" aria-hidden="true">
+        <div class="flow-line"><span class="flow-fill" id="flow-fill"></span><span class="flow-dot" id="flow-dot"></span></div>
+        <div class="flow-node" data-i="0"><span class="fn you"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c1-3.4 3.8-5 7-5s6 1.6 7 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="fl" data-i18n="how.you">You</span></div>
+        <div class="flow-node" data-i="1"><span class="fn ai"><span class="spark"></span></span><span class="fl" data-i18n="how.yourAi">Your AI</span></div>
+        <div class="flow-node" data-i="2"><span class="fn ai"><span class="spark"></span></span><span class="fl" id="fl-their-ai">Dana’s AI</span></div>
+        <div class="flow-node" data-i="3"><span class="fn them" id="fn-them">D</span><span class="fl" id="fl-them">Dana</span></div>
       </div>
 
-      <div class="router reveal">
-        <form class="composer" id="composer" autocomplete="off">
-          <span class="ai-spark big"></span>
-          <label class="sr-only" for="intent" data-i18n="how.placeholder">Tell your AI…</label>
-          <input id="intent" type="text" maxlength="120" data-i18n-placeholder="how.placeholder" placeholder="Tell your AI…">
-          <button class="btn btn-primary btn-sm" type="submit" data-i18n="how.send">Send</button>
+      <div class="try reveal">
+        <form class="prompt" id="prompt" autocomplete="off">
+          <span class="prompt-ring"></span>
+          <span class="spark big"></span>
+          <label class="sr-only" for="intent" data-i18n="how.placeholder">Ask your AI…</label>
+          <input id="intent" type="text" maxlength="120" data-i18n-placeholder="how.placeholder" placeholder="Ask your AI…">
+          <button class="send" type="submit" data-i18n-aria="how.send" aria-label="Send">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </form>
-        <div class="presets" id="presets"></div>
+        <div class="chips" id="chips"></div>
 
-        <ol class="chain" id="chain">
-          <li class="node" data-step="0"><span class="avatar you">★</span><span class="node-label" data-i18n="how.you">You</span></li>
-          <li class="wire"><span></span></li>
-          <li class="node" data-step="1"><span class="avatar ai"><span class="ai-spark"></span></span><span class="node-label" data-i18n="how.yourAi">Your AI</span></li>
-          <li class="wire"><span></span></li>
-          <li class="node" data-step="2"><span class="avatar ai other"><span class="ai-spark"></span></span><span class="node-label" id="their-ai">Dana's AI</span></li>
-          <li class="wire"><span></span></li>
-          <li class="node" data-step="3"><span class="avatar person" id="their-initial">D</span><span class="node-label" id="their-name">Dana</span></li>
-        </ol>
-
-        <div class="result" id="result" aria-live="polite">
-          <div class="result-card" id="result-card">
-            <div class="mc-top"><span class="tag" id="r-kind">DECISION</span><span class="mono mc-biz" id="r-biz">GENERAL</span><span class="mono r-to" id="r-to"></span></div>
-            <p class="mc-title" id="r-title" data-i18n="how.emptyTitle">Type an instruction, or pick one above.</p>
-            <p class="mc-route mono" id="r-reason"><span class="ai-spark"></span><span data-i18n="how.emptyReason">The routing reason appears here.</span></p>
-            <div class="mc-actions"><span class="chip-dark" data-i18n="phone.approve">Approve</span><span class="chip-ghost" data-i18n="how.revise">Request revision</span><span class="chip-ghost" data-i18n="how.delegate">Delegate</span></div>
-          </div>
-          <div class="gh" id="gh">
+        <div class="outcome" id="outcome" aria-live="polite">
+          <article class="ocard" id="ocard">
+            <p class="pk"><i id="o-dot"></i><span id="o-kind" data-i18n="how.waitingK">WAITING</span></p>
+            <h4 id="o-title" data-i18n="how.waiting">Pick an example above, or type your own.</h4>
+            <p class="o-route" id="o-route"><span class="spark"></span><span id="o-reason" data-i18n="how.waitingR">The reason it went where it went appears here.</span></p>
+          </article>
+          <div class="o-gh" id="o-gh">
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-            <span data-i18n="how.gh">On approval, synced to GitHub as</span> <b class="mono" id="gh-issue">Issue #128</b>
+            <span data-i18n="how.gh">On approval</span> <b id="o-issue">Issue #128</b>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- FEATURES (bento) -->
-  <section class="section features" id="features">
-    <div class="container">
-      <div class="section-head reveal">
-        <p class="eyebrow"><span class="dot"></span><span data-i18n="feat.eyebrow">Built for teams running many things at once</span></p>
-        <h2 class="display-md" data-i18n-html="feat.title">Everything files itself.<br>You just decide.</h2>
-      </div>
-
-      <div class="bento">
-        <article class="tile t-lang reveal">
-          <p class="tile-k mono" data-i18n="feat.lang.k">Every reader's language</p>
-          <h3 data-i18n="feat.lang.t">Written in the language of whoever reads it</h3>
-          <p data-i18n="feat.lang.d">Write in Japanese; your German teammate's card, push and email arrive in German.</p>
-          <div class="lang-demo" aria-hidden="true">
-            <div class="lang-card"><span class="mono lang-code" id="lang-code">EN</span><span id="lang-line">Approve the spring campaign budget?</span></div>
+  <!-- ============ HIGHLIGHTS ============ -->
+  <section class="section highlights" id="highlights">
+    <div class="wrap">
+      <h2 class="title reveal" data-i18n="hl.title">Get the highlights.</h2>
+    </div>
+    <div class="gallery" id="gallery" tabindex="0" data-i18n-aria="hl.title" aria-label="Highlights">
+      <article class="slide s-biz">
+        <p class="slide-copy" data-i18n-html="hl.1">Every card files itself. <span>Under the right business, the first time it’s named.</span></p>
+        <div class="vis vis-biz" aria-hidden="true">
+          <div class="bcol"><span class="btag">CAFE SAKURA</span><span class="bcard"><i class="blue"></i><span data-i18n="hl.b1">Menu photo</span></span><span class="bcard"><i></i><span data-i18n="hl.b2">Oat milk supplier</span></span></div>
+          <div class="bcol"><span class="btag">HOTEL 本丸</span><span class="bcard hot"><i class="pink"></i><span data-i18n="hl.b3">Spring budget</span></span><span class="bcard"><i></i><span data-i18n="hl.b4">Late checkout</span></span><span class="bcard"><i class="blue"></i><span data-i18n="hl.b5">Linen contract</span></span></div>
+          <div class="bcol"><span class="btag">STUDIO K</span><span class="bcard"><i></i><span data-i18n="hl.b6">Invoice Q3</span></span></div>
+          <div class="bcol"><span class="btag new">+ POP-UP</span><span class="bcard ghost"><i class="violet"></i><span data-i18n="hl.b7">Venue deposit</span></span></div>
+        </div>
+      </article>
+      <article class="slide s-lang">
+        <p class="slide-copy" data-i18n-html="hl.2">Written in the reader’s language. <span>Whoever the reader is.</span></p>
+        <div class="vis vis-lang" aria-hidden="true">
+          <div class="lang-stack" id="lang-stack"></div>
+        </div>
+      </article>
+      <article class="slide s-gh">
+        <p class="slide-copy" data-i18n-html="hl.3">Approvals become GitHub Issues. <span>Engineers see the same truth, without the copy‑paste.</span></p>
+        <div class="vis vis-gh" aria-hidden="true">
+          <div class="gh-issue">
+            <div class="gh-top"><span class="gh-open">● Open</span><b>Approve the spring campaign budget</b><span class="gh-no">#128</span></div>
+            <div class="gh-lines"><span></span><span></span><span class="short"></span></div>
+            <div class="gh-labels"><span class="l1">decision</span><span class="l2">hotel-honmaru</span><span class="l3">approved</span></div>
           </div>
-        </article>
-
-        <article class="tile t-gh reveal">
-          <p class="tile-k mono" data-i18n="feat.gh.k">GitHub, automatically</p>
-          <h3 data-i18n="feat.gh.t">Approvals become Issues</h3>
-          <p data-i18n="feat.gh.d">Decisions, tasks, owners and results land in GitHub. Engineers see the same truth without anyone copy-pasting.</p>
-          <div class="gh-flow" aria-hidden="true">
-            <span class="chip-dark" data-i18n="phone.approve">Approve</span>
-            <span class="flow-line"><i></i></span>
-            <span class="issue mono">● #128 <span data-i18n="feat.gh.issue">open</span></span>
-          </div>
-        </article>
-
-        <article class="tile t-biz reveal">
-          <p class="tile-k mono" data-i18n="feat.biz.k">Zero setup taxonomy</p>
-          <h3 data-i18n="feat.biz.t">Filed under the right business, in the background</h3>
-          <p data-i18n="feat.biz.d">Ten people, ten businesses. The AI labels every card and creates a new business the first time it's named.</p>
-          <div class="biz-tags" aria-hidden="true">
-            <span>CAFE SAKURA</span><span>HOTEL 本丸</span><span>STUDIO K</span><span>GENERAL</span><span class="new">+ NEW</span>
-          </div>
-        </article>
-
-        <article class="tile t-graph reveal">
-          <p class="tile-k mono" data-i18n="feat.graph.k">Org graph</p>
-          <h3 data-i18n="feat.graph.t">Knows who decides</h3>
-          <p data-i18n="feat.graph.d">Roles, teams, projects and approval authority decide where a card goes — not who happens to be online.</p>
-          <svg class="mini-graph" viewBox="0 0 220 110" aria-hidden="true">
-            <g class="edges"><path d="M110 22 L50 62"/><path d="M110 22 L170 62"/><path d="M50 62 L30 96"/><path d="M50 62 L80 96"/><path d="M170 62 L150 96"/><path d="M170 62 L196 96"/></g>
-            <g class="pulse"><circle r="3.2"><animateMotion dur="2.6s" repeatCount="indefinite" path="M110 22 L170 62 L196 96"/></circle></g>
-            <g class="nodes"><circle cx="110" cy="22" r="8" class="lead-n"/><circle cx="50" cy="62" r="6"/><circle cx="170" cy="62" r="6"/><circle cx="30" cy="96" r="5"/><circle cx="80" cy="96" r="5"/><circle cx="150" cy="96" r="5"/><circle cx="196" cy="96" r="5" class="hit"/></g>
+        </div>
+      </article>
+      <article class="slide s-graph">
+        <p class="slide-copy" data-i18n-html="hl.4">Knows who decides. <span>Not who happens to be online.</span></p>
+        <div class="vis vis-graph" aria-hidden="true">
+          <svg viewBox="0 0 400 240">
+            <g class="ge"><path d="M200 40 L100 120"/><path d="M200 40 L300 120"/><path d="M100 120 L50 200"/><path d="M100 120 L150 200"/><path d="M300 120 L250 200"/><path d="M300 120 L350 200"/></g>
+            <path class="gp" d="M50 200 L100 120 L200 40 L300 120 L350 200"/>
+            <g class="gn"><circle cx="200" cy="40" r="14"/><circle cx="100" cy="120" r="11"/><circle cx="300" cy="120" r="11"/><circle cx="50" cy="200" r="9" class="from"/><circle cx="150" cy="200" r="9"/><circle cx="250" cy="200" r="9"/><circle cx="350" cy="200" r="9" class="to"/></g>
           </svg>
-        </article>
+        </div>
+      </article>
+      <article class="slide s-notify">
+        <p class="slide-copy" data-i18n-html="hl.5">It reaches people. <span>Push, then Web Push, then email — so nothing waits on a missed ping.</span></p>
+        <div class="vis vis-notify" aria-hidden="true">
+          <div class="nb nb1"><span class="nb-i"></span><span><b>Honmaru AI</b><span data-i18n="hl.n1">Ken needs a decision</span></span></div>
+          <div class="nb nb2"><span class="nb-i web"></span><span><b>honmaru-web.pages.dev</b><span data-i18n="hl.n2">Mio replied to your card</span></span></div>
+          <div class="nb nb3"><span class="nb-i mail"></span><span><b>noreply@honmaruai.com</b><span data-i18n="hl.n3">1 decision is waiting for you</span></span></div>
+        </div>
+      </article>
+    </div>
+    <div class="gallery-ctrl">
+      <div class="dots" id="dots" role="tablist"></div>
+      <button class="play" id="play" type="button" data-i18n-aria="hl.pause" aria-label="Pause">
+        <svg class="i-pause" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="7" y="6" width="3.2" height="12" rx="1" fill="currentColor"/><rect x="13.8" y="6" width="3.2" height="12" rx="1" fill="currentColor"/></svg>
+        <svg class="i-play" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M8 6.2v11.6a.8.8 0 0 0 1.2.7l9.3-5.8a.8.8 0 0 0 0-1.4L9.2 5.5A.8.8 0 0 0 8 6.2Z" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </section>
 
-        <article class="tile t-notify reveal">
-          <p class="tile-k mono" data-i18n="feat.notify.k">Reaches people</p>
-          <h3 data-i18n="feat.notify.t">Push, Web Push, then email</h3>
-          <p data-i18n="feat.notify.d">One hub, three channels. If no push reaches someone, email is the floor.</p>
-        </article>
-
-        <article class="tile t-conn reveal">
-          <p class="tile-k mono" data-i18n="feat.conn.k">Connectors</p>
-          <h3 data-i18n="feat.conn.t">Gmail, Slack and Notion, triaged</h3>
-          <p data-i18n="feat.conn.d">Each person connects their own. Messages that need a decision become cards; the rest stays out of your way.</p>
-        </article>
+  <!-- ============ NUMBERS ============ -->
+  <section class="section numbers">
+    <div class="wrap">
+      <h2 class="title reveal" data-i18n-html="num.title">Less inbox.<br>More done.</h2>
+      <div class="num-grid">
+        <div class="num reveal"><b class="ai-text" data-count="1">1</b><span data-i18n="num.1">swipe per decision</span></div>
+        <div class="num reveal"><b class="ai-text" data-count="0">0</b><span data-i18n="num.2">channels to keep up with</span></div>
+        <div class="num reveal"><b class="ai-text" data-count="5">5</b><span data-i18n="num.3">languages, chosen by the reader</span></div>
+        <div class="num reveal"><b class="ai-text" data-count="3">3</b><span data-i18n="num.4">ways to reach you: push, web, email</span></div>
       </div>
     </div>
   </section>
 
-  <!-- CTA -->
-  <section class="section cta" id="cta">
-    <div class="container">
-      <div class="cta-box reveal" id="cta-box">
-        <img src="icon.svg" width="56" height="56" alt="">
-        <h2 class="display-md" data-i18n-html="cta.title">Clear your first decision<br>in the next minute.</h2>
-        <p class="lead" data-i18n="cta.sub">Free to start. Works in any browser, and on iPhone via TestFlight.</p>
-        <div class="hero-ctas center">
-          <a class="btn btn-conic" href="https://honmaru-web.pages.dev/"><span data-i18n="cta.primary">Open Honmaru AI</span></a>
-          <a class="btn btn-ghost" href="mailto:support@honmaruai.com" data-i18n="cta.secondary">Talk to us</a>
-        </div>
+  <!-- ============ PRIVACY ============ -->
+  <section class="section privacy" id="privacy">
+    <div class="wrap">
+      <header class="section-head center reveal">
+        <span class="lock" aria-hidden="true"><svg viewBox="0 0 48 48" width="56" height="56"><rect x="10" y="21" width="28" height="21" rx="5" fill="currentColor"/><path d="M16 21v-5a8 8 0 0 1 16 0v5" fill="none" stroke="currentColor" stroke-width="3.4"/></svg></span>
+        <p class="kicker" data-i18n="pv.kicker">Privacy &amp; access</p>
+        <h2 class="title" data-i18n-html="pv.title">Only the person it’s for<br>can decide it.</h2>
+        <p class="intro" data-i18n="pv.sub">The relay holds every decision your organization makes, so it’s built as the trust boundary.</p>
+      </header>
+      <div class="pv-grid">
+        <div class="pv reveal"><h3 data-i18n="pv.1t">Checked at the door.</h3><p data-i18n="pv.1d">Every connection joins with a session that must have write access to your repository. Identity comes from the session — never from what a client claims.</p></div>
+        <div class="pv reveal"><h3 data-i18n="pv.2t">Yours to decide.</h3><p data-i18n="pv.2d">Only a card’s recipient can decide, delete or undo it.</p></div>
+        <div class="pv reveal"><h3 data-i18n="pv.3t">Your accounts. Your say.</h3><p data-i18n="pv.3d">Gmail, Slack and Notion are authorized per person. Nobody connects them on your behalf.</p></div>
+        <div class="pv reveal"><h3 data-i18n="pv.4t">Leave anytime.</h3><p data-i18n="pv.4d">Delete your account from inside the app, whenever you like.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CTA ============ -->
+  <section class="section finale">
+    <div class="wrap center">
+      <img class="finale-icon reveal" src="icon.svg" width="112" height="112" alt="">
+      <h2 class="headline small reveal" data-i18n-html="cta.title">Clear your first decision<br>in the next minute.</h2>
+      <p class="hero-sub reveal" data-i18n="cta.sub">Free to start. On the web today, and on iPhone through TestFlight.</p>
+      <div class="hero-ctas reveal">
+        <a class="pill" href="https://honmaru-web.pages.dev/" data-i18n="cta.primary">Try it free</a>
+        <a class="more-link" href="mailto:support@honmaruai.com"><span data-i18n="cta.secondary">Contact us</span> <span class="chev">›</span></a>
       </div>
     </div>
   </section>
 </main>
 
 <footer class="footer">
-  <div class="container footer-inner">
-    <div class="brand"><img src="icon.svg" width="22" height="22" alt=""><span>Honmaru AI</span></div>
-    <nav aria-label="Footer">
-      <a href="https://honmaru-web.pages.dev/privacy.html" data-i18n="footer.privacy">Privacy</a>
-      <a href="https://honmaru-web.pages.dev/support.html" data-i18n="footer.support">Support</a>
-      <a href="mailto:support@honmaruai.com">support@honmaruai.com</a>
-    </nav>
-    <p class="mono copy">© <span id="year">2026</span> Honmaru AI</p>
+  <div class="wrap">
+    <p class="fnote" data-i18n="ft.note">Honmaru AI routes each request with an AI model, and falls back to a keyword router when no model is available. The demo on this page uses the keyword router.</p>
+    <div class="frow">
+      <p data-i18n="ft.copy">Copyright © 2026 Honmaru AI. All rights reserved.</p>
+      <nav aria-label="Footer">
+        <a href="https://honmaru-web.pages.dev/privacy.html" data-i18n="ft.privacy">Privacy Policy</a>
+        <a href="https://honmaru-web.pages.dev/support.html" data-i18n="ft.support">Support</a>
+        <a href="mailto:support@honmaruai.com">support@honmaruai.com</a>
+      </nav>
+      <p class="fregion" id="fregion">English</p>
+    </div>
   </div>
 </footer>
 
