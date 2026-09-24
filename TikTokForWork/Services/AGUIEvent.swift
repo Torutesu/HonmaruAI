@@ -107,6 +107,15 @@ final class AGUIEventAssembler {
             return [.cardCreated(card: card)]
 
         case "CUSTOM":
+            // Channel talk and the AI's steps go to the chat store, which
+            // listens for them; the card store has nothing to do with them.
+            if let name = json["name"] as? String, name == "channel_message" || name == "channel_ai_progress",
+               let value = json["value"] as? [String: Any],
+               let data = try? JSONSerialization.data(withJSONObject: value) {
+                let note: Notification.Name = name == "channel_message" ? .chatMessageEvent : .chatProgressEvent
+                DispatchQueue.main.async { NotificationCenter.default.post(name: note, object: data) }
+                return []
+            }
             guard json["name"] as? String == "presence",
                   let value = json["value"] as? [String: Any],
                   let userId = value["userId"] as? String,

@@ -30,6 +30,7 @@ private struct CardHomeContent: View {
     @State private var lastDecision: DecisionCard?
     @State private var confirmUndo = false
     @State private var isRecoveringSession = false
+    @State private var suggestRule: (cardID: String, sender: String, business: String?)?
     private var cards: [DecisionCard] { service.cards(for: appState.currentUser?.id ?? "").filter(\.isPending) }
     private var selectedCard: DecisionCard? { cards.first { $0.id == selectedID } ?? cards.first }
     private var filtered: [DecisionCard] {
@@ -95,6 +96,38 @@ private struct CardHomeContent: View {
         .alert("Could not update request", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
+        .alert("Make it a standing yes?", isPresented: Binding(get: { suggestRule != nil && error == nil }, set: { if !$0 { suggestRule = nil } })) {
+            Button("Approve automatically") { acceptRule() }
+            Button("Not now", role: .cancel) { suggestRule = nil }
+        } message: {
+            if let r = suggestRule {
+                if let b = r.business { Text("Approve \(r.sender)’s requests like this in #\(b) automatically from now on?") }
+                else { Text("Approve \(r.sender)’s requests like this automatically from now on?") }
+            }
+        }
+    }
+
+    /// The third yes in a row to the same kind of request from the same
+    /// person: offer to make it a standing yes. Asked once per kind.
+    private func noteStreak(_ card: DecisionCard, action: CardActionKind) {
+        guard !appState.isGuest, let me = appState.currentUser?.id, let org = appState.currentUser?.teamID,
+              card.senderUserID != me, !card.senderUserID.isEmpty else { return }
+        let kind = "\(org):\(card.senderUserID)|\(card.type.rawValue)|\(card.business ?? "")"
+        let defaults = UserDefaults.standard
+        guard action == .createIssue else { defaults.removeObject(forKey: "autorule.streak:\(kind)"); return }
+        let streak = defaults.integer(forKey: "autorule.streak:\(kind)") + 1
+        defaults.set(streak, forKey: "autorule.streak:\(kind)")
+        guard streak >= 3, !defaults.bool(forKey: "autorule.asked:\(kind)") else { return }
+        defaults.set(true, forKey: "autorule.asked:\(kind)")
+        suggestRule = (card.id, card.requestedBy?.name ?? memberName(card.senderUserID), card.business)
+    }
+    private func acceptRule() {
+        guard let r = suggestRule, let org = appState.currentUser?.teamID, let base = appState.backendBaseURL else { suggestRule = nil; return }
+        suggestRule = nil
+        Task {
+            do { try await ChatService.addAutoRule(orgId: org, cardId: r.cardID, base: base); Haptics.success() }
+            catch { self.error = String(localized: "That did not save.") }
+        }
     }
 
     private var header: some View {
@@ -228,6 +261,7 @@ private struct CardHomeContent: View {
             do {
                 lastDecision = try await service.resolve(cardID: card.id, action: action, actorUserID: userID, revisionNote: action == .requestRevision ? text : nil, replyText: action == .reply ? text : nil, githubService: appState.githubService)
                 Haptics.success()
+                noteStreak(card, action: action)
             } catch { self.error = error.localizedDescription }
             isWorking = false
         }
