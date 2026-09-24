@@ -9,6 +9,7 @@ struct AppShell: View {
     @State private var captureMode: CaptureMode?
     @State private var hasCaptured = false
     @StateObject private var composer = FeedViewModel()
+    @StateObject private var chat = ChatStore()
     @State private var deliveryError: String?
     @State private var sentMessage: String?
     @State private var pendingSentMessage: String?
@@ -19,12 +20,14 @@ struct AppShell: View {
         // usable height. Parent overlays used to cover the detail actions.
         VStack(spacing: 0) {
             Group {
-                if tab == .home {
-                    FeedView(onProfile: { tab = .you }, onComposeToMember: { id in composer.recipientID = id; showCompose = true })
-                } else { YouView { showCompose = true } }
+                switch tab {
+                case .home: FeedView(onProfile: { tab = .you }, onComposeToMember: { id in composer.recipientID = id; showCompose = true })
+                case .chat: ChatHomeView(store: chat)
+                case .you: YouView(chat: chat) { showCompose = true }
+                }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             if tab == .home { promptBar }
-            AppTabBar(selection: $tab) { promptFocused = false; showCompose = true }
+            AppTabBar(selection: $tab, chatBadge: chat.unreadInbox) { promptFocused = false; showCompose = true }
         }
         .background(Theme.Colors.surface)
         .tint(Theme.Colors.accent)
@@ -46,7 +49,10 @@ struct AppShell: View {
         }
         .task(id: appState.activeSessionID) {
             composer.bind(to: appState)
+            chat.bind(appState)
             guard !appState.isGuest else { return }
+            await chat.refresh()
+            await chat.loadInbox()
             await appState.refreshWorkspaceMembers()
             while !Task.isCancelled {
                 await appState.cardService.syncGitHubStatus(githubService: appState.githubService)
@@ -72,7 +78,7 @@ struct AppShell: View {
                 Button("Speak", systemImage: "mic") { promptFocused = false; captureMode = .dictation }
             } label: {
                 Image(systemName: "plus").font(.system(size: 20, weight: .regular)).foregroundStyle(Theme.Colors.textSecondary)
-                    .frame(width: 36, height: 36).background(Theme.Colors.surfaceRaised, in: Circle())
+                    .frame(width: 36, height: 36).glassCircle()
             }.accessibilityLabel("Add to request")
             TextField("Ask anything…", text: $composer.sourceText, axis: .vertical)
                 .font(.system(size: 15)).lineLimit(1...3).focused($promptFocused).submitLabel(.done)
@@ -87,7 +93,7 @@ struct AppShell: View {
         }
         .buttonStyle(.plain)
         .padding(5).padding(.trailing, 1)
-        .background(Theme.Colors.background, in: Capsule()).overlay(Capsule().stroke(Theme.Colors.border, lineWidth: 1))
-        .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
+        .glassCapsule(interactive: true)
+        .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 6)
     }
 }

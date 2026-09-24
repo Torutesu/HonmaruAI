@@ -4,6 +4,7 @@ import UserNotifications
 
 /// Figma Profile: identity, personal controls, then plan and sign out.
 struct YouView: View {
+    var chat: ChatStore?
     var onCompose: () -> Void = {}
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var push: PushService
@@ -12,12 +13,18 @@ struct YouView: View {
     @State private var showGitHub = false
     @State private var confirmSignOut = false
     @State private var confirmReset = false
+    @State private var editingIdentity = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
                     identityCard
+                    if let chat, !appState.isGuest {
+                        group {
+                            Button { editingIdentity = true } label: { row("Name, username and status", icon: "at", value: statusLine(chat)) }
+                        }
+                    }
                     group {
                         NavigationLink { TeamSettingsView().environmentObject(appState) } label: { row("Team", icon: "person.2") }
                         separator
@@ -66,6 +73,7 @@ struct YouView: View {
             .navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
             .task { await appState.refreshWorkspaceMembers() }
             .sheet(isPresented: $showEmail) { emailSheet }
+            .sheet(isPresented: $editingIdentity) { if let chat { ChatStatusEditor(store: chat).environmentObject(appState) } }
             .sheet(isPresented: $showGitHub) { ConnectGitHubSheet(context: .settings).environmentObject(appState).presentationDetents([.large]) }
             .confirmationDialog(appState.isGuest ? String(localized: "Leave the demo?") : String(localized: "Sign out of this workspace?"), isPresented: $confirmSignOut, titleVisibility: .visible) {
                 Button(appState.isGuest ? String(localized: "Exit demo") : String(localized: "Sign out"), role: .destructive) { appState.signOut() }
@@ -76,6 +84,13 @@ struct YouView: View {
                 Button("Cancel", role: .cancel) {}
             } message: { Text("This replaces your demo changes with the original samples. Your real workspace is unaffected.") }
         }.tint(Theme.Colors.textPrimary)
+    }
+
+    private func statusLine(_ chat: ChatStore) -> String? {
+        if let a = ChatDates.parse(chat.mine?.awayUntil), a > Date() { return String(localized: "Away") }
+        guard let s = chat.mine?.status else { return nil }
+        let line = [s.emoji, s.text].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+        return line.isEmpty ? nil : line
     }
 
     private var identityCard: some View {
