@@ -31,6 +31,8 @@ interface Props {
   onSearch: () => void
   onCompose: () => void
   onWorkspace: () => void
+  /// The workspace's mark, name and switcher, drawn by the shell.
+  workspaceMenu?: React.ReactNode
   /// Channels are the team's businesses: made, renamed and deleted here,
   /// the way a chat client lets you. Each returns what went wrong, if
   /// anything, as a sentence.
@@ -86,7 +88,7 @@ const APP_NAME: Record<string, string> = { gmail: 'Gmail', email: 'Email', slack
 /// about. Presence is the relay's, not invented.
 export const ClassicList: React.FC<Props> = ({
   userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onSearch, onCompose, onWorkspace,
+  onOpen, onNudge, onSearch, onCompose, onWorkspace, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel,
 }) => {
   const t = useT()
@@ -354,10 +356,12 @@ export const ClassicList: React.FC<Props> = ({
     <div className="classic">
       <div className="classic-inner">
         <header className="cl-top">
-          <button className="cl-workspace" onClick={onWorkspace} aria-label={t('Team')}>
-            <span className="cl-workspace-name">{orgName || t('Your team')}</span>
-            <span className="cl-caret" aria-hidden="true">▾</span>
-          </button>
+          {workspaceMenu || (
+            <button className="cl-workspace" onClick={onWorkspace} aria-label={t('Team')}>
+              <span className="cl-workspace-name">{orgName || t('Your team')}</span>
+              <span className="cl-caret" aria-hidden="true">▾</span>
+            </button>
+          )}
           <div className="cl-top-actions">
             <button className="cl-icon-button" onClick={onCompose} aria-label={t('Tell your AI')}><Icon name="plus" size={16} /></button>
           </div>

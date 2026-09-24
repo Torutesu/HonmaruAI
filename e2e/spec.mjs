@@ -910,6 +910,35 @@ await step('a card has a thread: a comment with an @mention, and a reaction', as
   await d.waitForFunction(() => /1 repl/.test(document.querySelector('.inbox')?.innerText || '') || true, null, { timeout: 5000 })
 })
 
+// The top-left corner is the workspace: its mark, its name, and the way
+// into every other workspace — and the mark is the admin's to set.
+await step('the rail wears the workspace, and its logo can be set', async () => {
+  const d = desk.pages()[0]
+  await d.evaluate(() => { location.hash = '#/feed' })
+  await d.waitForSelector('.workbench', { timeout: 15000 })
+  await d.waitForSelector('.ws-rail .ws-button', { timeout: 10000 })
+    .catch(() => { throw new Error('the rail has no workspace switcher') })
+  await d.click('.ws-rail .ws-button')
+  await d.waitForSelector('.ws-menu [data-org]', { timeout: 10000 })
+    .catch(() => { throw new Error('the switcher lists no workspaces') })
+  const current = await d.$eval('.ws-menu [data-org][aria-checked="true"]', (el) => el.getAttribute('data-org'))
+  if (!current) throw new Error('the switcher does not mark the workspace you are in')
+  await d.screenshot({ path: `${SHOTS}/36-workspace-switcher.png` })
+  await d.keyboard.press('Escape')
+  // Set a logo from the team screen: one transparent pixel is a logo.
+  await d.evaluate(() => { location.hash = '#/team' })
+  await d.waitForSelector('.team-logo-input', { timeout: 15000 })
+    .catch(() => { throw new Error('the team screen offers no logo upload') })
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
+  await d.setInputFiles('.team-logo-input', { name: 'logo.png', mimeType: 'image/png', buffer: png })
+  await d.waitForSelector('.team-logo img', { timeout: 15000 })
+    .catch(() => { throw new Error('the uploaded logo did not appear on the team screen') })
+  await d.waitForSelector('.ws-rail img.ws-mark', { timeout: 15000 })
+    .catch(() => { throw new Error('the rail did not take the new logo') })
+  await d.screenshot({ path: `${SHOTS}/37-workspace-logo.png` })
+  await d.keyboard.press('Escape')
+})
+
 // What you do is yours to say, in your own words.
 await step('your role is whatever you say it is', async () => {
   const d = desk.pages()[0]

@@ -47,6 +47,17 @@ that reads as standing — admin, maintainer, triager — is refused); the
 Profile row is a text box with the presets as suggestions; the phone gets a
 Role field under "Your work context".
 
+**The top-left corner is the workspace.** The rail wore the product's
+wordmark; it now wears the workspace's mark and name, and opening it lists
+every workspace this person is in (mark, name, role, the current one
+checked), with Workspace settings, Create a team, Join a team and Sign out
+under it — the way a chat client's corner works. On a phone the same
+switcher heads the Classic list. The mark is the logo an admin uploads on
+the team screen (`POST/DELETE /orgs/icon`: PNG, JPEG, WebP or GIF up to
+2 MB, bytes in R2 under an unguessable id, served as an image and nothing
+else; never SVG) or the name's first letter until then; `/me` and
+`/members` carry the icon URL.
+
 **A pull is of what you connected.** "Pull now" asked every tool the
 deployment offers, and answered with "no connected account" errors for the
 two a person had never connected. It now pulls the tools this person holds

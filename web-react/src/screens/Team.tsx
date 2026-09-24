@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { InviteTeammate } from '../components/InviteTeammate'
@@ -61,6 +61,10 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
   const [teamName, setTeamName] = useState<string | null>(null)
   const [canRename, setCanRename] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  // The workspace's mark: set by an admin, shown on the rail.
+  const [icon, setIcon] = useState<string | null>(null)
+  const [iconBusy, setIconBusy] = useState(false)
+  const iconInput = useRef<HTMLInputElement>(null)
   const [draftName, setDraftName] = useState('')
   const [invites, setInvites] = useState<Invite[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -83,6 +87,7 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
       setEditable(mine.editable !== false)
       setTeamName(typeof mine.name === 'string' ? mine.name : null)
       setCanRename(mine.canRename === true)
+      setIcon(typeof mine.icon === 'string' ? mine.icon : null)
       // The codes are the smaller half of this screen: failing to read them is
       // not a reason to show nothing about the people.
       if (i.ok) setInvites((await i.json().catch(() => ({}))).invites || [])
@@ -139,6 +144,7 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError(data.message || t('That did not save.')); return }
       setTeamName(data.name || name)
+      window.dispatchEvent(new CustomEvent('honmaru:workspace'))
       setRenaming(false)
     } finally { setBusy(null) }
   }
@@ -148,6 +154,32 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
     navigator.clipboard?.writeText(invite.link)
     setCopied(invite.ref)
     setTimeout(() => setCopied(null), 1500)
+  }
+
+  const uploadIcon = async (file: File) => {
+    setIconBusy(true); setError(null)
+    try {
+      const res = await fetch(`${httpBase}/orgs/icon?orgId=${encodeURIComponent(orgId)}`, {
+        method: 'POST',
+        headers: { 'content-type': file.type || 'image/png', 'x-session-token': sessionToken },
+        body: file,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.message || t('That did not save.')); return }
+      setIcon(data.icon || null)
+      window.dispatchEvent(new CustomEvent('honmaru:workspace'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally { setIconBusy(false) }
+  }
+  const removeIcon = async () => {
+    setIconBusy(true); setError(null)
+    try {
+      const res = await fetch(`${httpBase}/orgs/icon?orgId=${encodeURIComponent(orgId)}`, { method: 'DELETE', headers: { 'x-session-token': sessionToken } })
+      if (!res.ok) { setError(t('That did not save.')); return }
+      setIcon(null)
+      window.dispatchEvent(new CustomEvent('honmaru:workspace'))
+    } finally { setIconBusy(false) }
   }
 
   return (
@@ -163,6 +195,11 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
             made here, or the workspace a sign-up handed out, is named by
             its admins — and until it is, it is "your workspace". */}
         <div className="team-name-row">
+          <span className="team-logo">
+            {icon
+              ? <img src={icon} alt="" width={44} height={44} />
+              : <span className="team-logo-letter" aria-hidden="true">{((teamName || orgId)[0] || '?').toUpperCase()}</span>}
+          </span>
           {renaming ? (
             <form className="team-rename" onSubmit={(e) => { e.preventDefault(); void rename() }}>
               <input
@@ -188,6 +225,24 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
             </>
           )}
         </div>
+
+        {canRename && (
+          <div className="team-logo-row">
+            <input
+              ref={iconInput}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="team-logo-input"
+              aria-label={t('Workspace logo')}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadIcon(f); e.target.value = '' }}
+            />
+            <button className="btn-text" disabled={iconBusy} onClick={() => iconInput.current?.click()}>
+              {iconBusy ? t('Uploading…') : icon ? t('Change logo') : t('Upload a logo')}
+            </button>
+            {icon && <button className="btn-text danger" disabled={iconBusy} onClick={() => void removeIcon()}>{t('Remove logo')}</button>}
+            <span className="row-sub">{t('PNG, JPEG, WebP or GIF, up to 2 MB. Shown at the top of the rail and in the workspace switcher.')}</span>
+          </div>
+        )}
 
         <div className="rows-title">{t('Who is here')}</div>
         {members === null && <div className="empty">{t('One moment…')}</div>}

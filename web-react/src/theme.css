@@ -698,3 +698,81 @@
 :root[data-theme="dark"] .screen:not(.shell .screen) .screen-foot { background: #1a1a1a; border-color: #2a2a2a; box-shadow: none; }
 :root[data-theme="dark"] .shell .screen-foot { background: transparent; border-top: none; }
 :root[data-theme="dark"] body, :root[data-theme="dark"] .app { background: #0f0f0f; }
+
+/* The workspace switcher: the mark, the name and a menu of every workspace
+   this person is in. On the rail it replaces the product's wordmark; in a
+   header it is the title. */
+.ws { position: relative; }
+.ws-button {
+  display: flex; align-items: center; gap: 10px; max-width: 100%;
+  background: none; border: none; padding: 6px 8px; border-radius: 10px; cursor: pointer;
+  color: var(--ink-black); font-family: var(--font-display); font-weight: 800; font-size: 16px; letter-spacing: -0.02em;
+  text-align: left;
+}
+.ws-button:hover { background: var(--mercury); }
+.ws-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-caret { font-size: 11px; color: var(--ash); font-weight: 400; flex: none; }
+.ws-mark { flex: none; border-radius: 9px; object-fit: cover; display: block; }
+.ws-mark-letter {
+  display: grid; place-items: center; background: var(--onyx); color: var(--signal-white);
+  font-family: var(--font-display); font-weight: 800; letter-spacing: -0.03em;
+}
+.ws-menu {
+  position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; min-width: 260px; max-width: min(92vw, 340px);
+  background: #fff; border: 1px solid var(--bone); border-radius: 14px; padding: 6px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.16);
+}
+.ws-menu-title { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ash); padding: 8px 10px 4px; }
+.ws-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.ws-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: none; padding: 8px 10px; border-radius: 10px; cursor: pointer; font: inherit; color: var(--ink-black);
+}
+.ws-item:hover, .ws-item.on { background: var(--mist); }
+.ws-item-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ws-item-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-item-role { font-size: 12px; color: var(--ash); }
+.ws-check { color: var(--emerald, #00c07a); font-weight: 700; }
+.ws-menu-sep { height: 1px; background: var(--bone); margin: 6px 4px; }
+.ws-action { display: block; width: 100%; text-align: left; background: none; border: none; padding: 8px 10px; border-radius: 10px; font: inherit; font-size: 14px; color: var(--ink-black); cursor: pointer; }
+.ws-action:hover { background: var(--mist); }
+.ws-quiet { color: var(--ash); }
+/* Phone: the rail is a bottom bar, so the switcher lives in the headers. */
+.ws-rail { display: none; }
+@media (min-width: 720px) {
+  .tabbar.has-ws::before { display: none; }
+  .ws-rail { display: block; position: absolute; top: 18px; left: 50%; transform: translateX(-50%); }
+  .ws-rail .ws-button { padding: 4px; }
+  .ws-rail .ws-name, .ws-rail .ws-caret { display: none; }
+  .ws-rail .ws-menu { left: -6px; }
+}
+@media (min-width: 1280px) {
+  .ws-rail { left: 20px; transform: none; right: 12px; }
+  .ws-rail .ws-button { padding: 4px 8px; width: 100%; }
+  .ws-rail .ws-name, .ws-rail .ws-caret { display: inline; }
+  .ws-rail .ws-name { flex: 1; }
+}
+.team-name-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.team-logo { flex: none; }
+.team-logo img, .team-logo-letter { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; object-fit: cover; }
+.team-logo-letter { background: var(--onyx); color: var(--signal-white); font-family: var(--font-display); font-weight: 800; font-size: 20px; }
+.team-logo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 14px; }
+.team-logo-row .row-sub { flex: 1 1 100%; }
+.team-logo-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.cl-top .ws-button { padding: 4px 0; font-size: 19px; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ws-button { color: #f2f2f2; }
+  :root:not([data-theme="light"]) .ws-button:hover { background: #1a1a1a; }
+  :root:not([data-theme="light"]) .ws-menu { background: #1a1a1a; border-color: #2a2a2a; }
+  :root:not([data-theme="light"]) .ws-item, :root:not([data-theme="light"]) .ws-action { color: #f2f2f2; }
+  :root:not([data-theme="light"]) .ws-item:hover, :root:not([data-theme="light"]) .ws-item.on, :root:not([data-theme="light"]) .ws-action:hover { background: #2a2a2a; }
+  :root:not([data-theme="light"]) .ws-menu-sep { background: #2a2a2a; }
+  :root:not([data-theme="light"]) .ws-mark-letter, :root:not([data-theme="light"]) .team-logo-letter { background: #f2f2f2; color: #0f0f0f; }
+}
+:root[data-theme="dark"] .ws-button { color: #f2f2f2; }
+:root[data-theme="dark"] .ws-button:hover { background: #1a1a1a; }
+:root[data-theme="dark"] .ws-menu { background: #1a1a1a; border-color: #2a2a2a; }
+:root[data-theme="dark"] .ws-item, :root[data-theme="dark"] .ws-action { color: #f2f2f2; }
+:root[data-theme="dark"] .ws-item:hover, :root[data-theme="dark"] .ws-item.on, :root[data-theme="dark"] .ws-action:hover { background: #2a2a2a; }
+:root[data-theme="dark"] .ws-menu-sep { background: #2a2a2a; }
+:root[data-theme="dark"] .ws-mark-letter, :root[data-theme="dark"] .team-logo-letter { background: #f2f2f2; color: #0f0f0f; }
