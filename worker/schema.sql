@@ -482,7 +482,26 @@ CREATE TABLE IF NOT EXISTS channel_messages (
   kind          TEXT NOT NULL DEFAULT 'message',
   body          TEXT NOT NULL,
   card_id       TEXT,
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  /* Slack's verbs on a message: edited in place, deleted (a tombstone
+     while it has replies), a reply in a thread under another, pinned. */
+  edited_at     TEXT,
+  deleted_at    TEXT,
+  parent_id     TEXT,
+  pinned_at     TEXT,
+  pinned_by     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_channel_messages ON channel_messages(org_id, channel, created_at);
+
+/* One emoji from one person on one message. A browser is told who reacted
+   by member ref, never by login. */
+CREATE TABLE IF NOT EXISTS message_reactions (
+  org_id      TEXT NOT NULL,
+  message_id  TEXT NOT NULL,
+  emoji       TEXT NOT NULL,
+  login       TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (message_id, emoji, login)
+);
+CREATE INDEX IF NOT EXISTS idx_message_reactions ON message_reactions(org_id, message_id);
 

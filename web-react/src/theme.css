@@ -884,3 +884,32 @@
   .hist-pane .hist-draft { margin-left: 0; }
   .hist-pane .hist-undo { margin-right: 8px; margin-bottom: 8px; }
 }
+
+/* ---- You, on a laptop ----
+   Who you are and where to go on the left, kept in view; what you set on
+   the right. On a phone it is one column in the order it always was. */
+.profile-layout { display: flex; flex-direction: column; }
+.profile-side, .profile-main { display: contents; }
+.pf-head { order: 1; } .pf-stats { order: 2; } .pf-err { order: 3; } .pf-profile { order: 4; } .pf-ai { order: 5; }
+.pf-where { order: 6; } .pf-ws { order: 7; } .pf-biz { order: 8; } .pf-acct { order: 9; }
+@media (min-width: 1024px) {
+  .profile-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 32px; align-items: start; }
+  .profile-side { display: block; }
+  .profile-main { display: block; min-width: 0; max-width: 760px; }
+  .pf-head .profile-head {
+    flex-direction: column; align-items: flex-start; gap: 14px;
+    background: var(--signal-white); border: 1px solid var(--bone); border-radius: 18px 18px 0 0; border-bottom: none;
+    padding: 22px 22px 16px; margin: 0;
+  }
+  .pf-head .profile-avatar { width: 72px; height: 72px; font-size: 30px; }
+  .pf-head .profile-head b { font-size: 22px; }
+  .pf-head .profile-head span { word-break: break-all; }
+  .shell .pf-stats .profile-stats { border-radius: 0 0 18px 18px; margin: 0 0 18px; }
+  .pf-ws .rows .row-sub { display: none; }
+  .pf-ws .rows .row { min-height: 0; padding-top: 10px; padding-bottom: 10px; }
+  .pf-main-first, .profile-main > .pf-sec:first-child .rows-title:first-child { margin-top: 0; }
+}
+@media (min-width: 1024px) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pf-head .profile-head { background: #1a1a1a; border-color: #2a2a2a; }
+}
+@media (min-width: 1024px) { :root[data-theme="dark"] .pf-head .profile-head { background: #1a1a1a; border-color: #2a2a2a; } }

@@ -8,7 +8,8 @@ import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { custom as customEvent } from "./agui/events.js";
 import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity,
-  toMessage, viewOf, asksTheAI, withoutAI, MAX_MESSAGE_CHARS,
+  viewOf, asksTheAI, withoutAI, MAX_MESSAGE_CHARS,
+  present, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned,
 } from "./channels.js";
 import { safe } from "./log.js";
 import { sha256Hex } from "./auth.js";
@@ -39,27 +40,50 @@ async function caller(env, request, orgId) {
   return { session, user: { ...user, github_id: session.github_id } };
 }
 
+/// The caller, the channel they named, and how they see it — or why not.
+async function inChannel(env, request, { orgId, channel }) {
+  const who = await caller(env, request, orgId);
+  if (who.denied) return who;
+  const members = await listMembers(env.DB, orgId, who.session.github_id);
+  const resolved = await resolveChannel(env.DB, orgId, who.user, channel, members);
+  if (!resolved) return { denied: json({ message: "No such channel." }, 404) };
+  return { who, members, resolved, view: viewOf(resolved.key, who.user.login, members) };
+}
+
 /// Tell whoever can see a channel about a message in it, each in their own
-/// terms: the room for a business, the two people for a direct one.
+/// terms: the room for a business, the two people for a direct one. The
+/// same event carries a new message, an edit, a deletion, a reaction, a
+/// pin, and a thread's new count — the browser replaces by id.
 async function broadcast(env, orgId, resolved, row, members) {
+  const fresh = (await getMessage(env.DB, orgId, row.id)) || row;
   if (resolved.kind === "business") {
-    const message = toMessage(row, null, resolved.key, members);
+    const [message] = await present(env.DB, orgId, [fresh], null, resolved.key, members);
     await announceEvents(env, orgId, [customEvent("channel_message", { message })]);
     return;
   }
-  await announceTo(env, orgId, resolved.logins.map((login) => ({
-    to: login,
-    event: customEvent("channel_message", { message: toMessage(row, login, viewOf(resolved.key, login, members), members) }),
+  await announceTo(env, orgId, await Promise.all(resolved.logins.map(async (login) => {
+    const [message] = await present(env.DB, orgId, [fresh], login, viewOf(resolved.key, login, members), members);
+    return { to: login, event: customEvent("channel_message", { message }) };
   })));
+}
+
+/// A reply changes its parent too: the count and faces under it.
+async function broadcastWithParent(env, orgId, resolved, row, members) {
+  await broadcast(env, orgId, resolved, row, members);
+  if (row.parent_id) {
+    const parent = await getMessage(env.DB, orgId, row.parent_id);
+    if (parent) await broadcast(env, orgId, resolved, parent, members);
+  }
 }
 
 /// Make a decision from a message: route it with the conversation as
 /// context, save the card, and say so in the channel. Never throws; a
 /// failure is said in the channel too, where the person is looking.
 export async function decideFromMessage(env, { orgId, session, user, resolved, row, members, route, locale }) {
+  // Asked in a thread, the AI answers in that thread.
   const say = async (body, cardId = null) => {
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: null, body, kind: "ai", cardId });
-    if (out.row) await broadcast(env, orgId, resolved, out.row, members);
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: null, body, kind: "ai", cardId, parentId: row.parent_id || null });
+    if (out.row) await broadcastWithParent(env, orgId, resolved, out.row, members);
   };
   try {
     const instruction = withoutAI(row.body) || row.body;
@@ -157,7 +181,7 @@ export async function handleChannels(request, env, url, { route, after }) {
 
   if (path === "/channels/messages" && (request.method === "GET" || request.method === "POST")) {
     if (request.method === "POST") {
-      const limited = await enforce(env, request, "team");
+      const limited = await enforce(env, request, "chat");
       if (limited) return limited;
     }
     const body = request.method === "POST" ? await request.json().catch(() => null) : null;
@@ -174,17 +198,85 @@ export async function handleChannels(request, env, url, { route, after }) {
       const before = url.searchParams.get("before") || undefined;
       return json({ messages: await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before }) });
     }
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "" });
+    const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId });
     if (out.error) return json({ message: out.error }, 400);
     const wantsDecision = body.decide === true || asksTheAI(out.row.body);
     const locale = who.user.locale || "en";
     after(async () => {
-      await broadcast(env, orgId, resolved, out.row, members);
+      await broadcastWithParent(env, orgId, resolved, out.row, members);
       if (wantsDecision) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
     });
-    return json({ message: toMessage(out.row, who.user.login, view, members), deciding: wantsDecision }, 201);
+    const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
+    return json({ message, deciding: wantsDecision }, 201);
+  }
+
+  // Edit or unsend your own message.
+  if (path === "/channels/messages" && (request.method === "PUT" || request.method === "DELETE")) {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || typeof body.messageId !== "string") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const current = await getMessage(env.DB, body.orgId, body.messageId);
+    if (!current || current.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
+    const out = request.method === "PUT"
+      ? await editMessage(env.DB, { orgId: body.orgId, id: body.messageId, authorLogin: ctx.who.user.login, body: body.body })
+      : await deleteMessage(env.DB, { orgId: body.orgId, id: body.messageId, authorLogin: ctx.who.user.login });
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    after(() => broadcastWithParent(env, body.orgId, ctx.resolved, out.row, ctx.members));
+    const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
+    return json({ message });
+  }
+
+  // A thread: the message and its replies.
+  if (path === "/channels/thread" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
+    if (ctx.denied) return ctx.denied;
+    const thread = await listThread(env.DB, orgId, ctx.resolved.key, url.searchParams.get("messageId") || "", ctx.who.user.login, ctx.view, ctx.members);
+    if (!thread) return json({ message: "No such thread." }, 404);
+    return json(thread);
+  }
+
+  // A reaction, on or off.
+  if (path === "/channels/reactions" && request.method === "POST") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || typeof body.messageId !== "string") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const current = await getMessage(env.DB, body.orgId, body.messageId);
+    if (!current || current.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
+    const out = await toggleReaction(env.DB, { orgId: body.orgId, id: body.messageId, login: ctx.who.user.login, emoji: body.emoji });
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    after(() => broadcast(env, body.orgId, ctx.resolved, out.row, ctx.members));
+    const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
+    return json({ message });
+  }
+
+  // Pins: what a channel keeps at hand.
+  if (path === "/channels/pins" && (request.method === "GET" || request.method === "POST")) {
+    const body = request.method === "POST" ? await request.json().catch(() => null) : { orgId: url.searchParams.get("orgId"), channel: url.searchParams.get("channel") };
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    if (request.method === "GET") {
+      return json({ messages: await listPins(env.DB, body.orgId, ctx.resolved.key, ctx.who.user.login, ctx.view, ctx.members) });
+    }
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const current = typeof body.messageId === "string" ? await getMessage(env.DB, body.orgId, body.messageId) : null;
+    if (!current || current.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
+    const out = await setPinned(env.DB, { orgId: body.orgId, id: body.messageId, login: ctx.who.user.login, pinned: body.pinned !== false });
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    after(() => broadcast(env, body.orgId, ctx.resolved, out.row, ctx.members));
+    const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
+    return json({ message });
   }
 
   // Any message, afterwards: "make this a decision".
