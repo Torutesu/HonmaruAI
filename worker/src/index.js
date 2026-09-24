@@ -434,6 +434,15 @@ async function handle(request, env, url, ctx) {
         email: isMailConfigured(env),
         // Invite links and notification links need the web's own address.
         inviteLinks: Boolean(inviteLink(env, "probe")),
+        // What still stands between a stranger and a working account. None
+        // of this is secret: it is whether a thing is set, not what it is.
+        // Mail from the shared Resend sender reaches only the Resend
+        // account's own address, so until a domain is verified nobody else
+        // can receive a sign-in code.
+        mailSender: env.NOTIFY_EMAIL_FROM && !/resend\.dev/i.test(env.NOTIFY_EMAIL_FROM) ? "verified" : "shared",
+        connectors: Boolean(env.COMPOSIO_API_KEY),
+        billing: Boolean(env.REVENUECAT_SECRET_KEY),
+        githubOAuthNative: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {
