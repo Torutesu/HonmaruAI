@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
 import { ClassicList, type Presence } from './ClassicList'
-import { WorkspaceSwitcher, type Workspace } from './WorkspaceSwitcher'
+import { WorkspaceSwitcher, workspaceLabel, type Workspace } from './WorkspaceSwitcher'
 import { Inbox } from './Inbox'
 import { Palette } from './Palette'
 import type { PaletteAction } from './Palette'
@@ -624,6 +624,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} aria-hidden="true" />
           <button className="palette-button" onClick={() => setPalette(true)} aria-label={t('Search or jump to')} title="⌘K" aria-keyshortcuts="Meta+K Control+K">
             <Icon name="search" size={18} />
+            {/* The search field a chat client puts across its top: words on a
+                laptop, a magnifier on a phone. */}
+            <span className="palette-label">{t('Search {name}', { name: workspaceLabel(workspaces.find((w) => w.id === orgId) || (orgName ? { id: orgId, name: orgName, role: 'member' } : undefined), t) })}</span>
+            <kbd className="palette-kbd">⌘K</kbd>
           </button>
           <NotificationsButton httpBase={relayHttpUrl} sessionToken={sessionToken} />
           <button className="avatar-button" onClick={() => setScreen('profile')} aria-label={t('You')}>
@@ -660,11 +664,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             aria-label={t('Feed')}
           ><Icon name="home" /></button>
           <button className={screen === 'history' ? 'tab on' : 'tab'} aria-current={screen === 'history' ? 'page' : undefined} data-tab="history" onClick={() => setScreen('history')} aria-label={t('History')}><Icon name="history" /></button>
-          <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} aria-keyshortcuts="n">
+          <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} title={`${t('Tell your AI')} (N)`} aria-keyshortcuts="n">
             <span className="fab-face"><Icon name="plus" /></span>
           </button>
           <button className={screen === 'tools' ? 'tab on' : 'tab'} aria-current={screen === 'tools' ? 'page' : undefined} data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
-          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /></button>
+          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /><span className="tab-avatar" aria-hidden="true" data-initial={(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()} /></button>
         </nav>
       )}
 
