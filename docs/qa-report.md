@@ -47,6 +47,17 @@ that reads as standing — admin, maintainer, triager — is refused); the
 Profile row is a text box with the presets as suggestions; the phone gets a
 Role field under "Your work context".
 
+**GitHub is a tool any workspace connects.** A team made at sign-up had
+nowhere to open an issue. Now `org_github` holds a repository and a token
+per workspace; `GET/PUT/DELETE /connectors/github` (admins write; a GitHub
+sign-in connects on its own token with one tap, anyone else enters a
+fine-grained token, checked against the repository for Issues: write before
+it is saved; the token never comes back). Once connected the relay writes
+every card as an issue and closes it on a decline or completion, whoever
+decided it and however they signed in; the card carries the issue back to
+every client. The router's GitHub lookup and "ask" search use the
+workspace's repository too.
+
 **Your AI is editable.** Tools → Your AI was a read-out of the Worker's
 secrets, with nothing to change or enter. Now `org_ai_settings` holds a
 model, an OpenAI key and a TypeSafe key per workspace; `GET/PUT /orgs/ai`

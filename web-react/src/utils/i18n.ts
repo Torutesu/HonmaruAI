@@ -15,6 +15,15 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'Connected with your GitHub account; the workspace writes issues as you.': 'あなたの GitHub アカウントで接続。ワークスペースはあなたとして Issue を書きます。',
+  'Every decision here becomes an issue in {repo}.': 'ここでの決定はすべて {repo} の Issue になります。',
+  Repository: 'リポジトリ',
+  'GitHub token (Issues: write)': 'GitHubトークン（Issues: write）',
+  'GitHub token': 'GitHubトークン',
+  'Connecting…': '接続中…',
+  'A fine-grained token for that repository with Issues: read and write. Or sign in with GitHub and connect with one tap.': 'そのリポジトリの Issues に read/write 権限を持つ fine-grained トークン。または GitHub でサインインすれば 1 タップで接続できます。',
+  Disconnect: '接続を解除',
+  'Not connected. Name a repository and decisions become issues there.': '未接続。リポジトリを指定すると、決定がそこに Issue として立ちます。',
   'Tell your AI — e.g. ask @Yuki to approve the spring menu by Friday': 'AIに伝える — 例: @ユキに春メニューを金曜までに承認してもらう',
   Thread: 'スレッド',
   Reactions: 'リアクション',
@@ -706,6 +715,15 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'Connected with your GitHub account; the workspace writes issues as you.': 'Conectado con tu cuenta de GitHub; el espacio de trabajo escribe los issues como tú.',
+  'Every decision here becomes an issue in {repo}.': 'Cada decisión aquí se convierte en un issue en {repo}.',
+  Repository: 'Repositorio',
+  'GitHub token (Issues: write)': 'Token de GitHub (Issues: write)',
+  'GitHub token': 'Token de GitHub',
+  'Connecting…': 'Conectando…',
+  'A fine-grained token for that repository with Issues: read and write. Or sign in with GitHub and connect with one tap.': 'Un token fine-grained para ese repositorio con Issues: lectura y escritura. O inicia sesión con GitHub y conecta con un toque.',
+  Disconnect: 'Desconectar',
+  'Not connected. Name a repository and decisions become issues there.': 'No conectado. Indica un repositorio y las decisiones se convertirán en issues allí.',
   'Tell your AI — e.g. ask @Yuki to approve the spring menu by Friday': 'Dile a tu IA — p. ej. pide a @Yuki que apruebe el menú de primavera para el viernes',
   Thread: 'Hilo',
   Reactions: 'Reacciones',
@@ -1074,6 +1092,15 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'Connected with your GitHub account; the workspace writes issues as you.': 'Connecté avec votre compte GitHub ; l’espace de travail écrit les issues en votre nom.',
+  'Every decision here becomes an issue in {repo}.': 'Chaque décision ici devient une issue dans {repo}.',
+  Repository: 'Dépôt',
+  'GitHub token (Issues: write)': 'Jeton GitHub (Issues : write)',
+  'GitHub token': 'Jeton GitHub',
+  'Connecting…': 'Connexion…',
+  'A fine-grained token for that repository with Issues: read and write. Or sign in with GitHub and connect with one tap.': 'Un jeton fine-grained pour ce dépôt avec Issues : lecture et écriture. Ou connectez-vous avec GitHub et connectez en un geste.',
+  Disconnect: 'Déconnecter',
+  'Not connected. Name a repository and decisions become issues there.': 'Non connecté. Nommez un dépôt et les décisions y deviendront des issues.',
   'Tell your AI — e.g. ask @Yuki to approve the spring menu by Friday': 'Dites à votre IA — p. ex. demandez à @Yuki d’approuver le menu de printemps d’ici vendredi',
   Thread: 'Fil',
   Reactions: 'Réactions',
@@ -1445,6 +1472,15 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'Connected with your GitHub account; the workspace writes issues as you.': 'Mit deinem GitHub-Konto verbunden; der Arbeitsbereich schreibt Issues als du.',
+  'Every decision here becomes an issue in {repo}.': 'Jede Entscheidung hier wird zu einem Issue in {repo}.',
+  Repository: 'Repository',
+  'GitHub token (Issues: write)': 'GitHub-Token (Issues: write)',
+  'GitHub token': 'GitHub-Token',
+  'Connecting…': 'Verbinde…',
+  'A fine-grained token for that repository with Issues: read and write. Or sign in with GitHub and connect with one tap.': 'Ein fine-grained Token für dieses Repository mit Issues: Lesen und Schreiben. Oder mit GitHub anmelden und mit einem Tipp verbinden.',
+  Disconnect: 'Trennen',
+  'Not connected. Name a repository and decisions become issues there.': 'Nicht verbunden. Nenne ein Repository, dann werden Entscheidungen dort zu Issues.',
   'Tell your AI — e.g. ask @Yuki to approve the spring menu by Friday': 'Sag es deiner KI — z. B. bitte @Yuki, das Frühlingsmenü bis Freitag freizugeben',
   Thread: 'Thread',
   Reactions: 'Reaktionen',

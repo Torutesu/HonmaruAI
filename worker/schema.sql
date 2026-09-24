@@ -357,3 +357,13 @@ CREATE TABLE IF NOT EXISTS org_ai_settings (
   updated_by    TEXT,
   updated_at    TEXT NOT NULL
 );
+
+/* The repository a workspace writes its decisions to, and a token that can.
+   Connected once from Tools; every decision becomes an issue there. */
+CREATE TABLE IF NOT EXISTS org_github (
+  org_id        TEXT PRIMARY KEY,
+  repo          TEXT NOT NULL,
+  token         TEXT,
+  connected_by  TEXT,
+  updated_at    TEXT NOT NULL
+);

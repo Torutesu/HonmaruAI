@@ -10,6 +10,8 @@
 
 import { executeTool } from "./composio.js";
 import { getConnectorConfig } from "./db.js";
+import { getWorkspaceGitHub } from "./githubWorkspace.js";
+import { EMAIL_AUTH_TOKEN } from "./auth.js";
 
 const MAX_HITS = 5;
 const TIMEOUT_MS = 6000;
@@ -25,9 +27,22 @@ export async function connectedSources(env, session, orgId) {
     } catch { /* no config, no source */ }
   }
   // A GitHub workspace is "owner/repo", and the session that made it carries
-  // a token for it. A personal or email workspace has neither.
-  sources.github = Boolean(session.github_access_token && /^[^/\s:]+\/[^/\s]+$/.test(String(orgId || "")));
+  // a token for it. Any other workspace can have named a repository and hold
+  // a token of its own (see githubWorkspace.js).
+  sources.github = Boolean(await githubAccess(env, session, orgId));
   return sources;
+}
+
+/// The repository and the token to read it with: the workspace's own when
+/// it has connected one, else the person's, for the repository they are in.
+async function githubAccess(env, session, orgId) {
+  const settings = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
+  if (settings?.repo && settings.token) return { repo: settings.repo, token: settings.token };
+  const repo = String(orgId || "");
+  if (session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(repo)) {
+    return { repo, token: session.github_access_token };
+  }
+  return null;
 }
 
 function notionTitle(page) {
@@ -67,16 +82,18 @@ export async function searchNotion(env, githubId, query) {
 
 /// Issues and pull requests in the workspace's repository that match, as
 /// the person — their token, their visibility.
-export async function searchGithubIssues(session, orgId, query) {
+export async function searchGithubIssues(session, orgId, query, env) {
   const q = String(query || "").trim().slice(0, 200);
-  const repo = String(orgId || "");
-  if (!q || !session?.github_access_token || !/^[^/\s:]+\/[^/\s]+$/.test(repo)) return [];
+  const access = env ? await githubAccess(env, session, orgId) : null;
+  const repo = access?.repo || String(orgId || "");
+  const token = access?.token || (session?.github_access_token !== EMAIL_AUTH_TOKEN ? session?.github_access_token : null);
+  if (!q || !token || !/^[^/\s:]+\/[^/\s]+$/.test(repo)) return [];
   const url = new URL("https://api.github.com/search/issues");
   url.searchParams.set("q", `repo:${repo} ${q}`);
   url.searchParams.set("per_page", String(MAX_HITS));
   const res = await fetch(url, {
     headers: {
-      authorization: `Bearer ${session.github_access_token}`,
+      authorization: `Bearer ${token}`,
       accept: "application/vnd.github+json",
       "user-agent": "tiktokforwork",
     },
@@ -104,7 +121,7 @@ export function lookupsFor(env, session, orgId, sources) {
   }
   if (sources?.github) {
     lookups.searchGithub = async (query) => {
-      try { return await searchGithubIssues(session, orgId, query); } catch (err) { console.error("github search failed", err?.message || err); return []; }
+      try { return await searchGithubIssues(session, orgId, query, env); } catch (err) { console.error("github search failed", err?.message || err); return []; }
     };
   }
   return lookups;

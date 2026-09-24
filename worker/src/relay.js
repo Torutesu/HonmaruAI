@@ -16,6 +16,7 @@ import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { localizeCard } from "./localize.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { providerFor } from "./orgAI.js";
+import { syncCardToGitHub, getWorkspaceGitHub } from "./githubWorkspace.js";
 import { checkAIAllowance } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
@@ -640,12 +641,30 @@ export class OrgRelay {
   async deliver(orgId, card, { kind, excludeLogin, translate, senderGithubId }) {
     const provider = await providerFor(this.env, orgId);
     const canNotify = anyChannelConfigured(this.env);
-    // Nothing to enrich with and nobody to tell: not a single query. This
-    // runs after the broadcast, in waitUntil, and a database round trip
-    // nobody needed is one that can outlive the request that started it.
-    if (!provider && !canNotify) return;
+    const github = await getWorkspaceGitHub(this.db, orgId);
+    // Nothing to enrich with, nowhere to write and nobody to tell: not a
+    // single query more. This runs after the broadcast, in waitUntil, and a
+    // database round trip nobody needed is one that can outlive the request
+    // that started it.
+    if (!provider && !canNotify && !github) return;
 
     let current = card;
+    // The workspace's repository, when it has one: a new card is an issue,
+    // a decided one is that issue brought up to date and closed. The card
+    // carries the issue back to every client.
+    if (github?.token) {
+      try {
+        const synced = await syncCardToGitHub(this.env, orgId, current);
+        if (synced && (synced.githubIssueNumber !== current.githubIssueNumber || synced.githubIssueURL !== current.githubIssueURL)) {
+          current = synced;
+          await saveCard(this.db, orgId, current);
+          const { forEveryone } = upsertEvents(current, { isNew: false });
+          for (const ev of forEveryone) this.broadcast(orgId, ev);
+        }
+      } catch (err) {
+        console.error("github sync failed", err?.message || err);
+      }
+    }
     try {
       if (translate && provider) {
         const allowance = senderGithubId
