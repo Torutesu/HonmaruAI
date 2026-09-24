@@ -15,6 +15,14 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'New channel': '新しいチャンネル',
+  'Channel name': 'チャンネル名',
+  'e.g. hotel, suppliers, marketing': '例: ホテル、仕入先、マーケティング',
+  'Delete channel': 'チャンネルを削除',
+  'Delete #{name}? Its {n} decisions stay, unfiled.': '#{name} を削除しますか？ {n}件の決定は残り、チャンネル外になります。',
+  'Delete #{name}?': '#{name} を削除しますか？',
+  'No decisions here yet.': 'まだ決定はありません。',
+  'No channels yet. Make one, or let your AI file decisions under a business as they arrive.': 'チャンネルはまだありません。作成するか、届いた決定をAIが事業ごとに振り分けるのに任せてください。',
   'Unlimited: this workspace runs on its own OpenAI key.': '無制限：このワークスペースは自前の OpenAI キーで動いています。',
   'Connected with your GitHub account; the workspace writes issues as you.': 'あなたの GitHub アカウントで接続。ワークスペースはあなたとして Issue を書きます。',
   'Every decision here becomes an issue in {repo}.': 'ここでの決定はすべて {repo} の Issue になります。',
@@ -716,6 +724,16 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'New channel': 'Nuevo canal',
+  'Channel name': 'Nombre del canal',
+  'e.g. hotel, suppliers, marketing': 'p. ej. hotel, proveedores, marketing',
+  Create: 'Crear',
+  Rename: 'Renombrar',
+  'Delete channel': 'Eliminar canal',
+  'Delete #{name}? Its {n} decisions stay, unfiled.': '¿Eliminar #{name}? Sus {n} decisiones se conservan, sin archivar.',
+  'Delete #{name}?': '¿Eliminar #{name}?',
+  'No decisions here yet.': 'Aún no hay decisiones aquí.',
+  'No channels yet. Make one, or let your AI file decisions under a business as they arrive.': 'Aún no hay canales. Crea uno, o deja que tu IA archive las decisiones por negocio al llegar.',
   'Unlimited: this workspace runs on its own OpenAI key.': 'Ilimitado: este espacio de trabajo usa su propia clave de OpenAI.',
   'Connected with your GitHub account; the workspace writes issues as you.': 'Conectado con tu cuenta de GitHub; el espacio de trabajo escribe los issues como tú.',
   'Every decision here becomes an issue in {repo}.': 'Cada decisión aquí se convierte en un issue en {repo}.',
@@ -1094,6 +1112,16 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'New channel': 'Nouveau canal',
+  'Channel name': 'Nom du canal',
+  'e.g. hotel, suppliers, marketing': 'p. ex. hôtel, fournisseurs, marketing',
+  Create: 'Créer',
+  Rename: 'Renommer',
+  'Delete channel': 'Supprimer le canal',
+  'Delete #{name}? Its {n} decisions stay, unfiled.': 'Supprimer #{name} ? Ses {n} décisions restent, non classées.',
+  'Delete #{name}?': 'Supprimer #{name} ?',
+  'No decisions here yet.': 'Aucune décision ici pour l’instant.',
+  'No channels yet. Make one, or let your AI file decisions under a business as they arrive.': 'Pas encore de canaux. Créez-en un, ou laissez votre IA classer les décisions par activité à leur arrivée.',
   'Unlimited: this workspace runs on its own OpenAI key.': 'Illimité : cet espace de travail utilise sa propre clé OpenAI.',
   'Connected with your GitHub account; the workspace writes issues as you.': 'Connecté avec votre compte GitHub ; l’espace de travail écrit les issues en votre nom.',
   'Every decision here becomes an issue in {repo}.': 'Chaque décision ici devient une issue dans {repo}.',
@@ -1475,6 +1503,16 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'New channel': 'Neuer Kanal',
+  'Channel name': 'Kanalname',
+  'e.g. hotel, suppliers, marketing': 'z. B. Hotel, Lieferanten, Marketing',
+  Create: 'Erstellen',
+  Rename: 'Umbenennen',
+  'Delete channel': 'Kanal löschen',
+  'Delete #{name}? Its {n} decisions stay, unfiled.': '#{name} löschen? Die {n} Entscheidungen bleiben, ohne Kanal.',
+  'Delete #{name}?': '#{name} löschen?',
+  'No decisions here yet.': 'Noch keine Entscheidungen hier.',
+  'No channels yet. Make one, or let your AI file decisions under a business as they arrive.': 'Noch keine Kanäle. Lege einen an, oder lass deine KI Entscheidungen beim Eintreffen nach Geschäft ablegen.',
   'Unlimited: this workspace runs on its own OpenAI key.': 'Unbegrenzt: Dieser Arbeitsbereich läuft auf seinem eigenen OpenAI-Schlüssel.',
   'Connected with your GitHub account; the workspace writes issues as you.': 'Mit deinem GitHub-Konto verbunden; der Arbeitsbereich schreibt Issues als du.',
   'Every decision here becomes an issue in {repo}.': 'Jede Entscheidung hier wird zu einem Issue in {repo}.',

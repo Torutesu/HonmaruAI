@@ -481,6 +481,30 @@ await step('the list view shows the same decisions', async () => {
   if (/\b(approve|decline|revise|delegate)\b/.test(joined)) {
     throw new Error(`the list shows the raw action verb: ${joined.slice(0, 140)}`)
   }
+
+  // Channels are made here, renamed here, deleted here — the way a chat
+  // client lets you, not only by the AI filing a card.
+  await page.click('.cl-add')
+  await page.waitForSelector('.cl-add-form input', { timeout: 5000 })
+    .catch(() => { throw new Error('the + under Channels opened no box') })
+  await page.fill('.cl-add-form input', 'Suppliers')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.cl-thread:has-text("Suppliers")', { timeout: 15000 })
+    .catch(() => { throw new Error('the new channel did not appear in the list') })
+  await page.click('.cl-thread:has-text("Suppliers") .cl-open')
+  await page.waitForSelector('.cl-channel-tools', { timeout: 5000 })
+  await page.click('.cl-channel-tools button:has-text("Rename")')
+  await page.fill('.cl-channel-tools input', 'Suppliers & logistics')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.cl-thread:has-text("Suppliers & logistics")', { timeout: 15000 })
+    .catch(() => { throw new Error('the channel did not take its new name') })
+  await shot('09c-classic-channel')
+  page.once('dialog', (d) => d.accept())
+  await page.click('.cl-thread:has-text("Suppliers & logistics") .cl-danger')
+  await page.waitForFunction(() => !document.querySelector('.cl-thread .cl-title')
+    || ![...document.querySelectorAll('.cl-thread .cl-title')].some((el) => /Suppliers/.test(el.textContent || '')), null, { timeout: 15000 })
+    .catch(() => { throw new Error('the deleted channel is still listed') })
+
   await page.click('.mode-switch button >> nth=0')
   await page.waitForSelector('.feed', { timeout: 10000 })
 })

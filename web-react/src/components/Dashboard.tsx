@@ -166,6 +166,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:comment', { detail: { cardId, comment } }))
     }
+    wsClient.onBusinesses = (list) => { if (!ignore) setBusinesses(list) }
     wsClient.onReaction = (cardId, emoji, on, by, reactions) => {
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:reaction', { detail: { cardId, emoji, on, by, reactions } }))
@@ -227,6 +228,23 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     } catch { /* a label is a convenience */ }
   }, [relayHttpUrl, orgId, sessionToken])
   useEffect(() => { loadBusinesses() }, [loadBusinesses])
+  // A channel made, renamed or deleted: the reply carries the whole list,
+  // and the room hears it as well (below), so every open list agrees.
+  const channelCall = useCallback(async (method: 'POST' | 'PUT' | 'DELETE', body: Record<string, unknown>): Promise<string | null> => {
+    try {
+      const res = await fetch(`${relayHttpUrl}/businesses`, {
+        method,
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, ...body }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return data.message || t('That did not save.')
+      if (Array.isArray(data.businesses)) setBusinesses(data.businesses)
+      return null
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err)
+    }
+  }, [relayHttpUrl, orgId, sessionToken, t])
   useEffect(() => {
     let ignore = false
     fetch(`${relayHttpUrl}/members?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
@@ -494,6 +512,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
           onWorkspace={() => setScreen('team')}
+          onCreateChannel={(name) => channelCall('POST', { name })}
+          onRenameChannel={(slug, name) => channelCall('PUT', { slug, name })}
+          onDeleteChannel={(slug) => channelCall('DELETE', { slug })}
         />
       )}
 

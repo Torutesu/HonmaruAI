@@ -758,6 +758,37 @@ export async function removeBusiness(db, orgId, slug) {
   await db.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).run();
 }
 
+/// A channel's new name. The slug — what cards are filed under — stays.
+export async function renameBusiness(db, orgId, slug, name) {
+  const clean = String(name || "").trim().slice(0, 120);
+  if (!clean) return null;
+  const { meta } = await db
+    .prepare("UPDATE businesses SET name = ?3 WHERE org_id = ?1 AND slug = ?2")
+    .bind(orgId, slug, clean)
+    .run();
+  return meta?.changes ? { slug, name: clean } : null;
+}
+
+/// Take the cards out of a deleted channel. Deleting a channel in a chat
+/// client empties it; a card that still named the slug would keep the
+/// channel alive in every list. Returns the cards that changed.
+export async function unfileBusiness(db, orgId, slug) {
+  const { results } = await db
+    .prepare("SELECT card_id, data FROM cards WHERE org_id = ?1")
+    .bind(orgId)
+    .all();
+  const changed = [];
+  for (const row of results || []) {
+    let card;
+    try { card = JSON.parse(row.data); } catch { continue; }
+    if (card?.business !== slug) continue;
+    delete card.business;
+    await saveCard(db, orgId, card);
+    changed.push(card);
+  }
+  return changed;
+}
+
 /// Who someone is inside one organization: the name to show and the role they
 /// hold. The card carries this so every client can render "Requested by" from
 /// the card alone, rather than each one loading the org graph to turn a login

@@ -58,6 +58,20 @@ decided it and however they signed in; the card carries the issue back to
 every client. The router's GitHub lookup and "ask" search use the
 workspace's repository too.
 
+**Channels are yours to make.** The Classic list's Channels section has a
+"+" that makes one, and an open channel offers Rename and Delete channel.
+`PUT /businesses` renames (the slug stays, so nothing already filed moves);
+`DELETE /businesses` now empties the channel — its cards are unfiled rather
+than left pointing at a slug that would keep the channel alive in every
+list — and both are announced to the room as a `businesses` event, so every
+open list agrees. Empty channels are listed; a channel opens as a channel
+even with one card, so its controls are reachable.
+
+**The tools wear their own marks.** Gmail's M, Slack's hash, Notion's page,
+GitHub's Invertocat, Google Calendar and Drive, as inline SVG in a white
+tile, in Tools and in the list's Apps. Generic glyphs there read as a
+mock-up.
+
 **A workspace key is unmetered.** `allowanceFor(env, orgId, …)` treats the
 workspace's own OpenAI key like a person's: no daily allowance, their bill.
 Every metered call (route, ask, draft, translate, triage, sync, filing, the
