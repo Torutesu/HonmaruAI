@@ -188,3 +188,21 @@ test("the digest is honest when there is nothing", () => {
   expect(out.summary).toBe("Nothing is waiting on you · 0 decided · 0 stuck");
   expect(out.markdown).toContain("## Waiting on you (0)\n\n- Nothing.");
 });
+
+test("a report names people, never their logins, and says what was done in words", async () => {
+  const { upsertUser, upsertMembership, saveCard, getCard } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "email:aya@example.com", login: "u:aya@example.com", name: "Aya", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, ORG, "email:aya@example.com", "member");
+  await saveCard(env.DB, ORG, {
+    id: "d-aya", recipientUserID: "u:aya@example.com", senderUserID: "toru", type: "approval", title: "Order the new cups",
+    status: "approved", createdAt: new Date(Date.now() - 3600000).toISOString(),
+    decision: { action: "approve", actorUserID: "u:aya@example.com", decidedAt: new Date().toISOString() },
+  });
+  const { routine } = await (await post("/routines", toru, { orgId: ORG, instruction: "summarise the week", cadence: "daily", hour: 9 })).json();
+  expect(routine.title).toBe("Summarise the week");
+  const { cardId } = await (await post(`/routines/${routine.id}/run`, toru, { orgId: ORG }, { OPENAI_API_KEY: undefined })).json();
+  const card = await getCard(env.DB, ORG, cardId);
+  expect(card.report.markdown).toContain("Order the new cups — Aya · 承認");
+  expect(JSON.stringify(card)).not.toContain("aya@example.com");
+  expect(card.requestedBy).toEqual({ login: "toru", name: "Toru" });
+});

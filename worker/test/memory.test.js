@@ -38,7 +38,8 @@ test("a member writes a rule; only its author or an admin changes it; an admin c
   const made = await call("/memories", { method: "POST", headers: headers(mika), body: JSON.stringify({ orgId: ORG, text: "  Anything touching the brand goes to Yui first.  " }) });
   expect(made.status).toBe(201);
   const { memory } = await made.json();
-  expect(memory).toMatchObject({ text: "Anything touching the brand goes to Yui first.", origin: "told", createdBy: "mika" });
+  expect(memory).toMatchObject({ text: "Anything touching the brand goes to Yui first.", origin: "told", createdByName: "Mika", mine: true });
+  expect(memory).not.toHaveProperty("createdBy");
 
   const byToru = await call("/memories", { method: "POST", headers: headers(toru), body: JSON.stringify({ orgId: ORG, text: "Refunds over ¥50,000 need Toru." }) });
   const toruRule = (await byToru.json()).memory;
@@ -52,8 +53,8 @@ test("a member writes a rule; only its author or an admin changes it; an admin c
   const list = await (await call(`/memories?${q}`, { headers: headers(mika) })).json();
   expect(list.memories).toHaveLength(2);
   expect(list.canForget).toBe(false);
-  expect(list.memories.find((m) => m.createdBy === "mika").canEdit).toBe(true);
-  expect(list.memories.find((m) => m.createdBy === "toru").canEdit).toBe(false);
+  expect(list.memories.find((m) => m.createdByName === "Mika").canEdit).toBe(true);
+  expect(list.memories.find((m) => m.createdByName === "Toru").canEdit).toBe(false);
 
   expect((await call(`/memories?${q}`, { headers: headers(outsider) })).status).toBe(403);
   expect((await call(`/memories?${q}`, { method: "DELETE", headers: headers(mika) })).status).toBe(403);

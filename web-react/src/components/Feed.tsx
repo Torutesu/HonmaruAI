@@ -83,6 +83,11 @@ function segments(context: string): Array<{ label: string; detail: string }> {
   }).filter((s) => s.detail)
 }
 
+/// A card that asks nothing — a report, an FYI — is read and put away, not
+/// approved or declined: one button, "Got it", and a swipe right. Approving
+/// a report was a decision nobody had been asked for.
+const isFyi = (card: DecisionCard) => Boolean(card.report) || card.format === 'fyi'
+
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
@@ -125,8 +130,8 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
       const card = cards[index]
       if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); scrollTo(index + 1) }
       else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); scrollTo(index - 1) }
-      else if (card && card.status === 'pending' && (e.key === 'a' || e.key === 'A')) onDecide(card.id, 'approve')
-      else if (card && card.status === 'pending' && (e.key === 'd' || e.key === 'D')) onDecide(card.id, 'decline')
+      else if (card && card.status === 'pending' && (e.key === 'a' || e.key === 'A')) onDecide(card.id, isFyi(card) ? 'acknowledge' : 'approve')
+      else if (card && card.status === 'pending' && !isFyi(card) && (e.key === 'd' || e.key === 'D')) onDecide(card.id, 'decline')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -234,8 +239,8 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   const onPointerUp = () => {
     if (!start.current) return
     start.current = null
-    if (dx > SWIPE_THRESHOLD) onDecide(card.id, 'approve')
-    else if (dx < -SWIPE_THRESHOLD) onDecide(card.id, 'decline')
+    if (dx > SWIPE_THRESHOLD) onDecide(card.id, isFyi(card) ? 'acknowledge' : 'approve')
+    else if (dx < -SWIPE_THRESHOLD && !isFyi(card)) onDecide(card.id, 'decline')
     setDx(0)
   }
   const hint = dx > 24 ? 'approve' : dx < -24 ? 'decline' : null
@@ -344,10 +349,16 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             )}
           </div>
         ) : (
-          <div className="decide-row">
-            <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
-            <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
-          </div>
+          isFyi(card) ? (
+            <div className="decide-row">
+              <button className="decide approve" onClick={() => onDecide(card.id, 'acknowledge')} aria-label={t('Got it')} aria-keyshortcuts="a">✓</button>
+            </div>
+          ) : (
+            <div className="decide-row">
+              <button className="decide decline" onClick={() => onDecide(card.id, 'decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
+              <button className="decide approve" onClick={() => onDecide(card.id, 'approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
+            </div>
+          )
         )}
 
         <form

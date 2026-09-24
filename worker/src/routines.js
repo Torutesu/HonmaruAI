@@ -134,7 +134,10 @@ export function validateRoutineInput(body, { partial = false, locale = "en" } = 
 function titleFrom(instruction, kind, locale) {
   if (kind === "brief") return locale === "ja" ? "朝のブリーフ" : "Morning brief";
   const first = String(instruction).split(/[\n。.!?！？]/u)[0].trim();
-  return first.length > 60 ? `${first.slice(0, 59)}…` : first;
+  // A title starts with a capital, even when the sentence it came from
+  // started mid-thought ("… summarise last week").
+  const titled = first.charAt(0).toUpperCase() + first.slice(1);
+  return titled.length > 60 ? `${titled.slice(0, 59)}…` : titled;
 }
 
 export async function getRoutine(db, orgId, id) {
@@ -243,11 +246,19 @@ export async function gatherMaterial(db, orgId, routine, { now = new Date() } = 
   // The AI's own reports are not the team's work; a report about reports
   // is noise.
   const isWork = (c) => c && !c.report && !c.proposal;
+  // People by name, never by login: a login is `u:<email address>` for
+  // everyone who signed in with one, and a report is read, forwarded,
+  // downloaded and printed — and, written by a model, sent to one.
+  const decided = (decidedRows.results || []).map(card).filter(isWork);
+  const waiting = (waitingRows.results || []).map(card).filter(isWork);
+  const stuck = (stuckRows.results || []).map(card).filter(isWork);
+  const names = await namesFor(db, [...decided, ...waiting, ...stuck].flatMap((c) => [c.recipientUserID, c.senderUserID, c.decision?.actorUserID]));
+  const nameOf = (login) => (login ? names.get(login) || plainName(login) : null);
   const line = (c) => ({
     id: c.id,
     title: String(c.localized?.[routine.locale]?.title || c.title || "").slice(0, 140),
-    who: c.recipientUserID,
-    from: c.senderUserID,
+    who: nameOf(c.recipientUserID),
+    from: c.requestedBy?.name || nameOf(c.senderUserID),
     status: c.status,
     action: c.decision?.action || null,
     note: String(c.decision?.note || c.decision?.replyText || "").slice(0, 140) || null,
@@ -258,11 +269,38 @@ export async function gatherMaterial(db, orgId, routine, { now = new Date() } = 
   return {
     since,
     until: now.toISOString(),
-    decided: (decidedRows.results || []).map(card).filter(isWork).map(line),
-    waiting: (waitingRows.results || []).map(card).filter(isWork).map(line),
-    stuck: (stuckRows.results || []).map(card).filter(isWork).map(line),
+    decided: decided.map(line),
+    waiting: waiting.map(line),
+    stuck: stuck.map(line),
     created: createdRow?.n || 0,
   };
+}
+
+/// Names for logins, from the users table, in one query.
+async function namesFor(db, logins) {
+  const unique = [...new Set(logins.filter((l) => typeof l === "string" && l))].slice(0, 90);
+  if (!unique.length) return new Map();
+  const { results } = await db
+    .prepare(`SELECT login, name FROM users WHERE login IN (${unique.map((_, i) => `?${i + 1}`).join(", ")})`)
+    .bind(...unique)
+    .all();
+  return new Map((results || []).filter((r) => r.name).map((r) => [r.login, r.name]));
+}
+
+/// A login with nothing of an address left in it, for someone the users
+/// table has no name for — the same rule the clients' displayName applies.
+export function plainName(login) {
+  const bare = String(login || "").replace(/^(u:|email:)/, "").split("@")[0];
+  return bare ? bare.charAt(0).toUpperCase() + bare.slice(1) : "";
+}
+
+/// What was done, as the reader says it — never the API's verb.
+const ACTION_WORDS = {
+  en: { approve: "approved", decline: "declined", revised: "asked for a revision", revise: "asked for a revision", delegate: "delegated", choose: "chose", reply: "replied", acknowledge: "noted" },
+  ja: { approve: "承認", decline: "却下", revised: "修正依頼", revise: "修正依頼", delegate: "委任", choose: "選択", reply: "返信", acknowledge: "確認" },
+};
+function actionWord(action, locale) {
+  return (ACTION_WORDS[locale] || ACTION_WORDS.en)[action] || action;
 }
 
 const REPORT_PROMPT = `You are a team's AI, delivering a scheduled report into their decision feed.
@@ -288,7 +326,7 @@ function clip(text, n) {
 /// routine on a deployment with no model still delivers something true.
 export function digestReport(routine, material, locale = "en") {
   const ja = locale === "ja";
-  const fmt = (d) => `- ${d.title}${d.who ? ` — ${d.who}` : ""}${d.action ? ` · ${d.action}` : ""}${d.note ? ` (“${clip(d.note, 80)}”)` : ""}`;
+  const fmt = (d) => `- ${d.title}${d.who ? ` — ${d.who}` : ""}${d.action ? ` · ${actionWord(d.action, locale)}` : ""}${d.note ? ` (“${clip(d.note, 80)}”)` : ""}`;
   const days = (d) => Math.max(0, Math.floor((Date.parse(material.until) - Date.parse(d.when || material.until)) / 86400000));
   const parts = [];
   parts.push(ja ? `## あなた待ち (${material.waiting.length})` : `## Waiting on you (${material.waiting.length})`);
@@ -447,6 +485,9 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
       createdAt: now.toISOString(),
       sourceApp: "Routine",
       sourceDetail: routine.title,
+      // Who set it up, by name — not the login it would otherwise be read
+      // off, which for most people is their email address.
+      requestedBy: { login: routine.owner_login, name: (await namesFor(db, [routine.owner_login])).get(routine.owner_login) || plainName(routine.owner_login) },
       originalLanguage: locale,
       report: {
         markdown: written.report.markdown,

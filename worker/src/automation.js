@@ -63,6 +63,24 @@ async function withRecipient(env, orgId, user, r, locale) {
   return publicRoutine(r, { locale, recipientName: m?.name || "—", recipientRef: m ? `member:${m.ref}` : null });
 }
 
+/// Rules as a browser may see them: who wrote one by name, never by login —
+/// a login is `u:<email address>` for everyone who signed in with one, and
+/// the playbook is read by the whole team.
+async function forClient(env, orgId, who, memories, admin) {
+  const needed = new Set(memories.map((m) => m.createdBy).filter(Boolean));
+  const names = new Map();
+  if (needed.size) {
+    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    for (const m of members) if (needed.has(m.login)) names.set(m.login, m.name);
+  }
+  return memories.map(({ createdBy, ...m }) => ({
+    ...m,
+    createdByName: createdBy ? (names.get(createdBy) || null) : null,
+    mine: createdBy === who.user.login,
+    canEdit: admin || createdBy === who.user.login,
+  }));
+}
+
 export async function handleAutomation(request, env, url) {
   const path = url.pathname;
   if (path === "/mcp") return handleMcp(request, env);
@@ -154,10 +172,7 @@ export async function handleAutomation(request, env, url) {
     const admin = await isAdmin(env.DB, orgId, who.session.github_id);
     if (request.method === "GET") {
       const memories = await listMemories(env.DB, orgId);
-      return json({
-        memories: memories.map((m) => ({ ...m, canEdit: admin || m.createdBy === who.user.login })),
-        canForget: admin,
-      });
+      return json({ memories: await forClient(env, orgId, who, memories, admin), canForget: admin });
     }
     if (request.method === "DELETE") {
       if (!admin) return json({ message: "Only an admin can clear the playbook." }, 403);
@@ -167,7 +182,7 @@ export async function handleAutomation(request, env, url) {
     }
     const memory = await addMemory(env.DB, orgId, { text: body.text, origin: "told", createdBy: who.user.login });
     if (!memory) return json({ message: "Write the rule." }, 400);
-    return json({ memory: { ...memory, canEdit: true } }, 201);
+    return json({ memory: (await forClient(env, orgId, who, [memory], admin))[0] }, 201);
   }
 
   const memoryMatch = path.match(/^\/memories\/([^/]+)$/);
@@ -191,7 +206,7 @@ export async function handleAutomation(request, env, url) {
     }
     const updated = await updateMemory(env.DB, orgId, id, body?.text);
     if (!updated) return json({ message: "Write the rule." }, 400);
-    return json({ memory: { ...updated, canEdit: true } });
+    return json({ memory: (await forClient(env, orgId, who, [updated], admin))[0] });
   }
 
   // ---- Agent tokens ----

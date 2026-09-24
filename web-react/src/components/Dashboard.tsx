@@ -105,9 +105,18 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     try { localStorage.setItem('mode', next) } catch {}
     navigate(hashForMode(next))
   }
-  const setScreen = useCallback((next: Screen | null) => {
+  // Where a screen's back button goes: to You when You opened it — the
+  // chevron on Automations used to drop you on the feed, two steps from
+  // where you were — and to the feed otherwise.
+  const returnTo = useRef<Screen | null>(null)
+  const setScreen = useCallback((next: Screen | null, from: Screen | null = null) => {
+    returnTo.current = from
     navigate(next ? hashForScreen(next) : hashForMode(mode))
   }, [navigate, mode])
+  const closeScreen = useCallback(() => {
+    const back = returnTo.current
+    setScreen(back && back !== screen ? back : null)
+  }, [setScreen, screen])
   // The card the URL names — from a notification tap, a pasted link, or a
   // row picked in the inbox.
   const focusCardId = route.cardId
@@ -265,12 +274,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); setPalette((p) => !p); return }
       if (palette) return
-      if (e.key === 'Escape') { setPanel(null); if (screen) setScreen(null) }
+      if (e.key === 'Escape') { setPanel(null); if (screen) closeScreen() }
       else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) { e.preventDefault(); setPanel('compose') }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [panel, screen, setScreen, palette])
+  }, [panel, screen, setScreen, closeScreen, palette])
   const pickFromPalette = useCallback((action: PaletteAction) => {
     setPalette(false)
     setPanel(null)
@@ -633,11 +642,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           // here to show them. Asking the server where they still belong is
           // the same question a sign-in asks.
           onLeft={() => { setScreen(null); onLeft() }}
-          onClose={() => setScreen(null)}
+          onClose={closeScreen}
         />
       )}
       {screen === 'tools' && (
-        <Tools httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+        <Tools httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'history' && (
         <History
@@ -646,17 +655,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           businesses={businesses}
           userId={userId}
           onUndo={handleRollback}
-          onClose={() => setScreen(null)}
+          onClose={closeScreen}
           httpBase={relayHttpUrl}
           orgId={orgId}
           sessionToken={sessionToken}
         />
       )}
       {screen === 'notifications' && (
-        <NotificationSettings httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+        <NotificationSettings httpBase={relayHttpUrl} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'insights' && (
-        <Insights httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+        <Insights httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'automations' && (
         <Automations
@@ -666,14 +675,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           // "Run now" delivers a card; the person goes to read it, in the
           // cards view, where a report is drawn as a document.
           onOpenCard={(id) => { try { localStorage.setItem('mode', 'cards') } catch {}; navigate(hashForCard(id)) }}
-          onClose={() => setScreen(null)}
+          onClose={closeScreen}
         />
       )}
       {screen === 'playbook' && (
-        <Playbook httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setScreen(null)} />
+        <Playbook httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'plans' && (
-        <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={() => setScreen(null)} />
+        <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />
       )}
       {screen === 'profile' && (
         <Profile
@@ -686,12 +695,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           decidedCount={decidedCards.length}
           onOpen={(where) => {
             if (where === 'record') { setScreen(null); setPanel('record') }
-            else setScreen(where)
+            else setScreen(where, 'profile')
           }}
           onLocaleChange={() => setLocaleVersion((v) => v + 1)}
           onSwitchOrg={(next) => { setScreen(null); onSwitchOrg(next) }}
           onLogout={onLogout}
-          onClose={() => setScreen(null)}
+          onClose={closeScreen}
         />
       )}
 

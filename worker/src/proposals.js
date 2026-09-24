@@ -2,7 +2,7 @@ import { saveCard, getUserByLogin } from "./db.js";
 import { sha256Hex } from "./auth.js";
 import { termsOf } from "./memory.js";
 import { describeSchedule, defaultTimeZoneFor, zonedParts } from "./schedule.js";
-import { createRoutine } from "./routines.js";
+import { createRoutine, plainName } from "./routines.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
@@ -176,6 +176,7 @@ export async function proposeForOrg(env, orgId, { now = new Date() } = {}) {
       status: "pending",
       createdAt: now.toISOString(),
       sourceApp: "Your AI",
+      requestedBy: { login, name: user.name || plainName(login) },
       sourceDetail: locale === "ja" ? "自動化の提案" : "Automation proposal",
       originalLanguage: locale,
       proposal: { kind: "routine", signature, routine, evidence: group.cards.slice(-5).map((c) => ({ id: c.id, title: clip(c.title, 100), createdAt: c.createdAt })) },

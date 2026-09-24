@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
-import { properName } from '../utils/names'
 import { hashForCard } from '../utils/route'
 
 interface Props {
@@ -17,7 +16,9 @@ interface Memory {
   /// Learned from a decision and its reason, or written by a person.
   origin: 'learned' | 'told'
   cardId: string | null
-  createdBy: string | null
+  /// Who wrote it, by name; null for a rule the AI learned, or whoever left.
+  createdByName: string | null
+  mine?: boolean
   createdAt: string
   updatedAt: string
   canEdit: boolean
@@ -169,7 +170,7 @@ export const Playbook: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
                       <span className="row-sub">
                         {m.origin === 'learned'
                           ? (m.cardId ? <a className="memory-source" href={hashForCard(m.cardId)}>{t('Learned from a decision')}</a> : t('Learned from a decision'))
-                          : t('Written by {name}', { name: properName(m.createdBy || '') || t('a teammate') })}
+                          : (m.mine ? t('Written by you') : t('Written by {name}', { name: m.createdByName || t('a teammate') }))}
                         {` · ${date(m.updatedAt || m.createdAt)}`}
                       </span>
                       {m.canEdit && (

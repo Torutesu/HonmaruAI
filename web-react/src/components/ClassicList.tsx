@@ -52,7 +52,7 @@ interface Thread {
   name: string
   /// The login a presence event names — only a person has one.
   login?: string
-  icon?: 'mail' | 'notion' | 'github' | 'box' | 'plus'
+  icon?: 'mail' | 'notion' | 'github' | 'box' | 'plus' | 'repeat' | 'terminal'
   /// The business slug, for a channel.
   slug?: string
   /// The connector id, for an app: gmail, slack, notion, github, ai.
@@ -66,8 +66,17 @@ interface Thread {
 const stamp = (c: DecisionCard) => [c.lastCommentAt || '', c.decision?.decidedAt || '', c.createdAt].sort().pop() || c.createdAt
 const newestFirst = (a: DecisionCard, b: DecisionCard) => stamp(b).localeCompare(stamp(a))
 
-const APP_ICON: Record<string, Thread['icon']> = { gmail: 'mail', email: 'mail', slack: 'box', notion: 'notion', github: 'github' }
-const APP_NAME: Record<string, string> = { gmail: 'Gmail', email: 'Email', slack: 'Slack', notion: 'Notion', github: 'GitHub' }
+const APP_ICON: Record<string, Thread['icon']> = { gmail: 'mail', email: 'mail', slack: 'box', notion: 'notion', github: 'github', routine: 'repeat', agent: 'terminal' }
+/// English keys, translated where read: an automation's report and an
+/// agent's question are the AI's own apps, not somebody's product name.
+const APP_NAME: Record<string, string> = { gmail: 'Gmail', email: 'Email', slack: 'Slack', notion: 'Notion', github: 'GitHub', routine: 'Automations', agent: 'Agents' }
+
+/// Which app a card came in through, as the sidebar groups it. Your AI's
+/// own proposals sit with everything else your AI brought you.
+const appKey = (c: DecisionCard) => {
+  const app = c.sourceApp ? String(c.sourceApp).toLowerCase() : ''
+  return app === 'your ai' ? 'ai' : app
+}
 
 const WIDE = '(min-width: 720px)'
 const isWide = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(WIDE).matches
@@ -140,7 +149,7 @@ export const ClassicList: React.FC<Props> = ({
     const byPerson = new Map<string, DecisionCard[]>()
     const byApp = new Map<string, DecisionCard[]>()
     for (const c of cards) {
-      const app = c.sourceApp ? String(c.sourceApp).toLowerCase() : ''
+      const app = appKey(c)
       if (app) { byApp.set(app, [...(byApp.get(app) || []), c]); continue }
       const other = c.senderUserID === userId ? c.recipientUserID : c.senderUserID
       if (!other || other === userId) { byApp.set('ai', [...(byApp.get('ai') || []), c]); continue }
@@ -157,7 +166,7 @@ export const ClassicList: React.FC<Props> = ({
 
     const apps = [...byApp.entries()]
       .map(([app, own]) => build('app', `app:${app}`,
-        app === 'ai' ? t('Your AI') : (APP_NAME[app] || app.charAt(0).toUpperCase() + app.slice(1)),
+        app === 'ai' ? t('Your AI') : (APP_NAME[app] ? t(APP_NAME[app]) : app.charAt(0).toUpperCase() + app.slice(1)),
         { icon: app === 'ai' ? 'plus' : (APP_ICON[app] || 'box'), app }, own))
       .filter((x): x is Thread => x !== null)
 
@@ -324,8 +333,8 @@ export const ClassicList: React.FC<Props> = ({
   /// Who a decision is from, as the message's author: the app it came in
   /// through, your AI for one you routed to yourself, else the person.
   const author = (c: DecisionCard) => {
-    const app = c.sourceApp ? String(c.sourceApp).toLowerCase() : ''
-    if (app) return { name: c.sourceApp === 'Your AI' ? t('Your AI') : (APP_NAME[app] || c.sourceApp!), app, initial: '' }
+    const app = appKey(c)
+    if (app) return { name: app === 'ai' ? t('Your AI') : (APP_NAME[app] ? t(APP_NAME[app]) : c.sourceApp!), app, initial: '' }
     if (c.senderUserID === userId && c.recipientUserID === userId) return { name: t('Your AI'), app: 'ai', initial: '' }
     const name = c.senderUserID === userId ? t('You') : (c.requestedBy?.name || properName(c.senderUserID))
     return { name, app: '', initial: name.charAt(0).toUpperCase() }
@@ -393,7 +402,7 @@ export const ClassicList: React.FC<Props> = ({
             {!isUnread(c) && <button className="slk-action" onClick={() => onOpen(c.id)}>{t('Open')}</button>}
             {isMine(c) && c.status === 'pending' && <button className="slk-action" onClick={() => onNudge(c.id)}>{t('Nudge')}</button>}
             {Boolean(c.commentCount) && (
-              <button className="slk-replies" onClick={() => onOpen(c.id)}>{t('{n} replies', { n: c.commentCount! })}</button>
+              <button className="slk-replies" onClick={() => onOpen(c.id)}>{c.commentCount === 1 ? t('1 reply') : t('{n} replies', { n: c.commentCount! })}</button>
             )}
             {c.business && current?.kind !== 'channel' && <span className="slk-where">#{nameOfBusiness(c.business)}</span>}
           </div>
