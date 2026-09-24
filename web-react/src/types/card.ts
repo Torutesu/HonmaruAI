@@ -54,6 +54,51 @@ export interface DecisionCard {
   // Who asked, stamped by the relay from the org's own membership table so a
   // client cannot name someone else.
   requestedBy?: { login?: string; name?: string; role?: string; avatarUrl?: string; quote?: string; sourceUrl?: string }
+  // How the card asks to be answered. "fyi" is read and acknowledged, not
+  // weighed — a routine's report is one.
+  format?: string
+  // A routine's delivery: the document the AI wrote on schedule. Shown as a
+  // document wherever the card is shown in full.
+  report?: Report
+  // Your AI offering to automate something you keep asking for. Approving
+  // the card creates the routine.
+  proposal?: Proposal
+}
+
+export type Cadence = 'daily' | 'weekdays' | 'weekly' | 'monthly'
+
+/// When a routine runs, and what it does. `weekday` is 0 for Sunday (weekly
+/// only); `monthday` 31 means the last day of the month (monthly only).
+export interface RoutineSpec {
+  title: string
+  instruction: string
+  cadence: Cadence
+  weekday?: number | null
+  monthday?: number | null
+  hour: number
+  minute: number
+  timezone: string
+}
+
+export interface Report {
+  markdown: string
+  routineId: string
+  routineTitle: string
+  /// Already written for a person: "毎週月曜 09:00".
+  schedule: string
+  periodStart: string
+  periodEnd: string
+  /// Written by the model, or assembled without one.
+  by: 'model' | 'digest'
+  sources?: Array<{ app: string; title: string; url: string | null }>
+}
+
+export interface Proposal {
+  kind: 'routine'
+  signature: string
+  routine: RoutineSpec
+  /// The requests the AI noticed, so the person can see why it asked.
+  evidence: Array<{ id: string; title: string; createdAt: string }>
 }
 
 export interface Business {
@@ -70,4 +115,19 @@ export interface User {
   id: string
   name: string
   avatar: string
+}
+
+/// A message in a channel: a business's (`b:<slug>`) or a direct one with
+/// a teammate (`dm:<member ref>`). `kind: 'ai'` is the AI saying what it
+/// made of a message; `cardId` is the decision a message became.
+export interface ChannelMessage {
+  id: string
+  channel: string
+  kind: 'message' | 'ai'
+  body: string
+  authorName: string | null
+  authorRef: string | null
+  mine: boolean
+  cardId: string | null
+  createdAt: string
 }

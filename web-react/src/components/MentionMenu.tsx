@@ -62,6 +62,7 @@ export function useMentionMenu(
           >
             <span className="mention-avatar" aria-hidden="true">{m.name.charAt(0).toUpperCase()}</span>
             <span className="mention-name">{m.name}</span>
+            {m.handle && <span className="mention-handle">@{m.handle}</span>}
           </button>
         </li>
       ))}

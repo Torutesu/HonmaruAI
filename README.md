@@ -48,7 +48,7 @@ sign-in (skippable). Rationale in [onboarding.md](onboarding.md).
 ```bash
 cd worker
 npm install
-npm test        # 477 tests, real workerd via @cloudflare/vitest-pool-workers
+npm test        # 618 tests, real workerd via @cloudflare/vitest-pool-workers
 npm run eval    # the router against worker/eval/golden.json (--model with OPENAI_API_KEY, --jev with TYPESAFE_API_KEY)
 npx wrangler dev
 ```
@@ -63,6 +63,25 @@ Secrets live only as Worker secrets (`npx wrangler secret put …`), never in th
 (`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_PRIVATE_KEY`), the three
 Web Push ones (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) and
 `RESEND_API_KEY` for email — see [docs/notifications.md](docs/notifications.md).
+
+## The AI's own work
+
+- **Routines** — one sentence ("every Monday at 9, sum up last week") becomes
+  a schedule; the result arrives in the feed as a report card.
+- **Proposals** — when someone keeps asking for the same thing, the AI offers
+  to automate it, as a card. The swipe is the permission.
+- **Playbook** — rules learned from the reasons people give when they decide,
+  visible, editable, forgettable; every model call that writes for the team
+  reads them.
+- **Agents over MCP** — any agent can put a decision in a person's feed and
+  read the answer. From Tools → Connect an agent, or:
+
+  ```bash
+  claude mcp add --transport http honmaru https://tiktokforwork.torubj0904.workers.dev/mcp \
+    --header "Authorization: Bearer hm_…"
+  ```
+
+Why these and not a Slack bot: [docs/viktor-gap-plan.md](docs/viktor-gap-plan.md).
 
 ## Access
 

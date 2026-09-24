@@ -381,81 +381,10 @@
   :root { --rail: 72px; }
   body { background: var(--plaster); }
 
-  /* The tab bar becomes a rail. Same buttons, same order, same targets;
-     icons only until there is room for words. */
-  .tabbar {
-    top: 0;
-    bottom: 0;
-    right: auto;
-    width: var(--rail);
-    height: auto;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: center;
-    gap: 6px;
-    padding: 84px 0 24px;
-    background: transparent;
-    backdrop-filter: none;
-    border-top: none;
-    border-right: 1px solid var(--bone);
-  }
-  .tab {
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    font-size: 18px;
-    color: var(--ash);
-    transition: background-color .12s, color .12s;
-  }
-  .tab:hover { background: rgba(32, 32, 32, 0.05); color: var(--onyx); }
-  .tab.on { background: var(--signal-white); color: var(--onyx); box-shadow: rgba(32, 32, 32, .06) 0 1px 2px; }
-  /* Compose keeps its mark and goes first: on a rail the primary action
-     belongs at the top, under the name. */
-  .tab.compose {
-    order: -1;
-    width: 48px; height: 48px;
-    margin-bottom: 10px;
-    display: grid; place-items: center;
-    background-image: none; background-color: transparent;
-  }
-  .tab.compose:hover { background-color: rgba(32, 32, 32, 0.05); }
-  .tab.compose .fab-face {
-    width: 36px; height: 36px;
-    background: conic-gradient(
-      from 180deg,
-      #7D5BE7 0%, #7D5BE7 19%, #BC3FDA 28%, #FA24CE 37%, #FB49A5 45%,
-      #FC6D7B 52%, #FD8461 55%, #FD9A46 58%, #F687C6 65%, #A3A0E0 80%,
-      #4FB9FA 95%, #0091FF 100%
-    );
-    color: var(--signal-white);
-    box-shadow: inset 0 0 0 5px var(--plaster);
-  }
-  .tab.compose .fab-face svg { width: 18px; height: 18px; }
-  /* The mark above the rail: the product's initial until the rail is wide
-     enough for its name. */
-  .tabbar::before {
-    content: 'H';
-    position: absolute;
-    top: 22px; left: 50%; transform: translateX(-50%);
-    width: 32px; height: 32px; border-radius: 10px;
-    display: grid; place-items: center;
-    font-family: var(--font-display);
-    font-size: 16px;
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    color: var(--signal-white);
-    background: var(--onyx);
-  }
-
   /* Everything else starts to the right of the rail — but only where there
      is one. Signed out there is no rail, and offsetting the welcome and
      sign-in screens anyway left a bare white column down the left edge. */
-  .shell .topbar { left: var(--rail); padding-left: 24px; }
-  .shell .feed, .shell .classic { left: var(--rail); }
-  .shell .screen { left: var(--rail); }
+  .shell .feed, .shell .classic, .shell .screen { left: var(--rail); top: var(--chrome); }
 
   /* The feed becomes a queue: cards stack and scroll, instead of one filling
      the viewport and the next being a swipe away. The card itself is
@@ -463,7 +392,7 @@
   .feed { scroll-snap-type: none; background: var(--plaster); }
   .page { height: auto; min-height: 0; scroll-snap-align: none; justify-content: center; }
   .page-inner { width: min(100%, 640px); padding: 20px 28px; }
-  .page:first-child .page-inner { padding-top: 84px; }
+  .page:first-child .page-inner { padding-top: 32px; }
   .page:last-child .page-inner { padding-bottom: 64px; }
   .page-empty { min-height: 60vh; align-items: center; }
   .classic-inner { width: min(100%, 680px); }
@@ -536,73 +465,14 @@
   .welcome-display { font-size: 34px; }
 }
 
-/* The rail gains its words. */
-@media (min-width: 1280px) {
-  :root { --rail: 216px; }
-  .tabbar { align-items: stretch; gap: 4px; padding: 88px 16px 24px; }
-  .tab {
-    width: auto;
-    height: 44px;
-    border-radius: var(--radius-pill);
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 0 14px;
-  }
-  .tab::after {
-    content: attr(aria-label);
-    font-family: var(--font-body);
-    font-size: 14.5px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-  }
-  .tab.compose {
-    width: auto;
-    height: 44px;
-    margin-bottom: 12px;
-    padding: 0 10px 0 6px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 10px;
-    color: var(--onyx);
-  }
-  .tab.compose .fab-face { width: 32px; height: 32px; }
-  .tab.compose::after { color: var(--onyx); font-weight: 600; }
-  .tabbar::before {
-    content: 'Honmaru AI';
-    left: 30px; transform: none;
-    top: 26px;
-    width: auto; height: auto; border-radius: 0;
-    display: block;
-    font-size: 17px;
-    color: var(--onyx);
-    background: transparent;
-  }
-  .shell .topbar { padding-left: 28px; }
-}
-
 @media (min-width: 720px) and (prefers-color-scheme: dark) {
   body { background: #0f0f0f; }
-  .tab { color: #8a8a8a; }
-  .tab:hover { background: #1a1a1a; color: #f2f2f2; }
-  .tab.on { background: #1a1a1a; color: #f2f2f2; box-shadow: none; }
-  .tab.compose { color: #f2f2f2; background-color: transparent; }
-  .tab.compose:hover { background-color: #1a1a1a; }
-  .tab.compose::after { color: #f2f2f2; }
-  .tab.compose .fab-face { box-shadow: inset 0 0 0 5px #0f0f0f; }
-  .tabbar { border-right-color: #2a2a2a; }
-  .tabbar::before { color: #0f0f0f; background: #f2f2f2; }
   .feed, .screen { background: #0f0f0f; }
   /* The signed-out card's ground: the day-side rule above is more specific
      than the plain `.screen` night rule, so it has to be said again here. */
   .screen:not(.shell .screen), .shell .screen { background: #0f0f0f; }
   .screen:not(.shell .screen) .screen-body,
   .screen:not(.shell .screen) .screen-foot { background: #1a1a1a; border-color: #2a2a2a; box-shadow: none; }
-}
-@media (min-width: 1280px) and (prefers-color-scheme: dark) {
-  .tabbar::before { color: #f2f2f2; background: transparent; }
 }
 
 /* Last on purpose: screens.css is imported at the top of this file, so a
@@ -739,19 +609,6 @@
 .ws-quiet { color: var(--ash); }
 /* Phone: the rail is a bottom bar, so the switcher lives in the headers. */
 .ws-rail { display: none; }
-@media (min-width: 720px) {
-  .tabbar.has-ws::before { display: none; }
-  .ws-rail { display: block; position: absolute; top: 18px; left: 50%; transform: translateX(-50%); }
-  .ws-rail .ws-button { padding: 4px; }
-  .ws-rail .ws-name, .ws-rail .ws-caret { display: none; }
-  .ws-rail .ws-menu { left: -6px; }
-}
-@media (min-width: 1280px) {
-  .ws-rail { left: 20px; transform: none; right: 12px; }
-  .ws-rail .ws-button { padding: 4px 8px; width: 100%; }
-  .ws-rail .ws-name, .ws-rail .ws-caret { display: inline; }
-  .ws-rail .ws-name { flex: 1; }
-}
 .team-name-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .team-logo { flex: none; }
 .team-logo img, .team-logo-letter { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; object-fit: cover; }
@@ -776,3 +633,160 @@
 :root[data-theme="dark"] .ws-item:hover, :root[data-theme="dark"] .ws-item.on, :root[data-theme="dark"] .ws-action:hover { background: #2a2a2a; }
 :root[data-theme="dark"] .ws-menu-sep { background: #2a2a2a; }
 :root[data-theme="dark"] .ws-mark-letter, :root[data-theme="dark"] .team-logo-letter { background: #f2f2f2; color: #0f0f0f; }
+
+/* ---- The laptop's chrome, the way a chat client draws it ----
+
+   A band across the top with the search field in the middle, and a narrow
+   rail down the left: the workspace's mark, a few places each with its word
+   under it, and — at the foot — the one action and you. Both are one deep
+   colour, so the page reads as a window with the work set into it, the
+   work's corner rounded where the two meet.
+
+   It used to be a 216px column of words with the workspace's name at the
+   top, beside a list whose own header said the same name again: two
+   sidebars side by side, and the wide one only for getting around. */
+:root { --chrome: 0px; --chrome-bg: #2e1a45; --chrome-ink: rgba(255, 255, 255, 0.78); --chrome-hover: rgba(255, 255, 255, 0.12); --chrome-on: rgba(255, 255, 255, 0.22); --chrome-field: rgba(255, 255, 255, 0.14); --chrome-line: rgba(255, 255, 255, 0.2); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --chrome-bg: #121016; --chrome-field: rgba(255, 255, 255, 0.09); --chrome-line: rgba(255, 255, 255, 0.12); }
+}
+:root[data-theme="dark"] { --chrome-bg: #121016; --chrome-field: rgba(255, 255, 255, 0.09); --chrome-line: rgba(255, 255, 255, 0.12); }
+.tab-avatar, .palette-label, .palette-kbd { display: none; }
+
+@media (min-width: 720px) {
+  :root { --chrome: 44px; }
+
+  /* The top band. */
+  .shell .topbar {
+    left: 0; right: 0; top: 0;
+    height: var(--chrome);
+    padding: 0 12px 0 calc(var(--rail) + 8px);
+    background: var(--chrome-bg);
+    pointer-events: auto;
+  }
+  .shell .topbar .mode-switch { background: var(--chrome-field); padding: 2px; }
+  .shell .topbar .mode-switch button { color: var(--chrome-ink); padding: 4px 12px; font-size: 13px; }
+  .shell .topbar .mode-switch button:hover { color: #fff; }
+  .shell .topbar .mode-switch button.on { background: #fff; color: #1d1c1d; box-shadow: none; }
+  .shell .topbar .mode-switch .mode-count { background: rgba(255, 255, 255, 0.9); color: #1d1c1d; }
+  .shell .topbar .mode-switch button.on .mode-count { background: #1d1c1d; color: #fff; }
+  .shell .topbar-right { align-items: center; }
+  .shell .topbar-right button { background: transparent; border: none; color: var(--chrome-ink); backdrop-filter: none; }
+  .shell .topbar-right button:hover { background: var(--chrome-hover); color: #fff; }
+  .shell .topbar .avatar-button { display: none; }
+  .shell .topbar .link-state { background: var(--chrome-field); border-color: transparent; color: #fff; }
+  /* Search, across the middle, as a field. */
+  .shell .topbar-right .palette-button {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(560px, calc(100vw - var(--rail) - 460px)); min-width: 200px; height: 28px;
+    display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+    padding: 0 10px; border-radius: 7px;
+    background: var(--chrome-field); border: 1px solid var(--chrome-line); color: var(--chrome-ink);
+    font-size: 13px; font-weight: 400;
+  }
+  .shell .topbar-right .palette-button:hover { background: rgba(255, 255, 255, 0.22); }
+  .shell .topbar-right .palette-button svg { width: 14px; height: 14px; flex: none; }
+  .shell .palette-label { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .shell .palette-kbd { display: block; flex: none; font: inherit; font-size: 11px; opacity: 0.7; }
+
+  /* The rail. */
+  .shell .tabbar {
+    top: var(--chrome); bottom: 0; left: 0; right: auto;
+    width: var(--rail); height: auto;
+    flex-direction: column; justify-content: flex-start; align-items: center;
+    gap: 12px;
+    padding: 6px 0 14px;
+    background: var(--chrome-bg);
+    backdrop-filter: none;
+    border: none;
+  }
+  .shell .tab {
+    width: 64px; height: auto; padding: 0; border-radius: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    background: none; box-shadow: none;
+    color: var(--chrome-ink); line-height: 1;
+  }
+  .shell .tab > svg {
+    width: 36px; height: 36px; padding: 8px; box-sizing: border-box;
+    border-radius: 10px; transition: background-color .12s;
+  }
+  .shell .tab::after {
+    content: attr(aria-label);
+    font-family: var(--font-body); font-size: 11px; font-weight: 600; letter-spacing: 0;
+    max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .shell .tab:hover { color: #fff; }
+  .shell .tab:hover > svg { background: var(--chrome-hover); }
+  .shell .tab.on { color: #fff; }
+  .shell .tab.on > svg { background: var(--chrome-on); }
+  /* The mark, at the top: the workspace, and the way to every other one. */
+  .shell .ws-rail { display: block; position: relative; order: -2; margin-bottom: 4px; }
+  .shell .ws-rail .ws-button { padding: 0; border-radius: 10px; }
+  .shell .ws-rail .ws-button:hover { background: none; box-shadow: 0 0 0 3px var(--chrome-hover); }
+  .shell .ws-rail .ws-mark { width: 36px !important; height: 36px !important; border-radius: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
+  .shell .ws-rail .ws-mark-letter { background: #fff; color: #1d1c1d; }
+  .shell .ws-rail .ws-name, .shell .ws-rail .ws-caret { display: none; }
+  .shell .ws-rail .ws-menu { left: calc(100% + 10px); top: 0; }
+  /* At the foot: telling your AI, the one action, and you. */
+  .shell .tab.compose { order: 10; margin-top: auto; width: 64px; height: auto; background: none; }
+  /* The mark says it; the words would not fit under it in any language. */
+  .shell .tab.compose::after { display: none; }
+  .shell .tab.compose .fab-face {
+    width: 36px; height: 36px; border-radius: 9999px; display: grid; place-items: center;
+    background: conic-gradient(from 180deg, #7D5BE7 0%, #7D5BE7 19%, #BC3FDA 28%, #FA24CE 37%, #FB49A5 45%, #FC6D7B 52%, #FD8461 55%, #FD9A46 58%, #F687C6 65%, #A3A0E0 80%, #4FB9FA 95%, #0091FF 100%);
+    color: #fff; box-shadow: none; transition: transform .12s;
+  }
+  .shell .tab.compose:hover .fab-face { transform: scale(1.06); }
+  .shell .tab.compose .fab-face svg { width: 18px; height: 18px; }
+  .shell .tab[data-tab="you"] { order: 11; }
+  .shell .tab[data-tab="you"] > svg { display: none; }
+  .shell .tab[data-tab="you"]::after { display: none; }
+  .shell .tab-avatar {
+    display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px;
+    background: #efeaff; color: #6647f0; font-weight: 700; font-size: 15px; line-height: 1;
+  }
+  /* Drawn, not typed: the button's text stays empty for the phone's bar. */
+  .shell .tab-avatar::before { content: attr(data-initial); }
+  .shell .tab[data-tab="you"].on .tab-avatar, .shell .tab[data-tab="you"]:hover .tab-avatar { box-shadow: 0 0 0 2px var(--chrome-bg), 0 0 0 4px #fff; }
+
+  /* The work, set into the chrome with its corner rounded. */
+  .shell { background: var(--chrome-bg); }
+  .shell .feed, .shell .classic, .shell .classic.slk.slk, .shell .screen, .shell .workbench { border-top-left-radius: 10px; }
+  .shell .classic.slk.slk { top: var(--chrome); left: var(--rail); }
+  .shell .workbench { background: var(--plaster); }
+  .shell .workbench { top: var(--chrome); overflow: hidden; }
+  .shell .workbench .page-inner { padding-top: 32px; }
+  .shell .inbox { padding-top: 20px; }
+  .shell .classic.slk.slk { padding-top: 0; }
+  .shell .classic.slk.slk .slk-side, .shell .classic.slk.slk .slk-main { border-top: none; }
+  .toasts { top: calc(var(--chrome) + 12px); }
+}
+
+/* The list's sidebar is part of the chrome too — a shade lighter than the
+   rail, in the same hue, as a chat client draws its channel list. */
+:root { --chrome-side: #3b2356; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --chrome-side: #19171d; } }
+:root[data-theme="dark"] { --chrome-side: #19171d; }
+@media (min-width: 720px) {
+  .shell .classic.slk.slk .slk-side {
+    --slk-side: var(--chrome-side);
+    --slk-ink: #ffffff; --slk-dim: rgba(255, 255, 255, 0.72); --slk-faint: rgba(255, 255, 255, 0.5);
+    --slk-hover: rgba(255, 255, 255, 0.08); --slk-on: rgba(255, 255, 255, 0.9);
+    --slk-field: rgba(255, 255, 255, 0.12); --slk-bg: rgba(255, 255, 255, 0.1); --slk-line: rgba(255, 255, 255, 0.16);
+    background: var(--chrome-side); border-right: none;
+  }
+  /* The picked conversation: a light bar with dark words, as Slack does. */
+  .shell .classic.slk.slk .slk-side .cl-thread.on > .cl-open { background: rgba(255, 255, 255, 0.9); color: var(--chrome-side); }
+  .shell .classic.slk.slk .slk-side .cl-thread.on .cl-avatar { background: var(--chrome-side); color: #fff; }
+  .shell .classic.slk.slk .slk-side .cl-avatar { background: rgba(255, 255, 255, 0.18); color: #fff; }
+  .shell .classic.slk.slk .slk-side .ws-button { color: #fff; }
+  .shell .classic.slk.slk .slk-side .ws-button:hover { background: rgba(255, 255, 255, 0.08); }
+  .shell .classic.slk.slk .slk-side .ws-caret { color: rgba(255, 255, 255, 0.7); }
+  .shell .classic.slk.slk .slk-side .ws-header .ws-mark { display: none; }
+  .shell .classic.slk.slk .slk-side .cl-top { border-bottom: 1px solid var(--slk-line); padding-top: 10px; padding-bottom: 10px; margin-bottom: 8px; }
+  .shell .classic.slk.slk .slk-side .cl-icon-button { background: rgba(255, 255, 255, 0.12); border-color: transparent; color: #fff; }
+  .shell .classic.slk.slk .slk-side .cl-search { display: none; }
+}
+@media (min-width: 720px) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .shell .workbench { background: #0f0f0f; }
+}
+@media (min-width: 720px) { :root[data-theme="dark"] .shell .workbench { background: #0f0f0f; } }

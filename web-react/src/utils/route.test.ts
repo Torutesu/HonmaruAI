@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRoute, hashForJoin, hashForCard } from './route'
+import { parseRoute, hashForJoin, hashForCard, hashForScreen } from './route'
 
 // The URL says where you are, and what a link you were sent opens.
 describe('parseRoute', () => {
@@ -18,5 +18,19 @@ describe('parseRoute', () => {
     expect(parseRoute('#/join/not-a-code').join).toBeNull()
     expect(parseRoute('#/join/').join).toBeNull()
     expect(parseRoute('#/join/<script>').join).toBeNull()
+  })
+
+  it('reads the automations and the playbook, both ways', () => {
+    expect(parseRoute('#/automations')).toEqual({ screen: 'automations', mode: null, cardId: null, join: null })
+    expect(parseRoute('#/playbook')).toEqual({ screen: 'playbook', mode: null, cardId: null, join: null })
+    expect(hashForScreen('automations')).toBe('#/automations')
+    expect(hashForScreen('playbook')).toBe('#/playbook')
+    expect(parseRoute(hashForScreen('playbook')).screen).toBe('playbook')
+  })
+
+  it('names no screen for a path that is not one', () => {
+    expect(parseRoute('#/automation').screen).toBeNull()
+    expect(parseRoute('#/constructor').screen).toBeNull()
+    expect(parseRoute('#/toString').screen).toBeNull()
   })
 })

@@ -11,6 +11,8 @@ export interface Mentionable {
   name: string
   /// Other names they answer to, when the profile carries them.
   aliases?: string[]
+  /// Their username: what @ writes, when they have one.
+  handle?: string | null
 }
 
 /// The `@` token the caret is inside, if any: where it starts and what has
@@ -33,7 +35,7 @@ const fold = (s: string) => s.normalize('NFKC').toLowerCase()
 export function matchMembers(members: Mentionable[], query: string, limit = 6): Mentionable[] {
   const q = fold(query.trim())
   const score = (m: Mentionable) => {
-    const names = [m.name, ...(m.aliases || [])].map(fold)
+    const names = [m.handle || '', m.name, ...(m.aliases || [])].filter(Boolean).map(fold)
     if (!q) return 1
     if (names.some((n) => n.startsWith(q))) return 3
     if (names.some((n) => n.split(/\s+/).some((w) => w.startsWith(q)))) return 2
@@ -53,7 +55,9 @@ export function matchMembers(members: Mentionable[], query: string, limit = 6): 
 export function insertMention(text: string, caret: number, member: Mentionable): { text: string; caret: number } {
   const q = mentionQuery(text, caret)
   if (!q) return { text, caret }
-  const label = `@${member.name.split(/\s+/)[0] || member.name} `
+  // The username when there is one — it is exact and has no spaces; else
+  // the first name, which the Worker also matches.
+  const label = `@${member.handle || member.name.split(/\s+/)[0] || member.name} `
   const next = text.slice(0, q.start) + label + text.slice(caret)
   return { text: next, caret: q.start + label.length }
 }
@@ -66,7 +70,7 @@ export function mentionedRefs(text: string, members: Mentionable[]): string[] {
   while ((m = re.exec(text))) {
     const want = fold(m[2])
     const hit = members.find((mem) => {
-      const names = [mem.name, mem.name.split(/\s+/)[0], ...(mem.aliases || [])].filter(Boolean).map(fold)
+      const names = [mem.handle || '', mem.name, mem.name.split(/\s+/)[0], ...(mem.aliases || [])].filter(Boolean).map(fold)
       return names.includes(want)
     })
     if (hit) refs.add(hit.ref)
@@ -99,7 +103,7 @@ export function loadMembers(httpBase: string, orgId: string, sessionToken: strin
   if (!cache.has(key)) {
     cache.set(key, fetch(`${httpBase}/members?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => (r.ok ? r.json() : { members: [] }))
-      .then((data) => (data.members || []).map((m: { ref: string; name: string; aliases?: string[] }) => ({ ref: m.ref, name: m.name, aliases: m.aliases || [] })))
+      .then((data) => (data.members || []).map((m: { ref: string; name: string; aliases?: string[]; handle?: string | null }) => ({ ref: m.ref, name: m.name, aliases: m.aliases || [], handle: m.handle || null })))
       .catch(() => { cache.delete(key); return [] }))
   }
   return cache.get(key)!

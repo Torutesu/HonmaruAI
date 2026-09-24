@@ -1,4 +1,5 @@
 import { noteUsage } from "./ledger.js";
+import { playbookBlock } from "./memory.js";
 // A question about a card, answered — not turned into another card.
 //
 // "Ask anything" under a card used to route the question as a new decision
@@ -12,7 +13,7 @@ const SYSTEM_PROMPT = `You answer a question somebody has about one decision car
 
 Rules:
 - Answer in the reader's language, given below. Two to five sentences. No preamble.
-- Use ONLY the card, the past decisions and the connected tools' pages listed.
+- Use ONLY the card, the past decisions, the team's playbook and the connected tools' pages listed.
   If they do not contain the answer, say what is missing in one sentence —
   never invent a decision, a number, a date or a person. Name the page or
   issue you drew on.
@@ -29,7 +30,7 @@ const MAX_ANSWER = 1200;
 
 /// Ask. Returns { called, answer } — `called` is whether we paid a model
 /// for this (billing follows it), `answer` is the text or null.
-export async function answerQuestion({ provider, card, question, readerLanguage, recent = [], related = [], sources = [] }) {
+export async function answerQuestion({ provider, card, question, readerLanguage, recent = [], related = [], sources = [], playbook = [] }) {
   if (!provider) return { called: false, answer: null };
   const clean = String(question || "").trim().slice(0, MAX_QUESTION);
   if (!clean) return { called: false, answer: null };
@@ -70,7 +71,7 @@ ${decisions.length ? decisions.join("\n") : "(none found)"}
 <connected_tools>
 ${sources.length ? sources.slice(0, 10).map((r) => `- [${r.app}] ${r.title}${r.when ? ` (${String(r.when).slice(0, 10)})` : ""}${r.snippet ? ` — ${String(r.snippet).slice(0, 200)}` : ""}`).join("\n") : "(nothing connected, or nothing matched)"}
 </connected_tools>
-
+${playbookBlock(playbook)}
 Question: ${clean}`;
 
   let data;

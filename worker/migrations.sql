@@ -20,6 +20,8 @@ ALTER TABLE memberships ADD COLUMN title TEXT;
 ALTER TABLE invites ADD COLUMN ref TEXT;
 ALTER TABLE users ADD COLUMN aliases TEXT;
 ALTER TABLE users ADD COLUMN inbound_token TEXT;
+ALTER TABLE users ADD COLUMN handle TEXT;
+ALTER TABLE users ADD COLUMN name_locked INTEGER NOT NULL DEFAULT 0;
 
 /* After the ALTER above, and never in schema.sql: that file runs first, so on a
    database predating the column this index would be created against a column
@@ -31,6 +33,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_invites_ref ON invites(org_id, ref);
 /* Same again: inbound_token lives only on databases that have run the ALTER. */
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_inbound_token ON users(inbound_token);
+/* And for the username, added just above. */
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_handle ON users(handle);
 
 ALTER TABLE complimentary_access ADD COLUMN rc_synced_at TEXT;
 ALTER TABLE complimentary_access ADD COLUMN rc_attempted_at TEXT;

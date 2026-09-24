@@ -3,6 +3,7 @@ import { useT } from '../utils/i18n'
 import { Icon, type IconName } from '../components/Icon'
 import { BrandLogo, isBrand } from '../components/BrandLogo'
 import { getAIKey } from '../utils/aiKey'
+import { ago } from '../utils/ago'
 
 interface Connector { id: string; label: string; status: string }
 
@@ -37,6 +38,11 @@ interface AIStatus {
   jevHint: string | null
   models: Array<{ id: string; priceIn: number; priceOut: number }>
 }
+
+/// A personal token an agent uses to reach this workspace over MCP. The
+/// secret itself is shown once, when it is made; after that only its first
+/// characters, so a person can tell two apart.
+interface AgentToken { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null }
 
 interface Props {
   httpBase: string
@@ -193,6 +199,71 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     } finally { setAIBusy(false) }
   }
   const ownKey = Boolean(getAIKey())
+
+  // Agents. Claude Code, Cursor or a team's own agent asks a person here for
+  // a decision; the question arrives as a card, the agent reads the answer.
+  // This app stays the place a person decides — the agent comes to it.
+  const [agents, setAgents] = useState<{ tokens: AgentToken[]; endpoint: string; tools: string[] } | null>(null)
+  const [agentName, setAgentName] = useState('')
+  const [agentBusy, setAgentBusy] = useState<string | null>(null)
+  const [agentError, setAgentError] = useState<string | null>(null)
+  const [minted, setMinted] = useState<{ token: string; name: string; endpoint: string } | null>(null)
+  const [agentCopied, setAgentCopied] = useState<string | null>(null)
+  const [revoking, setRevoking] = useState<string | null>(null)
+  useEffect(() => {
+    let ignore = false
+    fetch(`${httpBase}/tokens?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!ignore && data) setAgents({ tokens: data.tokens || [], endpoint: data.endpoint || '', tools: data.tools || [] }) })
+      .catch(() => { /* the section appears once the Worker answers */ })
+    return () => { ignore = true }
+  }, [httpBase, orgId, sessionToken])
+  const createAgentToken = async () => {
+    const name = agentName.trim()
+    if (!name) return
+    setAgentBusy('create'); setAgentError(null)
+    try {
+      const res = await fetch(`${httpBase}/tokens`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, name }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setAgentError(data.message || t('That did not save.')); return }
+      setMinted({ token: data.token, name: data.name, endpoint: data.endpoint || agents?.endpoint || '' })
+      setAgents((a) => ({
+        tokens: [{ id: data.id, name: data.name, prefix: data.prefix, createdAt: data.createdAt, lastUsedAt: null }, ...(a?.tokens || [])],
+        endpoint: data.endpoint || a?.endpoint || '',
+        tools: a?.tools || [],
+      }))
+      setAgentName('')
+    } catch (err) {
+      setAgentError(err instanceof Error ? err.message : String(err))
+    } finally { setAgentBusy(null) }
+  }
+  const revokeAgentToken = async (id: string) => {
+    setAgentBusy(id); setAgentError(null)
+    try {
+      const res = await fetch(`${httpBase}/tokens/${encodeURIComponent(id)}?orgId=${encodeURIComponent(orgId)}`, {
+        method: 'DELETE',
+        headers: { 'x-session-token': sessionToken },
+      })
+      if (!res.ok) { setAgentError((await res.json().catch(() => ({}))).message || t('That did not work. Try again in a moment.')); return }
+      setAgents((a) => (a ? { ...a, tokens: a.tokens.filter((x) => x.id !== id) } : a))
+      setRevoking(null)
+    } catch (err) {
+      setAgentError(err instanceof Error ? err.message : String(err))
+    } finally { setAgentBusy(null) }
+  }
+  const copyAgent = (key: string, text: string) => {
+    navigator.clipboard?.writeText(text)
+    setAgentCopied(key)
+    setTimeout(() => setAgentCopied((k) => (k === key ? null : k)), 1500)
+  }
+  const claudeCommand = minted ? `claude mcp add --transport http honmaru ${minted.endpoint} --header "Authorization: Bearer ${minted.token}"` : ''
+  const mcpConfig = minted ? JSON.stringify({
+    mcpServers: { honmaru: { type: 'http', url: minted.endpoint, headers: { Authorization: `Bearer ${minted.token}` } } },
+  }, null, 2) : ''
 
   const load = useCallback(async () => {
     try {
@@ -585,8 +656,89 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             </div>
           </>
         )}
+
+        {agents && (
+          <>
+            <div className="rows-title">{t('Connect an agent')}</div>
+            <div className="rows agents">
+              <div className="row static agent-intro">
+                <span className="row-icon"><Icon name="terminal" size={18} /></span>
+                <span className="row-main">
+                  {t('Claude Code, Cursor, or your own agent')}
+                  <span className="row-sub">{t('agents.blurb')}</span>
+                  {!minted && (
+                    <span className="ai-key-form">
+                      <input
+                        className="ai-key-input"
+                        value={agentName}
+                        maxLength={60}
+                        onChange={(e) => setAgentName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void createAgentToken() }}
+                        placeholder={t('e.g. Claude Code on my laptop')}
+                        aria-label={t('Agent name')}
+                        disabled={agentBusy === 'create'}
+                      />
+                      <button className="pill-btn" disabled={agentBusy === 'create' || !agentName.trim()} onClick={() => void createAgentToken()}>
+                        {agentBusy === 'create' ? t('Creating…') : t('Create token')}
+                      </button>
+                    </span>
+                  )}
+                </span>
+              </div>
+              {minted && (
+                <div className="row static agent-minted" data-agent-minted="1">
+                  <div className="agent-steps">
+                    <div className="agent-warn">{t('Copy this token now. It is shown once, and cannot be read again.')}</div>
+                    <AgentSnippet label={t('Token for {name}', { name: minted.name })} text={minted.token} copied={agentCopied === 'token'} onCopy={() => copyAgent('token', minted.token)} />
+                    <AgentSnippet label={t('Claude Code')} text={claudeCommand} copied={agentCopied === 'claude'} onCopy={() => copyAgent('claude', claudeCommand)} />
+                    <AgentSnippet label={t('Any MCP client')} text={mcpConfig} copied={agentCopied === 'json'} onCopy={() => copyAgent('json', mcpConfig)} />
+                    <button className="btn btn-ghost agent-done" onClick={() => setMinted(null)}>{t('Done')}</button>
+                  </div>
+                </div>
+              )}
+              {agents.tokens.map((tok) => (
+                <div className="row static agent-token" key={tok.id} data-token={tok.id}>
+                  <span className="row-main">
+                    {tok.name}
+                    <span className="row-sub">
+                      <code className="agent-prefix">{tok.prefix}…</code>
+                      {` · ${t('made {when}', { when: new Date(tok.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) })}`}
+                      {` · ${tok.lastUsedAt ? t('last used {when}', { when: ago(tok.lastUsedAt) }) : t('never used')}`}
+                    </span>
+                  </span>
+                  {revoking === tok.id ? (
+                    <span className="team-confirm">
+                      <button className="pill-btn" disabled={agentBusy === tok.id} onClick={() => void revokeAgentToken(tok.id)}>{t('Revoke')}</button>
+                      <button className="btn-text" onClick={() => setRevoking(null)}>{t('Keep')}</button>
+                    </span>
+                  ) : (
+                    <button className="btn-text danger" onClick={() => setRevoking(tok.id)}>{t('Revoke')}</button>
+                  )}
+                </div>
+              ))}
+              {agentError && <div className="form-error">{agentError}</div>}
+            </div>
+            {agents.tools.length > 0 && (
+              <p className="hint insights-hint">{t('What an agent can do: {tools}.', { tools: agents.tools.join(', ') })}</p>
+            )}
+          </>
+        )}
         <div style={{ height: 24 }} />
       </div>
+    </div>
+  )
+}
+
+/// One thing to paste somewhere else, and the button that copies it.
+const AgentSnippet: React.FC<{ label: string; text: string; copied: boolean; onCopy: () => void }> = ({ label, text, copied, onCopy }) => {
+  const t = useT()
+  return (
+    <div className="agent-snippet">
+      <div className="agent-snippet-head">
+        <span className="meta-label">{label}</span>
+        <button className="btn-text" onClick={onCopy}>{copied ? t('Copied!') : t('Copy')}</button>
+      </div>
+      <pre className="agent-code"><code>{text}</code></pre>
     </div>
   )
 }

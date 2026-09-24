@@ -8,6 +8,8 @@ import { announceCards } from "./announce.js";
 import { providerFor } from "./orgAI.js";
 import { alert } from "./alert.js";
 import { safe } from "./log.js";
+import { runDueRoutines } from "./routines.js";
+import { runProposals, isProposalTick } from "./proposals.js";
 
 // "Your AI triaged three decisions overnight" cannot be true if the AI only
 // runs while you are looking at it. Until this existed, a connector sync
@@ -130,4 +132,25 @@ export async function runScheduledSync(env, ctx) {
 
   await sweepRateLimits(env);
   return { users: rows.length, synced, created };
+}
+
+/// The AI's own work: routines that are due, and — on the day's first tick
+/// — the automations it would propose. Each half fails alone.
+export async function runAutomations(env, ctx, now = new Date()) {
+  const out = { routines: null, proposals: null };
+  try {
+    out.routines = await runDueRoutines(env, { now });
+  } catch (err) {
+    console.error("routines failed", err?.message || err);
+    alert(ctx, env, "routines", safe(err?.message));
+  }
+  if (isProposalTick(now)) {
+    try {
+      out.proposals = await runProposals(env, { now });
+    } catch (err) {
+      console.error("proposals failed", err?.message || err);
+      alert(ctx, env, "proposals", safe(err?.message));
+    }
+  }
+  return out;
 }

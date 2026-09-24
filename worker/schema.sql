@@ -22,7 +22,13 @@ CREATE TABLE IF NOT EXISTS users (
      can guess — and a guessed address is a way to spend someone's AI allowance
      and put a forged card in their feed. NULL until the address is asked for;
      generated lazily so accounts that never use inbound mail carry no secret. */
-  inbound_token TEXT
+  inbound_token TEXT,
+  /* A username, as a person chose it: what @ finds them by, in any workspace.
+     Lowercase, unique; NULL until they pick one. */
+  handle        TEXT,
+  /* 1 once the person has named themselves: a GitHub sign-in no longer
+     writes its profile name over theirs. */
+  name_locked   INTEGER NOT NULL DEFAULT 0
 );
 
 
@@ -379,6 +385,82 @@ CREATE TABLE IF NOT EXISTS kv (
   updated_at  TEXT NOT NULL
 );
 
+/* Work the AI does on a schedule and delivers as a card: a report, a
+   brief. One row per routine; `next_run_at` is when the cron picks it up. */
+CREATE TABLE IF NOT EXISTS routines (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  owner_github_id TEXT NOT NULL,
+  owner_login    TEXT NOT NULL,
+  /* Whose feed the result lands in: the owner, or another member. */
+  recipient_login TEXT NOT NULL,
+  kind           TEXT NOT NULL DEFAULT 'report',
+  title          TEXT NOT NULL,
+  instruction    TEXT NOT NULL,
+  cadence        TEXT NOT NULL,
+  weekday        INTEGER,
+  monthday       INTEGER,
+  hour           INTEGER NOT NULL,
+  minute         INTEGER NOT NULL DEFAULT 0,
+  timezone       TEXT NOT NULL DEFAULT 'UTC',
+  enabled        INTEGER NOT NULL DEFAULT 1,
+  next_run_at    TEXT,
+  last_run_at    TEXT,
+  last_card_id   TEXT,
+  last_error     TEXT,
+  last_usd       REAL,
+  runs           INTEGER NOT NULL DEFAULT 0,
+  origin         TEXT NOT NULL DEFAULT 'manual',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_routines_due ON routines(enabled, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_routines_org ON routines(org_id);
+
+/* The team's playbook: rules the AI learned from decisions, or was told.
+   Read by the router, "Ask anything", drafts and routines. */
+CREATE TABLE IF NOT EXISTS memories (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  text           TEXT NOT NULL,
+  origin         TEXT NOT NULL DEFAULT 'told',
+  card_id        TEXT,
+  created_by     TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memories_org ON memories(org_id, updated_at);
+
+/* What the AI has proposed on its own, so a declined proposal is never
+   made twice and nobody is proposed to more than once a week. */
+CREATE TABLE IF NOT EXISTS proposals (
+  org_id         TEXT NOT NULL,
+  signature      TEXT NOT NULL,
+  login          TEXT NOT NULL,
+  card_id        TEXT,
+  /* The routine as proposed, kept here rather than trusted off the card:
+     a card can be republished by a client, this row cannot. */
+  routine        TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  created_at     TEXT NOT NULL,
+  PRIMARY KEY (org_id, signature)
+);
+CREATE INDEX IF NOT EXISTS idx_proposals_login ON proposals(org_id, login, created_at);
+
+/* Personal access tokens for agents speaking MCP. Only the hash is kept;
+   the token is shown once, when it is made. */
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id             TEXT PRIMARY KEY,
+  token_hash     TEXT NOT NULL UNIQUE,
+  org_id         TEXT NOT NULL,
+  github_id      TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  prefix         TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  last_used_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(github_id, org_id);
+
 /* A workspace's own mark: the logo on the rail and in the switcher. The
    bytes live in R2 under media_id; this is the one row that names them. */
 CREATE TABLE IF NOT EXISTS org_icons (
@@ -387,3 +469,20 @@ CREATE TABLE IF NOT EXISTS org_icons (
   content_type  TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+
+/* What people say in a channel: a business's (`b:<slug>`, the whole
+   workspace) or a direct one (`dm:<login>|<login>`, sorted; the two of
+   them). The AI reads it as context, and a message can become a decision:
+   `card_id` is the card made from it. */
+CREATE TABLE IF NOT EXISTS channel_messages (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  author_login  TEXT,
+  kind          TEXT NOT NULL DEFAULT 'message',
+  body          TEXT NOT NULL,
+  card_id       TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_channel_messages ON channel_messages(org_id, channel, created_at);
+
