@@ -266,6 +266,9 @@ The list of what is still missing, and why each item matters, is
       the Worker writes every decision as an issue in the named repository
 - [x] **Tools → Your AI is editable per workspace**: model, OpenAI key and
       TypeSafe key set by an admin, used by every model call, billed as theirs
+- [x] **The workspace's mark and a switcher** at the top-left: the logo an
+      admin uploads (or the initial), every workspace to switch to, settings,
+      create, join, sign out
 - [x] **Channels are made, renamed and deleted from the list** (Slack-style):
       `PUT /businesses` renames, `DELETE` empties the channel (its cards are
       unfiled, not lost) and the room hears every change; empty channels show
