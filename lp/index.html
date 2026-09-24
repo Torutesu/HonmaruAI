@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Honmaru AI</title>
+<meta name="description" content="Your AI talks to their AI. You just swipe. An AI-native decision feed for teams.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0c12" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="Honmaru AI — Decisions, not messages.">
+<meta property="og:description" content="Your AI talks to their AI. You just swipe.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Sometype+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  (function () {
+    var d = document.documentElement;
+    try { var t = localStorage.getItem('honmaru-theme'); if (t === 'light' || t === 'dark') d.setAttribute('data-theme', t); } catch (e) {}
+    d.classList.add('js');
+  })();
+</script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main" data-i18n="a11y.skip">Skip to content</a>
+
+<!-- ============ NAV: a floating capsule ============ -->
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top" aria-label="Honmaru AI">
+      <img src="icon.svg" width="28" height="28" alt="">
+      <span class="wordmark">Honmaru<span class="wm-ai">AI</span></span>
+    </a>
+    <nav class="nav-links" id="nav-links" aria-label="Primary">
+      <a href="#keep" data-i18n="nav.why">Why Honmaru</a>
+      <a href="#how" data-i18n="nav.how">How it works</a>
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#gate" data-i18n="nav.privacy">Security</a>
+      <a class="nav-cta-m" href="https://honmaru-web.pages.dev/"><span data-i18n="nav.cta">Try free</span><span aria-hidden="true">→</span></a>
+    </nav>
+    <div class="nav-tools">
+      <div class="menu" id="lang-menu">
+        <button class="nav-icon" id="lang-btn" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-aria="a11y.language" aria-label="Language">
+          <span class="lang-code" id="lang-code">EN</span>
+          <svg viewBox="0 0 10 6" width="9" height="6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
+        <ul class="menu-list" id="lang-list" role="listbox" hidden>
+          <li role="option" data-lang="en"><span>English</span><b>EN</b></li>
+          <li role="option" data-lang="ja"><span>日本語</span><b>JA</b></li>
+          <li role="option" data-lang="es"><span>Español</span><b>ES</b></li>
+          <li role="option" data-lang="fr"><span>Français</span><b>FR</b></li>
+          <li role="option" data-lang="de"><span>Deutsch</span><b>DE</b></li>
+        </ul>
+      </div>
+      <button class="nav-icon theme" id="theme-btn" type="button" data-i18n-aria="a11y.theme" aria-label="Switch appearance">
+        <span class="theme-knob" aria-hidden="true"></span>
+      </button>
+      <a class="btn btn-dark btn-sm" href="https://honmaru-web.pages.dev/" data-i18n="nav.cta">Try free</a>
+      <button class="nav-icon nav-more" id="more-btn" type="button" aria-expanded="false" aria-controls="nav-links" data-i18n-aria="a11y.menu" aria-label="Menu">
+        <span class="burger" aria-hidden="true"><i></i><i></i></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============ 01 STAGE: hero, then the pinned phone story ============ -->
+  <section class="stage" id="top">
+    <div class="stage-sticky">
+      <canvas class="rings" id="rings" aria-hidden="true"></canvas>
+
+      <div class="hero-text" id="hero-text">
+        <p class="label"><span class="kanji">本丸</span><span data-i18n="hero.eyebrow">The decision feed for teams</span></p>
+        <h1 class="display" data-i18n-html="hero.title">Decisions,<br>not <s>messages</s>.</h1>
+        <p class="lead" data-i18n="hero.sub">Your AI talks to their AI. You just swipe the one card that needs you.</p>
+        <div class="ctas">
+          <a class="btn btn-dark" href="https://honmaru-web.pages.dev/"><span data-i18n="hero.cta">Try it free</span><span class="arr" aria-hidden="true">→</span></a>
+          <a class="btn btn-ghost" href="#how" data-i18n="hero.link">See how it works</a>
+        </div>
+        <ul class="facts">
+          <li><b>1</b><span data-i18n="fact.1">swipe per decision</span></li>
+          <li><b>0</b><span data-i18n="fact.2">channels to follow</span></li>
+          <li><b>5</b><span data-i18n="fact.3">languages, per reader</span></li>
+        </ul>
+      </div>
+
+      <div class="story" id="story">
+        <ol class="rail" id="rail" aria-hidden="true">
+          <li><span class="n">01</span><span class="l" data-i18n="rail.1">Triage</span><i></i></li>
+          <li><span class="n">02</span><span class="l" data-i18n="rail.2">Decide</span><i></i></li>
+          <li><span class="n">03</span><span class="l" data-i18n="rail.3">Record</span><i></i></li>
+          <li><span class="n">04</span><span class="l" data-i18n="rail.4">Next</span><i></i></li>
+        </ol>
+        <ol class="captions" id="captions">
+          <li class="caption"><h2 data-i18n="c1.t">Already there.</h2><p data-i18n="c1.d">Overnight, your AI read everything — and kept only what needs you.</p></li>
+          <li class="caption"><h2 data-i18n="c2.t">Swipe to decide.</h2><p data-i18n="c2.d">Right to approve. Left to decline. That’s the whole interface.</p></li>
+          <li class="caption"><h2 data-i18n="c3.t">Recorded. Instantly.</h2><p data-i18n="c3.d">Your decision lands on GitHub as an Issue before your thumb leaves the glass.</p></li>
+          <li class="caption"><h2 data-i18n="c4.t">Next.</h2><p data-i18n="c4.d">Ordered by urgency, so the next card is always the right one.</p></li>
+        </ol>
+      </div>
+
+      <div class="device" id="device" aria-hidden="true">
+                <div class="device-frame">
+          <div class="btn-side b1"></div><div class="btn-side b2"></div><div class="btn-side b3"></div><div class="btn-side b4"></div>
+          <div class="screen">
+            <div class="ai-edge" id="ai-edge"></div>
+
+            <div class="status">
+              <span class="time">9:41</span>
+              <span class="island"></span>
+              <span class="sys">
+                <svg viewBox="0 0 18 12" aria-hidden="true"><rect x="0" y="8" width="3" height="4" rx=".8"/><rect x="5" y="5.5" width="3" height="6.5" rx=".8"/><rect x="10" y="3" width="3" height="9" rx=".8"/><rect x="15" y="0" width="3" height="12" rx=".8"/></svg>
+                <svg viewBox="0 0 16 12" aria-hidden="true"><path d="M8 11.5 5.6 9a3.4 3.4 0 0 1 4.8 0L8 11.5Zm-4-4.1L2.3 5.7a8 8 0 0 1 11.4 0L12 7.4a5.6 5.6 0 0 0-8 0ZM.6 4 0 3.4a11.3 11.3 0 0 1 16 0l-.6.6-1 1a10 10 0 0 0-12.8 0L.6 4Z"/></svg>
+                <svg viewBox="0 0 27 13" aria-hidden="true"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.2"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2Z" opacity=".45"/></svg>
+              </span>
+            </div>
+
+            <div class="banner" id="banner">
+              <span class="banner-icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="#fff" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></span>
+              <span class="banner-body">
+                <span class="banner-top"><b>GitHub</b><span data-i18n="ph.now">now</span></span>
+                <b class="banner-title" data-i18n="ph.banner.t">Issue #128 opened</b>
+                <span class="banner-text" data-i18n="ph.banner.b">Approve the spring campaign budget · approved by you</span>
+              </span>
+            </div>
+
+            <div class="app">
+              <div class="app-head">
+                <span class="ws"><span class="ws-mark">H</span>Honmaru HQ<svg viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+                <span class="seg"><span class="on"><span data-i18n="ph.cards">Cards</span> <b id="ph-count">3</b></span><span data-i18n="ph.classic">Classic</span></span>
+              </div>
+              <div class="feed-meta">
+                <span data-i18n="ph.decisions">DECISIONS</span>
+                <span class="legend"><i class="lo"></i><span data-i18n="ph.low">Low</span><i class="hi"></i><span data-i18n="ph.high">High</span></span>
+              </div>
+
+              <div class="triage" id="triage"><span class="spark"></span><span data-i18n="ph.triage">Your AI triaged 3 requests overnight</span></div>
+
+              <div class="cards">
+                <article class="pcard" id="pcard2">
+                  <p class="pk"><i class="blue"></i><span data-i18n="ph.c2.k">CHOICE · CAFE SAKURA</span></p>
+                  <h4 data-i18n="ph.c2.t">Pick the new seasonal menu photo</h4>
+                  <p class="ps" data-i18n="ph.c2.s">Mio shot three options. The printer needs a choice by 5 pm today.</p>
+                  <div class="req">
+                    <span class="req-l" data-i18n="ph.req">REQUESTED BY</span>
+                    <div class="req-row"><span class="av av2">M</span><span class="req-b"><span><b>Mio</b> <span class="muted" data-i18n="ph.c2.meta">Design · 9m</span></span><span class="q" data-i18n="ph.c2.q">Option B tested best with regulars.</span></span></div>
+                  </div>
+                  <div class="rec"><span class="rec-h"><span class="spark"></span><span data-i18n="ph.rec">Recommended:</span> <em data-i18n="ph.c2.a">Option B</em></span></div>
+                </article>
+                <article class="pcard" id="pcard1">
+                  <span class="stamp" id="stamp" data-i18n="ph.stamp">APPROVED</span>
+                  <p class="pk"><i class="pink"></i><span data-i18n="ph.c1.k">DECISION · HOTEL 本丸</span></p>
+                  <h4 data-i18n="ph.c1.t">Approve the ¥480k spring campaign budget?</h4>
+                  <p class="ps" data-i18n="ph.c1.s">Bookings are 12% behind March. Ken proposes Instagram plus two travel blogs, launching Friday.</p>
+                  <span class="src"><span class="src-i"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m4.5 7 7.5 6 7.5-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span><b>Gmail</b><span data-i18n="ph.source">Source</span></span>
+                  <div class="req">
+                    <span class="req-l" data-i18n="ph.req">REQUESTED BY</span>
+                    <div class="req-row"><span class="av">K</span><span class="req-b"><span><b>Ken</b> <span class="muted" data-i18n="ph.c1.meta">Marketing · 2m</span></span><span class="q" data-i18n="ph.c1.q">Need a yes by Thursday to book the slots.</span></span></div>
+                  </div>
+                  <div class="rec"><span class="rec-h"><span class="spark"></span><span data-i18n="ph.rec">Recommended:</span> <em data-i18n="ph.approve">Approve</em></span><p data-i18n="ph.c1.why">Within the quarter’s budget. Last spring’s campaign returned 3.1×.</p></div>
+                </article>
+              </div>
+
+              <div class="decide">
+                <span class="dbtn no"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+                <span class="dbtn yes" id="yes-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              </div>
+            </div>
+
+            <div class="tabbar">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7V20a.5.5 0 0 1-.5.5h-5v-6h-6v6H4a.5.5 0 0 1-.5-.5v-9.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+              <span class="fab"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+              <svg class="dim" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 20.5c1.2-3.8 4.3-5.5 8-5.5s6.8 1.7 8 5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </div>
+            <div class="home-ind"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 THE KEEP: why the name ============ -->
+  <section class="keep" id="keep">
+    <div class="keep-sticky">
+      <div class="wrap keep-grid">
+        <div class="keep-copy">
+          <p class="label"><span class="idx">02</span><span data-i18n="keep.label">Why “Honmaru”</span></p>
+          <p class="keep-text" id="keep-text" data-i18n="keep.text">In a Japanese castle, the honmaru is the innermost keep — where decisions are made. Everything around it is wall. Channels, inboxes and threads are walls. Let your AI hold them, and step inside only for what needs you.</p>
+        </div>
+        <div class="keep-mark" aria-hidden="true">
+          <svg class="keep-plan" viewBox="0 0 400 400">
+            <rect class="w3" x="20" y="20" width="360" height="360" rx="6"/>
+            <rect class="w2" x="80" y="80" width="240" height="240" rx="6"/>
+            <rect class="w1" x="140" y="140" width="120" height="120" rx="6"/>
+            <text x="30" y="40">三の丸</text><text x="90" y="100">二の丸</text>
+          </svg>
+          <span class="keep-kanji">本丸</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 03 HOW IT WORKS ============ -->
+  <section class="section how" id="how">
+    <div class="wrap">
+      <header class="head reveal">
+        <p class="label"><span class="idx">03</span><span data-i18n="how.kicker">How it works</span></p>
+        <h2 class="title" data-i18n-html="how.title">Say it once.<br>It finds the right person.</h2>
+        <p class="lead" data-i18n="how.sub">Your AI reads the org graph — who owns what, who can approve — and hands your intent to the right person’s AI. It arrives as a card, not a message.</p>
+      </header>
+
+      <div class="console reveal">
+        <div class="flow" id="flow" aria-hidden="true">
+          <div class="flow-line"><span class="flow-fill" id="flow-fill"></span><span class="flow-dot" id="flow-dot"></span></div>
+          <div class="flow-node"><span class="fn you">★</span><span class="fl" data-i18n="how.you">You</span></div>
+          <div class="flow-node"><span class="fn ai"><span class="spark"></span></span><span class="fl" data-i18n="how.yourAi">Your AI</span></div>
+          <div class="flow-node"><span class="fn ai"><span class="spark"></span></span><span class="fl" id="fl-their-ai">Dana’s AI</span></div>
+          <div class="flow-node"><span class="fn them" id="fn-them">D</span><span class="fl" id="fl-them">Dana</span></div>
+        </div>
+
+        <div class="console-grid">
+          <div class="console-in">
+            <form class="prompt" id="prompt" autocomplete="off">
+              <span class="spark"></span>
+              <label class="sr-only" for="intent" data-i18n="how.placeholder">Ask your AI…</label>
+              <input id="intent" type="text" maxlength="120" data-i18n-placeholder="how.placeholder" placeholder="Ask your AI…">
+              <button class="send" type="submit" data-i18n-aria="how.send" aria-label="Send">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </form>
+            <p class="label small" data-i18n="how.try">Try one</p>
+            <div class="chips" id="chips"></div>
+          </div>
+          <div class="console-out" aria-live="polite">
+            <article class="ocard" id="ocard">
+              <p class="pk"><i id="o-dot"></i><span id="o-kind" data-i18n="how.waitingK">WAITING</span></p>
+              <h4 id="o-title" data-i18n="how.waiting">Pick an example, or type your own.</h4>
+              <p class="o-route" id="o-route"><span class="spark"></span><span id="o-reason" data-i18n="how.waitingR">Why it went where it went appears here.</span></p>
+            </article>
+            <div class="o-gh" id="o-gh">
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+              <span data-i18n="how.gh">On approval, it becomes</span> <b id="o-issue">Issue #128</b>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 04 FEATURES: what the walls do for you ============ -->
+  <section class="section features" id="features">
+    <div class="wrap">
+      <header class="head reveal">
+        <p class="label"><span class="idx">04</span><span data-i18n="ft.kicker">Inside the walls</span></p>
+        <h2 class="title" data-i18n-html="ft.title">Everything outside the keep<br>runs itself.</h2>
+      </header>
+
+      <div class="rows">
+        <article class="row reveal">
+          <div class="row-copy"><span class="row-n">01</span><h3 data-i18n="f1.t">Filed under the right business.</h3><p data-i18n="f1.d">Ten people, ten businesses. The AI labels every card in the background — and creates a business the first time it’s named.</p></div>
+          <div class="row-vis vis-biz" aria-hidden="true">
+            <div class="bcol"><span class="btag">CAFE SAKURA</span><span class="bcard"><i class="blue"></i><span data-i18n="hl.b1">Menu photo</span></span><span class="bcard"><i></i><span data-i18n="hl.b2">Oat milk supplier</span></span></div>
+            <div class="bcol"><span class="btag">HOTEL 本丸</span><span class="bcard hot"><i class="pink"></i><span data-i18n="hl.b3">Spring budget</span></span><span class="bcard"><i></i><span data-i18n="hl.b4">Late checkout</span></span></div>
+            <div class="bcol"><span class="btag new">+ POP-UP</span><span class="bcard ghost"><i class="violet"></i><span data-i18n="hl.b7">Venue deposit</span></span></div>
+          </div>
+        </article>
+
+        <article class="row reveal">
+          <div class="row-copy"><span class="row-n">02</span><h3 data-i18n="f2.t">Written in the reader’s language.</h3><p data-i18n="f2.d">Write in Japanese. Your German teammate’s card, push and email arrive in German.</p></div>
+          <div class="row-vis vis-lang" aria-hidden="true"><div class="lang-stack" id="lang-stack"></div></div>
+        </article>
+
+        <article class="row reveal">
+          <div class="row-copy"><span class="row-n">03</span><h3 data-i18n="f3.t">Approvals become GitHub Issues.</h3><p data-i18n="f3.d">Decisions, tasks, owners and results land on GitHub. Engineers read the same truth — nobody copy-pastes.</p></div>
+          <div class="row-vis vis-gh" aria-hidden="true">
+            <div class="gh-issue">
+              <div class="gh-top"><span class="gh-open">● Open</span><b>Approve the spring campaign budget</b><span class="gh-no">#128</span></div>
+              <div class="gh-lines"><span></span><span class="short"></span></div>
+              <div class="gh-labels"><span class="l1">decision</span><span class="l2">hotel-honmaru</span><span class="l3">approved</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="row reveal">
+          <div class="row-copy"><span class="row-n">04</span><h3 data-i18n="f4.t">Knows who decides.</h3><p data-i18n="f4.d">Roles, teams, projects and approval authority decide where a card goes — not who happens to be online.</p></div>
+          <div class="row-vis vis-graph" aria-hidden="true">
+            <svg viewBox="0 0 400 200">
+              <g class="ge"><path d="M200 30 L100 100"/><path d="M200 30 L300 100"/><path d="M100 100 L50 170"/><path d="M100 100 L150 170"/><path d="M300 100 L250 170"/><path d="M300 100 L350 170"/></g>
+              <path class="gp" d="M50 170 L100 100 L200 30 L300 100 L350 170"/>
+              <g class="gn"><circle cx="200" cy="30" r="12"/><circle cx="100" cy="100" r="10"/><circle cx="300" cy="100" r="10"/><circle cx="50" cy="170" r="8" class="from"/><circle cx="150" cy="170" r="8"/><circle cx="250" cy="170" r="8"/><circle cx="350" cy="170" r="8" class="to"/></g>
+            </svg>
+          </div>
+        </article>
+
+        <article class="row reveal">
+          <div class="row-copy"><span class="row-n">05</span><h3 data-i18n="f5.t">It reaches people.</h3><p data-i18n="f5.d">Push first, then Web Push, then email as the floor. Nothing waits on a missed ping.</p></div>
+          <div class="row-vis vis-notify" aria-hidden="true">
+            <div class="nb"><span class="nb-i"></span><span><b>Honmaru AI</b><span data-i18n="hl.n1">Ken needs a decision</span></span><em>PUSH</em></div>
+            <div class="nb"><span class="nb-i web"></span><span><b>honmaru-web.pages.dev</b><span data-i18n="hl.n2">Mio replied to your card</span></span><em>WEB</em></div>
+            <div class="nb"><span class="nb-i mail"></span><span><b>noreply@honmaruai.com</b><span data-i18n="hl.n3">1 decision is waiting for you</span></span><em>MAIL</em></div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 THE GATE: access ============ -->
+  <section class="section gate" id="gate">
+    <div class="wrap">
+      <header class="head reveal">
+        <p class="label"><span class="idx">05</span><span data-i18n="pv.kicker">Security &amp; access</span></p>
+        <h2 class="title" data-i18n-html="pv.title">One gate<br>into the keep.</h2>
+        <p class="lead" data-i18n="pv.sub">The relay holds every decision your organization makes, so it is built as the trust boundary.</p>
+      </header>
+      <ol class="gate-list">
+        <li class="reveal"><span class="g-n">i</span><div><h3 data-i18n="pv.1t">Checked at the door.</h3><p data-i18n="pv.1d">Every connection joins with a session that must have write access to your repository. Identity comes from the session — never from what a client claims.</p></div></li>
+        <li class="reveal"><span class="g-n">ii</span><div><h3 data-i18n="pv.2t">Yours to decide.</h3><p data-i18n="pv.2d">Only a card’s recipient can decide, delete or undo it.</p></div></li>
+        <li class="reveal"><span class="g-n">iii</span><div><h3 data-i18n="pv.3t">Your accounts. Your say.</h3><p data-i18n="pv.3d">Gmail, Slack and Notion are authorized per person. Nobody connects them on your behalf.</p></div></li>
+        <li class="reveal"><span class="g-n">iv</span><div><h3 data-i18n="pv.4t">Leave anytime.</h3><p data-i18n="pv.4d">Delete your account from inside the app, whenever you like.</p></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============ 06 CTA ============ -->
+  <section class="section finale">
+    <div class="wrap finale-inner">
+      <p class="label reveal"><span class="idx">06</span><span data-i18n="cta.label">Step inside</span></p>
+      <h2 class="display reveal" data-i18n-html="cta.title">Clear your first decision<br>in the next minute.</h2>
+      <p class="lead reveal" data-i18n="cta.sub">Free to start. On the web today, and on iPhone through TestFlight.</p>
+      <div class="ctas reveal">
+        <a class="btn btn-ring" href="https://honmaru-web.pages.dev/"><span data-i18n="cta.primary">Open Honmaru AI</span><span class="arr" aria-hidden="true">→</span></a>
+        <a class="btn btn-ghost" href="mailto:support@honmaruai.com" data-i18n="cta.secondary">Talk to us</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="foot-top">
+      <div class="foot-brand"><img src="icon.svg" width="36" height="36" alt=""><p data-i18n="ft.tag">Decisions, not messages.</p></div>
+      <nav class="foot-nav" aria-label="Footer">
+        <a href="#how" data-i18n="nav.how">How it works</a>
+        <a href="#features" data-i18n="nav.features">Features</a>
+        <a href="https://honmaru-web.pages.dev/privacy.html" data-i18n="ft.privacy">Privacy Policy</a>
+        <a href="https://honmaru-web.pages.dev/support.html" data-i18n="ft.support">Support</a>
+        <a href="mailto:support@honmaruai.com">support@honmaruai.com</a>
+      </nav>
+    </div>
+    <p class="fnote" data-i18n="ft.note">Honmaru AI routes each request with an AI model, and falls back to a keyword router when no model is available. The demo on this page uses the keyword router.</p>
+    <div class="foot-base"><span>© <span id="year">2026</span> Honmaru AI</span><button type="button" class="fregion" id="fregion">English</button></div>
+    <p class="giant" aria-hidden="true">Honmaru</p>
+  </div>
+</footer>
+
+<script src="i18n.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
