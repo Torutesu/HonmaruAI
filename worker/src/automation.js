@@ -2,7 +2,7 @@ import { getSession, isMember, getUserByGithubId } from "./db.js";
 import { ROLE_RANK } from "./auth.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
-import { parseSchedule, describeSchedule } from "./schedule.js";
+import { parseSchedule, describeSchedule, isTimeZone } from "./schedule.js";
 import {
   validateRoutineInput, createRoutine, listRoutines, getRoutine, updateRoutine, deleteRoutine,
   runRoutine, publicRoutine, briefInstruction,
@@ -10,6 +10,7 @@ import {
 import { listMemories, getMemory, addMemory, updateMemory, deleteMemory, forgetMemories } from "./memory.js";
 import { createApiToken, listApiTokens, revokeApiToken, handleMcp, TOOLS } from "./mcp.js";
 import { loadCopy } from "./copy.js";
+import { DAILY_KINDS } from "./dailyReport.js";
 
 // The routes for what the AI does on its own: routines, the playbook, and
 // the tokens agents use to reach the team. One module, so index.js — already
@@ -118,10 +119,16 @@ export async function handleAutomation(request, env, url) {
       for (const r of rows) routines.push(await withRecipient(env, orgId, who.user, r, locale, members));
       return json({ routines, briefInstruction: briefInstruction(locale) });
     }
+    // Where the person lives, when the page did not say: the zone their
+    // browser last told us. A daily report at 08:00 means their 08:00.
+    if (!isTimeZone(body.timezone)) {
+      const stored = await env.DB.prepare("SELECT timezone FROM users WHERE github_id = ?1").bind(String(who.session.github_id)).first().catch(() => null);
+      if (isTimeZone(stored?.timezone)) body.timezone = stored.timezone;
+    }
     const checked = validateRoutineInput(body, { locale });
     if (checked.error) return json({ message: checked.error }, 400);
     // A daily report is a draft of your own day: it only ever comes to you.
-    const recipientLogin = checked.value.kind === "daily_report"
+    const recipientLogin = DAILY_KINDS.includes(checked.value.kind)
       ? who.user.login
       : await resolveRecipient(env, orgId, who.user, body.recipient);
     if (!recipientLogin) return json({ message: "That recipient is not a current member of this workspace." }, 400);

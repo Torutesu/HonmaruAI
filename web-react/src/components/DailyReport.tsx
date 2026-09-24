@@ -65,6 +65,15 @@ export const DailyReportDraft: React.FC<{
     }
   }
 
+  if (report.status === 'expired') {
+    return (
+      <div className="report daily-report">
+        <div className="report-meta">{t('This draft was replaced by a newer one.')}</div>
+        <div className="daily-posted">{report.text}</div>
+      </div>
+    )
+  }
+
   if (posted !== null) {
     return (
       <div className="report daily-report">

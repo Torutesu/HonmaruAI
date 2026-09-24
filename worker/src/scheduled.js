@@ -10,6 +10,7 @@ import { providerFor } from "./orgAI.js";
 import { alert } from "./alert.js";
 import { safe } from "./log.js";
 import { runDueRoutines } from "./routines.js";
+import { remindDailyDrafts } from "./dailyReport.js";
 import { runProposals, isProposalTick } from "./proposals.js";
 
 // "Your AI triaged three decisions overnight" cannot be true if the AI only
@@ -141,12 +142,18 @@ export async function runScheduledSync(env, ctx) {
 /// The AI's own work: routines that are due, and — on the day's first tick
 /// — the automations it would propose. Each half fails alone.
 export async function runAutomations(env, ctx, now = new Date()) {
-  const out = { routines: null, proposals: null };
+  const out = { routines: null, proposals: null, dailyReminders: null };
   try {
     out.routines = await runDueRoutines(env, { now });
   } catch (err) {
     console.error("routines failed", err?.message || err);
     alert(ctx, env, "routines", safe(err?.message));
+  }
+  // A daily report's draft still unposted after two hours: asked once more.
+  try {
+    out.dailyReminders = await remindDailyDrafts(env, { now });
+  } catch (err) {
+    console.error("daily reminders failed", err?.message || err);
   }
   if (isProposalTick(now)) {
     try {

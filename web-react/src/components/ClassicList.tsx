@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { awaitsPost } from '../utils/automation'
 import type { DecisionCard, Business, ChannelMessage } from '../types/card'
 import { getLocale } from '../utils/locale'
 import { displayName, properName } from '../utils/names'
@@ -1087,7 +1088,9 @@ export const ClassicList: React.FC<Props> = ({
           {note && <span className="slk-note">“{note}”</span>}
         </div>
         <div className="slk-actions">
-          {isUnread(c) && (fyi ? (
+          {isUnread(c) && (awaitsPost(c) ? (
+            <button className="slk-action primary" onClick={() => openCard(c.id)}>{t('Review and post')}</button>
+          ) : fyi ? (
             <button className="slk-action primary" onClick={() => onDecide(c.id, 'acknowledge')}>{t('Got it')}</button>
           ) : (
             <>

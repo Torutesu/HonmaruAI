@@ -22,6 +22,8 @@ const STRINGS = {
     nudge: "{name} is still waiting on your decision",
     nudgeSubtitle: "A gentle reminder",
     tabNewDecision: "New decision for you",
+    dailyDraft: "Your draft is ready. Check it and post it to {channel}.",
+    dailyReminder: "Your draft is still not posted. Check it and post it to {channel}.",
     tabFrom: "From {name}",
     commented: "{name}: {text}",
     mentioned: "{name} mentioned you: {text}",
@@ -60,6 +62,8 @@ const STRINGS = {
     nudge: "{name}があなたの決定を待っています",
     nudgeSubtitle: "リマインダー",
     tabNewDecision: "新しい決定が届きました",
+    dailyDraft: "下書きができました。確認して {channel} に投稿してください。",
+    dailyReminder: "下書きがまだ投稿されていません。確認して {channel} に投稿してください。",
     tabFrom: "{name}から",
     commented: "{name}: {text}",
     mentioned: "{name}があなたをメンションしました: {text}",
@@ -98,6 +102,8 @@ const STRINGS = {
     nudge: "{name} sigue esperando tu decisión",
     nudgeSubtitle: "Un recordatorio amable",
     tabNewDecision: "Tienes una nueva decisión",
+    dailyDraft: "Tu borrador está listo. Revísalo y publícalo en {channel}.",
+    dailyReminder: "Tu borrador aún no está publicado. Revísalo y publícalo en {channel}.",
     tabFrom: "De {name}",
     commented: "{name}: {text}",
     mentioned: "{name} te mencionó: {text}",
@@ -136,6 +142,8 @@ const STRINGS = {
     nudge: "{name} attend toujours votre décision",
     nudgeSubtitle: "Un petit rappel",
     tabNewDecision: "Nouvelle décision pour vous",
+    dailyDraft: "Votre brouillon est prêt. Relisez-le et publiez-le dans {channel}.",
+    dailyReminder: "Votre brouillon n'est pas encore publié. Relisez-le et publiez-le dans {channel}.",
     tabFrom: "De la part de {name}",
     commented: "{name} : {text}",
     mentioned: "{name} vous a mentionné : {text}",
@@ -174,6 +182,8 @@ const STRINGS = {
     nudge: "{name} wartet noch auf deine Entscheidung",
     nudgeSubtitle: "Eine freundliche Erinnerung",
     tabNewDecision: "Neue Entscheidung für dich",
+    dailyDraft: "Dein Entwurf ist fertig. Prüf ihn und poste ihn in {channel}.",
+    dailyReminder: "Dein Entwurf ist noch nicht gepostet. Prüf ihn und poste ihn in {channel}.",
     tabFrom: "Von {name}",
     commented: "{name}: {text}",
     mentioned: "{name} hat dich erwähnt: {text}",
@@ -271,6 +281,14 @@ export function displayName(login) {
 export function composeAlert({ card, kind, locale, count, comment }) {
   const lang = primaryLanguage(locale) || "en";
   const reader = lang;
+  // A daily report's draft: yours to check and post, and it says where.
+  if (card?.dailyReport && (kind === "created" || kind === "nudged")) {
+    const channel = `#${String(card.dailyReport.channel || "").replace(/^b:/, "")}`;
+    return {
+      title: titleFor(card, reader) || t(lang, "waiting"),
+      subtitle: t(lang, kind === "nudged" ? "dailyReminder" : "dailyDraft", { channel }),
+    };
+  }
   if (kind === "digest") {
     return { title: t(lang, "digest", { count }), subtitle: t(lang, "yourAI") };
   }
@@ -312,7 +330,9 @@ export function composeEmail({ card, kind, locale, count, url, comment }) {
   const lang = primaryLanguage(locale) || "en";
   const alert = composeAlert({ card, kind, locale, count, comment });
   const who = comment?.name || displayName(comment?.author);
-  const intro = kind === "decided"
+  const intro = card?.dailyReport && (kind === "created" || kind === "nudged")
+    ? alert.subtitle
+    : kind === "decided"
     ? t(lang, "emailDecidedIntro")
     : kind === "nudged"
       ? t(lang, "emailNudgeIntro", { name: displayName(card.senderUserID) })
@@ -321,7 +341,8 @@ export function composeEmail({ card, kind, locale, count, url, comment }) {
         : kind === "mentioned"
           ? t(lang, "emailMentionIntro", { name: who })
           : t(lang, "emailIntro");
-  const lines = [intro, "", alert.title, alert.subtitle];
+  const daily = Boolean(card?.dailyReport) && (kind === "created" || kind === "nudged");
+  const lines = daily ? [intro, "", alert.title] : [intro, "", alert.title, alert.subtitle];
   const summary = kind === "digest" ? "" : summaryFor(card, locale);
   if (summary) lines.push("", summary);
   if (url) lines.push("", t(lang, "emailOpen", { url }));

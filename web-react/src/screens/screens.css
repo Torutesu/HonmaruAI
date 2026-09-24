@@ -539,6 +539,12 @@
 .auto-when { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .auto-time { font-variant-numeric: tabular-nums; min-width: 0; }
 .auto-what { resize: vertical; line-height: 1.45; }
+/* The daily report's two times: a switch and its label, then the hour. */
+.daily-part { display: flex; align-items: center; gap: 12px; }
+.daily-toggle { flex: 1 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-black); cursor: pointer; }
+.daily-toggle input { width: 16px; height: 16px; flex: none; accent-color: var(--ink-black); }
+.daily-part input[type="time"] { flex: 0 0 auto; width: 9.5em; }
+.daily-part input[type="time"]:disabled { opacity: 0.45; }
 .auto-to { justify-self: start; max-width: 100%; }
 .auto-hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ash); }
 .auto-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
@@ -605,6 +611,8 @@
   .pill-btn.quiet:hover:not([disabled]) { background: #222222; }
   .auto-compose { background: #1a1a1a; border-color: #2a2a2a; }
   .auto-question, .auto-say { color: #f2f2f2; }
+  .daily-toggle { color: #f2f2f2; }
+  .daily-toggle input { accent-color: #f2f2f2; }
   .auto-say::placeholder { color: #6a6a6a; }
   .auto-understood { border-top-color: #2a2a2a; }
   .auto-hint, .routine-ask, .routine-cost { color: #a3a3a3; }

@@ -1695,7 +1695,7 @@ await step('people talk in a channel, and @AI turns what was said into a decisio
   }
 })
 
-await step('a daily report is set for a time and a channel, drafted in the person’s words, edited, and posted by them', async () => {
+await step('the daily report: morning and evening at the person’s own times, drafted in their words, announced, and only gone once they post it', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
@@ -1705,18 +1705,26 @@ await step('a daily report is set for a time and a channel, drafted in the perso
       .catch(() => { throw new Error('the daily report is not offered') })
     await d.click('.auto-preset:has-text("Daily report")')
     await d.waitForSelector('.daily-setup select[aria-label="Post to"]', { timeout: 10000 })
+    // 08:00 and 22:00 unless the person says otherwise — and they may.
+    const morning = await d.$eval('.daily-part[data-part="morning"] input[type="time"]', (el) => el.value)
+    const evening = await d.$eval('.daily-part[data-part="evening"] input[type="time"]', (el) => el.value)
+    if (morning !== '08:00' || evening !== '22:00') throw new Error(`the defaults are not 08:00 and 22:00: ${morning} / ${evening}`)
     await d.selectOption('.daily-setup select[aria-label="Post to"]', 'b:kitchen')
-    await d.fill('.daily-setup input[type="time"]', '18:30')
+    await d.fill('.daily-part[data-part="evening"] input[type="time"]', '21:30')
     await d.screenshot({ path: `${SHOTS}/40-daily-setup.png` })
     await d.click('.daily-setup .pill-btn')
-    const row = '.routine-row:has-text("Daily report")'
-    await d.waitForSelector(row, { timeout: 15000 }).catch(() => { throw new Error('the daily report was not listed after Create') })
-    const sub = await d.$eval(row, (el) => el.innerText)
-    if (!/18:30/.test(sub) || !/#kitchen/.test(sub)) throw new Error(`the row does not say when and where: ${sub.slice(0, 160)}`)
-    if (await d.$('.auto-preset:has-text("Daily report")')) throw new Error('the daily report is still offered once there is one')
+    const evRow = '.routine-row:has-text("Daily report")'
+    const amRow = '.routine-row:has-text("Morning plan")'
+    await d.waitForSelector(evRow, { timeout: 15000 }).catch(() => { throw new Error('the evening report was not listed after Create') })
+    await d.waitForSelector(amRow, { timeout: 15000 }).catch(() => { throw new Error('the morning plan was not listed after Create') })
+    const ev = await d.$eval(evRow, (el) => el.innerText)
+    const am = await d.$eval(amRow, (el) => el.innerText)
+    if (!/21:30/.test(ev) || !/#kitchen/.test(ev)) throw new Error(`the evening row does not say when and where: ${ev.slice(0, 160)}`)
+    if (!/08:00/.test(am) || !/#kitchen/.test(am)) throw new Error(`the morning row does not say when and where: ${am.slice(0, 160)}`)
+    if (await d.$('.auto-preset:has-text("Daily report")')) throw new Error('the daily report is still offered once both halves exist')
 
     // Run now: the draft, in the feed, for its owner to change.
-    await d.click(`${row} .btn-text:has-text("Run now")`)
+    await d.click(`${evRow} .btn-text:has-text("Run now")`)
     await d.waitForFunction(() => /^#\/feed\/daily-/.test(location.hash), null, { timeout: 20000 })
       .catch(() => { throw new Error('Run now did not open the draft') })
     await d.waitForSelector('.daily-text', { timeout: 20000 }).catch(() => { throw new Error('the draft is not shown for editing') })
@@ -1727,6 +1735,15 @@ await step('a daily report is set for a time and a channel, drafted in the perso
     // What was said today, in the channel it was said in.
     if (!/#kitchen/.test(draft)) throw new Error(`the draft does not count what was said in #kitchen: ${draft.slice(0, 300)}`)
     if (/@example\.com|\bu:|\bemail:/.test(draft)) throw new Error('the draft shows an account id')
+    // It has to be dealt with: no "Got it", and A does not put it away.
+    if (await d.$('.workbench .decide.approve')) throw new Error('a draft can be put away with Got it')
+    const draftId = await d.evaluate(() => location.hash.split('/').pop())
+    await d.click('.card-title')
+    await d.keyboard.press('a')
+    await d.waitForTimeout(800)
+    if (!(await d.$('.daily-text'))) throw new Error('pressing A put the draft away')
+    const still = d1(`SELECT status FROM cards WHERE card_id = '${draftId}'`)[0]
+    if (still?.status !== 'pending') throw new Error(`the draft is no longer waiting: ${JSON.stringify(still)}`)
     await d.screenshot({ path: `${SHOTS}/41-daily-draft.png` })
 
     // In the person's own words, then posted by them.
@@ -1739,6 +1756,18 @@ await step('a daily report is set for a time and a channel, drafted in the perso
     // instr, not LIKE: D1 refuses a LIKE pattern this long.
     const said = d1(`SELECT body FROM channel_messages WHERE channel = 'b:kitchen' AND instr(body, '${words}') > 0`)
     if (said.length !== 1) throw new Error(`the report did not land in #kitchen exactly once: ${said.length}`)
+
+    // The morning's plan, from its own routine.
+    await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
+    await d.waitForSelector(amRow, { timeout: 15000 })
+    await d.click(`${amRow} .btn-text:has-text("Run now")`)
+    await d.waitForFunction(() => /^#\/feed\/daily-/.test(location.hash), null, { timeout: 20000 })
+    await d.waitForSelector('.daily-text', { timeout: 20000 })
+    const plan = await d.$eval('.daily-text', (el) => el.value)
+    for (const heading of ['Today', 'Task status', 'Where I need help']) {
+      if (!plan.includes(`*${heading}*`)) throw new Error(`the morning plan has no "${heading}": ${plan.slice(0, 200)}`)
+    }
+    if (!/Plan for today/.test(await d.$eval('.card-title', (el) => el.innerText))) throw new Error('the morning draft is not titled as a plan')
 
     // There, in the channel, under the person's name.
     await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })

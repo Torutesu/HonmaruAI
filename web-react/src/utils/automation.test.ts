@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { routineBody, money, parseTime, timeValue, reportFileName, emptyDraft, draftFromRoutine, weekdayNames, sourceLabel, type Routine } from './automation'
+import { awaitsPost, routineBody, money, parseTime, timeValue, reportFileName, emptyDraft, draftFromRoutine, weekdayNames, sourceLabel, type Routine } from './automation'
 
 // What a routine is on the wire, and how its cost and time are said.
 describe('automation', () => {
@@ -72,5 +72,14 @@ describe('sourceLabel', () => {
       lastUsd: null, runs: 0, origin: 'manual', recipient: { name: 'Toru', ref: null, self: true }, channel: 'b:kitchen', createdAt: '',
     } as Routine
     expect(draftFromRoutine(routine).channel).toBe('b:kitchen')
+  })
+
+  it('keeps a daily draft on the feed until it is posted', () => {
+    const draft = { status: 'pending', dailyReport: { routineId: 'r', channel: 'b:k', date: 'd', status: 'draft', text: 'x' } } as const
+    expect(awaitsPost(draft)).toBe(true)
+    expect(awaitsPost({ ...draft, dailyReport: { ...draft.dailyReport, status: 'posting' } })).toBe(true)
+    expect(awaitsPost({ ...draft, dailyReport: { ...draft.dailyReport, status: 'posted' } })).toBe(false)
+    expect(awaitsPost({ ...draft, dailyReport: { ...draft.dailyReport, status: 'expired' } })).toBe(false)
+    expect(awaitsPost({ status: 'pending' })).toBe(false)
   })
 })

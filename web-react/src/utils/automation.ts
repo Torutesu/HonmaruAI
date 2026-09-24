@@ -6,7 +6,7 @@ import type { Cadence, DecisionCard } from '../types/card'
 
 export interface Routine {
   id: string
-  kind: 'report' | 'brief' | 'daily_report'
+  kind: 'report' | 'brief' | 'daily_plan' | 'daily_report'
   title: string
   instruction: string
   cadence: Cadence
@@ -141,4 +141,10 @@ export function sourceLabel(card: Pick<DecisionCard, 'sourceApp' | 'sourceDetail
   if (!card.sourceApp) return ''
   if (card.sourceApp === 'Agent' && card.sourceDetail) return `${t('Agent')} · ${card.sourceDetail}`
   return SOURCE_WORD[card.sourceApp] ? t(SOURCE_WORD[card.sourceApp]) : card.sourceApp
+}
+
+/// A daily report's draft that is still waiting for its owner to post it:
+/// not something put away with "Got it" — the only way off the feed is Post.
+export function awaitsPost(card: Pick<DecisionCard, 'dailyReport' | 'status'>): boolean {
+  return card.status === 'pending' && (card.dailyReport?.status === 'draft' || card.dailyReport?.status === 'posting')
 }

@@ -16,7 +16,7 @@ import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
 import { displayName } from "./notifyCopy.js";
 import { recentBusinessTalk } from "./channels.js";
-import { draftDailyReport } from "./dailyReport.js";
+import { draftDailyReport, DAILY_KINDS, expireOlderDrafts, announceClosed } from "./dailyReport.js";
 
 // Routines: work the AI does on a schedule, delivered as a card.
 //
@@ -37,11 +37,12 @@ const MAX_REPORT_CHARS = 8000;
 /// How many routines one cron tick runs. The rest wait fifteen minutes.
 const MAX_RUNS_PER_TICK = 25;
 
-/// `daily_report`: the owner's own day — what they said, the tasks they were
-/// given and how far each got, what they did — written in their voice with
-/// what went well, what to improve and tomorrow's plan, delivered to them as
-/// a draft they read, change and post to a channel.
-export const KINDS = ["report", "brief", "daily_report"];
+/// `daily_plan` (morning) and `daily_report` (evening): the owner's own day,
+/// written in their voice — today's plan in the morning; what they did, how
+/// their tasks moved, what went well, what to improve and tomorrow in the
+/// evening — delivered to them as a draft they must read, change and post to
+/// a channel. See dailyReport.js.
+export const KINDS = ["report", "brief", ...DAILY_KINDS];
 
 /// What the morning brief asks for, when a routine is a brief.
 export function briefInstruction(locale) {
@@ -86,11 +87,12 @@ export function validateRoutineInput(body, { partial = false, locale = "en" } = 
 
   if (has("kind") || !partial) {
     const kind = body.kind ?? "report";
-    if (!KINDS.includes(kind)) return { error: "kind is report, brief or daily_report." };
+    if (!KINDS.includes(kind)) return { error: "kind is report, brief, daily_plan or daily_report." };
     out.kind = kind;
   }
   // The kinds that know what to do without being told.
-  const standing = out.kind === "brief" || out.kind === "daily_report";
+  const daily = DAILY_KINDS.includes(out.kind);
+  const standing = out.kind === "brief" || daily;
   if (has("instruction") || (!partial && !standing)) {
     const instruction = typeof body.instruction === "string" ? body.instruction.trim() : "";
     if (!instruction && !standing) return { error: "Say what your AI should do." };
@@ -98,10 +100,12 @@ export function validateRoutineInput(body, { partial = false, locale = "en" } = 
     if (instruction) out.instruction = instruction;
   }
   if (!partial && out.kind === "brief" && !out.instruction) out.instruction = briefInstruction(locale);
-  if (!partial && out.kind === "daily_report" && !out.instruction) out.instruction = serverText(locale, "daily.instruction");
+  if (!partial && daily && !out.instruction) {
+    out.instruction = serverText(locale, out.kind === "daily_plan" ? "daily.planInstruction" : "daily.instruction");
+  }
   // A daily report is posted to a business channel — the room the team
   // reads — and has to name one.
-  if (has("channel") || (!partial && out.kind === "daily_report")) {
+  if (has("channel") || (!partial && daily)) {
     const channel = typeof body.channel === "string" ? body.channel.trim() : "";
     const slug = channel.startsWith("b:") ? channel.slice(2) : "";
     if (!slug || businessSlug(slug) !== slug) return { error: "Choose the channel your daily report is posted to." };
@@ -151,6 +155,7 @@ export function validateRoutineInput(body, { partial = false, locale = "en" } = 
 function titleFrom(instruction, kind, locale) {
   if (kind === "brief") return serverText(locale, "routine.briefTitle");
   if (kind === "daily_report") return serverText(locale, "daily.routineTitle");
+  if (kind === "daily_plan") return serverText(locale, "daily.planRoutineTitle");
   const first = String(instruction).split(/[\n。.!?！？]/u)[0].trim();
   // A title starts with a capital, even when the sentence it came from
   // started mid-thought ("… summarise last week").
@@ -187,7 +192,7 @@ export async function createRoutine(db, { orgId, owner, recipientLogin, input, o
     cadence: input.cadence, weekday: input.weekday ?? null, monthday: input.monthday ?? null,
     hour: input.hour, minute: input.minute ?? 0, timezone: input.timezone || "UTC",
     enabled: input.enabled === 0 ? 0 : 1, origin: origin === "proposal" ? "proposal" : "manual",
-    channel: input.kind === "daily_report" ? input.channel : null,
+    channel: DAILY_KINDS.includes(input.kind) ? input.channel : null,
   };
   r.next_run_at = r.enabled ? nextRunAt(r, now) : null;
   await db
@@ -211,7 +216,7 @@ export async function updateRoutine(db, orgId, id, patch, { recipientLogin, now 
   if (next.cadence !== "weekly") next.weekday = null;
   if (next.cadence !== "monthly") next.monthday = null;
   // Only a daily report has a channel, and it is always its owner's to read.
-  if (next.kind !== "daily_report") next.channel = null;
+  if (!DAILY_KINDS.includes(next.kind)) next.channel = null;
   else next.recipient_login = next.owner_login;
   next.next_run_at = next.enabled ? nextRunAt(next, now) : null;
   await db
@@ -504,7 +509,7 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
     const requestedBy = { login: routine.owner_login, name: (await namesFor(db, [routine.owner_login])).get(routine.owner_login) || plainName(routine.owner_login) };
     let card;
     let byModel;
-    if (routine.kind === "daily_report") {
+    if (DAILY_KINDS.includes(routine.kind)) {
       ({ card, byModel } = await draftDailyReport(env, routine, { now, locale, provider, allowance, requestedBy }));
     } else {
       const material = await gatherMaterial(db, routine.org_id, { ...routine, locale }, { now });
@@ -549,6 +554,10 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
     await finish({ ranAt: now.toISOString(), cardId, usd: byModel ? usd : 0 });
     const shown = await localizeForRecipient(env, routine.org_id, card, { payerGithubId: routine.owner_github_id });
     await announceCards(env, routine.org_id, [shown]);
+    // Today's draft supersedes the one before it nobody posted.
+    if (card.dailyReport) {
+      await announceClosed(env, routine.org_id, await expireOlderDrafts(db, routine.org_id, routine.id, card.id, { now }));
+    }
     if (anyChannelConfigured(env)) {
       await notifyCard(env, { card: shown, kind: "created", excludeLogin: null, orgId: routine.org_id, payerGithubId: routine.owner_github_id }).catch((err) => console.error("routine notify failed", safe(err?.message)));
     }

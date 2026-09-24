@@ -4,7 +4,8 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { runRoutine, getRoutine } from "../src/routines.js";
-import { gatherDay, dailyDigest, dayOf } from "../src/dailyReport.js";
+import { gatherDay, dailyDigest, dayOf, linesUnder, remindDailyDrafts } from "../src/dailyReport.js";
+import { composeAlert, composeEmail } from "../src/notifyCopy.js";
 
 // The daily report: at the hour its owner chose, their own day — what they
 // said, the tasks they were given and how far each got, what they did —
@@ -72,7 +73,7 @@ beforeEach(async () => {
     id: "daily-yesterday", recipientUserID: "toru", senderUserID: "toru", type: "notification", format: "fyi",
     title: "日報 2026-09-23", status: "completed", createdAt: at(24),
     report: { markdown: "…" },
-    dailyReport: { routineId: "r", channel: "b:general", date: "2026-09-23", status: "posted", text: "*明日やること*\n- 原価表を完成させる\n- 見積もり依頼を出す" },
+    dailyReport: { routineId: "r", part: "evening", channel: "b:general", date: "2026-09-23", status: "posted", text: "*明日やること*\n- 原価表を完成させる\n- 見積もり依頼を出す" },
   });
 });
 afterEach(() => fetchMock.deactivate?.());
@@ -111,9 +112,10 @@ test("the day is the owner's own, in their time zone: what they said, were given
   expect(day.tasks.map((t) => t.title).sort()).toEqual(["秋メニューの原価表を作る", "週末バイトの採用"].sort());
   expect(day.tasks.find((t) => t.title === "秋メニューの原価表を作る")).toMatchObject({ from: "Mika", status: "pending", daysOpen: 2, movedToday: false });
   expect(day.tasks.find((t) => t.title === "週末バイトの採用")).toMatchObject({ action: "approve", movedToday: true, note: "週20時間まで" });
-  expect(day.sent).toEqual([{ title: "仕入先の見積もりを3社分", to: "Mika", status: "pending" }]);
+  expect(day.sent).toEqual([{ title: "仕入先の見積もりを3社分", to: "Mika", status: "pending", daysOpen: 0 }]);
   expect(day.comments).toEqual([{ on: "秋メニューの原価表を作る", text: "仕入れ値を確認中" }]);
-  expect(day.yesterdayPlan).toContain("原価表を完成させる");
+  expect(day.lastReport).toMatchObject({ date: "2026-09-23" });
+  expect(day.lastReport.text).toContain("原価表を完成させる");
 });
 
 test("with no model the draft states the facts and leaves the reflection to its owner", async () => {
@@ -177,7 +179,7 @@ test("the owner posts the draft — as they changed it — to the channel under 
   expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: edited })).status).toBe(409);
   // And tomorrow's report reads it as the plan it made.
   const tomorrow = await gatherDay(env.DB, ORG, { owner_login: "toru", timezone: "Asia/Tokyo" }, { now: new Date(NOW.getTime() + 86400000), locale: "ja" });
-  expect(tomorrow.yesterdayPlan).toContain("採用を即決できた");
+  expect(tomorrow.lastReport.text).toContain("採用を即決できた");
 });
 
 test("an empty or overlong report is refused and stays a draft", async () => {
@@ -188,4 +190,91 @@ test("an empty or overlong report is refused and stays a draft", async () => {
   expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: "x".repeat(4001) })).status).toBe(400);
   const { getCard } = await import("../src/db.js");
   expect((await getCard(env.DB, ORG, card.id)).dailyReport.status).toBe("draft");
+});
+
+async function makePlan(over = {}) {
+  const res = await post("/routines", toru, {
+    orgId: ORG, kind: "daily_plan", channel: "b:general", cadence: "weekdays", hour: 8, minute: 0, timezone: "Asia/Tokyo", ...over,
+  });
+  return { res, data: await res.json() };
+}
+
+test("the morning plan is its own routine, at its own time, and names its channel", async () => {
+  const { res, data } = await makePlan();
+  expect(res.status).toBe(201);
+  expect(data.routine).toMatchObject({ kind: "daily_plan", channel: "b:general", hour: 8, title: "朝の予定" });
+  expect(data.routine.schedule).toBe("平日 08:00");
+  // Each person moves theirs: the same routine, another hour.
+  const moved = await call(`/routines/${data.routine.id}`, { method: "PUT", headers: headers(toru), body: JSON.stringify({ orgId: ORG, hour: 7, minute: 30 }) });
+  expect((await moved.json()).routine).toMatchObject({ hour: 7, minute: 30, kind: "daily_plan", channel: "b:general" });
+  expect((await post("/routines", toru, { orgId: ORG, kind: "daily_plan", cadence: "daily", hour: 8, timezone: "UTC" })).status).toBe(400);
+});
+
+test("with no time zone given, a daily report runs in the person's own", async () => {
+  await env.DB.prepare("UPDATE users SET timezone = 'Asia/Tokyo' WHERE github_id = '8601'").run();
+  const { data } = await makePlan({ timezone: undefined });
+  expect(data.routine.timezone).toBe("Asia/Tokyo");
+});
+
+test("the morning carries last night's tomorrow into today, says where tasks stand and who it waits on, and leaves help to its owner", async () => {
+  const morning = new Date("2026-09-24T23:00:00Z"); // 08:00 in Tokyo, the next day
+  const day = await gatherDay(env.DB, ORG, { owner_login: "toru", timezone: "Asia/Tokyo" }, { now: morning, locale: "ja", part: "morning" });
+  expect(day.part).toBe("morning");
+  expect(day.date).toBe("2026-09-25");
+  expect(day.sent).toEqual([expect.objectContaining({ title: "仕入先の見積もりを3社分", to: "Mika", status: "pending" })]);
+  const text = dailyDigest(day, "ja");
+  expect(text).toMatch(/^\*今日やること\*\n- 原価表を完成させる\n- 見積もり依頼を出す\n- 秋メニューの原価表を作る/);
+  expect(text).toContain("*タスクの状況*");
+  expect(text).toContain("秋メニューの原価表を作る（Mikaさんから）— 対応中、2日目");
+  expect(text).toContain("Mikaさんの返事待ち: 仕入先の見積もりを3社分");
+  expect(text).toContain("*相談したいこと*\n- （自分の言葉で書いてください）");
+  expect(linesUnder("*明日やること*\n- a\n- b\n\n*X*\n- c", "明日やること")).toEqual(["a", "b"]);
+});
+
+test("the morning is written by the model as a plan, from the open work and last night's report", async () => {
+  const { data } = await makePlan();
+  const routine = await getRoutine(env.DB, ORG, data.routine.id);
+  let prompt;
+  fetchMock.activate();
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST", body: (b) => { prompt = JSON.parse(b); return true; } })
+    .reply(200, { choices: [{ message: { content: JSON.stringify({ text: "*今日やること*\n- 原価表を昼までに提出" }) } }] });
+  const out = await runRoutine(ENV({ OPENAI_API_KEY: "sk-test" }), routine, { now: new Date("2026-09-24T23:00:00Z"), manual: true });
+  fetchMock.assertNoPendingInterceptors();
+  expect(prompt.messages[0].content).toContain("morning plan");
+  expect(prompt.messages[1].content).toContain("*今日やること* · *タスクの状況* · *相談したいこと*");
+  expect(prompt.messages[1].content).toContain("requestsStillWaiting");
+  expect(out.card).toMatchObject({ title: "今日の予定 2026-09-25", priority: "high", dailyReport: { part: "morning", status: "draft" } });
+});
+
+test("a new draft closes its routine's older one nobody posted, and leaves posted ones and other routines alone", async () => {
+  const plan = await getRoutine(env.DB, ORG, (await makePlan()).data.routine.id);
+  const report = await getRoutine(env.DB, ORG, (await makeDaily()).data.routine.id);
+  const quiet = ENV({ OPENAI_API_KEY: undefined });
+  const first = (await runRoutine(quiet, plan, { now: new Date("2026-09-23T23:00:00Z"), manual: true })).card;
+  const evening = (await runRoutine(quiet, report, { now: new Date("2026-09-24T13:00:00Z"), manual: true })).card;
+  const second = (await runRoutine(quiet, plan, { now: new Date("2026-09-24T23:00:00Z"), manual: true })).card;
+  const { getCard } = await import("../src/db.js");
+  expect(await getCard(env.DB, ORG, first.id)).toMatchObject({ status: "completed", dailyReport: { status: "expired" } });
+  expect(await getCard(env.DB, ORG, second.id)).toMatchObject({ status: "pending", dailyReport: { status: "draft" } });
+  expect(await getCard(env.DB, ORG, evening.id)).toMatchObject({ status: "pending", dailyReport: { status: "draft" } });
+  // An expired draft cannot be posted.
+  expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: first.id, text: "late" })).status).toBe(409);
+});
+
+test("the notification says it is yours to check and where it goes; an unposted one is asked about once more after two hours", async () => {
+  const card = { id: "d", recipientUserID: "toru", senderUserID: "toru", title: "日報 2026-09-24", summary: "…", dailyReport: { channel: "b:general", status: "draft" } };
+  expect(composeAlert({ card, kind: "created", locale: "ja" })).toEqual({ title: "日報 2026-09-24", subtitle: "下書きができました。確認して #general に投稿してください。" });
+  expect(composeAlert({ card, kind: "nudged", locale: "en" }).subtitle).toBe("Your draft is still not posted. Check it and post it to #general.");
+  expect(composeEmail({ card, kind: "created", locale: "ja" }).text.startsWith("下書きができました。確認して #general に投稿してください。")).toBe(true);
+
+  const { data } = await makeDaily();
+  const routine = await getRoutine(env.DB, ORG, data.routine.id);
+  const { card: draft } = await runRoutine(ENV({ OPENAI_API_KEY: undefined }), routine, { now: NOW, manual: true });
+  expect((await remindDailyDrafts(env, { now: new Date(NOW.getTime() + 3600000) })).reminded).toBe(0);
+  expect((await remindDailyDrafts(env, { now: new Date(NOW.getTime() + 2 * 3600000 + 1000) })).reminded).toBe(1);
+  // Once.
+  expect((await remindDailyDrafts(env, { now: new Date(NOW.getTime() + 5 * 3600000) })).reminded).toBe(0);
+  const { getCard } = await import("../src/db.js");
+  expect((await getCard(env.DB, ORG, draft.id)).dailyReport.remindedAt).toBeTruthy();
 });

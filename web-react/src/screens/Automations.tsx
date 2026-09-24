@@ -50,9 +50,10 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
   const [editing, setEditing] = useState<{ id: string; draft: RoutineDraft } | null>(null)
   const [confirm, setConfirm] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  // The daily report, being set up: when, and which channel it goes to.
+  // The daily report, being set up: which days, which channel, and the
+  // morning and evening times — each the person's own to move or turn off.
   const [businesses, setBusinesses] = useState<Business[]>([])
-  const [daily, setDaily] = useState<RoutineDraft | null>(null)
+  const [daily, setDaily] = useState<DailySetupDraft | null>(null)
 
   const headers = useMemo(() => ({ 'content-type': 'application/json', 'x-session-token': sessionToken }), [sessionToken])
   const call = useCallback(async (method: string, path: string, body?: Record<string, unknown>) => {
@@ -161,12 +162,37 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
   })
 
   const hasBrief = (routines || []).some((r) => r.kind === 'brief')
-  const hasDaily = (routines || []).some((r) => r.kind === 'daily_report')
-  const openDaily = () => setDaily({ ...emptyDraft(), cadence: 'weekdays', hour: 18, minute: 0, channel: businesses[0] ? `b:${businesses[0].slug}` : '' })
+  const hasPlan = (routines || []).some((r) => r.kind === 'daily_plan')
+  const hasReport = (routines || []).some((r) => r.kind === 'daily_report')
+  // 08:00 and 22:00 where the person is, unless they say otherwise; only
+  // the half they do not have yet.
+  const openDaily = () => setDaily({
+    cadence: 'weekdays',
+    channel: businesses[0] ? `b:${businesses[0].slug}` : '',
+    morning: { on: !hasPlan, hour: 8, minute: 0 },
+    evening: { on: !hasReport, hour: 22, minute: 0 },
+  })
   const createDaily = async () => {
     if (!daily?.channel) return
-    await create({ kind: 'daily_report', cadence: daily.cadence, hour: daily.hour, minute: daily.minute, timezone: localTimeZone(), channel: daily.channel, recipient: 'me' })
-    setDaily(null)
+    const wanted = [
+      ...(daily.morning.on && !hasPlan ? [{ kind: 'daily_plan', ...daily.morning }] : []),
+      ...(daily.evening.on && !hasReport ? [{ kind: 'daily_report', ...daily.evening }] : []),
+    ]
+    if (!wanted.length) return
+    setCreating(true); setError(null)
+    try {
+      const made: Routine[] = []
+      for (const w of wanted) {
+        const data = await call('POST', '/routines', {
+          kind: w.kind, cadence: daily.cadence, hour: w.hour, minute: w.minute, timezone: localTimeZone(), channel: daily.channel, recipient: 'me',
+        })
+        made.push(data.routine)
+      }
+      setRoutines((list) => [...made, ...(list || [])])
+      setDaily(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally { setCreating(false) }
   }
   const composing = say.trim().length > 0
   const next = (iso: string) => new Date(iso).toLocaleString(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -248,15 +274,15 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
           </div>
         )}
 
-        {!hasDaily && routines !== null && (
+        {!(hasPlan && hasReport) && routines !== null && (
           daily ? (
             <div className="auto-compose open daily-setup">
               <span className="auto-question">{t('Daily report')}</span>
-              <p className="auto-hint">{t('At this time your AI drafts your day in your own words — what you said, how your tasks went, what you did, what went well, what to improve, and tomorrow. You read it, change anything, and post it.')}</p>
-              <DailyFields draft={daily} businesses={businesses} onChange={(patch) => setDaily((d) => (d ? { ...d, ...patch } : d))} />
+              <p className="auto-hint">{t('Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.')}</p>
+              <DailySetup draft={daily} businesses={businesses} hasPlan={hasPlan} hasReport={hasReport} onChange={(patch) => setDaily((d) => (d ? { ...d, ...patch } : d))} />
               <div className="auto-actions">
                 <button type="button" className="btn-text" onClick={() => setDaily(null)}>{t('Cancel')}</button>
-                <button type="button" className="pill-btn" disabled={creating || !daily.channel} onClick={createDaily}>
+                <button type="button" className="pill-btn" disabled={creating || !daily.channel || !((daily.morning.on && !hasPlan) || (daily.evening.on && !hasReport))} onClick={createDaily}>
                   {creating ? t('Creating…') : t('Create')}
                 </button>
               </div>
@@ -267,7 +293,7 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
                 <span className="row-icon"><Icon name="send" size={18} /></span>
                 <span className="row-main">
                   {t('Daily report')}
-                  <span className="row-sub">{t('At a time you choose: your day in your own words — what went well, what to improve, tomorrow — for you to check and post to a channel.')}</span>
+                  <span className="row-sub">{t('Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.')}</span>
                 </span>
                 <span className="pill-tag">{t('Add')}</span>
               </button>
@@ -288,7 +314,7 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
               editing?.id === r.id ? (
                 <div className="row static routine-row editing" key={r.id} data-routine={r.id}>
                   <div className="routine-edit">
-                    {r.kind === 'daily_report' ? (
+                    {r.kind === 'daily_report' || r.kind === 'daily_plan' ? (
                       <DailyFields
                         draft={editing.draft}
                         businesses={businesses}
@@ -313,7 +339,7 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
                 </div>
               ) : (
                 <div className={`row static routine-row${r.enabled ? '' : ' off'}`} key={r.id} data-routine={r.id}>
-                  <span className="row-icon"><Icon name={r.kind === 'brief' ? 'calendar' : r.kind === 'daily_report' ? 'send' : 'repeat'} size={18} /></span>
+                  <span className="row-icon"><Icon name={r.kind === 'brief' ? 'calendar' : r.kind === 'daily_report' || r.kind === 'daily_plan' ? 'send' : 'repeat'} size={18} /></span>
                   <span className="row-main">
                     <span className="routine-title">{r.title}</span>
                     <span className="row-sub">
@@ -336,7 +362,7 @@ export const Automations: React.FC<Props> = ({ httpBase, orgId, sessionToken, on
                           <button type="button" className="btn-text" disabled={busy === r.id} onClick={() => runNow(r)}>
                             {busy === r.id ? t('Running…') : t('Run now')}
                           </button>
-                          {r.lastCardId && <button type="button" className="btn-text" onClick={() => onOpenCard(r.lastCardId!)}>{r.kind === 'daily_report' ? t('Latest draft') : t('Last report')}</button>}
+                          {r.lastCardId && <button type="button" className="btn-text" onClick={() => onOpenCard(r.lastCardId!)}>{r.kind === 'daily_report' || r.kind === 'daily_plan' ? t('Latest draft') : t('Last report')}</button>}
                           <button type="button" className="btn-text" onClick={() => { setConfirm(null); setEditing({ id: r.id, draft: draftFromRoutine(r) }) }}>{t('Edit')}</button>
                           <button type="button" className="btn-text danger" onClick={() => { setEditing(null); setConfirm(r.id) }}>{t('Delete')}</button>
                         </>
@@ -450,8 +476,10 @@ const DraftFields: React.FC<{
 const DailyFields: React.FC<{
   draft: RoutineDraft
   businesses: Business[]
+  /// Off where the times are chosen separately, morning and evening.
+  withTime?: boolean
   onChange: (patch: Partial<RoutineDraft>) => void
-}> = ({ draft, businesses, onChange }) => {
+}> = ({ draft, businesses, withTime = true, onChange }) => {
   const t = useT()
   const known = businesses.some((b) => `b:${b.slug}` === draft.channel)
   return (
@@ -463,13 +491,15 @@ const DailyFields: React.FC<{
             <option value="weekdays">{t(CADENCE_WORD.weekdays)}</option>
             <option value="daily">{t(CADENCE_WORD.daily)}</option>
           </select>
-          <input
-            type="time"
-            className="row-select"
-            value={timeValue(draft.hour, draft.minute)}
-            onChange={(e) => { const time = parseTime(e.target.value); if (time) onChange(time) }}
-            aria-label={t('Time')}
-          />
+          {withTime && (
+            <input
+              type="time"
+              className="row-select"
+              value={timeValue(draft.hour, draft.minute)}
+              onChange={(e) => { const time = parseTime(e.target.value); if (time) onChange(time) }}
+              aria-label={t('Time')}
+            />
+          )}
         </span>
       </div>
       <div className="auto-field">
@@ -483,6 +513,57 @@ const DailyFields: React.FC<{
           <span className="auto-hint">{t('Make a channel first: the daily report is posted to one.')}</span>
         )}
       </div>
+    </>
+  )
+}
+
+interface DailySetupDraft {
+  cadence: Cadence
+  channel: string
+  morning: { on: boolean; hour: number; minute: number }
+  evening: { on: boolean; hour: number; minute: number }
+}
+
+/// Setting up the daily report: the days and the channel, and the two times
+/// — the morning plan and the evening report — each on or off, each the
+/// person's own hour. A half they already have is not offered again.
+const DailySetup: React.FC<{
+  draft: DailySetupDraft
+  businesses: Business[]
+  hasPlan: boolean
+  hasReport: boolean
+  onChange: (patch: Partial<DailySetupDraft>) => void
+}> = ({ draft, businesses, hasPlan, hasReport, onChange }) => {
+  const t = useT()
+  const part = (key: 'morning' | 'evening', label: string) => {
+    const value = draft[key]
+    return (
+      <div className="auto-field daily-part" data-part={key}>
+        <label className="daily-toggle">
+          <input type="checkbox" checked={value.on} onChange={(e) => onChange({ [key]: { ...value, on: e.target.checked } })} />
+          <span>{label}</span>
+        </label>
+        <input
+          type="time"
+          className="row-select"
+          value={timeValue(value.hour, value.minute)}
+          disabled={!value.on}
+          onChange={(e) => { const time = parseTime(e.target.value); if (time) onChange({ [key]: { ...value, ...time } }) }}
+          aria-label={label}
+        />
+      </div>
+    )
+  }
+  return (
+    <>
+      <DailyFields
+        draft={{ ...emptyDraft(), cadence: draft.cadence, channel: draft.channel }}
+        businesses={businesses}
+        withTime={false}
+        onChange={(patch) => onChange({ ...(patch.cadence ? { cadence: patch.cadence } : {}), ...(patch.channel !== undefined ? { channel: patch.channel } : {}) })}
+      />
+      {!hasPlan && part('morning', t('Morning — today’s plan'))}
+      {!hasReport && part('evening', t('Evening — how the day went'))}
     </>
   )
 }

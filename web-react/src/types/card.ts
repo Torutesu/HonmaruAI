@@ -70,11 +70,14 @@ export interface DecisionCard {
 
 export interface DailyReport {
   routineId: string
+  /// The morning plan or the evening report.
+  part?: 'morning' | 'evening'
   /// `b:<slug>`: where it is posted.
   channel: string
   /// The day it covers, in the owner's time zone: "2026-09-24".
   date: string
-  status: 'draft' | 'posting' | 'posted'
+  /// `expired`: a newer draft from the same routine replaced it unposted.
+  status: 'draft' | 'posting' | 'posted' | 'expired'
   /// The draft, or — once posted — the words as posted.
   text: string
   messageId?: string

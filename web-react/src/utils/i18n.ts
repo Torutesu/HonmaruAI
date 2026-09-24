@@ -15,10 +15,14 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.': 'この時刻にAIがあなたの言葉で下書きし、できたら通知します。確認して「投稿」を押すまで、何も投稿されません。',
+  'Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.': '朝は今日やること、夜は一日の振り返り（良かった点・反省点・明日やること）。好きな時刻に、あなたの言葉で下書きし、確認してから投稿します。',
+  'Morning — today’s plan': '朝 — 今日やること',
+  'Evening — how the day went': '夜 — 一日の振り返り',
+  'Review and post': '確認して投稿',
+  'This draft was replaced by a newer one.': 'この下書きは新しい下書きに置き換えられました。',
   '{count} lines still ask for your own words.': 'あと{count}行、あなたの言葉で書く部分が残っています。',
   'Daily report': '日報',
-  'At this time your AI drafts your day in your own words — what you said, how your tasks went, what you did, what went well, what to improve, and tomorrow. You read it, change anything, and post it.': 'この時刻に、AIがあなたの一日をあなたの言葉で下書きします。今日の発言、タスクの進み具合、やったこと、良かった点、反省点、明日やること。確認して、直したいところを直してから投稿します。',
-  'At a time you choose: your day in your own words — what went well, what to improve, tomorrow — for you to check and post to a channel.': '好きな時刻に、あなたの一日をあなたの言葉で。良かった点・反省点・明日やることまで下書きし、確認してからチャンネルに投稿します。',
   'Post to': '投稿先',
   'Make a channel first: the daily report is posted to one.': '先にチャンネルを作ってください。日報はチャンネルに投稿されます。',
   'posted to {channel}': '{channel} に投稿',
@@ -1060,10 +1064,14 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.': 'Tu IA lo redacta con tus propias palabras a estas horas y te avisa cuando está listo. No se publica nada hasta que lo revises y pulses Publicar.',
+  'Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.': 'Por la mañana: el plan del día. Por la noche: cómo fue el día — qué salió bien, qué mejorar, mañana. Con tus propias palabras, a la hora que elijas, para que lo revises y lo publiques.',
+  'Morning — today’s plan': 'Mañana — el plan del día',
+  'Evening — how the day went': 'Noche — cómo fue el día',
+  'Review and post': 'Revisar y publicar',
+  'This draft was replaced by a newer one.': 'Este borrador fue reemplazado por uno más reciente.',
   '{count} lines still ask for your own words.': 'Aún quedan {count} líneas por escribir con tus propias palabras.',
   'Daily report': 'Informe diario',
-  'At this time your AI drafts your day in your own words — what you said, how your tasks went, what you did, what went well, what to improve, and tomorrow. You read it, change anything, and post it.': 'A esta hora tu IA redacta tu día con tus propias palabras: lo que dijiste, cómo fueron tus tareas, lo que hiciste, lo que salió bien, qué mejorar y mañana. Tú lo lees, cambias lo que quieras y lo publicas.',
-  'At a time you choose: your day in your own words — what went well, what to improve, tomorrow — for you to check and post to a channel.': 'A la hora que elijas: tu día con tus propias palabras — lo que salió bien, qué mejorar, mañana — para que lo revises y lo publiques en un canal.',
   'Post to': 'Publicar en',
   'Make a channel first: the daily report is posted to one.': 'Crea primero un canal: el informe diario se publica en uno.',
   'posted to {channel}': 'se publica en {channel}',
@@ -1784,10 +1792,14 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.': 'Votre IA le rédige avec vos propres mots à ces heures et vous prévient quand il est prêt. Rien n\'est publié tant que vous ne l\'avez pas relu et publié.',
+  'Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.': 'Le matin : le plan du jour. Le soir : le bilan — ce qui a bien marché, ce qui est à améliorer, demain. Avec vos propres mots, aux heures de votre choix, à relire puis publier.',
+  'Morning — today’s plan': 'Matin — le plan du jour',
+  'Evening — how the day went': 'Soir — le bilan de la journée',
+  'Review and post': 'Relire et publier',
+  'This draft was replaced by a newer one.': 'Ce brouillon a été remplacé par un plus récent.',
   '{count} lines still ask for your own words.': 'Il reste {count} lignes à écrire avec vos propres mots.',
   'Daily report': 'Rapport quotidien',
-  'At this time your AI drafts your day in your own words — what you said, how your tasks went, what you did, what went well, what to improve, and tomorrow. You read it, change anything, and post it.': 'À cette heure, votre IA rédige votre journée avec vos propres mots : ce que vous avez dit, où en sont vos tâches, ce que vous avez fait, ce qui a bien marché, ce qui est à améliorer, et demain. Vous le relisez, modifiez ce que vous voulez et le publiez.',
-  'At a time you choose: your day in your own words — what went well, what to improve, tomorrow — for you to check and post to a channel.': 'À l\'heure de votre choix : votre journée avec vos propres mots — ce qui a bien marché, ce qui est à améliorer, demain — à relire puis publier dans un canal.',
   'Post to': 'Publier dans',
   'Make a channel first: the daily report is posted to one.': 'Créez d\'abord un canal : le rapport quotidien y est publié.',
   'posted to {channel}': 'publié dans {channel}',
@@ -2513,10 +2525,14 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'Your AI drafts it in your own words at these times and tells you it is ready. Nothing is posted until you check it and press Post.': 'Deine KI entwirft ihn zu diesen Uhrzeiten in deinen eigenen Worten und sagt dir, wenn er fertig ist. Nichts wird gepostet, bevor du ihn prüfst und auf Posten drückst.',
+  'Morning: today’s plan. Evening: how the day went — what went well, what to improve, tomorrow. In your own words, at times you choose, for you to check and post.': 'Morgens: der Plan für heute. Abends: wie der Tag lief — was gut lief, was besser geht, morgen. In deinen eigenen Worten, zu Uhrzeiten deiner Wahl, zum Prüfen und Posten.',
+  'Morning — today’s plan': 'Morgens — der Plan für heute',
+  'Evening — how the day went': 'Abends — wie der Tag lief',
+  'Review and post': 'Prüfen und posten',
+  'This draft was replaced by a newer one.': 'Dieser Entwurf wurde durch einen neueren ersetzt.',
   '{count} lines still ask for your own words.': 'Noch {count} Zeilen warten auf deine eigenen Worte.',
   'Daily report': 'Tagesbericht',
-  'At this time your AI drafts your day in your own words — what you said, how your tasks went, what you did, what went well, what to improve, and tomorrow. You read it, change anything, and post it.': 'Zu dieser Uhrzeit entwirft deine KI deinen Tag in deinen eigenen Worten: was du gesagt hast, wie deine Aufgaben liefen, was du getan hast, was gut lief, was du besser machen kannst und morgen. Du liest ihn, änderst, was du willst, und postest ihn.',
-  'At a time you choose: your day in your own words — what went well, what to improve, tomorrow — for you to check and post to a channel.': 'Zu einer Uhrzeit deiner Wahl: dein Tag in deinen eigenen Worten — was gut lief, was besser geht, morgen — zum Prüfen und Posten in einem Kanal.',
   'Post to': 'Posten in',
   'Make a channel first: the daily report is posted to one.': 'Leg zuerst einen Kanal an: Der Tagesbericht wird dort gepostet.',
   'posted to {channel}': 'wird in {channel} gepostet',

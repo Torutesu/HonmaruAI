@@ -51,6 +51,13 @@ const EN = {
   "daily.open": "{title} (from {name}) — in progress, {days} days",
   "daily.openToday": "{title} (from {name}) — in progress",
   "daily.commented": "Commented on {title}",
+  "daily.planRoutineTitle": "Morning plan",
+  "daily.planInstruction": "Write my plan for today in my own words: what I will do today, most important first, where my tasks stand, and what I need help with.",
+  "daily.planTitle": "Plan for today — {date}",
+  "daily.today": "Today",
+  "daily.status": "Task status",
+  "daily.help": "Where I need help",
+  "daily.waitingOn": "Waiting on {name}: {title}",
 };
 
 const JA = {
@@ -99,6 +106,13 @@ const JA = {
   "daily.open": "{title}（{name}さんから）— 対応中、{days}日目",
   "daily.openToday": "{title}（{name}さんから）— 対応中",
   "daily.commented": "{title} にコメント",
+  "daily.planRoutineTitle": "朝の予定",
+  "daily.planInstruction": "自分の言葉で今日の予定を書く: 今日やること（大事な順）、タスクの状況、相談したいこと。",
+  "daily.planTitle": "今日の予定 {date}",
+  "daily.today": "今日やること",
+  "daily.status": "タスクの状況",
+  "daily.help": "相談したいこと",
+  "daily.waitingOn": "{name}さんの返事待ち: {title}",
 };
 
 const ES = {
@@ -147,6 +161,13 @@ const ES = {
   "daily.open": "{title} (de {name}) — en curso, {days} días",
   "daily.openToday": "{title} (de {name}) — en curso",
   "daily.commented": "Comenté en {title}",
+  "daily.planRoutineTitle": "Plan de la mañana",
+  "daily.planInstruction": "Escribe mi plan de hoy con mis propias palabras: qué haré hoy, lo más importante primero, cómo van mis tareas y en qué necesito ayuda.",
+  "daily.planTitle": "Plan para hoy — {date}",
+  "daily.today": "Hoy",
+  "daily.status": "Estado de las tareas",
+  "daily.help": "En qué necesito ayuda",
+  "daily.waitingOn": "Esperando a {name}: {title}",
 };
 
 const FR = {
@@ -195,6 +216,13 @@ const FR = {
   "daily.open": "{title} (de {name}) — en cours, {days} jours",
   "daily.openToday": "{title} (de {name}) — en cours",
   "daily.commented": "Commentaire sur {title}",
+  "daily.planRoutineTitle": "Plan du matin",
+  "daily.planInstruction": "Rédige mon plan du jour avec mes propres mots : ce que je ferai aujourd'hui, le plus important d'abord, où en sont mes tâches et sur quoi j'ai besoin d'aide.",
+  "daily.planTitle": "Plan du jour — {date}",
+  "daily.today": "Aujourd'hui",
+  "daily.status": "État des tâches",
+  "daily.help": "Où j'ai besoin d'aide",
+  "daily.waitingOn": "En attente de {name} : {title}",
 };
 
 const DE = {
@@ -243,6 +271,13 @@ const DE = {
   "daily.open": "{title} (von {name}) — in Arbeit, seit {days} Tagen",
   "daily.openToday": "{title} (von {name}) — in Arbeit",
   "daily.commented": "{title} kommentiert",
+  "daily.planRoutineTitle": "Morgenplan",
+  "daily.planInstruction": "Schreib meinen Plan für heute in meinen eigenen Worten: was ich heute tue, das Wichtigste zuerst, wie meine Aufgaben stehen und wobei ich Hilfe brauche.",
+  "daily.planTitle": "Plan für heute — {date}",
+  "daily.today": "Heute",
+  "daily.status": "Stand der Aufgaben",
+  "daily.help": "Wobei ich Hilfe brauche",
+  "daily.waitingOn": "Warte auf {name}: {title}",
 };
 
 export const serverText = registerCatalog("server", { en: EN, ja: JA, es: ES, fr: FR, de: DE });
