@@ -39,7 +39,7 @@ export function resolveMentions(text, members) {
   for (const token of tokens) {
     const want = fold(token);
     for (const m of members) {
-      const names = [m.name, ...(m.name ? String(m.name).split(/\s+/) : []), handleOf(m.login), m.login, m.ref, ...(m.aliases || [])]
+      const names = [m.handle, m.name, ...(m.name ? String(m.name).split(/\s+/) : []), handleOf(m.login), m.login, m.ref, ...(m.aliases || [])]
         .filter(Boolean)
         .map(fold);
       if (names.includes(want)) { found.set(m.login, m); break; }

@@ -613,3 +613,11 @@
   .row .row-sub.routine-origin, .memory-source { color: #a996ff; }
   .agent-code { background: #0f0f0f; border-color: #2a2a2a; color: #f2f2f2; }
 }
+
+/* A username: the @ is part of the field, not something to type. */
+.handle-field { position: relative; display: block; margin-top: 8px; }
+.handle-field .handle-at { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--ash); font-weight: 600; pointer-events: none; }
+.handle-field .handle-input { margin-top: 0; padding-left: 30px; }
+.handle-note { margin-top: 6px; }
+.handle-note.ok { color: #16a34a; }
+.handle-note.bad { color: #dc2626; }

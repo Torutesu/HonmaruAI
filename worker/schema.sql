@@ -22,7 +22,13 @@ CREATE TABLE IF NOT EXISTS users (
      can guess — and a guessed address is a way to spend someone's AI allowance
      and put a forged card in their feed. NULL until the address is asked for;
      generated lazily so accounts that never use inbound mail carry no secret. */
-  inbound_token TEXT
+  inbound_token TEXT,
+  /* A username, as a person chose it: what @ finds them by, in any workspace.
+     Lowercase, unique; NULL until they pick one. */
+  handle        TEXT,
+  /* 1 once the person has named themselves: a GitHub sign-in no longer
+     writes its profile name over theirs. */
+  name_locked   INTEGER NOT NULL DEFAULT 0
 );
 
 

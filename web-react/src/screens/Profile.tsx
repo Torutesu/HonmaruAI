@@ -1,3 +1,4 @@
+import { forgetMembers } from '../utils/mentions'
 import React, { useEffect, useRef, useState } from 'react'
 import { getLocale, LOCALE_NAMES } from '../utils/locale'
 import type { Business } from '../types/card'
@@ -41,6 +42,8 @@ interface Me {
   role: string | null
   assignableRoles: string[]
   aliases?: string[]
+  /// The username @ finds you by; null until you choose one.
+  handle?: string | null
   orgs?: Org[]
 }
 
@@ -124,6 +127,30 @@ export const Profile: React.FC<Props> = ({
   // Typed before the profile arrived: the fetch must not overwrite it. That
   // race is exactly what the end-to-end suite hit on a fast machine.
   const aliasesTouched = useRef(false)
+  // Your name and username, as you are typing them, and what the Worker
+  // said about the username — taken, reserved, or the wrong shape.
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
+  const [handleDraft, setHandleDraft] = useState<string | null>(null)
+  const [handleNote, setHandleNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const saveIdentity = async (body: { name?: string; handle?: string }) => {
+    const res = await fetch(`${httpBase}/me`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      if (data.field === 'handle') setHandleNote({ ok: false, text: data.message || t('That username cannot be used.') })
+      else setError(data.message || t('That did not save.'))
+      return false
+    }
+    setError(null)
+    setMe((prev) => (prev ? { ...prev, name: data.name ?? prev.name, handle: data.handle ?? null } : prev))
+    // Everyone's @ list is cached per workspace; yours has just changed.
+    forgetMembers()
+    if (body.handle !== undefined) setHandleNote(data.handle ? { ok: true, text: t('Saved. Teammates can write @{handle}.', { handle: data.handle }) } : null)
+    return true
+  }
 
   useEffect(() => {
     fetch(`${httpBase}/me?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
@@ -232,7 +259,7 @@ export const Profile: React.FC<Props> = ({
           <div className="profile-avatar">{(display[0] || '?').toUpperCase()}</div>
           <div>
             <b>{display}</b>
-            <span>{me?.email || handle}</span>
+            <span>{me?.handle ? `@${me.handle}` : ''}{me?.handle && (me?.email || handle) ? ' · ' : ''}{me?.email || handle}</span>
           </div>
         </div>
 
@@ -243,6 +270,60 @@ export const Profile: React.FC<Props> = ({
         </div>
 
         {error && <div className="form-error">{error}</div>}
+
+        <div className="rows-title">{t('Profile')}</div>
+        <div className="rows">
+          <div className="row static">
+            <span className="row-main">
+              {t('Name')}
+              <span className="row-sub">{t('What teammates see on cards, in channels and in the list.')}</span>
+              <input
+                className="alias-input name-input"
+                value={nameDraft ?? (me?.name || '')}
+                maxLength={60}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={() => {
+                  const next = (nameDraft ?? '').trim()
+                  if (nameDraft !== null && next && next !== me?.name) void saveIdentity({ name: next })
+                  setNameDraft(null)
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                placeholder={t('e.g. Toru Tano')}
+                aria-label={t('Name')}
+              />
+            </span>
+          </div>
+          <div className="row static">
+            <span className="row-main">
+              {t('Username')}
+              <span className="row-sub">{t('What @ finds you by — in a channel, on a card, when you tell your AI. Letters, numbers, “.”, “_” and “-”.')}</span>
+              <span className="handle-field">
+                <span className="handle-at" aria-hidden="true">@</span>
+                <input
+                  className="alias-input handle-input"
+                  value={handleDraft ?? (me?.handle || '')}
+                  maxLength={30}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onChange={(e) => { setHandleDraft(e.target.value.replace(/^@/, '').toLowerCase()); setHandleNote(null) }}
+                  onBlur={async () => {
+                    if (handleDraft === null) return
+                    const next = handleDraft.trim()
+                    if (next !== (me?.handle || '')) {
+                      if (await saveIdentity({ handle: next })) setHandleDraft(null)
+                    } else setHandleDraft(null)
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                  placeholder={t('e.g. toru')}
+                  aria-label={t('Username')}
+                  aria-invalid={handleNote ? !handleNote.ok : undefined}
+                />
+              </span>
+              {handleNote && <span className={`row-sub handle-note${handleNote.ok ? ' ok' : ' bad'}`} role="status">{handleNote.text}</span>}
+            </span>
+          </div>
+        </div>
 
         <div className="rows-title">{t('How your AI treats you')}</div>
         <div className="rows">
@@ -277,7 +358,7 @@ export const Profile: React.FC<Props> = ({
               {t('Also called')}
               <span className="row-sub">{t('Names your AI should recognise as you — a first name, a nickname, in any language.')}</span>
               <input
-                className="alias-input"
+                className="alias-input aliases-input"
                 value={aliases}
                 onChange={(e) => { aliasesTouched.current = true; setAliases(e.target.value) }}
                 onBlur={() => {

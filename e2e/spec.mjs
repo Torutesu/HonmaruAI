@@ -103,7 +103,9 @@ const EXPECTED_REFUSALS = [/^503 \/connectors/, /^503 \/push\/vapid/, /^503 \/ai
 /// wrong failed for a reason that belonged to the step before it.
 async function closeEverything() {
   for (let i = 0; i < 4; i++) {
-    const open = await page.$('.sheet .close, .screen .back')
+    // A conversation in the list hides the tab bar on a phone; back out
+    // of it (and of a decision open over it) the way a person would.
+    const open = await page.$('.sheet .close, .screen .back, .slk-back.pane:visible, .slk-head .slk-back:visible')
     if (!open) break
     await open.click().catch(() => {})
     await page.waitForTimeout(300)
@@ -518,7 +520,10 @@ await step('the list view shows the same decisions', async () => {
   const convo = '.cl-thread:has(.cl-own-mark) .cl-open'
   await page.click(convo)
   await page.waitForSelector('.slk-head', { timeout: 5000 })
-  if (await page.$('.tabbar:visible')) throw new Error('the tab bar sits under a conversation on a phone')
+  // The effect that hides it runs after the conversation renders; wait
+  // for it rather than read the first frame, which a slow runner catches.
+  await page.waitForSelector('.tabbar', { state: 'hidden', timeout: 5000 })
+    .catch(() => { throw new Error('the tab bar sits under a conversation on a phone') })
   if (await page.$('.slk-msg .slk-title')) {
     await page.click('.slk-msg .slk-title >> nth=0')
     await page.waitForSelector('.slk-pane .card', { timeout: 10000 })
@@ -558,16 +563,29 @@ await step('every other screen opens', async () => {
   // Back from a screen You opened is You again.
   await page.click('.screen .back')
   await page.waitForSelector('.profile-stats', { timeout: 10000 })
-  await page.waitForSelector('.alias-input', { timeout: 10000 })
+  await page.waitForSelector('.aliases-input', { timeout: 10000 })
   // The profile has to have arrived, or the fetch lands after the typing.
   await page.waitForFunction(() => (document.querySelector('.profile-head b')?.textContent || '').trim().length > 0, null, { timeout: 10000 })
   const [aliasRes] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/me') && r.request().method() === 'PUT', { timeout: 10000 }),
-    page.fill('.alias-input', '美香, Mika').then(() => page.press('.alias-input', 'Tab')),
+    page.fill('.aliases-input', '美香, Mika').then(() => page.press('.aliases-input', 'Tab')),
   ])
   if (aliasRes.status() !== 200) throw new Error(`aliases answered ${aliasRes.status()}`)
   const saved = await (await aliasRes.json()).aliases
   if (JSON.stringify(saved) !== JSON.stringify(['美香', 'Mika'])) throw new Error(`aliases saved as ${JSON.stringify(saved)}`)
+  // A username, chosen here, is what @ finds you by: shaped by the field,
+  // saved on blur, and shown back beside your name.
+  // Unique per run: the local database outlives a run, and usernames are
+  // unique across every account in it.
+  const wantHandle = `mika.${Date.now().toString(36).slice(-6)}`
+  const [handleRes] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/me') && r.request().method() === 'PUT', { timeout: 10000 }),
+    page.fill('.handle-input', `@${wantHandle.replace('mika', 'Mika')}`).then(() => page.press('.handle-input', 'Tab')),
+  ])
+  if (handleRes.status() !== 200) throw new Error(`the username answered ${handleRes.status()}`)
+  if ((await handleRes.json()).handle !== wantHandle) throw new Error('the username was not saved as typed, lowercased')
+  await page.waitForSelector(`.profile-head span:has-text("@${wantHandle}")`, { timeout: 5000 })
+    .catch(() => { throw new Error('the username is not shown beside the name') })
   // The numbers: the flagged card from earlier is the one thing the AI got
   // wrong in this window, and the screen has to say so. Already on You.
   await page.click('text=Insights')

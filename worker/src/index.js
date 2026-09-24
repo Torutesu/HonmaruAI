@@ -11,7 +11,7 @@ import {
   registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness, unfileBusiness,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
-  loadContexts, saveContext,
+  loadContexts, saveContext, cleanName, checkHandle, setUserName, setUserHandle, MAX_NAME_CHARS,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { announceCards, evictMember, announceEvents } from "./announce.js";
@@ -892,6 +892,7 @@ async function handle(request, env, url, ctx) {
         userId: user.github_id,
         orgId: await primaryOrgId(env.DB, session.github_id),
         name: user.name,
+        handle: user.handle || null,
         locale: user.locale || "en",
         email: user.email || null,
         // An email account signs in with its address; only a GitHub account
@@ -964,6 +965,18 @@ async function handle(request, env, url, ctx) {
       if (body.notifyEmail !== undefined) {
         await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
       }
+      // What you are called, and the username @ finds you by.
+      if (body.name !== undefined) {
+        const name = cleanName(body.name);
+        if (!name) return json({ message: `A name is 1 to ${MAX_NAME_CHARS} characters.` }, 400);
+        await setUserName(env.DB, session.github_id, name);
+      }
+      if (body.handle !== undefined) {
+        const checked = checkHandle(body.handle);
+        if (checked.error) return json({ message: checked.error, field: "handle" }, 400);
+        const taken = await setUserHandle(env.DB, session.github_id, checked.handle);
+        if (taken.error) return json({ message: taken.error, field: "handle" }, 409);
+      }
       if (body.aliases !== undefined) {
         const aliases = normalizeAliases(body.aliases);
         if (!aliases) return json({ message: "aliases must be a list of names" }, 400);
@@ -991,6 +1004,8 @@ async function handle(request, env, url, ctx) {
         email: user?.email || null,
         notifyEmail: Number(user?.notify_email ?? 1) !== 0,
         aliases: parseAliases(user?.aliases),
+        name: user?.name || null,
+        handle: user?.handle || null,
         ...(role ? { role } : {}),
       });
     }

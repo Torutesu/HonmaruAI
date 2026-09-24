@@ -191,7 +191,7 @@ export function findMember(members, who) {
   const want = String(who || "").trim().toLowerCase();
   if (!want) return null;
   const exact = members.filter((m) =>
-    [m.name, m.login, m.ref, `member:${m.ref}`, ...(m.aliases || [])].some((v) => String(v || "").toLowerCase() === want));
+    [m.handle, m.name, m.login, m.ref, `member:${m.ref}`, ...(m.aliases || [])].some((v) => String(v || "").toLowerCase() === want));
   if (exact.length === 1) return exact[0];
   if (exact.length > 1) return null;
   const partial = members.filter((m) => String(m.name || "").toLowerCase().split(/\s+/).includes(want));

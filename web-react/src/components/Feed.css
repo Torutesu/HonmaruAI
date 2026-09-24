@@ -503,3 +503,4 @@
   .card.swipeable { animation: none; }
 }
 .swipe-hint-desk { margin-left: 8px; font-size: 12.5px; color: #838383; }
+.mention-handle { margin-left: auto; font-size: 12px; opacity: .7; }
