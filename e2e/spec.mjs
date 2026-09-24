@@ -1574,8 +1574,13 @@ await step('a card is decided by dragging it off, the way it is swiped on a phon
     }, before, { timeout: 25000 }).then((h) => h.jsonValue())
     const row = `.inbox-list .inbox-row[data-card="${fresh}"]`
     await d.click(row)
-    await d.waitForSelector('.workbench .card.swipeable', { timeout: 10000 })
-    const box = await (await d.$('.workbench .card.swipeable')).boundingBox()
+    // A locator, not a handle: the card re-renders as it settles, and a
+    // handle to the one it replaced has no box.
+    const cardLoc = d.locator('.workbench .card.swipeable').first()
+    await cardLoc.waitFor({ state: 'visible', timeout: 10000 })
+    await d.waitForTimeout(300)
+    const box = await cardLoc.boundingBox()
+    if (!box) throw new Error('the card in the pane has no box to drag')
     const y = box.y + 60
     await d.mouse.move(box.x + box.width / 2, y)
     await d.mouse.down()
