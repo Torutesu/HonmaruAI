@@ -21,6 +21,8 @@ import { allowanceFor } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 import { listMembers } from "./team.js";
+import { learnFromDecision } from "./memory.js";
+import { settleProposal } from "./proposals.js";
 
 // One socket's allowance. Well above anything the app does — it sends a message
 // per decision, not per frame — and far below what a loop can produce.
@@ -297,7 +299,7 @@ export class OrgRelay {
 
     if (type === "tool_result") {
       const content = typeof payload.content === "string" ? JSON.parse(payload.content) : payload.content;
-      await this.applyAndPublish(orgId, { ...content, actorUserID: att.userId }, payload.toolCallId, att.userId);
+      await this.applyAndPublish(orgId, { ...content, actorUserID: att.userId }, payload.toolCallId, att.userId, att.githubId);
       return;
     }
 
@@ -440,7 +442,7 @@ export class OrgRelay {
         // created — the translation, the business, who asked, what the AI
         // advised. A client that does not know a field must not erase it.
         if (existing) {
-          for (const field of ["localized", "business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName"]) {
+          for (const field of ["localized", "business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
         }
@@ -475,6 +477,7 @@ export class OrgRelay {
             card,
           })
         );
+        this.state.waitUntil(this.afterDecision(orgId, card, att.userId, att.githubId));
       }
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) this.broadcast(orgId, ev);
@@ -707,7 +710,20 @@ export class OrgRelay {
     });
   }
 
-  async applyAndPublish(orgId, content, toolCallId, actorUserId) {
+  /// What a decision teaches and what it settles, after it is made and
+  /// broadcast: a proposal approved becomes a routine, and a reason given
+  /// becomes a rule in the team's playbook. Never awaited by the decision;
+  /// never able to fail it.
+  async afterDecision(orgId, card, actorLogin, actorGithubId) {
+    try {
+      if (card?.proposal) await settleProposal(this.env, orgId, card);
+      else await learnFromDecision(this.env, { orgId, card, actorLogin, actorGithubId });
+    } catch (err) {
+      console.error("after decision failed", err?.message || err);
+    }
+  }
+
+  async applyAndPublish(orgId, content, toolCallId, actorUserId, actorGithubId) {
     const store = await loadStore(this.db, orgId);
     if (actorUserId && content?.cardId) {
       const target = await getCard(this.db, orgId, content.cardId);
@@ -745,6 +761,7 @@ export class OrgRelay {
           card: out.card,
         })
       );
+      this.state.waitUntil(this.afterDecision(orgId, out.card, actorUserId, actorGithubId));
       if (anyChannelConfigured(this.env)) {
         this.state.waitUntil(
           notifyCard(this.env, {

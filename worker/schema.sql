@@ -378,3 +378,79 @@ CREATE TABLE IF NOT EXISTS kv (
   value       TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
+
+/* Work the AI does on a schedule and delivers as a card: a report, a
+   brief. One row per routine; `next_run_at` is when the cron picks it up. */
+CREATE TABLE IF NOT EXISTS routines (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  owner_github_id TEXT NOT NULL,
+  owner_login    TEXT NOT NULL,
+  /* Whose feed the result lands in: the owner, or another member. */
+  recipient_login TEXT NOT NULL,
+  kind           TEXT NOT NULL DEFAULT 'report',
+  title          TEXT NOT NULL,
+  instruction    TEXT NOT NULL,
+  cadence        TEXT NOT NULL,
+  weekday        INTEGER,
+  monthday       INTEGER,
+  hour           INTEGER NOT NULL,
+  minute         INTEGER NOT NULL DEFAULT 0,
+  timezone       TEXT NOT NULL DEFAULT 'UTC',
+  enabled        INTEGER NOT NULL DEFAULT 1,
+  next_run_at    TEXT,
+  last_run_at    TEXT,
+  last_card_id   TEXT,
+  last_error     TEXT,
+  last_usd       REAL,
+  runs           INTEGER NOT NULL DEFAULT 0,
+  origin         TEXT NOT NULL DEFAULT 'manual',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_routines_due ON routines(enabled, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_routines_org ON routines(org_id);
+
+/* The team's playbook: rules the AI learned from decisions, or was told.
+   Read by the router, "Ask anything", drafts and routines. */
+CREATE TABLE IF NOT EXISTS memories (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  text           TEXT NOT NULL,
+  origin         TEXT NOT NULL DEFAULT 'told',
+  card_id        TEXT,
+  created_by     TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memories_org ON memories(org_id, updated_at);
+
+/* What the AI has proposed on its own, so a declined proposal is never
+   made twice and nobody is proposed to more than once a week. */
+CREATE TABLE IF NOT EXISTS proposals (
+  org_id         TEXT NOT NULL,
+  signature      TEXT NOT NULL,
+  login          TEXT NOT NULL,
+  card_id        TEXT,
+  /* The routine as proposed, kept here rather than trusted off the card:
+     a card can be republished by a client, this row cannot. */
+  routine        TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  created_at     TEXT NOT NULL,
+  PRIMARY KEY (org_id, signature)
+);
+CREATE INDEX IF NOT EXISTS idx_proposals_login ON proposals(org_id, login, created_at);
+
+/* Personal access tokens for agents speaking MCP. Only the hash is kept;
+   the token is shown once, when it is made. */
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id             TEXT PRIMARY KEY,
+  token_hash     TEXT NOT NULL UNIQUE,
+  org_id         TEXT NOT NULL,
+  github_id      TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  prefix         TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  last_used_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(github_id, org_id);

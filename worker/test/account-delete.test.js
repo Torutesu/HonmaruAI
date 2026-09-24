@@ -172,3 +172,29 @@ test("export needs a session", async () => {
   const res = await SELF.fetch("https://example.com/account/export");
   expect(res.status).toBe(401);
 });
+
+// What a person set the AI to do goes with them; the rules they taught the
+// team stay with the team, without their name.
+test("routines and agent tokens go; playbook rules stay, unsigned", async () => {
+  const token = await seedAlice();
+  const { createRoutine } = await import("../src/routines.js");
+  const { createApiToken } = await import("../src/mcp.js");
+  const { addMemory } = await import("../src/memory.js");
+  await createRoutine(env.DB, { orgId: "acme/app", owner: { github_id: "9001", login: "alice" }, recipientLogin: "alice",
+    input: { kind: "report", title: "Weekly", instruction: "sum up", cadence: "weekly", weekday: 1, hour: 9, minute: 0, timezone: "UTC" } });
+  await createRoutine(env.DB, { orgId: "acme/app", owner: { github_id: "9002", login: "bob" }, recipientLogin: "alice",
+    input: { kind: "report", title: "For Alice", instruction: "tell alice", cadence: "daily", hour: 9, minute: 0, timezone: "UTC" } });
+  await createApiToken(env.DB, { orgId: "acme/app", githubId: "9001", name: "Bot" });
+  await addMemory(env.DB, "acme/app", { text: "Releases need a rollback plan.", createdBy: "alice" });
+
+  const exported = await (await SELF.fetch("https://example.com/account/export", { headers: { "x-session-token": token } })).json();
+  expect(exported.routines.map((r) => r.title)).toEqual(["Weekly"]);
+  expect(exported.agentTokens.map((t) => t.name)).toEqual(["Bot"]);
+  expect(exported.playbookRules.map((m) => m.text)).toEqual(["Releases need a rollback plan."]);
+
+  await SELF.fetch("https://example.com/account", { method: "DELETE", headers: { "x-session-token": token } });
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM routines").first()).n).toBe(0);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM api_tokens").first()).n).toBe(0);
+  const rule = await env.DB.prepare("SELECT text, created_by FROM memories").first();
+  expect(rule).toEqual({ text: "Releases need a rollback plan.", created_by: null });
+});

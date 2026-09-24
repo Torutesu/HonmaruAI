@@ -4,6 +4,7 @@ import { cardText } from "./cardCopy.js";
 import { noteUsage } from "./ledger.js";
 import { decideRoute, CONFIDENT } from "./jev.js";
 import { formatSourcesForModel } from "./context.js";
+import { playbookBlock } from "./memory.js";
 
 export const DEMO_USER_IDS = ["user-toru", "user-tanaka", "user-yui", "user-alex"];
 
@@ -533,7 +534,7 @@ export function teamContextBlock(teamContext) {
       const note = d.note ? ` — "${String(d.note).slice(0, 80)}"` : "";
       return `- ${who}${d.action}: ${String(d.title || "").slice(0, 100)}${biz}${note}`;
     });
-  let out = "";
+  let out = playbookBlock(teamContext.playbook);
   if (load.length) out += `\nCurrent load (cards waiting on each member):\n${load.join("\n")}\n`;
   if (recent.length) out += `\nRecent decisions (newest first):\n${recent.join("\n")}\n`;
   return out;

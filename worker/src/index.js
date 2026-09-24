@@ -30,7 +30,9 @@ import { isMailConfigured, sendMail } from "./mailer.js";
 import { SUPPORTED_LOCALES, composeInviteEmail } from "./notifyCopy.js";
 import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { settleUsage, jevEntry } from "./ledger.js";
-import { runScheduledSync } from "./scheduled.js";
+import { runScheduledSync, runAutomations } from "./scheduled.js";
+import { handleAutomation } from "./automation.js";
+import { relevantMemories } from "./memory.js";
 import { logJSON, routeLabel, safe } from "./log.js";
 import {
   recordFeedback, orgMetrics, recipientLoad, recentDecisions, exportGolden, searchDecisions,
@@ -102,8 +104,12 @@ export default {
   // Every 15 minutes, so a decision that arrived in someone's inbox is already
   // a card by the time they look. Nothing here bypasses the free-tier meter:
   // the sync loop checks the same allowance a manual sync does.
-  async scheduled(_event, env, ctx) {
+  async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduledSync(env, ctx));
+    // Routines whose hour has come, and once a day the automations the AI
+    // would propose. Separate from the sync, so a slow inbox cannot make a
+    // Monday report late.
+    ctx.waitUntil(runAutomations(env, ctx, new Date(event?.scheduledTime || Date.now())));
   },
 
   async fetch(request, env, ctx) {
@@ -144,11 +150,15 @@ async function handle(request, env, url, ctx) {
         status: 204,
         headers: {
           "access-control-allow-origin": "*",
-          "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+          "access-control-allow-headers": "content-type, x-session-token, x-ai-key, authorization, mcp-session-id, mcp-protocol-version",
           "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
         },
       });
     }
+
+    // Routines, the playbook, agent tokens and the MCP endpoint.
+    const automated = await handleAutomation(request, env, url);
+    if (automated) return automated;
 
         if (url.pathname === "/auth/signup" && request.method === "POST") {
       const limited = await enforce(env, request, "oauth/token");
@@ -534,11 +544,14 @@ async function handle(request, env, url, ctx) {
         // prompt. Two queries, both bounded, both optional: a failure here is
         // a card routed the old way, not a card not routed.
         try {
-          const [load, recent] = await Promise.all([
+          const [load, recent, playbook] = await Promise.all([
             recipientLoad(env.DB, routeOrgId),
             recentDecisions(env.DB, routeOrgId),
+            // The rules this team has set, the ones that bear on this
+            // instruction first.
+            relevantMemories(env.DB, routeOrgId, body.text),
           ]);
-          if (load.length || recent.length) teamContext = { load, recent };
+          if (load.length || recent.length || playbook.length) teamContext = { load, recent, playbook };
         } catch (err) {
           console.error("team context failed", err?.message || err);
         }
@@ -1361,15 +1374,18 @@ async function handle(request, env, url, ctx) {
       let related = [];
       let recent = [];
       let sources = [];
+      let playbook = [];
       try {
         const terms = searchTermsFor(question, card);
         const available = await connectedSources(env, session, orgId);
-        const [decisionsHit, recentHit, notionHit, githubHit] = await Promise.all([
+        const [decisionsHit, recentHit, notionHit, githubHit, playbookHit] = await Promise.all([
           searchDecisions(env.DB, orgId, terms),
           recentDecisions(env.DB, orgId, { limit: 8 }),
           available.notion ? searchNotion(env, session.github_id, terms).catch((err) => { console.error("notion search failed", err?.message || err); return []; }) : [],
           available.github ? searchGithubIssues(session, orgId, terms, env).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
+          relevantMemories(env.DB, orgId, `${card.title || ""} ${question}`),
         ]);
+        playbook = playbookHit;
         related = decisionsHit;
         recent = recentHit;
         sources = [...notionHit, ...githubHit];
@@ -1377,7 +1393,7 @@ async function handle(request, env, url, ctx) {
         console.error("ask context failed", err?.message || err);
       }
       const result = await answerQuestion({
-        provider, card, question, readerLanguage: body.readerLanguage, recent, related, sources,
+        provider, card, question, readerLanguage: body.readerLanguage, recent, related, sources, playbook,
       });
       if (result.called && allowance.metered) await allowance.consume();
       await settleUsage(env.DB, provider, { orgId, githubId: session.github_id, byok: Boolean(userKey) });
@@ -1423,8 +1439,9 @@ async function handle(request, env, url, ctx) {
       if (!allowance.allowed) {
         return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
       }
+      const playbook = await relevantMemories(env.DB, orgId, `${card.title || ""} ${card.summary || ""}`, { limit: 6 });
       const result = await draftReply({
-        provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage,
+        provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage, playbook,
       });
       if (result.called && allowance.metered) await allowance.consume();
       await settleUsage(env.DB, provider, { orgId, githubId: session.github_id, byok: Boolean(userKey) });

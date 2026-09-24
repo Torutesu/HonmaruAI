@@ -100,6 +100,16 @@ export async function exportAccount(db, githubId, login) {
     pushSubscriptions: await tryAll(
       "SELECT user_agent, updated_at FROM push_subscriptions WHERE user_github_id = ?1", id
     ),
+    routines: await tryAll(
+      `SELECT org_id, kind, title, instruction, cadence, weekday, monthday, hour, minute, timezone, enabled,
+              last_run_at, runs, created_at FROM routines WHERE owner_github_id = ?1`, id
+    ),
+    agentTokens: await tryAll(
+      "SELECT org_id, name, prefix, created_at, last_used_at FROM api_tokens WHERE github_id = ?1", id
+    ),
+    playbookRules: login
+      ? await tryAll("SELECT org_id, text, origin, created_at FROM memories WHERE created_by = ?1", login)
+      : [],
   };
   return out;
 }
@@ -144,6 +154,19 @@ export async function deleteAccount(db, githubId, login) {
       .prepare("UPDATE card_events SET actor_user_id = ?1 WHERE actor_user_id = ?2")
       .bind(ANONYMOUS, login)
       .run();
+    // A rule in the playbook is the team's, like a business: it stays, and
+    // the name comes off. Routines that report to this person stop.
+    for (const [sql, binds] of [
+      ["UPDATE memories SET created_by = NULL WHERE created_by = ?1", [login]],
+      ["DELETE FROM routines WHERE recipient_login = ?1", [login]],
+      ["DELETE FROM proposals WHERE login = ?1", [login]],
+    ]) {
+      try {
+        await db.prepare(sql).bind(...binds).run();
+      } catch (err) {
+        if (!/no such table/i.test(String(err?.message))) throw err;
+      }
+    }
   }
 
   // An outstanding sign-in code for this address. Ten minutes of life left and
@@ -164,6 +187,9 @@ export async function deleteAccount(db, githubId, login) {
     "DELETE FROM ingested_items WHERE user_github_id = ?1",
     "DELETE FROM device_tokens WHERE user_github_id = ?1",
     "DELETE FROM push_subscriptions WHERE user_github_id = ?1",
+    // What this person set the AI to do, and the keys their agents held.
+    "DELETE FROM routines WHERE owner_github_id = ?1",
+    "DELETE FROM api_tokens WHERE github_id = ?1",
     "DELETE FROM users WHERE github_id = ?1",
     // Keep the deletion tombstone until redemption can no longer find the user.
     "DELETE FROM complimentary_access WHERE user_github_id = ?1",
