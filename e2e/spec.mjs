@@ -1578,6 +1578,43 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     // The Activity inbox is there and opens.
     await d.click('[data-activity="1"]')
     await d.waitForSelector('.slk-head h1:has-text("Activity")', { timeout: 5000 }).catch(() => { throw new Error('Activity did not open') })
+    // A draft stays with its conversation.
+    await d.click('.cl-thread:has-text("Front desk") .cl-open')
+    await d.fill('.slk-input', 'half-written thought')
+    await d.click('[data-activity="1"]')
+    await d.click('.cl-thread:has-text("Front desk") .cl-open')
+    if ((await d.$eval('.slk-input', (el) => el.value)) !== 'half-written thought') throw new Error('the draft did not come back')
+    // A command does its thing and says so, only to you.
+    await d.fill('.slk-input', '/remember front desk questions go to the manager on duty')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-note-row:has-text("playbook")', { timeout: 10000 }).catch(() => { throw new Error('/remember did not say it saved') })
+    // Scheduled: waits above the composer, and can be cancelled.
+    await d.fill('.slk-input', '/schedule 2h Doors open at 8 tomorrow')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-scheduled-toggle', { timeout: 10000 }).catch(() => { throw new Error('a scheduled message is not shown as waiting') })
+    if (await d.$('.slk-main .slk-msg:has-text("Doors open at 8")')) throw new Error('a scheduled message was sent at once')
+    await d.click('.slk-scheduled-toggle')
+    await d.click('.slk-scheduled .cl-danger')
+    await d.waitForSelector('.slk-scheduled-toggle', { state: 'detached', timeout: 10000 }).catch(() => { throw new Error('cancelling did not remove the scheduled message') })
+    // Later: saved from the menu, listed under Later.
+    await d.hover(msg)
+    await d.click(`${msg} [aria-label="More actions"]`)
+    await d.click(`${msg} .slk-menu button:has-text("Save for later")`)
+    await d.click('[data-later="1"]')
+    await d.waitForSelector('.slk-act.later:has-text("Check-in")', { timeout: 10000 }).catch(() => { throw new Error('Later does not hold the saved message') })
+    await d.click('.slk-act.later .cl-nudge:has-text("Done")')
+    await d.waitForSelector('.slk-act.later', { state: 'detached', timeout: 10000 })
+    // A clip of messages becomes one decision.
+    await d.click('.cl-thread:has-text("Front desk") .cl-open')
+    await d.hover(msg)
+    await d.click(`${msg} [aria-label="More actions"]`)
+    await d.click(`${msg} .slk-menu button:has-text("Add to clip")`)
+    await d.waitForSelector('.slk-clip', { timeout: 5000 }).catch(() => { throw new Error('clipping shows no tray') })
+    await d.fill('.slk-input', 'Decide the check-in time')
+    await d.click('.slk-clip .slk-send.ai')
+    await d.waitForSelector('.slk-msg:has-text("📎")', { timeout: 10000 }).catch(() => { throw new Error('the clip did not post its request') })
+    await d.waitForSelector('.slk-msg:has(.slk-app-badge):has-text("Decide the check-in time")', { timeout: 30000 })
+      .catch(() => { throw new Error('the clip did not become a decision') })
   } finally {
     await ctx.close()
   }

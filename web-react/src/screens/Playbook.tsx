@@ -38,6 +38,19 @@ export const Playbook: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [adding, setAdding] = useState(false)
+  // Standing yeses: requests approved on arrival, by a rule this person made.
+  const [rules, setRules] = useState<Array<{ id: string; senderName: string | null; cardType: string; business: string | null; createdAt: string }> | null>(null)
+  useEffect(() => {
+    fetch(`${httpBase}/channels/auto-rules?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => setRules(d?.rules || [])).catch(() => setRules([]))
+  }, [httpBase, orgId, sessionToken])
+  const removeRule = async (id: string) => {
+    const res = await fetch(`${httpBase}/channels/auto-rules`, {
+      method: 'DELETE', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+      body: JSON.stringify({ orgId, id }),
+    }).catch(() => null)
+    if (res?.ok) setRules((prev) => (prev || []).filter((r) => r.id !== id))
+  }
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
   const [confirm, setConfirm] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -218,6 +231,21 @@ export const Playbook: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
             )}
           </>
         )}
+        <div className="rows-title">{t('Approved automatically')}</div>
+        <div className="rows auto-rules">
+          {rules && rules.length === 0 && (
+            <div className="row static"><span className="row-main"><span className="row-sub">{t('None yet. After you approve the same kind of request from someone three times, your AI offers to approve the next ones for you.')}</span></span></div>
+          )}
+          {(rules || []).map((r) => (
+            <div className="row static" key={r.id} data-rule={r.id}>
+              <span className="row-main">
+                {r.business ? t('{name}’s requests in #{business}', { name: r.senderName || t('a teammate'), business: r.business }) : t('{name}’s requests', { name: r.senderName || t('a teammate') })}
+                <span className="row-sub">{t('Approved on arrival. The card still lands in your History.')}</span>
+              </span>
+              <button className="btn-text danger" onClick={() => void removeRule(r.id)}>{t('Stop')}</button>
+            </div>
+          ))}
+        </div>
         <div style={{ height: 24 }} />
       </div>
     </div>

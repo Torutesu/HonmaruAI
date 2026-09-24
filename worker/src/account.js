@@ -169,6 +169,9 @@ export async function deleteAccount(db, githubId, login) {
       ["UPDATE channel_messages SET author_login = NULL WHERE author_login = ?1", [login]],
       ["DELETE FROM message_reactions WHERE login = ?1", [login]],
       ["DELETE FROM channel_reads WHERE login = ?1", [login]],
+      ["DELETE FROM scheduled_messages WHERE author_login = ?1", [login]],
+      ["DELETE FROM saved_items WHERE login = ?1", [login]],
+      ["DELETE FROM auto_rules WHERE recipient_login = ?1 OR sender_login = ?1", [login]],
       ["UPDATE channel_messages SET pinned_by = NULL WHERE pinned_by = ?1", [login]],
     ]) {
       try {

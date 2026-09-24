@@ -516,3 +516,47 @@ CREATE TABLE IF NOT EXISTS channel_reads (
   PRIMARY KEY (org_id, login, channel)
 );
 
+/* Messages written now and sent later. The every-minute cron posts them as
+   their author, in the conversation they were written in. */
+CREATE TABLE IF NOT EXISTS scheduled_messages (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  author_login  TEXT NOT NULL,
+  body          TEXT NOT NULL,
+  parent_id     TEXT,
+  send_at       TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  sent_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_messages(sent_at, send_at);
+
+/* Later: a message saved to come back to, optionally at a time — then it
+   arrives in the feed as a card. */
+CREATE TABLE IF NOT EXISTS saved_items (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  login         TEXT NOT NULL,
+  message_id    TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  remind_at     TEXT,
+  reminded_at   TEXT,
+  done_at       TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_saved_items ON saved_items(org_id, login);
+
+/* "Approve these automatically": a person's standing yes to one kind of
+   request from one sender, optionally in one business. The relay applies it
+   as the card arrives, and says so on the card. */
+CREATE TABLE IF NOT EXISTS auto_rules (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL,
+  recipient_login TEXT NOT NULL,
+  sender_login    TEXT NOT NULL,
+  card_type       TEXT NOT NULL,
+  business        TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auto_rules ON auto_rules(org_id, recipient_login);
+
