@@ -433,6 +433,9 @@ export const Profile: React.FC<Props> = ({
           </div>
 
           </section>
+          <section className="pf-sec pf-status">
+            <StatusEditor httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />
+          </section>
           <section className="pf-sec pf-ai">
           <div className="rows-title">{t('How your AI treats you')}</div>
           <div className="rows">
@@ -600,5 +603,92 @@ export const Profile: React.FC<Props> = ({
         <div style={{ height: 32 }} />
       </div>
     </div>
+  )
+}
+
+
+/// Your status and being away, as a chat client sets them: an emoji and a
+/// few words until when, and "away until" with who decides meanwhile.
+const StatusEditor: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
+  const t = useT()
+  const [emoji, setEmoji] = useState('')
+  const [text, setText] = useState('')
+  const [clear, setClear] = useState<'never' | '1h' | 'today' | 'week'>('today')
+  const [away, setAway] = useState(false)
+  const [awayUntil, setAwayUntil] = useState('')
+  const [delegate, setDelegate] = useState('')
+  const [people, setPeople] = useState<Array<{ ref: string; name: string }>>([])
+  const [saved, setSaved] = useState<string | null>(null)
+  useEffect(() => {
+    fetch(`${httpBase}/channels?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => {
+        if (!d) return
+        setPeople((d.members || []).filter((m: { mine: boolean }) => !m.mine).map((m: { ref: string; name: string }) => ({ ref: m.ref, name: m.name })))
+        const mine = d.mine
+        if (mine?.status) { setEmoji(mine.status.emoji || ''); setText(mine.status.text || '') }
+        if (mine?.awayUntil) { setAway(true); setAwayUntil(mine.awayUntil.slice(0, 10)); setDelegate(mine.delegateRef || '') }
+      }).catch(() => {})
+  }, [httpBase, orgId, sessionToken])
+  const untilFor = () => {
+    const d = new Date()
+    if (clear === '1h') return new Date(Date.now() + 3600000).toISOString()
+    if (clear === 'today') { d.setHours(23, 59, 0, 0); return d.toISOString() }
+    if (clear === 'week') { d.setDate(d.getDate() + ((7 - d.getDay()) % 7)); d.setHours(23, 59, 0, 0); return d.toISOString() }
+    return null
+  }
+  const save = async (clearAll = false) => {
+    const body = clearAll ? { orgId } : {
+      orgId, emoji, text,
+      until: emoji || text ? untilFor() : null,
+      awayUntil: away && awayUntil ? new Date(`${awayUntil}T23:59:00`).toISOString() : null,
+      delegateRef: away ? delegate || null : null,
+    }
+    const res = await fetch(`${httpBase}/channels/status`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken }, body: JSON.stringify(body) }).catch(() => null)
+    const d = res ? await res.json().catch(() => ({})) : {}
+    if (clearAll) { setEmoji(''); setText(''); setAway(false); setAwayUntil(''); setDelegate('') }
+    setSaved(res?.ok ? t('Saved.') : (d.message || t('That did not save.')))
+  }
+  return (
+    <>
+      <div className="rows-title">{t('Status')}</div>
+      <div className="rows status-editor">
+        <div className="row static">
+          <span className="row-main">
+            {t('What you are up to')}
+            <span className="row-sub">{t('Shown beside your name in the list and on your profile.')}</span>
+            <span className="status-line">
+              <input className="alias-input status-emoji" value={emoji} maxLength={8} onChange={(e) => setEmoji(e.target.value)} placeholder="🙂" aria-label={t('Status emoji')} />
+              <input className="alias-input status-text" value={text} maxLength={100} onChange={(e) => setText(e.target.value)} placeholder={t('e.g. In meetings until 3')} aria-label={t('Status')} />
+              <select className="row-select" value={clear} onChange={(e) => setClear(e.target.value as typeof clear)} aria-label={t('Clear after')}>
+                <option value="1h">{t('Clear in 1 hour')}</option>
+                <option value="today">{t('Clear tonight')}</option>
+                <option value="week">{t('Clear this week')}</option>
+                <option value="never">{t('Don’t clear')}</option>
+              </select>
+            </span>
+          </span>
+        </div>
+        <div className="row static">
+          <span className="row-main">
+            <label className="status-away"><input type="checkbox" checked={away} onChange={(e) => setAway(e.target.checked)} /> {t('Away')}</label>
+            <span className="row-sub">{t('While you are away, new decisions for you go to the person you pick, and say they are covering for you.')}</span>
+            {away && (
+              <span className="status-line">
+                <input className="alias-input" type="date" value={awayUntil} onChange={(e) => setAwayUntil(e.target.value)} aria-label={t('Away until')} />
+                <select className="row-select" value={delegate} onChange={(e) => setDelegate(e.target.value)} aria-label={t('Who decides meanwhile')}>
+                  <option value="">{t('Nobody — they wait for me')}</option>
+                  {people.map((p) => <option key={p.ref} value={p.ref}>{p.name}</option>)}
+                </select>
+              </span>
+            )}
+          </span>
+        </div>
+        <div className="row static status-actions">
+          <button className="pill-btn" onClick={() => void save()} data-status-save="1">{t('Save status')}</button>
+          <button className="btn-text" onClick={() => void save(true)}>{t('Clear')}</button>
+          {saved && <span className="row-sub" role="status">{saved}</span>}
+        </div>
+      </div>
+    </>
   )
 }

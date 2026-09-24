@@ -68,6 +68,12 @@ export async function listMembers(db, orgId, viewerId) {
               m.title                                       AS title,
               u.aliases                                     AS aliases,
               u.handle                                      AS handle,
+              u.timezone                                    AS timezone,
+              m.status_emoji                                AS statusEmoji,
+              m.status_text                                 AS statusText,
+              m.status_until                                AS statusUntil,
+              m.away_until                                  AS awayUntil,
+              m.delegate_login                              AS delegateLogin,
               m.created_at                                  AS joinedAt
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
@@ -91,6 +97,13 @@ export async function listMembers(db, orgId, viewerId) {
       aliases: parseAliases(r.aliases),
       // Their username: what @ finds them by.
       handle: r.handle || null,
+      timezone: r.timezone || null,
+      // What they say they are up to, while it lasts.
+      status: (r.statusEmoji || r.statusText) && (!r.statusUntil || r.statusUntil > new Date().toISOString())
+        ? { emoji: r.statusEmoji || null, text: r.statusText || null, until: r.statusUntil || null } : null,
+      // Away, and until when. Who decides in their place is the server's to know.
+      awayUntil: r.awayUntil && r.awayUntil > new Date().toISOString() ? r.awayUntil : null,
+      delegateLogin: r.awayUntil && r.awayUntil > new Date().toISOString() ? (r.delegateLogin || null) : null,
       joinedAt: r.joinedAt,
       mine: String(r.userId) === String(viewerId),
     }))
@@ -104,7 +117,7 @@ export async function listMembers(db, orgId, viewerId) {
 /// taken off it.
 export async function listMembersForClient(db, orgId, viewerId) {
   const members = await listMembers(db, orgId, viewerId);
-  return members.map(({ userId, login, ...shown }) => shown);
+  return members.map(({ userId, login, delegateLogin, ...shown }) => shown);
 }
 
 /// Take someone out of a workspace, or leave it yourself.

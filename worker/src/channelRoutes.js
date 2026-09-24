@@ -15,6 +15,7 @@ import {
 import { safe } from "./log.js";
 import { sha256Hex } from "./auth.js";
 import { applyAutoRule, listAutoRules, addAutoRule, removeAutoRule } from "./autorules.js";
+import { setStatus, rememberTimezone, redirectIfAway, setChannelPref, prefsFor, memberProfile } from "./people.js";
 import { scheduleMessage, listScheduled, cancelScheduled, saveForLater, listSaved, finishSaved } from "./later.js";
 
 // The routes for talking in a channel, and for turning what was said into
@@ -141,6 +142,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       || members.find((m) => `member:${m.ref}` === routed.recipientUserID)
       || members.find((m) => m.login === user.login);
     await progress("writing", { recipientName: recipient.login === user.login ? null : recipient.name });
+    let covering = null;
     const now = new Date().toISOString();
     const card = {
       id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -164,6 +166,8 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       requestedBy: { login: user.login, name: user.name || undefined, quote: instruction.slice(0, 600) },
       fromMessage: row.id,
     };
+    // Away, with somebody deciding meanwhile: it goes to them.
+    covering = await redirectIfAway(members, card);
     const rule = await applyAutoRule(env.DB, orgId, card).catch(() => null);
     await saveCard(env.DB, orgId, card);
     await appendCardEvent(env.DB, orgId, { cardId: card.id, type: "created", actorUserId: user.login, note: `from ${where}`, snapshot: card });
@@ -172,7 +176,8 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     if (!rule && anyChannelConfigured(env) && recipient.login !== user.login) {
       await notifyCard(env, { card, kind: "created", excludeLogin: user.login }).catch((err) => console.error("channel notify failed", safe(err?.message)));
     }
-    const who = recipient.login === user.login ? (locale === "ja" ? "あなた" : "you") : recipient.name;
+    const decider = covering ? covering.to : recipient;
+    const who = decider.login === user.login ? (locale === "ja" ? "あなた" : "you") : decider.name;
     // Why this person: the router's own one line, so the choice is visible
     // rather than taken on trust.
     const why = String(routed.routingReason || "").replace(/\s+/g, " ").trim().slice(0, 240);
@@ -198,13 +203,25 @@ export async function handleChannels(request, env, url, { route, after }) {
     const orgId = url.searchParams.get("orgId");
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
+    const tz = url.searchParams.get("tz");
+    if (tz) await rememberTimezone(env.DB, who.session.github_id, tz).catch(() => {});
     const members = await listMembers(env.DB, orgId, who.session.github_id);
+    const prefs = {};
+    for (const p of await prefsFor(env.DB, orgId, who.user.login)) {
+      const v = viewOf(p.channel, who.user.login, members);
+      if (v) prefs[v] = p.level;
+    }
+    const me = members.find((m) => m.mine);
     return json({
       activity: await channelActivity(env.DB, orgId, who.user.login, members),
+      prefs,
+      // Your own away settings, with the delegate as a ref you can show.
+      mine: me ? { status: me.status, awayUntil: me.awayUntil, delegateRef: members.find((m) => m.login === me.delegateLogin)?.ref || null } : null,
       // `loginHash` lets a browser tell which member a card it already holds
       // is from — cards carry logins — without being handed anyone's login.
       members: await Promise.all(members.map(async (m) => ({
         ref: m.ref, name: m.name, title: m.title || m.role, mine: m.mine,
+        handle: m.handle || null, status: m.status || null, awayUntil: m.awayUntil || null,
         loginHash: (await sha256Hex(m.login)).slice(0, 16),
       }))),
       maxChars: MAX_MESSAGE_CHARS,
@@ -373,6 +390,46 @@ export async function handleChannels(request, env, url, { route, after }) {
     after(() => decideFromMessage(env, { orgId: body.orgId, session: who.session, user: who.user, resolved, row, members, route, locale }));
     return json({ deciding: true }, 202);
   }
+  // Your status, and being away with somebody deciding for you.
+  if (path === "/channels/status" && request.method === "PUT") {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, body.orgId, who.session.github_id);
+    let delegateLogin = null;
+    if (body.awayUntil && body.delegateRef) {
+      const d = members.find((m) => m.ref === body.delegateRef);
+      if (!d || d.login === who.user.login) return json({ message: "Pick somebody else in this workspace." }, 400);
+      delegateLogin = d.login;
+    }
+    const out = await setStatus(env.DB, { orgId: body.orgId, githubId: who.session.github_id, emoji: body.emoji, text: body.text, until: body.until, awayUntil: body.awayUntil, delegateLogin });
+    if (out.error) return json({ message: out.error }, 400);
+    return json({ ok: true });
+  }
+
+  // How loudly one conversation may call for you.
+  if (path === "/channels/prefs" && request.method === "PUT") {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const out = await setChannelPref(env.DB, { orgId: body.orgId, login: ctx.who.user.login, key: ctx.resolved.key, level: body.level });
+    if (out.error) return json({ message: out.error }, 400);
+    return json({ ok: true, level: body.level });
+  }
+
+  // A teammate's profile.
+  if (path === "/channels/member" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    const m = members.find((x) => x.ref === url.searchParams.get("ref"));
+    if (!m) return json({ message: "Nobody by that name here." }, 404);
+    return json({ member: { ...(await memberProfile(env.DB, orgId, m)), mine: m.mine } });
+  }
+
   // Scheduled messages: yours, in one conversation or all of them.
   if (path === "/channels/scheduled" && (request.method === "GET" || request.method === "DELETE")) {
     if (request.method === "GET") {

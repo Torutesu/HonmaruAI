@@ -105,7 +105,12 @@ const appKey = (c: DecisionCard) => {
 /// A teammate as the channel routes name them: a handle and a name, and a
 /// hash of their login so a card already in this browser can be matched to
 /// them without anyone's login being sent to match it.
-interface Member { ref: string; name: string; title?: string; mine: boolean; loginHash: string }
+interface Member {
+  ref: string; name: string; title?: string; mine: boolean; loginHash: string
+  handle?: string | null
+  status?: { emoji: string | null; text: string | null; until: string | null } | null
+  awayUntil?: string | null
+}
 interface Activity { channel: string; lastAt: string; preview: string; lastBy: string | null }
 
 async function hash16(text: string): Promise<string> {
@@ -169,19 +174,24 @@ export const ClassicList: React.FC<Props> = ({
   const [members, setMembers] = useState<Member[]>([])
   const [activity, setActivity] = useState<Record<string, Activity>>({})
   const [seenTick, setSeenTick] = useState(0)
+  // How loud each conversation may be: all (the default), mentions, mute.
+  const [prefs, setPrefs] = useState<Record<string, 'mentions' | 'mute'>>({})
   // Read positions from the server: the same on the phone and the laptop.
   const [serverReads, setServerReads] = useState<Record<string, string>>({})
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
   useEffect(() => {
     let ignore = false
-    fetch(`${api.httpBase}/channels?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+    let tz = ''
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '' } catch { /* the server keeps what it had */ }
+    fetch(`${api.httpBase}/channels?orgId=${encodeURIComponent(api.orgId)}${tz ? `&tz=${encodeURIComponent(tz)}` : ''}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (ignore || !data) return
         setMembers(data.members || [])
         setActivity(Object.fromEntries((data.activity || []).map((a: Activity) => [a.channel, a])))
         setServerReads(data.reads || {})
+        setPrefs(data.prefs || {})
       })
       .catch(() => { /* the list still shows every decision */ })
     return () => { ignore = true }
@@ -217,7 +227,7 @@ export const ClassicList: React.FC<Props> = ({
     const withTalk = (th: Thread): Thread => {
       const a = th.view ? activity[th.view] : undefined
       if (!a) return th
-      return { ...th, lastAt: a.lastAt, fresh: a.lastBy !== 'me' && a.lastAt > readAt(th.view!) }
+      return { ...th, lastAt: a.lastAt, fresh: !prefs[th.view!] && a.lastBy !== 'me' && a.lastAt > readAt(th.view!) }
     }
 
     // Channels: one per business the team has, in the team's order — empty
@@ -279,7 +289,7 @@ export const ClassicList: React.FC<Props> = ({
 
     return { channels, people, apps }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads])
+  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads, prefs])
 
   const everything = useMemo(() => [...channels, ...people, ...apps], [channels, people, apps])
 
@@ -321,6 +331,13 @@ export const ClassicList: React.FC<Props> = ({
   }, [api.httpBase, api.orgId, authHeaders])
   useEffect(() => { void loadActivity() }, [loadActivity])
   const activityUnread = (activityItems || []).filter((i) => i.unread).length
+  // Unread mentions per conversation: what still calls for you in a
+  // conversation set to mentions only, or muted.
+  const mentionsIn = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const i of activityItems || []) if (i.unread && i.type === 'mention') out[i.message.channel] = (out[i.message.channel] || 0) + 1
+    return out
+  }, [activityItems])
   const openActivity = () => {
     setOpenKey(null)
     setLaterOpen(false)
@@ -388,6 +405,55 @@ export const ClassicList: React.FC<Props> = ({
   }
 
 
+  const setPref = async (v: string, level: 'all' | 'mentions' | 'mute') => {
+    const res = await fetch(`${api.httpBase}/channels/prefs`, { method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, channel: v, level }) }).catch(() => null)
+    if (!res?.ok) { setProblem(t('That did not save.')); return }
+    setPrefs((prev) => { const next = { ...prev }; if (level === 'all') delete next[v]; else next[v] = level; return next })
+  }
+  /// A routine that writes this channel up for you every evening.
+  const dailySummary = async (thread: Thread) => {
+    const text = locale === 'ja' ? `毎日18時に #${thread.name} の会話と決定をまとめて` : `Every day at 18:00 summarise the conversation and decisions in #${thread.name}`
+    const post = (path: string, body: unknown) => fetch(`${api.httpBase}${path}`, { method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    const parsed = await post('/routines/parse', { text, locale }).then((r) => r.json()).then((d) => d.parsed).catch(() => null)
+    if (!parsed) { setProblem(t('That did not save.')); return }
+    const res = await post('/routines', { orgId: api.orgId, kind: 'report', instruction: parsed.instruction || text, cadence: parsed.cadence, hour: parsed.hour, minute: parsed.minute }).catch(() => null)
+    if (!res?.ok) { setProblem(((await res?.json().catch(() => null))?.message) || t('That did not save.')); return }
+    if (thread.view) note(thread.view, t('Every evening at 18:00 your AI will send you a summary of #{name} as a card.', { name: thread.name }))
+    setSettings(false)
+  }
+
+  // A teammate's profile, beside the conversation.
+  const [profile, setProfile] = useState<null | { ref: string; data?: { name: string; handle: string | null; title: string; timezone: string | null; status: Member['status']; awayUntil: string | null; joinedAt: string; mine: boolean; stats: { waiting: number; decided90d: number; medianMinutes: number | null } } }>(null)
+  const openProfile = async (ref: string) => {
+    setDetailId(null); setThread(null)
+    setProfile({ ref })
+    const res = await fetch(`${api.httpBase}/channels/member?orgId=${encodeURIComponent(api.orgId)}&ref=${encodeURIComponent(ref)}`, { headers: authHeaders }).catch(() => null)
+    const d = res?.ok ? await res.json().catch(() => null) : null
+    if (d?.member) setProfile((prev) => (prev && prev.ref === ref ? { ref, data: d.member } : prev))
+  }
+
+  // Keys a chat client has: ⌥↑/⌥↓ between conversations, ⌘⇧A Activity,
+  // ⌘⇧D the sidebar.
+  const [sideHidden, setSideHidden] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        const list = [...channels, ...people, ...apps]
+        if (!list.length) return
+        e.preventDefault()
+        const i = list.findIndex((x) => x.key === current?.key)
+        const next = list[(i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]
+        if (next) choose(next.key)
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault(); openActivity()
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault(); setSideHidden((h) => !h)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   // ---- The sidebar ----
 
   const lead = (thread: Thread, size: 'row' | 'head') => {
@@ -413,10 +479,17 @@ export const ClassicList: React.FC<Props> = ({
   const row = (thread: Thread) => {
     const on = !activityOpen && !laterOpen && current?.key === thread.key
     return (
-      <li key={thread.key} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}`}>
+      <li key={thread.key} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
           {lead(thread, 'row')}
           <span className="cl-title">{thread.name}</span>
+          {thread.kind === 'person' && (() => {
+            const m = members.find((x) => thread.view === `dm:${x.ref}`)
+            if (!m) return null
+            return <>{m.status?.emoji && <span className="cl-status" title={m.status.text || ''}>{m.status.emoji}</span>}{m.awayUntil && <span className="cl-away" title={t('Away until {when}', { when: new Date(m.awayUntil).toLocaleDateString(locale) })}>{t('away')}</span>}</>
+          })()}
+          {thread.view && prefs[thread.view] === 'mute' && <span className="cl-muted" aria-label={t('Muted')}>🔕</span>}
+          {thread.view && (mentionsIn[thread.view] || 0) > 0 && thread.unread === 0 && <span className="cl-badge mention">@{mentionsIn[thread.view]}</span>}
           {thread.unread > 0 && <span className="cl-badge">{thread.unread}</span>}
           {thread.unread === 0 && thread.fresh && !on && <span className="cl-fresh" aria-label={t('New messages')} />}
           {!on && thread.view && drafts[thread.view] && <span className="cl-draft" title={t('Draft')} aria-label={t('Draft')}>✏️</span>}
@@ -846,6 +919,7 @@ export const ClassicList: React.FC<Props> = ({
   const togglePin = (channel: string, m: ChannelMessage) => void act('POST', '/channels/pins', channel, { messageId: m.id, pinned: !m.pinned })
   const openThread = async (channel: string, m: ChannelMessage) => {
     setDetailId(null)
+    setProfile(null)
     setThread({ channel, parent: m, replies: [] })
     setThreadDraft('')
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
@@ -920,7 +994,7 @@ export const ClassicList: React.FC<Props> = ({
   // thread — never by leaving the list for the feed.
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = detailId ? cardsById.get(detailId) : undefined
-  const openCard = (id: string) => { setThread(null); setDetailId(id) }
+  const openCard = (id: string) => { setThread(null); setProfile(null); setDetailId(id) }
   useEffect(() => {
     if (!detailId && !thread) return
     const onKey = (e: KeyboardEvent) => {
@@ -1039,7 +1113,7 @@ export const ClassicList: React.FC<Props> = ({
 
   /// One block of a conversation: a gutter, a name and a time — or, joined
   /// to the one before, just the words — then what was said.
-  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean }, body: React.ReactNode) => (
+  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean; authorRef?: string | null }, body: React.ReactNode) => (
     <article key={key} id={opts.msgId ? `msg-${opts.msgId}` : undefined} tabIndex={opts.msgId ? -1 : undefined}
       className={`slk-msg${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}${opts.msgId && toolsOpen === opts.msgId ? ' tools-open' : ''}${opts.msgId && editing?.id === opts.msgId ? ' editing' : ''}${opts.pinned ? ' pinned' : ''}${opts.msgId && flash === opts.msgId ? ' flash' : ''}`}>
       <div className="slk-gutter" aria-hidden="true">
@@ -1049,7 +1123,9 @@ export const ClassicList: React.FC<Props> = ({
         {opts.pinned && <div className="slk-pin-mark">📌 {t('Pinned')}</div>}
         {!opts.joined && (
           <div className="slk-meta">
-            <span className="slk-author">{opts.name}</span>
+            {opts.authorRef
+              ? <button type="button" className="slk-author link" onClick={() => void openProfile(opts.authorRef!)}>{opts.name}</button>
+              : <span className="slk-author">{opts.name}</span>}
             {opts.badge && <span className="slk-app-badge">{opts.badge}</span>}
             {opts.to && <span className="slk-to">→ {opts.to}</span>}
             <time className="slk-time" dateTime={opts.at}>{clock(opts.at)}</time>
@@ -1289,7 +1365,7 @@ export const ClassicList: React.FC<Props> = ({
           const joined = prevWho === whoKey && at - prevAt < 5 * 60000
           const name = m.mine ? t('You') : (m.authorName || t('a teammate'))
           out.push(block(m.id, {
-            joined: joined && !m.pinned, at: m.createdAt, app: '', name, msgId: m.id, pinned: m.pinned,
+            joined: joined && !m.pinned, at: m.createdAt, app: '', name, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
             tools: toolsFor(thread.view!, m),
           }, (
             <>
@@ -1315,7 +1391,12 @@ export const ClassicList: React.FC<Props> = ({
           </button>
           {lead(thread, 'head')}
           <div className="slk-head-text">
-            <h1>{thread.name}</h1>
+            {thread.kind === 'person' && thread.view
+              ? <h1><button type="button" className="slk-author link" onClick={() => void openProfile(thread.view!.slice(3))}>{thread.name}</button>
+                  {(() => { const m = members.find((x) => thread.view === `dm:${x.ref}`); return m?.status ? <span className="slk-head-status"> {m.status.emoji} {m.status.text}</span> : null })()}
+                  {(() => { const m = members.find((x) => thread.view === `dm:${x.ref}`); return m?.awayUntil ? <span className="slk-head-away"> · {t('Away until {when}', { when: new Date(m.awayUntil).toLocaleDateString(locale, { month: 'short', day: 'numeric' }) })}</span> : null })()}
+                </h1>
+              : <h1>{thread.name}</h1>}
             <p>
               {thread.cards.length ? t('{n} decisions', { n: thread.cards.length }) : t('No decisions here yet.')}
               {waitingHere > 0 && <> · <b>{t('{n} waiting on you', { n: waitingHere })}</b></>}
@@ -1390,6 +1471,15 @@ export const ClassicList: React.FC<Props> = ({
               </form>
             ) : (
               <>
+                <span className="cl-pref" role="group" aria-label={t('Notifications')}>
+                  <span className="cl-pref-label">{t('Notify me about')}</span>
+                  {(['all', 'mentions', 'mute'] as const).map((lv) => (
+                    <button key={lv} type="button" className={`cl-nudge${(prefs[thread.view!] || 'all') === lv ? ' on' : ''}`} aria-pressed={(prefs[thread.view!] || 'all') === lv} onClick={() => void setPref(thread.view!, lv)}>
+                      {lv === 'all' ? t('Everything') : lv === 'mentions' ? t('Mentions only') : t('Nothing (mute)')}
+                    </button>
+                  ))}
+                </span>
+                <button type="button" className="cl-nudge" onClick={() => void dailySummary(thread)}>{t('Daily summary to me')}</button>
                 <button type="button" className="cl-nudge" onClick={() => { setRenaming(thread.slug!); setRenameTo(thread.name) }}>{t('Rename')}</button>
                 <button type="button" className="cl-nudge cl-danger" onClick={() => void deleteChannel(thread)}>{t('Delete channel')}</button>
               </>
@@ -1640,7 +1730,7 @@ export const ClassicList: React.FC<Props> = ({
   ) : null
 
   return (
-    <div className={`classic slk${current || activityOpen || laterOpen ? ' in-thread' : ''}${detail || thread ? ' with-pane' : ''}`}>
+    <div className={`classic slk${current || activityOpen || laterOpen ? ' in-thread' : ''}${detail || thread || profile ? ' with-pane' : ''}${sideHidden ? ' side-hidden' : ''}`}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         <header className="cl-top">
           {workspaceMenu || (
@@ -1697,6 +1787,42 @@ export const ClassicList: React.FC<Props> = ({
             <button className="slk-pane-close" onClick={() => setDetailId(null)} aria-label={t('Close')}>×</button>
           </header>
           <div className="slk-pane-body">{renderCard(detail)}</div>
+        </aside>
+      )}
+      {!detail && !thread && profile && (
+        <aside className="slk-pane slk-profile" aria-label={t('Profile')}>
+          <header className="slk-pane-head">
+            <button className="slk-back pane" onClick={() => setProfile(null)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+            <h2>{t('Profile')}</h2>
+            <button className="slk-pane-close" onClick={() => setProfile(null)} aria-label={t('Close')}>×</button>
+          </header>
+          {!profile.data ? <p className="slk-empty">{t('Loading…')}</p> : (() => {
+            const p = profile.data
+            let local = ''
+            try { if (p.timezone) local = new Date().toLocaleTimeString(locale, { timeZone: p.timezone, hour: 'numeric', minute: '2-digit' }) } catch { /* unknown zone */ }
+            return (
+              <div className="slk-profile-body">
+                <div className="slk-profile-avatar" aria-hidden="true">{p.name.charAt(0).toUpperCase()}</div>
+                <h3>{p.name}</h3>
+                {p.handle && <p className="slk-profile-handle">@{p.handle}</p>}
+                <p className="slk-profile-title">{t(p.title.charAt(0).toUpperCase() + p.title.slice(1))}</p>
+                {p.status && <p className="slk-profile-status">{p.status.emoji} {p.status.text}</p>}
+                {p.awayUntil && <p className="slk-profile-away">{t('Away until {when}', { when: new Date(p.awayUntil).toLocaleDateString(locale, { month: 'short', day: 'numeric' }) })}</p>}
+                {local && <p className="slk-profile-local">🕒 {t('{time} local time', { time: local })}</p>}
+                <dl className="slk-profile-stats">
+                  <div><dt>{t('Waiting on them')}</dt><dd>{p.stats.waiting}</dd></div>
+                  <div><dt>{t('Decided (90 days)')}</dt><dd>{p.stats.decided90d}</dd></div>
+                  <div><dt>{t('Typical answer')}</dt><dd>{p.stats.medianMinutes === null ? '—' : p.stats.medianMinutes < 60 ? t('{n} min', { n: p.stats.medianMinutes }) : p.stats.medianMinutes < 1440 ? t('{n} h', { n: Math.round(p.stats.medianMinutes / 60) }) : t('{n} days', { n: Math.round(p.stats.medianMinutes / 1440) })}</dd></div>
+                </dl>
+                {!p.mine && (
+                  <div className="slk-profile-actions">
+                    <button type="button" className="slk-send" onClick={() => { const th = everything.find((x) => x.view === `dm:${profile.ref}`); if (th) choose(th.key); setProfile(null) }}>{t('Message')}</button>
+                    <button type="button" className="slk-send ai" onClick={() => { const th = everything.find((x) => x.view === `dm:${profile.ref}`); if (th) { choose(th.key); setTimeout(() => { setDraft('@AI '); composer.current?.focus() }, 50) } setProfile(null) }}>{t('Ask for a decision')}</button>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </aside>
       )}
       {!detail && thread && (

@@ -1615,6 +1615,23 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.waitForSelector('.slk-msg:has-text("📎")', { timeout: 10000 }).catch(() => { throw new Error('the clip did not post its request') })
     await d.waitForSelector('.slk-msg:has(.slk-app-badge):has-text("Decide the check-in time")', { timeout: 30000 })
       .catch(() => { throw new Error('the clip did not become a decision') })
+    // A conversation can be muted from its ⋯.
+    await d.click('.slk-more')
+    await d.click('.cl-pref button:has-text("Nothing (mute)")')
+    await d.waitForSelector('.cl-thread:has-text("Front desk") .cl-muted', { timeout: 10000 }).catch(() => { throw new Error('muting did not mark the channel') })
+    await d.click('.cl-pref button:has-text("Everything")')
+    // ⌘/ lists the keys.
+    await d.keyboard.press(process.platform === 'darwin' ? 'Meta+/' : 'Control+/')
+    await d.waitForSelector('.shortcuts-sheet', { timeout: 5000 }).catch(() => { throw new Error('⌘/ did not open the shortcuts') })
+    await d.keyboard.press('Escape')
+    await d.click('.shortcuts-sheet .close').catch(() => {})
+    // A status, set on You, shows in the member list.
+    await d.goto(`${WEB}/#/you`, { waitUntil: 'load' })
+    await d.waitForSelector('.status-editor .status-text', { timeout: 15000 })
+    await d.fill('.status-editor .status-emoji', '🏖️')
+    await d.fill('.status-editor .status-text', 'On holiday')
+    await d.click('[data-status-save="1"]')
+    await d.waitForSelector('.status-editor [role="status"]:has-text("Saved")', { timeout: 10000 }).catch(() => { throw new Error('the status did not save') })
   } finally {
     await ctx.close()
   }

@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS users (
   handle        TEXT,
   /* 1 once the person has named themselves: a GitHub sign-in no longer
      writes its profile name over theirs. */
-  name_locked   INTEGER NOT NULL DEFAULT 0
+  name_locked   INTEGER NOT NULL DEFAULT 0,
+  /* The IANA zone this person's browser reports, for "their local time". */
+  timezone      TEXT
 );
 
 
@@ -69,6 +71,13 @@ CREATE TABLE IF NOT EXISTS memberships (
   role              TEXT NOT NULL DEFAULT 'member',
   title             TEXT,
   created_at        TEXT NOT NULL,
+  /* A status, as a chat client has one: an emoji, a few words, until when.
+     Away until a time, with somebody to decide in your place meanwhile. */
+  status_emoji      TEXT,
+  status_text       TEXT,
+  status_until      TEXT,
+  away_until        TEXT,
+  delegate_login    TEXT,
   PRIMARY KEY (org_id, user_github_id)
 );
 
@@ -513,6 +522,15 @@ CREATE TABLE IF NOT EXISTS channel_reads (
   login         TEXT NOT NULL,
   channel       TEXT NOT NULL,
   last_read_at  TEXT NOT NULL,
+  PRIMARY KEY (org_id, login, channel)
+);
+
+/* How loudly a conversation may call for you: all, mentions, or mute. */
+CREATE TABLE IF NOT EXISTS channel_prefs (
+  org_id   TEXT NOT NULL,
+  login    TEXT NOT NULL,
+  channel  TEXT NOT NULL,
+  level    TEXT NOT NULL,
   PRIMARY KEY (org_id, login, channel)
 );
 

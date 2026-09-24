@@ -307,6 +307,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); setPalette((p) => !p); return }
+      if ((e.metaKey || e.ctrlKey) && e.key === '/') { e.preventDefault(); setShortcuts((o) => !o); return }
       if (palette) return
       if (e.key === 'Escape') { setPanel(null); if (screen) closeScreen() }
       else if (e.key === 'n' && !panel && !screen && !(e.target as HTMLElement)?.matches('input, textarea')) { e.preventDefault(); setPanel('compose') }
@@ -396,6 +397,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       }
     }
   }, [addDebugLog, userId, orgId])
+  // ⌘/ — every key the app answers to, in one place.
+  const [shortcuts, setShortcuts] = useState(false)
+  useEffect(() => {
+    const on = () => setShortcuts(true)
+    window.addEventListener('honmaru:shortcuts', on)
+    return () => window.removeEventListener('honmaru:shortcuts', on)
+  }, [])
   const [suggestRule, setSuggestRule] = useState<{ cardId: string; sender: string; business: string | null } | null>(null)
   const acceptRule = useCallback(async () => {
     if (!suggestRule) return
@@ -721,6 +729,26 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel && <div className="scrim" onClick={() => { setPanel(null); setComposeSeed(null) }} />}
+
+      {shortcuts && (
+        <>
+          <div className="scrim" onClick={() => setShortcuts(false)} />
+          <div className="sheet shortcuts-sheet" role="dialog" aria-modal="true" aria-label={t('Keyboard shortcuts')} onKeyDown={(e) => { if (e.key === 'Escape') setShortcuts(false) }}>
+            <div className="sheet-title">{t('Keyboard shortcuts')}<button className="close" onClick={() => setShortcuts(false)} aria-label={t('Close')}>×</button></div>
+            {([
+              [t('Everywhere'), [['⌘K', t('Search, or jump anywhere')], ['N', t('Tell your AI')], ['⌘/', t('This list')]]],
+              [t('Cards'), [['A', t('Approve')], ['D', t('Decline')], ['J / K', t('Next / previous decision')], ['← →', t('Swipe the card')]]],
+              [t('List'), [['⌥↑ / ⌥↓', t('Previous / next conversation')], ['⌘⇧A', t('Activity')], ['⌘⇧D', t('Show or hide the sidebar')], ['Esc', t('Close the pane')]]],
+              [t('Writing'), [['Enter', t('Send')], ['⇧Enter', t('New line')], ['⌘Enter', t('Send as a decision')], ['↑', t('Edit your last message')], ['⌘B / ⌘I', t('Bold / italic')], ['/', t('Commands')], ['@', t('Mention someone, or @AI')]]],
+            ] as Array<[string, string[][]]>).map(([group, rows]) => (
+              <section key={group} className="shortcuts-group">
+                <h3>{group}</h3>
+                <dl>{rows.map(([k, what]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{what}</dd></div>)}</dl>
+              </section>
+            ))}
+          </div>
+        </>
+      )}
 
       {palette && (
         <Palette
