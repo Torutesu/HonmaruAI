@@ -115,3 +115,36 @@ test("a card carrying a copied proposal, or a rewritten routine, makes nothing i
   expect(routine.instruction).toContain("先週の売上と客数");
   expect(routine.cadence).toBe("weekly");
 });
+
+test("delegating or noting a proposal is not an answer to it; it stays open", async () => {
+  await seedRepeats();
+  const [card] = await proposeForOrg(env, ORG, { now: new Date("2026-09-24T00:05:00Z") });
+  await settleProposal(env, ORG, { ...card, decision: { action: "delegate", actorUserID: "toru" } });
+  const row = await env.DB.prepare("SELECT status FROM proposals WHERE org_id = ?1").bind(ORG).first();
+  expect(row.status).toBe("pending");
+});
+
+test("approved at the routine limit, nothing is made and the offer stays open", async () => {
+  await seedRepeats();
+  const [card] = await proposeForOrg(env, ORG, { now: new Date("2026-09-24T00:05:00Z") });
+  const stmt = env.DB.prepare(`INSERT INTO routines (id, org_id, owner_github_id, owner_login, recipient_login, title, instruction, cadence, hour, created_at, updated_at)
+    VALUES (?1, ?2, '8601', 'toru', 'toru', 't', 'i', 'daily', 9, '2026-01-01', '2026-01-01')`);
+  await env.DB.batch(Array.from({ length: 20 }, (_, i) => stmt.bind(`full-${i}`, ORG)));
+  expect(await settleProposal(env, ORG, { ...card, decision: { action: "approve", actorUserID: "toru" } })).toBeNull();
+  const row = await env.DB.prepare("SELECT status FROM proposals WHERE org_id = ?1").bind(ORG).first();
+  expect(row.status).toBe("pending");
+});
+
+test("a declined proposal is not made again when the request is reworded", async () => {
+  await seedRepeats();
+  const [card] = await proposeForOrg(env, ORG, { now: new Date("2026-09-24T00:05:00Z") });
+  await settleProposal(env, ORG, { ...card, decision: { action: "decline", actorUserID: "toru" } });
+  const { saveCard } = await import("../src/db.js");
+  for (const [i, at] of ["2026-10-05T00:10:00Z", "2026-10-12T00:10:00Z", "2026-10-19T00:10:00Z"].entries()) {
+    await saveCard(env.DB, ORG, {
+      id: `again-${i}`, recipientUserID: "mika", senderUserID: "toru", type: "task", status: "completed",
+      title: "先週の売上と客数をまとめてチームに共有", sourceInstruction: "ミカに先週の売上と客数をまとめてチームに共有してもらって", createdAt: at,
+    });
+  }
+  expect(await proposeForOrg(env, ORG, { now: new Date("2026-10-20T00:05:00Z") })).toHaveLength(0);
+});

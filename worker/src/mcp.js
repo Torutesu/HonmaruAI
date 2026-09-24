@@ -202,7 +202,10 @@ async function callTool(env, agent, name, args, request) {
   const db = env.DB;
   switch (name) {
     case "request_decision": {
-      const limited = await enforceSubject(env, "mcp/request_decision", `t:${agent.tokenId}`);
+      // Per person, not per token: a second token — or a revoked one made
+      // again — must not buy a looping agent another thirty cards an hour
+      // in somebody's feed.
+      const limited = await enforceSubject(env, "mcp/request_decision", `p:${agent.orgId}:${agent.githubId}`);
       if (limited) return toolError("Too many decisions requested this hour. A person can only take so many; try again later.");
       const title = clip(args.title, 120);
       if (!title) return toolError("title is required.");

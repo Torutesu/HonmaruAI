@@ -121,10 +121,12 @@ export async function proposeForOrg(env, orgId, { now = new Date() } = {}) {
   const db = env.DB;
   const since = new Date(now.getTime() - LOOKBACK_DAYS * 86400000).toISOString();
   const { results } = await db
-    .prepare("SELECT data FROM cards WHERE org_id = ?1 AND created_at >= ?2 ORDER BY created_at ASC LIMIT 500")
+    .prepare("SELECT data FROM cards WHERE org_id = ?1 AND created_at >= ?2 ORDER BY created_at DESC LIMIT 500")
     .bind(orgId, since)
     .all();
-  const cards = (results || []).map((r) => parse(r.data)).filter(Boolean);
+  // The newest five hundred, oldest first: a busy team's recent Mondays are
+  // the ones that matter.
+  const cards = (results || []).map((r) => parse(r.data)).filter(Boolean).reverse();
   const groups = findRepeats(cards);
   if (!groups.length) return [];
 
@@ -149,13 +151,19 @@ export async function proposeForOrg(env, orgId, { now = new Date() } = {}) {
       .bind(orgId, login, recentCutoff)
       .first();
     if (lately) { offered.add(login); continue; }
-    // Already automated: a routine of theirs that says the same thing.
-    const { results: theirs } = await db
-      .prepare("SELECT instruction FROM routines WHERE org_id = ?1 AND owner_login = ?2")
-      .bind(orgId, login)
-      .all();
+    // Already automated: a routine of theirs that says the same thing. Or
+    // already declined, in other words: "not proposed again" has to survive
+    // the person rewording the request.
+    const [{ results: theirs }, { results: declined }] = await Promise.all([
+      db.prepare("SELECT instruction FROM routines WHERE org_id = ?1 AND owner_login = ?2").bind(orgId, login).all(),
+      db.prepare("SELECT routine FROM proposals WHERE org_id = ?1 AND login = ?2 AND status = 'declined'").bind(orgId, login).all(),
+    ]);
     const wanted = termsOf(instruction);
     if ((theirs || []).some((r) => similarity(termsOf(r.instruction), wanted) >= SIMILARITY)) continue;
+    const declinedLike = (declined || []).some((r) => {
+      try { return similarity(termsOf(JSON.parse(r.routine)?.instruction || ""), wanted) >= SIMILARITY; } catch { return false; }
+    });
+    if (declinedLike) continue;
 
     const locale = user.locale === "ja" ? "ja" : "en";
     const timezone = defaultTimeZoneFor(user.locale);
@@ -247,14 +255,23 @@ export async function settleProposal(env, orgId, card) {
     if (!row || row.status !== "pending") return null;
     if (row.card_id !== card.id || row.login !== card.recipientUserID) return null;
     if (card.decision.actorUserID && card.decision.actorUserID !== row.login) return null;
+    // Approve makes it; decline closes it. Anything else — delegated, a
+    // note, "revise" — is not an answer to the offer, and leaves it open.
     const accepted = action === "approve" || action === "choose";
-    await env.DB
-      .prepare("UPDATE proposals SET status = ?3 WHERE org_id = ?1 AND signature = ?2")
+    if (!accepted && action !== "decline") return null;
+    // Claimed in one statement, so two deliveries of the same decision
+    // cannot both make a routine.
+    const claimed = await env.DB
+      .prepare("UPDATE proposals SET status = ?3 WHERE org_id = ?1 AND signature = ?2 AND status = 'pending'")
       .bind(orgId, proposal.signature, accepted ? "accepted" : "declined")
       .run();
-    if (!accepted) return null;
+    if (!(claimed?.meta?.changes > 0) || !accepted) return null;
+    const reopen = () => env.DB
+      .prepare("UPDATE proposals SET status = 'pending' WHERE org_id = ?1 AND signature = ?2")
+      .bind(orgId, proposal.signature)
+      .run();
     const owner = await getUserByLogin(env.DB, card.recipientUserID);
-    if (!owner) return null;
+    if (!owner) { await reopen(); return null; }
     let r = {};
     try { r = JSON.parse(row.routine) || {}; } catch { r = {}; }
     const out = await createRoutine(env.DB, {
@@ -268,7 +285,10 @@ export async function settleProposal(env, orgId, card) {
         timezone: r.timezone || "UTC",
       },
     });
-    return out.routine || null;
+    // At the limit, nothing was made: the offer stays open rather than being
+    // closed as if it had been taken.
+    if (!out.routine) { await reopen(); console.error("proposal not made", out.error); return null; }
+    return out.routine;
   } catch (err) {
     console.error("proposal settle failed", safe(err?.message));
     return null;

@@ -56,10 +56,10 @@ async function resolveRecipient(env, orgId, user, value) {
   return members.find((m) => m.ref === ref)?.login;
 }
 
-async function withRecipient(env, orgId, user, r, locale) {
+async function withRecipient(env, orgId, user, r, locale, members) {
   if (r.recipient_login === user.login) return publicRoutine(r, { locale, recipientName: user.name || user.login });
-  const members = await listMembers(env.DB, orgId, user.github_id);
-  const m = members.find((x) => x.login === r.recipient_login);
+  const list = members || await listMembers(env.DB, orgId, user.github_id);
+  const m = list.find((x) => x.login === r.recipient_login);
   return publicRoutine(r, { locale, recipientName: m?.name || "—", recipientRef: m ? `member:${m.ref}` : null });
 }
 
@@ -107,8 +107,12 @@ export async function handleAutomation(request, env, url) {
     const locale = who.user.locale === "ja" ? "ja" : "en";
     if (request.method === "GET") {
       const rows = await listRoutines(env.DB, orgId, who.session.github_id);
+      // The member list once, for every routine that reports to someone else.
+      const members = rows.some((r) => r.recipient_login !== who.user.login)
+        ? await listMembers(env.DB, orgId, who.session.github_id)
+        : [];
       const routines = [];
-      for (const r of rows) routines.push(await withRecipient(env, orgId, who.user, r, locale));
+      for (const r of rows) routines.push(await withRecipient(env, orgId, who.user, r, locale, members));
       return json({ routines, briefInstruction: briefInstruction(locale) });
     }
     const checked = validateRoutineInput(body, { locale });

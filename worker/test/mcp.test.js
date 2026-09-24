@@ -142,3 +142,15 @@ test("names match whole, and a name two people share matches nobody", () => {
   expect(findMember(members, "member:r3").login).toBe("c");
   expect(findMember(members, "sato").login).toBe("a");
 });
+
+test("the request limit is a person's, not a token's", async () => {
+  const one = (await mintToken(toru, "one")).token;
+  const two = (await mintToken(toru, "two")).token;
+  for (let i = 0; i < 30; i++) {
+    const out = await tool(i % 2 ? one : two, "request_decision", { title: `Ask ${i}` });
+    expect(out.isError).toBeUndefined();
+  }
+  const refused = await tool(two, "request_decision", { title: "One more" });
+  expect(refused.isError).toBe(true);
+  expect(refused.content[0].text).toContain("Too many");
+});

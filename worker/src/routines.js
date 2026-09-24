@@ -11,6 +11,7 @@ import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
+import { displayName } from "./notifyCopy.js";
 
 // Routines: work the AI does on a schedule, delivered as a card.
 //
@@ -196,7 +197,7 @@ export async function updateRoutine(db, orgId, id, patch, { recipientLogin, now 
     .prepare(
       `UPDATE routines SET kind = ?3, title = ?4, instruction = ?5, cadence = ?6, weekday = ?7, monthday = ?8,
          hour = ?9, minute = ?10, timezone = ?11, enabled = ?12, next_run_at = ?13, recipient_login = ?14,
-         last_error = CASE WHEN ?12 = 1 THEN last_error ELSE NULL END, updated_at = ?15
+         last_error = CASE WHEN ?12 = 1 THEN NULL ELSE last_error END, updated_at = ?15
        WHERE org_id = ?1 AND id = ?2`
     )
     .bind(orgId, id, next.kind, next.title, next.instruction, next.cadence, next.weekday, next.monthday,
@@ -221,6 +222,11 @@ function parse(data) {
   try { return JSON.parse(data); } catch { return null; }
 }
 
+/// The AI's own cards — reports and proposals — are not the team's work,
+/// and are left out in the query, not after it: a month of unread briefs
+/// filled the LIMIT and the report said nothing was waiting.
+const NOT_THE_AIS_OWN = "json_extract(data, '$.report') IS NULL AND json_extract(data, '$.proposal') IS NULL";
+
 /// What the team has, for the window: decisions made, what waits on the
 /// recipient, what has been stuck anywhere, how much came in.
 export async function gatherMaterial(db, orgId, routine, { now = new Date() } = {}) {
@@ -230,14 +236,17 @@ export async function gatherMaterial(db, orgId, routine, { now = new Date() } = 
   const [decidedRows, waitingRows, stuckRows, createdRow] = await Promise.all([
     db.prepare(
       `SELECT data FROM cards WHERE org_id = ?1 AND decided_at >= ?2 AND decided_at IS NOT NULL
+          AND ${NOT_THE_AIS_OWN}
         ORDER BY decided_at DESC LIMIT 40`
     ).bind(orgId, since).all(),
     db.prepare(
       `SELECT data FROM cards WHERE org_id = ?1 AND recipient_user_id = ?2 AND status = 'pending'
+          AND ${NOT_THE_AIS_OWN}
         ORDER BY created_at ASC LIMIT 20`
     ).bind(orgId, routine.recipient_login).all(),
     db.prepare(
       `SELECT data FROM cards WHERE org_id = ?1 AND status = 'pending' AND created_at < ?2
+          AND ${NOT_THE_AIS_OWN}
         ORDER BY created_at ASC LIMIT 15`
     ).bind(orgId, stuckBefore).all(),
     db.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1 AND created_at >= ?2").bind(orgId, since).first(),
@@ -288,9 +297,9 @@ async function namesFor(db, logins) {
 }
 
 /// A login with nothing of an address left in it, for someone the users
-/// table has no name for — the same rule the clients' displayName applies.
+/// table has no name for: notifyCopy's displayName, capitalised.
 export function plainName(login) {
-  const bare = String(login || "").replace(/^(u:|email:)/, "").split("@")[0];
+  const bare = displayName(login);
   return bare ? bare.charAt(0).toUpperCase() + bare.slice(1) : "";
 }
 
@@ -526,8 +535,20 @@ export async function runDueRoutines(env, { now = new Date() } = {}) {
     .all();
   let delivered = 0;
   for (const routine of results || []) {
-    const out = await runRoutine(env, routine, { now });
-    if (out.card) delivered += 1;
+    try {
+      const out = await runRoutine(env, routine, { now });
+      if (out.card) delivered += 1;
+    } catch (err) {
+      // One routine that cannot run must not hold up the ones behind it —
+      // and must not stay first in the queue forever: it moves on to its
+      // next time, with what went wrong on it.
+      console.error("routine run threw", routine.id, safe(err?.message));
+      await env.DB
+        .prepare("UPDATE routines SET next_run_at = ?3, last_error = ?4, updated_at = ?5 WHERE org_id = ?1 AND id = ?2")
+        .bind(routine.org_id, routine.id, nextRunAt(routine, now), clip(safe(err?.message) || "failed", 200), now.toISOString())
+        .run()
+        .catch(() => {});
+    }
   }
   return { due: (results || []).length, delivered };
 }

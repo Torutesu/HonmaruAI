@@ -206,3 +206,52 @@ test("a report names people, never their logins, and says what was done in words
   expect(JSON.stringify(card)).not.toContain("aya@example.com");
   expect(card.requestedBy).toEqual({ login: "toru", name: "Toru" });
 });
+
+test("a month of unread reports does not hide what is really waiting", async () => {
+  const { saveCard, getCard } = await import("../src/db.js");
+  for (let i = 0; i < 25; i++) {
+    await saveCard(env.DB, ORG, {
+      id: `old-report-${i}`, recipientUserID: "toru", senderUserID: "toru", type: "notification", format: "fyi", title: `Brief ${i}`,
+      status: "pending", createdAt: new Date(Date.now() - (40 - i) * 86400000).toISOString(), report: { markdown: "x" },
+    });
+  }
+  const { routine } = await (await post("/routines", toru, { orgId: ORG, kind: "brief", cadence: "daily", hour: 9 })).json();
+  const { cardId } = await (await post(`/routines/${routine.id}/run`, toru, { orgId: ORG }, { OPENAI_API_KEY: undefined })).json();
+  const card = await getCard(env.DB, ORG, cardId);
+  expect(card.report.markdown).toContain("Approve the autumn menu");
+  expect(card.report.markdown).not.toContain("Brief 3");
+});
+
+test("turning a paused routine back on clears what paused it", async () => {
+  const { routine } = await (await post("/routines", toru, { orgId: ORG, kind: "brief", cadence: "daily", hour: 9 })).json();
+  await env.DB.prepare("UPDATE routines SET enabled = 0, last_error = 'Paused: gone' WHERE id = ?1").bind(routine.id).run();
+  const res = await call(`/routines/${routine.id}`, { method: "PUT", headers: headers(toru), body: JSON.stringify({ orgId: ORG, enabled: true }) });
+  expect((await res.json()).routine).toMatchObject({ enabled: true, lastError: null });
+});
+
+test("a routine that throws moves on and does not hold up the rest", async () => {
+  const bad = (await (await post("/routines", toru, { orgId: ORG, kind: "brief", cadence: "daily", hour: 9 })).json()).routine;
+  const good = (await (await post("/routines", toru, { orgId: ORG, instruction: "the other one", cadence: "daily", hour: 9 })).json()).routine;
+  await env.DB.prepare("UPDATE routines SET next_run_at = '2026-01-01T00:00:00.000Z' WHERE id = ?1").bind(bad.id).run();
+  await env.DB.prepare("UPDATE routines SET next_run_at = '2026-01-02T00:00:00.000Z' WHERE id = ?1").bind(good.id).run();
+  // The first routine's owner lookup throws; the second's does not.
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  let thrown = false;
+  const db = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare") {
+        return (sql) => {
+          if (!thrown && /FROM memberships/.test(sql)) { thrown = true; throw new Error("D1 hiccup"); }
+          return realPrepare(sql);
+        };
+      }
+      const v = target[prop];
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  const out = await runDueRoutines({ ...env, DB: db, OPENAI_API_KEY: undefined }, { now: new Date() });
+  expect(out).toEqual({ due: 2, delivered: 1 });
+  const row = await env.DB.prepare("SELECT next_run_at, last_error FROM routines WHERE id = ?1").bind(bad.id).first();
+  expect(Date.parse(row.next_run_at)).toBeGreaterThan(Date.now());
+  expect(row.last_error).toContain("D1 hiccup");
+});
