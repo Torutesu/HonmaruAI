@@ -1,6 +1,7 @@
 import { forgetMembers } from '../utils/mentions'
 import React, { useEffect, useRef, useState } from 'react'
-import { getLocale, LOCALE_NAMES } from '../utils/locale'
+import { getLocale, primary } from '../utils/locale'
+import { LanguageOptions } from '../components/LanguageOptions'
 import type { Business } from '../types/card'
 import { useT, changeLocale as applyLocale } from '../utils/i18n'
 import { Icon } from '../components/Icon'
@@ -530,10 +531,8 @@ export const Profile: React.FC<Props> = ({
                 {t('Language')}
                 <span className="row-sub">{t('Every notification arrives written in it.')}</span>
               </span>
-              <select className="row-select" value={locale} onChange={(e) => changeLocale(e.target.value)} aria-label={t('Language')}>
-                {Object.entries(LOCALE_NAMES).map(([code, label]) => (
-                  <option key={code} value={code}>{label}</option>
-                ))}
+              <select className="row-select" value={primary(locale)} onChange={(e) => changeLocale(e.target.value)} aria-label={t('Language')}>
+                <LanguageOptions current={locale} />
               </select>
             </div>
           </div>

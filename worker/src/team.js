@@ -12,6 +12,7 @@ import { saveCard, removeCard, getUserByLogin, parseAliases } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
 import { localizeForRecipient } from "./localize.js";
+import { loadCopy } from "./copy.js";
 import { notifyCard } from "./notify.js";
 import { cardText } from "./cardCopy.js";
 
@@ -327,7 +328,7 @@ export async function returnOrphanedCards(env, orgId, login) {
       // product writes for somebody. A card coming back explains itself or it
       // is just a decision that mysteriously moved.
       const reader = await getUserByLogin(env.DB, sender);
-      const said = cardText(reader?.locale, "{name} has left this workspace, so this came back to you.", {
+      const said = cardText(await loadCopy(env, reader?.locale || "en", { orgId }), "{name} has left this workspace, so this came back to you.", {
         name: leaverName,
       });
       card.recipientUserID = sender;

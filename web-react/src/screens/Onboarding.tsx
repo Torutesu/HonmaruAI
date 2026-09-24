@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { LOCALE_NAMES } from '../utils/locale'
+import { browserLanguage } from '../utils/locale'
+import { LanguageOptions } from '../components/LanguageOptions'
 import { changeLocale, useT } from '../utils/i18n'
 import { readOnboardingDraft } from '../utils/onboardingProgress'
 
@@ -31,7 +32,10 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
   const [saved] = useState(() => readOnboardingDraft(localStorage, progressKey))
   const [page, setPage] = useState(saved.page || 0)
   const [role, setRole] = useState(saved.role || 'founder')
-  const [locale, setLocale] = useState(() => saved.locale || (LOCALE_NAMES[(navigator.language || 'en').split('-')[0]] ? (navigator.language || 'en').split('-')[0] : 'en'))
+  // The browser's language, whichever it is: a reader of a language the
+  // screens are not translated into still reads their cards and
+  // notifications in it, and defaulting them to English undid that.
+  const [locale, setLocale] = useState(() => saved.locale || browserLanguage())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [demo, setDemo] = useState<null | 'approved' | 'declined'>(null)
@@ -145,9 +149,7 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
         <div className="rows-title">{t('Language')}</div>
         <div className="field">
           <select disabled={busy} value={locale} onChange={(e) => setLocale(e.target.value)} aria-label={t('Language')}>
-            {Object.entries(LOCALE_NAMES).map(([code, label]) => (
-              <option key={code} value={code}>{label}</option>
-            ))}
+            <LanguageOptions current={locale} />
           </select>
           <div className="hint">{t('Every notification reaches you in this language, whoever wrote it.')}</div>
         </div>

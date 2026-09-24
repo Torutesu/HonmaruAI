@@ -24,6 +24,7 @@ import { sendWebPush, isWebPushConfigured, isDeadSubscription } from "./webpush.
 import { sendMail, isMailConfigured } from "./mailer.js";
 import { composeAlert, composeEmail } from "./notifyCopy.js";
 import { localizeStored } from "./localize.js";
+import { loadCopy } from "./copy.js";
 
 export function anyChannelConfigured(env) {
   return apnsConfigured(env) || isWebPushConfigured(env) || isMailConfigured(env);
@@ -76,7 +77,7 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
   if (!anyChannelConfigured(env)) return { sent: 0, skipped: "no channel configured", channels };
 
   const user = await getUserByLogin(env.DB, recipient);
-  const locale = user?.locale || "en";
+  const locale = await loadCopy(env, user?.locale || "en", { orgId });
   if (orgId && kind !== "digest") {
     card = await localizeStored(env, orgId, card, { locale, payerGithubId, announce });
   }

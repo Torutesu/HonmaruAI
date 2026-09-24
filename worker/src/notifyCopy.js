@@ -1,4 +1,5 @@
 import { primaryLanguage } from "./language.js";
+import { registerCatalog } from "./copy.js";
 // Every word a notification says, in every language it can say it in.
 //
 // A notification is read on a lock screen, in a browser corner, or in a mail
@@ -20,6 +21,8 @@ const STRINGS = {
     digest: "{count} decisions need you",
     nudge: "{name} is still waiting on your decision",
     nudgeSubtitle: "A gentle reminder",
+    tabNewDecision: "New decision for you",
+    tabFrom: "From {name}",
     commented: "{name}: {text}",
     mentioned: "{name} mentioned you: {text}",
     emailCommentIntro: "{name} said something under a decision you are part of.",
@@ -56,6 +59,8 @@ const STRINGS = {
     digest: "{count}件の決定があなたを待っています",
     nudge: "{name}があなたの決定を待っています",
     nudgeSubtitle: "リマインダー",
+    tabNewDecision: "新しい決定が届きました",
+    tabFrom: "{name}から",
     commented: "{name}: {text}",
     mentioned: "{name}があなたをメンションしました: {text}",
     emailCommentIntro: "{name}が、あなたに関わる決定にコメントしました。",
@@ -92,6 +97,8 @@ const STRINGS = {
     digest: "{count} decisiones te esperan",
     nudge: "{name} sigue esperando tu decisión",
     nudgeSubtitle: "Un recordatorio amable",
+    tabNewDecision: "Tienes una nueva decisión",
+    tabFrom: "De {name}",
     commented: "{name}: {text}",
     mentioned: "{name} te mencionó: {text}",
     emailCommentIntro: "{name} dijo algo bajo una decisión de la que formas parte.",
@@ -128,6 +135,8 @@ const STRINGS = {
     digest: "{count} décisions vous attendent",
     nudge: "{name} attend toujours votre décision",
     nudgeSubtitle: "Un petit rappel",
+    tabNewDecision: "Nouvelle décision pour vous",
+    tabFrom: "De la part de {name}",
     commented: "{name} : {text}",
     mentioned: "{name} vous a mentionné : {text}",
     emailCommentIntro: "{name} a écrit sous une décision qui vous concerne.",
@@ -164,6 +173,8 @@ const STRINGS = {
     digest: "{count} Entscheidungen warten auf dich",
     nudge: "{name} wartet noch auf deine Entscheidung",
     nudgeSubtitle: "Eine freundliche Erinnerung",
+    tabNewDecision: "Neue Entscheidung für dich",
+    tabFrom: "Von {name}",
     commented: "{name}: {text}",
     mentioned: "{name} hat dich erwähnt: {text}",
     emailCommentIntro: "{name} hat unter einer Entscheidung geschrieben, an der du beteiligt bist.",
@@ -193,7 +204,18 @@ const STRINGS = {
   },
 };
 
+/// The languages written by hand here. Every other language is written by
+/// the model on first use (see copy.js) — this is not the list of languages a
+/// person can be told in, which is all of them.
 export const SUPPORTED_LOCALES = Object.keys(STRINGS);
+
+// The same tables, flat, as the catalog copy.js serves: `actions.approve`.
+const notifyText = registerCatalog("notify", Object.fromEntries(
+  Object.entries(STRINGS).map(([lang, table]) => {
+    const { actions, ...rest } = table;
+    return [lang, { ...rest, ...Object.fromEntries(Object.entries(actions).map(([k, v]) => [`actions.${k}`, v])) }];
+  })
+));
 
 /// The strings for a locale, falling back to English for one we have not
 /// written yet. A person whose language we cannot speak still gets told.
@@ -208,20 +230,16 @@ export function stringsFor(locale) {
   return STRINGS[primary] || STRINGS.en;
 }
 
-function fill(template, vars = {}) {
-  return String(template).replace(/\{(\w+)\}/g, (_, key) => (vars[key] ?? ""));
-}
-
+/// One string in the reader's language: written by hand, or learned by
+/// copy.js for this language (callers await `loadCopy` first), or English.
 export function t(locale, key, vars) {
-  const table = stringsFor(locale);
-  const template = table[key] ?? STRINGS.en[key] ?? key;
-  return fill(template, vars);
+  return notifyText(locale, key, vars);
 }
 
 /// A decision action as a word: "approved", "承認".
 export function actionLabel(locale, action) {
-  const table = stringsFor(locale);
-  return table.actions[action] || STRINGS.en.actions[action] || action || "";
+  if (!action) return "";
+  return notifyText(locale, `actions.${action}`, {}, action);
 }
 
 /// The card's title in this person's language, when the relay has produced
@@ -251,8 +269,8 @@ export function displayName(login) {
 /// line only: the lock screen is a public surface, and a summary can carry a
 /// salary or a client's name. The card id rides alongside so a tap can open it.
 export function composeAlert({ card, kind, locale, count, comment }) {
-  const lang = stringsFor(locale) === STRINGS.en ? "en" : locale;
-  const reader = primaryLanguage(locale) || lang;
+  const lang = primaryLanguage(locale) || "en";
+  const reader = lang;
   if (kind === "digest") {
     return { title: t(lang, "digest", { count }), subtitle: t(lang, "yourAI") };
   }
@@ -291,7 +309,7 @@ export function composeAlert({ card, kind, locale, count, comment }) {
 /// The same alert, as an email. Plain text: it renders everywhere, and a
 /// decision is not a newsletter.
 export function composeEmail({ card, kind, locale, count, url, comment }) {
-  const lang = stringsFor(locale) === STRINGS.en ? "en" : locale;
+  const lang = primaryLanguage(locale) || "en";
   const alert = composeAlert({ card, kind, locale, count, comment });
   const who = comment?.name || displayName(comment?.author);
   const intro = kind === "decided"

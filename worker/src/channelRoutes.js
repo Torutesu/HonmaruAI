@@ -5,6 +5,8 @@ import { resolveMentions } from "./threads.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards, announceEvents, announceTo } from "./announce.js";
 import { localizeForRecipient } from "./localize.js";
+import { loadCopy } from "./copy.js";
+import { serverText } from "./serverCopy.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { custom as customEvent } from "./agui/events.js";
 import {
@@ -85,6 +87,8 @@ export async function broadcastWithParent(env, orgId, resolved, row, members) {
 /// context, save the card, and say so in the channel. Never throws; a
 /// failure is said in the channel too, where the person is looking.
 export async function decideFromMessage(env, { orgId, session, user, resolved, row, members, route, locale, clipped = null }) {
+  // Everything said back in the channel is said in the asker's language.
+  locale = await loadCopy(env, locale || "en", { orgId });
   // What the AI is doing, as it does it — shown in the conversation so a
   // person sees reading, then routing, then writing, not one long wait.
   const progress = async (step, extra = {}) => {
@@ -133,7 +137,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     });
     const routed = await res.json().catch(() => ({}));
     if (!res.ok) {
-      await say(locale === "ja" ? `決定カードにできませんでした: ${routed.message || "もう一度試してください。"}` : `Could not make that a decision: ${routed.message || "try again."}`);
+      await say(routed.message ? serverText(locale, "channel.failedBecause", { reason: routed.message }) : serverText(locale, "channel.failed"));
       await progress("failed");
       return null;
     }
@@ -181,19 +185,19 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       await notifyCard(env, { card: shown, kind: "created", excludeLogin: user.login, orgId, payerGithubId: user.github_id }).catch((err) => console.error("channel notify failed", safe(err?.message)));
     }
     const decider = covering ? covering.to : recipient;
-    const who = decider.login === user.login ? (locale === "ja" ? "あなた" : "you") : decider.name;
+    const who = decider.login === user.login ? serverText(locale, "channel.you") : decider.name;
     // Why this person: the router's own one line, so the choice is visible
     // rather than taken on trust.
     const why = String(routed.routingReason || "").replace(/\s+/g, " ").trim().slice(0, 240);
-    const whyLine = why ? (locale === "ja" ? `\n理由: ${why}` : `\nWhy: ${why}`) : "";
-    const autoLine = rule ? (locale === "ja" ? `\n${recipient.name}さんのルールで自動承認されました。` : `\nApproved automatically by ${recipient.name}'s rule.`) : "";
-    await say((locale === "ja" ? `${who}への決定カードにしました: ${card.title}` : `Made this a decision for ${who}: ${card.title}`) + whyLine + autoLine, card.id);
+    const whyLine = why ? `\n${serverText(locale, "channel.why", { why })}` : "";
+    const autoLine = rule ? `\n${serverText(locale, "channel.autoApproved", { name: recipient.name })}` : "";
+    await say(serverText(locale, "channel.made", { who, title: card.title }) + whyLine + autoLine, card.id);
     await progress("done", { cardId: card.id });
     return card;
   } catch (err) {
     console.error("decide from message failed", safe(err?.message));
     await progress("failed");
-    await say(locale === "ja" ? "決定カードにできませんでした。もう一度試してください。" : "Could not make that a decision. Try again.").catch(() => {});
+    await say(serverText(locale, "channel.failed")).catch(() => {});
     return null;
   }
 }
@@ -509,8 +513,9 @@ export async function handleChannels(request, env, url, { route, after }) {
       const who = row.kind === "ai" ? "AI" : (row.author_name || "someone");
       lines.push(`${String(row.created_at).slice(5, 16).replace("T", " ")} ${where} ${who}: ${String(row.body).replace(/\s+/g, " ").slice(0, 500)}`);
     }
+    const asker = await loadCopy(env, ctx.who.user.locale || "en", { orgId: body.orgId });
     const instruction = String(body.instruction || "").trim().slice(0, 1000)
-      || (ctx.who.user.locale === "ja" ? "これらのメッセージから決定を作って" : "Make a decision from these messages");
+      || serverText(asker, "channel.fromMessages");
     // The request itself is said where the person is, so the card has a
     // message to hang off and the conversation shows what happened.
     const anchor = await postMessage(env.DB, { orgId: body.orgId, key: ctx.resolved.key, authorLogin: ctx.who.user.login, body: `📎 ${instruction} (${picked.length})` });

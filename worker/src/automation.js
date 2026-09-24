@@ -9,6 +9,7 @@ import {
 } from "./routines.js";
 import { listMemories, getMemory, addMemory, updateMemory, deleteMemory, forgetMemories } from "./memory.js";
 import { createApiToken, listApiTokens, revokeApiToken, handleMcp, TOOLS } from "./mcp.js";
+import { loadCopy } from "./copy.js";
 
 // The routes for what the AI does on its own: routines, the playbook, and
 // the tokens agents use to reach the team. One module, so index.js — already
@@ -91,7 +92,9 @@ export async function handleAutomation(request, env, url) {
     const body = await request.json().catch(() => null);
     const text = typeof body?.text === "string" ? body.text.slice(0, 2000) : "";
     const parsed = parseSchedule(text);
-    const locale = body?.locale === "ja" ? "ja" : "en";
+    // No model call from a route that asks no one who they are: a language
+    // not yet learned reads English here.
+    const locale = typeof body?.locale === "string" ? body.locale : "en";
     if (!parsed) return json({ parsed: null });
     return json({ parsed: { ...parsed, schedule: describeSchedule(parsed, locale) } });
   }
@@ -104,7 +107,7 @@ export async function handleAutomation(request, env, url) {
     const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
-    const locale = who.user.locale === "ja" ? "ja" : "en";
+    const locale = await loadCopy(env, who.user.locale || "en", { orgId });
     if (request.method === "GET") {
       const rows = await listRoutines(env.DB, orgId, who.session.github_id);
       // The member list once, for every routine that reports to someone else.
@@ -135,7 +138,7 @@ export async function handleAutomation(request, env, url) {
     const orgId = request.method === "DELETE" ? url.searchParams.get("orgId") : body?.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
-    const locale = who.user.locale === "ja" ? "ja" : "en";
+    const locale = await loadCopy(env, who.user.locale || "en", { orgId });
     const current = await getRoutine(env.DB, orgId, id);
     // Somebody else's routine does not exist, as far as this caller knows.
     if (!current || current.owner_github_id !== String(who.session.github_id)) return json({ message: "no such routine" }, 404);

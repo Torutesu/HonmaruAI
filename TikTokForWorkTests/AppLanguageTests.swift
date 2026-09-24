@@ -32,6 +32,13 @@ final class AppLanguageTests: XCTestCase {
         XCTAssertNil(AppLanguage.system.locale)
     }
 
+    func testSystemReadsTheDevicesLanguageNotTheAppsLocalization() {
+        // Whatever the device's first language is — including one the app's
+        // screens are not translated into — is what the Worker is told.
+        let first = Locale.preferredLanguages.first.flatMap { Locale(identifier: $0).language.languageCode?.identifier }
+        XCTAssertEqual(AppLanguage.system.readerLanguageCode, first ?? AppLanguage.deviceLanguageCode)
+    }
+
     func testNativeLabels() {
         XCTAssertEqual(AppLanguage.spanish.label, "Español")
         XCTAssertEqual(AppLanguage.french.label, "Français")

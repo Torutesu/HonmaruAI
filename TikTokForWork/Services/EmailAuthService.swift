@@ -73,6 +73,11 @@ enum EmailAuthService {
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "content-type")
+        // The language the code email is written in, and the one a new
+        // account starts with. URLSession's own header lists the app's
+        // localizations, which named English for anyone whose language the
+        // screens are not translated into.
+        request.setValue(AppLocalization.language.readerLanguageCode, forHTTPHeaderField: "Accept-Language")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let data: Data

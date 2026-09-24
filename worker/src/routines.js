@@ -10,6 +10,8 @@ import { noteUsage, settleUsage } from "./ledger.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
 import { localizeForRecipient } from "./localize.js";
+import { loadCopy } from "./copy.js";
+import { serverText } from "./serverCopy.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
 import { displayName } from "./notifyCopy.js";
@@ -37,13 +39,8 @@ const MAX_RUNS_PER_TICK = 25;
 export const KINDS = ["report", "brief"];
 
 /// What the morning brief asks for, when a routine is a brief.
-const BRIEF_INSTRUCTION = {
-  en: "Brief me for the day: what is waiting on me, what has been stuck for more than two days across the team, and what was decided since yesterday.",
-  ja: "今日のブリーフ: 自分待ちの判断、チームで2日以上止まっているもの、昨日から決まったこと。",
-};
-
 export function briefInstruction(locale) {
-  return BRIEF_INSTRUCTION[locale] || BRIEF_INSTRUCTION.en;
+  return serverText(locale, "routine.briefInstruction");
 }
 
 /// A routine as the client sees it.
@@ -135,7 +132,7 @@ export function validateRoutineInput(body, { partial = false, locale = "en" } = 
 }
 
 function titleFrom(instruction, kind, locale) {
-  if (kind === "brief") return locale === "ja" ? "朝のブリーフ" : "Morning brief";
+  if (kind === "brief") return serverText(locale, "routine.briefTitle");
   const first = String(instruction).split(/[\n。.!?！？]/u)[0].trim();
   // A title starts with a capital, even when the sentence it came from
   // started mid-thought ("… summarise last week").
@@ -475,7 +472,7 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
     return { error: "not a member" };
   }
 
-  const locale = recipient.locale || "en";
+  const locale = await loadCopy(env, recipient.locale || "en", { orgId: routine.org_id });
   const provider = await providerFor(env, routine.org_id);
   const allowance = provider ? await allowanceFor(env, routine.org_id, { githubId: String(routine.owner_github_id) }) : null;
   try {

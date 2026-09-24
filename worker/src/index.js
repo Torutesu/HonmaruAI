@@ -27,7 +27,8 @@ import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured, isDeviceToken } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
 import { isMailConfigured, sendMail } from "./mailer.js";
-import { SUPPORTED_LOCALES, composeInviteEmail } from "./notifyCopy.js";
+import { SUPPORTED_LOCALES, composeInviteEmail, t } from "./notifyCopy.js";
+import { loadCopy } from "./copy.js";
 import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
@@ -308,7 +309,7 @@ async function handle(request, env, url, ctx) {
         code: minted.code,
         url: minted.link,
         days: 7,
-        locale: sender?.locale || localeFromRequest(request),
+        locale: await loadCopy(env, sender?.locale || localeFromRequest(request) || "en", { orgId: body.orgId }),
       });
       const sent = await sendMail(env, { to, subject: mail.subject, text: mail.text });
       if (!sent.ok) {
@@ -646,6 +647,9 @@ async function handle(request, env, url, ctx) {
         }
       }
       const routeProvider = allowance.allowed ? await providerFor(env, routeOrgId, userKey) : undefined;
+      // The router's own words on the card ("Approval needed") when it has no
+      // model to write them, in the reader's language.
+      if (typeof body.readerLanguage === "string") await loadCopy(env, body.readerLanguage, { orgId: routeOrgId });
       const result = await routeInstruction({
         text: body.text,
         sender: body.sender,
@@ -896,6 +900,7 @@ async function handle(request, env, url, ctx) {
       if (!session) return json({ message: "invalid session" }, 401);
       const user = await getUserByGithubId(env.DB, session.github_id);
       if (!user) return json({ message: "unknown user" }, 409);
+      const lang = await loadCopy(env, user.locale || "en");
       return json({
         login: user.login,
         userId: user.github_id,
@@ -910,6 +915,13 @@ async function handle(request, env, url, ctx) {
         aliases: parseAliases(user.aliases),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         supportedLocales: SUPPORTED_LOCALES,
+        // The words of the notification a browser tab shows by itself, in
+        // this person's language — which the page's own tables may not have.
+        notificationCopy: {
+          locale: lang,
+          newDecision: t(lang, "tabNewDecision"),
+          from: t(lang, "tabFrom", { name: "{name}" }),
+        },
         // What the router will assume you decide, and what you may change it
         // to. This is the description, not the standing: an admin who says
         // they are a designer is still an admin.

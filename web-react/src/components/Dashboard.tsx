@@ -20,7 +20,7 @@ import { Automations } from '../screens/Automations'
 import { Playbook } from '../screens/Playbook'
 import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
-import { notifyNewDecision, setTabBadge } from '../utils/notifications'
+import { notifyNewDecision, setNotificationCopy, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
 import type { AppState, Business, DecisionCard } from '../types/card'
 import './Dashboard.css'
@@ -265,8 +265,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (!res.ok) return
       const me = await res.json()
       if (Array.isArray(me.orgs)) setWorkspaces(me.orgs)
+      setNotificationCopy(me.notificationCopy)
     } catch { /* the switcher shows what it last knew */ }
-  }, [relayHttpUrl, sessionToken])
+    // Read again when the language changes, for the notification words.
+  }, [relayHttpUrl, sessionToken, localeVersion])
   useEffect(() => { void loadWorkspaces() }, [loadWorkspaces])
   useEffect(() => {
     const onChange = () => { void loadWorkspaces() }

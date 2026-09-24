@@ -578,3 +578,16 @@ CREATE TABLE IF NOT EXISTS auto_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_auto_rules ON auto_rules(org_id, recipient_login);
 
+
+/* The Worker's own words in a language nobody wrote them in by hand: one row
+   per language and catalog, written by the model the first time a reader of
+   that language needed them. `version` tags the English it was made from, so
+   a reworded catalog is translated again rather than read stale. */
+CREATE TABLE IF NOT EXISTS copy_translations (
+  locale     TEXT NOT NULL,
+  catalog    TEXT NOT NULL,
+  version    TEXT NOT NULL,
+  strings    TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (locale, catalog)
+);
