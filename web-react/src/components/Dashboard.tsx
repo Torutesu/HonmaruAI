@@ -32,6 +32,9 @@ import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { needsLocalizing } from '../utils/language'
 import { aiHeaders } from '../utils/aiKey'
 import type { Screen, Mode } from '../utils/route'
+import { playSound, soundForMessage, getOpenView, levelOf } from '../utils/sound'
+import { loadMembers, mentionedRefs } from '../utils/mentions'
+import type { ChannelMessage } from '../types/card'
 
 interface Props {
   userId: string
@@ -67,6 +70,23 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // and instead of nothing when it cannot.
   const [state, setState] = useState<AppState>(() => ({ cardsById: loadCardCache(orgId) }))
   const [isConnected, setIsConnected] = useState(false)
+  // A sound for a message that just arrived — decided here, where the
+  // socket is, so it is heard whichever view is on screen. The same event
+  // carries edits, reactions and pins; only a message new to this tab and
+  // written in the last minute is news.
+  const heard = useRef<Set<string>>(new Set())
+  const soundFor = async (message: ChannelMessage) => {
+    if (!message?.id || message.deleted || heard.current.has(message.id)) return
+    heard.current.add(message.id)
+    if (Date.now() - Date.parse(message.createdAt) > 60_000) return
+    const people = await loadMembers(relayUrl.replace(/^ws/, 'http'), orgId, sessionToken).catch(() => [])
+    const me = people.find((p) => p.mine)
+    const mine = message.mine || Boolean(me && message.authorRef === me.ref)
+    const mentionsMe = Boolean(me) && mentionedRefs(message.body || '', people).includes(me!.ref)
+    const open = getOpenView() === message.channel && document.visibilityState === 'visible' && document.hasFocus()
+    const kind = soundForMessage({ mine, channel: message.channel, mentionsMe, kind: message.kind, parentId: message.parentId }, { level: levelOf(orgId, message.channel), open })
+    if (kind) playSound(kind)
+  }
   // The relay has sent its snapshot at least once. Before that the feed says
   // it is opening, not that it is empty — "All clear" on a cold start, half a
   // second before three cards arrive, is a lie told to exactly the person who
@@ -176,6 +196,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (ignore) return
       addDebugLog(`Card created: ${card.id}`)
       if (card.recipientUserID === userId && card.status === 'pending') {
+        // Your own note to yourself does not need announcing to you.
+        if (card.senderUserID !== userId) playSound('decision')
         notifyNewDecision(card.localized?.[getLocale()]?.title || card.title || t('A decision is waiting'), card.requestedBy?.name || displayName(card.senderUserID) || t('a teammate'))
       }
     }
@@ -197,6 +219,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     wsClient.onChannelMessage = (message) => {
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: message }))
+      void soundFor(message)
     }
     wsClient.onChannelProgress = (progress) => {
       if (ignore) return

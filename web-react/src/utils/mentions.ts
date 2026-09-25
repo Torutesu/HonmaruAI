@@ -8,6 +8,9 @@ import { useEffect, useState } from 'react'
 
 export interface Mentionable {
   ref: string
+  /// This is you.
+  mine?: boolean
+  avatarUrl?: string | null
   name: string
   /// Other names they answer to, when the profile carries them.
   aliases?: string[]
@@ -103,7 +106,7 @@ export function loadMembers(httpBase: string, orgId: string, sessionToken: strin
   if (!cache.has(key)) {
     cache.set(key, fetch(`${httpBase}/members?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => (r.ok ? r.json() : { members: [] }))
-      .then((data) => (data.members || []).map((m: { ref: string; name: string; aliases?: string[]; handle?: string | null }) => ({ ref: m.ref, name: m.name, aliases: m.aliases || [], handle: m.handle || null })))
+      .then((data) => (data.members || []).map((m: { ref: string; name: string; aliases?: string[]; handle?: string | null; mine?: boolean; avatarUrl?: string | null }) => ({ ref: m.ref, name: m.name, aliases: m.aliases || [], handle: m.handle || null, mine: Boolean(m.mine), avatarUrl: m.avatarUrl || null })))
       .catch(() => { cache.delete(key); return [] }))
   }
   return cache.get(key)!

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { enableWebPush, disableWebPush, pushSupport, currentSubscription } from '../utils/push'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
+import { playSound, loadSoundSettings, saveSoundSettings, type SoundKind, type SoundSettings } from '../utils/sound'
 
 interface Props {
   httpBase: string
@@ -102,6 +103,8 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
           </div>
         </div>
 
+        <SoundRows />
+
         <div className="rows-title">{t('By email')}</div>
         <div className="rows">
           <div className="row static">
@@ -147,5 +150,51 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
         <div style={{ height: 24 }} />
       </div>
     </div>
+  )
+}
+
+/// Sounds, on this device: all of them at once, how loud, and which kinds —
+/// each with a ▶ to hear it before choosing.
+const SoundRows: React.FC = () => {
+  const t = useT()
+  const [s, setS] = useState<SoundSettings>(() => loadSoundSettings())
+  const set = (patch: Partial<SoundSettings>) => { const next = { ...s, ...patch }; setS(next); saveSoundSettings(next) }
+  const kinds: Array<{ key: keyof SoundSettings; label: string; sub: string; sample: SoundKind }> = [
+    { key: 'mentions', label: t('Direct messages and mentions'), sub: t('A knock when someone writes to you or @names you.'), sample: 'mention' },
+    { key: 'decisions', label: t('A decision for you'), sub: t('A chime when a decision lands in your feed.'), sample: 'decision' },
+    { key: 'channels', label: t('Every channel message'), sub: t('A soft drop for channels you have not muted. Off unless you want it.'), sample: 'message' },
+    { key: 'inConversation', label: t('In the conversation you are in'), sub: t('A tick, barely there, when you are already looking.'), sample: 'inConversation' },
+    { key: 'sent', label: t('Sending a direct message'), sub: t('A small swish when yours goes.'), sample: 'sent' },
+    { key: 'jam', label: t('Jams'), sub: t('Someone joining or leaving, and the ring when you are called.'), sample: 'ring' },
+  ]
+  return (
+    <>
+      <div className="rows-title">{t('Sounds')}</div>
+      <div className="rows sound-rows">
+        <div className="row static">
+          <span className="row-icon"><Icon name="bell" size={18} /></span>
+          <span className="row-main">
+            {t('Play sounds')}
+            <span className="row-sub">{t('On this device only. With the app open in several tabs, one of them plays.')}</span>
+            {s.enabled && (
+              <span className="sound-volume">
+                <input type="range" min={0} max={1} step={0.05} value={s.volume} aria-label={t('Volume')}
+                  onChange={(e) => set({ volume: Number(e.target.value) })} onMouseUp={() => playSound('mention', { preview: true })} onTouchEnd={() => playSound('mention', { preview: true })} />
+              </span>
+            )}
+          </span>
+          <button className="switch" role="switch" aria-checked={s.enabled} aria-label={t('Play sounds')} onClick={() => set({ enabled: !s.enabled })} data-sounds="1" />
+        </div>
+        {s.enabled && kinds.map((k) => (
+          <div className="row static" key={k.key}>
+            <button type="button" className="row-icon sound-preview" onClick={() => playSound(k.sample, { preview: true })} aria-label={t('Play {name}', { name: k.label })}>
+              <Icon name="send" size={14} />
+            </button>
+            <span className="row-main">{k.label}<span className="row-sub">{k.sub}</span></span>
+            <button className="switch" role="switch" aria-checked={Boolean(s[k.key])} aria-label={k.label} onClick={() => set({ [k.key]: !s[k.key] } as Partial<SoundSettings>)} />
+          </div>
+        ))}
+      </div>
+    </>
   )
 }

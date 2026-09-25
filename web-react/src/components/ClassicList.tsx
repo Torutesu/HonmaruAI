@@ -15,6 +15,7 @@ import { JamCall } from '../utils/jam'
 import type { JamMode, JamState } from '../utils/jam'
 import { InviteDialog } from './InviteDialog'
 import { Avatar } from './Avatar'
+import { playSound, setOpenView, rememberLevels } from '../utils/sound'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -194,6 +195,9 @@ export const ClassicList: React.FC<Props> = ({
   const [seenTick, setSeenTick] = useState(0)
   // How loud each conversation may be: all (the default), mentions, mute.
   const [prefs, setPrefs] = useState<Record<string, 'mentions' | 'mute'>>({})
+  // The sound for a message is decided where the socket is; it needs to
+  // know what you muted and what you are looking at.
+  useEffect(() => { rememberLevels(api.orgId, prefs) }, [api.orgId, prefs])
   // Read positions from the server: the same on the phone and the laptop.
   const [serverReads, setServerReads] = useState<Record<string, string>>({})
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
@@ -738,6 +742,8 @@ export const ClassicList: React.FC<Props> = ({
         return
       }
       const msg = data.message as ChannelMessage
+      // Sent: a small confirmation, in a direct conversation — as Slack does.
+      if (channel.startsWith('dm:')) playSound('sent')
       if (parentId) {
         setThreadDraft('')
         setThread((prev) => (prev && prev.parent.id === parentId && !prev.replies.some((x) => x.id === msg.id) ? { ...prev, replies: [...prev.replies, msg] } : prev))
@@ -805,6 +811,9 @@ export const ClassicList: React.FC<Props> = ({
 
   // Later: saved messages.
   const [laterOpen, setLaterOpen] = useState(false)
+  // Which conversation is on screen, for the sound a new message makes.
+  const openView = !activityOpen && !laterOpen ? (current?.view || null) : null
+  useEffect(() => { setOpenView(openView); return () => { setOpenView(null) } }, [openView])
   const [laterItems, setLaterItems] = useState<Array<{ id: string; remindAt: string | null; remindedAt: string | null; message: ChannelMessage }> | null>(null)
   const loadLater = useCallback(() => {
     return fetch(`${api.httpBase}/channels/later?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })

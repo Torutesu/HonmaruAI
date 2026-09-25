@@ -646,3 +646,9 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .profile-avatar-cta { background: #f2f2f2; color: #0f0f0f; border-color: #0f0f0f; } }
 :root[data-theme="dark"] .profile-avatar-cta { background: #f2f2f2; color: #0f0f0f; border-color: #0f0f0f; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Sounds: a volume, and a ▶ beside each kind to hear it. */
+.sound-volume { display: block; margin-top: 8px; }
+.sound-volume input { width: min(260px, 100%); accent-color: var(--brand-violet); }
+.sound-preview { border: none; cursor: pointer; color: inherit; }
+.sound-preview:hover { background: var(--mercury); }
