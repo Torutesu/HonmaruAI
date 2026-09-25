@@ -111,6 +111,7 @@
 .ob-demo-actions { display: flex; gap: 18px; justify-content: center; margin-top: 4px; }
 .ob-round {
   width: 58px; height: 58px; border-radius: 50%;
+  display: inline-grid; place-items: center;
   border: 1px solid var(--bone);
   background: var(--signal-white);
   font-size: 20px;

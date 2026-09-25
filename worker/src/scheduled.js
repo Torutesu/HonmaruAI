@@ -3,7 +3,7 @@ import { availableConnectors } from "./connectors/index.js";
 import { syncAll } from "./sync.js";
 import { notifyCard } from "./notify.js";
 import { sweepRateLimits } from "./ratelimit.js";
-import { cardsCreatedSince, primaryOrgId } from "./db.js";
+import { cardsCreatedSince, primaryOrgId, isMember } from "./db.js";
 import { announceCards } from "./announce.js";
 import { localizeForRecipient } from "./localize.js";
 import { providerFor } from "./orgAI.js";
@@ -33,10 +33,10 @@ const MAX_USERS_PER_RUN = 50;
 /// by session age picks the same 50 every run and the 51st user never syncs
 /// at all. Never-synced users sort first — NULLS FIRST is SQLite's default
 /// for ASC, written out anyway because that default is doing the work.
-async function candidates(db) {
+export async function candidates(db) {
   const { results } = await db
     .prepare(
-      `SELECT s.token, s.github_id, s.github_access_token, u.login, u.locale
+      `SELECT s.token, s.github_id, s.github_access_token, u.login, u.locale, st.org_id AS pull_org
        FROM sessions s
        JOIN users u ON u.github_id = s.github_id
        LEFT JOIN connector_sync_state st ON st.user_github_id = s.github_id
@@ -54,7 +54,12 @@ async function candidates(db) {
   // everybody was in exactly one organization, and wrong the moment joining a
   // team became ordinary. One extra read per user, at most fifty a run.
   const withOrg = await Promise.all(
-    (results || []).map(async (row) => ({ ...row, org_id: await primaryOrgId(db, row.github_id) }))
+    (results || []).map(async ({ pull_org: pullOrg, ...row }) => ({
+      ...row,
+      // The workspace the person pulled into themselves, while they are
+      // still in it; otherwise the one a sign-in would open.
+      org_id: (pullOrg && (await isMember(db, pullOrg, row.github_id))) ? pullOrg : await primaryOrgId(db, row.github_id),
+    }))
   );
   return withOrg.filter((row) => row.org_id && row.login);
 }

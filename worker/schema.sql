@@ -287,7 +287,11 @@ CREATE TABLE IF NOT EXISTS ai_usage (
    window that moves rather than a wall the 51st user never gets past. */
 CREATE TABLE IF NOT EXISTS connector_sync_state (
   user_github_id TEXT PRIMARY KEY,
-  synced_at      TEXT NOT NULL
+  synced_at      TEXT NOT NULL,
+  /* The workspace this person pulls their own tools into: the one they last
+     pressed "Pull now" in. Each person's Gmail, Slack and Notion are theirs,
+     and so is where they land. */
+  org_id         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS entitlements (

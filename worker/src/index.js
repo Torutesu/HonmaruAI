@@ -4,7 +4,7 @@ import { signup, login, createInvite, acceptInvite, isGitHubSession, inviteLink,
 import { requestCode, verifyCode } from "./otp.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
-  getConnectorConfig, setConnectorConfig, createOAuthState, consumeOAuthState,
+  getConnectorConfig, setConnectorConfig, rememberPullWorkspace, pullWorkspaceOf, createOAuthState, consumeOAuthState,
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
   saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
@@ -52,7 +52,8 @@ import { primaryLanguage, languageName } from "./language.js";
 import { connectedSources, lookupsFor, searchNotion, searchGithubIssues } from "./context.js";
 import { ingestedItemForCard } from "./db.js";
 import { alert } from "./alert.js";
-import { listCardEvents, listOrgEvents, appendCardEvent } from "./events.js";
+import { serverText } from "./serverCopy.js";
+import { listCardEvents, listOrgEvents, appendCardEvent, withActorNames } from "./events.js";
 import { listComments, addComment, listReactions, toggleReaction, REACTIONS, MAX_COMMENT_CHARS } from "./threads.js";
 import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
@@ -635,8 +636,12 @@ async function handle(request, env, url, ctx) {
       }
 
       if (chosenMember) {
+        // The sender too, so the card names them as they go by here rather
+        // than by a name made from their login.
+        const self = routeMembers.find((m) => m.mine && m.login !== chosenMember.login);
         organization = { ...organization, nodes: [{ id: chosenMember.login, kind: "person",
-          role: chosenMember.title || chosenMember.role, label: `${chosenMember.name} · ${chosenMember.title || chosenMember.role}` }], edges: [] };
+          role: chosenMember.title || chosenMember.role, label: `${chosenMember.name} · ${chosenMember.title || chosenMember.role}` },
+          ...(self ? [{ id: self.login, kind: "person", role: self.title || self.role, label: `${self.name} · ${self.title || self.role}` }] : [])], edges: [] };
       }
       // The sender's own "how I work", from the workspace's stored row when
       // the client did not carry it — a browser that never wrote one locally
@@ -674,8 +679,11 @@ async function handle(request, env, url, ctx) {
       });
       if (chosenMember) {
         result.recipientUserID = chosenMember.login;
-        result.routingReason = "Selected by you";
-        result.agentRoute = `${body.sender?.name || "You"} → ${chosenMember.name}`;
+        result.routingReason = serverText(typeof body.readerLanguage === "string" ? body.readerLanguage : "en", "route.selectedByYou");
+        // The name this person goes by here, not the one a client made up
+        // from the login.
+        const me = routeMembers.find((m) => m.mine);
+        result.agentRoute = `${me?.name || body.sender?.name || "You"} → ${chosenMember.name}`;
       }
       if (body.memberReferences === true) {
         const recipient = routeMembers.find(m => m.login === result.recipientUserID);
@@ -1183,7 +1191,7 @@ async function handle(request, env, url, ctx) {
       const orgId = `${owner}/${repo}`;
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
-      return json({ events: await listCardEvents(env.DB, orgId, cardId) });
+      return json({ events: await withActorNames(env.DB, await listCardEvents(env.DB, orgId, cardId)) });
     }
     if (url.pathname === "/connectors" && request.method === "GET") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -1208,10 +1216,15 @@ async function handle(request, env, url, ctx) {
       } catch (err) {
         console.error("remembering connections failed", err?.message || err);
       }
+      // Where this person's pulls land. Each person's tools are their own,
+      // and so is the workspace they feed — named, so the screen can say so.
+      const kept = await pullWorkspaceOf(env.DB, session.github_id);
+      const pullOrg = kept && (await isMember(env.DB, kept, session.github_id)) ? kept : await primaryOrgId(env.DB, session.github_id);
       return json({
         connectors: availableConnectors(env).map((c) => ({
           id: c.id, label: c.label, status: active.has(c.id) ? "active" : "none",
         })),
+        pullsInto: pullOrg ? { orgId: pullOrg, name: await teamName(env.DB, pullOrg).catch(() => null) } : null,
       });
     }
 
@@ -1400,6 +1413,9 @@ async function handle(request, env, url, ctx) {
       // `body.userId` is still read by older builds' payloads; it is ignored.
       const me = await getUserByGithubId(env.DB, session.github_id);
       if (!me?.login) return json({ message: "unknown user" }, 409);
+      // Where this person's own tools land from now on, the scheduled pull
+      // included: the workspace they pulled from, not one guessed for them.
+      await rememberPullWorkspace(env.DB, session.github_id, body.orgId);
 
       // A single-connector path keeps TestFlight build 28 working; it shipped
       // calling /connectors/gmail/sync and returns the flat shape.
@@ -1763,7 +1779,7 @@ async function handle(request, env, url, ctx) {
       if (!orgId) return json({ message: "orgId is required" }, 400);
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
-      return json({ events: await listCardEvents(env.DB, orgId, cardId) });
+      return json({ events: await withActorNames(env.DB, await listCardEvents(env.DB, orgId, cardId)) });
     }
 
     // What a person thought of a card. The one signal that turns "the AI

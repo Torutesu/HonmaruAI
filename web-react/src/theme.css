@@ -581,7 +581,7 @@
 }
 .ws-button:hover { background: var(--mercury); }
 .ws-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-caret { font-size: 11px; color: var(--ash); font-weight: 400; flex: none; }
+.ws-caret { display: inline-grid; place-items: center; color: var(--ash); flex: none; }
 .ws-mark { flex: none; border-radius: 9px; object-fit: cover; display: block; }
 .ws-mark-letter {
   display: grid; place-items: center; background: var(--onyx); color: var(--signal-white);

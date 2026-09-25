@@ -103,3 +103,20 @@ test("the run sweeps expired nonces and stale counters", async () => {
   expect(await env.DB.prepare("SELECT state FROM oauth_states WHERE state = 'stale-nonce'").first()).toBeNull();
   expect(await env.DB.prepare("SELECT count FROM rate_limits WHERE window_start = 0").first()).toBeNull();
 });
+
+test("each person's own tools are pulled into the workspace they pulled from, while they are in it", async () => {
+  const { upsertMembership, rememberPullWorkspace } = await import("../src/db.js");
+  const { candidates } = await import("../src/scheduled.js");
+  const orgOf = async (login) => (await candidates(env.DB)).find((r) => r.login === login)?.org_id;
+  // Two teams; by default the first one joined.
+  await upsertMembership(env.DB, "team/b", "7004", "Member");
+  await upsertMembership(env.DB, "team/b", "7002", "Member");
+  expect(await orgOf("mailer")).toBe("acme/app");
+  // Pulled from the second: from then on, there — and nobody else moves.
+  await rememberPullWorkspace(env.DB, "7004", "team/b");
+  expect(await orgOf("mailer")).toBe("team/b");
+  expect(await orgOf("connected")).toBe("acme/app");
+  // Left it: back to where a sign-in would open.
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = 'team/b' AND user_github_id = '7004'").run();
+  expect(await orgOf("mailer")).toBe("acme/app");
+});

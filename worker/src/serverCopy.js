@@ -6,6 +6,7 @@ import { registerCatalog } from "./copy.js";
 // the languages below; any other is learned by copy.js on first use.
 
 const EN = {
+  "route.selectedByYou": "Selected by you",
   "channel.failed": "Could not make that a decision. Try again.",
   "channel.failedBecause": "Could not make that a decision: {reason}",
   "channel.you": "you",
@@ -76,6 +77,7 @@ const EN = {
 };
 
 const JA = {
+  "route.selectedByYou": "あなたが選択",
   "channel.failed": "決定カードにできませんでした。もう一度試してください。",
   "channel.failedBecause": "決定カードにできませんでした: {reason}",
   "channel.you": "あなた",
@@ -146,6 +148,7 @@ const JA = {
 };
 
 const ES = {
+  "route.selectedByYou": "Elegido por ti",
   "channel.failed": "No se pudo convertir en una decisión. Inténtalo de nuevo.",
   "channel.failedBecause": "No se pudo convertir en una decisión: {reason}",
   "channel.you": "ti",
@@ -216,6 +219,7 @@ const ES = {
 };
 
 const FR = {
+  "route.selectedByYou": "Choisi par vous",
   "channel.failed": "Impossible d'en faire une décision. Réessayez.",
   "channel.failedBecause": "Impossible d'en faire une décision : {reason}",
   "channel.you": "vous",
@@ -286,6 +290,7 @@ const FR = {
 };
 
 const DE = {
+  "route.selectedByYou": "Von dir ausgewählt",
   "channel.failed": "Daraus konnte keine Entscheidung werden. Versuch es noch einmal.",
   "channel.failedBecause": "Daraus konnte keine Entscheidung werden: {reason}",
   "channel.you": "dich",

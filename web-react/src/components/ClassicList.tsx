@@ -28,7 +28,6 @@ const ACTION_WORD: Record<string, string> = {
 const actionWord = (value?: string) => (value ? ACTION_WORD[value] || value : '')
 
 /// The recipient's name when the relay stamped one, else their login.
-const recipientNameOf = (c: DecisionCard) => (c as DecisionCard & { recipientName?: string }).recipientName || c.recipientUserID
 
 export type Presence = Record<string, 'online' | 'offline'>
 
@@ -169,7 +168,13 @@ export const ClassicList: React.FC<Props> = ({
   const t = useT()
   const locale = getLocale()
   const titleOf = (c: DecisionCard) => c.localized?.[locale]?.title || c.title
-  const summaryOf = (c: DecisionCard) => c.localized?.[locale]?.summary || c.summary
+  /// The summary, unless it only repeats the title — which it does for a
+  /// card written without a model, where both are the person's own words.
+  const summaryOf = (c: DecisionCard) => {
+    const text = c.localized?.[locale]?.summary || c.summary
+    const flat = (x?: string | null) => String(x || '').replace(/\s+/g, ' ').trim()
+    return text && flat(text) !== flat(titleOf(c)) ? text : ''
+  }
   const nameOfBusiness = (slug?: string) => businesses.find((b) => b.slug === slug)?.name || slug || ''
   const isMine = (c: DecisionCard) => c.senderUserID === userId && c.recipientUserID !== userId
   const isUnread = (c: DecisionCard) => c.status === 'pending' && c.recipientUserID === userId
@@ -493,11 +498,11 @@ export const ClassicList: React.FC<Props> = ({
             if (!m) return null
             return <>{m.status?.emoji && <span className="cl-status" title={m.status.text || ''}>{m.status.emoji}</span>}{m.awayUntil && <span className="cl-away" title={t('Away until {when}', { when: new Date(m.awayUntil).toLocaleDateString(locale) })}>{t('away')}</span>}</>
           })()}
-          {thread.view && prefs[thread.view] === 'mute' && <span className="cl-muted" aria-label={t('Muted')}>🔕</span>}
+          {thread.view && prefs[thread.view] === 'mute' && <span className="cl-muted" role="img" aria-label={t('Muted')}><Icon name="bell-off" size={13} /></span>}
           {thread.view && (mentionsIn[thread.view] || 0) > 0 && thread.unread === 0 && <span className="cl-badge mention">@{mentionsIn[thread.view]}</span>}
           {thread.unread > 0 && <span className="cl-badge">{thread.unread}</span>}
           {thread.unread === 0 && thread.fresh && !on && <span className="cl-fresh" aria-label={t('New messages')} />}
-          {!on && thread.view && drafts[thread.view] && <span className="cl-draft" title={t('Draft')} aria-label={t('Draft')}>✏️</span>}
+          {!on && thread.view && drafts[thread.view] && <span className="cl-draft" title={t('Draft')} aria-label={t('Draft')}><Icon name="edit" size={12} /></span>}
         </button>
       </li>
     )
@@ -510,7 +515,7 @@ export const ClassicList: React.FC<Props> = ({
       <section className={`cl-section${shut ? ' folded' : ''}`}>
         <h2>
           <button className="cl-fold" onClick={() => setFolded((p) => ({ ...p, [id]: !p[id] }))} aria-expanded={!shut}>
-            <span className="cl-caret" aria-hidden="true">{shut ? '▸' : '▾'}</span>
+            <span className="cl-caret" aria-hidden="true"><Icon name={shut ? 'chevron-right' : 'chevron-down'} size={12} /></span>
             {label}
             {shut && unread > 0 && <span className="cl-badge">{unread}</span>}
           </button>
@@ -1167,21 +1172,33 @@ export const ClassicList: React.FC<Props> = ({
 
   /// Who a decision is from, as the message's author: the app it came in
   /// through, your AI for one you routed to yourself, else the person.
+  /// A person as the list names them: the name they go by in this
+  /// workspace, never the login a card carries ("Gotawazumi4").
+  const nameOfLogin = (login?: string | null) => {
+    if (!login) return ''
+    const h = hashes.get(login)
+    const m = h ? members.find((x) => x.loginHash === h) : undefined
+    return m?.name || properName(login)
+  }
+  const nameOfRecipient = (c: DecisionCard) => (c as DecisionCard & { recipientName?: string }).recipientName || nameOfLogin(c.recipientUserID)
+  const myName = members.find((m) => m.mine)?.name || ''
+
   const author = (c: DecisionCard) => {
     const app = appKey(c)
     if (app) return { name: app === 'ai' ? t('Your AI') : (APP_NAME[app] ? t(APP_NAME[app]) : c.sourceApp!), app, initial: '' }
     if (c.senderUserID === userId && c.recipientUserID === userId) return { name: t('Your AI'), app: 'ai', initial: '' }
-    const name = c.senderUserID === userId ? t('You') : (c.requestedBy?.name || properName(c.senderUserID))
-    return { name, app: '', initial: name.charAt(0).toUpperCase() }
+    const mine = c.senderUserID === userId
+    const name = mine ? t('You') : (c.requestedBy?.name || nameOfLogin(c.senderUserID))
+    return { name, app: '', initial: ((mine && myName) || name).charAt(0).toUpperCase() }
   }
 
   const status = (c: DecisionCard) => {
     if (c.status === 'pending') {
       if (c.recipientUserID === userId) return { tone: 'waiting', text: t('Waiting on you') }
-      return { tone: 'sent', text: t('Waiting on {name}', { name: properName(recipientNameOf(c)) }) }
+      return { tone: 'sent', text: t('Waiting on {name}', { name: nameOfRecipient(c) }) }
     }
     const decider = c.decision?.actorUserID
-    const who = decider === userId ? t('you') : properName(decider || c.recipientUserID)
+    const who = decider === userId ? t('you') : nameOfLogin(decider || c.recipientUserID)
     return { tone: c.status === 'rejected' ? 'declined' : 'decided', text: t('{action} by {name}', { action: t(actionWord(c.decision?.action || c.status)), name: who }) }
   }
 
@@ -1246,14 +1263,14 @@ export const ClassicList: React.FC<Props> = ({
 
   /// One block of a conversation: a gutter, a name and a time — or, joined
   /// to the one before, just the words — then what was said.
-  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean; authorRef?: string | null }, body: React.ReactNode) => (
+  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; initial?: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean; authorRef?: string | null }, body: React.ReactNode) => (
     <article key={key} id={opts.msgId ? `msg-${opts.msgId}` : undefined} tabIndex={opts.msgId ? -1 : undefined}
       className={`slk-msg${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}${opts.msgId && toolsOpen === opts.msgId ? ' tools-open' : ''}${opts.msgId && editing?.id === opts.msgId ? ' editing' : ''}${opts.pinned ? ' pinned' : ''}${opts.msgId && flash === opts.msgId ? ' flash' : ''}`}>
       <div className="slk-gutter" aria-hidden="true">
-        {opts.joined ? <span className="slk-hover-time">{clock(opts.at)}</span> : avatarFor(opts.app, opts.name.charAt(0).toUpperCase())}
+        {opts.joined ? <span className="slk-hover-time">{clock(opts.at)}</span> : avatarFor(opts.app, opts.initial || opts.name.charAt(0).toUpperCase())}
       </div>
       <div className="slk-body">
-        {opts.pinned && <div className="slk-pin-mark">📌 {t('Pinned')}</div>}
+        {opts.pinned && <div className="slk-pin-mark"><Icon name="pin" size={12} /> {t('Pinned')}</div>}
         {!opts.joined && (
           <div className="slk-meta">
             {opts.authorRef
@@ -1371,8 +1388,8 @@ export const ClassicList: React.FC<Props> = ({
   const laterView = () => (
     <>
       <header className="slk-head">
-        <button className="slk-back" onClick={() => setLaterOpen(false)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
-        <span className="cl-lead cl-app sz-head" aria-hidden="true">🔖</span>
+        <button className="slk-back" onClick={() => setLaterOpen(false)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
+        <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bookmark" size={16} /></span>
         <div className="slk-head-text">
           <h1>{t('Later')}</h1>
           <p>{t('Messages you saved to come back to. A reminder brings one back to your feed as a card.')}</p>
@@ -1381,7 +1398,7 @@ export const ClassicList: React.FC<Props> = ({
       <div className="slk-log slk-activity">
         {laterItems && laterItems.length === 0 && (
           <div className="slk-start">
-            <span className="cl-lead cl-app sz-head" aria-hidden="true">🔖</span>
+            <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bookmark" size={16} /></span>
             <h2>{t('Nothing saved')}</h2>
             <p>{t('Pick “Save for later” from any message’s ⋯ menu.')}</p>
           </div>
@@ -1415,7 +1432,7 @@ export const ClassicList: React.FC<Props> = ({
     return (
       <>
         <header className="slk-head">
-          <button className="slk-back" onClick={() => setActivityOpen(false)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+          <button className="slk-back" onClick={() => setActivityOpen(false)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
           <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
           <div className="slk-head-text">
             <h1>{t('Activity')}</h1>
@@ -1479,8 +1496,8 @@ export const ClassicList: React.FC<Props> = ({
         const c = item.card
         const who = author(c)
         const joined = prevWho === `card:${who.name}` && at - prevAt < 5 * 60000
-        const to = c.senderUserID === userId && c.recipientUserID !== userId ? properName(recipientNameOf(c)) : ''
-        out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, to, unread: isUnread(c) }, attachment(c)))
+        const to = c.senderUserID === userId && c.recipientUserID !== userId ? nameOfRecipient(c) : ''
+        out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, initial: who.initial || undefined, to, unread: isUnread(c) }, attachment(c)))
         prevWho = `card:${who.name}`
       } else {
         const m = item.msg
@@ -1498,7 +1515,7 @@ export const ClassicList: React.FC<Props> = ({
           const joined = prevWho === whoKey && at - prevAt < 5 * 60000
           const name = m.mine ? t('You') : (m.authorName || t('a teammate'))
           out.push(block(m.id, {
-            joined: joined && !m.pinned, at: m.createdAt, app: '', name, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
+            joined: joined && !m.pinned, at: m.createdAt, app: '', name, initial: m.mine && myName ? myName.charAt(0).toUpperCase() : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
             tools: toolsFor(thread.view!, m),
           }, (
             <>
@@ -1520,7 +1537,7 @@ export const ClassicList: React.FC<Props> = ({
       <>
         <header className="slk-head">
           <button className="slk-back" onClick={() => choose(null)} aria-label={t('Back')}>
-            <span aria-hidden="true">‹</span>
+            <Icon name="chevron-left" size={20} />
           </button>
           {lead(thread, 'head')}
           <div className="slk-head-text">
@@ -1572,19 +1589,18 @@ export const ClassicList: React.FC<Props> = ({
                   onLeave={() => void leaveJam()}
                 />
               )}
+              <button
+                type="button"
+                className={`slk-head-btn slk-pins-button${pins ? ' on' : ''}`}
+                onClick={() => void loadPins(thread.view!)}
+                aria-label={t('Pinned messages')}
+                aria-expanded={Boolean(pins)}
+                title={t('Pinned messages')}
+              >
+                <Icon name="pin" size={14} />
+                {(messages[thread.view] || []).filter((m) => m.pinned).length > 0 && <span>{(messages[thread.view] || []).filter((m) => m.pinned).length}</span>}
+              </button>
             </div>
-          )}
-          {thread.view && (
-            <button
-              className={`slk-pins-button${pins ? ' on' : ''}`}
-              onClick={() => void loadPins(thread.view!)}
-              aria-label={t('Pinned messages')}
-              aria-expanded={Boolean(pins)}
-              title={t('Pinned messages')}
-            >
-              <span aria-hidden="true">📌</span>
-              {(messages[thread.view] || []).filter((m) => m.pinned).length > 0 && <span>{(messages[thread.view] || []).filter((m) => m.pinned).length}</span>}
-            </button>
           )}
           {thread.kind === 'channel' && thread.slug && (
             <button
@@ -1593,7 +1609,7 @@ export const ClassicList: React.FC<Props> = ({
               aria-label={t('Channel settings')}
               aria-expanded={settings}
             >
-              <span aria-hidden="true">⋯</span>
+              <Icon name="more" size={16} />
             </button>
           )}
         </header>
@@ -1601,7 +1617,7 @@ export const ClassicList: React.FC<Props> = ({
           <div className="slk-pins" role="dialog" aria-label={t('Pinned messages')}>
             <div className="slk-pins-head">
               <b>{t('Pinned messages')}</b>
-              <button type="button" className="slk-pane-close" onClick={() => setPins(null)} aria-label={t('Close')}>×</button>
+              <button type="button" className="slk-pane-close" onClick={() => setPins(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
             </div>
             {pins.length === 0 && <p className="slk-empty">{t('Nothing pinned yet. Pin a message from its ⋯ menu to keep it here.')}</p>}
             <ul>
@@ -1738,7 +1754,7 @@ export const ClassicList: React.FC<Props> = ({
                     ))}
                   {aiSamples !== null && (
                     <button type="button" className="slk-samples-more" onClick={() => void loadSamples(true)} disabled={samplesBusy}>
-                      <span aria-hidden="true">↻</span> {t('Other suggestions')}
+                      <Icon name="refresh" size={13} /> {t('Other suggestions')}
                     </button>
                   )}
                 </div>
@@ -1750,7 +1766,7 @@ export const ClassicList: React.FC<Props> = ({
             <div key={n.id} className="slk-note-row" role="status">
               <span className="slk-note-only">{t('Only visible to you')}</span>
               <span>{n.text}</span>
-              <button type="button" onClick={() => setNotes((prev) => ({ ...prev, [thread.view!]: (prev[thread.view!] || []).filter((x) => x.id !== n.id) }))} aria-label={t('Dismiss')}>×</button>
+              <button type="button" onClick={() => setNotes((prev) => ({ ...prev, [thread.view!]: (prev[thread.view!] || []).filter((x) => x.id !== n.id) }))} aria-label={t('Dismiss')}><Icon name="x" size={12} /></button>
             </div>
           ))}
           {thread.view && aiSteps(thinking[thread.view])}
@@ -1762,8 +1778,8 @@ export const ClassicList: React.FC<Props> = ({
             <>
               {clip.length > 0 && (
                 <div className="slk-clip" role="region" aria-label={t('Clip')}>
-                  <span className="slk-clip-count">📎 {t('{n} messages clipped', { n: clip.length })}</span>
-                  <span className="slk-clip-list">{clip.map((c) => <span key={c.id} className="slk-clip-chip" title={c.body}>{c.who}: {c.body.slice(0, 30)}<button type="button" onClick={() => setClip((p) => p.filter((x) => x.id !== c.id))} aria-label={t('Remove')}>×</button></span>)}</span>
+                  <span className="slk-clip-count"><Icon name="paperclip" size={13} /> {t('{n} messages clipped', { n: clip.length })}</span>
+                  <span className="slk-clip-list">{clip.map((c) => <span key={c.id} className="slk-clip-chip" title={c.body}>{c.who}: {c.body.slice(0, 30)}<button type="button" onClick={() => setClip((p) => p.filter((x) => x.id !== c.id))} aria-label={t('Remove')}><Icon name="x" size={11} /></button></span>)}</span>
                   <button type="button" className="slk-send ai" onClick={() => void sendClip(thread.view!)}>{t('Make one decision')}</button>
                   <button type="button" className="cl-nudge" onClick={() => setClip([])}>{t('Clear')}</button>
                 </div>
@@ -1771,7 +1787,7 @@ export const ClassicList: React.FC<Props> = ({
               {here.length > 0 && (
                 <div className="slk-scheduled">
                   <button type="button" className="slk-scheduled-toggle" onClick={() => setScheduledOpen((o) => !o)} aria-expanded={scheduledOpen}>
-                    ⏰ {here.length === 1 ? t('1 scheduled message') : t('{n} scheduled messages', { n: here.length })}
+                    <Icon name="clock" size={13} /> {here.length === 1 ? t('1 scheduled message') : t('{n} scheduled messages', { n: here.length })}
                   </button>
                   {scheduledOpen && (
                     <ul>
@@ -1840,7 +1856,7 @@ export const ClassicList: React.FC<Props> = ({
                   <Icon name="send" size={16} />
                 </button>
                 <button type="button" className="slk-send more" disabled={sending || !draft.trim() || draft.trim().startsWith('/')} onClick={() => setScheduleOpen((o) => !o)} aria-label={t('Schedule message')} title={t('Schedule message')} aria-expanded={scheduleOpen}>
-                  <span aria-hidden="true">⌄</span>
+                  <Icon name="chevron-down" size={14} />
                 </button>
                 {scheduleOpen && <SchedulePicker onPick={(at) => void sendAtTime(thread.view!, at)} onClose={() => setScheduleOpen(false)} />}
               </span>
@@ -1901,14 +1917,14 @@ export const ClassicList: React.FC<Props> = ({
       <div className="slk-onboard-head">
         <b>{t('Getting started')}</b>
         <span>{stepsDone}/{steps.length}</span>
-        <button type="button" onClick={() => { try { localStorage.setItem(onboardKey, '1') } catch {}; setOnboardHidden(true) }} aria-label={t('Hide')}>×</button>
+        <button type="button" onClick={() => { try { localStorage.setItem(onboardKey, '1') } catch {}; setOnboardHidden(true) }} aria-label={t('Hide')}><Icon name="x" size={14} /></button>
       </div>
       <div className="slk-onboard-bar"><i style={{ width: `${(stepsDone / steps.length) * 100}%` }} /></div>
       <ul>
         {steps.map((x) => (
           <li key={x.id} className={x.done ? 'done' : ''}>
             <button type="button" onClick={x.go} disabled={x.done} data-step={x.id}>
-              <span aria-hidden="true">{x.done ? '✓' : '○'}</span>{x.label}
+              <span className="cl-step-mark" aria-hidden="true">{x.done ? <Icon name="check" size={12} /> : null}</span>{x.label}
             </button>
           </li>
         ))}
@@ -1923,7 +1939,7 @@ export const ClassicList: React.FC<Props> = ({
           {workspaceMenu || (
             <button className="cl-workspace" onClick={onWorkspace} aria-label={t('Team')}>
               <span className="cl-workspace-name">{orgName || t('Your team')}</span>
-              <span className="cl-caret" aria-hidden="true">▾</span>
+              <span className="cl-caret" aria-hidden="true"><Icon name="chevron-down" size={12} /></span>
             </button>
           )}
           <div className="cl-top-actions">
@@ -1948,7 +1964,7 @@ export const ClassicList: React.FC<Props> = ({
             </li>
             <li className={`cl-row cl-thread${laterOpen ? ' on' : ''}`}>
               <button className="cl-open" onClick={() => { setOpenKey(null); setActivityOpen(false); setLaterOpen(true); void loadLater() }} aria-current={laterOpen ? 'true' : undefined} data-later="1">
-                <span className="cl-lead cl-app sz-row" aria-hidden="true">🔖</span>
+                <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="bookmark" size={13} /></span>
                 <span className="cl-title">{t('Later')}</span>
                 {(laterItems || []).length > 0 && <span className="cl-count">{laterItems!.length}</span>}
               </button>
@@ -1967,11 +1983,11 @@ export const ClassicList: React.FC<Props> = ({
       {detail && (
         <aside className="slk-pane" aria-label={t('Decision')}>
           <header className="slk-pane-head">
-            <button className="slk-back pane" onClick={() => setDetailId(null)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+            <button className="slk-back pane" onClick={() => setDetailId(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Decision')}</h2>
             {detail.business && <span className="slk-pane-where">#{nameOfBusiness(detail.business)}</span>}
             <button className="slk-pane-feed" onClick={() => onOpen(detail.id)} title={t('Open in Cards')}>{t('Open in Cards')}</button>
-            <button className="slk-pane-close" onClick={() => setDetailId(null)} aria-label={t('Close')}>×</button>
+            <button className="slk-pane-close" onClick={() => setDetailId(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
           </header>
           <div className="slk-pane-body">{renderCard(detail)}</div>
         </aside>
@@ -1979,9 +1995,9 @@ export const ClassicList: React.FC<Props> = ({
       {!detail && !thread && profile && (
         <aside className="slk-pane slk-profile" aria-label={t('Profile')}>
           <header className="slk-pane-head">
-            <button className="slk-back pane" onClick={() => setProfile(null)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+            <button className="slk-back pane" onClick={() => setProfile(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Profile')}</h2>
-            <button className="slk-pane-close" onClick={() => setProfile(null)} aria-label={t('Close')}>×</button>
+            <button className="slk-pane-close" onClick={() => setProfile(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
           </header>
           {!profile.data ? <p className="slk-empty">{t('Loading…')}</p> : (() => {
             const p = profile.data
@@ -1995,7 +2011,7 @@ export const ClassicList: React.FC<Props> = ({
                 <p className="slk-profile-title">{t(p.title.charAt(0).toUpperCase() + p.title.slice(1))}</p>
                 {p.status && <p className="slk-profile-status">{p.status.emoji} {p.status.text}</p>}
                 {p.awayUntil && <p className="slk-profile-away">{t('Away until {when}', { when: new Date(p.awayUntil).toLocaleDateString(locale, { month: 'short', day: 'numeric' }) })}</p>}
-                {local && <p className="slk-profile-local">🕒 {t('{time} local time', { time: local })}</p>}
+                {local && <p className="slk-profile-local"><Icon name="clock" size={13} /> {t('{time} local time', { time: local })}</p>}
                 <dl className="slk-profile-stats">
                   <div><dt>{t('Waiting on them')}</dt><dd>{p.stats.waiting}</dd></div>
                   <div><dt>{t('Decided (90 days)')}</dt><dd>{p.stats.decided90d}</dd></div>
@@ -2041,10 +2057,10 @@ export const ClassicList: React.FC<Props> = ({
       {!detail && thread && (
         <aside className="slk-pane slk-thread-pane" aria-label={t('Thread')}>
           <header className="slk-pane-head">
-            <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
+            <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Thread')}</h2>
             {current && <span className="slk-pane-where">{current.kind === 'channel' ? `#${current.name}` : current.name}</span>}
-            <button className="slk-pane-close" onClick={() => setThread(null)} aria-label={t('Close')}>×</button>
+            <button className="slk-pane-close" onClick={() => setThread(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
           </header>
           <div className="slk-thread-log">
             {[thread.parent, ...thread.replies].map((m, i) => (
@@ -2052,6 +2068,7 @@ export const ClassicList: React.FC<Props> = ({
                 {block(m.id, {
                   joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : undefined,
                   name: m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate')),
+                  initial: m.kind !== 'ai' && m.mine && myName ? myName.charAt(0).toUpperCase() : undefined,
                   msgId: i === 0 ? `thread-${m.id}` : m.id,
                   tools: toolsFor(thread.channel, m, true),
                 }, (

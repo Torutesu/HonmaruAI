@@ -608,11 +608,6 @@
 
 /* Pins: a popover under the conversation's head. */
 .classic.slk.slk .slk-head { position: relative; }
-.classic.slk.slk .slk-pins-button {
-  flex: none; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px;
-  border: 1px solid var(--slk-line); border-radius: 8px; background: none; cursor: pointer; font-size: 12.5px; color: var(--slk-dim);
-}
-.classic.slk.slk .slk-pins-button.on, .classic.slk.slk .slk-pins-button:hover { background: var(--slk-hover); color: var(--slk-ink); }
 .classic.slk.slk .slk-pins {
   flex: none; margin: 8px 16px 0; max-height: 280px; overflow-y: auto;
   border: 1px solid var(--slk-line); border-radius: 10px; background: var(--slk-bg);
@@ -917,3 +912,51 @@
   .classic.slk.slk .slk-jam-more { display: none; }
   .classic.slk.slk .slk-jam-button { border-radius: 8px; }
 }
+
+/* ---- One set of icons ----
+
+   The chat surface was drawn with whatever glyph was nearest: a red 📌 in
+   the header beside three line icons, a red 🔖 for Later, 🎧 for a Jam, ⋯ ▾ ›
+   in the system font. They are the Feather line icons now (Icon.tsx), so
+   every control sits on the same optical centre in the same stroke and
+   takes its colour from the text around it. */
+.classic.slk.slk svg { flex: none; }
+.classic.slk.slk .slk-tool svg,
+.classic.slk.slk .slk-more svg,
+.classic.slk.slk .slk-back svg,
+.classic.slk.slk .slk-pane-close svg { display: block; }
+.classic.slk.slk .slk-tool { color: var(--slk-dim); }
+.classic.slk.slk .slk-tool:hover, .classic.slk.slk .slk-tool.on { color: var(--slk-ink); }
+.classic.slk.slk .slk-tool.on { background: var(--slk-hover); }
+.classic.slk.slk .slk-reaction.add { display: inline-flex; align-items: center; gap: 1px; padding: 2px 7px; font-weight: 700; }
+.classic.slk.slk .slk-pin-mark { display: inline-flex; align-items: center; gap: 4px; }
+.classic.slk.slk .slk-pin-mark svg { color: var(--slk-amber); }
+.classic.slk.slk .cl-caret { display: inline-grid; place-items: center; width: 14px; }
+.classic.slk.slk .cl-muted, .classic.slk.slk .cl-draft { display: inline-grid; place-items: center; color: var(--slk-faint); flex: none; }
+.classic.slk.slk .slk-fmt svg { display: block; }
+.classic.slk.slk .slk-samples-more, .classic.slk.slk .slk-clip-count, .classic.slk.slk .slk-scheduled-toggle,
+.classic.slk.slk .slk-profile-local, .classic.slk.slk .slk-jlink { display: inline-flex; align-items: center; gap: 5px; }
+.classic.slk.slk .slk-select > svg { color: var(--slk-dim); }
+.classic.slk.slk .slk-jam-more { font-size: inherit; }
+/* A step to do is an empty ring; a step done, a green tick in its place. */
+.classic.slk.slk .cl-step-mark {
+  display: inline-grid; place-items: center; width: 14px; height: 14px; margin-top: 2px;
+  border: 1.5px solid var(--slk-dim); border-radius: 50%; box-sizing: border-box; flex: none;
+}
+.classic.slk.slk .done .cl-step-mark { border-color: transparent; color: var(--slk-green); }
+.classic.slk.slk .done .cl-step-mark svg { width: 14px; height: 14px; stroke-width: 3; }
+
+/* Presence: a dot cut out of whatever the avatar sits on. On the picked
+   row that is the light bar, and a dark ring there read as a smudge. */
+.classic.slk.slk .cl-presence { width: 10px; height: 10px; right: -3px; bottom: -3px; border-width: 1.5px; }
+.shell .classic.slk.slk .slk-side .cl-thread.on .cl-presence { box-shadow: 0 0 0 2px #e9e8ea; background: #e9e8ea; border-color: #616061; }
+.shell .classic.slk.slk .slk-side .cl-thread.on .cl-presence.on { background: var(--slk-green); border-color: var(--slk-green); }
+
+/* A decision in the side pane: the buttons keep their words on one line,
+   and the swipe hint goes under them when there is no room beside. */
+.classic.slk.slk .slk-pane .decide-row { flex-wrap: wrap; row-gap: 8px; }
+.classic.slk.slk .slk-pane .decide { white-space: nowrap; flex: none; }
+.classic.slk.slk .slk-pane .decide::after { white-space: nowrap; }
+.classic.slk.slk .slk-pane .swipe-hint-desk { flex: 1 1 100%; margin: 0 0 0 4px; }
+/* Everyone in the list is a rounded square, the one who asked included. */
+.classic.slk.slk .slk-pane .rb-row .avatar { border-radius: 8px; }

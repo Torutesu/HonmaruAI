@@ -11,6 +11,7 @@ import { DailyReportDraft } from './DailyReport'
 import { awaitsPost } from '../utils/automation'
 import { ago } from '../utils/ago'
 import { sourceLabel } from '../utils/automation'
+import { Icon } from './Icon'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -218,11 +219,17 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   const start = useRef<{ x: number; y: number } | null>(null)
   const localized = card.localized?.[getLocale()]
   const title = localized?.title || card.title
-  const summary = localized?.summary || card.summary
+  // Without a model the title is the person's own words, and so was the
+  // summary under it — the same sentence twice, then a third time as the
+  // quote. Each is said once.
+  const same = (a?: string | null, b?: string | null) => Boolean(a && b && a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim())
+  const rawSummary = localized?.summary || card.summary
+  const summary = same(rawSummary, title) ? '' : rawSummary
   const context = localized?.context || card.context || ''
   const who = card.requestedBy
   const whoName = who?.name || displayName(card.senderUserID)
-  const quote = who?.quote || card.sourceInstruction || card.originalBody || ''
+  const rawQuote = who?.quote || card.sourceInstruction || card.originalBody || ''
+  const quote = same(rawQuote, title) || same(rawQuote, rawSummary) ? '' : rawQuote
   const sources = card.sourceApp ? [sourceLabel(card, t)] : []
   // The legend draws three levels. "urgent" is the fourth the API can send,
   // and it used to light nothing at all — the one priority that most needed
@@ -400,7 +407,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
           {card.recommendation && (
             <section className={`recommendation rec-${card.recommendation.action}`}>
               <div className="rec-head">
-                <span className="ai-spark" aria-hidden="true">✦</span>
+                <span className="ai-spark" aria-hidden="true"><Icon name="sparkle" size={14} /></span>
                 {t('Recommended:')} <strong>{t(card.recommendation.action)}</strong>
               </div>
               {card.recommendation.reason && <p className="rec-reason">{card.recommendation.reason}</p>}
@@ -431,12 +438,12 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
           // Its Post button is the draft's own; there is nothing else to press.
           mustPost ? null : isFyi(card) ? (
             <div className="decide-row">
-              <button className="decide approve" onClick={() => decide('acknowledge')} aria-label={t('Got it')} aria-keyshortcuts="a">✓</button>
+              <button className="decide approve" onClick={() => decide('acknowledge')} aria-label={t('Got it')} aria-keyshortcuts="a"><Icon name="check" size={22} /></button>
             </div>
           ) : (
             <div className="decide-row">
-              <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')} aria-keyshortcuts="d">✕</button>
-              <button className="decide approve" onClick={() => decide('approve')} aria-label={t('Approve')} aria-keyshortcuts="a">✓</button>
+              <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')} aria-keyshortcuts="d"><Icon name="x" size={22} /></button>
+              <button className="decide approve" onClick={() => decide('approve')} aria-label={t('Approve')} aria-keyshortcuts="a"><Icon name="check" size={22} /></button>
               {layout === 'desk' && <span className="swipe-hint-desk" aria-hidden="true">{t('Swipe, drag, or ← →')}</span>}
             </div>
           )
@@ -456,7 +463,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             aria-label={t('Ask your AI about this decision')}
             enterKeyHint="send"
           />
-          <button type="submit" className="ask-send" aria-label={t('Send')} disabled={!ask.trim()}>➤</button>
+          <button type="submit" className="ask-send" aria-label={t('Send')} disabled={!ask.trim()}><Icon name="send" size={16} /></button>
         </form>
 
         {answer && (

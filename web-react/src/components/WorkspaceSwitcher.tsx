@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
+import { Icon } from './Icon'
 
 export interface Workspace {
   id: string
@@ -70,7 +71,7 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
       >
         <WorkspaceMark workspace={current} label={label} size={variant === 'rail' ? 32 : 28} />
         <span className="ws-name">{label}</span>
-        <span className="ws-caret" aria-hidden="true">▾</span>
+        <span className="ws-caret" aria-hidden="true"><Icon name="chevron-down" size={13} /></span>
       </button>
       {open && (
         <div className="ws-menu" role="menu">

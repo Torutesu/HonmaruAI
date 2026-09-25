@@ -922,6 +922,27 @@ export async function listUserOrgs(db, githubId) {
 
 /// Where to put someone who did not say.
 ///
+/// Where a person's own connected tools land: the workspace they last pulled
+/// them into. The row is also the cron's queue position, so a first pull
+/// counts as a sync just done; after that only the workspace changes.
+export async function rememberPullWorkspace(db, githubId, orgId) {
+  await db
+    .prepare(
+      `INSERT INTO connector_sync_state (user_github_id, synced_at, org_id) VALUES (?1, ?2, ?3)
+       ON CONFLICT(user_github_id) DO UPDATE SET org_id = excluded.org_id`
+    )
+    .bind(String(githubId), new Date().toISOString(), orgId)
+    .run()
+    .catch((err) => console.error("pull workspace not kept", err?.message || err));
+}
+
+/// Which workspace a person's own tools are pulled into, when they chose one.
+export async function pullWorkspaceOf(db, githubId) {
+  const row = await db.prepare("SELECT org_id FROM connector_sync_state WHERE user_github_id = ?1")
+    .bind(String(githubId)).first().catch(() => null);
+  return row?.org_id || null;
+}
+
 /// A workspace with other people in it beats one with only you: the solo org
 /// handed out at sign-up is a starting point, and anywhere with a second
 /// person is where the work is. Ties go to the earliest join, so the answer

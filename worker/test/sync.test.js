@@ -112,6 +112,19 @@ test("one sync runs every connector and reports each", async () => {
   expect(results.find((r) => r.connector === "notion")).toMatchObject({ scanned: 0, skipped: "not configured" });
 });
 
+test("a pull is remembered as where this person's own tools land", async () => {
+  // No tool answers here, and that is fine: a connector that fails is a
+  // result, not a failed pull. What matters is where it was pulled into.
+  const res = await SELF.fetch("https://example.com/connectors/sync", {
+    method: "POST",
+    headers: { "x-session-token": token, "content-type": "application/json" },
+    body: JSON.stringify({ orgId: "acme/web" }),
+  });
+  expect(res.status).toBe(200);
+  const row = await env.DB.prepare("SELECT org_id FROM connector_sync_state WHERE user_github_id = ?1").bind("700").first();
+  expect(row.org_id).toBe("acme/web");
+});
+
 test("one connector failing does not silence the other", async () => {
   fetchMock.get("https://backend.composio.dev")
     .intercept({ path: "/api/v3/tools/execute/GMAIL_FETCH_EMAILS", method: "POST" })

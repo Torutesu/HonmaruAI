@@ -63,3 +63,15 @@ export async function listOrgEvents(db, orgId, limit = 50) {
     .all();
   return results.map(toEvent);
 }
+
+/// The same events with the name each actor goes by, for a timeline read by
+/// people: "Created · Gota Wazumi", not the login the row keeps.
+export async function withActorNames(db, events) {
+  const logins = [...new Set(events.map((e) => e.actorUserId).filter(Boolean))].slice(0, 50);
+  if (!logins.length) return events;
+  const marks = logins.map((_, i) => `?${i + 1}`).join(", ");
+  const { results } = await db.prepare(`SELECT login, name FROM users WHERE login IN (${marks})`).bind(...logins).all()
+    .catch(() => ({ results: [] }));
+  const named = new Map((results || []).filter((r) => r.name).map((r) => [r.login, r.name]));
+  return events.map((e) => ({ ...e, actorName: named.get(e.actorUserId) || null }));
+}

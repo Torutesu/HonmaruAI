@@ -93,6 +93,9 @@ export async function broadcastWithParent(env, orgId, resolved, row, members) {
   }
 }
 
+const flat = (text) => String(text || "").replace(/\s+/g, " ").trim();
+const sameWords = (a, b) => Boolean(flat(a)) && flat(a) === flat(b);
+
 /// Make a decision from a message: route it with the conversation as
 /// context, save the card, and say so in the channel. Never throws; a
 /// failure is said in the channel too, where the person is looking.
@@ -138,7 +141,9 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     await progress("routing");
     const res = await route({
       text: instruction.slice(0, 4000),
-      sender: { id: user.login, role: "member" },
+      // The name the person goes by: without it the router falls back to
+      // one made from the login, and the card says "Torubj0904から".
+      sender: { id: user.login, name: user.name || undefined, role: "member" },
       readerLanguage: locale,
       orgId,
       organization: { orgId },
@@ -159,6 +164,9 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     await progress("writing", { recipientName: recipient.login === user.login ? null : recipient.name });
     let covering = null;
     const now = new Date().toISOString();
+    // Without a model the router's title is a label ("Approval needed");
+    // the person's own words say more.
+    const title = String((routed.routedBy === "fallback" || routed.routedBy === "jev" || routed.routedBy === "jev-unsure" ? instruction : routed.title) || instruction).slice(0, 200);
     const card = {
       id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type: routed.cardType || "approval",
@@ -166,10 +174,10 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       status: "pending",
       recipientUserID: recipient.login,
       senderUserID: user.login,
-      // Without a model the router's title is a label ("Approval needed");
-      // the person's own words say more.
-      title: String((routed.routedBy === "fallback" || routed.routedBy === "jev" || routed.routedBy === "jev-unsure" ? instruction : routed.title) || instruction).slice(0, 200),
-      summary: String(routed.summary || "").slice(0, 1500),
+      title,
+      // Without a model the summary is the instruction again, which is the
+      // title already: said once.
+      summary: sameWords(routed.summary, title) ? "" : String(routed.summary || "").slice(0, 1500),
       context: String(routed.context || "").slice(0, 6000),
       priority: routed.priority || "medium",
       routingReason: routed.routingReason || "",
@@ -198,7 +206,10 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     const who = decider.login === user.login ? serverText(locale, "channel.you") : decider.name;
     // Why this person: the router's own one line, so the choice is visible
     // rather than taken on trust.
-    const why = String(routed.routingReason || "").replace(/\s+/g, " ").trim().slice(0, 240);
+    // Not when the person named the decider themselves — "Reason: selected by
+    // you" tells them what they just did.
+    const picked = named.length === 1 || (resolved.kind === "dm" && named.length === 0);
+    const why = picked ? "" : String(routed.routingReason || "").replace(/\s+/g, " ").trim().slice(0, 240);
     const whyLine = why ? `\n${serverText(locale, "channel.why", { why })}` : "";
     const autoLine = rule ? `\n${serverText(locale, "channel.autoApproved", { name: recipient.name })}` : "";
     await say(serverText(locale, "channel.made", { who, title: card.title }) + whyLine + autoLine, card.id);

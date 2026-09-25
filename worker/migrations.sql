@@ -55,3 +55,4 @@ ALTER TABLE memberships ADD COLUMN delegate_login TEXT;
 ALTER TABLE users ADD COLUMN timezone TEXT;
 ALTER TABLE routines ADD COLUMN channel TEXT;
 ALTER TABLE businesses ADD COLUMN description TEXT;
+ALTER TABLE connector_sync_state ADD COLUMN org_id TEXT;
