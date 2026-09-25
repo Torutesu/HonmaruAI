@@ -11,7 +11,7 @@
 //   _routes.json        unless the visitor chose a language on the page;
 //                       the worker runs for "/" only, the rest is static
 //   main.js, i18n.js    minified; the stylesheet is inlined into every page
-//   fonts/, icon.svg, og.png, robots.txt, sitemap.xml, _headers
+//   fonts/, badges/, icon.svg, og.png, robots.txt, sitemap.xml, _headers
 //
 // It fails, naming the key, if any language lacks a string the page uses.
 
@@ -41,7 +41,7 @@ vm.runInNewContext(read('i18n.js'), sandbox)
 const I18N = sandbox.window.I18N
 const source = read('index.html')
 
-const used = [...new Set([...source.matchAll(/data-i18n(?:-html|-placeholder|-aria|-href)?="([^"]+)"/g)].map((m) => m[1]))]
+const used = [...new Set([...source.matchAll(/data-i18n(?:-html|-placeholder|-aria|-href|-src|-alt)?="([^"]+)"/g)].map((m) => m[1]))]
 for (const lang of LANGS) {
   if (!I18N[lang]) fail(`i18n.js has no ${lang}`)
   const missing = used.filter((key) => !(key in I18N[lang]))
@@ -90,7 +90,7 @@ function closingTag(html, tag, from) {
 
 // Fill every data-i18n* hook the way main.js's applyLang does in the browser.
 function localizeHooks(html, t) {
-  const TARGET = { 'data-i18n-placeholder': 'placeholder', 'data-i18n-aria': 'aria-label', 'data-i18n-href': 'href' }
+  const TARGET = { 'data-i18n-placeholder': 'placeholder', 'data-i18n-aria': 'aria-label', 'data-i18n-href': 'href', 'data-i18n-src': 'src', 'data-i18n-alt': 'alt' }
   const open = /<([a-zA-Z][\w-]*)(\s[^<>]*?)?(\/?)>/g
   let result = ''
   let pos = 0
@@ -121,6 +121,7 @@ function localizeHooks(html, t) {
 
 fs.rmSync(out, { recursive: true, force: true })
 fs.mkdirSync(path.join(out, 'fonts'), { recursive: true })
+fs.mkdirSync(path.join(out, 'badges'), { recursive: true })
 
 const tmp = fs.mkdtempSync(path.join(out, '.css-'))
 const esbuild = (...args) => execFileSync('npx', [...ESBUILD, ...args, '--log-level=warning'], { stdio: 'inherit' })
@@ -172,6 +173,8 @@ for (const f of ['icon.svg', 'og.png']) fs.copyFileSync(path.join(here, f), path
 for (const f of fs.readdirSync(path.join(here, 'fonts')).filter((f) => f.endsWith('.woff2'))) {
   fs.copyFileSync(path.join(here, 'fonts', f), path.join(out, 'fonts', f))
 }
+// the stores' own badge artwork, unmodified
+for (const f of fs.readdirSync(path.join(here, 'badges'))) fs.copyFileSync(path.join(here, 'badges', f), path.join(out, 'badges', f))
 
 fs.writeFileSync(path.join(out, 'robots.txt'), `User-agent: *\nAllow: /\nSitemap: ${site}/sitemap.xml\n`)
 const links = LANGS.map((l) => `    <xhtml:link rel="alternate" hreflang="${l}" href="${site}/${l}/"/>`).join('\n')
@@ -188,6 +191,8 @@ fs.writeFileSync(path.join(out, '_headers'), `/*
 /*.js
   Cache-Control: public, max-age=3600, must-revalidate
 /og.png
+  Cache-Control: public, max-age=86400
+/badges/*
   Cache-Control: public, max-age=86400
 /icon.svg
   Cache-Control: public, max-age=86400

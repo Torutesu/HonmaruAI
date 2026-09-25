@@ -53,6 +53,8 @@
       $$('[data-i18n-placeholder]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-placeholder')); });
       $$('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
       $$('[data-i18n-href]').forEach(function (el) { el.setAttribute('href', t(el.getAttribute('data-i18n-href'))); });
+      $$('[data-i18n-src]').forEach(function (el) { el.setAttribute('src', t(el.getAttribute('data-i18n-src'))); });
+      $$('[data-i18n-alt]').forEach(function (el) { el.setAttribute('alt', t(el.getAttribute('data-i18n-alt'))); });
     }
     $('#lang-code').textContent = lang.toUpperCase();
     $('#lang-btn').setAttribute('aria-label', lang.toUpperCase() + ' · ' + t('a11y.language'));
@@ -245,7 +247,6 @@
     var walls = document.createElement('canvas'), wctx = walls.getContext('2d'), wallsKey = '';
     // Small or touch screens get 30 frames a second; the drift reads the same.
     var frameGap = (window.innerWidth < 700 || window.matchMedia('(pointer: coarse)').matches) ? 32 : 0;
-    var LABELS = ['本丸', '二の丸', '三の丸'];
 
     function colors() {
       var cs = getComputedStyle(doc);
@@ -301,7 +302,7 @@
         if (!spot) continue;
         wctx.fillStyle = j === 0 ? 'rgba(' + vio + ',1)' : 'rgba(' + ink + ',.5)';
         wctx.beginPath(); wctx.arc(spot[0], spot[1], 2.5, 0, Math.PI * 2); wctx.fill();
-        wctx.fillText(LABELS[j], spot[0] + 8, spot[1] + 4);
+        wctx.fillText(t(['mark.keep', 'mark.inner', 'mark.outer'][j]), spot[0] + 8, spot[1] + 4);
       }
     }
     function draw(dt) {
@@ -363,6 +364,7 @@
     function stop() { running = false; cancelAnimationFrame(raf); }
     colors(); size();
     themeListeners.push(function () { colors(); wallsKey = ''; if (reduce) draw(0); });
+    onLang.push(function () { wallsKey = ''; if (reduce) draw(0); });
     // the wall names are drawn in the mono face; redraw once it has arrived
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { wallsKey = ''; });
     var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(function () { size(); if (reduce) draw(0); }, 120); });
@@ -458,7 +460,7 @@
         if (n > best) { best = n; role = k; }
       });
       var kind = has(DECIDE) ? 'DECISION' : has(TELL) ? 'FYI' : 'TASK';
-      var biz = /hotel|ホテル|本丸/.test(s) ? 'HOTEL 本丸' : /cafe|café|カフェ|sakura/.test(s) ? 'CAFE SAKURA' : 'GENERAL';
+      var biz = /hotel|ホテル|本丸/.test(s) ? t('demo.hotel') : /cafe|café|カフェ|sakura/.test(s) ? 'CAFE SAKURA' : 'GENERAL';
       return { role: role, who: PEOPLE[role].name, kind: kind, biz: biz };
     }
     function setPerson(name) {
