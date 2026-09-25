@@ -80,7 +80,7 @@ export const JamPanel: React.FC<Props> = ({ call, where, api, faceOf, me, onLeav
     const muted = self ? call.muted : p!.muted
     const url = self ? me.avatarUrl : (p!.avatarUrl || faceOf(p!.ref))
     return (
-      <div key={id} className={`jam-tile${call.speaking.has(id) ? ' speaking' : ''}${camera ? ' has-video' : ''}`} data-peer={id}>
+      <div key={id} className={`jam-tile${call.speaking.has(id) ? ' speaking' : ''}${camera ? ' has-video' : ''}${muted ? ' muted' : ''}`} data-peer={id}>
         {camera ? <Video stream={camera} mirror={self} /> : <Avatar name={name} url={url} size={shared ? 36 : 56} round />}
         <span className="jam-tile-name">
           {muted && <Icon name="mic-off" size={11} />}

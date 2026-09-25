@@ -1559,9 +1559,11 @@ await step('the list is a chat client on a laptop: sidebar, conversation, and a 
   const head = await d.$eval('.slk-head h1', (el) => el.textContent)
   if (on !== head) throw new Error(`the sidebar selects "${on}" and the conversation is "${head}"`)
   // Every channel opens its own conversation.
-  const names = await d.$$eval('.slk-side .cl-thread .cl-title', (els) => els.map((el) => el.textContent))
+  // Conversations, that is — not Activity and Later above them, which are
+  // inboxes with a head of their own.
+  const names = await d.$$eval('.slk-side .cl-section .cl-thread .cl-title', (els) => els.map((el) => el.textContent))
   for (const name of names.slice(0, 4)) {
-    await d.click(`.slk-side .cl-thread:has(.cl-title:text-is("${name}")) .cl-open`)
+    await d.click(`.slk-side .cl-section .cl-thread:has(.cl-title:text-is("${name}")) .cl-open`)
     await d.waitForFunction((n) => document.querySelector('.slk-head h1')?.textContent === n, name, { timeout: 5000 })
       .catch(() => { throw new Error(`${name} did not open`) })
   }
@@ -1985,29 +1987,30 @@ await step('the channel header opens its context, its automations, its members, 
     await d.selectOption('.slk-jam-menu label:has-text("Recording") select', 'full')
     await d.screenshot({ path: `${SHOTS}/46-jam-menu.png` })
     await d.click('.slk-jam-start')
-    await d.waitForSelector('.slk-jambar', { timeout: 15000 }).catch(() => { throw new Error('starting a Jam shows no Jam bar') })
+    // The Jam opens as a call panel beside the conversation.
+    await d.waitForSelector('[data-jam-panel]', { timeout: 15000 }).catch(() => { throw new Error('starting a Jam shows no call panel') })
     await d.waitForSelector('.slk-msg:has-text("started a Jam")', { timeout: 15000 }).catch(() => { throw new Error('the channel was not told the Jam started') })
 
     await open(e)
     await e.waitForSelector('.slk-jam-button.live:has-text("Join Jam")', { timeout: 15000 }).catch(() => { throw new Error('the other tab does not see the Jam going on') })
     await e.click('.slk-jam-button.live')
-    await e.waitForSelector('.slk-jambar', { timeout: 15000 })
+    await e.waitForSelector('[data-jam-panel]', { timeout: 15000 })
     for (const p of [d, e]) {
-      await p.waitForFunction(() => document.querySelectorAll('.slk-jambar-people li').length === 2, null, { timeout: 15000 })
-        .catch(() => { throw new Error('the Jam bar does not show both people') })
+      await p.waitForFunction(() => document.querySelectorAll('[data-jam-panel] .jam-tile').length === 2, null, { timeout: 15000 })
+        .catch(() => { throw new Error('the call panel does not show both people') })
       await p.waitForFunction(() => (window.__pcs || []).some((pc) => pc.connectionState === 'connected'), null, { timeout: 20000 })
         .catch(() => { throw new Error('the two browsers in the Jam never connected') })
     }
-    if (!(await d.$('.slk-jambar-rec'))) throw new Error('the Jam is not said to be recording')
-    await e.click('.slk-jambar .cl-nudge:has-text("Mute")')
-    await d.waitForSelector('.slk-jambar-people li.muted', { timeout: 10000 }).catch(() => { throw new Error('muting is not shown to the others') })
+    if (!(await d.$('[data-jam-panel] .jam-rec'))) throw new Error('the Jam is not said to be recording')
+    await e.click('[data-jam-mic]')
+    await d.waitForSelector('[data-jam-panel] .jam-tile.muted:not([data-peer="me"])', { timeout: 10000 }).catch(() => { throw new Error('muting is not shown to the others') })
     await d.screenshot({ path: `${SHOTS}/47-jam-live.png` })
     await d.waitForTimeout(2500)
 
     // The recorder leaves: the recording goes up and comes back as a
     // message that plays. The last one out ends the Jam.
-    await d.click('.slk-jambar .cl-danger')
-    await e.click('.slk-jambar .cl-danger')
+    await d.click('[data-jam-leave]')
+    await e.click('[data-jam-leave]')
     await d.waitForSelector('.slk-msg:has-text("Jam ended")', { timeout: 20000 }).catch(() => { throw new Error('the channel was not told the Jam ended') })
     await d.waitForSelector('.slk-msg .slk-jam-audio', { timeout: 30000 }).catch(() => { throw new Error('the recording did not come back as something to play') })
     const src = await d.$eval('.slk-msg .slk-jam-audio', (el) => el.getAttribute('src'))
@@ -2503,7 +2506,7 @@ await step('on a phone the list has tabs, a long press, pictures, groups and pri
   await page.click('[data-phone-tab="activity"]'); await page.waitForSelector('.slk-inbox')
   await page.click('[data-phone-tab="later"]'); await page.waitForSelector('.slk-later-head')
   await page.click('[data-phone-tab="home"]'); await page.waitForSelector('.slk-sections')
-  await shot('30-phone-tabs')
+  await shot('50-phone-tabs')
 
   // A group of three, from the round button.
   await page.click('[data-fab]')
@@ -2522,7 +2525,7 @@ await step('on a phone the list has tabs, a long press, pictures, groups and pri
   await page.waitForSelector('.att-pend[data-upload="done"]', { timeout: 15000 })
   await page.click('.slk-composer .slk-send[type="submit"]')
   await page.waitForSelector('.att-pic img', { timeout: 10000 })
-  await shot('31-phone-group')
+  await shot('51-phone-group')
 
   // Kenji has it, live, with the picture — and it loads for him.
   await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
@@ -2535,7 +2538,7 @@ await step('on a phone the list has tabs, a long press, pictures, groups and pri
   const mine = page.locator('.slk-msg[id^="msg-"]').last()
   await mine.click({ button: 'right', position: { x: 200, y: 20 } })
   await page.waitForSelector('.msheet', { timeout: 5000 })
-  await shot('32-phone-sheet')
+  await shot('52-phone-sheet')
   await page.click('.msheet-reactions button:has-text("👍")')
   await kenji.waitForSelector('.slk-reaction:has-text("👍")', { timeout: 15000 })
 
@@ -2557,7 +2560,7 @@ await step('on a phone the list has tabs, a long press, pictures, groups and pri
     return r.status
   }, API)
   if (peek !== 404) throw new Error(`a private channel answered somebody outside it with ${peek}`)
-  await shot('33-private-channel')
+  await shot('53-private-channel')
   await closeEverything()
   // Back to the cards, where the steps after this one start.
   await page.click('.mode-switch button >> nth=0')
