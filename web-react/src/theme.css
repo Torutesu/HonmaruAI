@@ -777,6 +777,8 @@
   /* The picked conversation: a light bar with dark words, as Slack does. */
   .shell .classic.slk.slk .slk-side .cl-thread.on > .cl-open { background: rgba(255, 255, 255, 0.9); color: var(--chrome-side); }
   .shell .classic.slk.slk .slk-side .cl-thread.on .cl-avatar { background: var(--chrome-side); color: #fff; }
+  .shell .classic.slk.slk .slk-side .cl-thread.on .cl-app:not(:has(.brand)):not(:has(img)) { background: var(--chrome-side); color: #fff; }
+  .shell .classic.slk.slk .slk-side .cl-thread.on .cl-hash { color: var(--chrome-side); }
   .shell .classic.slk.slk .slk-side .cl-avatar { background: rgba(255, 255, 255, 0.18); color: #fff; }
   .shell .classic.slk.slk .slk-side .ws-button { color: #fff; }
   .shell .classic.slk.slk .slk-side .ws-button:hover { background: rgba(255, 255, 255, 0.08); }

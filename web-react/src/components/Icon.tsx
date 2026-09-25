@@ -23,7 +23,7 @@ export type IconName =
   | 'repeat' | 'book' | 'terminal' | 'send'
   | 'pin' | 'bookmark' | 'chevron-left' | 'headphones' | 'chevron-down' | 'chevron-right' | 'more'
   | 'smile' | 'message' | 'paperclip' | 'clock' | 'edit' | 'x' | 'check'
-  | 'bell-off' | 'zap' | 'settings' | 'external' | 'list' | 'quote' | 'code' | 'sparkle' | 'refresh'
+  | 'bell-off' | 'zap' | 'settings' | 'external' | 'list' | 'quote' | 'code' | 'sparkle' | 'refresh' | 'grid' | 'key' | 'link' | 'copy'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // Figma: Chrome/Tab Bar → icon/home
@@ -293,6 +293,27 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   // Your AI's mark where a glyph used to stand in for it: four points.
   sparkle: <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />,
+  grid: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  key: <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />,
+  link: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </>
+  ),
   refresh: (
     <>
       <polyline points="23 4 23 10 17 10" />

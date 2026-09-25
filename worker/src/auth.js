@@ -152,11 +152,13 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
   let org;
   let joinRole = "member";
   let inviteError;
+  let joinedBy = null;
   if (inviteCode?.trim()) {
     const invite = await readInvite(env.DB, inviteCode.trim());
     if (invite && (await spendInvite(env.DB, inviteCode.trim()))) {
       org = invite.org_id;
       joinRole = invite.role || "member";
+      joinedBy = invite;
     } else {
       inviteError = "That invitation is not valid, or it has expired.";
     }
@@ -175,6 +177,12 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
     .bind(normalizedEmail, hash, salt, userId)
     .run();
   await upsertMembership(env.DB, org, userId, joinRole);
+  // Joined by an invitation that names channels: introduced there.
+  if (joinedBy?.channels) {
+    const { introduce } = await import("./welcome.js");
+    await introduce(env, { orgId: org, channels: JSON.parse(joinedBy.channels), githubId: userId, invitedBy: joinedBy.created_by })
+      .catch((err) => console.error("welcome failed", err?.message || err));
+  }
   const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
   return { token, userId, login, orgId: org, ...(inviteError ? { inviteError } : {}) };
 }
@@ -224,7 +232,7 @@ export async function login(env, { email, password, inviteCode }) {
 // first. Returns the invite when the use was granted, null when it was not.
 async function readInvite(db, code) {
   const row = await db
-    .prepare("SELECT org_id, role, expires_at, max_uses, uses FROM invites WHERE code = ?1")
+    .prepare("SELECT org_id, role, expires_at, max_uses, uses, created_by, channels FROM invites WHERE code = ?1")
     .bind(inviteCodeFrom(code))
     .first();
   if (!row) return null;
@@ -245,7 +253,15 @@ async function spendInvite(db, code) {
   return Boolean(meta?.changes);
 }
 
-export async function createInvite(env, { orgId, createdBy, role, uses }) {
+/// The slugs asked for that are channels of this team, in the order asked.
+export async function channelsOf(db, orgId, asked) {
+  if (!Array.isArray(asked) || !asked.length) return [];
+  const { results } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1").bind(orgId).all();
+  const known = new Set((results || []).map((r) => r.slug));
+  return [...new Set(asked.filter((s) => typeof s === "string" && known.has(s)))].slice(0, 50);
+}
+
+export async function createInvite(env, { orgId, createdBy, role, uses, channels }) {
   if (!orgId) return { error: "Missing team." };
   // 16 bytes, and the org is not in the code. Three bytes with the org name as
   // a known prefix is 16.7M guesses against an endpoint that grants membership
@@ -281,11 +297,13 @@ export async function createInvite(env, { orgId, createdBy, role, uses }) {
   // every read: cancelling one by reference otherwise means reading every
   // invite in the workspace and hashing each until one matches.
   const ref = (await sha256Hex(code)).slice(0, 16);
+  // Where they are introduced when they join: only channels this team has.
+  const introduce = await channelsOf(env.DB, orgId, channels);
   await env.DB
-    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, ref) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
-    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses, ref)
+    .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, ref, channels) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
+    .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses, ref, introduce.length ? JSON.stringify(introduce) : null)
     .run();
-  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses, ref, link: inviteLink(env, code) };
+  return { code, orgId, role: inviteRole, expiresAt: expires.toISOString(), maxUses, ref, link: inviteLink(env, code), channels: introduce };
 }
 
 /// The code as a link the web client opens: signed out, it lands on sign-up
@@ -358,6 +376,12 @@ export async function acceptInvite(env, { code, userId }) {
       return { error: "That invitation is not valid, or it has expired." };
     }
     await upsertMembership(env.DB, row.org_id, userId, keep);
+    // Somebody new: said in the channels the invite named.
+    if (!existing && row.channels) {
+      const { introduce } = await import("./welcome.js");
+      await introduce(env, { orgId: row.org_id, channels: JSON.parse(row.channels), githubId: userId, invitedBy: row.created_by })
+        .catch((err) => console.error("welcome failed", err?.message || err));
+    }
   }
   return { orgId: row.org_id };
 }

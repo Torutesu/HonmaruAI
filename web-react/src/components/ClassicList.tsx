@@ -13,6 +13,7 @@ import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPane
 import type { DetailsTab, JournalCite } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
 import type { JamMode, JamState } from '../utils/jam'
+import { InviteDialog } from './InviteDialog'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -116,6 +117,9 @@ interface Member {
   awayUntil?: string | null
 }
 interface Activity { channel: string; lastAt: string; preview: string; lastBy: string | null }
+/// One notification: somebody named you, replied in your thread, or reacted
+/// to what you wrote.
+interface ActivityItem { type: 'mention' | 'reply' | 'reaction'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null }
 
 async function hash16(text: string): Promise<string> {
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
@@ -330,9 +334,17 @@ export const ClassicList: React.FC<Props> = ({
     try { if (key) sessionStorage.setItem('list.open', key); else sessionStorage.removeItem('list.open') } catch {}
   }
 
+  // Bringing people or an agent in, from the list itself.
+  const [inviting, setInviting] = useState<null | 'people' | 'agent'>(null)
+
   // The Activity inbox: what named you, and replies in your threads.
   const [activityOpen, setActivityOpen] = useState(false)
-  const [activityItems, setActivityItems] = useState<Array<{ type: 'mention' | 'reply'; message: ChannelMessage; unread: boolean }> | null>(null)
+  const [activityItems, setActivityItems] = useState<ActivityItem[] | null>(null)
+  // What was unread when you opened it stays marked while you are there —
+  // the Unread tab is for exactly that — but the badge goes at once.
+  const [activitySeenAt, setActivitySeenAt] = useState('')
+  const [activityTab, setActivityTab] = useState<'all' | 'unread'>('all')
+  const [activityPick, setActivityPick] = useState<string | null>(null)
   const loadActivity = useCallback(() => {
     return fetch(`${api.httpBase}/channels/activity?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
@@ -340,24 +352,28 @@ export const ClassicList: React.FC<Props> = ({
       .catch(() => { /* nothing new is the same as nothing loaded */ })
   }, [api.httpBase, api.orgId, authHeaders])
   useEffect(() => { void loadActivity() }, [loadActivity])
-  const activityUnread = (activityItems || []).filter((i) => i.unread).length
+  const stillNew = (i: ActivityItem) => i.unread && (i.at || i.message.createdAt) > activitySeenAt
+  const activityUnread = (activityItems || []).filter(stillNew).length
   // Unread mentions per conversation: what still calls for you in a
   // conversation set to mentions only, or muted.
   const mentionsIn = useMemo(() => {
     const out: Record<string, number> = {}
-    for (const i of activityItems || []) if (i.unread && i.type === 'mention') out[i.message.channel] = (out[i.message.channel] || 0) + 1
+    for (const i of activityItems || []) if (stillNew(i) && i.type === 'mention') out[i.message.channel] = (out[i.message.channel] || 0) + 1
     return out
-  }, [activityItems])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityItems, activitySeenAt])
   const openActivity = () => {
     setOpenKey(null)
     setLaterOpen(false)
     setActivityOpen(true)
     setDetailId(null)
+    setActivityPick(null)
     void loadActivity().then(() => {
+      const at = new Date().toISOString()
       fetch(`${api.httpBase}/channels/read`, {
         method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId: api.orgId, channel: 'activity' }),
-      }).then(() => setActivityItems((prev) => prev && prev.map((i) => ({ ...i, unread: false })))).catch(() => {})
+        body: JSON.stringify({ orgId: api.orgId, channel: 'activity', at }),
+      }).then(() => setActivitySeenAt(at)).catch(() => {})
     })
   }
   // A place to go to inside a conversation, once it has loaded: a message,
@@ -1427,40 +1443,115 @@ export const ClassicList: React.FC<Props> = ({
   const activityView = () => {
     const nameOfView = (v: string) => {
       const th = everything.find((x) => x.view === v)
-      return th ? (th.kind === 'channel' ? `#${th.name}` : th.name) : v
+      return th ? (th.kind === 'channel' ? th.name : th.name) : v
     }
+    const isChannel = (v: string) => everything.find((x) => x.view === v)?.kind === 'channel'
+    const keyOf = (i: ActivityItem) => `${i.type}-${i.message.id}-${i.emoji || ''}-${i.at || ''}`
+    const whoOf = (i: ActivityItem) => (i.type === 'reaction' ? (i.by || t('a teammate')) : i.message.kind === 'ai' ? t('Your AI') : (i.message.authorName || t('a teammate')))
+    const verb = (i: ActivityItem) => (i.type === 'reaction' ? t('reacted') : i.type === 'reply' ? t('replied in a thread') : t('mentioned you'))
+    const items = (activityItems || []).filter((i) => activityTab === 'all' || i.unread)
+    const picked = (activityItems || []).find((i) => keyOf(i) === activityPick) || null
+    const open = (i: ActivityItem) => {
+      if (wide) setActivityPick(keyOf(i))
+      else openAt({ view: i.message.channel, id: i.message.id, parentId: i.message.parentId })
+    }
+    const where = (v: string) => (
+      <span className="slk-note-where">
+        {isChannel(v) ? <Icon name="hash" size={11} /> : <Icon name="message" size={11} />}
+        {nameOfView(v)}
+      </span>
+    )
     return (
-      <>
-        <header className="slk-head">
-          <button className="slk-back" onClick={() => setActivityOpen(false)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
-          <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
-          <div className="slk-head-text">
-            <h1>{t('Activity')}</h1>
-            <p>{t('Mentions of you, and replies in your threads.')}</p>
-          </div>
-        </header>
-        <div className="slk-log slk-activity">
-          {activityItems === null && <p className="slk-empty">{t('Loading…')}</p>}
-          {activityItems && activityItems.length === 0 && (
-            <div className="slk-start">
-              <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
-              <h2>{t('Nothing for you yet')}</h2>
-              <p>{t('When somebody writes @ your name, or replies in a thread you are part of, it shows up here.')}</p>
+      <div className="slk-inbox">
+        <section className="slk-inbox-list" aria-label={t('Activity')}>
+          <header className="slk-inbox-head">
+            <button className="slk-back" onClick={() => setActivityOpen(false)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
+            <div className="slk-inbox-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={activityTab === 'all'} onClick={() => setActivityTab('all')}>{t('All')}</button>
+              <button type="button" role="tab" aria-selected={activityTab === 'unread'} onClick={() => setActivityTab('unread')} data-unread-tab="1">
+                {t('Unread')}{(activityItems || []).some((i) => i.unread) ? <span className="slk-inbox-count">{(activityItems || []).filter((i) => i.unread).length}</span> : null}
+              </button>
             </div>
-          )}
-          {(activityItems || []).map(({ type, message: m, unread }) => (
-            <button key={`${type}-${m.id}`} type="button" className={`slk-act${unread ? ' unread' : ''}`}
-              onClick={() => openAt({ view: m.channel, id: m.id, parentId: m.parentId })}>
-              <span className="slk-act-kind">{type === 'mention' ? t('Mentioned you in {where}', { where: nameOfView(m.channel) }) : t('Replied in a thread in {where}', { where: nameOfView(m.channel) })}</span>
-              <span className="slk-act-line">
-                <b>{m.kind === 'ai' ? t('Your AI') : (m.authorName || t('a teammate'))}</b>
-                <span className="slk-act-when">{when(m.createdAt)}</span>
-              </span>
-              <span className="slk-act-body">{m.body.slice(0, 280)}</span>
+            <button type="button" className="slk-inbox-action" onClick={() => setActivityItems((prev) => prev && prev.map((i) => ({ ...i, unread: false })))}
+              aria-label={t('Mark all as read')} title={t('Mark all as read')}>
+              <Icon name="check" size={15} />
             </button>
-          ))}
-        </div>
-      </>
+          </header>
+          <div className="slk-inbox-rows slk-activity">
+            {activityItems === null && <p className="slk-empty">{t('Loading…')}</p>}
+            {activityItems && items.length === 0 && (
+              <div className="slk-start">
+                <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
+                <h2>{activityTab === 'unread' ? t('All caught up') : t('Nothing for you yet')}</h2>
+                <p>{t('When somebody writes @ your name, replies in a thread you are part of, or reacts to what you wrote, it shows up here.')}</p>
+              </div>
+            )}
+            {items.map((i) => {
+              const m = i.message
+              const who = whoOf(i)
+              return (
+                <button key={keyOf(i)} type="button" className={`slk-act slk-note${i.unread ? ' unread' : ''}${activityPick === keyOf(i) ? ' on' : ''}`} onClick={() => open(i)} data-kind={i.type}>
+                  <span className="slk-note-avatar" aria-hidden="true">{m.kind === 'ai' && i.type !== 'reaction' ? <img src="/icon.svg" alt="" width={32} height={32} /> : who.charAt(0).toUpperCase()}</span>
+                  <span className="slk-note-main">
+                    <span className="slk-note-line">
+                      <span className="slk-note-who"><b>{who}</b> {verb(i)}</span>
+                      <span className="slk-act-when">{when(i.at || m.createdAt)}</span>
+                    </span>
+                    {where(m.channel)}
+                    <span className="slk-act-body">{i.type === 'reaction' ? <>{t('You')}: </> : null}{m.body.slice(0, 280)}</span>
+                    {i.type === 'reaction' && i.emoji && <span className="slk-note-reaction"><span>{i.emoji}</span> 1</span>}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+        <section className="slk-inbox-view" aria-label={t('Notification')}>
+          {!picked ? (
+            <div className="slk-inbox-empty">
+              <span className="slk-inbox-art" aria-hidden="true"><i /><Icon name="bell" size={22} /></span>
+              <h2>{t('One at a time')}</h2>
+              <p>{t('Select a notification on the left to see it here.')}</p>
+            </div>
+          ) : (
+            <>
+              <header className="slk-inbox-view-head">
+                <div>
+                  <h2>{whoOf(picked)} {verb(picked)}</h2>
+                  {where(picked.message.channel)}
+                </div>
+                <button type="button" className="slk-pane-feed" onClick={() => openAt({ view: picked.message.channel, id: picked.message.id, parentId: picked.message.parentId })}>
+                  {picked.message.parentId ? t('Open the thread') : t('Open in the conversation')}
+                </button>
+              </header>
+              <div className="slk-inbox-view-body">
+                {picked.type === 'reaction' && picked.emoji && (
+                  <p className="slk-inbox-said"><span className="slk-note-reaction big"><span>{picked.emoji}</span></span> {t('{name} reacted to your message', { name: whoOf(picked) })}</p>
+                )}
+                <article className="slk-msg slk-inbox-msg">
+                  <div className="slk-gutter" aria-hidden="true">
+                    {avatarFor(picked.message.kind === 'ai' ? 'ai' : '', (picked.message.mine ? (myName || t('You')) : (picked.message.authorName || '?')).charAt(0).toUpperCase())}
+                  </div>
+                  <div className="slk-body">
+                    <div className="slk-meta">
+                      <span className="slk-author">{picked.message.kind === 'ai' ? t('Your AI') : picked.message.mine ? t('You') : (picked.message.authorName || t('a teammate'))}</span>
+                      <time className="slk-time" dateTime={picked.message.createdAt}>{when(picked.message.createdAt)}</time>
+                    </div>
+                    <div className="slk-text">{rich(picked.message.body)}</div>
+                    {(picked.message.reactions || []).length > 0 && (
+                      <div className="slk-reactions">
+                        {(picked.message.reactions || []).map((r) => (
+                          <span key={r.emoji} className={`slk-reaction${r.mine ? ' mine' : ''}`}><span className="slk-reaction-emoji">{r.emoji}</span><span className="slk-reaction-count">{r.count}</span></span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </article>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     )
   }
 
@@ -1907,7 +1998,7 @@ export const ClassicList: React.FC<Props> = ({
   const steps = [
     { id: 'ai', done: sent.length > 0 || [...pending, ...decided].some((c) => c.senderUserID === userId), label: t('Tell your AI something to decide'), go: () => { const ai = apps.find((a) => a.app === 'ai'); if (ai) choose(ai.key); requestAnimationFrame(() => composer.current?.focus()) } },
     { id: 'channel', done: businesses.length > 0, label: t('Make a channel for a business'), go: () => { setAdding(true) } },
-    { id: 'invite', done: members.length > 1, label: t('Invite a teammate'), go: () => (onOpenScreen ? onOpenScreen('team') : onWorkspace()) },
+    { id: 'invite', done: members.length > 1, label: t('Invite a teammate'), go: () => setInviting('people') },
     { id: 'decide', done: decided.length > 0, label: t('Decide your first card'), go: () => { const w = everything.find((x) => x.unread > 0); if (w) choose(w.key) } },
     { id: 'tools', done: toolsSeen, label: t('Connect Gmail, Slack or another tool'), go: () => { try { localStorage.setItem(`onboard.tools:${api.orgId}`, '1') } catch {}; setToolsSeen(true); onOpenScreen?.('tools') } },
   ]
@@ -1943,6 +2034,7 @@ export const ClassicList: React.FC<Props> = ({
             </button>
           )}
           <div className="cl-top-actions">
+            <button className="cl-icon-button cl-invite" onClick={() => setInviting('people')} aria-label={t('Invite')} title={t('Invite')}><Icon name="invite" size={15} /></button>
             <button className="cl-icon-button" onClick={onCompose} aria-label={t('Tell your AI')}><Icon name="plus" size={16} /></button>
           </div>
         </header>
@@ -2046,7 +2138,7 @@ export const ClassicList: React.FC<Props> = ({
               level={prefs[current.view] || 'all'}
               onLevel={(lv) => void setPref(current.view!, lv)}
               onSettings={current.kind === 'channel' && current.slug ? () => { setSettings(true); setRenaming(null) } : null}
-              onInvite={() => (onOpenScreen ? onOpenScreen('team') : onWorkspace())}
+              onInvite={() => setInviting('people')}
               onProfile={(ref) => void openProfile(ref)}
               onJump={(id) => void goToCite(current.view!, { id, parentId: null, at: '' })}
               onCounts={(n) => setAutomationCount((prev) => ({ ...prev, [current.view!]: n.automations }))}
@@ -2115,6 +2207,9 @@ export const ClassicList: React.FC<Props> = ({
             </div>
           </form>
         </aside>
+      )}
+      {inviting && (
+        <InviteDialog httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} orgName={orgName} initialTab={inviting} onClose={() => setInviting(null)} />
       )}
     </div>
   )

@@ -4,6 +4,7 @@ import { listMembers } from "./team.js";
 import { searchDecisions } from "./insights.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { emitCard } from "./webhooks.js";
 import { localizeForRecipient } from "./localize.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { enforceSubject } from "./ratelimit.js";
@@ -243,6 +244,7 @@ async function callTool(env, agent, name, args, request) {
       // deciding reads theirs.
       const shown = await localizeForRecipient(env, agent.orgId, card, { payerGithubId: agent.githubId });
       await announceCards(env, agent.orgId, [shown]);
+      await emitCard(env, agent.orgId, card, "card.created");
       if (anyChannelConfigured(env)) {
         await notifyCard(env, { card: shown, kind: "created", excludeLogin: null, orgId: agent.orgId, payerGithubId: agent.githubId }).catch((err) => console.error("mcp notify failed", safe(err?.message)));
       }

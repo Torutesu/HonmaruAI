@@ -552,7 +552,7 @@ await step('the list view shows the same decisions', async () => {
 
 await step('every other screen opens', async () => {
   await closeEverything()
-  await openViaYou('Tools', '.rows')
+  await openViaYou('Tools', '.studio')
   await shot('12-tools')
   await closeEverything()
   await page.click('nav [data-tab="you"]')
@@ -620,7 +620,7 @@ await step('no request failed that was not meant to', async () => {
 await step('an unconfigured connector is said out loud, not hidden', async () => {
   // Close whatever is open, however many layers, and get back to the feed.
   await closeEverything()
-  await openViaYou('Tools', '.rows')
+  await openViaYou('Tools', '.studio')
   await page.waitForSelector('.screen .head-title:has-text("Tools")', { timeout: 10000 })
   // The note arrives after /connectors answers; the head is drawn before
   // it. `textContent`, not `innerText`: the latter is a layout question,
@@ -679,7 +679,7 @@ await step('choosing a language changes the interface, and changing back returns
   // checks that the route into them survived the translation.
   for (const [label, row, marker] of [
     ['history', '履歴', '.seg'],
-    ['tools', 'ツール', '.rows'],
+    ['tools', 'ツール', '.studio'],
     ['you', null, '.profile-stats'],
   ]) {
     if (row) await openViaYou(row, marker)
@@ -1026,7 +1026,10 @@ await step('your role is whatever you say it is', async () => {
 // whoever deploys the Worker.
 await step('the Tools screen lets the admin pick the model and enter keys', async () => {
   const d = desk.pages()[0]
-  await d.evaluate(() => { location.hash = '#/tools' })
+  await d.evaluate(() => { location.hash = '#/tools/ai' })
+  await d.waitForSelector('[data-studio="ai"]', { timeout: 15000 })
+  // The AI's settings are a page of the studio of their own.
+  if (!(await d.$('.ai-status select'))) await d.click('[data-studio="ai"]')
   await d.waitForSelector('.ai-status select', { timeout: 15000 })
     .catch(() => { throw new Error('the model is not a choice on the Tools screen') })
   if (!(await d.$('.ai-status .ai-key-input'))) throw new Error('there is nowhere to enter a key')
@@ -1408,10 +1411,14 @@ await step('a rule in the playbook is written, kept, changed and removed', async
 
 await step('an agent asks over MCP, the person decides in the feed, and the agent reads the answer', async () => {
   const d = workPage()
-  await d.goto(`${WEB}/#/tools`, { waitUntil: 'load' })
-  await d.waitForSelector('.agent-intro input', { timeout: 20000 }).catch(() => { throw new Error('Tools has no Connect an agent') })
+  await d.goto(`${WEB}/#/tools/api`, { waitUntil: 'load' })
+  // API keys: Create key ▾ → Personal key, named, then shown once.
+  await d.waitForSelector('.studio-create-key', { timeout: 20000 }).catch(() => { throw new Error('Tools has no API keys page') })
+  await d.click('.studio-create-key')
+  await d.click('[data-key-kind="personal"]')
+  await d.waitForSelector('.agent-intro input', { timeout: 10000 }).catch(() => { throw new Error('Create key opened no dialog') })
   await d.fill('.agent-intro input', 'E2E bot')
-  await d.click('.agent-intro .pill-btn')
+  await d.click('.key-dialog .dlg-btn.primary')
   await d.waitForSelector('.agent-minted .agent-code', { timeout: 10000 })
   const snippets = await d.$$eval('.agent-minted .agent-code', (els) => els.map((el) => el.innerText))
   const token = snippets[0].trim()
@@ -1446,15 +1453,91 @@ await step('an agent asks over MCP, the person decides in the feed, and the agen
   if (answer?.status !== 'approved') throw new Error(`the agent reads: ${JSON.stringify(answer)}`)
 
   // Revoked, the token opens nothing.
-  await d.goto(`${WEB}/#/tools`, { waitUntil: 'load' })
+  await d.goto(`${WEB}/#/tools/api`, { waitUntil: 'load' })
   await d.waitForSelector('.agent-token:has-text("E2E bot")', { timeout: 20000 })
   const lastUsed = await d.$eval('.agent-token:has-text("E2E bot")', (el) => el.innerText)
   if (/never used/.test(lastUsed)) throw new Error('a token that was used says it never was')
-  await d.click('.agent-token:has-text("E2E bot") .btn-text.danger')
+  await d.click('.agent-token:has-text("E2E bot") .key-more')
+  await d.click('.agent-token:has-text("E2E bot") .key-revoke')
   await d.click('.agent-token:has-text("E2E bot") .pill-btn')
   await d.waitForFunction(() => !document.querySelector('.agent-token'), null, { timeout: 10000 })
   const after = await mcp(token, 'tools/list')
   if (after.status !== 401) throw new Error(`a revoked token still answers: ${after.status}`)
+})
+
+await step('webhooks are made in the studio, show their secret once, and can be tested and removed', async () => {
+  const d = workPage()
+  await d.goto(`${WEB}/#/tools/api`, { waitUntil: 'load' })
+  await d.waitForSelector('.studio-create-hook', { timeout: 20000 }).catch(() => { throw new Error('the studio has no Webhooks section') })
+  await d.click('.studio-create-hook')
+  await d.waitForSelector('.hook-dialog #hook-url', { timeout: 10000 })
+  // An address that is not a public https one is refused out loud.
+  await d.fill('#hook-url', 'http://localhost:9000/in')
+  await d.click('.hook-create')
+  await d.waitForSelector('.hook-dialog .dlg-error', { timeout: 10000 }).catch(() => { throw new Error('a localhost webhook was accepted') })
+  await d.fill('#hook-url', 'https://hooks.example.test/honmaru')
+  await d.fill('#hook-name', 'E2E hook')
+  await d.check('.hook-dialog [data-event="card.decided"]')
+  await d.click('.hook-create')
+  await d.waitForSelector('.hook-secret code', { timeout: 10000 }).catch(() => { throw new Error('no signing secret was shown') })
+  const secret = (await d.textContent('.hook-secret code')).trim()
+  if (!/^whsec_[0-9a-f]{48}$/.test(secret)) throw new Error(`the secret is not one: ${secret.slice(0, 12)}`)
+  await d.screenshot({ path: `${SHOTS}/36-webhook-secret.png` })
+  await d.click('.hook-dialog .dlg-btn.primary')
+  await d.waitForSelector('.webhook-row:has-text("E2E hook")', { timeout: 10000 })
+  if (await d.$(`text=${secret}`)) throw new Error('the secret is still on screen after Done')
+  const row = await d.textContent('.webhook-row:has-text("E2E hook")')
+  if (!/hooks\.example\.test/.test(row)) throw new Error(`the webhook row does not show where it posts: ${row}`)
+  // A test goes out and says how it went — this host does not exist, so it did not arrive.
+  await d.click('.webhook-row:has-text("E2E hook") .studio-icon-btn')
+  await d.click('.webhook-row:has-text("E2E hook") .studio-menu button:has-text("Send a test")')
+  await d.waitForSelector('.studio-page .form-note', { timeout: 20000 }).catch(() => { throw new Error('a test delivery said nothing') })
+  await d.screenshot({ path: `${SHOTS}/37-webhooks.png` })
+  await d.click('.webhook-row:has-text("E2E hook") .studio-icon-btn')
+  await d.click('.webhook-row:has-text("E2E hook") .studio-menu .danger')
+  await d.waitForSelector('.webhook-row', { state: 'detached', timeout: 10000 }).catch(() => { throw new Error('the webhook was not removed') })
+})
+
+await step('an invitation says hello in the channels it names, and an agent joins by a link that works once', async () => {
+  const d = workPage()
+  await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+  await d.waitForSelector('.cl-invite', { timeout: 20000 }).catch(() => { throw new Error('the list has no Invite') })
+  await d.click('.cl-invite')
+  await d.waitForSelector('.invite-dialog [data-channels] input[type="checkbox"]', { timeout: 10000 })
+    .catch(() => { throw new Error('the invitation lists no channels to add someone to') })
+  // People: two addresses at once, mailed as links.
+  const one = `e2e-dialog-a-${Date.now()}@example.com`
+  const two = `e2e-dialog-b-${Date.now()}@example.com`
+  const before = (await (await fetch(`${SINK}/sent`)).json()).length
+  await d.fill('.invite-emails', `${one}, ${two}`)
+  await d.click('.invite-send')
+  await d.waitForSelector('.invite-dialog .invite-note', { timeout: 20000 }).catch(() => { throw new Error('sending invitations said nothing') })
+  const mailed = (await (await fetch(`${SINK}/sent`)).json()).slice(before)
+  for (const to of [one, two]) {
+    if (!mailed.some((m) => (m.to || []).includes(to) && /#\/join\/[0-9a-f]{32}/.test(m.text || ''))) throw new Error(`no invitation link reached ${to}`)
+  }
+  await d.screenshot({ path: `${SHOTS}/38-invite-people.png` })
+  // An agent: a link, once, for fifteen minutes.
+  await d.click('.invite-dialog [data-tab-agent]')
+  await d.click('.invite-agent-link')
+  await d.waitForSelector('[data-agent-link] code', { timeout: 10000 }).catch(() => { throw new Error('no agent link was made') })
+  const link = (await d.textContent('[data-agent-link] code')).trim()
+  if (!/\/agents\/join\/[0-9a-f]{48}$/.test(link)) throw new Error(`the agent link is not one: ${link}`)
+  await d.screenshot({ path: `${SHOTS}/39-invite-agent.png` })
+  const joined = await fetch(`${link}?name=E2E%20agent`)
+  const got = await joined.json().catch(() => ({}))
+  if (joined.status !== 201 || !/^hm_/.test(got.token || '')) throw new Error(`opening the agent link: ${joined.status} ${JSON.stringify(got).slice(0, 120)}`)
+  const init = await mcp(got.token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e-agent', version: '1' } })
+  if (init.status !== 200) throw new Error(`the agent's token does not open MCP: ${init.status}`)
+  if ((await fetch(link)).status !== 410) throw new Error('an agent link worked twice')
+  await d.keyboard.press('Escape')
+  // The agent's key sits with the others, and is revoked like them.
+  await d.goto(`${WEB}/#/tools/api`, { waitUntil: 'load' })
+  await d.waitForSelector('.agent-token:has-text("E2E agent")', { timeout: 20000 }).catch(() => { throw new Error('the agent’s key is not listed') })
+  await d.click('.agent-token:has-text("E2E agent") .key-more')
+  await d.click('.agent-token:has-text("E2E agent") .key-revoke')
+  await d.click('.agent-token:has-text("E2E agent") .pill-btn')
+  await d.waitForSelector('.agent-token:has-text("E2E agent")', { state: 'detached', timeout: 10000 })
 })
 
 await step('the list is a chat client on a laptop: sidebar, conversation, and a way into the card', async () => {
@@ -1588,7 +1671,9 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
       .catch(() => { throw new Error('picking a thread reply in search did not open its thread') })
     // The Activity inbox is there and opens.
     await d.click('[data-activity="1"]')
-    await d.waitForSelector('.slk-head h1:has-text("Activity")', { timeout: 5000 }).catch(() => { throw new Error('Activity did not open') })
+    await d.waitForSelector('.slk-inbox-tabs [role="tab"]', { timeout: 5000 }).catch(() => { throw new Error('Activity did not open') })
+    // On a laptop it is an inbox: the list on the left, the one you pick on the right.
+    await d.waitForSelector('.slk-inbox-view', { timeout: 5000 }).catch(() => { throw new Error('Activity has no pane for the notification you pick') })
     // A draft stays with its conversation.
     await d.click('.cl-thread:has-text("Front desk") .cl-open')
     await d.fill('.slk-input', 'half-written thought')
@@ -2378,13 +2463,16 @@ await step('GitHub is not claimed where it cannot run', async () => {
   await page.waitForSelector('[data-github]', { timeout: 15000 })
   const state = await page.getAttribute('[data-github]', 'data-github')
   if (state !== 'off') throw new Error(`GitHub is claimed as "${state}" in a workspace with no repository`)
-  const said = await page.textContent('[data-github] .row-sub')
+  const said = await page.textContent('[data-github] .app-desc')
   if (!said || !said.trim()) throw new Error('GitHub is switched off without saying why')
+  // Shared by the whole workspace, and said so — the other apps are each person's.
+  const scope = await page.textContent('[data-github] .app-scope')
+  if (!/workspace/i.test(scope || '')) throw new Error(`GitHub is not marked as the workspace's: ${scope}`)
   await shot('27-github-off')
   // But it can be connected from here: an admin names a repository and a
   // token, and a token GitHub will not take is refused out loud. (There is
   // no GitHub to reach from this harness; the refusal is the part on test.)
-  await page.click('[data-github] .pill-btn')
+  await page.click('[data-github] .app-add')
   await page.waitForSelector('.github-form', { timeout: 10000 })
     .catch(() => { throw new Error('Connect opened no form to name a repository') })
   await page.fill('.github-form input[aria-label="Repository"]', 'acme/ops')
@@ -2393,6 +2481,7 @@ await step('GitHub is not claimed where it cannot run', async () => {
   await page.waitForSelector('.screen .form-error', { timeout: 30000 })
     .catch(() => { throw new Error('a token GitHub will not take was accepted silently') })
   await shot('27b-github-connect')
+  await page.keyboard.press('Escape')
   await closeEverything()
 })
 

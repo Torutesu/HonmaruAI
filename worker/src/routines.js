@@ -9,6 +9,7 @@ import { allowanceFor } from "./gate.js";
 import { noteUsage, settleUsage } from "./ledger.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { emitCard } from "./webhooks.js";
 import { localizeForRecipient } from "./localize.js";
 import { loadCopy } from "./copy.js";
 import { serverText } from "./serverCopy.js";
@@ -568,6 +569,7 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
     await finish({ ranAt: now.toISOString(), cardId, usd: byModel ? usd : 0 });
     const shown = await localizeForRecipient(env, routine.org_id, card, { payerGithubId: routine.owner_github_id });
     await announceCards(env, routine.org_id, [shown]);
+    await emitCard(env, routine.org_id, card, "card.created");
     // A report with a channel is said there too, by the AI, for everyone
     // in it — a daily report waits for its owner to post it.
     if (!card.dailyReport && routine.channel) {

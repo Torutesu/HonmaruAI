@@ -960,3 +960,89 @@
 .classic.slk.slk .slk-pane .swipe-hint-desk { flex: 1 1 100%; margin: 0 0 0 4px; }
 /* Everyone in the list is a rounded square, the one who asked included. */
 .classic.slk.slk .slk-pane .rb-row .avatar { border-radius: 8px; }
+
+/* ---- Activity, as an inbox ----
+
+   Notifications down the left — who, what they did, where, what it said —
+   with All and Unread over them; the one you pick on the right. On a phone
+   the list is the whole page and a notification opens where it happened. */
+.classic.slk.slk .slk-inbox { flex: 1; min-height: 0; display: flex; }
+.classic.slk.slk .slk-inbox-list { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.classic.slk.slk .slk-inbox-view { display: none; }
+.classic.slk.slk .slk-inbox-head {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  min-height: 52px; padding: 0 10px 0 8px; border-bottom: 1px solid var(--slk-line);
+}
+.classic.slk.slk .slk-inbox-tabs { flex: 1; display: flex; gap: 14px; padding-left: 6px; }
+.classic.slk.slk .slk-inbox-tabs button {
+  position: relative; height: 52px; display: inline-flex; align-items: center; gap: 6px;
+  border: none; background: none; cursor: pointer; font: inherit; font-size: 14px; color: var(--slk-dim);
+}
+.classic.slk.slk .slk-inbox-tabs button[aria-selected="true"] { color: var(--slk-ink); font-weight: 600; }
+.classic.slk.slk .slk-inbox-tabs button[aria-selected="true"]::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--slk-ink);
+}
+.classic.slk.slk .slk-inbox-count {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9999px; display: inline-grid; place-items: center;
+  font-size: 11px; font-weight: 700; background: var(--slk-red); color: #fff;
+}
+.classic.slk.slk .slk-inbox-action {
+  width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center;
+  border: none; background: none; cursor: pointer; color: var(--slk-dim);
+}
+.classic.slk.slk .slk-inbox-action:hover { background: var(--slk-hover); color: var(--slk-ink); }
+.classic.slk.slk .slk-inbox-rows { flex: 1; min-height: 0; overflow-y: auto; padding: 0; }
+
+.classic.slk.slk .slk-note {
+  display: flex; flex-direction: row; gap: 12px; align-items: flex-start; width: 100%; margin: 0; border-radius: 0; text-align: left;
+  padding: 14px 16px; border: none; border-bottom: 1px solid var(--slk-line); border-left: 3px solid transparent;
+  background: none; cursor: pointer; font: inherit; color: inherit;
+}
+.classic.slk.slk .slk-note.unread { border-left-color: var(--slk-accent); }
+.classic.slk.slk .slk-note:hover { background: var(--slk-msg-hover); }
+.classic.slk.slk .slk-note.on { background: var(--slk-on); }
+.classic.slk.slk .slk-note-avatar {
+  flex: none; width: 32px; height: 32px; border-radius: 8px; overflow: hidden; display: grid; place-items: center;
+  background: var(--slk-on); color: var(--slk-ink); font-weight: 700; font-size: 13px;
+}
+.classic.slk.slk .slk-note-avatar img { width: 100%; height: 100%; }
+.classic.slk.slk .slk-note-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.classic.slk.slk .slk-note-line { display: flex; align-items: baseline; gap: 8px; }
+.classic.slk.slk .slk-note-who { flex: 1; min-width: 0; font-size: 14px; color: var(--slk-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-note-who b { font-weight: 700; }
+.classic.slk.slk .slk-note.unread .slk-note-who { font-weight: 600; }
+.classic.slk.slk .slk-note-where { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--slk-dim); }
+.classic.slk.slk .slk-note .slk-act-body { font-size: 13.5px; line-height: 1.5; -webkit-line-clamp: 2; }
+.classic.slk.slk .slk-note-reaction {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 3px;
+  padding: 2px 8px; border-radius: 9999px; background: var(--slk-field); border: 1px solid var(--slk-line);
+  font-size: 12px; font-weight: 700; color: var(--slk-ink);
+}
+.classic.slk.slk .slk-note-reaction span { font-size: 14px; line-height: 1; }
+.classic.slk.slk .slk-note-reaction.big { padding: 4px 9px; margin: 0 6px 0 0; }
+
+@media (min-width: 900px) {
+  .classic.slk.slk .slk-inbox-list { flex: none; width: 400px; border-right: 1px solid var(--slk-line); }
+  .classic.slk.slk .slk-inbox-head .slk-back { display: none; }
+  .classic.slk.slk .slk-inbox-view { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+}
+.classic.slk.slk .slk-inbox-empty { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 24px; }
+.classic.slk.slk .slk-inbox-empty h2 { margin: 12px 0 0; font-size: 15px; font-weight: 700; color: var(--slk-ink); }
+.classic.slk.slk .slk-inbox-empty p { margin: 0; font-size: 13px; color: var(--slk-dim); }
+.classic.slk.slk .slk-inbox-art {
+  position: relative; width: 128px; height: 88px; border-radius: 14px; display: grid; place-items: center;
+  background: var(--slk-field); border: 1px solid var(--slk-line); color: var(--slk-ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .12);
+}
+.classic.slk.slk .slk-inbox-art i {
+  position: absolute; left: 12px; top: 12px; width: 38px; height: 8px; border-radius: 4px; background: var(--slk-line);
+}
+.classic.slk.slk .slk-inbox-view-head {
+  flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 18px; min-height: 52px; box-sizing: border-box;
+  border-bottom: 1px solid var(--slk-line);
+}
+.classic.slk.slk .slk-inbox-view-head > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.classic.slk.slk .slk-inbox-view-head h2 { margin: 0; font-size: 15px; font-weight: 700; color: var(--slk-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-inbox-view-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 8px; }
+.classic.slk.slk .slk-inbox-said { display: flex; align-items: center; margin: 0 16px 10px; font-size: 13px; color: var(--slk-dim); }
+.classic.slk.slk .slk-inbox-msg:hover { background: none; }

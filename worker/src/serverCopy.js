@@ -6,6 +6,9 @@ import { registerCatalog } from "./copy.js";
 // the languages below; any other is learned by copy.js on first use.
 
 const EN = {
+  "invite.joined": "{name} joined the workspace. Say hello!",
+  "invite.someone": "Someone new",
+  "invite.agentJoined": "The agent “{name}” joined, working for {by}.",
   "route.selectedByYou": "Selected by you",
   "channel.failed": "Could not make that a decision. Try again.",
   "channel.failedBecause": "Could not make that a decision: {reason}",
@@ -77,6 +80,9 @@ const EN = {
 };
 
 const JA = {
+  "invite.joined": "{name}さんがワークスペースに参加しました。ようこそ！",
+  "invite.someone": "新しいメンバー",
+  "invite.agentJoined": "エージェント「{name}」が参加しました（{by}さんの代わりに動きます）。",
   "route.selectedByYou": "あなたが選択",
   "channel.failed": "決定カードにできませんでした。もう一度試してください。",
   "channel.failedBecause": "決定カードにできませんでした: {reason}",
@@ -148,6 +154,9 @@ const JA = {
 };
 
 const ES = {
+  "invite.joined": "{name} se unió al espacio de trabajo. ¡Salúdale!",
+  "invite.someone": "Alguien nuevo",
+  "invite.agentJoined": "El agente «{name}» se unió y trabaja para {by}.",
   "route.selectedByYou": "Elegido por ti",
   "channel.failed": "No se pudo convertir en una decisión. Inténtalo de nuevo.",
   "channel.failedBecause": "No se pudo convertir en una decisión: {reason}",
@@ -219,6 +228,9 @@ const ES = {
 };
 
 const FR = {
+  "invite.joined": "{name} a rejoint l’espace de travail. Dites bonjour !",
+  "invite.someone": "Une nouvelle personne",
+  "invite.agentJoined": "L’agent « {name} » a rejoint l’espace et travaille pour {by}.",
   "route.selectedByYou": "Choisi par vous",
   "channel.failed": "Impossible d'en faire une décision. Réessayez.",
   "channel.failedBecause": "Impossible d'en faire une décision : {reason}",
@@ -290,6 +302,9 @@ const FR = {
 };
 
 const DE = {
+  "invite.joined": "{name} ist dem Workspace beigetreten. Sag hallo!",
+  "invite.someone": "Jemand Neues",
+  "invite.agentJoined": "Der Agent „{name}“ ist beigetreten und arbeitet für {by}.",
   "route.selectedByYou": "Von dir ausgewählt",
   "channel.failed": "Daraus konnte keine Entscheidung werden. Versuch es noch einmal.",
   "channel.failedBecause": "Daraus konnte keine Entscheidung werden: {reason}",

@@ -35,6 +35,8 @@ import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
 import { handleChannels, broadcastStored } from "./channelRoutes.js";
 import { handleSuggestions } from "./suggest.js";
+import { handleWebhooks } from "./webhooks.js";
+import { handleAgentInvites } from "./agentInvites.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
@@ -171,6 +173,12 @@ async function handle(request, env, url, ctx) {
       });
     }
 
+    // The workspace's webhooks.
+    const hooked = await handleWebhooks(request, env, url);
+    if (hooked) return hooked;
+    // Agents brought in by link.
+    const agentJoin = await handleAgentInvites(request, env, url);
+    if (agentJoin) return agentJoin;
     // What to tell your AI, from your own work.
     const suggested = await handleSuggestions(request, env, url);
     if (suggested) return suggested;
@@ -271,7 +279,7 @@ async function handle(request, env, url, ctx) {
       if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
         return json({ message: "You are not a member of this organization." }, 403);
       }
-      const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: body.uses });
+      const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: body.uses, channels: body.channels });
       if (result.error) return json({ message: result.error }, 400);
       return json(result);
     }
@@ -306,7 +314,7 @@ async function handle(request, env, url, ctx) {
       if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
         return json({ message: "You are not a member of this organization." }, 403);
       }
-      const minted = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: 1 });
+      const minted = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: 1, channels: body.channels });
       if (minted.error) return json({ message: minted.error }, 400);
       const sender = await getUserByGithubId(env.DB, session.github_id);
       const mail = composeInviteEmail({

@@ -3,6 +3,7 @@ import { resolveChannel, viewOf, postMessage, present, MAX_MESSAGE_CHARS } from 
 import { custom as customEvent } from "./agui/events.js";
 import { getUserByGithubId } from "./db.js";
 import { serverText } from "./serverCopy.js";
+import { emitCall } from "./webhooks.js";
 import { noteUsage } from "./ledger.js";
 import { safe } from "./log.js";
 
@@ -165,6 +166,10 @@ export async function leaveJam(relay, ws, att, { closing = false } = {}) {
   const locale = await localeOf(relay.db, att.githubId);
   const minutes = minutesBetween(meta.startedAt, new Date().toISOString());
   await sayInChannel(relay, orgId, jam.key, members, serverText(locale, "jam.ended", { minutes, people: namesOf(meta.people || [], members) }));
+  relay.state.waitUntil(emitCall(relay.env, orgId, jam.key, "call.ended", {
+    startedAt: meta.startedAt, endedAt: new Date().toISOString(), minutes,
+    participants: (meta.people || []).map((l) => ({ name: members.find((m) => m.login === l)?.name || null })),
+  }));
 }
 
 /// The Jams a socket that just joined can see, so its channel headers show
@@ -254,6 +259,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
       const name = members.find((m) => m.login === att.userId)?.name || att.userId;
       const locale = await localeOf(relay.db, att.githubId);
       await sayInChannel(relay, orgId, resolved.key, members, serverText(locale, "jam.started", { name }));
+      relay.state.waitUntil(emitCall(relay.env, orgId, resolved.key, "call.started", { startedAt: meta.startedAt, startedBy: { name } }));
     }
   }
 }

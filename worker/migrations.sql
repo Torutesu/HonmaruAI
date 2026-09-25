@@ -56,3 +56,4 @@ ALTER TABLE users ADD COLUMN timezone TEXT;
 ALTER TABLE routines ADD COLUMN channel TEXT;
 ALTER TABLE businesses ADD COLUMN description TEXT;
 ALTER TABLE connector_sync_state ADD COLUMN org_id TEXT;
+ALTER TABLE invites ADD COLUMN channels TEXT;

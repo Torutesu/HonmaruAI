@@ -17,6 +17,7 @@ import {
   markRead, readsFor, activityFeed, searchMessages,
 } from "./channels.js";
 import { safe } from "./log.js";
+import { emitMessage, emitCard } from "./webhooks.js";
 import { sha256Hex } from "./auth.js";
 import { applyAutoRule, listAutoRules, addAutoRule, removeAutoRule } from "./autorules.js";
 import { setStatus, rememberTimezone, redirectIfAway, setChannelPref, prefsFor, memberProfile } from "./people.js";
@@ -116,7 +117,10 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
   // Asked in a thread, the AI answers in that thread.
   const say = async (body, cardId = null) => {
     const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: null, body, kind: "ai", cardId, parentId: row.parent_id || null });
-    if (out.row) await broadcastWithParent(env, orgId, resolved, out.row, members);
+    if (out.row) {
+      await broadcastWithParent(env, orgId, resolved, out.row, members);
+      await emitMessage(env, orgId, out.row);
+    }
   };
   try {
     const instruction = withoutAI(row.body) || row.body;
@@ -199,6 +203,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     // answered below in their own words, off `card`.
     const shown = await localizeForRecipient(env, orgId, card, { payerGithubId: user.github_id });
     await announceCards(env, orgId, [shown]);
+    await emitCard(env, orgId, card, "card.created");
     if (!rule && anyChannelConfigured(env) && recipient.login !== user.login) {
       await notifyCard(env, { card: shown, kind: "created", excludeLogin: user.login, orgId, payerGithubId: user.github_id }).catch((err) => console.error("channel notify failed", safe(err?.message)));
     }
@@ -325,6 +330,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const locale = who.user.locale || "en";
     after(async () => {
       await broadcastWithParent(env, orgId, resolved, out.row, members);
+      await emitMessage(env, orgId, out.row);
       if (wantsDecision) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
@@ -351,6 +357,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (out.error) return json({ message: out.error }, out.status || 400);
     after(async () => {
       await broadcastWithParent(env, body.orgId, ctx.resolved, out.row, ctx.members);
+      await emitMessage(env, body.orgId, out.row, { updated: true });
       // The journal said what this message said; its day is written again.
       await forgetJournalDay(env.DB, body.orgId, ctx.resolved.key, current.created_at);
     });
@@ -391,6 +398,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     await markRead(env.DB, body.orgId, who.user.login, resolved.key, out.row.created_at);
     after(async () => {
       await broadcastWithParent(env, body.orgId, resolved, out.row, members);
+      await emitMessage(env, body.orgId, out.row);
       await announceCards(env, body.orgId, [posted], { isNew: false });
     });
     const view = viewOf(resolved.key, who.user.login, members);
@@ -746,4 +754,5 @@ export async function broadcastStored(env, orgId, key, row) {
   else if (key.startsWith("dm:")) resolved = { key, kind: "dm", logins: key.slice(3).split("|") };
   else return;
   await broadcastWithParent(env, orgId, resolved, row, members);
+  await emitMessage(env, orgId, row);
 }

@@ -100,7 +100,10 @@ CREATE TABLE IF NOT EXISTS invites (
      is sha256(code) cut short, so it is derivable; it is stored so that
      cancelling one is an indexed lookup rather than a scan of every invite in
      the workspace, hashing each. */
-  ref            TEXT
+  ref            TEXT,
+  /* The channels the person is introduced in when they join: a JSON list of
+     business slugs, or NULL for none. */
+  channels       TEXT
 );
 /* The index for `ref` is in migrations.sql, not here. This file runs first and
    `CREATE TABLE IF NOT EXISTS` is a no-op on a database that already has the
@@ -628,4 +631,36 @@ CREATE TABLE IF NOT EXISTS ai_suggestions (
   by_model   INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   PRIMARY KEY (org_id, login, locale)
+);
+
+/* A workspace's webhooks: its events posted to a service of the team's own,
+   signed with a secret shown once. A webhook hears what the member who made
+   it could see — direct conversations only when it asked for them. */
+CREATE TABLE IF NOT EXISTS org_webhooks (
+  id                TEXT PRIMARY KEY,
+  org_id            TEXT NOT NULL,
+  created_by        TEXT NOT NULL,
+  name              TEXT,
+  url               TEXT NOT NULL,
+  events            TEXT NOT NULL,
+  include_dms       INTEGER NOT NULL DEFAULT 0,
+  secret            TEXT NOT NULL,
+  created_at        TEXT NOT NULL,
+  last_status       INTEGER,
+  last_delivery_at  TEXT,
+  last_error        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_org_webhooks_org ON org_webhooks(org_id);
+
+/* A link that brings an agent into a workspace: single use, fifteen minutes,
+   stored as a hash. Opening it mints the agent an MCP token that acts for
+   the member who made the link, and introduces it in the channels picked. */
+CREATE TABLE IF NOT EXISTS agent_invites (
+  code_hash      TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  created_by     TEXT NOT NULL,
+  channels       TEXT,
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT NOT NULL,
+  used_at        TEXT
 );

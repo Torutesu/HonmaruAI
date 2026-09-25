@@ -1,0 +1,114 @@
+/* A dialog: a quiet card over a dimmed page, as the rest of the app draws
+   its surfaces — one border, one radius, one shadow — in both themes. */
+.dialog-backdrop {
+  --dlg-bg: #ffffff; --dlg-ink: #202020; --dlg-dim: #646464; --dlg-faint: #838383;
+  --dlg-line: #e8e8e8; --dlg-field: #f8f9fa; --dlg-hover: #f2f2f2; --dlg-accent: #6647f0;
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(15, 15, 15, .45);
+  animation: dlg-fade .12s ease-out;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dialog-backdrop {
+    --dlg-bg: #1c1c1e; --dlg-ink: #f2f2f2; --dlg-dim: #a3a3a3; --dlg-faint: #7c7d80;
+    --dlg-line: #2e2e31; --dlg-field: #141416; --dlg-hover: #26262a; --dlg-accent: #8f7bff;
+    background: rgba(0, 0, 0, .6);
+  }
+}
+:root[data-theme="dark"] .dialog-backdrop {
+  --dlg-bg: #1c1c1e; --dlg-ink: #f2f2f2; --dlg-dim: #a3a3a3; --dlg-faint: #7c7d80;
+  --dlg-line: #2e2e31; --dlg-field: #141416; --dlg-hover: #26262a; --dlg-accent: #8f7bff;
+  background: rgba(0, 0, 0, .6);
+}
+@keyframes dlg-fade { from { opacity: 0; } to { opacity: 1; } }
+.dialog {
+  width: min(520px, 100%); max-height: min(720px, calc(100vh - 32px));
+  display: flex; flex-direction: column;
+  background: var(--dlg-bg); color: var(--dlg-ink);
+  border: 1px solid var(--dlg-line); border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .28);
+  overflow: hidden;
+}
+.dialog-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 18px 6px 20px; }
+.dialog-head-text { flex: 1; min-width: 0; }
+.dialog-head h2 { margin: 0; font-size: 15.5px; font-weight: 700; letter-spacing: -0.01em; }
+.dialog-head p { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--dlg-dim); }
+.dialog-close {
+  flex: none; width: 30px; height: 30px; margin: -4px -4px 0 0; border-radius: 8px;
+  display: grid; place-items: center; border: none; background: none; color: var(--dlg-dim); cursor: pointer;
+}
+.dialog-close:hover { background: var(--dlg-hover); color: var(--dlg-ink); }
+.dialog-body { padding: 10px 20px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.dialog-foot {
+  display: flex; align-items: center; gap: 8px; justify-content: flex-end;
+  padding: 12px 16px; border-top: 1px solid var(--dlg-line);
+}
+
+/* The pieces a dialog is made of. */
+.dlg-label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--dlg-dim); margin-bottom: 6px; }
+.dlg-label .dlg-optional { font-weight: 400; color: var(--dlg-faint); }
+.dlg-input {
+  width: 100%; box-sizing: border-box; height: 36px; padding: 0 11px;
+  font: inherit; font-size: 13.5px; color: var(--dlg-ink);
+  background: var(--dlg-field); border: 1px solid var(--dlg-line); border-radius: 9px;
+}
+.dlg-input:focus { outline: none; border-color: var(--dlg-accent); }
+.dlg-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--dlg-faint); }
+.dlg-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px;
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  border-radius: 8px; border: 1px solid var(--dlg-line); background: var(--dlg-bg); color: var(--dlg-ink);
+}
+.dlg-btn:hover:not(:disabled) { background: var(--dlg-hover); }
+.dlg-btn.primary { background: var(--dlg-ink); color: var(--dlg-bg); border-color: var(--dlg-ink); }
+.dlg-btn.primary:hover:not(:disabled) { opacity: .88; background: var(--dlg-ink); }
+.dlg-btn:disabled { opacity: .45; cursor: default; }
+.dlg-btn.link { border: none; background: none; padding: 0; height: auto; color: var(--dlg-accent); }
+.dlg-btn.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+.dlg-error { margin: 0; font-size: 12.5px; color: #e5484d; }
+.dlg-note { margin: 0; font-size: 12.5px; color: var(--dlg-dim); }
+.dlg-check { display: flex; align-items: center; gap: 9px; font-size: 13px; cursor: pointer; }
+.dlg-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--dlg-accent); }
+.dlg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 16px; }
+@media (max-width: 480px) { .dlg-grid { grid-template-columns: 1fr; } }
+.dlg-secret {
+  display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px;
+  border: 1px solid var(--dlg-line); border-radius: 9px; background: var(--dlg-field);
+}
+.dlg-secret code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12.5px; }
+.dlg-warn { margin: 0; padding: 9px 12px; border-radius: 9px; font-size: 12.5px; line-height: 1.5; background: rgba(232, 145, 45, .12); color: #b26a12; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dlg-warn { color: #f0b267; } }
+:root[data-theme="dark"] .dlg-warn { color: #f0b267; }
+
+/* Segmented tabs inside a dialog: People / Agent. */
+.dlg-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 10px; background: var(--dlg-field); border: 1px solid var(--dlg-line); }
+.dlg-tabs button {
+  height: 32px; border-radius: 7px; border: 1px solid transparent; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--dlg-dim);
+}
+.dlg-tabs button[aria-selected="true"] { background: var(--dlg-bg); color: var(--dlg-ink); border-color: var(--dlg-line); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+/* A checklist with its own search: channels to add someone to. */
+.dlg-picklist { border: 1px solid var(--dlg-line); border-radius: 10px; overflow: hidden; }
+.dlg-picklist-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 34px; border-bottom: 1px solid var(--dlg-line); color: var(--dlg-faint); }
+.dlg-picklist-search input { flex: 1; border: none; background: none; font: inherit; font-size: 13px; color: var(--dlg-ink); outline: none; }
+.dlg-picklist ul { list-style: none; margin: 0; padding: 0; max-height: 196px; overflow-y: auto; }
+.dlg-picklist li + li { border-top: 1px solid var(--dlg-line); }
+.dlg-picklist label { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
+.dlg-picklist label:hover { background: var(--dlg-hover); }
+.dlg-picklist input { width: 15px; height: 15px; margin: 0; accent-color: var(--dlg-accent); }
+.dlg-picklist .dlg-pick-mark { color: var(--dlg-faint); display: inline-grid; }
+.dlg-picklist .dlg-pick-all { font-weight: 600; }
+.dlg-picklist .dlg-empty { padding: 12px; font-size: 12.5px; color: var(--dlg-faint); }
+
+/* The invitation's mark: an envelope with two sparks, in the brand colour. */
+.invite-art {
+  position: relative; flex: none; width: 58px; height: 46px; margin: 2px 6px 0 0;
+  display: grid; place-items: center; border-radius: 12px; transform: rotate(-8deg);
+  background: linear-gradient(145deg, #2b2b30, #151518); color: #fff;
+  box-shadow: 0 8px 18px rgba(0,0,0,.25);
+}
+.invite-art .spark { position: absolute; width: 9px; height: 9px; background: #5b8cff; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.invite-art .spark.a { left: -8px; bottom: -4px; width: 12px; height: 12px; }
+.invite-art .spark.b { right: -6px; top: -2px; }
+.invite-agent { display: flex; flex-direction: column; gap: 10px; }
