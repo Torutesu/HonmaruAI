@@ -141,6 +141,18 @@ export interface User {
 /// A message in a channel: a business's (`b:<slug>`) or a direct one with
 /// a teammate (`dm:<member ref>`). `kind: 'ai'` is the AI saying what it
 /// made of a message; `cardId` is the decision a message became.
+/// A file or picture sent with a message. `url` is relative to the API and
+/// signed for the person it was given to; it lasts a day or two.
+export interface FileRef {
+  id: string
+  name: string
+  type: string
+  size: number
+  width?: number | null
+  height?: number | null
+  url: string
+}
+
 export interface ChannelMessage {
   id: string
   channel: string
@@ -167,4 +179,5 @@ export interface ChannelMessage {
   /// Who reacted, by member ref. `mine` is only set on a message fetched
   /// by this person; a live event is shared, so the refs decide.
   reactions?: Array<{ emoji: string; count: number; refs: string[]; mine: boolean }>
+  files?: FileRef[]
 }

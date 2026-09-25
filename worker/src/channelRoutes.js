@@ -28,6 +28,7 @@ import { providerFor } from "./orgAI.js";
 import { allowanceFor } from "./gate.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
+import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
 } from "./jam.js";
@@ -324,8 +325,12 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (sched.error) return json({ message: sched.error }, 400);
       return json({ scheduled: { ...sched.scheduled, channel: view } }, 201);
     }
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId });
+    // Files uploaded for this message come with it — yours, uploaded here.
+    const fileIds = Array.isArray(body.files) ? body.files : [];
+    const withFiles = fileIds.length > 0 && (await claimable(env.DB, { orgId, key: resolved.key, login: who.user.login, ids: fileIds })) > 0;
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, withFiles });
     if (out.error) return json({ message: out.error }, 400);
+    if (withFiles) await attachFiles(env.DB, { orgId, key: resolved.key, login: who.user.login, messageId: out.row.id, ids: fileIds });
     const wantsDecision = body.decide === true || asksTheAI(out.row.body);
     const locale = who.user.locale || "en";
     after(async () => {
@@ -355,6 +360,8 @@ export async function handleChannels(request, env, url, { route, after }) {
       ? await editMessage(env.DB, { orgId: body.orgId, id: body.messageId, authorLogin: ctx.who.user.login, body: body.body })
       : await deleteMessage(env.DB, { orgId: body.orgId, id: body.messageId, authorLogin: ctx.who.user.login });
     if (out.error) return json({ message: out.error }, out.status || 400);
+    // Unsent: its files go with its words.
+    if (request.method === "DELETE") await dropFiles(env, body.orgId, body.messageId);
     after(async () => {
       await broadcastWithParent(env, body.orgId, ctx.resolved, out.row, ctx.members);
       await emitMessage(env, body.orgId, out.row, { updated: true });
@@ -414,6 +421,18 @@ export async function handleChannels(request, env, url, { route, after }) {
     const thread = await listThread(env.DB, orgId, ctx.resolved.key, url.searchParams.get("messageId") || "", ctx.who.user.login, ctx.view, ctx.members);
     if (!thread) return json({ message: "No such thread." }, 404);
     return json(thread);
+  }
+
+  // A file or a picture, uploaded into a conversation you can read, for the
+  // message you are about to send. The bytes are the body; the name and a
+  // picture's size ride in the query.
+  if (path === "/channels/files" && request.method === "POST") {
+    const limited = await enforce(env, request, "files");
+    if (limited) return limited;
+    const orgId = url.searchParams.get("orgId");
+    const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
+    if (ctx.denied) return ctx.denied;
+    return uploadFile(request, env, url, { orgId, resolved: ctx.resolved, login: ctx.who.user.login });
   }
 
   // Where a message is, for a link to it: the conversation as this reader

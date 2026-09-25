@@ -18,6 +18,7 @@ import type { JamMode, JamState } from '../utils/jam'
 import { InviteDialog } from './InviteDialog'
 import { Avatar } from './Avatar'
 import { Sheet, SheetRow, MessageSheet, PeoplePicker, longPress } from './Sheet'
+import { useUploads, PendingUploads, MessageFiles } from './Attachments'
 import { playSound, setOpenView, rememberLevels, startRing, stopRing } from '../utils/sound'
 import './ClassicList.css'
 
@@ -598,6 +599,12 @@ export const ClassicList: React.FC<Props> = ({
   const [messages, setMessages] = useState<Record<string, ChannelMessage[]>>({})
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // Files going up with the next message: the conversation's, and a thread's.
+  const uploads = useUploads(api, setProblem)
+  const threadUploads = useUploads(api, setProblem)
+  const [dropping, setDropping] = useState(false)
+  const attachInput = useRef<HTMLInputElement>(null)
+  const threadAttachInput = useRef<HTMLInputElement>(null)
   // Conversations where the AI is writing a card right now.
   // …and which step it is on: reading, routing, writing.
   const [thinking, setThinking] = useState<Record<string, string | false>>({})
@@ -728,7 +735,10 @@ export const ClassicList: React.FC<Props> = ({
 
   const send = async (channel: string, decide: boolean, parentId?: string, sendAt?: string) => {
     let body = (parentId ? threadDraft : draft).trim()
-    if (!body || sending) return
+    const up = parentId ? threadUploads : uploads
+    if ((!body && !up.ids.length) || sending) return
+    if (up.busy) { setProblem(t('Wait for the files to finish uploading.')); return }
+    if (sendAt && up.ids.length) { setProblem(t('A scheduled message cannot carry files yet.')); return }
     // A command, not a message: done here, with a note only you see.
     const cmd = !parentId && !sendAt ? /^\/(\w+)\s*([\s\S]*)$/.exec(body) : null
     if (cmd) {
@@ -744,7 +754,7 @@ export const ClassicList: React.FC<Props> = ({
       const res = await fetch(`${api.httpBase}/channels/messages`, {
         method: 'POST',
         headers: { ...authHeaders, 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId: api.orgId, channel, body, decide, ...(parentId ? { parentId } : {}), ...(sendAt ? { sendAt } : {}) }),
+        body: JSON.stringify({ orgId: api.orgId, channel, body, decide, ...(parentId ? { parentId } : {}), ...(sendAt ? { sendAt } : {}), ...(up.ids.length ? { files: up.ids } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setProblem(data.message || t('That did not send. Try again.')); return }
@@ -757,6 +767,7 @@ export const ClassicList: React.FC<Props> = ({
       const msg = data.message as ChannelMessage
       // Sent: a small confirmation, in a direct conversation — as Slack does.
       if (channel.startsWith('dm:')) playSound('sent')
+      up.clear()
       if (parentId) {
         setThreadDraft('')
         setThread((prev) => (prev && prev.parent.id === parentId && !prev.replies.some((x) => x.id === msg.id) ? { ...prev, replies: [...prev.replies, msg] } : prev))
@@ -994,7 +1005,10 @@ export const ClassicList: React.FC<Props> = ({
     if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); setFlash(id); setTimeout(() => setFlash(null), 1600) }
   }
   // Leaving a conversation closes what was open on it.
-  useEffect(() => { setEditing(null); setThread(null); setPins(null); setPickerFor(null) }, [current?.key])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setEditing(null); setThread(null); setPins(null); setPickerFor(null); uploads.clear() }, [current?.key])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { threadUploads.clear() }, [thread?.parent.id])
   useEffect(() => {
     const j = pendingJump.current
     if (!j || !current || current.view !== j.view) return
@@ -1465,10 +1479,15 @@ export const ClassicList: React.FC<Props> = ({
     }
     if (m.deleted) return <div className="slk-text slk-deleted">{t('This message was deleted.')}</div>
     return (
-      <div className="slk-text">
-        {rich(m.body)}
-        {m.editedAt && <span className="slk-edited" title={new Date(m.editedAt).toLocaleString(locale)}> {t('(edited)')}</span>}
-      </div>
+      <>
+        {(m.body || m.editedAt) && (
+          <div className="slk-text">
+            {rich(m.body)}
+            {m.editedAt && <span className="slk-edited" title={new Date(m.editedAt).toLocaleString(locale)}> {t('(edited)')}</span>}
+          </div>
+        )}
+        <MessageFiles files={m.files} base={api.httpBase} />
+      </>
     )
   }
   const toolsFor = (channel: string, m: ChannelMessage, inThread = false) => (m.deleted || editing?.id === m.id) ? undefined : (
@@ -2029,8 +2048,10 @@ export const ClassicList: React.FC<Props> = ({
         })()}
         {thread.view ? (
           <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
+            <PendingUploads items={uploads.items} onRemove={uploads.remove} />
             <textarea
               ref={composer}
+              onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); uploads.add(files, thread.view!) } }}
               className="slk-input"
               value={draft}
               rows={1}
@@ -2069,13 +2090,15 @@ export const ClassicList: React.FC<Props> = ({
             {mention.menu}
             <SlashMenu draft={draft} onPick={(name) => { setDraft(`/${name} `); composer.current?.focus() }} />
             <div className="slk-composer-bar">
+              <button type="button" className="slk-attach" onClick={() => attachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
+              <input ref={attachInput} type="file" multiple hidden data-attach="1" onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) uploads.add(files, thread.view!) }} />
               <FormatBar target={composer} value={draft} set={setDraft} />
               <span className="slk-composer-hint">{t('Enter to send · ⌘Enter sends and asks your AI for a decision · / for commands')}</span>
               <button type="button" className="slk-send ai" disabled={sending || !draft.trim()} onClick={() => void send(thread.view!, true)} aria-label={t('Send as a decision')} title={t('Send as a decision')}>
                 <Icon name="sparkle" size={15} /><span className="slk-send-label">{t('Send as a decision')}</span>
               </button>
               <span className="slk-send-group">
-                <button type="submit" className="slk-send" disabled={sending || !draft.trim()} aria-label={t('Send')}>
+                <button type="submit" className="slk-send" disabled={sending || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t('Send')}>
                   <Icon name="send" size={16} />
                 </button>
                 <button type="button" className="slk-send more" disabled={sending || !draft.trim() || draft.trim().startsWith('/')} onClick={() => setScheduleOpen((o) => !o)} aria-label={t('Schedule message')} title={t('Schedule message')} aria-expanded={scheduleOpen}>
@@ -2252,7 +2275,10 @@ export const ClassicList: React.FC<Props> = ({
         </nav>
         </>}
       </aside>
-      <main className="slk-main">
+      <main className={`slk-main${dropping ? ' slk-dropping' : ''}`}
+        onDragOver={(e) => { if (current?.view && current.kind !== 'app' && !activityOpen && !laterOpen && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDropping(true) } }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false) }}
+        onDrop={(e) => { setDropping(false); if (current?.view && current.kind !== 'app' && e.dataTransfer.files.length) { e.preventDefault(); uploads.add([...e.dataTransfer.files], current.view) } }}>
         {activityOpen ? activityView() : laterOpen ? laterView() : current ? conversation(current) : (
           <div className="slk-none"><p>{t('Pick a conversation.')}</p></div>
         )}
@@ -2473,8 +2499,10 @@ export const ClassicList: React.FC<Props> = ({
             {aiSteps(thinking[thread.channel])}
           </div>
           <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
+            <PendingUploads items={threadUploads.items} onRemove={threadUploads.remove} />
             <textarea
               ref={threadComposer}
+              onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); threadUploads.add(files, thread.channel) } }}
               className="slk-input"
               value={threadDraft}
               rows={1}
@@ -2492,9 +2520,11 @@ export const ClassicList: React.FC<Props> = ({
             />
             {threadMention.menu}
             <div className="slk-composer-bar">
+              <button type="button" className="slk-attach" onClick={() => threadAttachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
+              <input ref={threadAttachInput} type="file" multiple hidden onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) threadUploads.add(files, thread.channel) }} />
               <FormatBar target={threadComposer} value={threadDraft} set={setThreadDraft} />
               <span className="slk-composer-hint" />
-              <button type="submit" className="slk-send" disabled={sending || !threadDraft.trim()} aria-label={t('Send')}>
+              <button type="submit" className="slk-send" disabled={sending || threadUploads.busy || (!threadDraft.trim() && !threadUploads.ids.length)} aria-label={t('Send')}>
                 <Icon name="send" size={16} />
               </button>
             </div>

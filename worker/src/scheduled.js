@@ -3,6 +3,7 @@ import { availableConnectors } from "./connectors/index.js";
 import { syncAll } from "./sync.js";
 import { notifyCard } from "./notify.js";
 import { sweepRateLimits } from "./ratelimit.js";
+import { sweepUnsent } from "./files.js";
 import { cardsCreatedSince, primaryOrgId, isMember } from "./db.js";
 import { announceCards } from "./announce.js";
 import { localizeForRecipient } from "./localize.js";
@@ -141,6 +142,8 @@ export async function runScheduledSync(env, ctx) {
   }
 
   await sweepRateLimits(env);
+  // Files uploaded for a message nobody sent.
+  await sweepUnsent(env).catch((err) => console.error("file sweep failed", err?.message || err));
   return { users: rows.length, synced, created };
 }
 

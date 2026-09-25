@@ -1260,6 +1260,14 @@ const ja: Dict = {
   'Start a group of {n}': '{n}人のグループを始める',
   '{n} members': '{n}人のメンバー',
   'That message is not somewhere you can read.': 'そのメッセージは、あなたが読める場所にありません。',
+  'A scheduled message cannot carry files yet.': '予約送信にはまだファイルを添付できません。',
+  'Attach files': 'ファイルを添付',
+  'Download': 'ダウンロード',
+  'Open {name}': '{name}を開く',
+  'Up to {n} files in one message.': '1つのメッセージに添付できるのは{n}件までです。',
+  'Wait for the files to finish uploading.': 'ファイルのアップロードが終わるまでお待ちください。',
+  '{name} did not upload. Try again.': '{name}をアップロードできませんでした。もう一度お試しください。',
+  '{name} is larger than 25 MB.': '{name}は25MBを超えています。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -2277,6 +2285,14 @@ const es: Dict = {
   '{n} days': '{n} días',
   '{n} members': '{n} miembros',
   'That message is not somewhere you can read.': 'Ese mensaje no está en ningún sitio que puedas leer.',
+  'A scheduled message cannot carry files yet.': 'Un mensaje programado todavía no puede llevar archivos.',
+  'Attach files': 'Adjuntar archivos',
+  'Download': 'Descargar',
+  'Open {name}': 'Abrir {name}',
+  'Up to {n} files in one message.': 'Hasta {n} archivos por mensaje.',
+  'Wait for the files to finish uploading.': 'Espera a que terminen de subirse los archivos.',
+  '{name} did not upload. Try again.': 'No se pudo subir {name}. Inténtalo de nuevo.',
+  '{name} is larger than 25 MB.': '{name} ocupa más de 25 MB.',
 }
 
 const fr: Dict = {
@@ -3252,6 +3268,14 @@ const fr: Dict = {
   'Start a group of {n}': 'Commencer un groupe de {n}',
   '{n} members': '{n} membres',
   'That message is not somewhere you can read.': 'Ce message n’est pas dans un endroit que vous pouvez lire.',
+  'A scheduled message cannot carry files yet.': 'Un message programmé ne peut pas encore contenir de fichiers.',
+  'Attach files': 'Joindre des fichiers',
+  'Download': 'Télécharger',
+  'Open {name}': 'Ouvrir {name}',
+  'Up to {n} files in one message.': 'Jusqu’à {n} fichiers par message.',
+  'Wait for the files to finish uploading.': 'Attendez la fin de l’envoi des fichiers.',
+  '{name} did not upload. Try again.': '{name} n’a pas pu être envoyé. Réessayez.',
+  '{name} is larger than 25 MB.': '{name} dépasse 25 Mo.',
 }
 
 const de: Dict = {
@@ -4227,6 +4251,14 @@ const de: Dict = {
   'Start a group of {n}': 'Gruppe mit {n} starten',
   '{n} members': '{n} Mitglieder',
   'That message is not somewhere you can read.': 'Diese Nachricht liegt nirgends, wo du lesen kannst.',
+  'A scheduled message cannot carry files yet.': 'Geplante Nachrichten können noch keine Dateien enthalten.',
+  'Attach files': 'Dateien anhängen',
+  'Download': 'Herunterladen',
+  'Open {name}': '{name} öffnen',
+  'Up to {n} files in one message.': 'Bis zu {n} Dateien pro Nachricht.',
+  'Wait for the files to finish uploading.': 'Warte, bis die Dateien hochgeladen sind.',
+  '{name} did not upload. Try again.': '{name} konnte nicht hochgeladen werden. Versuch es noch einmal.',
+  '{name} is larger than 25 MB.': '{name} ist größer als 25 MB.',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }

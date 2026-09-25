@@ -43,6 +43,7 @@ export const LIMITS = {
   // writes — a burst of emoji is normal — so this is its own, wider bucket,
   // and chatting never locks a person out of their team screen.
   chat: { max: 600, windowSeconds: 300 },
+  files: { max: 120, windowSeconds: 300 },
   // What to tell your AI: a model call when the kept ones are stale or the
   // person asks for others.
   "ai/suggest": { max: 30, windowSeconds: 300 },

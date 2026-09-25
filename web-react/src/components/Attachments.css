@@ -1,0 +1,76 @@
+/* Files going up, over the composer's words. */
+.att-pending { display: flex; gap: 8px; padding: 10px 12px 0; overflow-x: auto; scrollbar-width: none; }
+.att-pending::-webkit-scrollbar { display: none; }
+.att-pend {
+  position: relative; flex: none; height: 64px; border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--slk-line, #e8e8e8); background: var(--slk-field, #efefef);
+}
+.att-pend.pic { width: 64px; }
+.att-pend.pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.att-pend.up img { opacity: .55; }
+.att-pend.failed { border-color: var(--slk-red, #e01e5a); }
+.att-pend-file { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 30px 0 10px; max-width: 220px; color: var(--slk-ink, #1d1c1d); }
+.att-pend-file > span { display: flex; flex-direction: column; min-width: 0; }
+.att-pend-file b { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-pend-file small { font-size: 11px; color: var(--slk-dim, #616061); }
+.att-x {
+  position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 9999px; border: none; cursor: pointer;
+  display: grid; place-items: center; background: rgba(0, 0, 0, .65); color: #fff; padding: 0;
+}
+.att-spin {
+  position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, .5); border-top-color: var(--slk-accent, #1264a3); animation: att-spin .8s linear infinite;
+}
+.att-pend-file ~ .att-spin { left: auto; right: 34px; }
+@keyframes att-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .att-spin { animation-duration: 2.4s; } }
+.att-failed { position: absolute; left: 6px; bottom: 6px; width: 18px; height: 18px; border-radius: 9999px; background: var(--slk-red, #e01e5a); color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
+
+/* A message's files. */
+.att-files { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; max-width: 480px; }
+.att-pics { display: grid; gap: 4px; border-radius: 10px; overflow: hidden; }
+.att-pics.n1 { display: block; border-radius: 0; overflow: visible; }
+.att-pics.n2 { grid-template-columns: 1fr 1fr; }
+.att-pics.n3, .att-pics.n4 { grid-template-columns: 1fr 1fr; }
+.att-pic {
+  display: block; padding: 0; border: none; cursor: zoom-in; background: var(--slk-field, #efefef); overflow: hidden;
+}
+.att-pics.n1 .att-pic { border-radius: 10px; border: 1px solid var(--slk-line, #e8e8e8); max-height: 360px; }
+.att-pics:not(.n1) .att-pic { aspect-ratio: 1; }
+.att-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.att-file {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px; max-width: 360px; border-radius: 10px;
+  border: 1px solid var(--slk-line, #e8e8e8); background: var(--slk-card, #fff); color: var(--slk-ink, #1d1c1d); text-decoration: none;
+}
+.att-file:hover { background: var(--slk-hover, #f0f0f0); }
+.att-file-icon { flex: none; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: #1264a3; color: #fff; }
+.att-file-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.att-file-text b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-file-text small { font-size: 11.5px; color: var(--slk-dim, #616061); }
+.att-file > svg { color: var(--slk-dim, #616061); flex: none; }
+
+/* One picture, the whole screen. */
+.att-light {
+  position: fixed; inset: 0; z-index: 220; display: flex; flex-direction: column;
+  background: rgba(0, 0, 0, .94); color: #fff; animation: att-fade .14s ease-out;
+}
+@keyframes att-fade { from { opacity: 0; } to { opacity: 1; } }
+.att-light-head {
+  flex: none; display: flex; align-items: center; gap: 8px; min-height: 52px;
+  padding: env(safe-area-inset-top) 8px 0 16px;
+}
+.att-light-head span { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-light-head small { font-weight: 400; opacity: .7; }
+.att-light-head a, .att-light-head button {
+  width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; border: none; background: none; color: #fff; cursor: pointer;
+}
+.att-light-head a:hover, .att-light-head button:hover { background: rgba(255, 255, 255, .12); }
+.att-light img { flex: 1; min-height: 0; width: 100%; object-fit: contain; padding: 0 0 env(safe-area-inset-bottom); }
+
+/* The paperclip in the composer. */
+.slk-attach {
+  width: 32px; height: 32px; border-radius: 8px; border: none; background: none; cursor: pointer;
+  display: grid; place-items: center; color: var(--slk-dim, #616061); flex: none;
+}
+.slk-attach:hover { background: var(--slk-hover, #f0f0f0); color: var(--slk-ink, #1d1c1d); }
+.slk-dropping { outline: 2px dashed var(--slk-accent, #1264a3); outline-offset: -8px; }

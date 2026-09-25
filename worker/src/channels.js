@@ -1,6 +1,7 @@
 import { listMembers } from "./team.js";
 import { businessSlug } from "./db.js";
 import { resolveMentions } from "./threads.js";
+import { filesFor, toFile } from "./files.js";
 
 // Channels you can talk in.
 //
@@ -101,6 +102,7 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     replyRefs: extra.replyRefs || [],
     pinned: !deleted && Boolean(row.pinned_at),
     reactions: deleted ? [] : reactions,
+    files: deleted ? [] : (extra.files || []),
   };
 }
 
@@ -133,14 +135,17 @@ export async function hydrate(db, orgId, rows) {
   return out;
 }
 
-/// Rows to messages, with their threads and reactions.
+/// Rows to messages, with their threads, reactions and files — each file
+/// with an address signed for whoever is being shown it.
 export async function present(db, orgId, rows, viewerLogin, view, members) {
-  const extras = await hydrate(db, orgId, rows);
-  return rows.map((r) => {
+  const [extras, files] = await Promise.all([hydrate(db, orgId, rows), filesFor(db, orgId, rows.map((r) => r.id))]);
+  const now = Date.now();
+  return Promise.all(rows.map(async (r) => {
     const x = extras.get(r.id) || {};
     const replyRefs = (x.replyLogins || []).map((l) => members.find((m) => m.login === l)?.ref).filter(Boolean).slice(0, 5);
-    return toMessage(r, viewerLogin, view, members, { ...x, replyRefs });
-  });
+    const own = await Promise.all((files.get(r.id) || []).map((f) => toFile(db, f, now)));
+    return toMessage(r, viewerLogin, view, members, { ...x, replyRefs, files: own });
+  }));
 }
 
 export async function listMessages(db, orgId, resolved, viewerLogin, view, members, { before } = {}) {
@@ -263,9 +268,10 @@ export async function getMessage(db, orgId, id) {
     .first();
 }
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, withFiles = false }) {
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
-  if (!text) return { error: "Write something first." };
+  // A picture on its own is something said.
+  if (!text && !withFiles) return { error: "Write something first." };
   if (text.length > MAX_MESSAGE_CHARS) return { error: `That is longer than ${MAX_MESSAGE_CHARS} characters.` };
   if (parentId) {
     // A reply goes under a message in this same conversation, one level deep.
@@ -296,7 +302,9 @@ export async function linkCard(db, orgId, messageId, cardId) {
 export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24 } = {}) {
   const { results } = await db
     .prepare(
-      `SELECT m.kind, m.body, m.created_at, u.name AS author_name, m.author_login FROM channel_messages m
+      `SELECT m.kind, m.body, m.created_at, u.name AS author_name, m.author_login,
+              (SELECT group_concat(f.name, ', ') FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id) AS file_names
+         FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.channel = ?2 AND m.created_at <= ?3 AND m.deleted_at IS NULL
         ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?4`
@@ -305,7 +313,8 @@ export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24 } =
     .all();
   return (results || []).reverse().map((r) => {
     const who = r.kind === "ai" ? "AI" : (r.author_name || "someone");
-    return `${String(r.created_at).slice(5, 16).replace("T", " ")} ${who}: ${String(r.body).replace(/\s+/g, " ").slice(0, 500)}`;
+    const attached = r.file_names ? ` [attached: ${String(r.file_names).slice(0, 200)}]` : "";
+    return `${String(r.created_at).slice(5, 16).replace("T", " ")} ${who}: ${String(r.body).replace(/\s+/g, " ").slice(0, 500)}${attached}`;
   });
 }
 
@@ -336,7 +345,8 @@ export async function recentBusinessTalk(db, orgId, slugs, { since, limit = 30 }
 export async function channelActivity(db, orgId, viewerLogin, members) {
   const { results } = await db
     .prepare(
-      `SELECT m.channel, m.body, m.kind, m.created_at, m.author_login, u.name AS author_name
+      `SELECT m.channel, m.body, m.kind, m.created_at, m.author_login, u.name AS author_name,
+              (SELECT f.name FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id ORDER BY f.created_at LIMIT 1) AS file_name
          FROM channel_messages m
          JOIN (SELECT channel, MAX(created_at) AS at FROM channel_messages
                 WHERE org_id = ?1 AND deleted_at IS NULL AND parent_id IS NULL GROUP BY channel) latest
@@ -353,7 +363,7 @@ export async function channelActivity(db, orgId, viewerLogin, members) {
     out.push({
       channel: view,
       lastAt: r.created_at,
-      preview: String(r.body).replace(/\s+/g, " ").slice(0, 120),
+      preview: (String(r.body).replace(/\s+/g, " ").trim() || (r.file_name ? `📎 ${r.file_name}` : "")).slice(0, 120),
       lastBy: r.kind === "ai" ? null : (r.author_login === viewerLogin ? "me" : (r.author_name || null)),
     });
   }

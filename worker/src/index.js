@@ -38,6 +38,7 @@ import { handleSuggestions } from "./suggest.js";
 import { handleWebhooks } from "./webhooks.js";
 import { handleAgentInvites } from "./agentInvites.js";
 import { handleUserAvatar } from "./userAvatar.js";
+import { serveFile } from "./files.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
@@ -183,6 +184,11 @@ async function handle(request, env, url, ctx) {
     // A person's own photo.
     const avatar = await handleUserAvatar(request, env, url);
     if (avatar) return avatar;
+    // A file in a conversation, by its signed address.
+    if (request.method === "GET" && url.pathname.startsWith("/files/")) {
+      const file = await serveFile(request, env, url);
+      if (file) return file;
+    }
     // What to tell your AI, from your own work.
     const suggested = await handleSuggestions(request, env, url);
     if (suggested) return suggested;

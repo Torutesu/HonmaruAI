@@ -664,3 +664,23 @@ CREATE TABLE IF NOT EXISTS agent_invites (
   expires_at     TEXT NOT NULL,
   used_at        TEXT
 );
+
+/* A file or a picture in a conversation. Uploaded before the message that
+   carries it (message_id NULL until then; swept after a day if never sent),
+   the bytes in R2 under `file-<id>`. `channel` is the stored key it was
+   uploaded into: only a message there may claim it. */
+CREATE TABLE IF NOT EXISTS message_files (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL,
+  channel     TEXT NOT NULL,
+  message_id  TEXT,
+  uploader    TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  type        TEXT NOT NULL,
+  size        INTEGER NOT NULL,
+  width       INTEGER,
+  height      INTEGER,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_message_files ON message_files(org_id, message_id);
+CREATE INDEX IF NOT EXISTS idx_message_files_unsent ON message_files(message_id, created_at);
