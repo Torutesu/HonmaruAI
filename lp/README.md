@@ -56,6 +56,12 @@ and Sometype Mono; #202020 pill buttons; brand violet for AI moments only.
 | Web | `honmaru-web.pages.dev/?lang=<page language>`; the web app reads `?lang=` until someone picks a language in the app |
 | Mac, Windows, Android | Disabled buttons marked *Coming soon*, in the hero and in the last section |
 
+The App Store and Google Play buttons are the stores' own badges, kept unaltered in `badges/`:
+Apple's from developer.apple.com (Japanese on the Japanese page, English elsewhere) and Google's
+from play.google.com, one per language, trimmed of their transparent margin. Google Play is shown
+faded until the Android app is listed. The page picks the badge for its language through
+`badge.appstore` / `badge.gplay` in `i18n.js`.
+
 The links live in `i18n.js` as `href.web` and `href.ios`, per language.
 iPhone Safari also offers the app through the Smart App Banner
 (`apple-itunes-app`).

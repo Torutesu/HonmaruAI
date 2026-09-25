@@ -147,6 +147,14 @@ button, input { font: inherit; color: inherit; }
 .soon-tag { font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin-right: 4px; }
 .chip-soon { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px dashed var(--line-2); background: transparent; color: var(--ink-2); font: 500 13px/1 var(--body); cursor: not-allowed; }
 .chip-soon .ico { width: 15px; height: 15px; opacity: .8; }
+/* the stores' own badges, unaltered; a store that is not open yet is shown faded */
+.badge-img { display: block; width: auto; }
+.store-badge { display: inline-flex; border-radius: 10px; transition: transform .15s var(--ease), box-shadow .25s var(--ease); }
+.store-badge .badge-img { height: 50px; }
+.store-badge:hover { box-shadow: 0 10px 26px -10px rgba(0, 0, 0, .45); }
+.store-badge:active { transform: scale(.97); }
+.chip-store { height: auto; padding: 0; border: 0; border-radius: 6px; }
+.chip-store .badge-img { height: 32px; opacity: .5; }
 
 /* ---------- nav ---------- */
 .nav { position: fixed; z-index: 100; top: 12px; left: 0; right: 0; pointer-events: none; }
@@ -390,6 +398,8 @@ button, input { font: inherit; color: inherit; }
 .keep-plan text:nth-of-type(1) { opacity: var(--k3, 0); }
 .keep-plan text:nth-of-type(2) { opacity: var(--k2, 0); }
 .keep-kanji { position: absolute; left: 50%; top: 50%; translate: -50% -50%; font: 800 clamp(26px, 3vw, 40px)/1 var(--body); letter-spacing: .08em; color: #fff; opacity: var(--kk, 0); transform: scale(calc(.8 + var(--kk, 0) * .2)); }
+/* a word in the other languages (Keep, Donjon, Bergfried) has to fit the inner square */
+:root:not(:lang(ja)) .keep-kanji { font-size: clamp(15px, 1.5vw, 21px); letter-spacing: .04em; }
 
 /* ---------- sections ---------- */
 .section { padding: clamp(96px, 13vw, 168px) 0; }
@@ -540,6 +550,8 @@ a.plat:hover .arr { transform: translateX(4px); }
 .plat-soon .plat-ico .ico { width: 18px; height: 18px; }
 .plat-soon .plat-txt { gap: 8px; }
 .plat-soon .plat-txt b { font-size: 17px; color: var(--ink-2); }
+.plat-badge { height: 40px; align-self: flex-start; }
+.plat-soon .plat-badge { width: min(100px, 100%); height: auto; opacity: .5; }
 .soon-pill { align-self: flex-start; font: 500 10.5px/1 var(--mono) !important; letter-spacing: .08em; text-transform: uppercase; padding: 5px 8px; border-radius: 99px; border: 1px solid var(--line-2); color: var(--ink-2); }
 
 /* footer */

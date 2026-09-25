@@ -37,7 +37,7 @@
       <img src="icon.svg" width="28" height="28" alt="">
       <span class="wordmark">Honmaru <span class="wm-ai">AI</span></span>
     </a>
-    <nav class="nav-links" id="nav-links" aria-label="Primary">
+    <nav class="nav-links" id="nav-links" data-i18n-aria="a11y.nav" aria-label="Primary">
       <a href="#keep" data-i18n="nav.why">Why Honmaru</a>
       <a href="#how" data-i18n="nav.how">How it works</a>
       <a href="#features" data-i18n="nav.features">Features</a>
@@ -77,18 +77,18 @@
       <canvas class="rings" id="rings" aria-hidden="true"></canvas>
 
       <div class="hero-text" id="hero-text">
-        <p class="label"><span class="kanji">本丸</span><span data-i18n="hero.eyebrow">The decision feed for teams</span></p>
+        <p class="label"><span class="kanji" data-i18n="hero.mark">Honmaru</span><span data-i18n="hero.eyebrow">The decision feed for teams</span></p>
         <h1 class="display" data-i18n-html="hero.title">Decisions,<br>not <s>messages</s>.</h1>
         <p class="lead" data-i18n="hero.sub">Your AI talks to their AI. You just swipe the one card that needs you.</p>
         <div class="ctas">
-          <a class="btn btn-dark" data-i18n-href="href.ios" href="https://apps.apple.com/app/id6799302006"><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg><span data-i18n="hero.ios">Get it on iPhone</span></a>
+          <a class="store-badge" data-i18n-href="href.ios" href="https://apps.apple.com/app/id6799302006"><img class="badge-img" fetchpriority="high" data-i18n-src="badge.appstore" data-i18n-alt="get.ios" src="/badges/app-store-en.svg" alt="Download on the App Store" width="150" height="50"></a>
           <a class="btn btn-ghost" data-i18n-href="href.web" href="https://honmaru-web.pages.dev/?lang=en"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-8.5 9h17M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3Z"/></svg><span data-i18n="hero.web">Use it in your browser</span><span class="arr" aria-hidden="true">→</span></a>
         </div>
         <div class="soon-row">
           <span class="soon-tag" data-i18n="get.soon">Coming soon</span>
           <button class="chip-soon" type="button" disabled><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>Mac</button>
           <button class="chip-soon" type="button" disabled><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M1.5 1.5h10v10h-10zm11 0h10v10h-10zm-11 11h10v10h-10zm11 0h10v10h-10z"/></svg>Windows</button>
-          <button class="chip-soon" type="button" disabled><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.4395 5.5586c-.675 1.1664-1.352 2.3318-2.0274 3.498-.0366-.0155-.0742-.0286-.1113-.043-1.8249-.6957-3.484-.8-4.42-.787-1.8551.0185-3.3544.4643-4.2597.8203-.084-.1494-1.7526-3.021-2.0215-3.4864a1.1451 1.1451 0 0 0-.1406-.1914c-.3312-.364-.9054-.4859-1.379-.203-.475.282-.7136.9361-.3886 1.5019 1.9466 3.3696-.0966-.2158 1.9473 3.3593.0172.031-.4946.2642-1.3926 1.0177C2.8987 12.176.452 14.772 0 18.9902h24c-.119-1.1108-.3686-2.099-.7461-3.0683-.7438-1.9118-1.8435-3.2928-2.7402-4.1836a12.1048 12.1048 0 0 0-2.1309-1.6875c.6594-1.122 1.312-2.2559 1.9649-3.3848.2077-.3615.1886-.7956-.0079-1.1191a1.1001 1.1001 0 0 0-.8515-.5332c-.5225-.0536-.9392.3128-1.0488.5449zm-.0391 8.461c.3944.5926.324 1.3306-.1563 1.6503-.4799.3197-1.188.0985-1.582-.4941-.3944-.5927-.324-1.3307.1563-1.6504.4727-.315 1.1812-.1086 1.582.4941zM7.207 13.5273c.4803.3197.5506 1.0577.1563 1.6504-.394.5926-1.1038.8138-1.584.4941-.48-.3197-.5503-1.0577-.1563-1.6504.4008-.6021 1.1087-.8106 1.584-.4941z"/></svg>Android</button>
+          <button class="chip-soon chip-store" type="button" disabled><img class="badge-img" data-i18n-src="badge.gplay" src="/badges/google-play-en.png" alt="Google Play" width="168" height="50" decoding="async"></button>
         </div>
         <ul class="facts">
           <li><b>1</b> <span data-i18n="fact.1">swipe per decision</span></li>
@@ -162,7 +162,7 @@
                 </article>
                 <article class="pcard" id="pcard1">
                   <span class="stamp" id="stamp" data-i18n="ph.stamp">APPROVED</span>
-                  <p class="pk"><i class="pink"></i><span data-i18n="ph.c1.k">DECISION · HOTEL 本丸</span></p>
+                  <p class="pk"><i class="pink"></i><span data-i18n="ph.c1.k">DECISION · HOTEL HONMARU</span></p>
                   <h4 data-i18n="ph.c1.t">Approve the ¥480k spring campaign budget?</h4>
                   <p class="ps" data-i18n="ph.c1.s">Bookings are 12% behind March. Ken proposes Instagram plus two travel blogs, launching Friday.</p>
                   <span class="src"><span class="src-i"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m4.5 7 7.5 6 7.5-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span><b>Gmail</b> <span data-i18n="ph.source">Source</span></span>
@@ -205,9 +205,9 @@
             <rect class="w3" x="20" y="20" width="360" height="360" rx="6"/>
             <rect class="w2" x="80" y="80" width="240" height="240" rx="6"/>
             <rect class="w1" x="140" y="140" width="120" height="120" rx="6"/>
-            <text x="30" y="40">三の丸</text><text x="90" y="100">二の丸</text>
+            <text x="30" y="40" data-i18n="mark.outer">Outer bailey</text><text x="90" y="100" data-i18n="mark.inner">Inner bailey</text>
           </svg>
-          <span class="keep-kanji">本丸</span>
+          <span class="keep-kanji" data-i18n="mark.keep">Keep</span>
         </div>
       </div>
     </div>
@@ -273,7 +273,7 @@
           <div class="row-copy"><span class="row-n">01</span><h3 data-i18n="f1.t">Filed under the right business.</h3><p data-i18n="f1.d">Ten people, ten businesses. The AI labels every card in the background — and creates a business the first time it’s named.</p></div>
           <div class="row-vis vis-biz" aria-hidden="true">
             <div class="bcol"><span class="btag">CAFE SAKURA</span><span class="bcard"><i class="blue"></i><span data-i18n="hl.b1">Menu photo</span></span><span class="bcard"><i></i><span data-i18n="hl.b2">Oat milk supplier</span></span></div>
-            <div class="bcol"><span class="btag">HOTEL 本丸</span><span class="bcard hot"><i class="pink"></i><span data-i18n="hl.b3">Spring budget</span></span><span class="bcard"><i></i><span data-i18n="hl.b4">Late checkout</span></span></div>
+            <div class="bcol"><span class="btag" data-i18n="demo.hotel">HOTEL HONMARU</span><span class="bcard hot"><i class="pink"></i><span data-i18n="hl.b3">Spring budget</span></span><span class="bcard"><i></i><span data-i18n="hl.b4">Late checkout</span></span></div>
             <div class="bcol"><span class="btag new">+ POP-UP</span><span class="bcard ghost"><i class="violet"></i><span data-i18n="hl.b7">Venue deposit</span></span></div>
           </div>
         </article>
@@ -287,9 +287,9 @@
           <div class="row-copy"><span class="row-n">03</span><h3 data-i18n="f3.t">Approvals become GitHub Issues.</h3><p data-i18n="f3.d">Decisions, tasks, owners and results land on GitHub. Engineers read the same truth — nobody copy-pastes.</p></div>
           <div class="row-vis vis-gh" aria-hidden="true">
             <div class="gh-issue">
-              <div class="gh-top"><span class="gh-open">● Open</span><b>Approve the spring campaign budget</b> <span class="gh-no">#128</span></div>
+              <div class="gh-top"><span class="gh-open">● <span data-i18n="gh.open">Open</span></span><b data-i18n="gh.title">Approve the spring campaign budget</b> <span class="gh-no">#128</span></div>
               <div class="gh-lines"><span></span><span class="short"></span></div>
-              <div class="gh-labels"><span class="l1">decision</span><span class="l2">hotel-honmaru</span><span class="l3">approved</span></div>
+              <div class="gh-labels"><span class="l1" data-i18n="gh.l.decision">decision</span><span class="l2">hotel-honmaru</span><span class="l3" data-i18n="gh.l.approved">approved</span></div>
             </div>
           </div>
         </article>
@@ -341,11 +341,11 @@
       <h2 class="display reveal" data-i18n-html="cta.title">Clear your first decision<br>in the next minute.</h2>
       <p class="lead reveal" data-i18n="cta.sub">Free to start. On the web and iPhone today. Mac, Windows and Android are on the way.</p>
       <ul class="platforms reveal" data-i18n-aria="get.label" aria-label="Get Honmaru AI">
-        <li class="p-live"><a class="plat plat-primary plat-ring" data-i18n-href="href.ios" href="https://apps.apple.com/app/id6799302006"><span class="plat-ico"><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg></span><span class="plat-txt"><b>iPhone</b> <span data-i18n="get.ios">Download on the App Store</span></span><span class="arr" aria-hidden="true">→</span></a></li>
+        <li class="p-live"><a class="plat plat-primary plat-ring" data-i18n-href="href.ios" href="https://apps.apple.com/app/id6799302006"><span class="plat-ico"><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg></span><span class="plat-txt"><b>iPhone</b> <img class="badge-img plat-badge" data-i18n-src="badge.appstore" data-i18n-alt="get.ios" loading="lazy" decoding="async" src="/badges/app-store-en.svg" alt="Download on the App Store" width="150" height="50"></span><span class="arr" aria-hidden="true">→</span></a></li>
         <li class="p-live"><a class="plat" data-i18n-href="href.web" href="https://honmaru-web.pages.dev/?lang=en"><span class="plat-ico"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-8.5 9h17M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3Z"/></svg></span><span class="plat-txt"><b>Web</b> <span data-i18n="get.web">Open in your browser</span></span><span class="arr" aria-hidden="true">→</span></a></li>
         <li class="p-soon"><button class="plat plat-soon" type="button" disabled><span class="plat-ico"><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg></span><span class="plat-txt"><b>Mac</b> <span class="soon-pill" data-i18n="get.soon">Coming soon</span></span></button></li>
         <li class="p-soon"><button class="plat plat-soon" type="button" disabled><span class="plat-ico"><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M1.5 1.5h10v10h-10zm11 0h10v10h-10zm-11 11h10v10h-10zm11 0h10v10h-10z"/></svg></span><span class="plat-txt"><b>Windows</b> <span class="soon-pill" data-i18n="get.soon">Coming soon</span></span></button></li>
-        <li class="p-soon"><button class="plat plat-soon" type="button" disabled><span class="plat-ico"><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.4395 5.5586c-.675 1.1664-1.352 2.3318-2.0274 3.498-.0366-.0155-.0742-.0286-.1113-.043-1.8249-.6957-3.484-.8-4.42-.787-1.8551.0185-3.3544.4643-4.2597.8203-.084-.1494-1.7526-3.021-2.0215-3.4864a1.1451 1.1451 0 0 0-.1406-.1914c-.3312-.364-.9054-.4859-1.379-.203-.475.282-.7136.9361-.3886 1.5019 1.9466 3.3696-.0966-.2158 1.9473 3.3593.0172.031-.4946.2642-1.3926 1.0177C2.8987 12.176.452 14.772 0 18.9902h24c-.119-1.1108-.3686-2.099-.7461-3.0683-.7438-1.9118-1.8435-3.2928-2.7402-4.1836a12.1048 12.1048 0 0 0-2.1309-1.6875c.6594-1.122 1.312-2.2559 1.9649-3.3848.2077-.3615.1886-.7956-.0079-1.1191a1.1001 1.1001 0 0 0-.8515-.5332c-.5225-.0536-.9392.3128-1.0488.5449zm-.0391 8.461c.3944.5926.324 1.3306-.1563 1.6503-.4799.3197-1.188.0985-1.582-.4941-.3944-.5927-.324-1.3307.1563-1.6504.4727-.315 1.1812-.1086 1.582.4941zM7.207 13.5273c.4803.3197.5506 1.0577.1563 1.6504-.394.5926-1.1038.8138-1.584.4941-.48-.3197-.5503-1.0577-.1563-1.6504.4008-.6021 1.1087-.8106 1.584-.4941z"/></svg></span><span class="plat-txt"><b>Android</b> <span class="soon-pill" data-i18n="get.soon">Coming soon</span></span></button></li>
+        <li class="p-soon"><button class="plat plat-soon" type="button" disabled><span class="plat-ico"><svg class="ico logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.4395 5.5586c-.675 1.1664-1.352 2.3318-2.0274 3.498-.0366-.0155-.0742-.0286-.1113-.043-1.8249-.6957-3.484-.8-4.42-.787-1.8551.0185-3.3544.4643-4.2597.8203-.084-.1494-1.7526-3.021-2.0215-3.4864a1.1451 1.1451 0 0 0-.1406-.1914c-.3312-.364-.9054-.4859-1.379-.203-.475.282-.7136.9361-.3886 1.5019 1.9466 3.3696-.0966-.2158 1.9473 3.3593.0172.031-.4946.2642-1.3926 1.0177C2.8987 12.176.452 14.772 0 18.9902h24c-.119-1.1108-.3686-2.099-.7461-3.0683-.7438-1.9118-1.8435-3.2928-2.7402-4.1836a12.1048 12.1048 0 0 0-2.1309-1.6875c.6594-1.122 1.312-2.2559 1.9649-3.3848.2077-.3615.1886-.7956-.0079-1.1191a1.1001 1.1001 0 0 0-.8515-.5332c-.5225-.0536-.9392.3128-1.0488.5449zm-.0391 8.461c.3944.5926.324 1.3306-.1563 1.6503-.4799.3197-1.188.0985-1.582-.4941-.3944-.5927-.324-1.3307.1563-1.6504.4727-.315 1.1812-.1086 1.582.4941zM7.207 13.5273c.4803.3197.5506 1.0577.1563 1.6504-.394.5926-1.1038.8138-1.584.4941-.48-.3197-.5503-1.0577-.1563-1.6504.4008-.6021 1.1087-.8106 1.584-.4941z"/></svg></span><span class="plat-txt"><b>Android</b> <img class="badge-img plat-badge" data-i18n-src="badge.gplay" src="/badges/google-play-en.png" alt="Google Play" width="168" height="50" loading="lazy" decoding="async"> <span class="soon-pill" data-i18n="get.soon">Coming soon</span></span></button></li>
       </ul>
       <div class="ctas reveal">
         <a class="btn btn-ghost" href="mailto:support@honmaruai.com" data-i18n="cta.secondary">Talk to us</a>
