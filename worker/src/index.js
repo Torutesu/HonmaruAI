@@ -34,6 +34,7 @@ import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
 import { handleChannels, broadcastStored } from "./channelRoutes.js";
+import { handleSuggestions } from "./suggest.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
@@ -168,6 +169,10 @@ async function handle(request, env, url, ctx) {
         },
       });
     }
+
+    // What to tell your AI, from your own work.
+    const suggested = await handleSuggestions(request, env, url);
+    if (suggested) return suggested;
 
     // Routines, the playbook, agent tokens and the MCP endpoint.
     const automated = await handleAutomation(request, env, url);
