@@ -512,7 +512,7 @@ function clock(since: string | null, now: number): string {
 
 /// The Jam this browser is in: who is talking, how long, recorded or not;
 /// mute and leave.
-export function JamBar({ call, where, onLeave, onMute }: { call: JamCall; where: string; onLeave: () => void; onMute: (muted: boolean) => void }) {
+export function JamBar({ call, where, onLeave, onMute, onShow }: { call: JamCall; where: string; onLeave: () => void; onMute: (muted: boolean) => void; onShow?: () => void }) {
   const t = useT()
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
@@ -527,11 +527,12 @@ export function JamBar({ call, where, onLeave, onMute }: { call: JamCall; where:
       <ul className="slk-jambar-people">
         {call.participants.map((p) => (
           <li key={p.peerId} title={p.name} className={p.muted ? 'muted' : ''}>
-            <span className="cl-lead cl-avatar sz-row" aria-hidden="true">{p.name.charAt(0).toUpperCase()}</span>
+            <span className="cl-lead cl-avatar has-face sz-row" aria-hidden="true"><Avatar name={p.name} url={p.avatarUrl} size={20} /></span>
             <span className="sr-only">{p.name}{p.muted ? ` (${t('muted')})` : ''}</span>
           </li>
         ))}
       </ul>
+      {onShow && <button type="button" className="cl-nudge slk-jambar-show" onClick={onShow}>{t('Show')}</button>}
       <button type="button" className={`cl-nudge${call.muted ? ' on' : ''}`} onClick={() => onMute(!call.muted)} aria-pressed={call.muted}>
         {call.muted ? t('Unmute') : t('Mute')}
       </button>

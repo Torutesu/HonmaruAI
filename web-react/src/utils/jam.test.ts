@@ -11,19 +11,28 @@ class FakePC {
   localDescription: any = null
   remoteDescription: any = null
   connectionState = 'new'
+  signalingState = 'stable'
   closed = false
   tracks: unknown[] = []
+  senders: any[] = []
   candidates: unknown[] = []
   onicecandidate: ((e: any) => void) | null = null
   ontrack: ((e: any) => void) | null = null
   onconnectionstatechange: (() => void) | null = null
+  onnegotiationneeded: (() => void) | null = null
   constructor(public config: any) { FakePC.made.push(this) }
-  addTrack(track: unknown) { this.tracks.push(track) }
-  async createOffer() { return { type: 'offer', sdp: 'offer-sdp' } }
-  async createAnswer() { return { type: 'answer', sdp: 'answer-sdp' } }
-  async setLocalDescription(d: any) { this.localDescription = { ...d, toJSON: () => ({ type: d.type, sdp: d.sdp }) } }
-  async setRemoteDescription(d: any) { this.remoteDescription = d }
-  async addIceCandidate(c: unknown) { this.candidates.push(c) }
+  private needed() { setTimeout(() => { if (this.signalingState === 'stable') this.onnegotiationneeded?.() }, 0) }
+  addTrack(track: unknown) { this.tracks.push(track); const sender = { track }; this.senders.push(sender); this.needed(); return sender }
+  removeTrack(sender: any) { this.senders = this.senders.filter((x) => x !== sender); this.needed() }
+  getSenders() { return this.senders }
+  async setLocalDescription(d?: any) {
+    const type = d?.type || (this.signalingState === 'have-remote-offer' ? 'answer' : 'offer')
+    const desc = { type, sdp: `${type}-sdp` }
+    this.localDescription = { ...desc, toJSON: () => desc }
+    this.signalingState = type === 'offer' ? 'have-local-offer' : 'stable'
+  }
+  async setRemoteDescription(d: any) { this.remoteDescription = d; this.signalingState = d.type === 'offer' ? 'have-remote-offer' : 'stable' }
+  async addIceCandidate(c: unknown) { if (!this.remoteDescription) throw new Error('no remote description'); this.candidates.push(c) }
   restartIce() {}
   close() { this.closed = true }
 }
@@ -63,23 +72,28 @@ describe('JamCall', () => {
     expect(call.mode).toBe('full')
     expect(FakePC.made).toHaveLength(2)
     expect(FakePC.made[0].config).toEqual({ iceServers: [{ urls: ['stun:x'] }] })
-    expect(sent.filter((m) => m.type === 'jam_signal').map((m) => [m.payload.to, m.payload.data.sdp.type])).toEqual([['p1', 'offer'], ['p2', 'offer']])
+    await flush()
+    // Each call offers once its voice is added — and says which of its
+    // streams are a camera or a screen (none, yet).
+    const offers = sent.filter((m) => m.type === 'jam_signal' && m.payload.data.sdp).map((m) => [m.payload.to, m.payload.data.sdp.type])
+    expect(offers).toEqual([['p1', 'offer'], ['p2', 'offer']])
+    expect(sent.some((m) => m.type === 'jam_signal' && m.payload.data.kinds && m.payload.to === 'p1')).toBe(true)
   })
 
-  it('answers a newcomer\'s offer, and holds their candidates until it can use them', async () => {
+  it('answers a newcomer\'s offer, then takes their candidates', async () => {
     const call = make()
     await call.start()
     deliver('jam_joined', { channel: 'b:cafe', peerId: 'me', peers: [], iceServers: [] })
     await flush()
-    deliver('jam_signal', { from: 'new', data: { candidate: { candidate: 'c1' } } })
-    await flush()
-    const pc = FakePC.made[0]
-    expect(pc.candidates).toEqual([])
     deliver('jam_signal', { from: 'new', data: { sdp: { type: 'offer', sdp: 'their-offer' } } })
     await flush(); await flush()
+    const pc = FakePC.made[0]
     expect(pc.remoteDescription).toEqual({ type: 'offer', sdp: 'their-offer' })
+    const answers = sent.filter((m) => m.type === 'jam_signal' && m.payload.data.sdp?.type === 'answer')
+    expect(answers.map((m) => m.payload.to)).toEqual(['new'])
+    deliver('jam_signal', { from: 'new', data: { candidate: { candidate: 'c1' } } })
+    await flush()
     expect(pc.candidates).toEqual([{ candidate: 'c1' }])
-    expect(sent.at(-1)).toEqual({ type: 'jam_signal', payload: { to: 'new', data: { sdp: { type: 'answer', sdp: 'answer-sdp' } } } })
   })
 
   it('hangs up on whoever left, and leaves without a trace', async () => {
@@ -124,5 +138,43 @@ describe('JamCall', () => {
     await flush()
     expect(problems).toEqual(['A Jam holds 8 people.'])
     expect(call.ended).toBe(true)
+  })
+
+  it('adds a camera to a call already running, and says which stream it is', async () => {
+    const video = { enabled: true, stop: () => { stopped += 1 }, kind: 'video', onended: null }
+    const camera = { id: 'cam-1', getTracks: () => [video], getVideoTracks: () => [video] }
+    ;(navigator as any).mediaDevices.getUserMedia = async (c: any) => (c.video ? camera : { getAudioTracks: () => [track()], getTracks: () => [] })
+    const call = make()
+    await call.start()
+    deliver('jam_joined', { channel: 'b:cafe', peerId: 'a', peers: ['b'], iceServers: [] })
+    await flush(); await flush()
+    const pc = FakePC.made[0]
+    pc.signalingState = 'stable'
+    await call.setCamera(true)
+    await flush(); await flush()
+    expect(pc.tracks).toContain(video)
+    expect(sent.some((m) => m.type === 'jam_media' && m.payload.video === true)).toBe(true)
+    expect(sent.some((m) => m.type === 'jam_signal' && m.payload.data.kinds?.camera === 'cam-1')).toBe(true)
+    await call.setCamera(false)
+    expect(pc.senders.some((x: any) => x.track === video)).toBe(false)
+    expect(sent.at(-1)?.type).toBe('jam_signal')
+  })
+
+  it('keeps the live transcript and the reactions it hears', async () => {
+    const call = make()
+    await call.start()
+    deliver('jam_joined', { channel: 'b:cafe', peerId: 'me', peers: [], iceServers: [], transcript: [{ name: 'Mika', text: 'hello', at: '1' }] })
+    await flush()
+    expect(call.transcript.map((l) => l.text)).toEqual(['hello'])
+    deliver('jam_transcript', { channel: 'b:cafe', peerId: 'p1', name: 'Kenji', text: 'we shi', final: false, at: '2' })
+    deliver('jam_transcript', { channel: 'b:cafe', peerId: 'p1', name: 'Kenji', text: 'we ship Friday', final: true, at: '3' })
+    await flush()
+    expect(call.transcript.map((l) => l.text)).toEqual(['hello', 'we ship Friday'])
+    expect(call.interim).toEqual({})
+    deliver('jam_reaction', { channel: 'b:cafe', peerId: 'p1', name: 'Kenji', emoji: '👏', at: '4' })
+    await flush()
+    expect(call.reactions.map((r) => r.emoji)).toEqual(['👏'])
+    call.react('🎉')
+    expect(sent.at(-1)).toEqual({ type: 'jam_react', payload: { emoji: '🎉' } })
   })
 })

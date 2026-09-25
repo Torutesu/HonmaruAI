@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { joined, message, until } from "./helpers.js";
-import { jamState, iceServers } from "../src/jam.js";
+import { jamState, iceServers, transcriptMessage } from "../src/jam.js";
 
 // A Jam: the relay introduces the browsers in it and passes their offers,
 // answers and candidates between them; everyone who can see the channel is
@@ -107,12 +107,13 @@ test("a Jam as it is told: earliest first, recorded by the earliest unless it is
   expect(state).toEqual({
     active: true,
     participants: [
-      { peerId: "p-a", ref: "r-a", name: "A", muted: false, since: "1" },
-      { peerId: "p-b", ref: "r-b", name: "B", muted: true, since: "2" },
+      { peerId: "p-a", ref: "r-a", name: "A", muted: false, since: "1", video: false, screen: false, avatarUrl: null },
+      { peerId: "p-b", ref: "r-b", name: "B", muted: true, since: "2", video: false, screen: false, avatarUrl: null },
     ],
     startedAt: "0",
     mode: "notes",
     recorderPeerId: "p-a",
+    messageId: null,
   });
   expect(jamState([peer("a", "1")], members, { mode: "off" }).recorderPeerId).toBe(null);
   expect(jamState([], members, null)).toMatchObject({ active: false, startedAt: null, recorderPeerId: null });
@@ -122,4 +123,50 @@ test("TURN is offered when the deployment has one", async () => {
   const servers = await iceServers({ JAM_TURN_URLS: "turn:turn.example.com:3478, turns:turn.example.com:5349", JAM_TURN_USERNAME: "u", JAM_TURN_CREDENTIAL: "p" });
   expect(servers[1]).toEqual({ urls: ["turn:turn.example.com:3478", "turns:turn.example.com:5349"], username: "u", credential: "p" });
   expect(await iceServers({})).toHaveLength(1);
+});
+
+test("a camera, a shared screen, a reaction and a live transcript go to everyone; the transcript is kept for the thread", async () => {
+  const toru = await joined(ORG, globalThis.__jamT);
+  const mika = await joined(ORG, globalThis.__jamM);
+  const kenji = await joined(ORG, globalThis.__jamK);
+  toru.ws.send(JSON.stringify({ type: "jam_join", payload: { channel: "b:design", mode: "off" } }));
+  const first = await message(toru.messages, custom("jam_joined"));
+  // The Jam's own message: its thread is where the transcript goes.
+  const started = await message(kenji.messages, custom("jam_state", (v) => v.channel === "b:design" && v.messageId));
+  expect(started.value.messageId).toBeTruthy();
+
+  toru.ws.send(JSON.stringify({ type: "jam_media", payload: { video: true, screen: true } }));
+  const shown = await message(kenji.messages, custom("jam_state", (v) => v.participants[0]?.screen));
+  expect(shown.value.participants[0]).toMatchObject({ video: true, screen: true });
+
+  toru.ws.send(JSON.stringify({ type: "jam_react", payload: { emoji: "👏" } }));
+  const clap = await message(kenji.messages, custom("jam_reaction"));
+  expect(clap.value).toMatchObject({ channel: "b:design", peerId: first.value.peerId, name: "Toru", emoji: "👏" });
+  // Not an emoji: nothing.
+  toru.ws.send(JSON.stringify({ type: "jam_react", payload: { emoji: "<img>" } }));
+
+  toru.ws.send(JSON.stringify({ type: "jam_transcript", payload: { text: "Let's ship on Friday", final: true } }));
+  const line = await message(kenji.messages, custom("jam_transcript", (v) => v.final));
+  expect(line.value).toMatchObject({ channel: "b:design", name: "Toru", text: "Let's ship on Friday" });
+
+  // Joined late: what was said so far comes with the welcome.
+  mika.ws.send(JSON.stringify({ type: "jam_join", payload: { channel: "b:design" } }));
+  const late = await message(mika.messages, custom("jam_joined", (v) => v.channel === "b:design"));
+  expect(late.value.transcript.map((l) => l.text)).toEqual(["Let's ship on Friday"]);
+  expect(late.value.messageId).toBe(started.value.messageId);
+
+  // Ended: the transcript is a reply under the Jam's message.
+  toru.ws.send(JSON.stringify({ type: "jam_leave", payload: {} }));
+  mika.ws.send(JSON.stringify({ type: "jam_leave", payload: {} }));
+  const reply = await until(async () => env.DB.prepare(
+    "SELECT body FROM channel_messages WHERE org_id = ?1 AND parent_id = ?2"
+  ).bind(ORG, started.value.messageId).first());
+  expect(reply.body).toContain("Toru: Let's ship on Friday");
+  expect(clap.value.emoji).toBe("👏");
+});
+
+test("a transcript message names each speaker and stays inside a message's length", () => {
+  const body = transcriptMessage("en", [{ name: "A", text: "hi" }, { name: "B", text: "x".repeat(20000) }]);
+  expect(body.startsWith("*Transcript*\nA: hi\nB: ")).toBe(true);
+  expect(body.length).toBeLessThanOrEqual(8000);
 });

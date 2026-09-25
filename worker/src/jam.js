@@ -19,7 +19,11 @@ import { safe } from "./log.js";
 // the end: the server transcribes it, writes notes, posts them in the
 // channel, and — for a full recording — keeps the audio for the channel.
 
-export const JAM_TYPES = new Set(["jam_join", "jam_leave", "jam_signal", "jam_mute"]);
+export const JAM_TYPES = new Set(["jam_join", "jam_leave", "jam_signal", "jam_mute", "jam_media", "jam_react", "jam_transcript"]);
+/// The live transcript a Jam keeps for whoever joins late, in lines.
+export const MAX_TRANSCRIPT_LINES = 400;
+/// The reactions a Jam passes around: one emoji, short.
+const REACTION = /^[\p{Extended_Pictographic}\u200d\ufe0f\u{1F3FB}-\u{1F3FF}]{1,12}$/u;
 /// full: notes and the audio kept; notes: notes, the audio thrown away; off.
 export const JAM_MODES = ["full", "notes", "off"];
 /// A mesh sends every voice to every other browser: past this it breaks up.
@@ -81,7 +85,13 @@ export function jamPeers(sockets, orgId, key, exclude) {
 export function jamState(peers, members, meta) {
   const participants = peers.map(({ att }) => {
     const m = members.find((x) => x.login === att.userId);
-    return { peerId: att.jam.peerId, ref: m?.ref || null, name: m?.name || att.userId, muted: Boolean(att.jam.muted), since: att.jam.since };
+    return {
+      peerId: att.jam.peerId, ref: m?.ref || null, name: m?.name || att.userId, muted: Boolean(att.jam.muted), since: att.jam.since,
+      // What this browser is sending besides its voice, so the others can
+      // lay out a camera or a shared screen before the picture arrives.
+      video: Boolean(att.jam.video), screen: Boolean(att.jam.screen),
+      avatarUrl: m?.avatarUrl || null,
+    };
   });
   const mode = meta?.mode || peers[0]?.att.jam.mode || "off";
   return {
@@ -90,6 +100,8 @@ export function jamState(peers, members, meta) {
     startedAt: participants.length ? (meta?.startedAt || participants[0].since) : null,
     mode,
     recorderPeerId: participants.length && mode !== "off" ? participants[0].peerId : null,
+    // The "started a Jam" message: the Jam's own thread hangs off it.
+    messageId: participants.length ? (meta?.messageId || null) : null,
   };
 }
 
@@ -115,14 +127,14 @@ async function announceState(relay, orgId, key, members, exclude) {
 }
 
 /// Say something in the channel as the AI, and tell whoever can see it.
-async function sayInChannel(relay, orgId, key, members, body) {
-  const out = await postMessage(relay.db, { orgId, key, authorLogin: null, body, kind: "ai" });
-  if (!out.row) return;
+async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
+  const out = await postMessage(relay.db, { orgId, key, authorLogin: null, body, kind: "ai", parentId });
+  if (!out.row) return null;
   const logins = audienceOf(key);
   if (!logins) {
     const [message] = await present(relay.db, orgId, [out.row], null, key, members);
     relay.broadcast(orgId, customEvent("channel_message", { message }));
-    return;
+    return out.row;
   }
   for (const login of logins) {
     const view = viewOf(key, login, members);
@@ -130,6 +142,26 @@ async function sayInChannel(relay, orgId, key, members, body) {
     const [message] = await present(relay.db, orgId, [out.row], login, view, members);
     relay.sendTo(orgId, login, customEvent("channel_message", { message }));
   }
+  return out.row;
+}
+
+/// An event for everyone who can see a stored channel key, each in their
+/// own terms: `make(view)` builds it for the name they give the channel.
+function tellAudience(relay, orgId, key, members, make, exclude) {
+  const logins = audienceOf(key);
+  if (!logins) { relay.broadcast(orgId, make(key), exclude); return; }
+  for (const login of logins) {
+    const view = viewOf(key, login, members);
+    if (view) relay.sendTo(orgId, login, make(view));
+  }
+}
+
+/// What was said in a Jam, as one message for its thread.
+export function transcriptMessage(locale, lines) {
+  const head = `*${serverText(locale, "jam.transcript")}*`;
+  const body = lines.map((l) => `${l.name}: ${l.text}`).join("\n");
+  const full = `${head}\n${body}`;
+  return full.length > MAX_MESSAGE_CHARS ? `${full.slice(0, MAX_MESSAGE_CHARS - 1)}…` : full;
 }
 
 async function localeOf(db, githubId) {
@@ -165,6 +197,11 @@ export async function leaveJam(relay, ws, att, { closing = false } = {}) {
   if (!meta) return;
   const locale = await localeOf(relay.db, att.githubId);
   const minutes = minutesBetween(meta.startedAt, new Date().toISOString());
+  // What was said, kept under the Jam's own message where it can be read
+  // back — the live transcript, as the people in it saw it.
+  if (meta.messageId && Array.isArray(meta.transcript) && meta.transcript.length) {
+    await sayInChannel(relay, orgId, jam.key, members, transcriptMessage(locale, meta.transcript), meta.messageId).catch(() => null);
+  }
   await sayInChannel(relay, orgId, jam.key, members, serverText(locale, "jam.ended", { minutes, people: namesOf(meta.people || [], members) }));
   relay.state.waitUntil(emitCall(relay.env, orgId, jam.key, "call.ended", {
     startedAt: meta.startedAt, endedAt: new Date().toISOString(), minutes,
@@ -223,6 +260,49 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     return;
   }
 
+  // A camera switched on or off, a screen shared or not.
+  if (type === "jam_media") {
+    if (!att.jam) return;
+    ws.serializeAttachment({ ...att, jam: { ...att.jam, video: Boolean(payload.video), screen: Boolean(payload.screen) } });
+    const members = await listMembers(relay.db, orgId, att.githubId);
+    await announceState(relay, orgId, att.jam.key, members);
+    return;
+  }
+
+  // A reaction, floated over everyone's screen for a moment.
+  if (type === "jam_react") {
+    const emoji = typeof payload.emoji === "string" ? payload.emoji.trim() : "";
+    if (!att.jam || !REACTION.test(emoji)) return;
+    const members = await listMembers(relay.db, orgId, att.githubId);
+    const name = members.find((m) => m.login === att.userId)?.name || "";
+    tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_reaction", { channel: view, peerId: att.jam.peerId, name, emoji, at: new Date().toISOString() }));
+    return;
+  }
+
+  // A line of what someone said, from their own browser's speech
+  // recognition: shown live to everyone, and — once final — kept for
+  // whoever joins late and for the thread when the Jam ends.
+  if (type === "jam_transcript") {
+    const text = typeof payload.text === "string" ? payload.text.replace(/\s+/g, " ").trim().slice(0, 500) : "";
+    if (!att.jam || !text) return;
+    const members = await listMembers(relay.db, orgId, att.githubId);
+    const me = members.find((m) => m.login === att.userId);
+    const at = new Date().toISOString();
+    const final = payload.final === true;
+    if (final) {
+      const storeKey = STORE(orgId, att.jam.key);
+      const meta = await relay.state.storage.get(storeKey);
+      if (meta) {
+        meta.transcript = [...(meta.transcript || []), { at, name: me?.name || "", ref: me?.ref || null, text }].slice(-MAX_TRANSCRIPT_LINES);
+        await relay.state.storage.put(storeKey, meta);
+      }
+    }
+    tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_transcript", {
+      channel: view, peerId: att.jam.peerId, ref: me?.ref || null, name: me?.name || "", text, final, at,
+    }));
+    return;
+  }
+
   if (type === "jam_join") {
     const members = await listMembers(relay.db, orgId, att.githubId);
     const resolved = await resolveChannel(relay.db, orgId, { login: att.userId, github_id: att.githubId }, payload.channel, members);
@@ -253,12 +333,20 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
       iceServers: await iceServers(relay.env),
       mode: meta.mode,
       startedAt: meta.startedAt,
+      messageId: meta.messageId || null,
+      // Joined late: what has been said so far.
+      transcript: (meta.transcript || []).slice(-200),
     }));
     await announceState(relay, orgId, resolved.key, members);
     if (starting) {
       const name = members.find((m) => m.login === att.userId)?.name || att.userId;
       const locale = await localeOf(relay.db, att.githubId);
-      await sayInChannel(relay, orgId, resolved.key, members, serverText(locale, "jam.started", { name }));
+      const row = await sayInChannel(relay, orgId, resolved.key, members, serverText(locale, "jam.started", { name }));
+      if (row) {
+        const kept = await relay.state.storage.get(storeKey);
+        if (kept) { kept.messageId = row.id; await relay.state.storage.put(storeKey, kept); }
+        await announceState(relay, orgId, resolved.key, members);
+      }
       relay.state.waitUntil(emitCall(relay.env, orgId, resolved.key, "call.started", { startedAt: meta.startedAt, startedBy: { name } }));
     }
   }

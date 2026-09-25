@@ -6,6 +6,7 @@ import { registerCatalog } from "./copy.js";
 // the languages below; any other is learned by copy.js on first use.
 
 const EN = {
+  "jam.transcript": "Transcript",
   "invite.joined": "{name} joined the workspace. Say hello!",
   "invite.someone": "Someone new",
   "invite.agentJoined": "The agent “{name}” joined, working for {by}.",
@@ -80,6 +81,7 @@ const EN = {
 };
 
 const JA = {
+  "jam.transcript": "文字起こし",
   "invite.joined": "{name}さんがワークスペースに参加しました。ようこそ！",
   "invite.someone": "新しいメンバー",
   "invite.agentJoined": "エージェント「{name}」が参加しました（{by}さんの代わりに動きます）。",
@@ -154,6 +156,7 @@ const JA = {
 };
 
 const ES = {
+  "jam.transcript": "Transcripción",
   "invite.joined": "{name} se unió al espacio de trabajo. ¡Salúdale!",
   "invite.someone": "Alguien nuevo",
   "invite.agentJoined": "El agente «{name}» se unió y trabaja para {by}.",
@@ -228,6 +231,7 @@ const ES = {
 };
 
 const FR = {
+  "jam.transcript": "Transcription",
   "invite.joined": "{name} a rejoint l’espace de travail. Dites bonjour !",
   "invite.someone": "Une nouvelle personne",
   "invite.agentJoined": "L’agent « {name} » a rejoint l’espace et travaille pour {by}.",
@@ -302,6 +306,7 @@ const FR = {
 };
 
 const DE = {
+  "jam.transcript": "Transkript",
   "invite.joined": "{name} ist dem Workspace beigetreten. Sag hallo!",
   "invite.someone": "Jemand Neues",
   "invite.agentJoined": "Der Agent „{name}“ ist beigetreten und arbeitet für {by}.",

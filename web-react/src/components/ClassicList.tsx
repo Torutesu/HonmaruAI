@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { awaitsPost } from '../utils/automation'
 import type { DecisionCard, Business, ChannelMessage } from '../types/card'
 import { getLocale } from '../utils/locale'
@@ -12,10 +13,11 @@ import { MessageActions, Reactions, EmojiPicker, FormatBar, renderRich, SlashMen
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
+import { JamPanel } from './JamPanel'
 import type { JamMode, JamState } from '../utils/jam'
 import { InviteDialog } from './InviteDialog'
 import { Avatar } from './Avatar'
-import { playSound, setOpenView, rememberLevels } from '../utils/sound'
+import { playSound, setOpenView, rememberLevels, startRing, stopRing } from '../utils/sound'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -1107,6 +1109,11 @@ export const ClassicList: React.FC<Props> = ({
   const [jams, setJams] = useState<Record<string, JamState>>({})
   const [call, setCall] = useState<JamCall | null>(null)
   const [, setCallTick] = useState(0)
+  // The call's own panel beside the conversation; tucked away, the bar.
+  const [jamShown, setJamShown] = useState(true)
+  // Being called: a Jam somebody started in a conversation of two with you.
+  const [ringing, setRinging] = useState<{ channel: string; name: string; avatarUrl: string | null } | null>(null)
+  const declined = useRef<Set<string>>(new Set())
   const [jamBusy, setJamBusy] = useState(false)
   const callRef = useRef<JamCall | null>(null)
   callRef.current = call
@@ -1120,6 +1127,24 @@ export const ClassicList: React.FC<Props> = ({
           else delete next[value.channel]
           return next
         })
+        // A Jam just started in a direct conversation, by the other person,
+        // and you are not in a call: it rings — until answered, declined,
+        // joined by you, over, or thirty seconds pass.
+        const state = value as JamState
+        const mineRef = membersRef.current.find((m) => m.mine)?.ref
+        const caller = state.participants?.[0]
+        const fresh = state.startedAt && Date.now() - Date.parse(state.startedAt) < 45_000
+        const shouldRing = state.active && String(value.channel).startsWith('dm:') && state.participants.length === 1
+          && caller && caller.ref !== mineRef && fresh && !callRef.current && !declined.current.has(`${value.channel}:${state.startedAt}`)
+        if (shouldRing) {
+          setRinging({ channel: value.channel, name: caller.name, avatarUrl: caller.avatarUrl || null })
+          startRing()
+        } else {
+          setRinging((prev) => {
+            if (prev && prev.channel === value.channel) { stopRing(); return null }
+            return prev
+          })
+        }
       } else if (name === 'reset') {
         // The relay sends what is going on again after this.
         setJams({})
@@ -1130,10 +1155,29 @@ export const ClassicList: React.FC<Props> = ({
   }, [])
   // Leaving the list — or the page — leaves the call.
   useEffect(() => () => { void callRef.current?.leave() }, [])
+  /// A Jam going on, shown where it started: how long, who, and a way in.
+  const jamCard = (view: string, st: JamState) => {
+    const here = Boolean(call && !call.ended && call.channel === view)
+    return (
+      <div className="jam-card" data-jam-card="1">
+        <div className="jam-card-main">
+          <span className="jam-card-live"><i aria-hidden="true" /> <JamClock from={st.startedAt} /></span>
+          <span className="jam-card-faces" aria-label={st.participants.map((p) => p.name).join(', ')}>
+            {st.participants.slice(0, 6).map((p) => <Avatar key={p.peerId} name={p.name} url={p.avatarUrl || memberByRef(p.ref)?.avatarUrl} size={24} round />)}
+          </span>
+          <span className="jam-card-sub">{st.participants.length === 1 && !here ? t('{name} is waiting for others…', { name: st.participants[0].name }) : st.participants.map((p) => p.name).join(', ')}</span>
+        </div>
+        {here
+          ? <button type="button" className="jam-card-join leave" onClick={() => void leaveJam()}>{t('Leave')}</button>
+          : <button type="button" className="jam-card-join" onClick={() => void startJam(view, { mode: st.mode })} disabled={jamBusy}>{t('Join')}</button>}
+      </div>
+    )
+  }
+  const whereOf = (view: string) => { const w = everything.find((x) => x.view === view); return w ? (w.kind === 'channel' ? `#${w.name}` : w.name) : '' }
   const leaveJam = async () => {
     const c = callRef.current
     setCall(null)
-    if (c) { setJamBusy(true); await c.leave(); setJamBusy(false) }
+    if (c) { playSound('jamLeave'); setJamBusy(true); await c.leave(); setJamBusy(false) }
   }
   const startJam = async (channel: string, opts: { micId?: string; speakerId?: string; mode: JamMode }) => {
     if (jamBusy) return
@@ -1144,6 +1188,8 @@ export const ClassicList: React.FC<Props> = ({
       channel, mode: opts.mode, micId: opts.micId, speakerId: opts.speakerId,
       onChange: () => { setCallTick((n) => n + 1); if (c.ended && callRef.current === c) setCall(null) },
       onProblem: (m) => setProblem(t(m)),
+      onPeople: (change) => playSound(change === 'joined' ? 'jamJoin' : 'jamLeave'),
+      lang: locale,
       upload: async (blob, meta) => {
         const q = new URLSearchParams({ orgId: api.orgId, channel, mode: meta.mode, startedAt: meta.startedAt, endedAt: meta.endedAt, people: meta.people.join(',') })
         const res = await fetch(`${api.httpBase}/channels/jam/recording?${q}`, { method: 'POST', headers: { ...authHeaders, 'content-type': blob.type || 'audio/webm' }, body: blob })
@@ -1152,8 +1198,11 @@ export const ClassicList: React.FC<Props> = ({
       },
     })
     setCall(c)
+    setJamShown(true)
+    setRinging(null); stopRing()
     try {
       await c.start()
+      playSound('jamJoin')
     } catch {
       setCall(null)
       setProblem(t('Your microphone could not be opened. Allow it for this site and try again.'))
@@ -1211,6 +1260,8 @@ export const ClassicList: React.FC<Props> = ({
   }
   const nameOfRecipient = (c: DecisionCard) => (c as DecisionCard & { recipientName?: string }).recipientName || nameOfLogin(c.recipientUserID)
   const myName = members.find((m) => m.mine)?.name || ''
+  const membersRef = useRef(members)
+  membersRef.current = members
   const myAvatar = members.find((m) => m.mine)?.avatarUrl || null
   const memberByRef = (ref?: string | null) => (ref ? members.find((m) => m.ref === ref) : undefined)
   const memberOfLogin = (login?: string | null) => {
@@ -1626,6 +1677,7 @@ export const ClassicList: React.FC<Props> = ({
             <>
               <div className="slk-text">{rich(m.body)}</div>
               {card && attachment(card)}
+              {jams[thread.view!]?.messageId === m.id && jamCard(thread.view!, jams[thread.view!])}
               {underneath(thread.view!, m)}
             </>))
           prevWho = 'ai'
@@ -1751,12 +1803,13 @@ export const ClassicList: React.FC<Props> = ({
             </ul>
           </div>
         )}
-        {call && !call.ended && (
+        {call && !call.ended && (!jamShown || call.channel !== thread.view) && (
           <JamBar
             call={call}
-            where={(() => { const w = everything.find((x) => x.view === call.channel); return w ? (w.kind === 'channel' ? `#${w.name}` : w.name) : '' })()}
+            where={whereOf(call.channel)}
             onMute={(m) => call.setMuted(m)}
             onLeave={() => void leaveJam()}
+            onShow={() => { setJamShown(true); const th = everything.find((x) => x.view === call.channel); if (th && th.key !== current?.key) choose(th.key) }}
           />
         )}
         <nav className="slk-tabs" role="tablist" aria-label={t('View')}>
@@ -2100,6 +2153,37 @@ export const ClassicList: React.FC<Props> = ({
           <div className="slk-none"><p>{t('Pick a conversation.')}</p></div>
         )}
       </main>
+      {call && !call.ended && jamShown && (
+        <JamPanel
+          call={call}
+          where={whereOf(call.channel)}
+          api={api}
+          faceOf={(ref) => memberByRef(ref)?.avatarUrl}
+          me={{ name: myName || t('You'), avatarUrl: myAvatar }}
+          onLeave={() => void leaveJam()}
+          onHide={() => setJamShown(false)}
+        />
+      )}
+      {ringing && createPortal(
+        <div className="jam-ring" role="alertdialog" aria-label={t('{name} is calling you', { name: ringing.name })} data-jam-ring="1">
+          <div className="jam-ring-who">
+            <Avatar name={ringing.name} url={ringing.avatarUrl} size={40} round />
+            <div><b>{ringing.name}</b><span>{t('is calling you in a Jam')}</span></div>
+          </div>
+          <div className="jam-ring-actions">
+            <button type="button" className="later" onClick={() => { const st = jams[ringing.channel]; if (st?.startedAt) declined.current.add(`${ringing.channel}:${st.startedAt}`); setRinging(null); stopRing() }}>{t('Not now')}</button>
+            <button type="button" className="join" onClick={() => {
+              const target = ringing.channel
+              const th = everything.find((x) => x.view === target)
+              if (th) choose(th.key)
+              void startJam(target, { mode: jams[target]?.mode || 'notes' })
+            }}>{t('Join')}</button>
+          </div>
+        </div>,
+        // Above everything, the tab bar included: the list sits inside a
+        // fixed layer of its own, which no z-index inside it can climb out of.
+        document.body,
+      )}
       {detail && (
         <aside className="slk-pane" aria-label={t('Decision')}>
           <header className="slk-pane-head">
@@ -2241,4 +2325,13 @@ export const ClassicList: React.FC<Props> = ({
       )}
     </div>
   )
+}
+
+/// A Jam's running time, ticking by itself.
+function JamClock({ from }: { from: string | null }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
+  if (!from) return <>0:00</>
+  const s = Math.max(0, Math.floor((now - Date.parse(from)) / 1000))
+  return <>{Math.floor(s / 60)}:{String(s % 60).padStart(2, '0')}</>
 }
