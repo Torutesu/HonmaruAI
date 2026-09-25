@@ -83,9 +83,9 @@ async function forClient(env, orgId, who, memories, admin) {
   }));
 }
 
-export async function handleAutomation(request, env, url) {
+export async function handleAutomation(request, env, url, ctx = null) {
   const path = url.pathname;
-  if (path === "/mcp") return handleMcp(request, env);
+  if (path === "/mcp") return handleMcp(request, env, ctx);
   if (request.method === "OPTIONS") return null;
 
   // ---- Routines ----

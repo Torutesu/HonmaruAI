@@ -151,3 +151,19 @@ test("a direct conversation's messages cannot be touched from outside it", async
   expect((await post("/channels/reactions", kenji, { orgId: ORG, channel: `dm:${refs.Mika}`, messageId: m.id, emoji: "👍" })).status).toBe(404);
   expect((await post("/channels/reactions", kenji, { orgId: ORG, channel: "b:cafe", messageId: m.id, emoji: "👍" })).status).toBe(404);
 });
+
+test("a link to a message opens it for whoever can read it, and for nobody else", async () => {
+  const m = await say(mika, "Friday price change?");
+  const r = await say(toru, "Yes", { parentId: m.id });
+  const where = async (token, id) => get(`/channels/locate?${q({ orgId: ORG, messageId: id })}`, token);
+  expect(await (await where(kenji, m.id)).json()).toEqual({ view: "b:cafe", id: m.id, parentId: null });
+  expect(await (await where(kenji, r.id)).json()).toEqual({ view: "b:cafe", id: r.id, parentId: m.id });
+  // A direct message: each side names it by the other, and a third person
+  // learns nothing — not even that it exists.
+  const dm = (await (await post("/channels/messages", toru, { orgId: ORG, channel: `dm:${refs.Mika}`, body: "between us" })).json()).message;
+  expect((await (await where(mika, dm.id)).json()).view).toBe(`dm:${refs.Toru}`);
+  expect((await (await where(toru, dm.id)).json()).view).toBe(`dm:${refs.Mika}`);
+  expect((await where(kenji, dm.id)).status).toBe(404);
+  expect((await where(outsider, dm.id)).status).toBe(403);
+  expect((await where(kenji, "nope")).status).toBe(404);
+});

@@ -6,6 +6,7 @@ import { readOnboardingDraft } from '../utils/onboardingProgress'
 import { defaultDailySetup, dailyWanted, NEW_CHANNEL, type DailySetup } from '../utils/dailySetup'
 import { localTimeZone, parseTime, timeValue } from '../utils/automation'
 import type { Business } from '../types/card'
+import { Icon } from '../components/Icon'
 
 interface Props {
   httpBase: string
@@ -144,8 +145,8 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
       body: t('ob.swipe.body'),
       extra: (
         <div className="ob-demo-actions">
-          <button className="ob-round no" onClick={() => setDemo('declined')} disabled={!!demo} aria-label={t('Decline')}>✕</button>
-          <button className="ob-round yes" onClick={() => setDemo('approved')} disabled={!!demo} aria-label={t('Approve')}>✓</button>
+          <button className="ob-round no" onClick={() => setDemo('declined')} disabled={!!demo} aria-label={t('Decline')}><Icon name="x" size={22} /></button>
+          <button className="ob-round yes" onClick={() => setDemo('approved')} disabled={!!demo} aria-label={t('Approve')}><Icon name="check" size={22} /></button>
         </div>
       ),
     },

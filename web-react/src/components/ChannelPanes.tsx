@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { JAM_MODES, audioDevices, canPickSpeaker, recordingMime } from '../utils/jam'
 import type { JamCall, JamMode, JamState } from '../utils/jam'
+import { Icon } from './Icon'
+import { Avatar } from './Avatar'
 
 // What a channel's header opens, left to right: its journal (the context
 // someone new or back from a week away reads first), its details (members,
@@ -18,9 +20,9 @@ export type DetailsTab = 'members' | 'attachments' | 'automations'
 export type NotifyLevel = 'all' | 'mentions' | 'mute'
 
 interface Details {
-  channel: { key: string; view: string; kind: 'channel' | 'dm'; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
+  channel: { key: string; view: string; kind: 'channel' | 'dm' | 'group'; private?: boolean; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
   members: {
-    people: Array<{ ref: string; name: string; handle: string | null; title: string | null; status: { emoji?: string; text?: string } | null; awayUntil: string | null; you: boolean }>
+    people: Array<{ ref: string; name: string; handle: string | null; title: string | null; status: { emoji?: string; text?: string } | null; awayUntil: string | null; you: boolean; avatarUrl?: string | null }>
     agents: Array<{ name: string; kind: 'ai' | 'agent'; owner: string | null; lastSeenAt?: string | null }>
   }
   attachments: Array<{ url: string; host: string; messageId: string; authorName: string | null; at: string }>
@@ -135,7 +137,7 @@ export function ChannelJournal({ api, headers, view, title, locale, onCite, onCl
       <header className="slk-pane-head">
         <button className="slk-back pane" onClick={onClose} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
         <h2>{t('Context for {name}', { name: title })}</h2>
-        <button className="slk-pane-close" onClick={onClose} aria-label={t('Close')}>×</button>
+        <button className="slk-pane-close" onClick={onClose} aria-label={t('Close')}><Icon name="x" size={16} /></button>
       </header>
       <div className="slk-pane-body slk-journal-body">
         <Description api={api} headers={headers} view={view} value={description} editable={describable} onSaved={setDescription} />
@@ -161,7 +163,7 @@ export function ChannelJournal({ api, headers, view, title, locale, onCite, onCl
                   ))}
                   {item.links.map((l) => (
                     <a key={l.url} className="slk-jlink" href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}>
-                      <span aria-hidden="true">↗</span> {l.host}
+                      <Icon name="external" size={11} /> {l.host}
                     </a>
                   ))}
                 </li>
@@ -262,19 +264,19 @@ export function ChannelDetails({
       <header className="slk-pane-head slk-details-head">
         <button className="slk-back pane" onClick={onClose} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
         <div className="slk-details-title">
-          <h2>{d ? (isChannel ? `#${d.channel.name}` : d.channel.name) : '…'}</h2>
+          <h2>{d ? (isChannel && !d.channel.private ? `#${d.channel.name}` : d.channel.name) : '…'}</h2>
           {d?.channel.createdAt && (
             <p>{d.channel.createdBy
               ? t('Created on {date} by {name}', { date: new Date(d.channel.createdAt).toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' }), name: d.channel.createdBy })
               : t('Created on {date}', { date: new Date(d.channel.createdAt).toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' }) })}</p>
           )}
         </div>
-        <button className="slk-pane-close" onClick={onClose} aria-label={t('Close')}>×</button>
+        <button className="slk-pane-close" onClick={onClose} aria-label={t('Close')}><Icon name="x" size={16} /></button>
       </header>
       <div className="slk-details-bar">
         <label className="slk-select">
           <span className="sr-only">{t('Default notifications')}</span>
-          <span aria-hidden="true">🔔</span>
+          <Icon name="bell" size={14} />
           <select value={level} onChange={(e) => onLevel(e.target.value as NotifyLevel)} aria-label={t('Default notifications')}>
             <option value="all">{t('Everything')}</option>
             <option value="mentions">{t('Mentions only')}</option>
@@ -301,7 +303,7 @@ export function ChannelDetails({
               {people.map((p) => (
                 <li key={p.ref}>
                   <button type="button" className="slk-member-row" onClick={() => onProfile(p.ref)}>
-                    <span className="cl-lead cl-avatar sz-row" aria-hidden="true">{p.name.charAt(0).toUpperCase()}</span>
+                    <span className="cl-lead cl-avatar has-face sz-row" aria-hidden="true"><Avatar name={p.name} url={p.avatarUrl} size={24} /></span>
                     <span className="slk-member-main">
                       <span className="slk-member-name">{p.name}{p.you && <span className="slk-member-you"> {t('(you)')}</span>}{p.status?.emoji && <span> {p.status.emoji}</span>}</span>
                       {p.title && <span className="slk-member-title">{p.title}</span>}
@@ -317,7 +319,7 @@ export function ChannelDetails({
                   <div className="slk-member-row static">
                     {a.kind === 'ai'
                       ? <span className="cl-lead cl-app sz-row" aria-hidden="true"><img className="cl-own-mark" src="/icon.svg" alt="" width={18} height={18} /></span>
-                      : <span className="cl-lead cl-app sz-row" aria-hidden="true">⚙︎</span>}
+                      : <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="settings" size={13} /></span>}
                     <span className="slk-member-main">
                       <span className="slk-member-name">{a.name}</span>
                       <span className="slk-member-title">{a.kind === 'ai' ? t('Turns what is said here into decisions') : a.owner ? t('Connected by {name}', { name: a.owner }) : t('Connected tool')}</span>
@@ -355,7 +357,7 @@ export function ChannelDetails({
             <ul className="slk-details-list">
               {d.automations.map((a) => (
                 <li key={a.id} className="slk-automation">
-                  <span className="cl-lead cl-app sz-row" aria-hidden="true">⚡</span>
+                  <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="zap" size={13} /></span>
                   <span className="slk-member-main">
                     <span className="slk-member-name">{a.title}</span>
                     <span className="slk-member-title">{a.schedule}{a.ownerName && !a.mine ? ` · ${t('by {name}', { name: a.ownerName })}` : ''}</span>
@@ -444,18 +446,18 @@ export function JamButton({ state, inThis, busy, onStart, onLeave }: {
   if (inThis) {
     return (
       <button type="button" className="slk-jam-button on" onClick={onLeave} disabled={busy}>
-        <span aria-hidden="true">🎧</span> {t('Leave Jam')}
+        <Icon name="headphones" size={14} /> {t('Leave Jam')}
       </button>
     )
   }
   return (
     <div className="slk-jam" ref={box}>
       <button type="button" className={`slk-jam-button${active ? ' live' : ''}`} onClick={() => (active ? onStart({ micId: mic || undefined, speakerId: speaker || undefined, mode }) : start())} disabled={busy}>
-        <span aria-hidden="true">🎧</span> {active ? t('Join Jam') : t('Jam')}
+        <Icon name="headphones" size={14} /> {active ? t('Join Jam') : t('Jam')}
         {active && <span className="slk-jam-count">{count}</span>}
       </button>
       <button type="button" className="slk-jam-more" onClick={() => setOpen((v) => !v)} aria-label={t('Jam options')} aria-expanded={open} disabled={busy}>
-        <span aria-hidden="true">▾</span>
+        <Icon name="chevron-down" size={13} />
       </button>
       {open && (
         <div className="slk-jam-menu" role="dialog" aria-label={t('Jam options')}>
@@ -510,7 +512,7 @@ function clock(since: string | null, now: number): string {
 
 /// The Jam this browser is in: who is talking, how long, recorded or not;
 /// mute and leave.
-export function JamBar({ call, where, onLeave, onMute }: { call: JamCall; where: string; onLeave: () => void; onMute: (muted: boolean) => void }) {
+export function JamBar({ call, where, onLeave, onMute, onShow }: { call: JamCall; where: string; onLeave: () => void; onMute: (muted: boolean) => void; onShow?: () => void }) {
   const t = useT()
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
@@ -525,11 +527,12 @@ export function JamBar({ call, where, onLeave, onMute }: { call: JamCall; where:
       <ul className="slk-jambar-people">
         {call.participants.map((p) => (
           <li key={p.peerId} title={p.name} className={p.muted ? 'muted' : ''}>
-            <span className="cl-lead cl-avatar sz-row" aria-hidden="true">{p.name.charAt(0).toUpperCase()}</span>
+            <span className="cl-lead cl-avatar has-face sz-row" aria-hidden="true"><Avatar name={p.name} url={p.avatarUrl} size={20} /></span>
             <span className="sr-only">{p.name}{p.muted ? ` (${t('muted')})` : ''}</span>
           </li>
         ))}
       </ul>
+      {onShow && <button type="button" className="cl-nudge slk-jambar-show" onClick={onShow}>{t('Show')}</button>}
       <button type="button" className={`cl-nudge${call.muted ? ' on' : ''}`} onClick={() => onMute(!call.muted)} aria-pressed={call.muted}>
         {call.muted ? t('Unmute') : t('Mute')}
       </button>

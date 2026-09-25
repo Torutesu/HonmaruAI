@@ -1,4 +1,4 @@
-import { getSession, isMember, getUserByGithubId, loadContexts } from "./db.js";
+import { getSession, isMember, getUserByGithubId, loadContexts, listBusinesses } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
 import { listRoutines } from "./routines.js";
@@ -62,8 +62,9 @@ export async function gatherMaterial(db, orgId, user, members, { now = new Date(
         WHERE org_id = ?1 AND (sender_user_id = ?2 OR recipient_user_id = ?2)
         ORDER BY created_at DESC LIMIT 40`
     ).bind(orgId, user.login).all().then((r) => r.results || []).catch(() => []),
-    db.prepare("SELECT slug, name FROM businesses WHERE org_id = ?1 ORDER BY created_at ASC LIMIT 15")
-      .bind(orgId).all().then((r) => r.results || []).catch(() => []),
+    // Channels this person can see: a private one they are not in is not a
+    // name to put in their suggestions.
+    listBusinesses(db, orgId, { viewer: user.login }).then((list) => list.slice(0, 15)).catch(() => []),
     listRoutines(db, orgId, user.github_id).catch(() => []),
     db.prepare(
       `SELECT channel, body FROM channel_messages

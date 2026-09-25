@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import type { ChannelMessage } from '../types/card'
+import { Icon } from './Icon'
 
 // The pieces of a message a chat client has and a plain log does not:
 // formatting, reactions, the emoji picker, and the bar of things you can do
@@ -70,7 +71,7 @@ export const Reactions: React.FC<{
         </button>
       ))}
       <button type="button" className="slk-reaction add" onClick={onAdd} aria-label={t('Add reaction')}>
-        <span aria-hidden="true">☺︎+</span>
+        <Icon name="smile" size={14} /><span aria-hidden="true">+</span>
       </button>
     </div>
   )
@@ -113,15 +114,15 @@ export const MessageActions: React.FC<{
       {QUICK_REACTIONS.map((e) => (
         <button key={e} type="button" className="slk-tool emoji" onClick={() => onReact(e)} title={t('React with {emoji}', { emoji: e })} aria-label={t('React with {emoji}', { emoji: e })}>{e}</button>
       ))}
-      <button type="button" className="slk-tool" onClick={() => setPicker((p) => !p)} title={t('Add reaction')} aria-label={t('Add reaction')} aria-expanded={picker}>☺︎</button>
+      <button type="button" className="slk-tool" onClick={() => setPicker((p) => !p)} title={t('Add reaction')} aria-label={t('Add reaction')} aria-expanded={picker}><Icon name="smile" size={16} /></button>
       {onReply && !inThread && (
-        <button type="button" className="slk-tool" onClick={onReply} title={t('Reply in thread')} aria-label={t('Reply in thread')}>💬</button>
+        <button type="button" className="slk-tool" onClick={onReply} title={t('Reply in thread')} aria-label={t('Reply in thread')}><Icon name="message" size={16} /></button>
       )}
       {onPin && !inThread && (
-        <button type="button" className={`slk-tool${message.pinned ? ' on' : ''}`} onClick={onPin} title={message.pinned ? t('Unpin') : t('Pin to channel')} aria-label={message.pinned ? t('Unpin') : t('Pin to channel')}>📌</button>
+        <button type="button" className={`slk-tool${message.pinned ? ' on' : ''}`} onClick={onPin} title={message.pinned ? t('Unpin') : t('Pin to channel')} aria-label={message.pinned ? t('Unpin') : t('Pin to channel')}><Icon name="pin" size={16} /></button>
       )}
       <div className="slk-tool-menu-wrap" ref={menuBox}>
-        <button type="button" className="slk-tool" onClick={() => setMenu((m) => !m)} aria-label={t('More actions')} aria-expanded={menu} aria-haspopup="menu">⋯</button>
+        <button type="button" className="slk-tool" onClick={() => setMenu((m) => !m)} aria-label={t('More actions')} aria-expanded={menu} aria-haspopup="menu"><Icon name="more" size={16} /></button>
         {menu && (
           <div className="slk-menu" role="menu">
             {onEdit && <button type="button" role="menuitem" onClick={() => { setMenu(false); onEdit() }}>{t('Edit message')}<kbd>E</kbd></button>}
@@ -178,7 +179,7 @@ export function prefixLines(el: HTMLTextAreaElement | null, value: string, set: 
 
 export const FormatBar: React.FC<{ target: React.RefObject<HTMLTextAreaElement>; value: string; set: (v: string) => void }> = ({ target, value, set }) => {
   const t = useT()
-  const b = (label: string, title: string, act: () => void, cls = '') => (
+  const b = (label: React.ReactNode, title: string, act: () => void, cls = '') => (
     <button type="button" className={`slk-fmt ${cls}`} title={title} aria-label={title} onMouseDown={(e) => e.preventDefault()} onClick={act}>{label}</button>
   )
   return (
@@ -186,9 +187,9 @@ export const FormatBar: React.FC<{ target: React.RefObject<HTMLTextAreaElement>;
       {b('B', t('Bold'), () => wrapSelection(target.current, value, set, '*'), 'bold')}
       {b('I', t('Italic'), () => wrapSelection(target.current, value, set, '_'), 'italic')}
       {b('S', t('Strikethrough'), () => wrapSelection(target.current, value, set, '~'), 'strike')}
-      {b('</>', t('Code'), () => wrapSelection(target.current, value, set, '`'), 'code')}
-      {b('❝', t('Quote'), () => prefixLines(target.current, value, set, '> '))}
-      {b('•', t('Bulleted list'), () => prefixLines(target.current, value, set, '- '))}
+      {b(<Icon name="code" size={14} />, t('Code'), () => wrapSelection(target.current, value, set, '`'), 'code')}
+      {b(<Icon name="quote" size={13} />, t('Quote'), () => prefixLines(target.current, value, set, '> '))}
+      {b(<Icon name="list" size={14} />, t('Bulleted list'), () => prefixLines(target.current, value, set, '- '))}
     </div>
   )
 }

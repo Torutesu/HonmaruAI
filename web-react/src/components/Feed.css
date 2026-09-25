@@ -324,7 +324,7 @@
 .thread-empty { margin: 0; font-size: 13px; color: #838383; }
 .thread-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .thread-row { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
-.thread-when { flex: none; width: 88px; color: #838383; font-variant-numeric: tabular-nums; }
+.thread-when { flex: none; min-width: 88px; white-space: nowrap; color: #838383; font-variant-numeric: tabular-nums; }
 .thread-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .thread-head { color: #202020; font-weight: 500; }
 .thread-who { color: #646464; font-weight: 400; }
@@ -365,10 +365,13 @@
 }
 .reaction.mine { border-color: #1264a3; background: #e8f5fa; color: #1264a3; }
 .reaction-add { position: relative; display: inline-block; }
+/* The same pill as a reaction beside it, holding the same line icon the
+   chat's own add-reaction button draws. */
 .reaction-add-btn {
-  cursor: pointer; width: 26px; height: 26px; border-radius: 9999px; background: none; padding: 0;
-  border: 1px dashed #d4d4d4; color: #838383; display: grid; place-items: center; font-size: 15px; line-height: 1;
+  cursor: pointer; width: 34px; height: 26px; border-radius: 9999px; background: #f8f9fa; padding: 0;
+  border: 1px solid #e8e8e8; color: #838383; display: grid; place-items: center; line-height: 1;
 }
+.reaction-add-btn:hover, .reaction-add-btn[aria-expanded="true"] { color: #202020; border-color: #d4d4d4; }
 .reaction-choices {
   position: absolute; z-index: 5; top: 30px; left: 0;
   display: flex; gap: 2px; padding: 4px; background: #fff; border: 1px solid #e8e8e8; border-radius: 12px;
@@ -397,6 +400,8 @@
   .thread-send { background: #f2f2f2; color: #0f0f0f; }
   .reaction { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
   .reaction.mine { background: #163b4f; border-color: #4fb9fa; color: #8ed1f5; }
+  .reaction-add-btn { background: #1a1a1a; border-color: #2a2a2a; color: #a3a3a3; }
+  .reaction-add-btn:hover, .reaction-add-btn[aria-expanded="true"] { color: #f2f2f2; border-color: #3a3a3a; }
   .reaction-choices, .mention-menu { background: #1a1a1a; border-color: #2a2a2a; }
   .reaction-choices button:hover { background: #2a2a2a; }
   .mention-option { color: #f2f2f2; }

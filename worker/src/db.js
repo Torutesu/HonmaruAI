@@ -226,7 +226,12 @@ export async function upsertUser(db, { githubId, login, name, avatarUrl, locale 
        ON CONFLICT(github_id) DO UPDATE SET
          login = excluded.login,
          name = CASE WHEN users.name_locked = 1 THEN users.name ELSE excluded.name END,
-         avatar_url = excluded.avatar_url,
+         -- A photo the person uploaded here outlives whatever their GitHub
+         -- account says, and an upsert that knows of no photo keeps one.
+         avatar_url = CASE
+           WHEN users.avatar_url LIKE '%/users/avatar/user-avatar-%' THEN users.avatar_url
+           ELSE COALESCE(excluded.avatar_url, users.avatar_url)
+         END,
          locale = COALESCE(?5, users.locale)`
     )
     .bind(String(githubId), login, name || null, avatarUrl || null, known, new Date().toISOString())
@@ -771,12 +776,30 @@ export function businessSlug(name) {
   return slug || null;
 }
 
-export async function listBusinesses(db, orgId) {
+/// The channels a business runs, for one person to see: every public one,
+/// and the private ones they are in. With no viewer — the router filing a
+/// card, the AI suggesting, a broadcast to the whole room — public ones only:
+/// a private channel is never somewhere a stranger's card lands or a name
+/// the room is told.
+export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   const { results } = await db
-    .prepare("SELECT slug, name, created_by, created_at FROM businesses WHERE org_id = ?1 ORDER BY created_at")
-    .bind(orgId)
+    .prepare(
+      `SELECT b.slug, b.name, b.created_by, b.created_at, b.private,
+              CASE WHEN b.private = 1 THEN (SELECT COUNT(*) FROM conversation_members c2 WHERE c2.org_id = ?1 AND c2.channel = 'b:' || b.slug) END AS member_count
+         FROM businesses b
+        WHERE b.org_id = ?1 AND (b.private = 0 OR (?2 IS NOT NULL AND EXISTS (
+          SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = 'b:' || b.slug AND c.login = ?2)))
+        ORDER BY b.created_at`
+    )
+    .bind(orgId, viewer)
     .all();
-  return (results || []).map((r) => ({ slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at }));
+  return (results || []).map((r) => ({ slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at, ...(r.private ? { private: true, memberCount: r.member_count || 0 } : {}) }));
+}
+
+/// Whether the workspace has any private channel: a room told about the
+/// public ones should ask for its own list again.
+export async function hasPrivateBusinesses(db, orgId) {
+  return Boolean(await db.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND private = 1 LIMIT 1").bind(orgId).first());
 }
 
 /// Create a business, or return the one a name already means. The name that
@@ -922,6 +945,27 @@ export async function listUserOrgs(db, githubId) {
 
 /// Where to put someone who did not say.
 ///
+/// Where a person's own connected tools land: the workspace they last pulled
+/// them into. The row is also the cron's queue position, so a first pull
+/// counts as a sync just done; after that only the workspace changes.
+export async function rememberPullWorkspace(db, githubId, orgId) {
+  await db
+    .prepare(
+      `INSERT INTO connector_sync_state (user_github_id, synced_at, org_id) VALUES (?1, ?2, ?3)
+       ON CONFLICT(user_github_id) DO UPDATE SET org_id = excluded.org_id`
+    )
+    .bind(String(githubId), new Date().toISOString(), orgId)
+    .run()
+    .catch((err) => console.error("pull workspace not kept", err?.message || err));
+}
+
+/// Which workspace a person's own tools are pulled into, when they chose one.
+export async function pullWorkspaceOf(db, githubId) {
+  const row = await db.prepare("SELECT org_id FROM connector_sync_state WHERE user_github_id = ?1")
+    .bind(String(githubId)).first().catch(() => null);
+  return row?.org_id || null;
+}
+
 /// A workspace with other people in it beats one with only you: the solo org
 /// handed out at sign-up is a starting point, and anywhere with a second
 /// person is where the work is. Ties go to the earliest join, so the answer

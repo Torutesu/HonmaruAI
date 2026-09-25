@@ -111,7 +111,8 @@ async function closeEverything() {
     await open.click().catch(() => {})
     await page.waitForTimeout(300)
   }
-  await page.waitForSelector('.tabbar', { timeout: 10000 })
+  // The feed's tab bar, or on a phone in the list, the list's own.
+  await page.waitForSelector('.tabbar:visible, .cl-tabs:visible', { timeout: 10000 })
 }
 
 /// Mint an invite link from the team screen, and hand back the code inside it.
@@ -312,13 +313,13 @@ await step('the tab bar is drawn, not typed', async () => {
 // standing in for a drawing. A glyph is whatever the system font decides.
 await step('no screen falls back to a text glyph for an icon', async () => {
   const found = []
-  for (const [tab, marker] of [['Tools', '.rows'], ['You', '.profile-stats']]) {
+  for (const [tab, marker] of [['Tools', '.studio'], ['You', '.profile-stats']]) {
     if (tab === 'You') { await closeEverything(); await page.click('nav [data-tab="you"]') }
     else await openViaYou(tab, marker)
     await page.waitForSelector(marker, { timeout: 10000 })
     const bad = await page.evaluate(() =>
-      [...document.querySelectorAll('.screen .row-icon')]
-        .filter((el) => !el.querySelector('svg'))
+      [...document.querySelectorAll('.screen .row-icon, .screen .app-icon, .screen .studio-nav button')]
+        .filter((el) => !el.querySelector('svg, img'))
         .map((el) => (el.textContent || '').trim())
     )
     found.push(...bad.map((g) => `${tab}: ${g}`))
@@ -328,7 +329,7 @@ await step('no screen falls back to a text glyph for an icon', async () => {
 })
 
 await step('the relay is connected', async () => {
-  await page.waitForSelector('.dot.on', { timeout: 20000 })
+  await page.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 20000 })
 })
 
 await step('telling your AI something produces a decision', async () => {
@@ -500,17 +501,19 @@ await step('the list view shows the same decisions', async () => {
   // Channels are made here, renamed here, deleted here — the way a chat
   // client lets you, not only by the AI filing a card.
   await page.click('.cl-add')
-  await page.waitForSelector('.cl-add-form input', { timeout: 5000 })
+  await page.waitForSelector('.cl-add-form input.cl-input', { timeout: 5000 })
     .catch(() => { throw new Error('the + under Channels opened no box') })
-  await page.fill('.cl-add-form input', 'Suppliers')
+  await page.fill('.cl-add-form input.cl-input', 'Suppliers')
   await page.keyboard.press('Enter')
   await page.waitForSelector('.cl-thread:has-text("Suppliers")', { timeout: 15000 })
     .catch(() => { throw new Error('the new channel did not appear in the list') })
-  // A channel opens as a conversation; its own controls are behind ⋯.
+  // A channel opens as a conversation; its own controls are behind ⋯ —
+  // on a phone, a sheet from the bottom.
   await page.click('.cl-thread:has-text("Suppliers") .cl-open')
   await page.waitForSelector('.slk-head:has-text("Suppliers")', { timeout: 5000 })
     .catch(() => { throw new Error('the channel did not open as a conversation') })
-  await page.click('.slk-more')
+  await page.click('.slk-phone-more')
+  await page.click('[data-sheet="settings"]')
   await page.waitForSelector('.cl-channel-tools', { timeout: 5000 })
   await page.click('.cl-channel-tools button:has-text("Rename")')
   await page.fill('.cl-channel-tools input', 'Suppliers & logistics')
@@ -533,8 +536,9 @@ await step('the list view shows the same decisions', async () => {
   await page.waitForSelector('.slk-head', { timeout: 5000 })
   // The effect that hides it runs after the conversation renders; wait
   // for it rather than read the first frame, which a slow runner catches.
-  await page.waitForSelector('.tabbar', { state: 'hidden', timeout: 5000 })
+  await page.waitForSelector('.cl-tabs', { state: 'hidden', timeout: 5000 })
     .catch(() => { throw new Error('the tab bar sits under a conversation on a phone') })
+  if (await page.isVisible('.tabbar')) throw new Error('the feed’s tab bar shows in the list on a phone')
   if (await page.$('.slk-msg .slk-title')) {
     await page.click('.slk-msg .slk-title >> nth=0')
     await page.waitForSelector('.slk-pane .card', { timeout: 10000 })
@@ -544,7 +548,8 @@ await step('the list view shows the same decisions', async () => {
     await page.click('.slk-back.pane')
   }
   await page.click('.slk-head .slk-back')
-  await page.waitForSelector('.tabbar', { state: 'visible', timeout: 5000 })
+  // Back at the list, its own tabs: Home, DMs, Activity, Later, You.
+  await page.waitForSelector('.cl-tabs', { state: 'visible', timeout: 5000 })
 
   await page.click('.mode-switch button >> nth=0')
   await page.waitForSelector('.feed', { timeout: 10000 })
@@ -552,7 +557,7 @@ await step('the list view shows the same decisions', async () => {
 
 await step('every other screen opens', async () => {
   await closeEverything()
-  await openViaYou('Tools', '.rows')
+  await openViaYou('Tools', '.studio')
   await shot('12-tools')
   await closeEverything()
   await page.click('nav [data-tab="you"]')
@@ -620,7 +625,7 @@ await step('no request failed that was not meant to', async () => {
 await step('an unconfigured connector is said out loud, not hidden', async () => {
   // Close whatever is open, however many layers, and get back to the feed.
   await closeEverything()
-  await openViaYou('Tools', '.rows')
+  await openViaYou('Tools', '.studio')
   await page.waitForSelector('.screen .head-title:has-text("Tools")', { timeout: 10000 })
   // The note arrives after /connectors answers; the head is drawn before
   // it. `textContent`, not `innerText`: the latter is a layout question,
@@ -679,7 +684,7 @@ await step('choosing a language changes the interface, and changing back returns
   // checks that the route into them survived the translation.
   for (const [label, row, marker] of [
     ['history', '履歴', '.seg'],
-    ['tools', 'ツール', '.rows'],
+    ['tools', 'ツール', '.studio'],
     ['you', null, '.profile-stats'],
   ]) {
     if (row) await openViaYou(row, marker)
@@ -1026,7 +1031,10 @@ await step('your role is whatever you say it is', async () => {
 // whoever deploys the Worker.
 await step('the Tools screen lets the admin pick the model and enter keys', async () => {
   const d = desk.pages()[0]
-  await d.evaluate(() => { location.hash = '#/tools' })
+  await d.evaluate(() => { location.hash = '#/tools/ai' })
+  await d.waitForSelector('[data-studio="ai"]', { timeout: 15000 })
+  // The AI's settings are a page of the studio of their own.
+  if (!(await d.$('.ai-status select'))) await d.click('[data-studio="ai"]')
   await d.waitForSelector('.ai-status select', { timeout: 15000 })
     .catch(() => { throw new Error('the model is not a choice on the Tools screen') })
   if (!(await d.$('.ai-status .ai-key-input'))) throw new Error('there is nowhere to enter a key')
@@ -1408,10 +1416,14 @@ await step('a rule in the playbook is written, kept, changed and removed', async
 
 await step('an agent asks over MCP, the person decides in the feed, and the agent reads the answer', async () => {
   const d = workPage()
-  await d.goto(`${WEB}/#/tools`, { waitUntil: 'load' })
-  await d.waitForSelector('.agent-intro input', { timeout: 20000 }).catch(() => { throw new Error('Tools has no Connect an agent') })
+  await d.goto(`${WEB}/#/tools/api`, { waitUntil: 'load' })
+  // API keys: Create key ▾ → Personal key, named, then shown once.
+  await d.waitForSelector('.studio-create-key', { timeout: 20000 }).catch(() => { throw new Error('Tools has no API keys page') })
+  await d.click('.studio-create-key')
+  await d.click('[data-key-kind="personal"]')
+  await d.waitForSelector('.agent-intro input', { timeout: 10000 }).catch(() => { throw new Error('Create key opened no dialog') })
   await d.fill('.agent-intro input', 'E2E bot')
-  await d.click('.agent-intro .pill-btn')
+  await d.click('.key-dialog .dlg-btn.primary')
   await d.waitForSelector('.agent-minted .agent-code', { timeout: 10000 })
   const snippets = await d.$$eval('.agent-minted .agent-code', (els) => els.map((el) => el.innerText))
   const token = snippets[0].trim()
@@ -1446,15 +1458,91 @@ await step('an agent asks over MCP, the person decides in the feed, and the agen
   if (answer?.status !== 'approved') throw new Error(`the agent reads: ${JSON.stringify(answer)}`)
 
   // Revoked, the token opens nothing.
-  await d.goto(`${WEB}/#/tools`, { waitUntil: 'load' })
+  await d.goto(`${WEB}/#/tools/api`, { waitUntil: 'load' })
   await d.waitForSelector('.agent-token:has-text("E2E bot")', { timeout: 20000 })
   const lastUsed = await d.$eval('.agent-token:has-text("E2E bot")', (el) => el.innerText)
   if (/never used/.test(lastUsed)) throw new Error('a token that was used says it never was')
-  await d.click('.agent-token:has-text("E2E bot") .btn-text.danger')
+  await d.click('.agent-token:has-text("E2E bot") .key-more')
+  await d.click('.agent-token:has-text("E2E bot") .key-revoke')
   await d.click('.agent-token:has-text("E2E bot") .pill-btn')
   await d.waitForFunction(() => !document.querySelector('.agent-token'), null, { timeout: 10000 })
   const after = await mcp(token, 'tools/list')
   if (after.status !== 401) throw new Error(`a revoked token still answers: ${after.status}`)
+})
+
+await step('webhooks are made in the studio, show their secret once, and can be tested and removed', async () => {
+  const d = workPage()
+  await d.goto(`${WEB}/#/tools/api`, { waitUntil: 'load' })
+  await d.waitForSelector('.studio-create-hook', { timeout: 20000 }).catch(() => { throw new Error('the studio has no Webhooks section') })
+  await d.click('.studio-create-hook')
+  await d.waitForSelector('.hook-dialog #hook-url', { timeout: 10000 })
+  // An address that is not a public https one is refused out loud.
+  await d.fill('#hook-url', 'http://localhost:9000/in')
+  await d.click('.hook-create')
+  await d.waitForSelector('.hook-dialog .dlg-error', { timeout: 10000 }).catch(() => { throw new Error('a localhost webhook was accepted') })
+  await d.fill('#hook-url', 'https://hooks.example.test/honmaru')
+  await d.fill('#hook-name', 'E2E hook')
+  await d.check('.hook-dialog [data-event="card.decided"]')
+  await d.click('.hook-create')
+  await d.waitForSelector('.hook-secret code', { timeout: 10000 }).catch(() => { throw new Error('no signing secret was shown') })
+  const secret = (await d.textContent('.hook-secret code')).trim()
+  if (!/^whsec_[0-9a-f]{48}$/.test(secret)) throw new Error(`the secret is not one: ${secret.slice(0, 12)}`)
+  await d.screenshot({ path: `${SHOTS}/36-webhook-secret.png` })
+  await d.click('.hook-dialog .dlg-btn.primary')
+  await d.waitForSelector('.webhook-row:has-text("E2E hook")', { timeout: 10000 })
+  if (await d.$(`text=${secret}`)) throw new Error('the secret is still on screen after Done')
+  const row = await d.textContent('.webhook-row:has-text("E2E hook")')
+  if (!/hooks\.example\.test/.test(row)) throw new Error(`the webhook row does not show where it posts: ${row}`)
+  // A test goes out and says how it went — this host does not exist, so it did not arrive.
+  await d.click('.webhook-row:has-text("E2E hook") .studio-icon-btn')
+  await d.click('.webhook-row:has-text("E2E hook") .studio-menu button:has-text("Send a test")')
+  await d.waitForSelector('.studio-page .form-note', { timeout: 20000 }).catch(() => { throw new Error('a test delivery said nothing') })
+  await d.screenshot({ path: `${SHOTS}/37-webhooks.png` })
+  await d.click('.webhook-row:has-text("E2E hook") .studio-icon-btn')
+  await d.click('.webhook-row:has-text("E2E hook") .studio-menu .danger')
+  await d.waitForSelector('.webhook-row', { state: 'detached', timeout: 10000 }).catch(() => { throw new Error('the webhook was not removed') })
+})
+
+await step('an invitation says hello in the channels it names, and an agent joins by a link that works once', async () => {
+  const d = workPage()
+  await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+  await d.waitForSelector('.cl-invite', { timeout: 20000 }).catch(() => { throw new Error('the list has no Invite') })
+  await d.click('.cl-invite')
+  await d.waitForSelector('.invite-dialog [data-channels] input[type="checkbox"]', { timeout: 10000 })
+    .catch(() => { throw new Error('the invitation lists no channels to add someone to') })
+  // People: two addresses at once, mailed as links.
+  const one = `e2e-dialog-a-${Date.now()}@example.com`
+  const two = `e2e-dialog-b-${Date.now()}@example.com`
+  const before = (await (await fetch(`${SINK}/sent`)).json()).length
+  await d.fill('.invite-emails', `${one}, ${two}`)
+  await d.click('.invite-send')
+  await d.waitForSelector('.invite-dialog .invite-note', { timeout: 20000 }).catch(() => { throw new Error('sending invitations said nothing') })
+  const mailed = (await (await fetch(`${SINK}/sent`)).json()).slice(before)
+  for (const to of [one, two]) {
+    if (!mailed.some((m) => (m.to || []).includes(to) && /#\/join\/[0-9a-f]{32}/.test(m.text || ''))) throw new Error(`no invitation link reached ${to}`)
+  }
+  await d.screenshot({ path: `${SHOTS}/38-invite-people.png` })
+  // An agent: a link, once, for fifteen minutes.
+  await d.click('.invite-dialog [data-tab-agent]')
+  await d.click('.invite-agent-link')
+  await d.waitForSelector('[data-agent-link] code', { timeout: 10000 }).catch(() => { throw new Error('no agent link was made') })
+  const link = (await d.textContent('[data-agent-link] code')).trim()
+  if (!/\/agents\/join\/[0-9a-f]{48}$/.test(link)) throw new Error(`the agent link is not one: ${link}`)
+  await d.screenshot({ path: `${SHOTS}/39-invite-agent.png` })
+  const joined = await fetch(`${link}?name=E2E%20agent`)
+  const got = await joined.json().catch(() => ({}))
+  if (joined.status !== 201 || !/^hm_/.test(got.token || '')) throw new Error(`opening the agent link: ${joined.status} ${JSON.stringify(got).slice(0, 120)}`)
+  const init = await mcp(got.token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e-agent', version: '1' } })
+  if (init.status !== 200) throw new Error(`the agent's token does not open MCP: ${init.status}`)
+  if ((await fetch(link)).status !== 410) throw new Error('an agent link worked twice')
+  await d.keyboard.press('Escape')
+  // The agent's key sits with the others, and is revoked like them.
+  await d.goto(`${WEB}/#/tools/api`, { waitUntil: 'load' })
+  await d.waitForSelector('.agent-token:has-text("E2E agent")', { timeout: 20000 }).catch(() => { throw new Error('the agent’s key is not listed') })
+  await d.click('.agent-token:has-text("E2E agent") .key-more')
+  await d.click('.agent-token:has-text("E2E agent") .key-revoke')
+  await d.click('.agent-token:has-text("E2E agent") .pill-btn')
+  await d.waitForSelector('.agent-token:has-text("E2E agent")', { state: 'detached', timeout: 10000 })
 })
 
 await step('the list is a chat client on a laptop: sidebar, conversation, and a way into the card', async () => {
@@ -1471,9 +1559,11 @@ await step('the list is a chat client on a laptop: sidebar, conversation, and a 
   const head = await d.$eval('.slk-head h1', (el) => el.textContent)
   if (on !== head) throw new Error(`the sidebar selects "${on}" and the conversation is "${head}"`)
   // Every channel opens its own conversation.
-  const names = await d.$$eval('.slk-side .cl-thread .cl-title', (els) => els.map((el) => el.textContent))
+  // Conversations, that is — not Activity and Later above them, which are
+  // inboxes with a head of their own.
+  const names = await d.$$eval('.slk-side .cl-section .cl-thread .cl-title', (els) => els.map((el) => el.textContent))
   for (const name of names.slice(0, 4)) {
-    await d.click(`.slk-side .cl-thread:has(.cl-title:text-is("${name}")) .cl-open`)
+    await d.click(`.slk-side .cl-section .cl-thread:has(.cl-title:text-is("${name}")) .cl-open`)
     await d.waitForFunction((n) => document.querySelector('.slk-head h1')?.textContent === n, name, { timeout: 5000 })
       .catch(() => { throw new Error(`${name} did not open`) })
   }
@@ -1588,7 +1678,10 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
       .catch(() => { throw new Error('picking a thread reply in search did not open its thread') })
     // The Activity inbox is there and opens.
     await d.click('[data-activity="1"]')
-    await d.waitForSelector('.slk-head h1:has-text("Activity")', { timeout: 5000 }).catch(() => { throw new Error('Activity did not open') })
+    await d.waitForSelector('.slk-inbox-tabs [role="tab"]', { timeout: 10000 })
+      .catch(async () => { await d.screenshot({ path: `${SHOTS}/activity-did-not-open.png` }); throw new Error('Activity did not open') })
+    // On a laptop it is an inbox: the list on the left, the one you pick on the right.
+    await d.waitForSelector('.slk-inbox-view', { timeout: 5000 }).catch(() => { throw new Error('Activity has no pane for the notification you pick') })
     // A draft stays with its conversation.
     await d.click('.cl-thread:has-text("Front desk") .cl-open')
     await d.fill('.slk-input', 'half-written thought')
@@ -1637,13 +1730,10 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.waitForSelector('.shortcuts-sheet', { timeout: 5000 }).catch(() => { throw new Error('⌘/ did not open the shortcuts') })
     await d.keyboard.press('Escape')
     await d.click('.shortcuts-sheet .close').catch(() => {})
-    // A status, set on You, shows in the member list.
+    // No status editor on You: it was taken out as clutter.
     await d.goto(`${WEB}/#/you`, { waitUntil: 'load' })
-    await d.waitForSelector('.status-editor .status-text', { timeout: 15000 })
-    await d.fill('.status-editor .status-emoji', '🏖️')
-    await d.fill('.status-editor .status-text', 'On holiday')
-    await d.click('[data-status-save="1"]')
-    await d.waitForSelector('.status-editor [role="status"]:has-text("Saved")', { timeout: 10000 }).catch(() => { throw new Error('the status did not save') })
+    await d.waitForSelector('.profile-stats', { timeout: 15000 })
+    if (await d.$('.status-editor')) throw new Error('the status editor is back on You')
   } finally {
     await ctx.close()
   }
@@ -1897,29 +1987,30 @@ await step('the channel header opens its context, its automations, its members, 
     await d.selectOption('.slk-jam-menu label:has-text("Recording") select', 'full')
     await d.screenshot({ path: `${SHOTS}/46-jam-menu.png` })
     await d.click('.slk-jam-start')
-    await d.waitForSelector('.slk-jambar', { timeout: 15000 }).catch(() => { throw new Error('starting a Jam shows no Jam bar') })
+    // The Jam opens as a call panel beside the conversation.
+    await d.waitForSelector('[data-jam-panel]', { timeout: 15000 }).catch(() => { throw new Error('starting a Jam shows no call panel') })
     await d.waitForSelector('.slk-msg:has-text("started a Jam")', { timeout: 15000 }).catch(() => { throw new Error('the channel was not told the Jam started') })
 
     await open(e)
     await e.waitForSelector('.slk-jam-button.live:has-text("Join Jam")', { timeout: 15000 }).catch(() => { throw new Error('the other tab does not see the Jam going on') })
     await e.click('.slk-jam-button.live')
-    await e.waitForSelector('.slk-jambar', { timeout: 15000 })
+    await e.waitForSelector('[data-jam-panel]', { timeout: 15000 })
     for (const p of [d, e]) {
-      await p.waitForFunction(() => document.querySelectorAll('.slk-jambar-people li').length === 2, null, { timeout: 15000 })
-        .catch(() => { throw new Error('the Jam bar does not show both people') })
+      await p.waitForFunction(() => document.querySelectorAll('[data-jam-panel] .jam-tile').length === 2, null, { timeout: 15000 })
+        .catch(() => { throw new Error('the call panel does not show both people') })
       await p.waitForFunction(() => (window.__pcs || []).some((pc) => pc.connectionState === 'connected'), null, { timeout: 20000 })
         .catch(() => { throw new Error('the two browsers in the Jam never connected') })
     }
-    if (!(await d.$('.slk-jambar-rec'))) throw new Error('the Jam is not said to be recording')
-    await e.click('.slk-jambar .cl-nudge:has-text("Mute")')
-    await d.waitForSelector('.slk-jambar-people li.muted', { timeout: 10000 }).catch(() => { throw new Error('muting is not shown to the others') })
+    if (!(await d.$('[data-jam-panel] .jam-rec'))) throw new Error('the Jam is not said to be recording')
+    await e.click('[data-jam-mic]')
+    await d.waitForSelector('[data-jam-panel] .jam-tile.muted:not([data-peer="me"])', { timeout: 10000 }).catch(() => { throw new Error('muting is not shown to the others') })
     await d.screenshot({ path: `${SHOTS}/47-jam-live.png` })
     await d.waitForTimeout(2500)
 
     // The recorder leaves: the recording goes up and comes back as a
     // message that plays. The last one out ends the Jam.
-    await d.click('.slk-jambar .cl-danger')
-    await e.click('.slk-jambar .cl-danger')
+    await d.click('[data-jam-leave]')
+    await e.click('[data-jam-leave]')
     await d.waitForSelector('.slk-msg:has-text("Jam ended")', { timeout: 20000 }).catch(() => { throw new Error('the channel was not told the Jam ended') })
     await d.waitForSelector('.slk-msg .slk-jam-audio', { timeout: 30000 }).catch(() => { throw new Error('the recording did not come back as something to play') })
     const src = await d.$eval('.slk-msg .slk-jam-audio', (el) => el.getAttribute('src'))
@@ -2031,7 +2122,7 @@ await step('a second person joins by invite and the card reaches them', async ()
   const offered = await b.$eval('.ob-daily select[aria-label="Post to"]', (el) => el.value)
   if (offered !== 'b:daily-reports') throw new Error(`a teammate is not offered the team's daily-report channel: ${offered}`)
   await b.click('text=Open my feed')
-  await b.waitForSelector('.dot.on', { timeout: 25000 })
+  await b.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // A tells their AI something meant for the engineer.
   await page.click('nav [data-tab="compose"]')
@@ -2083,7 +2174,7 @@ await step('signing in on a machine that has never seen you reaches the feed', a
   // client fell back to a hardcoded `web-team` — an org nobody belongs to. The
   // relay refused the socket and this dot never came on.
   const p = await freshSignIn(email)
-  await p.waitForSelector('.dot.on', { timeout: 25000 })
+  await p.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   await p.screenshot({ path: `${SHOTS}/23-second-browser.png` })
 })
 
@@ -2110,7 +2201,7 @@ await step('an invite reaches someone who already has an account', async () => {
   await c.click('text=Set me up'); await c.waitForSelector('.radio')
   await c.click('.screen-foot .btn-primary:has-text("Next")'); await c.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
   await c.click('text=Open my feed')
-  await c.waitForSelector('.dot.on', { timeout: 25000 })
+  await c.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // Now they are handed a code. They are already signed in, so the place to
   // put it is You → Join a team — which is the surface that did not exist.
@@ -2124,7 +2215,7 @@ await step('an invite reaches someone who already has an account', async () => {
   // Landed in the team: the switcher now lists more than one workspace, and
   // the one they just joined is the one they are in.
   await c.waitForSelector('nav [data-tab="you"]', { timeout: 15000 })
-  await c.waitForSelector('.dot.on', { timeout: 25000 })
+  await c.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   await c.click('nav [data-tab="you"]')
   await c.waitForSelector('.profile-stats', { timeout: 10000 })
   await c.waitForSelector('[data-org][aria-current="true"]', { timeout: 10000 })
@@ -2170,7 +2261,7 @@ await step('a code that is not a code is said out loud, not swallowed', async ()
   if (!said.trim()) throw new Error('a rejected invite code said nothing')
   // And it did not move them anywhere: still the same feed, still connected.
   await page.click('.screen .back')
-  await page.waitForSelector('.dot.on', { timeout: 20000 })
+  await page.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 20000 })
 })
 
 await step('the team screen shows who is here, and Kenji is', async () => {
@@ -2266,7 +2357,7 @@ async function freshAccount(name, email, { start } = {}) {
   await p.click('text=Set me up'); await p.waitForSelector('.radio')
   await p.click('.screen-foot .btn-primary:has-text("Next")'); await p.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
   await p.click('text=Open my feed')
-  await p.waitForSelector('.dot.on', { timeout: 25000 })
+  await p.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   return p
 }
 
@@ -2341,7 +2432,7 @@ await step('an invite link joins someone who is already signed in', async () => 
     .catch(() => { throw new Error('opening an invite link while signed in said nothing') })
   const said = (await d.textContent('.app-toasts .toast')).trim()
   if (!/joined/i.test(said)) throw new Error(`opening the link did not join: ${said}`)
-  await d.waitForSelector('.dot.on', { timeout: 25000 })
+  await d.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   const now = await currentWorkspace(d)
   if (now.count < own.count + 1) throw new Error(`the link added no workspace (${own.count} → ${now.count})`)
   if (!/Honmaru Coffee/.test(now.label)) throw new Error(`the link landed in "${now.label}", not the named team`)
@@ -2378,13 +2469,16 @@ await step('GitHub is not claimed where it cannot run', async () => {
   await page.waitForSelector('[data-github]', { timeout: 15000 })
   const state = await page.getAttribute('[data-github]', 'data-github')
   if (state !== 'off') throw new Error(`GitHub is claimed as "${state}" in a workspace with no repository`)
-  const said = await page.textContent('[data-github] .row-sub')
+  const said = await page.textContent('[data-github] .app-desc')
   if (!said || !said.trim()) throw new Error('GitHub is switched off without saying why')
+  // Shared by the whole workspace, and said so — the other apps are each person's.
+  const scope = await page.textContent('[data-github] .app-scope')
+  if (!/workspace/i.test(scope || '')) throw new Error(`GitHub is not marked as the workspace's: ${scope}`)
   await shot('27-github-off')
   // But it can be connected from here: an admin names a repository and a
   // token, and a token GitHub will not take is refused out loud. (There is
   // no GitHub to reach from this harness; the refusal is the part on test.)
-  await page.click('[data-github] .pill-btn')
+  await page.click('[data-github] .app-add')
   await page.waitForSelector('.github-form', { timeout: 10000 })
     .catch(() => { throw new Error('Connect opened no form to name a repository') })
   await page.fill('.github-form input[aria-label="Repository"]', 'acme/ops')
@@ -2393,7 +2487,84 @@ await step('GitHub is not claimed where it cannot run', async () => {
   await page.waitForSelector('.screen .form-error', { timeout: 30000 })
     .catch(() => { throw new Error('a token GitHub will not take was accepted silently') })
   await shot('27b-github-connect')
+  await page.keyboard.press('Escape')
   await closeEverything()
+})
+
+// On a phone the list is Slack's app: five tabs along the bottom, a long
+// press for what you can do to a message, a picture from the camera roll,
+// a group of three, and a channel only its members can see.
+await step('on a phone the list has tabs, a long press, pictures, groups and private channels', async () => {
+  await closeEverything()
+  if (!mate || !joiner) throw new Error('the teammates this step needs are not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  const aya = joiner
+  await page.goto(`${WEB}#/list`, { waitUntil: 'load' })
+  await page.waitForSelector('.cl-tabs', { timeout: 20000 })
+  // The five places.
+  await page.click('[data-phone-tab="dms"]'); await page.waitForSelector('[data-dms]')
+  await page.click('[data-phone-tab="activity"]'); await page.waitForSelector('.slk-inbox')
+  await page.click('[data-phone-tab="later"]'); await page.waitForSelector('.slk-later-head')
+  await page.click('[data-phone-tab="home"]'); await page.waitForSelector('.slk-sections')
+  await shot('50-phone-tabs')
+
+  // A group of three, from the round button.
+  await page.click('[data-fab]')
+  await page.click('[data-sheet="new-message"]')
+  await page.click('.msheet-person:has-text("Kenji")')
+  await page.click('.msheet-person:has-text("Aya")')
+  await page.click('[data-start]')
+  await page.waitForSelector('.slk-head h1:has-text("Kenji")', { timeout: 10000 })
+  const said = `lunch friday? ${Date.now()}`
+  await page.fill('.slk-composer .slk-input', said)
+  // A picture with it, the way a phone picks one.
+  const art = await browser.newPage({ viewport: { width: 400, height: 250 } })
+  await art.setContent('<div style="width:400px;height:250px;background:#2bac76"></div>')
+  const png = await art.screenshot(); await art.close()
+  await page.setInputFiles('input[data-attach]', [{ name: 'menu.png', mimeType: 'image/png', buffer: png }])
+  await page.waitForSelector('.att-pend[data-upload="done"]', { timeout: 15000 })
+  await page.click('.slk-composer .slk-send[type="submit"]')
+  await page.waitForSelector('.att-pic img', { timeout: 10000 })
+  await shot('51-phone-group')
+
+  // Kenji has it, live, with the picture — and it loads for him.
+  await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+  await kenji.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
+  await kenji.click('.cl-thread[data-view^="g:"] .cl-open')
+  await kenji.waitForSelector(`.slk-text:has-text("${said}")`, { timeout: 15000 })
+  await kenji.waitForFunction(() => { const i = document.querySelector('.att-pic img'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
+
+  // A long press opens the sheet; a reaction from it lands on the message.
+  const mine = page.locator('.slk-msg[id^="msg-"]').last()
+  await mine.click({ button: 'right', position: { x: 200, y: 20 } })
+  await page.waitForSelector('.msheet', { timeout: 5000 })
+  await shot('52-phone-sheet')
+  await page.click('.msheet-reactions button:has-text("👍")')
+  await kenji.waitForSelector('.slk-reaction:has-text("👍")', { timeout: 15000 })
+
+  // Kenji makes a private channel: Aya never sees it, until he adds her.
+  await kenji.click('.slk-back').catch(() => {})
+  await kenji.click('[data-phone-tab="home"]').catch(() => {})
+  await kenji.click('.cl-section button.cl-add')
+  await kenji.fill('.cl-add-form input.cl-input', 'Salaries')
+  await kenji.check('[data-private]')
+  await kenji.click('.cl-add-form button[type="submit"]')
+  await kenji.waitForSelector('.cl-thread[data-view="b:salaries"] .cl-lock', { timeout: 10000 })
+  await aya.goto(`${WEB}#/list`, { waitUntil: 'load' })
+  await aya.waitForSelector('.slk-side .cl-thread', { timeout: 20000 })
+  await aya.waitForTimeout(1500)
+  if (await aya.isVisible('.cl-thread[data-view="b:salaries"]')) throw new Error('a private channel shows to somebody not in it')
+  const peek = await aya.evaluate(async (host) => {
+    const org = localStorage.getItem('orgId'); const token = localStorage.getItem('sessionToken')
+    const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(org)}&channel=b:salaries`, { headers: { 'x-session-token': token } })
+    return r.status
+  }, API)
+  if (peek !== 404) throw new Error(`a private channel answered somebody outside it with ${peek}`)
+  await shot('53-private-channel')
+  await closeEverything()
+  // Back to the cards, where the steps after this one start.
+  await page.click('.mode-switch button >> nth=0')
+  await page.waitForSelector('.feed', { timeout: 10000 })
 })
 
 await step('removing someone takes them out of the room, not just the table', async () => {
@@ -2429,7 +2600,7 @@ await step('removing someone takes them out of the room, not just the table', as
     was,
     { timeout: 30000 }
   )
-  await joiner.waitForSelector('.dot.on', { timeout: 25000 })
+  await joiner.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   await joiner.screenshot({ path: `${SHOTS}/29-evicted.png` })
   await closeEverything()
 })

@@ -71,6 +71,7 @@ export async function listMembers(db, orgId, viewerId) {
               u.aliases                                     AS aliases,
               u.handle                                      AS handle,
               u.timezone                                    AS timezone,
+              u.avatar_url                                  AS avatarUrl,
               m.status_emoji                                AS statusEmoji,
               m.status_text                                 AS statusText,
               m.status_until                                AS statusUntil,
@@ -99,6 +100,8 @@ export async function listMembers(db, orgId, viewerId) {
       aliases: parseAliases(r.aliases),
       // Their username: what @ finds them by.
       handle: r.handle || null,
+      // Their photo, when they have one: uploaded, or their GitHub avatar.
+      avatarUrl: r.avatarUrl || null,
       timezone: r.timezone || null,
       // What they say they are up to, while it lasts.
       status: (r.statusEmoji || r.statusText) && (!r.statusUntil || r.statusUntil > new Date().toISOString())
@@ -162,6 +165,11 @@ export async function removeMember(env, { orgId, actorId, targetId, ref }) {
     .prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
     .bind(orgId, target.userId)
     .run();
+  // Out of this workspace's groups and private channels too: coming back
+  // later is a new start, not the old doors reopening.
+  if (target.login) {
+    await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND login = ?2").bind(orgId, target.login).run().catch(() => {});
+  }
   // After the row is gone, never before: what comes next asks who is still
   // here, and the answer has to have stopped including them.
   const orphans = await returnOrphanedCards(env, orgId, target.login);

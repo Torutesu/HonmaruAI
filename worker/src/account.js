@@ -167,6 +167,14 @@ export async function deleteAccount(db, githubId, login) {
       // business's channel stays with the team, unsigned.
       ["DELETE FROM channel_messages WHERE channel LIKE 'dm:%' AND (channel LIKE 'dm:' || ?1 || '|%' OR channel LIKE 'dm:%|' || ?1)", [login]],
       ["UPDATE channel_messages SET author_login = NULL WHERE author_login = ?1", [login]],
+      // Files in those conversations are handed to the sweeper, which takes
+      // their bytes out of storage on its next run; elsewhere the name
+      // comes off.
+      ["UPDATE message_files SET message_id = NULL, uploader = '', created_at = '1970-01-01T00:00:00.000Z' WHERE channel LIKE 'dm:%' AND (channel LIKE 'dm:' || ?1 || '|%' OR channel LIKE 'dm:%|' || ?1)", [login]],
+      ["UPDATE message_files SET uploader = '' WHERE uploader = ?1", [login]],
+      // Out of every group and private channel; what they said there stays,
+      // unsigned, like a public channel's.
+      ["DELETE FROM conversation_members WHERE login = ?1", [login]],
       ["DELETE FROM message_reactions WHERE login = ?1", [login]],
       ["DELETE FROM channel_reads WHERE login = ?1", [login]],
       ["DELETE FROM channel_prefs WHERE login = ?1", [login]],

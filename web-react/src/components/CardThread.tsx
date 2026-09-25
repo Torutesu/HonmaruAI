@@ -4,6 +4,7 @@ import { displayName } from '../utils/names'
 import { getLocale } from '../utils/locale'
 import { splitMentions, useMembers } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
+import { Icon } from './Icon'
 
 interface Props {
   httpBase: string
@@ -26,6 +27,8 @@ export interface CardEvent {
   type: string
   action?: string | null
   actorUserId?: string | null
+  /// The name the actor goes by in this workspace, when the server knows it.
+  actorName?: string | null
   note?: string | null
   createdAt: string
 }
@@ -52,6 +55,18 @@ const EVENT_WORD: Record<string, string> = {
 const REASON_WORD: Record<string, string> = {
   'wrong-person': 'Wrong person', 'not-a-decision': 'Not a decision',
   'wrong-priority': 'Wrong priority', 'wrong-words': 'Badly written', other: 'Other',
+}
+/// Where a card came from, as the server writes it on the created event
+/// ("from a direct conversation", "from #cafe") — said in the reader's words.
+function noteWord(ev: CardEvent, t: (k: string, v?: Record<string, string | number>) => string): string {
+  const note = ev.note || ''
+  if (ev.type === 'feedback') return t(REASON_WORD[note] || note)
+  if (ev.type === 'created') {
+    if (note === 'from a direct conversation') return t('From a direct message')
+    const channel = /^from #(.+)$/.exec(note)
+    if (channel) return t('From #{channel}', { channel: channel[1] })
+  }
+  return `“${note}”`
 }
 const ACTION_WORD: Record<string, string> = {
   approve: 'Approved', decline: 'Declined', revise: 'Revision asked',
@@ -231,7 +246,7 @@ export const CardThread: React.FC<Props> = ({ httpBase, orgId, sessionToken, car
         ))}
         {available.length > 0 && (
           <span className="reaction-add">
-            <button type="button" className="reaction-add-btn" aria-label={t('Add a reaction')} aria-expanded={picking} onClick={() => setPicking((p) => !p)}>+</button>
+            <button type="button" className="reaction-add-btn" aria-label={t('Add a reaction')} aria-expanded={picking} onClick={() => setPicking((p) => !p)}><Icon name="smile" size={14} /></button>
             {picking && (
               <div className="reaction-choices" role="menu">
                 {available.map((emoji) => (
@@ -254,9 +269,9 @@ export const CardThread: React.FC<Props> = ({ httpBase, orgId, sessionToken, car
               <span className="thread-body">
                 <span className="thread-head">
                   {t(eventWord(row.ev))}
-                  {row.ev.actorUserId && <span className="thread-who"> · {userId && row.ev.actorUserId === userId ? t('You') : displayName(row.ev.actorUserId)}</span>}
+                  {row.ev.actorUserId && <span className="thread-who"> · {userId && row.ev.actorUserId === userId ? t('You') : (row.ev.actorName || displayName(row.ev.actorUserId))}</span>}
                 </span>
-                {row.ev.note && <span className="thread-note">{row.ev.type === 'feedback' ? t(REASON_WORD[row.ev.note] || row.ev.note) : `“${row.ev.note}”`}</span>}
+                {row.ev.note && <span className="thread-note">{noteWord(row.ev, t)}</span>}
               </span>
             </li>
           ) : (

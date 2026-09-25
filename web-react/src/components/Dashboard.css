@@ -566,6 +566,7 @@
   display: inline-flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600;
 }
 .workbench .decide::after, .slk-pane .decide::after { content: attr(aria-label); font-size: 14.5px; }
+.workbench .decide svg, .slk-pane .decide svg { width: 16px; height: 16px; }
 .workbench .decide .key, .workbench .decide::before, .slk-pane .decide .key, .slk-pane .decide::before {
   content: attr(aria-keyshortcuts); order: 3;
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;

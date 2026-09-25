@@ -82,13 +82,16 @@ export async function channelDetails(db, orgId, { resolved, viewer, members, loc
     db.prepare("SELECT MIN(created_at) AS at FROM channel_messages WHERE org_id = ?1 AND channel = ?2").bind(orgId, key).first(),
   ]);
 
-  const people = (resolved.kind === "dm"
+  // A closed conversation — a DM, a group, a private channel — is its own
+  // people; a public channel is everyone's.
+  const people = (resolved.logins
     ? members.filter((m) => resolved.logins.includes(m.login))
     : members
   ).map((m) => ({
     ref: m.ref,
     name: m.name,
     handle: m.handle || null,
+    avatarUrl: m.avatarUrl || null,
     title: m.title || m.role || null,
     status: m.status || null,
     awayUntil: m.awayUntil || null,
@@ -115,8 +118,11 @@ export async function channelDetails(db, orgId, { resolved, viewer, members, loc
   return {
     channel: {
       key,
-      kind: resolved.kind === "dm" ? "dm" : "channel",
-      name: row?.name || (resolved.kind === "dm" ? resolved.other?.name : resolved.slug) || key,
+      kind: resolved.kind === "dm" ? "dm" : resolved.kind === "group" ? "group" : "channel",
+      private: Boolean(resolved.private),
+      name: row?.name || (resolved.kind === "dm" ? resolved.other?.name
+        : resolved.kind === "group" ? resolved.others.map((m) => m.name).join(", ")
+        : resolved.slug) || key,
       slug: resolved.slug || null,
       description: row?.description || null,
       createdAt: row?.created_at || firstRow?.at || null,

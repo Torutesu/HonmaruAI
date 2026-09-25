@@ -115,6 +115,10 @@ export async function gatherDay(db, orgId, routine, { now = new Date(), locale =
     ).bind(orgId, me, now.toISOString()).first(),
   ]);
 
+  // What was said in a private channel is that channel's, like a DM: it
+  // informs the draft but is not written into what gets posted.
+  const { results: closedRows } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND private = 1").bind(orgId).all().catch(() => ({ results: [] }));
+  const closedSlugs = new Set((closedRows || []).map((r) => r.slug));
   const tasks = (taskRows.results || []).map((r) => parse(r.data)).filter(Boolean);
   const sent = (sentRows.results || []).map((r) => parse(r.data)).filter(Boolean);
   const dmOthers = (messageRows.results || [])
@@ -135,11 +139,11 @@ export async function gatherDay(db, orgId, routine, { now = new Date(), locale =
     date,
     since,
     until: now.toISOString(),
-    messages: (messageRows.results || []).map((m) => (m.channel.startsWith("b:")
+    messages: (messageRows.results || []).map((m) => (m.channel.startsWith("b:") && !closedSlugs.has(m.channel.slice(2))
       ? { where: `#${m.channel.slice(2)}`, text: clip(m.body, 400), at: m.created_at }
       // A direct conversation is the person's own context, not the team's:
       // it is marked, and the prompt keeps it out of what gets posted.
-      : { where: "direct message", private: true, text: clip(m.body, 400), at: m.created_at })),
+      : { where: m.channel.startsWith("b:") ? `#${m.channel.slice(2)} (private channel)` : "direct message", private: true, text: clip(m.body, 400), at: m.created_at })),
     tasks: tasks.map((c) => ({
       title: title(c),
       from: c.requestedBy?.name || nameOf(c.senderUserID),

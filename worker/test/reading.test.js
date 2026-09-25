@@ -75,6 +75,19 @@ test("Activity holds what named you and replies in your threads, and nothing els
   expect((await (await get(`/channels/activity?${q({ orgId: ORG })}`, toru)).json()).items).toHaveLength(0);
 });
 
+test("Activity tells you who reacted to what you wrote — not your own reactions, not others' messages", async () => {
+  const mine = await say(mika, "Roaster moved to Friday");
+  const theirs = await say(toru, "Noted");
+  await post("/channels/reactions", toru, { orgId: ORG, channel: "b:cafe", messageId: mine.id, emoji: "👍" });
+  await post("/channels/reactions", mika, { orgId: ORG, channel: "b:cafe", messageId: mine.id, emoji: "🎉" });
+  await post("/channels/reactions", kenji, { orgId: ORG, channel: "b:cafe", messageId: theirs.id, emoji: "👀" });
+  const feed = await (await get(`/channels/activity?${q({ orgId: ORG })}`, mika)).json();
+  const reactions = feed.items.filter((i) => i.type === "reaction");
+  expect(reactions).toHaveLength(1);
+  expect(reactions[0]).toMatchObject({ emoji: "👍", by: "Toru", unread: true, message: { body: "Roaster moved to Friday" } });
+  expect(reactions[0].at).toBeTruthy();
+});
+
 test("search finds what was said, with from:, in:, before:, and never across a DM you are not in", async () => {
   await say(toru, "The roaster wants +8%");
   await say(mika, "Roaster invoice attached");

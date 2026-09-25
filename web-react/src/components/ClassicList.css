@@ -608,11 +608,6 @@
 
 /* Pins: a popover under the conversation's head. */
 .classic.slk.slk .slk-head { position: relative; }
-.classic.slk.slk .slk-pins-button {
-  flex: none; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px;
-  border: 1px solid var(--slk-line); border-radius: 8px; background: none; cursor: pointer; font-size: 12.5px; color: var(--slk-dim);
-}
-.classic.slk.slk .slk-pins-button.on, .classic.slk.slk .slk-pins-button:hover { background: var(--slk-hover); color: var(--slk-ink); }
 .classic.slk.slk .slk-pins {
   flex: none; margin: 8px 16px 0; max-height: 280px; overflow-y: auto;
   border: 1px solid var(--slk-line); border-radius: 10px; background: var(--slk-bg);
@@ -917,3 +912,249 @@
   .classic.slk.slk .slk-jam-more { display: none; }
   .classic.slk.slk .slk-jam-button { border-radius: 8px; }
 }
+
+/* ---- One set of icons ----
+
+   The chat surface was drawn with whatever glyph was nearest: a red 📌 in
+   the header beside three line icons, a red 🔖 for Later, 🎧 for a Jam, ⋯ ▾ ›
+   in the system font. They are the Feather line icons now (Icon.tsx), so
+   every control sits on the same optical centre in the same stroke and
+   takes its colour from the text around it. */
+.classic.slk.slk svg { flex: none; }
+.classic.slk.slk .slk-tool svg,
+.classic.slk.slk .slk-more svg,
+.classic.slk.slk .slk-back svg,
+.classic.slk.slk .slk-pane-close svg { display: block; }
+.classic.slk.slk .slk-tool { color: var(--slk-dim); }
+.classic.slk.slk .slk-tool:hover, .classic.slk.slk .slk-tool.on { color: var(--slk-ink); }
+.classic.slk.slk .slk-tool.on { background: var(--slk-hover); }
+.classic.slk.slk .slk-reaction.add { display: inline-flex; align-items: center; gap: 1px; padding: 2px 7px; font-weight: 700; }
+.classic.slk.slk .slk-pin-mark { display: inline-flex; align-items: center; gap: 4px; }
+.classic.slk.slk .slk-pin-mark svg { color: var(--slk-amber); }
+.classic.slk.slk .cl-caret { display: inline-grid; place-items: center; width: 14px; }
+.classic.slk.slk .cl-muted, .classic.slk.slk .cl-draft { display: inline-grid; place-items: center; color: var(--slk-faint); flex: none; }
+.classic.slk.slk .slk-fmt svg { display: block; }
+.classic.slk.slk .slk-samples-more, .classic.slk.slk .slk-clip-count, .classic.slk.slk .slk-scheduled-toggle,
+.classic.slk.slk .slk-profile-local, .classic.slk.slk .slk-jlink { display: inline-flex; align-items: center; gap: 5px; }
+.classic.slk.slk .slk-select > svg { color: var(--slk-dim); }
+.classic.slk.slk .slk-jam-more { font-size: inherit; }
+/* A step to do is an empty ring; a step done, a green tick in its place. */
+.classic.slk.slk .cl-step-mark {
+  display: inline-grid; place-items: center; width: 14px; height: 14px; margin-top: 2px;
+  border: 1.5px solid var(--slk-dim); border-radius: 50%; box-sizing: border-box; flex: none;
+}
+.classic.slk.slk .done .cl-step-mark { border-color: transparent; color: var(--slk-green); }
+.classic.slk.slk .done .cl-step-mark svg { width: 14px; height: 14px; stroke-width: 3; }
+
+/* Presence: a dot cut out of whatever the avatar sits on. On the picked
+   row that is the light bar, and a dark ring there read as a smudge. */
+.classic.slk.slk .cl-presence { width: 10px; height: 10px; right: -3px; bottom: -3px; border-width: 1.5px; }
+.shell .classic.slk.slk .slk-side .cl-thread.on .cl-presence { box-shadow: 0 0 0 2px #e9e8ea; background: #e9e8ea; border-color: #616061; }
+.shell .classic.slk.slk .slk-side .cl-thread.on .cl-presence.on { background: var(--slk-green); border-color: var(--slk-green); }
+
+/* A decision in the side pane: the buttons keep their words on one line,
+   and the swipe hint goes under them when there is no room beside. */
+.classic.slk.slk .slk-pane .decide-row { flex-wrap: wrap; row-gap: 8px; }
+.classic.slk.slk .slk-pane .decide { white-space: nowrap; flex: none; }
+.classic.slk.slk .slk-pane .decide::after { white-space: nowrap; }
+.classic.slk.slk .slk-pane .swipe-hint-desk { flex: 1 1 100%; margin: 0 0 0 4px; }
+/* Everyone in the list is a rounded square, the one who asked included. */
+.classic.slk.slk .slk-pane .rb-row .avatar { border-radius: 8px; }
+
+/* ---- Activity, as an inbox ----
+
+   Notifications down the left — who, what they did, where, what it said —
+   with All and Unread over them; the one you pick on the right. On a phone
+   the list is the whole page and a notification opens where it happened. */
+.classic.slk.slk .slk-inbox { flex: 1; min-height: 0; display: flex; }
+.classic.slk.slk .slk-inbox-list { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.classic.slk.slk .slk-inbox-view { display: none; }
+.classic.slk.slk .slk-inbox-head {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  min-height: 52px; padding: 0 10px 0 8px; border-bottom: 1px solid var(--slk-line);
+}
+.classic.slk.slk .slk-inbox-tabs { flex: 1; display: flex; gap: 14px; padding-left: 6px; }
+.classic.slk.slk .slk-inbox-tabs button {
+  position: relative; height: 52px; display: inline-flex; align-items: center; gap: 6px;
+  border: none; background: none; cursor: pointer; font: inherit; font-size: 14px; color: var(--slk-dim);
+}
+.classic.slk.slk .slk-inbox-tabs button[aria-selected="true"] { color: var(--slk-ink); font-weight: 600; }
+.classic.slk.slk .slk-inbox-tabs button[aria-selected="true"]::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--slk-ink);
+}
+.classic.slk.slk .slk-inbox-count {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9999px; display: inline-grid; place-items: center;
+  font-size: 11px; font-weight: 700; background: var(--slk-red); color: #fff;
+}
+.classic.slk.slk .slk-inbox-action {
+  width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center;
+  border: none; background: none; cursor: pointer; color: var(--slk-dim);
+}
+.classic.slk.slk .slk-inbox-action:hover { background: var(--slk-hover); color: var(--slk-ink); }
+.classic.slk.slk .slk-inbox-rows { flex: 1; min-height: 0; overflow-y: auto; padding: 0; }
+
+.classic.slk.slk .slk-note {
+  display: flex; flex-direction: row; gap: 12px; align-items: flex-start; width: 100%; margin: 0; border-radius: 0; text-align: left;
+  padding: 14px 16px; border: none; border-bottom: 1px solid var(--slk-line); border-left: 3px solid transparent;
+  background: none; cursor: pointer; font: inherit; color: inherit;
+}
+.classic.slk.slk .slk-note.unread { border-left-color: var(--slk-accent); }
+.classic.slk.slk .slk-note:hover { background: var(--slk-msg-hover); }
+.classic.slk.slk .slk-note.on { background: var(--slk-on); }
+.classic.slk.slk .slk-note-avatar {
+  flex: none; width: 32px; height: 32px; border-radius: 8px; overflow: hidden; display: grid; place-items: center;
+  background: var(--slk-on); color: var(--slk-ink); font-weight: 700; font-size: 13px;
+}
+.classic.slk.slk .slk-note-avatar img { width: 100%; height: 100%; }
+.classic.slk.slk .slk-note-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.classic.slk.slk .slk-note-line { display: flex; align-items: baseline; gap: 8px; }
+.classic.slk.slk .slk-note-who { flex: 1; min-width: 0; font-size: 14px; color: var(--slk-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-note-who b { font-weight: 700; }
+.classic.slk.slk .slk-note.unread .slk-note-who { font-weight: 600; }
+.classic.slk.slk .slk-note-where { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--slk-dim); }
+.classic.slk.slk .slk-note .slk-act-body { font-size: 13.5px; line-height: 1.5; -webkit-line-clamp: 2; }
+.classic.slk.slk .slk-note-reaction {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 3px;
+  padding: 2px 8px; border-radius: 9999px; background: var(--slk-field); border: 1px solid var(--slk-line);
+  font-size: 12px; font-weight: 700; color: var(--slk-ink);
+}
+.classic.slk.slk .slk-note-reaction span { font-size: 14px; line-height: 1; }
+.classic.slk.slk .slk-note-reaction.big { padding: 4px 9px; margin: 0 6px 0 0; }
+
+@media (min-width: 900px) {
+  .classic.slk.slk .slk-inbox-list { flex: none; width: 400px; border-right: 1px solid var(--slk-line); }
+  .classic.slk.slk .slk-inbox-head .slk-back { display: none; }
+  .classic.slk.slk .slk-inbox-view { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+}
+.classic.slk.slk .slk-inbox-empty { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 24px; }
+.classic.slk.slk .slk-inbox-empty h2 { margin: 12px 0 0; font-size: 15px; font-weight: 700; color: var(--slk-ink); }
+.classic.slk.slk .slk-inbox-empty p { margin: 0; font-size: 13px; color: var(--slk-dim); }
+.classic.slk.slk .slk-inbox-art {
+  position: relative; width: 128px; height: 88px; border-radius: 14px; display: grid; place-items: center;
+  background: var(--slk-field); border: 1px solid var(--slk-line); color: var(--slk-ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .12);
+}
+.classic.slk.slk .slk-inbox-art i {
+  position: absolute; left: 12px; top: 12px; width: 38px; height: 8px; border-radius: 4px; background: var(--slk-line);
+}
+.classic.slk.slk .slk-inbox-view-head {
+  flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 18px; min-height: 52px; box-sizing: border-box;
+  border-bottom: 1px solid var(--slk-line);
+}
+.classic.slk.slk .slk-inbox-view-head > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.classic.slk.slk .slk-inbox-view-head h2 { margin: 0; font-size: 15px; font-weight: 700; color: var(--slk-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-inbox-view-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 8px; }
+.classic.slk.slk .slk-inbox-said { display: flex; align-items: center; margin: 0 16px 10px; font-size: 13px; color: var(--slk-dim); }
+.classic.slk.slk .slk-inbox-msg:hover { background: none; }
+
+/* Faces: the photo, or the tinted initial, fills the box it stands in. */
+.classic.slk.slk .slk-avatar.face { background: none; padding: 0; overflow: visible; }
+.classic.slk.slk .cl-avatar.has-face { background: none; }
+.classic.slk.slk .shell .slk-side .cl-avatar.has-face,
+.shell .classic.slk.slk .slk-side .cl-avatar.has-face { background: none; }
+.classic.slk.slk .slk-note-avatar:has(.avatar-img, .avatar-initial) { background: none; }
+.classic.slk.slk .slk-thread-faces .slk-face { width: 20px; height: 20px; }
+
+/* ---- A phone: five places along the bottom, as in Slack's app ----
+
+   Home, DMs, Activity, Later and You. The feed's tab bar (feed, compose,
+   you) belongs to the cards; in the list this one takes its place. A
+   conversation, a card or a thread takes the whole screen, without it. */
+.classic.slk.slk .cl-tabs, .classic.slk.slk .cl-fab, .classic.slk.slk .slk-phone-more { display: none; }
+@media (max-width: 719px) {
+  .shell.list-mode .tabbar, .shell.list-mode .topbar .avatar-button, .shell.list-mode .topbar .palette-button { display: none; }
+  .shell.list-mode:not(.immersive) .classic.slk.slk { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
+  .classic.slk.slk .cl-tabs {
+    position: fixed; z-index: 25; left: 0; right: 0; bottom: 0;
+    display: flex; height: calc(58px + env(safe-area-inset-bottom)); padding: 0 4px env(safe-area-inset-bottom);
+    background: var(--slk-bg); border-top: 1px solid var(--slk-line);
+  }
+  .classic.slk.slk .cl-tabs button {
+    position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    border: none; background: none; cursor: pointer; font: inherit; font-size: 10.5px; font-weight: 600; color: var(--slk-faint);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .classic.slk.slk .cl-tabs button.on { color: var(--slk-ink); }
+  .classic.slk.slk .cl-tabs button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .classic.slk.slk .cl-tab-badge {
+    position: absolute; top: 5px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9999px;
+    background: var(--slk-red); color: #fff; font-style: normal; font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center;
+    box-shadow: 0 0 0 2px var(--slk-bg);
+  }
+  .classic.slk.slk .cl-fab {
+    position: fixed; z-index: 24; right: 16px; bottom: calc(58px + env(safe-area-inset-bottom) + 16px);
+    width: 54px; height: 54px; border-radius: 16px; border: none; cursor: pointer;
+    display: grid; place-items: center; background: var(--slk-ink); color: var(--slk-bg);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .22);
+  }
+  .classic.slk.slk .cl-fab:active { transform: scale(.96); }
+  .classic.slk.slk.phone-root .slk-side { padding-bottom: 84px; }
+  /* Activity and Later are tabs here: the way back is the tab bar. */
+  .classic.slk.slk.phone-root .slk-inbox-head .slk-back,
+  .classic.slk.slk.phone-root .slk-later-head .slk-back { display: none; }
+  .classic.slk.slk.phone-root .slk-inbox-head, .classic.slk.slk.phone-root .slk-later-head { padding-left: 16px; }
+  /* The list's own + is the round button now. */
+  .classic.slk.slk .cl-top-actions .cl-icon-button:not(.cl-invite) { display: none; }
+
+  /* A conversation's head: back, the name on one line, the call and ⋯. */
+  .classic.slk.slk .slk-head { gap: 6px; padding-right: 6px; }
+  .classic.slk.slk .slk-head-text { min-width: 0; flex: 1; }
+  .classic.slk.slk .slk-head-text h1, .classic.slk.slk .slk-head-text p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .classic.slk.slk .slk-head-text p { font-size: 12px; }
+  .classic.slk.slk .slk-context-button, .classic.slk.slk .slk-members-button, .classic.slk.slk .slk-pins-button, .classic.slk.slk .slk-more { display: none; }
+  .classic.slk.slk .slk-phone-more { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: none; background: none; color: var(--slk-ink); }
+
+  /* A phone has no hover: the bar of tools over a message is a long press. */
+  .classic.slk.slk.slk .slk-msg .slk-tools, .classic.slk.slk.slk .slk-msg:hover .slk-tools, .classic.slk.slk.slk .slk-msg:focus-within .slk-tools { display: none; }
+  .classic.slk.slk .slk-msg { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .classic.slk.slk .slk-msg .slk-edit, .classic.slk.slk .slk-msg .slk-edit * { -webkit-user-select: text; user-select: text; }
+
+  /* The composer: the words, then + on the left and send on the right. */
+  .classic.slk.slk .slk-send-label { display: none; }
+  .classic.slk.slk .slk-send.ai { width: 36px; padding: 0; display: grid; place-items: center; }
+  .classic.slk.slk .slk-input { font-size: 16px; } /* under 16px, iOS zooms in on focus */
+}
+.classic.slk.slk .slk-send.ai { display: inline-flex; align-items: center; gap: 6px; }
+
+/* DMs, as a phone lists them. */
+.classic.slk.slk .cl-dms { display: flex; flex-direction: column; min-height: 0; }
+.classic.slk.slk .cl-dms-head { padding: 12px 16px 6px; }
+.classic.slk.slk .cl-dms-head h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.classic.slk.slk .cl-dms ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.classic.slk.slk .cl-dm {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 8px 16px;
+  border: none; background: none; cursor: pointer; text-align: left; font: inherit; color: var(--slk-ink);
+}
+.classic.slk.slk .cl-dm:active { background: var(--slk-hover); }
+.classic.slk.slk .cl-dm-face { flex: none; display: grid; place-items: center; width: 40px; height: 40px; }
+.classic.slk.slk .cl-dm-face.app img { border-radius: 10px; }
+.classic.slk.slk .cl-dm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.classic.slk.slk .cl-dm-line { display: flex; align-items: baseline; gap: 8px; }
+.classic.slk.slk .cl-dm-line b { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .cl-dm-line time { flex: none; font-size: 12px; color: var(--slk-faint); }
+.classic.slk.slk .cl-dm-said { font-size: 14px; color: var(--slk-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .cl-dm.unread b { font-weight: 800; }
+.classic.slk.slk .cl-dm.unread .cl-dm-said { color: var(--slk-ink); font-weight: 600; }
+
+/* "Link copied", for a moment. */
+.classic.slk.slk .cl-toast {
+  position: fixed; z-index: 90; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  padding: 9px 14px; border-radius: 10px; background: var(--slk-ink); color: var(--slk-bg);
+  font-size: 13.5px; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, .2); max-width: calc(100vw - 32px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@media (min-width: 720px) { .classic.slk.slk .cl-toast { bottom: 28px; } }
+
+/* A group DM's faces, two overlapping, and how many are in it. */
+.classic.slk.slk .cl-group { position: relative; display: inline-flex; align-items: center; }
+.classic.slk.slk .cl-group > :nth-child(2) { margin-left: -6px; box-shadow: 0 0 0 1.5px var(--slk-side); border-radius: 4px; }
+.classic.slk.slk .cl-group b {
+  position: absolute; right: -5px; bottom: -5px; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 9999px;
+  font-size: 9px; line-height: 13px; font-weight: 700; text-align: center; background: var(--slk-ink); color: var(--slk-bg);
+}
+.classic.slk.slk .cl-group.sz-head b { right: -6px; bottom: -6px; }
+.classic.slk.slk .cl-lock svg { display: block; }
+.classic.slk.slk .cl-private-toggle {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; font-size: 12.5px; color: var(--slk-dim); cursor: pointer; white-space: nowrap;
+}
+.classic.slk.slk .cl-private-toggle input { margin: 0; }

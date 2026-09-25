@@ -100,7 +100,10 @@ CREATE TABLE IF NOT EXISTS invites (
      is sha256(code) cut short, so it is derivable; it is stored so that
      cancelling one is an indexed lookup rather than a scan of every invite in
      the workspace, hashing each. */
-  ref            TEXT
+  ref            TEXT,
+  /* The channels the person is introduced in when they join: a JSON list of
+     business slugs, or NULL for none. */
+  channels       TEXT
 );
 /* The index for `ref` is in migrations.sql, not here. This file runs first and
    `CREATE TABLE IF NOT EXISTS` is a no-op on a database that already has the
@@ -122,6 +125,8 @@ CREATE TABLE IF NOT EXISTS businesses (
   created_at  TEXT NOT NULL,
   /* What the channel is for, in a sentence anyone may write. */
   description TEXT,
+  /* 1: only its members (conversation_members) can see it at all. */
+  private     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, slug)
 );
 
@@ -287,7 +292,11 @@ CREATE TABLE IF NOT EXISTS ai_usage (
    window that moves rather than a wall the 51st user never gets past. */
 CREATE TABLE IF NOT EXISTS connector_sync_state (
   user_github_id TEXT PRIMARY KEY,
-  synced_at      TEXT NOT NULL
+  synced_at      TEXT NOT NULL,
+  /* The workspace this person pulls their own tools into: the one they last
+     pressed "Pull now" in. Each person's Gmail, Slack and Notion are theirs,
+     and so is where they land. */
+  org_id         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS entitlements (
@@ -625,3 +634,68 @@ CREATE TABLE IF NOT EXISTS ai_suggestions (
   created_at TEXT NOT NULL,
   PRIMARY KEY (org_id, login, locale)
 );
+
+/* A workspace's webhooks: its events posted to a service of the team's own,
+   signed with a secret shown once. A webhook hears what the member who made
+   it could see — direct conversations only when it asked for them. */
+CREATE TABLE IF NOT EXISTS org_webhooks (
+  id                TEXT PRIMARY KEY,
+  org_id            TEXT NOT NULL,
+  created_by        TEXT NOT NULL,
+  name              TEXT,
+  url               TEXT NOT NULL,
+  events            TEXT NOT NULL,
+  include_dms       INTEGER NOT NULL DEFAULT 0,
+  secret            TEXT NOT NULL,
+  created_at        TEXT NOT NULL,
+  last_status       INTEGER,
+  last_delivery_at  TEXT,
+  last_error        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_org_webhooks_org ON org_webhooks(org_id);
+
+/* A link that brings an agent into a workspace: single use, fifteen minutes,
+   stored as a hash. Opening it mints the agent an MCP token that acts for
+   the member who made the link, and introduces it in the channels picked. */
+CREATE TABLE IF NOT EXISTS agent_invites (
+  code_hash      TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  created_by     TEXT NOT NULL,
+  channels       TEXT,
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT NOT NULL,
+  used_at        TEXT
+);
+
+/* A file or a picture in a conversation. Uploaded before the message that
+   carries it (message_id NULL until then; swept after a day if never sent),
+   the bytes in R2 under `file-<id>`. `channel` is the stored key it was
+   uploaded into: only a message there may claim it. */
+CREATE TABLE IF NOT EXISTS message_files (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL,
+  channel     TEXT NOT NULL,
+  message_id  TEXT,
+  uploader    TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  type        TEXT NOT NULL,
+  size        INTEGER NOT NULL,
+  width       INTEGER,
+  height      INTEGER,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_message_files ON message_files(org_id, message_id);
+CREATE INDEX IF NOT EXISTS idx_message_files_unsent ON message_files(message_id, created_at);
+
+/* Who is in a conversation with a closed door: a private channel
+   (`b:<slug>`) or a group DM (`g:<id>`). A two-person DM needs no rows —
+   its key names the two. */
+CREATE TABLE IF NOT EXISTS conversation_members (
+  org_id      TEXT NOT NULL,
+  channel     TEXT NOT NULL,
+  login       TEXT NOT NULL,
+  added_by    TEXT,
+  added_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel, login)
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_members_login ON conversation_members(org_id, login);

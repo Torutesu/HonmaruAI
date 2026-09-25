@@ -4,8 +4,47 @@ import { Icon, type IconName } from '../components/Icon'
 import { BrandLogo, isBrand } from '../components/BrandLogo'
 import { getAIKey } from '../utils/aiKey'
 import { ago } from '../utils/ago'
+import { Dialog } from '../components/Dialog'
+import { InviteDialog } from '../components/InviteDialog'
+import './Studio.css'
 
 interface Connector { id: string; label: string; status: string }
+
+type StudioPage = 'apps' | 'ai' | 'api'
+
+/// One tile in the catalogue: a connector of your own, the workspace's
+/// GitHub, or the address that turns mail into cards.
+interface App { id: string; label: string; blurb: string; scope: 'you' | 'workspace'; connected: boolean; available: boolean }
+
+/// A webhook as the Worker lists it — never with its secret.
+interface Webhook {
+  id: string; name: string | null; url: string; events: string[]; includeDms: boolean
+  createdAt: string; createdBy: string | null; mine: boolean
+  lastStatus: number | null; lastDeliveryAt: string | null; lastError: string | null
+}
+
+/// What a deployment without connectors still lists, so the catalogue says
+/// what could be here rather than showing nothing.
+const FALLBACK_CONNECTORS: Connector[] = [
+  { id: 'gmail', label: 'Gmail', status: 'none' },
+  { id: 'slack', label: 'Slack', status: 'none' },
+  { id: 'notion', label: 'Notion', status: 'none' },
+]
+
+/// A webhook's events, as words. English keys, translated where read.
+const EVENT_WORD: Record<string, string> = {
+  'message.created': 'Message created', 'message.updated': 'Message updated',
+  'card.created': 'Decision created', 'card.decided': 'Decision made',
+  'call.started': 'Jam started', 'call.ended': 'Jam ended', 'webhook.test': 'Webhook test',
+}
+
+/// What a key lets a tool do, from the MCP tools it can call.
+const PERMISSIONS: Array<{ label: string; tools: string[] }> = [
+  { label: 'Decisions: ask', tools: ['request_decision'] },
+  { label: 'Decisions: read', tools: ['get_decision', 'list_pending', 'search_decisions'] },
+  { label: 'Members: read', tools: ['list_members'] },
+  { label: 'Playbook: read', tools: ['get_playbook'] },
+]
 
 /// GitHub for this workspace: built in (a repository workspace, synced as
 /// your own account from the phone), connected (the workspace names a
@@ -78,6 +117,8 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   const [busy, setBusy] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  // Where this person's own tools are pulled into — named by the Worker.
+  const [pullsInto, setPullsInto] = useState<{ orgId: string; name: string | null } | null>(null)
   // Whether the GitHub sync this row advertises can run in *this* workspace.
   // It used to be printed as "Built in" for everyone, and for an email account
   // in the workspace it was given at sign-up it is not built into anything:
@@ -210,14 +251,14 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   const [minted, setMinted] = useState<{ token: string; name: string; endpoint: string } | null>(null)
   const [agentCopied, setAgentCopied] = useState<string | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
-  useEffect(() => {
-    let ignore = false
-    fetch(`${httpBase}/tokens?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (!ignore && data) setAgents({ tokens: data.tokens || [], endpoint: data.endpoint || '', tools: data.tools || [] }) })
-      .catch(() => { /* the section appears once the Worker answers */ })
-    return () => { ignore = true }
+  const refreshTokens = useCallback(async () => {
+    try {
+      const r = await fetch(`${httpBase}/tokens?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      const data = r.ok ? await r.json() : null
+      if (data) setAgents({ tokens: data.tokens || [], endpoint: data.endpoint || '', tools: data.tools || [] })
+    } catch { /* the section appears once the Worker answers */ }
   }, [httpBase, orgId, sessionToken])
+  useEffect(() => { void refreshTokens() }, [refreshTokens])
   const createAgentToken = async () => {
     const name = agentName.trim()
     if (!name) return
@@ -276,6 +317,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError(data.message || t('Could not load your tools.')); setConnectors([]); return }
       setConnectors(data.connectors || [])
+      setPullsInto(data.pullsInto || null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setConnectors([])
@@ -382,6 +424,559 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
   }
 
+  // ---- Studio: which page, and what each needs beyond the above ----
+
+  const [page, setPage] = useState<StudioPage>(() => {
+    const asked = (typeof window !== 'undefined' ? window.location.hash : '').split('/')[2]
+    return asked === 'ai' || asked === 'api' ? asked : 'apps'
+  })
+  const go = (next: StudioPage) => {
+    setPage(next)
+    try { history.replaceState(null, '', `#/tools${next === 'apps' ? '' : `/${next}`}`) } catch { /* the page still changes */ }
+  }
+  const [search, setSearch] = useState('')
+  const [appOpen, setAppOpen] = useState<string | null>(null)
+  const [inviting, setInviting] = useState<null | 'people' | 'agent'>(null)
+  const [keyMenu, setKeyMenu] = useState(false)
+  const [keyDialog, setKeyDialog] = useState(false)
+  const [keyMenuFor, setKeyMenuFor] = useState<string | null>(null)
+  // A menu closes when you click anywhere else, or press Escape.
+  useEffect(() => {
+    const away = (e: MouseEvent) => {
+      if ((e.target as HTMLElement | null)?.closest?.('.studio-menu-wrap')) return
+      setKeyMenu(false); setKeyMenuFor(null); setHookMenu(null)
+    }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setKeyMenu(false); setKeyMenuFor(null); setHookMenu(null) } }
+    document.addEventListener('mousedown', away)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
+  }, [])
+
+  // Webhooks: the workspace's events, posted to a service of the team's own.
+  const [hooks, setHooks] = useState<Webhook[] | null>(null)
+  const [hookEvents, setHookEvents] = useState<string[]>([])
+  const [hookDialog, setHookDialog] = useState(false)
+  const [hookDraft, setHookDraft] = useState<{ url: string; name: string; events: string[]; includeDms: boolean }>({ url: '', name: '', events: ['message.created'], includeDms: false })
+  const [hookBusy, setHookBusy] = useState<string | null>(null)
+  const [hookError, setHookError] = useState<string | null>(null)
+  const [hookSecret, setHookSecret] = useState<{ name: string; secret: string } | null>(null)
+  const [hookNote, setHookNote] = useState<string | null>(null)
+  const [hookMenu, setHookMenu] = useState<string | null>(null)
+  const loadHooks = useCallback(async () => {
+    try {
+      const res = await fetch(`${httpBase}/webhooks?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setHooks([]); return }
+      setHooks(data.webhooks || [])
+      setHookEvents(data.events || [])
+    } catch { setHooks([]) }
+  }, [httpBase, orgId, sessionToken])
+  useEffect(() => { if (page === 'api') void loadHooks() }, [page, loadHooks])
+  const createHook = async () => {
+    setHookBusy('create'); setHookError(null)
+    try {
+      const res = await fetch(`${httpBase}/webhooks`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, ...hookDraft }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setHookError(data.message || t('That did not save.')); return }
+      setHooks((h) => [...(h || []), data.webhook])
+      setHookSecret({ name: data.webhook.name || data.webhook.url, secret: data.secret })
+      setHookDraft({ url: '', name: '', events: ['message.created'], includeDms: false })
+    } catch (err) { setHookError(err instanceof Error ? err.message : String(err)) } finally { setHookBusy(null) }
+  }
+  const testHook = async (id: string) => {
+    setHookBusy(id); setHookNote(null); setHookMenu(null)
+    try {
+      const res = await fetch(`${httpBase}/webhooks/${encodeURIComponent(id)}/test`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken }, body: JSON.stringify({ orgId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setHookNote(res.ok && data.ok ? t('Test delivered ({status}).', { status: data.status }) : t('The test did not arrive: {why}', { why: data.error || data.message || res.status }))
+      void loadHooks()
+    } catch (err) { setHookNote(err instanceof Error ? err.message : String(err)) } finally { setHookBusy(null) }
+  }
+  const deleteHook = async (id: string) => {
+    setHookBusy(id); setHookMenu(null)
+    try {
+      const res = await fetch(`${httpBase}/webhooks/${encodeURIComponent(id)}?orgId=${encodeURIComponent(orgId)}`, { method: 'DELETE', headers: { 'x-session-token': sessionToken } })
+      if (!res.ok) { setHookNote((await res.json().catch(() => ({}))).message || t('That did not work. Try again in a moment.')); return }
+      setHooks((h) => (h || []).filter((x) => x.id !== id))
+    } finally { setHookBusy(null) }
+  }
+
+  // ---- The apps, as one catalogue ----
+
+  const known = connectors && connectors.length ? connectors : (unavailable ? FALLBACK_CONNECTORS : [])
+  const apps: App[] = [
+    ...known.map((c): App => ({ id: c.id, label: c.label, blurb: t(BLURB[c.id] || 'Feeds decisions into your feed.'), scope: 'you', connected: c.status === 'active', available: !unavailable })),
+    ...(github ? [{ id: 'github', label: 'GitHub', blurb: github.connected ? t('Every decision here becomes an issue in {repo}.', { repo: github.repo || '' }) : github.builtIn ? t(BLURB.github) : t(github.reason || BLURB.github), scope: 'workspace' as const, connected: github.builtIn || github.connected, available: true }] : []),
+    ...(inbox ? [{ id: 'email', label: t('Email forwarding'), blurb: t('Mail sent here becomes a card, triaged the way your inbox is.'), scope: 'you' as const, connected: true, available: true }] : []),
+  ]
+  const matches = apps.filter((a) => !search.trim() || `${a.label} ${a.blurb}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const connectedApps = apps.filter((a) => a.connected)
+  const appIcon = (id: string, size = 20) => (
+    <span className="app-icon brand-tile" aria-hidden="true">
+      {id === 'email' ? <Icon name="mail" size={size - 2} /> : isBrand(id) ? <BrandLogo brand={id} size={size} /> : <Icon name={ICON[id] || 'box'} size={size - 2} />}
+    </span>
+  )
+  const opened = apps.find((a) => a.id === appOpen) || null
+  const pullElsewhere = pullsInto && pullsInto.orgId !== orgId
+  const permissions = (agents?.tools || []).length ? PERMISSIONS.filter((p) => p.tools.some((x) => agents!.tools.includes(x))) : PERMISSIONS
+  const day = (iso: string) => new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+
+  const appsPage = (
+    <section className="studio-page" data-studio-page="apps">
+      <h1 className="studio-title">{t('Apps')}</h1>
+      <p className="studio-lede">{t('studio.apps.lede')}</p>
+      {unavailable && <div className="form-note">{unavailable}</div>}
+      {note && <div className="form-note">{note}</div>}
+      {error && <div className="form-error">{error}</div>}
+      <div className="studio-toolbar">
+        <label className="studio-search">
+          <Icon name="search" size={14} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Search apps')} aria-label={t('Search apps')} />
+        </label>
+        {active.length > 0 && (
+          <button className="studio-btn" onClick={pull} disabled={syncing} data-pull="1">
+            <Icon name="refresh" size={14} /> {syncing ? t('Pulling…') : t('Pull now')}
+          </button>
+        )}
+      </div>
+      {connectors === null && <div className="empty">{t('Loading…')}</div>}
+      <div className="studio-rule">
+        <span>{t('Connected apps · {n}', { n: connectedApps.length })}</span>
+        <i />
+        <span className="studio-rule-icons">{connectedApps.slice(0, 6).map((a) => <span key={a.id}>{appIcon(a.id, 14)}</span>)}</span>
+      </div>
+      {(active.length > 0 || pullElsewhere) && (
+        <p className="studio-hint">
+          {pullElsewhere
+            ? t('Your tools are pulled into “{name}” for now. Pull here, and from then on they come to this workspace.', { name: pullsInto!.name || t('another workspace') })
+            : t('Pulled every 15 minutes into your own feed in this workspace.')}
+        </p>
+      )}
+      <div className="studio-rule"><span>{t('All apps')}</span><i /></div>
+      <div className="app-grid">
+        {matches.map((a) => (
+          <div key={a.id} className={`app-card${a.connected ? ' connected' : ''}`}
+            data-connector={a.id !== 'github' && a.id !== 'email' ? a.id : undefined}
+            data-github={a.id === 'github' ? (a.connected ? 'on' : 'off') : undefined}
+            data-inbox={a.id === 'email' ? '1' : undefined}>
+            <button type="button" className="app-open" onClick={() => setAppOpen(a.id)} aria-label={t('{app} settings', { app: a.label })}>
+              {appIcon(a.id)}
+              <span className="app-text">
+                <span className="app-name">{a.label}<span className={`app-scope ${a.scope}`}>{a.scope === 'workspace' ? t('Whole workspace') : t('Just you')}</span></span>
+                <span className="app-desc">{a.blurb}</span>
+              </span>
+            </button>
+            {a.connected
+              ? <span className="app-on"><Icon name="check" size={13} /> {t('Connected')}</span>
+              : <button type="button" className="pill-btn app-add" disabled={!a.available || busy === a.id}
+                  onClick={() => (a.id === 'github' ? (setAppOpen('github'), setGhOpen(true)) : void connect(a.id))}>
+                  {busy === a.id ? '…' : t('Add')}
+                </button>}
+          </div>
+        ))}
+        {matches.length === 0 && connectors !== null && <p className="studio-empty">{search.trim() ? t('No app matches “{q}”.', { q: search.trim() }) : t('No connectors are available on this deployment.')}</p>}
+      </div>
+    </section>
+  )
+
+  const githubBody = github && (
+    <>
+      <p className="dlg-note github-status" data-github-status={github.builtIn || github.connected ? 'on' : 'off'}>
+        {github.connected
+          ? t('Every decision here becomes an issue in {repo}.', { repo: github.repo || '' })
+          : github.builtIn ? t(BLURB.github) : t(github.reason || '')}
+      </p>
+      <p className="dlg-hint">{t('One repository for the whole workspace: every member’s decisions are recorded there, written as whoever connected it.')}</p>
+      {github.connected && github.canEdit && (
+        <div><button className="btn-text danger" disabled={ghBusy} onClick={() => githubCall('DELETE', {})}>{t('Disconnect')}</button></div>
+      )}
+      {!github.builtIn && !github.connected && !github.canEdit && <p className="dlg-note">{t('An admin of this workspace can change these.')}</p>}
+      {github.canEdit && !github.builtIn && !github.connected && (
+        <div className="github-form">
+          {!ghOpen && (
+            github.mine || !github.oauth
+              ? <button className="pill-btn" onClick={() => { setGhOpen(true); setGhError(null); if (github.mine && github.oauth) void loadGithubRepos() }}>{t('Connect')}</button>
+              : <button className="pill-btn" disabled={ghWaiting} onClick={() => void connectGithubAccount()}>{ghWaiting ? t('Waiting for GitHub…') : t('Connect with GitHub')}</button>
+          )}
+          {ghOpen && ghWaiting && <span className="row-sub github-hint">{t('Finish in the tab that opened. This page updates by itself.')}</span>}
+          {ghOpen && !ghWaiting && github.mine && github.oauth && !ghUseToken && (
+            <>
+              {ghRepos === null && <span className="row-sub github-hint">{t('Loading your repositories…')}</span>}
+              {ghRepos && ghRepos.length === 0 && <span className="row-sub github-hint">{t('Your GitHub has no repository you can write issues to.')}</span>}
+              {ghRepos && ghRepos.length > 0 && (
+                <select className="row-select github-pick" value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} aria-label={t('Repository')} disabled={ghBusy}>
+                  {ghRepos.map((r) => <option key={r.repo} value={r.repo}>{r.repo}{r.private ? ` · ${t('private')}` : ''}</option>)}
+                </select>
+              )}
+              <button className="pill-btn" disabled={ghBusy || !ghRepo.trim()} onClick={() => githubCall('PUT', { repo: ghRepo.trim() })}>
+                {ghBusy ? t('Connecting…') : t('Use this repository')}
+              </button>
+              <span className="row-sub github-hint">{t('Connected with your GitHub account; the workspace writes issues as you.')}</span>
+            </>
+          )}
+          {ghOpen && !ghWaiting && (ghUseToken || !github.oauth || (!github.mine && !github.oauth)) && (
+            <>
+              <input className="ai-key-input" value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} placeholder="owner/repo" aria-label={t('Repository')} disabled={ghBusy} />
+              <input className="ai-key-input" type="password" autoComplete="off" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder={t('GitHub token (Issues: write)')} aria-label={t('GitHub token')} disabled={ghBusy} />
+              <button className="pill-btn" disabled={ghBusy || !ghRepo.trim() || !ghToken.trim()} onClick={() => githubCall('PUT', { repo: ghRepo.trim(), token: ghToken.trim() })}>
+                {ghBusy ? t('Connecting…') : t('Connect')}
+              </button>
+              <span className="row-sub github-hint">{t('A fine-grained token for that repository with Issues: read and write.')}</span>
+            </>
+          )}
+          {ghOpen && !ghWaiting && github.oauth && github.mine && (
+            <button className="btn-text github-alt" onClick={() => setGhUseToken((u) => !u)}>
+              {ghUseToken ? t('Pick from my GitHub instead') : t('Use a token instead')}
+            </button>
+          )}
+        </div>
+      )}
+      {ghError && <div className="form-error">{ghError}</div>}
+    </>
+  )
+
+  const appDialog = opened && (
+    <Dialog
+      className="app-dialog"
+      title={opened.label}
+      lede={opened.id === 'github' ? t(BLURB.github) : opened.blurb}
+      art={appIcon(opened.id, 24)}
+      onClose={() => { setAppOpen(null); setGhOpen(false) }}
+      footer={opened.id !== 'github' && opened.id !== 'email' ? (
+        opened.connected
+          ? <button className="dlg-btn primary" onClick={() => void pull()} disabled={syncing}>{syncing ? t('Pulling…') : t('Pull now')}</button>
+          : <button className="dlg-btn primary" onClick={() => void connect(opened.id)} disabled={!opened.available || busy === opened.id}>{t('Connect')}</button>
+      ) : undefined}
+    >
+      {opened.id === 'github' ? githubBody : opened.id === 'email' ? (
+        <>
+          <div className="dlg-secret"><code>{inbox}</code>
+            <button className="dlg-btn" onClick={() => { navigator.clipboard?.writeText(inbox || ''); setCopiedInbox(true); setTimeout(() => setCopiedInbox(false), 1500) }}>
+              <Icon name="copy" size={13} /> {copiedInbox ? t('Copied!') : t('Copy')}
+            </button>
+          </div>
+          <p className="dlg-hint">{t('Forward anything here')}</p>
+        </>
+      ) : (
+        <>
+          <p className="dlg-note">{opened.connected ? t('Connected with your own account.') : t('Not connected yet.')} {t('Only you see what it brings in; each member connects their own.')}</p>
+          {opened.id === 'notion' && opened.connected && (
+            <div data-notion-database="1">
+              <div className="dlg-label">{t('Database')}</div>
+              {databases === null && !databaseError && <p className="dlg-note">{t('Loading…')}</p>}
+              {databases && databases.length > 0 && (
+                <select className="row-select" value={databaseId} onChange={(e) => chooseDatabase(e.target.value)} aria-label={t('Database')}>
+                  <option value="">{t('Choose a database…')}</option>
+                  {databases.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
+                </select>
+              )}
+              <p className="dlg-hint">{databaseError || t('Which database your decisions are read from and written back to.')}</p>
+            </div>
+          )}
+          {note && <p className="dlg-note">{note}</p>}
+          {error && <p className="dlg-error">{error}</p>}
+        </>
+      )}
+    </Dialog>
+  )
+
+  const aiPage = (
+    <section className="studio-page" data-studio-page="ai">
+      <h1 className="studio-title">{t('AI')}</h1>
+      <p className="studio-lede">{t('What this workspace’s AI runs on. An admin chooses; everyone’s cards, answers and drafts use it.')}</p>
+      {!ai && <div className="empty">{t('Loading…')}</div>}
+      {ai && (
+        <div className="rows ai-status">
+          <div className="row static ai-model">
+            <span className="row-main">
+              {t('Language model')}
+              <span className="row-sub">
+                {t('Writes cards, answers, drafts and translations.')}
+                {' '}
+                {ai.modelSource === 'workspace' ? t('Chosen for this workspace.') : ai.modelSource === 'deployment' ? t('The deployment’s default.') : t('No model is set up yet.')}
+              </span>
+            </span>
+            {ai.canEdit ? (
+              <select className="row-select" value={ai.modelSource === 'workspace' ? (ai.model || '') : ''} disabled={aiBusy}
+                onChange={(e) => saveAI({ model: e.target.value || null }, t('Model saved for this workspace.'))} aria-label={t('Language model')}>
+                <option value="">{t('Default ({model})', { model: ai.modelSource === 'workspace' ? t('deployment') : (ai.model || t('none')) })}</option>
+                {ai.models.map((m) => <option key={m.id} value={m.id}>{m.id} · ${m.priceIn}/${m.priceOut} {t('per 1M tokens')}</option>)}
+              </select>
+            ) : (
+              <span className="row-value">{ownKey ? t('Your own key') : ai.model || t('Off')}</span>
+            )}
+          </div>
+          <div className="row static ai-key">
+            <span className="row-main">
+              {t('OpenAI key for this workspace')}
+              <span className="row-sub">
+                {ai.openai === 'workspace'
+                  ? t('Set ({hint}). Calls are billed to it.', { hint: ai.openaiHint || '' })
+                  : ai.openai === 'deployment' ? t('Not set. Calls run on the deployment’s key.') : t('Not set, and the deployment has none: the AI is off until one is entered.')}
+              </span>
+              {ai.canEdit && (
+                <span className="ai-key-form">
+                  <input className="ai-key-input" type="password" autoComplete="off" value={openaiDraft} onChange={(e) => setOpenaiDraft(e.target.value)}
+                    placeholder="sk-…" aria-label={t('OpenAI key for this workspace')} disabled={aiBusy} />
+                  <button className="pill-btn" disabled={aiBusy || !openaiDraft.trim()} onClick={() => saveAI({ openaiKey: openaiDraft.trim() }, t('OpenAI key saved for this workspace.'))}>{t('Save')}</button>
+                  {ai.openai === 'workspace' && (
+                    <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ openaiKey: null }, t('OpenAI key removed.'))}>{t('Remove')}</button>
+                  )}
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="row static ai-key">
+            <span className="row-main">
+              {t('Jev (System One)')}
+              <span className="row-sub">
+                {ai.systemOne
+                  ? t('Decides who and how urgent for a fraction of a cent; the model is asked only when it is unsure.')
+                  : t('Off. Enter a TypeSafe API key and routing gets cheaper.')}
+                {ai.jev === 'workspace' && ` (${ai.jevHint})`}
+              </span>
+              {ai.canEdit && (
+                <span className="ai-key-form">
+                  <input className="ai-key-input" type="password" autoComplete="off" value={jevDraft} onChange={(e) => setJevDraft(e.target.value)}
+                    placeholder={t('TypeSafe API key')} aria-label={t('TypeSafe API key')} disabled={aiBusy} />
+                  <button className="pill-btn" disabled={aiBusy || !jevDraft.trim()} onClick={() => saveAI({ typesafeKey: jevDraft.trim() }, t('Jev switched on for this workspace.'))}>{t('Save')}</button>
+                  {ai.jev === 'workspace' && (
+                    <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ typesafeKey: null }, t('Jev key removed.'))}>{t('Remove')}</button>
+                  )}
+                </span>
+              )}
+            </span>
+            <span className={`row-value ${ai.systemOne ? 'on' : ''}`}>{ai.systemOne ? t('On') : t('Off')}</span>
+          </div>
+          {!ai.canEdit && <div className="form-note">{t('An admin of this workspace can change these.')}</div>}
+          {aiNote && <div className="form-note">{aiNote}</div>}
+          {aiError && <div className="form-error">{aiError}</div>}
+        </div>
+      )}
+    </section>
+  )
+
+  const apiPage = (
+    <section className="studio-page" data-studio-page="api">
+      <h1 className="studio-title">{t('API & Webhooks')}</h1>
+
+      <div className="studio-section-head">
+        <div>
+          <h2>{t('API keys')}</h2>
+          <p>{t('Keys for tools that act as you — Claude Code, Cursor, your own agent — over MCP.')}</p>
+        </div>
+        <div className="studio-menu-wrap">
+          <button type="button" className="studio-btn primary studio-create-key" onClick={() => setKeyMenu((m) => !m)} aria-expanded={keyMenu} aria-haspopup="menu">
+            <Icon name="plus" size={14} /> {t('Create key')} <Icon name="chevron-down" size={13} />
+          </button>
+          {keyMenu && (
+            <div className="studio-menu" role="menu">
+              <button type="button" role="menuitem" data-key-kind="personal" onClick={() => { setKeyMenu(false); setKeyDialog(true); setMinted(null) }}>
+                <b>{t('Personal key')}</b><span>{t('For tools that act as you.')}</span>
+              </button>
+              <button type="button" role="menuitem" data-key-kind="agent" onClick={() => { setKeyMenu(false); setInviting('agent') }}>
+                <b>{t('Agent invite link')}</b><span>{t('A single-use link an agent opens to get its own key.')}</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="studio-table keys" role="table" aria-label={t('API keys')}>
+        <div className="studio-tr head" role="row">
+          <span role="columnheader">{t('Name')}</span><span role="columnheader">{t('Permissions')}</span>
+          <span role="columnheader">{t('Created')}</span><span role="columnheader">{t('Last used')}</span><span />
+        </div>
+        {agents && agents.tokens.length === 0 && (
+          <div className="studio-empty-state">
+            <span className="studio-empty-icon"><Icon name="key" size={16} /></span>
+            <b>{t('No keys yet')}</b>
+            <span>{t('Create one to let an agent ask you for decisions.')}</span>
+          </div>
+        )}
+        {(agents?.tokens || []).map((tok) => (
+          <div className="studio-tr agent-token" role="row" key={tok.id} data-token={tok.id}>
+            <span className="studio-td-name"><b>{tok.name}</b><code className="agent-prefix">{tok.prefix}…</code></span>
+            <span className="studio-chips">{permissions.map((p) => <i key={p.label}>{t(p.label)}</i>)}</span>
+            <span className="studio-td-dim">{day(tok.createdAt)}</span>
+            <span className="studio-td-dim">{tok.lastUsedAt ? t('last used {when}', { when: ago(tok.lastUsedAt) }) : t('never used')}</span>
+            <span className="studio-td-end studio-menu-wrap">
+              {revoking === tok.id ? (
+                <span className="team-confirm">
+                  <button className="pill-btn" disabled={agentBusy === tok.id} onClick={() => void revokeAgentToken(tok.id)}>{t('Revoke')}</button>
+                  <button className="btn-text" onClick={() => setRevoking(null)}>{t('Keep')}</button>
+                </span>
+              ) : (
+                <>
+                  <button type="button" className="studio-icon-btn key-more" aria-label={t('More actions')} aria-expanded={keyMenuFor === tok.id} onClick={() => setKeyMenuFor((m) => (m === tok.id ? null : tok.id))}>
+                    <Icon name="more" size={16} />
+                  </button>
+                  {keyMenuFor === tok.id && (
+                    <div className="studio-menu right" role="menu">
+                      <button type="button" role="menuitem" className="danger key-revoke" onClick={() => { setKeyMenuFor(null); setRevoking(tok.id) }}><b>{t('Revoke')}</b></button>
+                    </div>
+                  )}
+                </>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      {agentError && <div className="form-error">{agentError}</div>}
+
+      <div className="studio-section-head">
+        <div>
+          <h2>{t('Webhooks')}</h2>
+          <p>{t('webhooks.lede')}</p>
+        </div>
+        <button type="button" className="studio-btn primary studio-create-hook" onClick={() => { setHookDialog(true); setHookSecret(null); setHookError(null) }}>
+          <Icon name="plus" size={14} /> {t('Create webhook')}
+        </button>
+      </div>
+      <div className="studio-table hooks" role="table" aria-label={t('Webhooks')}>
+        <div className="studio-tr head" role="row">
+          <span role="columnheader">{t('Name')}</span><span role="columnheader">URL</span>
+          <span role="columnheader">{t('Events')}</span><span role="columnheader">{t('Last delivery')}</span><span />
+        </div>
+        {hooks === null && <div className="studio-empty-state"><span>{t('Loading…')}</span></div>}
+        {hooks && hooks.length === 0 && (
+          <div className="studio-empty-state">
+            <span className="studio-empty-icon"><Icon name="send" size={16} /></span>
+            <b>{t('No webhooks yet')}</b>
+            <span>{t('Create one to send this workspace’s events to your service.')}</span>
+            <button type="button" className="studio-btn" onClick={() => { setHookDialog(true); setHookSecret(null) }}><Icon name="plus" size={14} /> {t('Create webhook')}</button>
+          </div>
+        )}
+        {(hooks || []).map((h) => (
+          <div className="studio-tr webhook-row" role="row" key={h.id} data-webhook={h.id}>
+            <span className="studio-td-name"><b>{h.name || t('Untitled')}</b><span className="studio-td-dim">{h.mine ? t('Yours') : t('by {name}', { name: h.createdBy || t('a teammate') })}</span></span>
+            <span className="studio-td-url" title={h.url}>{h.url}</span>
+            <span className="studio-chips">{h.events.map((e) => <i key={e}>{t(EVENT_WORD[e] || e)}</i>)}</span>
+            <span className={`studio-td-dim hook-status${h.lastStatus && h.lastStatus < 300 ? ' ok' : h.lastDeliveryAt ? ' bad' : ''}`}>
+              {h.lastDeliveryAt ? `${h.lastStatus || '—'} · ${ago(h.lastDeliveryAt)}` : t('Nothing sent yet')}
+            </span>
+            <span className="studio-td-end studio-menu-wrap">
+              <button type="button" className="studio-icon-btn" aria-label={t('More actions')} aria-expanded={hookMenu === h.id} onClick={() => setHookMenu((m) => (m === h.id ? null : h.id))} disabled={hookBusy === h.id}>
+                <Icon name="more" size={16} />
+              </button>
+              {hookMenu === h.id && (
+                <div className="studio-menu right" role="menu">
+                  {h.mine && <button type="button" role="menuitem" onClick={() => void testHook(h.id)}><b>{t('Send a test')}</b></button>}
+                  <button type="button" role="menuitem" className="danger" onClick={() => void deleteHook(h.id)}><b>{t('Delete')}</b></button>
+                </div>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      {hookNote && <div className="form-note" role="status">{hookNote}</div>}
+    </section>
+  )
+
+  const keyDialogEl = keyDialog && (
+    <Dialog
+      className="key-dialog"
+      title={t('Personal key')}
+      lede={t('agents.blurb')}
+      onClose={() => { setKeyDialog(false); setMinted(null) }}
+      footer={minted
+        ? <button className="dlg-btn primary agent-done" onClick={() => { setKeyDialog(false); setMinted(null) }}>{t('Done')}</button>
+        : <>
+            <button className="dlg-btn" onClick={() => setKeyDialog(false)}>{t('Cancel')}</button>
+            <button className="dlg-btn primary" disabled={agentBusy === 'create' || !agentName.trim()} onClick={() => void createAgentToken()}>
+              {agentBusy === 'create' ? t('Creating…') : t('Create key')}
+            </button>
+          </>}
+    >
+      {!minted && (
+        <div className="agent-intro">
+          <label className="dlg-label" htmlFor="key-name">{t('Name')}</label>
+          <input id="key-name" className="dlg-input" value={agentName} maxLength={60} onChange={(e) => setAgentName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void createAgentToken() }} placeholder={t('e.g. Claude Code on my laptop')} aria-label={t('Agent name')} disabled={agentBusy === 'create'} />
+        </div>
+      )}
+      {minted && (
+        <div className="agent-minted" data-agent-minted="1">
+          <p className="dlg-warn">{t('Copy this token now. It is shown once, and cannot be read again.')}</p>
+          <AgentSnippet label={t('Token for {name}', { name: minted.name })} text={minted.token} copied={agentCopied === 'token'} onCopy={() => copyAgent('token', minted.token)} />
+          <AgentSnippet label={t('Claude Code')} text={claudeCommand} copied={agentCopied === 'claude'} onCopy={() => copyAgent('claude', claudeCommand)} />
+          <AgentSnippet label={t('Any MCP client')} text={mcpConfig} copied={agentCopied === 'json'} onCopy={() => copyAgent('json', mcpConfig)} />
+        </div>
+      )}
+      {agentError && <p className="dlg-error">{agentError}</p>}
+    </Dialog>
+  )
+
+  const hookDialogEl = hookDialog && (
+    <Dialog
+      className="hook-dialog"
+      title={hookSecret ? t('Webhook created') : t('New webhook')}
+      lede={hookSecret ? undefined : t('Each delivery is signed with a secret you will see once, right after the webhook is created.')}
+      onClose={() => { setHookDialog(false); setHookSecret(null) }}
+      footer={hookSecret
+        ? <button className="dlg-btn primary" onClick={() => { setHookDialog(false); setHookSecret(null) }}>{t('Done')}</button>
+        : <>
+            <button className="dlg-btn" onClick={() => setHookDialog(false)}>{t('Cancel')}</button>
+            <button className="dlg-btn primary hook-create" disabled={hookBusy === 'create' || !hookDraft.url.trim() || !hookDraft.events.length} onClick={() => void createHook()}>
+              {hookBusy === 'create' ? t('Creating…') : t('Create webhook')}
+            </button>
+          </>}
+    >
+      {hookSecret ? (
+        <>
+          <p className="dlg-warn">{t('Copy the signing secret now. It is shown once, and cannot be read again.')}</p>
+          <div className="dlg-secret hook-secret"><code>{hookSecret.secret}</code>
+            <button className="dlg-btn" onClick={() => { navigator.clipboard?.writeText(hookSecret.secret).catch(() => {}) }}><Icon name="copy" size={13} /> {t('Copy')}</button>
+          </div>
+          <p className="dlg-hint">{t('Check honmaru-signature: t=<time>,v1=<HMAC-SHA256 of “<time>.<body>” with this secret>.')}</p>
+        </>
+      ) : (
+        <>
+          <div>
+            <label className="dlg-label" htmlFor="hook-url">{t('Endpoint URL')}</label>
+            <input id="hook-url" className="dlg-input hook-url" value={hookDraft.url} onChange={(e) => setHookDraft((d) => ({ ...d, url: e.target.value }))} placeholder="https://example.com/honmaru/webhooks" inputMode="url" autoComplete="off" />
+          </div>
+          <div>
+            <label className="dlg-label" htmlFor="hook-name">{t('Name')} <span className="dlg-optional">{t('Optional')}</span></label>
+            <input id="hook-name" className="dlg-input" value={hookDraft.name} onChange={(e) => setHookDraft((d) => ({ ...d, name: e.target.value }))} placeholder={t('Production events')} />
+          </div>
+          <div>
+            <div className="dlg-label">{t('Events')}</div>
+            <div className="dlg-grid">
+              {(hookEvents.length ? hookEvents : Object.keys(EVENT_WORD)).map((e) => (
+                <label key={e} className="dlg-check">
+                  <input type="checkbox" checked={hookDraft.events.includes(e)} data-event={e}
+                    onChange={() => setHookDraft((d) => ({ ...d, events: d.events.includes(e) ? d.events.filter((x) => x !== e) : [...d.events, e] }))} />
+                  {t(EVENT_WORD[e] || e)}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="dlg-label">{t('Delivery scope')}</div>
+            <label className="dlg-check">
+              <input type="checkbox" checked={hookDraft.includeDms} onChange={() => setHookDraft((d) => ({ ...d, includeDms: !d.includeDms }))} />
+              {t('Include direct messages you are part of')}
+            </label>
+            <p className="dlg-hint">{t('A webhook acts as the member who made it, and only hears what they could see.')}</p>
+          </div>
+          {hookError && <p className="dlg-error">{hookError}</p>}
+        </>
+      )}
+    </Dialog>
+  )
+
+  const NAV: Array<{ id: StudioPage; label: string; icon: IconName }> = [
+    { id: 'apps', label: t('Apps'), icon: 'grid' },
+    { id: 'ai', label: t('AI'), icon: 'sparkle' },
+    { id: 'api', label: t('API & Webhooks'), icon: 'code' },
+  ]
+
   return (
     <div className="screen screen-wide tools-screen">
       <div className="screen-head">
@@ -389,359 +984,30 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         <span className="head-title">{t('Tools')}</span>
       </div>
       <div className="screen-body">
-        <p className="lede" style={{ marginTop: 8 }}>
-          {t('tools.lede')}
-        </p>
-
-        {unavailable && <div className="form-note">{unavailable}</div>}
-        {note && <div className="form-note">{note}</div>}
-        {error && <div className="form-error">{error}</div>}
-
-        <div className="tools-grid">
-          <div className="tools-main">
-            <section className="tools-sec tools-connectors">
-              {connectors !== null && connectors.length > 0 && <div className="rows-title tools-wide-only">{t('Connectors')}</div>}
-            {connectors === null && <div className="empty">{t('Loading…')}</div>}
-
-            {connectors !== null && connectors.length > 0 && (
-              <div className="rows connector-rows">
-                {connectors.map((c) => (
-                  <div key={c.id} className="row static connector" data-connector={c.id}>
-                    <span className="row-icon brand-tile">{isBrand(c.id) ? <BrandLogo brand={c.id} size={20} /> : <Icon name={ICON[c.id] || 'box'} size={18} />}</span>
-                    <span className="row-main">
-                      {c.label}
-                      <span className="row-sub">{t(BLURB[c.id] || 'Feeds decisions into your feed.')}</span>
-                    </span>
-                    {c.status === 'active'
-                      ? <span className="pill-tag mint">{t('Connected')}</span>
-                      : (
-                        <button className="pill-btn" onClick={() => connect(c.id)} disabled={busy === c.id}>
-                          {busy === c.id ? '…' : t('Connect')}
-                        </button>
-                      )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {notionOn && (
-              <>
-                <div className="rows-title">{t('Database')}</div>
-                <div className="rows">
-                  <div className="row static" data-notion-database="1">
-                    <span className="row-icon brand-tile"><BrandLogo brand="notion" size={20} /></span>
-                    <span className="row-main">
-                      {t('Database')}
-                      <span className="row-sub">{databaseError || t('Which database your decisions are read from and written back to.')}</span>
-                      {databases === null && !databaseError && <span className="row-sub">{t('Loading…')}</span>}
-                      {databases && databases.length > 0 && (
-                        <select className="row-select" value={databaseId} onChange={(e) => chooseDatabase(e.target.value)} aria-label={t('Database')}>
-                          <option value="">{t('Choose a database…')}</option>
-                          {databases.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
-                        </select>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {connectors !== null && connectors.length === 0 && !unavailable && (
-              <div className="empty">{t('No connectors are available on this deployment.')}</div>
-            )}
-
-            {active.length > 0 && (
-              <button className="btn btn-ghost" onClick={pull} disabled={syncing}>
-                {syncing ? t('Pulling…') : t('Pull now')}
+        <div className="studio">
+          <nav className="studio-nav" aria-label={t('Tools')}>
+            <div className="studio-nav-label"><Icon name="settings" size={13} /> {t('Studio')}</div>
+            {NAV.map((n) => (
+              <button key={n.id} type="button" data-studio={n.id} className={page === n.id ? 'on' : ''} aria-current={page === n.id ? 'page' : undefined} onClick={() => go(n.id)}>
+                <Icon name={n.icon} size={15} /> {n.label}
               </button>
-            )}
-
-            </section>
-            <section className="tools-sec tools-inbox">
-            {inbox && (
-              <>
-                <div className="rows-title">{t('Forward anything here')}</div>
-                <div className="rows">
-                  <div className="row static" data-inbox="1">
-                    <span className="row-icon"><Icon name="mail" size={18} /></span>
-                    <span className="row-main">
-                      <code className="invite-code sm">{inbox}</code>
-                      <span className="row-sub">{t('Mail sent here becomes a card, triaged the way your inbox is.')}</span>
-                    </span>
-                    <button
-                      className="pill-btn"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(inbox)
-                        setCopiedInbox(true)
-                        setTimeout(() => setCopiedInbox(false), 1500)
-                      }}
-                    >
-                      {copiedInbox ? t('Copied!') : t('Copy')}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-
-            </section>
-            <section className="tools-sec tools-github">
-            {github && (
-              <>
-                <div className="rows-title">{github.builtIn ? t('Always on') : github.connected ? t('Connected') : t('Not in this workspace')}</div>
-                <div className="rows">
-                  <div className="row static github-row" data-github={github.builtIn || github.connected ? 'on' : 'off'}>
-                    <span className="row-icon brand-tile"><BrandLogo brand="github" size={20} /></span>
-                    <span className="row-main">
-                      GitHub
-                      <span className="row-sub">
-                        {github.connected
-                          ? t('Every decision here becomes an issue in {repo}.', { repo: github.repo || '' })
-                          : github.builtIn ? t(BLURB.github) : t(github.reason || '')}
-                      </span>
-                    </span>
-                    {github.builtIn
-                      ? <span className="pill-tag mint">{t('Built in')}</span>
-                      : github.connected
-                        ? (github.canEdit
-                          ? <button className="btn-text danger" disabled={ghBusy} onClick={() => githubCall('DELETE', {})}>{t('Disconnect')}</button>
-                          : <span className="pill-tag mint">{t('On')}</span>)
-                        : (github.canEdit
-                          ? (github.mine || !github.oauth
-                            ? <button className="pill-btn" onClick={() => { setGhOpen((o) => !o); setGhError(null); if (!ghOpen && github.mine && github.oauth) void loadGithubRepos() }}>{ghOpen ? t('Cancel') : t('Connect')}</button>
-                            : <button className="pill-btn" disabled={ghWaiting} onClick={() => void connectGithubAccount()}>{ghWaiting ? t('Waiting for GitHub…') : t('Connect with GitHub')}</button>)
-                          : <span className="pill-tag quiet">{t('Off')}</span>)}
-                  </div>
-                  {github.canEdit && !github.builtIn && !github.connected && ghOpen && (
-                    <div className="row static github-form-row">
-                      <div className="github-form">
-                        {ghWaiting && <span className="row-sub github-hint">{t('Finish in the tab that opened. This page updates by itself.')}</span>}
-                        {!ghWaiting && github.mine && github.oauth && !ghUseToken && (
-                          <>
-                            {ghRepos === null && <span className="row-sub github-hint">{t('Loading your repositories…')}</span>}
-                            {ghRepos && ghRepos.length === 0 && <span className="row-sub github-hint">{t('Your GitHub has no repository you can write issues to.')}</span>}
-                            {ghRepos && ghRepos.length > 0 && (
-                              <select className="row-select github-pick" value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} aria-label={t('Repository')} disabled={ghBusy}>
-                                {ghRepos.map((r) => <option key={r.repo} value={r.repo}>{r.repo}{r.private ? ` · ${t('private')}` : ''}</option>)}
-                              </select>
-                            )}
-                            <button className="pill-btn" disabled={ghBusy || !ghRepo.trim()} onClick={() => githubCall('PUT', { repo: ghRepo.trim() })}>
-                              {ghBusy ? t('Connecting…') : t('Use this repository')}
-                            </button>
-                            <span className="row-sub github-hint">{t('Connected with your GitHub account; the workspace writes issues as you.')}</span>
-                          </>
-                        )}
-                        {!ghWaiting && (ghUseToken || !github.oauth || (!github.mine && !github.oauth)) && (
-                          <>
-                            <input
-                              className="ai-key-input"
-                              value={ghRepo}
-                              onChange={(e) => setGhRepo(e.target.value)}
-                              placeholder="owner/repo"
-                              aria-label={t('Repository')}
-                              disabled={ghBusy}
-                            />
-                            <input
-                              className="ai-key-input"
-                              type="password"
-                              autoComplete="off"
-                              value={ghToken}
-                              onChange={(e) => setGhToken(e.target.value)}
-                              placeholder={t('GitHub token (Issues: write)')}
-                              aria-label={t('GitHub token')}
-                              disabled={ghBusy}
-                            />
-                            <button className="pill-btn" disabled={ghBusy || !ghRepo.trim() || !ghToken.trim()}
-                              onClick={() => githubCall('PUT', { repo: ghRepo.trim(), token: ghToken.trim() })}>
-                              {ghBusy ? t('Connecting…') : t('Connect')}
-                            </button>
-                            <span className="row-sub github-hint">{t('A fine-grained token for that repository with Issues: read and write.')}</span>
-                          </>
-                        )}
-                        {!ghWaiting && github.oauth && github.mine && (
-                          <button className="btn-text github-alt" onClick={() => setGhUseToken((u) => !u)}>
-                            {ghUseToken ? t('Pick from my GitHub instead') : t('Use a token instead')}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {ghError && <div className="form-error">{ghError}</div>}
-                </div>
-              </>
-            )}
-
-            </section>
-          </div>
-          <aside className="tools-side">
-            <section className="tools-sec tools-ai">
-            {ai && (
-              <>
-                <div className="rows-title">{t('Your AI')}</div>
-                <div className="rows ai-status">
-                  <div className="row static ai-model">
-                    <span className="row-main">
-                      {t('Language model')}
-                      <span className="row-sub">
-                        {t('Writes cards, answers, drafts and translations.')}
-                        {' '}
-                        {ai.modelSource === 'workspace' ? t('Chosen for this workspace.') : ai.modelSource === 'deployment' ? t('The deployment\u2019s default.') : t('No model is set up yet.')}
-                      </span>
-                    </span>
-                    {ai.canEdit ? (
-                      <select
-                        className="row-select"
-                        value={ai.modelSource === 'workspace' ? (ai.model || '') : ''}
-                        disabled={aiBusy}
-                        onChange={(e) => saveAI({ model: e.target.value || null }, t('Model saved for this workspace.'))}
-                        aria-label={t('Language model')}
-                      >
-                        <option value="">{t('Default ({model})', { model: ai.modelSource === 'workspace' ? t('deployment') : (ai.model || t('none')) })}</option>
-                        {ai.models.map((m) => (
-                          <option key={m.id} value={m.id}>{m.id} · ${m.priceIn}/${m.priceOut} {t('per 1M tokens')}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="row-value">{ownKey ? t('Your own key') : ai.model || t('Off')}</span>
-                    )}
-                  </div>
-                  <div className="row static ai-key">
-                    <span className="row-main">
-                      {t('OpenAI key for this workspace')}
-                      <span className="row-sub">
-                        {ai.openai === 'workspace'
-                          ? t('Set ({hint}). Calls are billed to it.', { hint: ai.openaiHint || '' })
-                          : ai.openai === 'deployment' ? t('Not set. Calls run on the deployment\u2019s key.') : t('Not set, and the deployment has none: the AI is off until one is entered.')}
-                      </span>
-                      {ai.canEdit && (
-                        <span className="ai-key-form">
-                          <input
-                            className="ai-key-input"
-                            type="password"
-                            autoComplete="off"
-                            value={openaiDraft}
-                            onChange={(e) => setOpenaiDraft(e.target.value)}
-                            placeholder="sk-…"
-                            aria-label={t('OpenAI key for this workspace')}
-                            disabled={aiBusy}
-                          />
-                          <button className="pill-btn" disabled={aiBusy || !openaiDraft.trim()} onClick={() => saveAI({ openaiKey: openaiDraft.trim() }, t('OpenAI key saved for this workspace.'))}>{t('Save')}</button>
-                          {ai.openai === 'workspace' && (
-                            <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ openaiKey: null }, t('OpenAI key removed.'))}>{t('Remove')}</button>
-                          )}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="row static ai-key">
-                    <span className="row-main">
-                      {t('Jev (System One)')}
-                      <span className="row-sub">
-                        {ai.systemOne
-                          ? t('Decides who and how urgent for a fraction of a cent; the model is asked only when it is unsure.')
-                          : t('Off. Enter a TypeSafe API key and routing gets cheaper.')}
-                        {ai.jev === 'workspace' && ` (${ai.jevHint})`}
-                      </span>
-                      {ai.canEdit && (
-                        <span className="ai-key-form">
-                          <input
-                            className="ai-key-input"
-                            type="password"
-                            autoComplete="off"
-                            value={jevDraft}
-                            onChange={(e) => setJevDraft(e.target.value)}
-                            placeholder={t('TypeSafe API key')}
-                            aria-label={t('TypeSafe API key')}
-                            disabled={aiBusy}
-                          />
-                          <button className="pill-btn" disabled={aiBusy || !jevDraft.trim()} onClick={() => saveAI({ typesafeKey: jevDraft.trim() }, t('Jev switched on for this workspace.'))}>{t('Save')}</button>
-                          {ai.jev === 'workspace' && (
-                            <button className="btn-text danger" disabled={aiBusy} onClick={() => saveAI({ typesafeKey: null }, t('Jev key removed.'))}>{t('Remove')}</button>
-                          )}
-                        </span>
-                      )}
-                    </span>
-                    <span className={`row-value ${ai.systemOne ? 'on' : ''}`}>{ai.systemOne ? t('On') : t('Off')}</span>
-                  </div>
-                  {!ai.canEdit && <div className="form-note">{t('An admin of this workspace can change these.')}</div>}
-                  {aiNote && <div className="form-note">{aiNote}</div>}
-                  {aiError && <div className="form-error">{aiError}</div>}
-                </div>
-              </>
-            )}
-
-            </section>
-            <section className="tools-sec tools-agents">
-            {agents && (
-              <>
-                <div className="rows-title">{t('Connect an agent')}</div>
-                <div className="rows agents">
-                  <div className="row static agent-intro">
-                    <span className="row-icon"><Icon name="terminal" size={18} /></span>
-                    <span className="row-main">
-                      {t('Claude Code, Cursor, or your own agent')}
-                      <span className="row-sub">{t('agents.blurb')}</span>
-                      {!minted && (
-                        <span className="ai-key-form">
-                          <input
-                            className="ai-key-input"
-                            value={agentName}
-                            maxLength={60}
-                            onChange={(e) => setAgentName(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') void createAgentToken() }}
-                            placeholder={t('e.g. Claude Code on my laptop')}
-                            aria-label={t('Agent name')}
-                            disabled={agentBusy === 'create'}
-                          />
-                          <button className="pill-btn" disabled={agentBusy === 'create' || !agentName.trim()} onClick={() => void createAgentToken()}>
-                            {agentBusy === 'create' ? t('Creating…') : t('Create token')}
-                          </button>
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  {minted && (
-                    <div className="row static agent-minted" data-agent-minted="1">
-                      <div className="agent-steps">
-                        <div className="agent-warn">{t('Copy this token now. It is shown once, and cannot be read again.')}</div>
-                        <AgentSnippet label={t('Token for {name}', { name: minted.name })} text={minted.token} copied={agentCopied === 'token'} onCopy={() => copyAgent('token', minted.token)} />
-                        <AgentSnippet label={t('Claude Code')} text={claudeCommand} copied={agentCopied === 'claude'} onCopy={() => copyAgent('claude', claudeCommand)} />
-                        <AgentSnippet label={t('Any MCP client')} text={mcpConfig} copied={agentCopied === 'json'} onCopy={() => copyAgent('json', mcpConfig)} />
-                        <button className="btn btn-ghost agent-done" onClick={() => setMinted(null)}>{t('Done')}</button>
-                      </div>
-                    </div>
-                  )}
-                  {agents.tokens.map((tok) => (
-                    <div className="row static agent-token" key={tok.id} data-token={tok.id}>
-                      <span className="row-main">
-                        {tok.name}
-                        <span className="row-sub">
-                          <code className="agent-prefix">{tok.prefix}…</code>
-                          {` · ${t('made {when}', { when: new Date(tok.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) })}`}
-                          {` · ${tok.lastUsedAt ? t('last used {when}', { when: ago(tok.lastUsedAt) }) : t('never used')}`}
-                        </span>
-                      </span>
-                      {revoking === tok.id ? (
-                        <span className="team-confirm">
-                          <button className="pill-btn" disabled={agentBusy === tok.id} onClick={() => void revokeAgentToken(tok.id)}>{t('Revoke')}</button>
-                          <button className="btn-text" onClick={() => setRevoking(null)}>{t('Keep')}</button>
-                        </span>
-                      ) : (
-                        <button className="btn-text danger" onClick={() => setRevoking(tok.id)}>{t('Revoke')}</button>
-                      )}
-                    </div>
-                  ))}
-                  {agentError && <div className="form-error">{agentError}</div>}
-                </div>
-                {agents.tools.length > 0 && (
-                  <p className="hint insights-hint">{t('What an agent can do: {tools}.', { tools: agents.tools.join(', ') })}</p>
-                )}
-              </>
-            )}
-            </section>
-          </aside>
+            ))}
+            <div className="studio-nav-sep" />
+            <button type="button" className="studio-nav-invite" onClick={() => setInviting('people')}><Icon name="invite" size={15} /> {t('Invite')}</button>
+          </nav>
+          <main className="studio-main">
+            {page === 'apps' && appsPage}
+            {page === 'ai' && aiPage}
+            {page === 'api' && apiPage}
+          </main>
         </div>
-        <div style={{ height: 24 }} />
       </div>
+      {appDialog}
+      {keyDialogEl}
+      {hookDialogEl}
+      {inviting && (
+        <InviteDialog httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} initialTab={inviting} onClose={() => { setInviting(null); void refreshTokens() }} />
+      )}
     </div>
   )
 }

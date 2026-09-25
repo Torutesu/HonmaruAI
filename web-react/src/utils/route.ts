@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 //   #/feed            the cards, whichever is first
 //   #/feed/<cardId>   this card
 //   #/list            the same cards as a list
+//   #/m/<messageId>   one message in the list, for whoever can read it
 //   #/history … #/tools … #/you … #/team … #/insights … #/plans … #/notifications
 //   #/automations     what your AI does on a schedule
 //   #/playbook        the rules it follows
@@ -26,6 +27,8 @@ export interface Route {
   cardId: string | null
   /// An invite code carried by the URL — the link a teammate was sent.
   join: string | null
+  /// A message, from "Copy link": the list finds where it is for you.
+  messageId?: string | null
 }
 
 const SCREEN_BY_PATH: Record<string, Screen> = {
@@ -49,6 +52,11 @@ export function parseRoute(hash: string): Route {
     return { screen: null, mode: 'cards', cardId, join: null }
   }
   if (head === 'list') return { screen: null, mode: 'classic', cardId: null, join: null }
+  if (head === 'm') {
+    let id = rest[0] || ''
+    try { id = decodeURIComponent(id) } catch { /* as written */ }
+    return { screen: null, mode: 'classic', cardId: null, join: null, messageId: /^[\w-]{1,80}$/.test(id) ? id : null }
+  }
   if (head === 'join') {
     const code = (rest[0] || '').trim()
     return { screen: null, mode: null, cardId: null, join: /^[0-9a-f]{16,64}$/i.test(code) ? code.toLowerCase() : null }

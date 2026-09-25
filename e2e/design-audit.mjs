@@ -80,7 +80,7 @@ await shot(page, `1440-06-onboarding-4`)
 await page.click('.screen-foot .btn-primary:has-text("Next")'); await page.waitForSelector('.ob-daily input[type="time"]')
 await shot(page, `1440-06b-onboarding-daily`)
 await page.click('text=Open my feed')
-await page.waitForSelector('.dot.on', { timeout: 25000 })
+await page.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
 // A few cards, so the feed has something to show.
 const asks = [

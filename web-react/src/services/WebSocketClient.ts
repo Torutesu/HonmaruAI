@@ -56,7 +56,10 @@ export class WebSocketClient {
   /// its calls need, and a channel's description changing.
   onJam?: (name: string, value: any) => void
   /// The workspace's channels changed: somebody made, renamed or deleted one.
-  onBusinesses?: (businesses: Array<{ slug: string; name: string }>) => void
+  /// `partial`: the room was told only the public channels; ask for yours.
+  onBusinesses?: (businesses: Array<{ slug: string; name: string; private?: boolean }>, partial?: boolean) => void
+  /// A group DM you are now in.
+  onChannelGroup?: (group: { view: string; refs: string[] }) => void
   onError?: (message: string) => void
   /// The relay refused this socket and will refuse the next one too. `code` is
   /// the machine-readable reason — `not-a-member`, `sign-in-required`,
@@ -364,7 +367,9 @@ export class WebSocketClient {
     } else if (event.name === 'comment' && event.value?.comment) {
       this.onComment?.(event.value.cardId, event.value.comment)
     } else if (event.name === 'businesses' && Array.isArray(event.value?.businesses)) {
-      this.onBusinesses?.(event.value.businesses)
+      this.onBusinesses?.(event.value.businesses, Boolean(event.value.partial))
+    } else if (event.name === 'channel_group' && event.value?.view) {
+      this.onChannelGroup?.({ view: String(event.value.view), refs: Array.isArray(event.value.refs) ? event.value.refs : [] })
     } else if (event.name === 'channel_message' && event.value?.message) {
       this.onChannelMessage?.(event.value.message)
     } else if (event.name === 'channel_ai_progress' && event.value?.channel) {

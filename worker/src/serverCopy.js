@@ -6,6 +6,14 @@ import { registerCatalog } from "./copy.js";
 // the languages below; any other is learned by copy.js on first use.
 
 const EN = {
+  "jam.transcript": "Transcript",
+  "invite.joined": "{name} joined the workspace. Say hello!",
+  "invite.someone": "Someone new",
+  "invite.agentJoined": "The agent “{name}” joined, working for {by}.",
+  "channel.added": "{who} added {names} to the channel.",
+  "channel.left": "{who} left the channel.",
+  "channel.removed": "{who} removed {name} from the channel.",
+  "route.selectedByYou": "Selected by you",
   "channel.failed": "Could not make that a decision. Try again.",
   "channel.failedBecause": "Could not make that a decision: {reason}",
   "channel.you": "you",
@@ -76,6 +84,14 @@ const EN = {
 };
 
 const JA = {
+  "jam.transcript": "文字起こし",
+  "invite.joined": "{name}さんがワークスペースに参加しました。ようこそ！",
+  "invite.someone": "新しいメンバー",
+  "invite.agentJoined": "エージェント「{name}」が参加しました（{by}さんの代わりに動きます）。",
+  "channel.added": "{who}さんが{names}さんをチャンネルに追加しました。",
+  "channel.left": "{who}さんがチャンネルを抜けました。",
+  "channel.removed": "{who}さんが{name}さんをチャンネルから外しました。",
+  "route.selectedByYou": "あなたが選択",
   "channel.failed": "決定カードにできませんでした。もう一度試してください。",
   "channel.failedBecause": "決定カードにできませんでした: {reason}",
   "channel.you": "あなた",
@@ -146,6 +162,14 @@ const JA = {
 };
 
 const ES = {
+  "jam.transcript": "Transcripción",
+  "invite.joined": "{name} se unió al espacio de trabajo. ¡Salúdale!",
+  "invite.someone": "Alguien nuevo",
+  "invite.agentJoined": "El agente «{name}» se unió y trabaja para {by}.",
+  "channel.added": "{who} añadió a {names} al canal.",
+  "channel.left": "{who} salió del canal.",
+  "channel.removed": "{who} quitó a {name} del canal.",
+  "route.selectedByYou": "Elegido por ti",
   "channel.failed": "No se pudo convertir en una decisión. Inténtalo de nuevo.",
   "channel.failedBecause": "No se pudo convertir en una decisión: {reason}",
   "channel.you": "ti",
@@ -216,6 +240,14 @@ const ES = {
 };
 
 const FR = {
+  "jam.transcript": "Transcription",
+  "invite.joined": "{name} a rejoint l’espace de travail. Dites bonjour !",
+  "invite.someone": "Une nouvelle personne",
+  "invite.agentJoined": "L’agent « {name} » a rejoint l’espace et travaille pour {by}.",
+  "channel.added": "{who} a ajouté {names} au canal.",
+  "channel.left": "{who} a quitté le canal.",
+  "channel.removed": "{who} a retiré {name} du canal.",
+  "route.selectedByYou": "Choisi par vous",
   "channel.failed": "Impossible d'en faire une décision. Réessayez.",
   "channel.failedBecause": "Impossible d'en faire une décision : {reason}",
   "channel.you": "vous",
@@ -286,6 +318,14 @@ const FR = {
 };
 
 const DE = {
+  "jam.transcript": "Transkript",
+  "invite.joined": "{name} ist dem Workspace beigetreten. Sag hallo!",
+  "invite.someone": "Jemand Neues",
+  "invite.agentJoined": "Der Agent „{name}“ ist beigetreten und arbeitet für {by}.",
+  "channel.added": "{who} hat {names} zum Kanal hinzugefügt.",
+  "channel.left": "{who} hat den Kanal verlassen.",
+  "channel.removed": "{who} hat {name} aus dem Kanal entfernt.",
+  "route.selectedByYou": "Von dir ausgewählt",
   "channel.failed": "Daraus konnte keine Entscheidung werden. Versuch es noch einmal.",
   "channel.failedBecause": "Daraus konnte keine Entscheidung werden: {reason}",
   "channel.you": "dich",

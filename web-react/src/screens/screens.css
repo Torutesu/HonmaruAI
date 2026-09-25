@@ -111,6 +111,7 @@
 .ob-demo-actions { display: flex; gap: 18px; justify-content: center; margin-top: 4px; }
 .ob-round {
   width: 58px; height: 58px; border-radius: 50%;
+  display: inline-grid; place-items: center;
   border: 1px solid var(--bone);
   background: var(--signal-white);
   font-size: 20px;
@@ -633,3 +634,21 @@
 .handle-note { margin-top: 6px; }
 .handle-note.ok { color: #16a34a; }
 .handle-note.bad { color: #dc2626; }
+
+/* Your photo on You: click it to change it. */
+.profile-avatar-edit { position: relative; flex: none; cursor: pointer; display: inline-block; border-radius: 14px; }
+.profile-avatar-edit:focus-within { outline: 2px solid var(--brand-violet); outline-offset: 2px; }
+.profile-avatar-cta {
+  position: absolute; right: -4px; bottom: -4px; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--ink-black); color: var(--signal-white);
+  border: 2px solid var(--signal-white);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .profile-avatar-cta { background: #f2f2f2; color: #0f0f0f; border-color: #0f0f0f; } }
+:root[data-theme="dark"] .profile-avatar-cta { background: #f2f2f2; color: #0f0f0f; border-color: #0f0f0f; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Sounds: a volume, and a ▶ beside each kind to hear it. */
+.sound-volume { display: block; margin-top: 8px; }
+.sound-volume input { width: min(260px, 100%); accent-color: var(--brand-violet); }
+.sound-preview { border: none; cursor: pointer; color: inherit; }
+.sound-preview:hover { background: var(--mercury); }

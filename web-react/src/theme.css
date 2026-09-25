@@ -581,7 +581,7 @@
 }
 .ws-button:hover { background: var(--mercury); }
 .ws-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-caret { font-size: 11px; color: var(--ash); font-weight: 400; flex: none; }
+.ws-caret { display: inline-grid; place-items: center; color: var(--ash); flex: none; }
 .ws-mark { flex: none; border-radius: 9px; object-fit: cover; display: block; }
 .ws-mark-letter {
   display: grid; place-items: center; background: var(--onyx); color: var(--signal-white);
@@ -746,6 +746,9 @@
   }
   /* Drawn, not typed: the button's text stays empty for the phone's bar. */
   .shell .tab-avatar::before { content: attr(data-initial); }
+  .shell .tab-avatar.has-photo { overflow: hidden; background: none; }
+  .shell .tab-avatar.has-photo::before { content: none; }
+  .shell .tab-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .shell .tab[data-tab="you"].on .tab-avatar, .shell .tab[data-tab="you"]:hover .tab-avatar { box-shadow: 0 0 0 2px var(--chrome-bg), 0 0 0 4px #fff; }
 
   /* The work, set into the chrome with its corner rounded. */
@@ -776,8 +779,10 @@
   }
   /* The picked conversation: a light bar with dark words, as Slack does. */
   .shell .classic.slk.slk .slk-side .cl-thread.on > .cl-open { background: rgba(255, 255, 255, 0.9); color: var(--chrome-side); }
-  .shell .classic.slk.slk .slk-side .cl-thread.on .cl-avatar { background: var(--chrome-side); color: #fff; }
-  .shell .classic.slk.slk .slk-side .cl-avatar { background: rgba(255, 255, 255, 0.18); color: #fff; }
+  .shell .classic.slk.slk .slk-side .cl-thread.on .cl-avatar:not(.has-face) { background: var(--chrome-side); color: #fff; }
+  .shell .classic.slk.slk .slk-side .cl-thread.on .cl-app:not(:has(.brand)):not(:has(img)) { background: var(--chrome-side); color: #fff; }
+  .shell .classic.slk.slk .slk-side .cl-thread.on .cl-hash { color: var(--chrome-side); }
+  .shell .classic.slk.slk .slk-side .cl-avatar:not(.has-face) { background: rgba(255, 255, 255, 0.18); color: #fff; }
   .shell .classic.slk.slk .slk-side .ws-button { color: #fff; }
   .shell .classic.slk.slk .slk-side .ws-button:hover { background: rgba(255, 255, 255, 0.08); }
   .shell .classic.slk.slk .slk-side .ws-caret { color: rgba(255, 255, 255, 0.7); }

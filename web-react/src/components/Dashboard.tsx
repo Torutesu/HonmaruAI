@@ -32,6 +32,9 @@ import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { needsLocalizing } from '../utils/language'
 import { aiHeaders } from '../utils/aiKey'
 import type { Screen, Mode } from '../utils/route'
+import { playSound, soundForMessage, getOpenView, levelOf } from '../utils/sound'
+import { loadMembers, mentionedRefs } from '../utils/mentions'
+import type { ChannelMessage } from '../types/card'
 
 interface Props {
   userId: string
@@ -67,6 +70,23 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // and instead of nothing when it cannot.
   const [state, setState] = useState<AppState>(() => ({ cardsById: loadCardCache(orgId) }))
   const [isConnected, setIsConnected] = useState(false)
+  // A sound for a message that just arrived — decided here, where the
+  // socket is, so it is heard whichever view is on screen. The same event
+  // carries edits, reactions and pins; only a message new to this tab and
+  // written in the last minute is news.
+  const heard = useRef<Set<string>>(new Set())
+  const soundFor = async (message: ChannelMessage) => {
+    if (!message?.id || message.deleted || heard.current.has(message.id)) return
+    heard.current.add(message.id)
+    if (Date.now() - Date.parse(message.createdAt) > 60_000) return
+    const people = await loadMembers(relayUrl.replace(/^ws/, 'http'), orgId, sessionToken).catch(() => [])
+    const me = people.find((p) => p.mine)
+    const mine = message.mine || Boolean(me && message.authorRef === me.ref)
+    const mentionsMe = Boolean(me) && mentionedRefs(message.body || '', people).includes(me!.ref)
+    const open = getOpenView() === message.channel && document.visibilityState === 'visible' && document.hasFocus()
+    const kind = soundForMessage({ mine, channel: message.channel, mentionsMe, kind: message.kind, parentId: message.parentId }, { level: levelOf(orgId, message.channel), open })
+    if (kind) playSound(kind)
+  }
   // The relay has sent its snapshot at least once. Before that the feed says
   // it is opening, not that it is empty — "All clear" on a cold start, half a
   // second before three cards arrive, is a lie told to exactly the person who
@@ -127,6 +147,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // The card the URL names — from a notification tap, a pasted link, or a
   // row picked in the inbox.
   const focusCardId = route.cardId
+  // A link to a message: the list opens where it is, then the address goes
+  // back to the list's own, so a reload does not jump again.
+  useEffect(() => {
+    const id = route.messageId
+    if (!id) return
+    try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.jumpId', id) } catch {}
+    window.dispatchEvent(new CustomEvent('honmaru:open-message-id', { detail: id }))
+    navigate(hashForMode('classic'), true)
+  }, [route.messageId, navigate])
   // A `?card=` link from before the hash routes: turned into one, once.
   useEffect(() => {
     try {
@@ -176,6 +205,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (ignore) return
       addDebugLog(`Card created: ${card.id}`)
       if (card.recipientUserID === userId && card.status === 'pending') {
+        // Your own note to yourself does not need announcing to you.
+        if (card.senderUserID !== userId) playSound('decision')
         notifyNewDecision(card.localized?.[getLocale()]?.title || card.title || t('A decision is waiting'), card.requestedBy?.name || displayName(card.senderUserID) || t('a teammate'))
       }
     }
@@ -192,11 +223,20 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:comment', { detail: { cardId, comment } }))
     }
-    wsClient.onBusinesses = (list) => { if (!ignore) setBusinesses(list) }
+    wsClient.onBusinesses = (list, partial) => {
+      if (ignore) return
+      // Told only the public channels: ask for our own list, private ones too.
+      if (partial) window.dispatchEvent(new Event('honmaru:reload-businesses'))
+      else setBusinesses(list)
+    }
+    wsClient.onChannelGroup = (group) => {
+      if (!ignore) window.dispatchEvent(new CustomEvent('honmaru:channel-group', { detail: group }))
+    }
     // Something said in a channel: the list listens for its own.
     wsClient.onChannelMessage = (message) => {
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: message }))
+      void soundFor(message)
     }
     wsClient.onChannelProgress = (progress) => {
       if (ignore) return
@@ -268,10 +308,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     } catch { /* a label is a convenience */ }
   }, [relayHttpUrl, orgId, sessionToken])
   useEffect(() => { loadBusinesses() }, [loadBusinesses])
+  useEffect(() => {
+    const on = () => { void loadBusinesses() }
+    window.addEventListener('honmaru:reload-businesses', on)
+    return () => window.removeEventListener('honmaru:reload-businesses', on)
+  }, [loadBusinesses])
   // Every workspace this person is in, with its name and mark, for the
   // switcher at the top of the rail. Re-read when the team screen changes
   // a name or a logo (it says so through a window event).
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  // Your own name and photo, for the rail.
+  const [myFace, setMyFace] = useState<{ name: string; url: string | null }>({ name: '', url: null })
   const loadWorkspaces = useCallback(async () => {
     try {
       const res = await fetch(`${relayHttpUrl}/me`, { headers: { 'x-session-token': sessionToken } })
@@ -279,6 +326,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       const me = await res.json()
       if (Array.isArray(me.orgs)) setWorkspaces(me.orgs)
       setNotificationCopy(me.notificationCopy)
+      setMyFace({ name: me.name || '', url: me.avatarUrl || null })
     } catch { /* the switcher shows what it last knew */ }
     // Read again when the language changes, for the notification words.
   }, [relayHttpUrl, sessionToken, localeVersion])
@@ -566,7 +614,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // open: on a phone a screen owns the viewport and the tab bar goes away,
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
-    <div className={`shell${screen ? ' screen-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}`}>
+    <div className={`shell${screen ? ' screen-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}${mode === 'classic' && !screen ? ' list-mode' : ''}`}>
       {workbench ? (
         <div className="workbench">
           <Inbox
@@ -652,7 +700,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onWorkspace={() => setScreen('team')}
           onOpenScreen={(sc) => setScreen(sc)}
           workspaceMenu={workspaceSwitcher('header')}
-          onCreateChannel={(name) => channelCall('POST', { name })}
+          onCreateChannel={(name, opts) => channelCall('POST', { name, ...(opts?.private ? { private: true } : {}) })}
           onRenameChannel={(slug, name) => channelCall('PUT', { slug, name })}
           onDeleteChannel={(slug) => channelCall('DELETE', { slug })}
         />
@@ -683,7 +731,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               {unsent > 0 ? t('{n} waiting to send', { n: unsent }) : t('Reconnecting…')}
             </span>
           )}
-          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} aria-hidden="true" />
+          {/* Connected is the normal state and says nothing; losing the
+              connection is said in words, just before this. The marker is
+              for whoever needs to know without looking — a test, a script. */}
+          <span className="conn-state" data-connected={isConnected ? '1' : '0'} hidden />
           <button className="palette-button" onClick={() => setPalette(true)} aria-label={t('Search or jump to')} title="⌘K" aria-keyshortcuts="Meta+K Control+K">
             <Icon name="search" size={18} />
             {/* The search field a chat client puts across its top: words on a
@@ -739,7 +790,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             <span className="fab-face"><Icon name="plus" /></span>
           </button>
           <button className={screen === 'tools' ? 'tab on' : 'tab'} aria-current={screen === 'tools' ? 'page' : undefined} data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
-          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /><span className="tab-avatar" aria-hidden="true" data-initial={(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()} /></button>
+          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /><span className={`tab-avatar${myFace.url ? ' has-photo' : ''}`} aria-hidden="true" data-initial={((myFace.name || userId.replace(/^(u:|email:)/, ''))[0] || '?').toUpperCase()}>{myFace.url && <img src={myFace.url} alt="" referrerPolicy="no-referrer" />}</span></button>
         </nav>
       )}
 

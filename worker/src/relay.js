@@ -19,6 +19,7 @@ import { providerFor } from "./orgAI.js";
 import { syncCardToGitHub, getWorkspaceGitHub } from "./githubWorkspace.js";
 import { allowanceFor } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
+import { emitCard } from "./webhooks.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 import { applyAutoRule } from "./autorules.js";
 import { redirectIfAway } from "./people.js";
@@ -196,6 +197,11 @@ export class OrgRelay {
       await appendCardEvent(this.db, orgId, event);
     } catch (err) {
       console.error("card event log failed", err);
+    }
+    // The workspace's webhooks hear a decision made and a decision decided,
+    // after the fact and never in its way.
+    if ((event.type === "created" || event.type === "decided") && event.snapshot) {
+      this.state.waitUntil(emitCard(this.env, orgId, event.snapshot, event.type === "created" ? "card.created" : "card.decided"));
     }
   }
 
