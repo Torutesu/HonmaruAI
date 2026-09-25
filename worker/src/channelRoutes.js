@@ -190,7 +190,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       sourceInstruction: instruction.slice(0, 1000),
       ...(resolved.kind === "business" ? { business: resolved.slug } : (routed.business ? { business: routed.business } : {})),
       ...(routed.recommendation ? { recommendation: routed.recommendation } : {}),
-      requestedBy: { login: user.login, name: user.name || undefined, quote: instruction.slice(0, 600) },
+      requestedBy: { login: user.login, name: user.name || undefined, avatarUrl: user.avatar_url || undefined, quote: instruction.slice(0, 600) },
       fromMessage: row.id,
     };
     // Away, with somebody deciding meanwhile: it goes to them.
@@ -255,7 +255,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       // is from — cards carry logins — without being handed anyone's login.
       members: await Promise.all(members.map(async (m) => ({
         ref: m.ref, name: m.name, title: m.title || m.role, mine: m.mine,
-        handle: m.handle || null, status: m.status || null, awayUntil: m.awayUntil || null,
+        handle: m.handle || null, status: m.status || null, awayUntil: m.awayUntil || null, avatarUrl: m.avatarUrl || null,
         loginHash: (await sha256Hex(m.login)).slice(0, 16),
       }))),
       maxChars: MAX_MESSAGE_CHARS,

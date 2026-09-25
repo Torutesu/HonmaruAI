@@ -15,6 +15,7 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'Change your photo': '写真を変更',
   'All': 'すべて',
   'All caught up': '未読はありません',
   'Mark all as read': 'すべて既読にする',
@@ -1249,6 +1250,7 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'Change your photo': 'Cambiar tu foto',
   'All': 'Todo',
   'All caught up': 'Todo al día',
   'Mark all as read': 'Marcar todo como leído',
@@ -2158,6 +2160,7 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'Change your photo': 'Changer votre photo',
   'All': 'Tout',
   'All caught up': 'Vous êtes à jour',
   'Mark all as read': 'Tout marquer comme lu',
@@ -3072,6 +3075,7 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'Change your photo': 'Foto ändern',
   'All': 'Alle',
   'All caught up': 'Alles erledigt',
   'Mark all as read': 'Alles als gelesen markieren',

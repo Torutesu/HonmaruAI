@@ -148,6 +148,8 @@ export interface ChannelMessage {
   body: string
   authorName: string | null
   authorRef: string | null
+  /// The author's photo, when they have one.
+  authorAvatar?: string | null
   mine: boolean
   cardId: string | null
   createdAt: string

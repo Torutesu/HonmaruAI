@@ -14,6 +14,7 @@ import type { DetailsTab, JournalCite } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
 import type { JamMode, JamState } from '../utils/jam'
 import { InviteDialog } from './InviteDialog'
+import { Avatar } from './Avatar'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -113,13 +114,16 @@ const appKey = (c: DecisionCard) => {
 interface Member {
   ref: string; name: string; title?: string; mine: boolean; loginHash: string
   handle?: string | null
+  avatarUrl?: string | null
   status?: { emoji: string | null; text: string | null; until: string | null } | null
   awayUntil?: string | null
 }
 interface Activity { channel: string; lastAt: string; preview: string; lastBy: string | null }
+/// Whose face goes beside something: a name, and their photo if they have one.
+interface Face { name: string; url?: string | null }
 /// One notification: somebody named you, replied in your thread, or reacted
 /// to what you wrote.
-interface ActivityItem { type: 'mention' | 'reply' | 'reaction'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null }
+interface ActivityItem { type: 'mention' | 'reply' | 'reaction'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null; byAvatar?: string | null }
 
 async function hash16(text: string): Promise<string> {
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
@@ -487,8 +491,8 @@ export const ClassicList: React.FC<Props> = ({
     if (thread.kind === 'channel') return <span className={`cl-lead cl-hash sz-${size}`} aria-hidden="true">#</span>
     if (thread.kind === 'person') {
       return (
-        <span className={`cl-lead cl-avatar sz-${size}`} aria-hidden="true">
-          {thread.name.charAt(0).toUpperCase()}
+        <span className={`cl-lead cl-avatar has-face sz-${size}`} aria-hidden="true">
+          <Avatar name={thread.name} url={members.find((m) => thread.view === `dm:${m.ref}`)?.avatarUrl} size={size === 'head' ? 30 : 20} />
           <span className={`cl-presence${online ? ' on' : ''}`} />
         </span>
       )
@@ -1198,14 +1202,27 @@ export const ClassicList: React.FC<Props> = ({
   }
   const nameOfRecipient = (c: DecisionCard) => (c as DecisionCard & { recipientName?: string }).recipientName || nameOfLogin(c.recipientUserID)
   const myName = members.find((m) => m.mine)?.name || ''
+  const myAvatar = members.find((m) => m.mine)?.avatarUrl || null
+  const memberByRef = (ref?: string | null) => (ref ? members.find((m) => m.ref === ref) : undefined)
+  const memberOfLogin = (login?: string | null) => {
+    const h = login ? hashes.get(login) : undefined
+    return h ? members.find((x) => x.loginHash === h) : undefined
+  }
+  /// The face beside a message: yours, or whoever wrote it.
+  const faceOfMessage = (m: ChannelMessage): Face => (m.mine
+    ? { name: myName || t('You'), url: myAvatar }
+    : { name: m.authorName || t('a teammate'), url: m.authorAvatar || memberByRef(m.authorRef)?.avatarUrl || null })
 
   const author = (c: DecisionCard) => {
     const app = appKey(c)
-    if (app) return { name: app === 'ai' ? t('Your AI') : (APP_NAME[app] ? t(APP_NAME[app]) : c.sourceApp!), app, initial: '' }
-    if (c.senderUserID === userId && c.recipientUserID === userId) return { name: t('Your AI'), app: 'ai', initial: '' }
+    if (app) return { name: app === 'ai' ? t('Your AI') : (APP_NAME[app] ? t(APP_NAME[app]) : c.sourceApp!), app, face: null }
+    if (c.senderUserID === userId && c.recipientUserID === userId) return { name: t('Your AI'), app: 'ai', face: null }
     const mine = c.senderUserID === userId
     const name = mine ? t('You') : (c.requestedBy?.name || nameOfLogin(c.senderUserID))
-    return { name, app: '', initial: ((mine && myName) || name).charAt(0).toUpperCase() }
+    const face = mine
+      ? { name: myName || name, url: myAvatar }
+      : { name, url: memberOfLogin(c.senderUserID)?.avatarUrl || (c.requestedBy as { avatarUrl?: string } | undefined)?.avatarUrl || null }
+    return { name, app: '', face }
   }
 
   const status = (c: DecisionCard) => {
@@ -1271,19 +1288,19 @@ export const ClassicList: React.FC<Props> = ({
     )
   }
 
-  const avatarFor = (app: string, initial: string) => app
+  const avatarFor = (app: string, face: Face | null) => app
     ? <span className="slk-avatar app">{app === 'ai'
         ? <img src="/icon.svg" alt="" width={36} height={36} />
         : isBrand(app) ? <BrandLogo brand={app} size={20} /> : <Icon name={APP_ICON[app] || 'box'} size={18} />}</span>
-    : <span className="slk-avatar">{initial}</span>
+    : <span className="slk-avatar face"><Avatar name={face?.name || '?'} url={face?.url} size={36} /></span>
 
   /// One block of a conversation: a gutter, a name and a time — or, joined
   /// to the one before, just the words — then what was said.
-  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; initial?: string; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean; authorRef?: string | null }, body: React.ReactNode) => (
+  const block = (key: string, opts: { joined: boolean; at: string; app: string; name: string; face?: Face | null; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean; authorRef?: string | null }, body: React.ReactNode) => (
     <article key={key} id={opts.msgId ? `msg-${opts.msgId}` : undefined} tabIndex={opts.msgId ? -1 : undefined}
       className={`slk-msg${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}${opts.msgId && toolsOpen === opts.msgId ? ' tools-open' : ''}${opts.msgId && editing?.id === opts.msgId ? ' editing' : ''}${opts.pinned ? ' pinned' : ''}${opts.msgId && flash === opts.msgId ? ' flash' : ''}`}>
       <div className="slk-gutter" aria-hidden="true">
-        {opts.joined ? <span className="slk-hover-time">{clock(opts.at)}</span> : avatarFor(opts.app, opts.initial || opts.name.charAt(0).toUpperCase())}
+        {opts.joined ? <span className="slk-hover-time">{clock(opts.at)}</span> : avatarFor(opts.app, opts.face || { name: opts.name })}
       </div>
       <div className="slk-body">
         {opts.pinned && <div className="slk-pin-mark"><Icon name="pin" size={12} /> {t('Pinned')}</div>}
@@ -1317,7 +1334,7 @@ export const ClassicList: React.FC<Props> = ({
       {!inThread && (m.replyCount || 0) > 0 && (
         <button type="button" className="slk-thread-link" onClick={() => void openThread(channel, m)}>
           <span className="slk-thread-faces" aria-hidden="true">
-            {(m.replyRefs || []).slice(0, 3).map((r) => <span key={r} className="slk-face">{nameOfRef(r).charAt(0).toUpperCase()}</span>)}
+            {(m.replyRefs || []).slice(0, 3).map((r) => <Avatar key={r} className="slk-face" name={nameOfRef(r)} url={memberByRef(r)?.avatarUrl} size={20} />)}
           </span>
           <b>{m.replyCount === 1 ? t('1 reply') : t('{n} replies', { n: m.replyCount! })}</b>
           {m.lastReplyAt && <span className="slk-thread-last">{t('Last reply {when}', { when: when(m.lastReplyAt) })}</span>}
@@ -1491,7 +1508,9 @@ export const ClassicList: React.FC<Props> = ({
               const who = whoOf(i)
               return (
                 <button key={keyOf(i)} type="button" className={`slk-act slk-note${i.unread ? ' unread' : ''}${activityPick === keyOf(i) ? ' on' : ''}`} onClick={() => open(i)} data-kind={i.type}>
-                  <span className="slk-note-avatar" aria-hidden="true">{m.kind === 'ai' && i.type !== 'reaction' ? <img src="/icon.svg" alt="" width={32} height={32} /> : who.charAt(0).toUpperCase()}</span>
+                  <span className="slk-note-avatar" aria-hidden="true">{m.kind === 'ai' && i.type !== 'reaction'
+                    ? <img src="/icon.svg" alt="" width={32} height={32} />
+                    : <Avatar name={who} url={i.type === 'reaction' ? i.byAvatar : (m.authorAvatar || memberByRef(m.authorRef)?.avatarUrl)} size={32} />}</span>
                   <span className="slk-note-main">
                     <span className="slk-note-line">
                       <span className="slk-note-who"><b>{who}</b> {verb(i)}</span>
@@ -1530,7 +1549,7 @@ export const ClassicList: React.FC<Props> = ({
                 )}
                 <article className="slk-msg slk-inbox-msg">
                   <div className="slk-gutter" aria-hidden="true">
-                    {avatarFor(picked.message.kind === 'ai' ? 'ai' : '', (picked.message.mine ? (myName || t('You')) : (picked.message.authorName || '?')).charAt(0).toUpperCase())}
+                    {avatarFor(picked.message.kind === 'ai' ? 'ai' : '', faceOfMessage(picked.message))}
                   </div>
                   <div className="slk-body">
                     <div className="slk-meta">
@@ -1588,7 +1607,7 @@ export const ClassicList: React.FC<Props> = ({
         const who = author(c)
         const joined = prevWho === `card:${who.name}` && at - prevAt < 5 * 60000
         const to = c.senderUserID === userId && c.recipientUserID !== userId ? nameOfRecipient(c) : ''
-        out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, initial: who.initial || undefined, to, unread: isUnread(c) }, attachment(c)))
+        out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, face: who.face, to, unread: isUnread(c) }, attachment(c)))
         prevWho = `card:${who.name}`
       } else {
         const m = item.msg
@@ -1606,7 +1625,7 @@ export const ClassicList: React.FC<Props> = ({
           const joined = prevWho === whoKey && at - prevAt < 5 * 60000
           const name = m.mine ? t('You') : (m.authorName || t('a teammate'))
           out.push(block(m.id, {
-            joined: joined && !m.pinned, at: m.createdAt, app: '', name, initial: m.mine && myName ? myName.charAt(0).toUpperCase() : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
+            joined: joined && !m.pinned, at: m.createdAt, app: '', name, face: faceOfMessage(m), msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
             tools: toolsFor(thread.view!, m),
           }, (
             <>
@@ -2160,7 +2179,7 @@ export const ClassicList: React.FC<Props> = ({
                 {block(m.id, {
                   joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : undefined,
                   name: m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate')),
-                  initial: m.kind !== 'ai' && m.mine && myName ? myName.charAt(0).toUpperCase() : undefined,
+                  face: m.kind !== 'ai' ? faceOfMessage(m) : null,
                   msgId: i === 0 ? `thread-${m.id}` : m.id,
                   tools: toolsFor(thread.channel, m, true),
                 }, (

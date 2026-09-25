@@ -272,6 +272,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // switcher at the top of the rail. Re-read when the team screen changes
   // a name or a logo (it says so through a window event).
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  // Your own name and photo, for the rail.
+  const [myFace, setMyFace] = useState<{ name: string; url: string | null }>({ name: '', url: null })
   const loadWorkspaces = useCallback(async () => {
     try {
       const res = await fetch(`${relayHttpUrl}/me`, { headers: { 'x-session-token': sessionToken } })
@@ -279,6 +281,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       const me = await res.json()
       if (Array.isArray(me.orgs)) setWorkspaces(me.orgs)
       setNotificationCopy(me.notificationCopy)
+      setMyFace({ name: me.name || '', url: me.avatarUrl || null })
     } catch { /* the switcher shows what it last knew */ }
     // Read again when the language changes, for the notification words.
   }, [relayHttpUrl, sessionToken, localeVersion])
@@ -683,7 +686,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               {unsent > 0 ? t('{n} waiting to send', { n: unsent }) : t('Reconnecting…')}
             </span>
           )}
-          <span className={`dot ${isConnected ? 'on' : 'off'}`} title={isConnected ? t('Connected') : t('Reconnecting…')} aria-hidden="true" />
+          {/* Connected is the normal state and says nothing; losing the
+              connection is said in words, just before this. The marker is
+              for whoever needs to know without looking — a test, a script. */}
+          <span className="conn-state" data-connected={isConnected ? '1' : '0'} hidden />
           <button className="palette-button" onClick={() => setPalette(true)} aria-label={t('Search or jump to')} title="⌘K" aria-keyshortcuts="Meta+K Control+K">
             <Icon name="search" size={18} />
             {/* The search field a chat client puts across its top: words on a
@@ -739,7 +745,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             <span className="fab-face"><Icon name="plus" /></span>
           </button>
           <button className={screen === 'tools' ? 'tab on' : 'tab'} aria-current={screen === 'tools' ? 'page' : undefined} data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
-          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /><span className="tab-avatar" aria-hidden="true" data-initial={(userId.replace(/^(u:|email:)/, '')[0] || '?').toUpperCase()} /></button>
+          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" onClick={() => setScreen('profile')} aria-label={t('You')}><Icon name="you" /><span className={`tab-avatar${myFace.url ? ' has-photo' : ''}`} aria-hidden="true" data-initial={((myFace.name || userId.replace(/^(u:|email:)/, ''))[0] || '?').toUpperCase()}>{myFace.url && <img src={myFace.url} alt="" referrerPolicy="no-referrer" />}</span></button>
         </nav>
       )}
 

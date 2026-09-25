@@ -3,6 +3,7 @@ import { useT } from '../utils/i18n'
 import { JAM_MODES, audioDevices, canPickSpeaker, recordingMime } from '../utils/jam'
 import type { JamCall, JamMode, JamState } from '../utils/jam'
 import { Icon } from './Icon'
+import { Avatar } from './Avatar'
 
 // What a channel's header opens, left to right: its journal (the context
 // someone new or back from a week away reads first), its details (members,
@@ -21,7 +22,7 @@ export type NotifyLevel = 'all' | 'mentions' | 'mute'
 interface Details {
   channel: { key: string; view: string; kind: 'channel' | 'dm'; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
   members: {
-    people: Array<{ ref: string; name: string; handle: string | null; title: string | null; status: { emoji?: string; text?: string } | null; awayUntil: string | null; you: boolean }>
+    people: Array<{ ref: string; name: string; handle: string | null; title: string | null; status: { emoji?: string; text?: string } | null; awayUntil: string | null; you: boolean; avatarUrl?: string | null }>
     agents: Array<{ name: string; kind: 'ai' | 'agent'; owner: string | null; lastSeenAt?: string | null }>
   }
   attachments: Array<{ url: string; host: string; messageId: string; authorName: string | null; at: string }>
@@ -302,7 +303,7 @@ export function ChannelDetails({
               {people.map((p) => (
                 <li key={p.ref}>
                   <button type="button" className="slk-member-row" onClick={() => onProfile(p.ref)}>
-                    <span className="cl-lead cl-avatar sz-row" aria-hidden="true">{p.name.charAt(0).toUpperCase()}</span>
+                    <span className="cl-lead cl-avatar has-face sz-row" aria-hidden="true"><Avatar name={p.name} url={p.avatarUrl} size={24} /></span>
                     <span className="slk-member-main">
                       <span className="slk-member-name">{p.name}{p.you && <span className="slk-member-you"> {t('(you)')}</span>}{p.status?.emoji && <span> {p.status.emoji}</span>}</span>
                       {p.title && <span className="slk-member-title">{p.title}</span>}

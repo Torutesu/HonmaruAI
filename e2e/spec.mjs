@@ -312,13 +312,13 @@ await step('the tab bar is drawn, not typed', async () => {
 // standing in for a drawing. A glyph is whatever the system font decides.
 await step('no screen falls back to a text glyph for an icon', async () => {
   const found = []
-  for (const [tab, marker] of [['Tools', '.rows'], ['You', '.profile-stats']]) {
+  for (const [tab, marker] of [['Tools', '.studio'], ['You', '.profile-stats']]) {
     if (tab === 'You') { await closeEverything(); await page.click('nav [data-tab="you"]') }
     else await openViaYou(tab, marker)
     await page.waitForSelector(marker, { timeout: 10000 })
     const bad = await page.evaluate(() =>
-      [...document.querySelectorAll('.screen .row-icon')]
-        .filter((el) => !el.querySelector('svg'))
+      [...document.querySelectorAll('.screen .row-icon, .screen .app-icon, .screen .studio-nav button')]
+        .filter((el) => !el.querySelector('svg, img'))
         .map((el) => (el.textContent || '').trim())
     )
     found.push(...bad.map((g) => `${tab}: ${g}`))
@@ -328,7 +328,7 @@ await step('no screen falls back to a text glyph for an icon', async () => {
 })
 
 await step('the relay is connected', async () => {
-  await page.waitForSelector('.dot.on', { timeout: 20000 })
+  await page.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 20000 })
 })
 
 await step('telling your AI something produces a decision', async () => {
@@ -1671,7 +1671,8 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
       .catch(() => { throw new Error('picking a thread reply in search did not open its thread') })
     // The Activity inbox is there and opens.
     await d.click('[data-activity="1"]')
-    await d.waitForSelector('.slk-inbox-tabs [role="tab"]', { timeout: 5000 }).catch(() => { throw new Error('Activity did not open') })
+    await d.waitForSelector('.slk-inbox-tabs [role="tab"]', { timeout: 10000 })
+      .catch(async () => { await d.screenshot({ path: `${SHOTS}/activity-did-not-open.png` }); throw new Error('Activity did not open') })
     // On a laptop it is an inbox: the list on the left, the one you pick on the right.
     await d.waitForSelector('.slk-inbox-view', { timeout: 5000 }).catch(() => { throw new Error('Activity has no pane for the notification you pick') })
     // A draft stays with its conversation.
@@ -1722,13 +1723,10 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.waitForSelector('.shortcuts-sheet', { timeout: 5000 }).catch(() => { throw new Error('⌘/ did not open the shortcuts') })
     await d.keyboard.press('Escape')
     await d.click('.shortcuts-sheet .close').catch(() => {})
-    // A status, set on You, shows in the member list.
+    // No status editor on You: it was taken out as clutter.
     await d.goto(`${WEB}/#/you`, { waitUntil: 'load' })
-    await d.waitForSelector('.status-editor .status-text', { timeout: 15000 })
-    await d.fill('.status-editor .status-emoji', '🏖️')
-    await d.fill('.status-editor .status-text', 'On holiday')
-    await d.click('[data-status-save="1"]')
-    await d.waitForSelector('.status-editor [role="status"]:has-text("Saved")', { timeout: 10000 }).catch(() => { throw new Error('the status did not save') })
+    await d.waitForSelector('.profile-stats', { timeout: 15000 })
+    if (await d.$('.status-editor')) throw new Error('the status editor is back on You')
   } finally {
     await ctx.close()
   }
@@ -2116,7 +2114,7 @@ await step('a second person joins by invite and the card reaches them', async ()
   const offered = await b.$eval('.ob-daily select[aria-label="Post to"]', (el) => el.value)
   if (offered !== 'b:daily-reports') throw new Error(`a teammate is not offered the team's daily-report channel: ${offered}`)
   await b.click('text=Open my feed')
-  await b.waitForSelector('.dot.on', { timeout: 25000 })
+  await b.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // A tells their AI something meant for the engineer.
   await page.click('nav [data-tab="compose"]')
@@ -2168,7 +2166,7 @@ await step('signing in on a machine that has never seen you reaches the feed', a
   // client fell back to a hardcoded `web-team` — an org nobody belongs to. The
   // relay refused the socket and this dot never came on.
   const p = await freshSignIn(email)
-  await p.waitForSelector('.dot.on', { timeout: 25000 })
+  await p.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   await p.screenshot({ path: `${SHOTS}/23-second-browser.png` })
 })
 
@@ -2195,7 +2193,7 @@ await step('an invite reaches someone who already has an account', async () => {
   await c.click('text=Set me up'); await c.waitForSelector('.radio')
   await c.click('.screen-foot .btn-primary:has-text("Next")'); await c.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
   await c.click('text=Open my feed')
-  await c.waitForSelector('.dot.on', { timeout: 25000 })
+  await c.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // Now they are handed a code. They are already signed in, so the place to
   // put it is You → Join a team — which is the surface that did not exist.
@@ -2209,7 +2207,7 @@ await step('an invite reaches someone who already has an account', async () => {
   // Landed in the team: the switcher now lists more than one workspace, and
   // the one they just joined is the one they are in.
   await c.waitForSelector('nav [data-tab="you"]', { timeout: 15000 })
-  await c.waitForSelector('.dot.on', { timeout: 25000 })
+  await c.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   await c.click('nav [data-tab="you"]')
   await c.waitForSelector('.profile-stats', { timeout: 10000 })
   await c.waitForSelector('[data-org][aria-current="true"]', { timeout: 10000 })
@@ -2255,7 +2253,7 @@ await step('a code that is not a code is said out loud, not swallowed', async ()
   if (!said.trim()) throw new Error('a rejected invite code said nothing')
   // And it did not move them anywhere: still the same feed, still connected.
   await page.click('.screen .back')
-  await page.waitForSelector('.dot.on', { timeout: 20000 })
+  await page.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 20000 })
 })
 
 await step('the team screen shows who is here, and Kenji is', async () => {
@@ -2351,7 +2349,7 @@ async function freshAccount(name, email, { start } = {}) {
   await p.click('text=Set me up'); await p.waitForSelector('.radio')
   await p.click('.screen-foot .btn-primary:has-text("Next")'); await p.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
   await p.click('text=Open my feed')
-  await p.waitForSelector('.dot.on', { timeout: 25000 })
+  await p.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   return p
 }
 
@@ -2426,7 +2424,7 @@ await step('an invite link joins someone who is already signed in', async () => 
     .catch(() => { throw new Error('opening an invite link while signed in said nothing') })
   const said = (await d.textContent('.app-toasts .toast')).trim()
   if (!/joined/i.test(said)) throw new Error(`opening the link did not join: ${said}`)
-  await d.waitForSelector('.dot.on', { timeout: 25000 })
+  await d.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   const now = await currentWorkspace(d)
   if (now.count < own.count + 1) throw new Error(`the link added no workspace (${own.count} → ${now.count})`)
   if (!/Honmaru Coffee/.test(now.label)) throw new Error(`the link landed in "${now.label}", not the named team`)
@@ -2518,7 +2516,7 @@ await step('removing someone takes them out of the room, not just the table', as
     was,
     { timeout: 30000 }
   )
-  await joiner.waitForSelector('.dot.on', { timeout: 25000 })
+  await joiner.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   await joiner.screenshot({ path: `${SHOTS}/29-evicted.png` })
   await closeEverything()
 })

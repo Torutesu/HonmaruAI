@@ -12,6 +12,7 @@ import { awaitsPost } from '../utils/automation'
 import { ago } from '../utils/ago'
 import { sourceLabel } from '../utils/automation'
 import { Icon } from './Icon'
+import { Avatar } from './Avatar'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -387,7 +388,9 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             <section className="requested-by">
               <div className="rb-label">{t('Requested By')}</div>
               <div className="rb-row">
-                <span className="avatar" aria-hidden="true">{initials(whoName)}</span>
+                {who?.avatarUrl
+                  ? <Avatar className="avatar" name={whoName} url={who.avatarUrl} size={36} round />
+                  : <span className="avatar" aria-hidden="true">{initials(whoName)}</span>}
                 <div className="rb-who">
                   <strong>{whoName}</strong>
                   <span className="rb-meta">

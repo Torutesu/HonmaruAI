@@ -89,6 +89,7 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     body: deleted ? "" : row.body,
     authorName: row.kind === "ai" ? null : (author?.name || row.author_name || null),
     authorRef: author ? author.ref : null,
+    authorAvatar: author?.avatarUrl || null,
     mine: Boolean(viewerLogin) && row.author_login === viewerLogin,
     cardId: deleted ? null : (row.card_id || null),
     createdAt: row.created_at,
@@ -424,7 +425,7 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   // What others said with a reaction to what you wrote: one entry each, as
   // a notification — who, which, on what.
   const { results: reacted } = await db.prepare(
-    `SELECT r.emoji AS r_emoji, r.created_at AS r_at, ru.name AS r_name, m.*, au.name AS author_name
+    `SELECT r.emoji AS r_emoji, r.created_at AS r_at, ru.name AS r_name, ru.avatar_url AS r_avatar, m.*, au.name AS author_name
        FROM message_reactions r
        JOIN channel_messages m ON m.id = r.message_id AND m.org_id = r.org_id
        LEFT JOIN users ru ON ru.login = r.login
@@ -436,9 +437,9 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   for (const r of reacted || []) {
     const view = viewOf(r.channel, login, members);
     if (!view) continue;
-    const { r_emoji: emoji, r_at: at, r_name: by, ...row } = r;
+    const { r_emoji: emoji, r_at: at, r_name: by, r_avatar: byAvatar, ...row } = r;
     const [message] = await present(db, orgId, [row], login, view, members);
-    out.push({ type: "reaction", message, unread: at > lastRead, at, emoji, by: by || null });
+    out.push({ type: "reaction", message, unread: at > lastRead, at, emoji, by: by || null, byAvatar: byAvatar || null });
   }
   out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
   return { items: out.slice(0, limit), lastRead };

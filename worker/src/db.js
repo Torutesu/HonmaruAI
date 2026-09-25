@@ -226,7 +226,12 @@ export async function upsertUser(db, { githubId, login, name, avatarUrl, locale 
        ON CONFLICT(github_id) DO UPDATE SET
          login = excluded.login,
          name = CASE WHEN users.name_locked = 1 THEN users.name ELSE excluded.name END,
-         avatar_url = excluded.avatar_url,
+         -- A photo the person uploaded here outlives whatever their GitHub
+         -- account says, and an upsert that knows of no photo keeps one.
+         avatar_url = CASE
+           WHEN users.avatar_url LIKE '%/users/avatar/user-avatar-%' THEN users.avatar_url
+           ELSE COALESCE(excluded.avatar_url, users.avatar_url)
+         END,
          locale = COALESCE(?5, users.locale)`
     )
     .bind(String(githubId), login, name || null, avatarUrl || null, known, new Date().toISOString())

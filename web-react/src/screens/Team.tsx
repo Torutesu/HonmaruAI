@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { InviteTeammate } from '../components/InviteTeammate'
+import { Avatar } from '../components/Avatar'
 
 interface Props {
   httpBase: string
@@ -22,6 +23,7 @@ interface Member {
   role: string
   title: string | null
   mine: boolean
+  avatarUrl?: string | null
 }
 
 interface Invite {
@@ -249,7 +251,7 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
         <div className="rows">
           {(members || []).map((m) => (
             <div className="row static team-member" key={m.ref} data-member={m.ref}>
-              <span className="profile-avatar sm">{(m.name || '?')[0]?.toUpperCase() || '?'}</span>
+              <Avatar name={m.name || '?'} url={m.avatarUrl} size={34} round />
               <span className="row-main">
                 {m.name}
                 <span className="row-sub">

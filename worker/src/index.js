@@ -37,6 +37,7 @@ import { handleChannels, broadcastStored } from "./channelRoutes.js";
 import { handleSuggestions } from "./suggest.js";
 import { handleWebhooks } from "./webhooks.js";
 import { handleAgentInvites } from "./agentInvites.js";
+import { handleUserAvatar } from "./userAvatar.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
@@ -179,6 +180,9 @@ async function handle(request, env, url, ctx) {
     // Agents brought in by link.
     const agentJoin = await handleAgentInvites(request, env, url);
     if (agentJoin) return agentJoin;
+    // A person's own photo.
+    const avatar = await handleUserAvatar(request, env, url);
+    if (avatar) return avatar;
     // What to tell your AI, from your own work.
     const suggested = await handleSuggestions(request, env, url);
     if (suggested) return suggested;
@@ -928,6 +932,7 @@ async function handle(request, env, url, ctx) {
         orgId: await primaryOrgId(env.DB, session.github_id),
         name: user.name,
         handle: user.handle || null,
+        avatarUrl: user.avatar_url || null,
         locale: user.locale || "en",
         email: user.email || null,
         // An email account signs in with its address; only a GitHub account

@@ -89,6 +89,7 @@ export async function channelDetails(db, orgId, { resolved, viewer, members, loc
     ref: m.ref,
     name: m.name,
     handle: m.handle || null,
+    avatarUrl: m.avatarUrl || null,
     title: m.title || m.role || null,
     status: m.status || null,
     awayUntil: m.awayUntil || null,
