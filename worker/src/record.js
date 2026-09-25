@@ -12,9 +12,13 @@
 import { loadStore, listBusinesses } from "./db.js";
 import { actionLabel, displayName } from "./notifyCopy.js";
 
-export async function buildRecord(db, orgId, { locale = "en" } = {}) {
+export async function buildRecord(db, orgId, { locale = "en", viewer = null } = {}) {
   const store = await loadStore(db, orgId);
-  const businesses = await listBusinesses(db, orgId);
+  // The channels this reader can see. A private channel's decisions are its
+  // members' (and the two people on each card): nobody else's record.
+  const businesses = await listBusinesses(db, orgId, { viewer });
+  const { results: closed } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND private = 1").bind(orgId).all().catch(() => ({ results: [] }));
+  const hidden = new Set((closed || []).map((r) => r.slug).filter((slug) => !businesses.some((b) => b.slug === slug)));
   const names = new Map(businesses.map((b) => [b.slug, b.name]));
   const sections = new Map();
   const sectionFor = (slug) => {
@@ -28,6 +32,7 @@ export async function buildRecord(db, orgId, { locale = "en" } = {}) {
 
   for (const cards of Object.values(store)) {
     for (const card of cards) {
+      if (card.business && hidden.has(card.business) && viewer !== card.senderUserID && viewer !== card.recipientUserID) continue;
       const section = sectionFor(card.business);
       const local = card.localized?.[locale];
       const entry = {

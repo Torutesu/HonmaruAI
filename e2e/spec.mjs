@@ -111,7 +111,8 @@ async function closeEverything() {
     await open.click().catch(() => {})
     await page.waitForTimeout(300)
   }
-  await page.waitForSelector('.tabbar', { timeout: 10000 })
+  // The feed's tab bar, or on a phone in the list, the list's own.
+  await page.waitForSelector('.tabbar:visible, .cl-tabs:visible', { timeout: 10000 })
 }
 
 /// Mint an invite link from the team screen, and hand back the code inside it.
@@ -500,17 +501,19 @@ await step('the list view shows the same decisions', async () => {
   // Channels are made here, renamed here, deleted here — the way a chat
   // client lets you, not only by the AI filing a card.
   await page.click('.cl-add')
-  await page.waitForSelector('.cl-add-form input', { timeout: 5000 })
+  await page.waitForSelector('.cl-add-form input.cl-input', { timeout: 5000 })
     .catch(() => { throw new Error('the + under Channels opened no box') })
-  await page.fill('.cl-add-form input', 'Suppliers')
+  await page.fill('.cl-add-form input.cl-input', 'Suppliers')
   await page.keyboard.press('Enter')
   await page.waitForSelector('.cl-thread:has-text("Suppliers")', { timeout: 15000 })
     .catch(() => { throw new Error('the new channel did not appear in the list') })
-  // A channel opens as a conversation; its own controls are behind ⋯.
+  // A channel opens as a conversation; its own controls are behind ⋯ —
+  // on a phone, a sheet from the bottom.
   await page.click('.cl-thread:has-text("Suppliers") .cl-open')
   await page.waitForSelector('.slk-head:has-text("Suppliers")', { timeout: 5000 })
     .catch(() => { throw new Error('the channel did not open as a conversation') })
-  await page.click('.slk-more')
+  await page.click('.slk-phone-more')
+  await page.click('[data-sheet="settings"]')
   await page.waitForSelector('.cl-channel-tools', { timeout: 5000 })
   await page.click('.cl-channel-tools button:has-text("Rename")')
   await page.fill('.cl-channel-tools input', 'Suppliers & logistics')
@@ -533,8 +536,9 @@ await step('the list view shows the same decisions', async () => {
   await page.waitForSelector('.slk-head', { timeout: 5000 })
   // The effect that hides it runs after the conversation renders; wait
   // for it rather than read the first frame, which a slow runner catches.
-  await page.waitForSelector('.tabbar', { state: 'hidden', timeout: 5000 })
+  await page.waitForSelector('.cl-tabs', { state: 'hidden', timeout: 5000 })
     .catch(() => { throw new Error('the tab bar sits under a conversation on a phone') })
+  if (await page.isVisible('.tabbar')) throw new Error('the feed’s tab bar shows in the list on a phone')
   if (await page.$('.slk-msg .slk-title')) {
     await page.click('.slk-msg .slk-title >> nth=0')
     await page.waitForSelector('.slk-pane .card', { timeout: 10000 })
@@ -544,7 +548,8 @@ await step('the list view shows the same decisions', async () => {
     await page.click('.slk-back.pane')
   }
   await page.click('.slk-head .slk-back')
-  await page.waitForSelector('.tabbar', { state: 'visible', timeout: 5000 })
+  // Back at the list, its own tabs: Home, DMs, Activity, Later, You.
+  await page.waitForSelector('.cl-tabs', { state: 'visible', timeout: 5000 })
 
   await page.click('.mode-switch button >> nth=0')
   await page.waitForSelector('.feed', { timeout: 10000 })
@@ -2481,6 +2486,82 @@ await step('GitHub is not claimed where it cannot run', async () => {
   await shot('27b-github-connect')
   await page.keyboard.press('Escape')
   await closeEverything()
+})
+
+// On a phone the list is Slack's app: five tabs along the bottom, a long
+// press for what you can do to a message, a picture from the camera roll,
+// a group of three, and a channel only its members can see.
+await step('on a phone the list has tabs, a long press, pictures, groups and private channels', async () => {
+  await closeEverything()
+  if (!mate || !joiner) throw new Error('the teammates this step needs are not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  const aya = joiner
+  await page.goto(`${WEB}#/list`, { waitUntil: 'load' })
+  await page.waitForSelector('.cl-tabs', { timeout: 20000 })
+  // The five places.
+  await page.click('[data-phone-tab="dms"]'); await page.waitForSelector('[data-dms]')
+  await page.click('[data-phone-tab="activity"]'); await page.waitForSelector('.slk-inbox')
+  await page.click('[data-phone-tab="later"]'); await page.waitForSelector('.slk-later-head')
+  await page.click('[data-phone-tab="home"]'); await page.waitForSelector('.slk-sections')
+  await shot('30-phone-tabs')
+
+  // A group of three, from the round button.
+  await page.click('[data-fab]')
+  await page.click('[data-sheet="new-message"]')
+  await page.click('.msheet-person:has-text("Kenji")')
+  await page.click('.msheet-person:has-text("Aya")')
+  await page.click('[data-start]')
+  await page.waitForSelector('.slk-head h1:has-text("Kenji")', { timeout: 10000 })
+  const said = `lunch friday? ${Date.now()}`
+  await page.fill('.slk-composer .slk-input', said)
+  // A picture with it, the way a phone picks one.
+  const art = await browser.newPage({ viewport: { width: 400, height: 250 } })
+  await art.setContent('<div style="width:400px;height:250px;background:#2bac76"></div>')
+  const png = await art.screenshot(); await art.close()
+  await page.setInputFiles('input[data-attach]', [{ name: 'menu.png', mimeType: 'image/png', buffer: png }])
+  await page.waitForSelector('.att-pend[data-upload="done"]', { timeout: 15000 })
+  await page.click('.slk-composer .slk-send[type="submit"]')
+  await page.waitForSelector('.att-pic img', { timeout: 10000 })
+  await shot('31-phone-group')
+
+  // Kenji has it, live, with the picture — and it loads for him.
+  await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+  await kenji.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
+  await kenji.click('.cl-thread[data-view^="g:"] .cl-open')
+  await kenji.waitForSelector(`.slk-text:has-text("${said}")`, { timeout: 15000 })
+  await kenji.waitForFunction(() => { const i = document.querySelector('.att-pic img'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
+
+  // A long press opens the sheet; a reaction from it lands on the message.
+  const mine = page.locator('.slk-msg[id^="msg-"]').last()
+  await mine.click({ button: 'right', position: { x: 200, y: 20 } })
+  await page.waitForSelector('.msheet', { timeout: 5000 })
+  await shot('32-phone-sheet')
+  await page.click('.msheet-reactions button:has-text("👍")')
+  await kenji.waitForSelector('.slk-reaction:has-text("👍")', { timeout: 15000 })
+
+  // Kenji makes a private channel: Aya never sees it, until he adds her.
+  await kenji.click('.slk-back').catch(() => {})
+  await kenji.click('[data-phone-tab="home"]').catch(() => {})
+  await kenji.click('.cl-section button.cl-add')
+  await kenji.fill('.cl-add-form input.cl-input', 'Salaries')
+  await kenji.check('[data-private]')
+  await kenji.click('.cl-add-form button[type="submit"]')
+  await kenji.waitForSelector('.cl-thread[data-view="b:salaries"] .cl-lock', { timeout: 10000 })
+  await aya.goto(`${WEB}#/list`, { waitUntil: 'load' })
+  await aya.waitForSelector('.slk-side .cl-thread', { timeout: 20000 })
+  await aya.waitForTimeout(1500)
+  if (await aya.isVisible('.cl-thread[data-view="b:salaries"]')) throw new Error('a private channel shows to somebody not in it')
+  const peek = await aya.evaluate(async (host) => {
+    const org = localStorage.getItem('orgId'); const token = localStorage.getItem('sessionToken')
+    const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(org)}&channel=b:salaries`, { headers: { 'x-session-token': token } })
+    return r.status
+  }, API)
+  if (peek !== 404) throw new Error(`a private channel answered somebody outside it with ${peek}`)
+  await shot('33-private-channel')
+  await closeEverything()
+  // Back to the cards, where the steps after this one start.
+  await page.click('.mode-switch button >> nth=0')
+  await page.waitForSelector('.feed', { timeout: 10000 })
 })
 
 await step('removing someone takes them out of the room, not just the table', async () => {

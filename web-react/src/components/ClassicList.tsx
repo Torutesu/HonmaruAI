@@ -568,7 +568,7 @@ export const ClassicList: React.FC<Props> = ({
   const row = (thread: Thread) => {
     const on = !activityOpen && !laterOpen && current?.key === thread.key
     return (
-      <li key={thread.key} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}`}>
+      <li key={thread.key} data-view={thread.view} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
           {lead(thread, 'row')}
           <span className="cl-title">{thread.name}</span>

@@ -934,7 +934,7 @@ async function handle(request, env, url, ctx) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       const me = await getUserByGithubId(env.DB, session.github_id);
       const locale = normalizeLocale(url.searchParams.get("locale")) || me?.locale || "en";
-      const record = await buildRecord(env.DB, orgId, { locale });
+      const record = await buildRecord(env.DB, orgId, { locale, viewer: me?.login || null });
       if (url.searchParams.get("format") === "md") {
         return new Response(recordToMarkdown(record, locale), {
           headers: { "content-type": "text/markdown; charset=utf-8", "access-control-allow-origin": "*" },

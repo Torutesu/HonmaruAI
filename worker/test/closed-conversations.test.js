@@ -149,3 +149,17 @@ test("a webhook hears a closed conversation only if the person who made it is in
   // A public channel reaches both.
   expect(await emitMessage(env, ORG, { ...row, id: "m10", channel: "b:cafe" })).toBe(2);
 });
+
+test("a private channel's decisions stay out of the record of anybody outside it", async () => {
+  await call("/businesses", toru, { method: "POST", body: { orgId: ORG, name: "Payroll", private: true, members: [refs.Mika] } });
+  const { saveCard } = await import("../src/db.js");
+  const { buildRecord } = await import("../src/record.js");
+  await saveCard(env.DB, ORG, { id: "pc1", title: "Raise for the barista", status: "pending", senderUserID: "toru", recipientUserID: "mika", business: "payroll", createdAt: new Date().toISOString() });
+  await saveCard(env.DB, ORG, { id: "pc2", title: "New grinder", status: "pending", senderUserID: "toru", recipientUserID: "kenji", business: "cafe", createdAt: new Date().toISOString() });
+  const titles = (r) => r.businesses.flatMap((s) => [...s.open, ...s.decided].map((c) => c.title))
+  const forKenji = await buildRecord(env.DB, ORG, { viewer: "kenji" });
+  expect(titles(forKenji)).toEqual(["New grinder"]);
+  expect(forKenji.businesses.map((s) => s.slug)).not.toContain("payroll");
+  const forMika = await buildRecord(env.DB, ORG, { viewer: "mika" });
+  expect(titles(forMika).sort()).toEqual(["New grinder", "Raise for the barista"]);
+});
