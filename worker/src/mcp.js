@@ -200,7 +200,7 @@ export function findMember(members, who) {
   return partial.length === 1 ? partial[0] : null;
 }
 
-async function callTool(env, agent, name, args, request) {
+async function callTool(env, agent, name, args, request, ctx = null) {
   const db = env.DB;
   switch (name) {
     case "request_decision": {
@@ -244,7 +244,11 @@ async function callTool(env, agent, name, args, request) {
       // deciding reads theirs.
       const shown = await localizeForRecipient(env, agent.orgId, card, { payerGithubId: agent.githubId });
       await announceCards(env, agent.orgId, [shown]);
-      await emitCard(env, agent.orgId, card, "card.created");
+      // Somebody's webhook is somebody else's server: the agent has its
+      // answer without waiting on it.
+      const emitted = emitCard(env, agent.orgId, card, "card.created").catch(() => 0);
+      if (ctx?.waitUntil) ctx.waitUntil(emitted);
+      else await emitted;
       if (anyChannelConfigured(env)) {
         await notifyCard(env, { card: shown, kind: "created", excludeLogin: null, orgId: agent.orgId, payerGithubId: agent.githubId }).catch((err) => console.error("mcp notify failed", safe(err?.message)));
       }
@@ -297,7 +301,7 @@ function rpcError(id, code, message) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
 }
 
-async function handleMessage(env, agent, msg, request) {
+async function handleMessage(env, agent, msg, request, ctx = null) {
   if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
     return rpcError(msg?.id, -32600, "Invalid Request");
   }
@@ -321,7 +325,7 @@ async function handleMessage(env, agent, msg, request) {
       const name = typeof params.name === "string" ? params.name : "";
       const args = params.arguments && typeof params.arguments === "object" ? params.arguments : {};
       try {
-        const out = await callTool(env, agent, name, args, request);
+        const out = await callTool(env, agent, name, args, request, ctx);
         if (!out) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);
         return rpcResult(msg.id, out);
       } catch (err) {
@@ -344,7 +348,7 @@ const MCP_HEADERS = {
 
 /// The whole endpoint. POST only; a GET (the server-to-client stream) is not
 /// offered, which the transport allows.
-export async function handleMcp(request, env) {
+export async function handleMcp(request, env, ctx = null) {
   if (request.method === "GET" || request.method === "DELETE") {
     return new Response(null, { status: 405, headers: { allow: "POST", ...MCP_HEADERS } });
   }
@@ -365,7 +369,7 @@ export async function handleMcp(request, env) {
   const messages = Array.isArray(body) ? body.slice(0, 20) : [body];
   const replies = [];
   for (const msg of messages) {
-    const reply = await handleMessage(env, agent, msg, request);
+    const reply = await handleMessage(env, agent, msg, request, ctx);
     if (reply) replies.push(reply);
   }
   // Only notifications and responses: nothing to answer.

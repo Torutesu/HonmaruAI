@@ -210,7 +210,7 @@ async function handle(request, env, url, ctx) {
     if (suggested) return suggested;
 
     // Routines, the playbook, agent tokens and the MCP endpoint.
-    const automated = await handleAutomation(request, env, url);
+    const automated = await handleAutomation(request, env, url, ctx);
     if (automated) return automated;
 
     // Channels: talking, and turning what was said into a decision through

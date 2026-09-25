@@ -178,4 +178,6 @@ test("the request limit is a person's, not a token's", async () => {
   const refused = await tool(two, "request_decision", { title: "One more" });
   expect(refused.isError).toBe(true);
   expect(refused.content[0].text).toContain("Too many");
-});
+// Thirty-one whole requests, each making a card: half a second on a laptop,
+// and more than the default five on a CI runner shared with other work.
+}, 30000);

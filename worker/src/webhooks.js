@@ -181,8 +181,21 @@ async function nameOf(db, login) {
 }
 
 /// A channel message, created or changed.
+/// Whether any webhook in the workspace wants this event at all — asked
+/// first, so a workspace with none (most) pays one query per event, not the
+/// names, labels and audience an event is built from.
+async function anyoneListens(env, orgId, type) {
+  if (!env?.DB || !orgId) return false;
+  try {
+    return Boolean(await env.DB.prepare("SELECT 1 FROM org_webhooks WHERE org_id = ?1 AND events LIKE ?2 LIMIT 1").bind(orgId, `%"${type}"%`).first());
+  } catch {
+    return false;
+  }
+}
+
 export async function emitMessage(env, orgId, row, { updated = false } = {}) {
   if (!row?.id) return 0;
+  if (!(await anyoneListens(env, orgId, updated ? "message.updated" : "message.created"))) return 0;
   const scope = await scopeOf(env.DB, orgId, row.channel);
   const data = {
     message: {
@@ -202,6 +215,7 @@ export async function emitMessage(env, orgId, row, { updated = false } = {}) {
 /// A decision, made or decided.
 export async function emitCard(env, orgId, card, type) {
   if (!card?.id) return 0;
+  if (!(await anyoneListens(env, orgId, type))) return 0;
   const data = {
     card: {
       id: card.id,
@@ -230,6 +244,7 @@ export async function emitCard(env, orgId, card, type) {
 
 /// A Jam, started or ended.
 export async function emitCall(env, orgId, key, type, extra = {}) {
+  if (!(await anyoneListens(env, orgId, type))) return 0;
   return emitWebhook(env, orgId, type, { call: { channel: await channelLabel(env.DB, orgId, key), ...extra } }, await scopeOf(env.DB, orgId, key));
 }
 
