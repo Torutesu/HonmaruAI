@@ -1,3 +1,4 @@
+import { audienceOf } from "./access.js";
 import { getSession, isMember, getUserByGithubId } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { canRename } from "./orgs.js";
@@ -84,9 +85,14 @@ function shown(row, viewerLogin, names) {
   };
 }
 
-/// Who a DM is between, from its key ("dm:<login>|<login>").
-function dmParticipants(key) {
-  return String(key || "").startsWith("dm:") ? key.slice(3).split("|") : null;
+/// Who a closed conversation is for — a DM's two, a group's people, a
+/// private channel's members — and whether its words are a direct
+/// conversation's, which a webhook hears only when it asked to.
+async function scopeOf(db, orgId, key) {
+  const participants = await audienceOf(db, orgId, key);
+  if (!participants) return {};
+  const k = String(key || "");
+  return { participants, direct: k.startsWith("dm:") || k.startsWith("g:") };
 }
 
 /// Whether the member who made a webhook could see this event.
@@ -161,9 +167,10 @@ export async function emitWebhook(env, orgId, type, data, scope = {}) {
 async function channelLabel(db, orgId, key) {
   if (String(key).startsWith("b:")) {
     const slug = key.slice(2);
-    const row = await db.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first().catch(() => null);
-    return { kind: "channel", slug, name: row?.name || slug };
+    const row = await db.prepare("SELECT name, private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first().catch(() => null);
+    return { kind: "channel", slug, name: row?.name || slug, ...(row?.private ? { private: true } : {}) };
   }
+  if (String(key).startsWith("g:")) return { kind: "group", id: key.slice(2) };
   return { kind: "direct" };
 }
 
@@ -176,7 +183,7 @@ async function nameOf(db, login) {
 /// A channel message, created or changed.
 export async function emitMessage(env, orgId, row, { updated = false } = {}) {
   if (!row?.id) return 0;
-  const participants = dmParticipants(row.channel);
+  const scope = await scopeOf(env.DB, orgId, row.channel);
   const data = {
     message: {
       id: row.id,
@@ -189,8 +196,7 @@ export async function emitMessage(env, orgId, row, { updated = false } = {}) {
       deleted: Boolean(row.deleted_at),
     },
   };
-  return emitWebhook(env, orgId, updated ? "message.updated" : "message.created", data,
-    participants ? { participants, direct: true } : {});
+  return emitWebhook(env, orgId, updated ? "message.updated" : "message.created", data, scope);
 }
 
 /// A decision, made or decided.
@@ -215,16 +221,16 @@ export async function emitCard(env, orgId, card, type) {
       createdAt: card.createdAt || null,
     },
   };
-  // A channel's decision is the channel's; any other is its two people's.
-  const scope = card.business ? {} : { participants: [card.senderUserID, card.recipientUserID].filter(Boolean) };
+  // A public channel's decision is the channel's; a private channel's is
+  // its members' and the two people on it; any other is its two people's.
+  const closed = card.business ? await audienceOf(env.DB, orgId, `b:${card.business}`) : null;
+  const scope = card.business && !closed ? {} : { participants: [...(closed || []), card.senderUserID, card.recipientUserID].filter(Boolean) };
   return emitWebhook(env, orgId, type, data, scope);
 }
 
 /// A Jam, started or ended.
 export async function emitCall(env, orgId, key, type, extra = {}) {
-  const participants = dmParticipants(key);
-  return emitWebhook(env, orgId, type, { call: { channel: await channelLabel(env.DB, orgId, key), ...extra } },
-    participants ? { participants, direct: true } : {});
+  return emitWebhook(env, orgId, type, { call: { channel: await channelLabel(env.DB, orgId, key), ...extra } }, await scopeOf(env.DB, orgId, key));
 }
 
 // ---- The routes ----

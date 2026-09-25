@@ -43,7 +43,7 @@ export async function handleAgentInvites(request, env, url) {
     const code = newCode();
     const now = new Date();
     const expires = new Date(now.getTime() + AGENT_LINK_MINUTES * 60_000);
-    const channels = await channelsOf(env.DB, body.orgId, body.channels);
+    const channels = await channelsOf(env.DB, body.orgId, body.channels, session.github_id);
     await env.DB.prepare(
       "INSERT INTO agent_invites (code_hash, org_id, created_by, channels, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
     ).bind(await sha256Hex(code), body.orgId, String(session.github_id), channels.length ? JSON.stringify(channels) : null, now.toISOString(), expires.toISOString()).run();

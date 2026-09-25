@@ -8,13 +8,13 @@ import {
   getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
   saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
-  registerSubscription, removeSubscription, listBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness, unfileBusiness,
+  registerSubscription, removeSubscription, listBusinesses, hasPrivateBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness, unfileBusiness,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
   loadContexts, saveContext, cleanName, checkHandle, setUserName, setUserHandle, MAX_NAME_CHARS,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
-import { announceCards, evictMember, announceEvents } from "./announce.js";
+import { announceCards, evictMember, announceEvents, announceTo } from "./announce.js";
 import { custom as customEvent } from "./agui/events.js";
 import { contextEvents } from "./agui/adapter.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, inboundTokenFromAddress, userForInboundAddress, inboundAddressFor } from "./connectors/email.js";
@@ -39,6 +39,7 @@ import { handleWebhooks } from "./webhooks.js";
 import { handleAgentInvites } from "./agentInvites.js";
 import { handleUserAvatar } from "./userAvatar.js";
 import { serveFile } from "./files.js";
+import { addMembers, membersOf, isPrivate, mayRead, accessFor } from "./access.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
@@ -101,6 +102,21 @@ export function localeFromRequest(request) {
 function after(ctx, work) {
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work());
   else return work();
+}
+
+/// A channel somebody may rename or delete: any public one, a private one
+/// only from inside.
+async function canTouchChannel(db, orgId, slug, login) {
+  if (!(await isPrivate(db, orgId, slug))) return true;
+  return Boolean(login) && mayRead(`b:${slug}`, await accessFor(db, orgId, login));
+}
+
+/// Tell each of these people their own list of channels again — after a
+/// private channel they are in was made, changed or deleted.
+async function tellMembers(env, orgId, logins) {
+  await announceTo(env, orgId, await Promise.all([...new Set(logins)].map(async (login) => ({
+    to: login, event: customEvent("businesses", { businesses: await listBusinesses(env.DB, orgId, { viewer: login }) }),
+  }))));
 }
 
 async function requireMember(env, request, orgId) {
@@ -620,7 +636,7 @@ async function handle(request, env, url, ctx) {
         // The org's businesses, so the router can file the card under one.
         // From the table, never the client: a slug the router returns must be
         // one the feed can filter by.
-        const businesses = await listBusinesses(env.DB, routeOrgId);
+        const businesses = await listBusinesses(env.DB, routeOrgId, { viewer: session ? (await getUserByGithubId(env.DB, session.github_id))?.login || null : null });
         if (businesses.length) organization = { ...(organization || {}), orgId: routeOrgId, businesses };
         // What the team is carrying and what it decided lately. The router
         // used to see roles and nothing else — "their priorities and current
@@ -824,12 +840,21 @@ async function handle(request, env, url, ctx) {
     // one — from here, or by tagging a card with a name nobody has typed
     // before. `orgId` is a query or body field rather than a path segment
     // because a personal org id is not "owner/repo".
+    // The room is told only the public channels, and whether there are
+    // private ones — a member of one asks again for their own list.
+    const tellRoom = async (orgId) => announceEvents(env, orgId, [customEvent("businesses", {
+      businesses: await listBusinesses(env.DB, orgId), partial: await hasPrivateBusinesses(env.DB, orgId),
+    })]);
+    const viewerLogin = async () => {
+      const s = await getSession(env.DB, request.headers.get("x-session-token"));
+      return s ? (await getUserByGithubId(env.DB, s.github_id))?.login || null : null;
+    };
     if (url.pathname === "/businesses" && request.method === "GET") {
       const orgId = url.searchParams.get("orgId");
       if (!orgId) return json({ message: "orgId is required" }, 400);
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
-      return json({ businesses: await listBusinesses(env.DB, orgId) });
+      return json({ businesses: await listBusinesses(env.DB, orgId, { viewer: await viewerLogin() }) });
     }
     if (url.pathname === "/businesses" && request.method === "POST") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -839,11 +864,28 @@ async function handle(request, env, url, ctx) {
       const denied = await requireMember(env, request, body.orgId);
       if (denied) return denied;
       if (!businessSlug(body.name)) return json({ message: "A business needs a name." }, 400);
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      if (body.private === true) {
+        // A private channel is made, never found: a name already taken —
+        // public or private, seen or not — is somebody else's channel.
+        const slug = businessSlug(body.name);
+        if (await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, slug).first()) {
+          return json({ message: "A channel by that name already exists." }, 409);
+        }
+        const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
+        await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, business.slug).run();
+        const members = await listMembers(env.DB, body.orgId, session.github_id);
+        const refs = Array.isArray(body.members) ? body.members.map(String) : [];
+        const logins = [me.login, ...members.filter((m) => refs.includes(m.ref)).map((m) => m.login)];
+        await addMembers(env.DB, { orgId: body.orgId, key: `b:${business.slug}`, logins, addedBy: me.login });
+        await tellMembers(env, body.orgId, logins);
+        await tellRoom(body.orgId);
+        return json({ business: { ...business, private: true }, businesses: await listBusinesses(env.DB, body.orgId, { viewer: me.login }) });
+      }
       const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
-      const businesses = await listBusinesses(env.DB, body.orgId);
       // Everyone with the workspace open sees the new channel now.
-      await announceEvents(env, body.orgId, [customEvent("businesses", { businesses })]);
-      return json({ business, businesses });
+      await tellRoom(body.orgId);
+      return json({ business, businesses: await listBusinesses(env.DB, body.orgId, { viewer: me?.login || null }) });
     }
     // A channel's new name. Any member: a channel is the team's, like a
     // card is.
@@ -852,26 +894,34 @@ async function handle(request, env, url, ctx) {
       if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
       const denied = await requireMember(env, request, body.orgId);
       if (denied) return denied;
+      const who = await viewerLogin();
+      // A private channel is its members' to rename; to anybody else it is
+      // not there.
+      if (!(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ message: "A channel needs a name, and this one must exist." }, 400);
       const renamed = await renameBusiness(env.DB, body.orgId, String(body.slug), body.name);
       if (!renamed) return json({ message: "A channel needs a name, and this one must exist." }, 400);
-      const businesses = await listBusinesses(env.DB, body.orgId);
-      await announceEvents(env, body.orgId, [customEvent("businesses", { businesses })]);
-      return json({ business: renamed, businesses });
+      await tellRoom(body.orgId);
+      return json({ business: renamed, businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }) });
     }
     if (url.pathname === "/businesses" && request.method === "DELETE") {
       const body = await request.json().catch(() => ({}));
       if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
       const denied = await requireMember(env, request, body.orgId);
       if (denied) return denied;
+      const who = await viewerLogin();
+      if (!(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
+      const wasPrivate = await isPrivate(env.DB, body.orgId, String(body.slug));
+      const insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
       // Deleting a channel empties it: its cards are unfiled (the decisions
       // themselves stay), so nothing keeps the channel alive in a list.
       // Filing a card under the name again brings the channel back.
       await removeBusiness(env.DB, body.orgId, body.slug);
+      await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = ?2").bind(body.orgId, `b:${body.slug}`).run();
       const unfiled = await unfileBusiness(env.DB, body.orgId, String(body.slug));
-      const businesses = await listBusinesses(env.DB, body.orgId);
-      await announceEvents(env, body.orgId, [customEvent("businesses", { businesses })]);
+      await tellRoom(body.orgId);
+      if (wasPrivate) await tellMembers(env, body.orgId, insiders);
       if (unfiled.length) await announceCards(env, body.orgId, unfiled, { isNew: false });
-      return json({ businesses, unfiled: unfiled.length });
+      return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: unfiled.length });
     }
 
     // The record: every decision, per business, as it stands right now.

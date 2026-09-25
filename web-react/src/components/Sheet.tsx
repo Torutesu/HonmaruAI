@@ -142,7 +142,10 @@ export const PeoplePicker: React.FC<{
   onStart: (refs: string[]) => void
   /// How many others a conversation may hold; one when groups are not wanted.
   max?: number
-}> = ({ members, onClose, onStart, max = 8 }) => {
+  /// For another use of the same picker: adding people to a channel.
+  title?: string
+  go?: string
+}> = ({ members, onClose, onStart, max = 8, title, go }) => {
   const t = useT()
   const [q, setQ] = React.useState('')
   const [picked, setPicked] = React.useState<string[]>([])
@@ -151,8 +154,8 @@ export const PeoplePicker: React.FC<{
   const toggle = (ref: string) => setPicked((p) => (p.includes(ref) ? p.filter((x) => x !== ref) : p.length >= max ? p : [...p, ref]))
   const nameOf = (ref: string) => members.find((m) => m.ref === ref)?.name || ''
   return (
-    <Sheet label={t('New message')} onClose={onClose} className="people">
-      <p className="msheet-title">{t('New message')}</p>
+    <Sheet label={title || t('New message')} onClose={onClose} className="people">
+      <p className="msheet-title">{title || t('New message')}</p>
       <label className="msheet-search">
         <Icon name="search" size={16} />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Find somebody')} aria-label={t('Find somebody')} />
@@ -177,7 +180,7 @@ export const PeoplePicker: React.FC<{
         ))}
       </div>
       <button type="button" className="msheet-go" disabled={!picked.length} onClick={() => onStart(picked)} data-start="1">
-        {picked.length > 1 ? t('Start a group of {n}', { n: picked.length + 1 }) : t('Start')}
+        {go || (picked.length > 1 ? t('Start a group of {n}', { n: picked.length + 1 }) : t('Start'))}
       </button>
     </Sheet>
   )

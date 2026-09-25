@@ -2,6 +2,7 @@ import { listMembers } from "./team.js";
 import { businessSlug } from "./db.js";
 import { resolveMentions } from "./threads.js";
 import { filesFor, toFile } from "./files.js";
+import { accessFor, mayRead, membersOf, isGroupKey } from "./access.js";
 
 // Channels you can talk in.
 //
@@ -13,11 +14,13 @@ import { filesFor, toFile } from "./files.js";
 // a decision on request: "@AI" in it, or one click on it. Whatever was said
 // around it goes in as the context the card is written from.
 //
-// Two kinds of channel. A business's (`b:<slug>`): the whole workspace
-// reads it. A direct conversation (`dm:<a>|<b>`, logins sorted): only the
-// two people in it, and a browser names it by the other person's member
-// handle — `dm:<ref>` — never by a login, which is an email address for
-// most people.
+// Three kinds of channel. A business's (`b:<slug>`): the whole workspace
+// reads it — unless it is private, when only its members do. A direct
+// conversation (`dm:<a>|<b>`, logins sorted): only the two people in it,
+// and a browser names it by the other person's member handle — `dm:<ref>`
+// — never by a login, which is an email address for most people. A group
+// DM (`g:<id>`): the three to nine people listed for it. Who may read which
+// is access.js's to say.
 
 export const MAX_MESSAGE_CHARS = 4000;
 const PAGE = 150;
@@ -42,7 +45,19 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
   if (channel.startsWith("b:")) {
     const slug = channel.slice(2);
     if (!slug || businessSlug(slug) !== slug) return null;
-    return { key: channel, kind: "business", slug };
+    const row = await db.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first().catch(() => null);
+    if (!row?.private) return { key: channel, kind: "business", slug };
+    // A private channel: its members, and for anybody else nothing — not
+    // even that it is there.
+    const logins = await membersOf(db, orgId, channel);
+    if (!logins.includes(viewer.login)) return null;
+    return { key: channel, kind: "business", slug, private: true, logins };
+  }
+  if (isGroupKey(channel)) {
+    const logins = await membersOf(db, orgId, channel);
+    if (!logins.includes(viewer.login)) return null;
+    const list = members || await listMembers(db, orgId, viewer.github_id);
+    return { key: channel, kind: "group", logins, others: list.filter((m) => logins.includes(m.login) && m.login !== viewer.login) };
   }
   if (channel.startsWith("dm:")) {
     const ref = channel.slice(3).replace(/^member:/, "");
@@ -55,8 +70,11 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
 }
 
 /// A stored key as one viewer names it, or null when it is not theirs to see.
-export function viewOf(key, viewerLogin, members) {
-  if (key.startsWith("b:")) return key;
+/// `access` (access.js's accessFor, for this viewer) is what decides a
+/// private channel or a group; without it the caller vouches that the
+/// viewer is one of the conversation's people — a broadcast to its members.
+export function viewOf(key, viewerLogin, members, access = null) {
+  if (key.startsWith("b:") || key.startsWith("g:")) return !access || mayRead(key, access) ? key : null;
   if (!key.startsWith("dm:")) return null;
   const [a, b] = key.slice(3).split("|");
   if (viewerLogin !== a && viewerLogin !== b) return null;
@@ -322,7 +340,10 @@ export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24 } =
 /// about that business: "Ask anything" on its cards, routines about it.
 export async function recentBusinessTalk(db, orgId, slugs, { since, limit = 30 } = {}) {
   const keys = [...new Set((slugs || []).filter(Boolean))].slice(0, 20).map((s) => `b:${s}`);
-  const where = keys.length ? `AND m.channel IN (${keys.map((_, i) => `?${i + 3}`).join(", ")})` : "AND m.channel LIKE 'b:%'";
+  const where = (keys.length ? `AND m.channel IN (${keys.map((_, i) => `?${i + 3}`).join(", ")})` : "AND m.channel LIKE 'b:%'")
+    // What a private channel said stays in it: this feeds the AI's answers
+    // on cards and routines anyone in the workspace may read.
+    + " AND NOT EXISTS (SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1)";
   const { results } = await db
     .prepare(
       `SELECT m.channel, m.kind, m.body, m.created_at, u.name AS author_name FROM channel_messages m
@@ -356,9 +377,10 @@ export async function channelActivity(db, orgId, viewerLogin, members) {
     )
     .bind(orgId)
     .all();
+  const access = await accessFor(db, orgId, viewerLogin);
   const out = [];
   for (const r of results || []) {
-    const view = viewOf(r.channel, viewerLogin, members);
+    const view = viewOf(r.channel, viewerLogin, members, access);
     if (!view) continue;
     out.push({
       channel: view,
@@ -387,16 +409,24 @@ export async function markRead(db, orgId, login, key, at) {
 export async function readsFor(db, orgId, login, members) {
   const { results } = await db.prepare("SELECT channel, last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2")
     .bind(orgId, login).all();
+  const access = await accessFor(db, orgId, login);
   const out = {};
   for (const r of results || []) {
-    const view = r.channel === "activity" ? "activity" : viewOf(r.channel, login, members);
+    const view = r.channel === "activity" ? "activity" : viewOf(r.channel, login, members, access);
     if (view) out[view] = r.last_read_at;
   }
   return out;
 }
 
-/// Where this person can read: every business channel, and their own DMs.
-const VISIBLE = "(m.channel LIKE 'b:%' OR m.channel LIKE 'dm:' || ?2 || '|%' OR m.channel LIKE 'dm:%|' || ?2)";
+/// Where this person can read: every public channel and the private ones
+/// they are in, their own DMs, and their group DMs. (`?1` the workspace,
+/// `?2` the login.) viewOf with their access checks each row again.
+const VISIBLE = `(
+  (m.channel LIKE 'b:%' AND NOT EXISTS (
+     SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1
+        AND NOT EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)))
+  OR m.channel LIKE 'dm:' || ?2 || '|%' OR m.channel LIKE 'dm:%|' || ?2
+  OR (m.channel LIKE 'g:%' AND EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)))`;
 
 /// The Activity inbox: messages that name you, and replies in threads you
 /// started or answered in — the last 30 days, newest first.
@@ -425,9 +455,10 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
     if (picked.length >= limit) break;
   }
   const lastRead = read?.last_read_at || "";
+  const access = await accessFor(db, orgId, login);
   const out = [];
   for (const { row, type } of picked) {
-    const view = viewOf(row.channel, login, members);
+    const view = viewOf(row.channel, login, members, access);
     if (!view) continue;
     const [message] = await present(db, orgId, [row], login, view, members);
     out.push({ type, message, unread: row.created_at > lastRead, at: row.created_at });
@@ -445,7 +476,7 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
       ORDER BY r.created_at DESC LIMIT ?4`
   ).bind(orgId, login, since, limit).all().catch(() => ({ results: [] }));
   for (const r of reacted || []) {
-    const view = viewOf(r.channel, login, members);
+    const view = viewOf(r.channel, login, members, access);
     if (!view) continue;
     const { r_emoji: emoji, r_at: at, r_name: by, r_avatar: byAvatar, ...row } = r;
     const [message] = await present(db, orgId, [row], login, view, members);
@@ -490,9 +521,10 @@ export async function searchMessages(db, orgId, login, members, raw, { limit = 3
       WHERE ${where.join(" AND ")} ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(50, limit))}`
   ).bind(...binds).all();
   const rows = results || [];
+  const access = await accessFor(db, orgId, login);
   const out = [];
   for (const r of rows) {
-    const view = viewOf(r.channel, login, members);
+    const view = viewOf(r.channel, login, members, access);
     if (!view) continue;
     const [message] = await present(db, orgId, [r], login, view, members);
     out.push(message);

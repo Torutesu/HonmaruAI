@@ -1,5 +1,6 @@
 import { listMembers } from "./team.js";
 import { resolveChannel, viewOf, postMessage, present, MAX_MESSAGE_CHARS } from "./channels.js";
+import { audienceOf as closedAudience, accessFor } from "./access.js";
 import { custom as customEvent } from "./agui/events.js";
 import { getUserByGithubId } from "./db.js";
 import { serverText } from "./serverCopy.js";
@@ -105,16 +106,14 @@ export function jamState(peers, members, meta) {
   };
 }
 
-/// The people who can see a stored channel key: everyone, or the two.
-function audienceOf(key) {
-  if (key.startsWith("b:")) return null;
-  return key.slice(3).split("|");
-}
+/// The people who can see a stored channel key: everyone (null), or the
+/// DM's two, a group's people, a private channel's members.
+const audienceOf = (relay, orgId, key) => closedAudience(relay.db, orgId, key);
 
 async function announceState(relay, orgId, key, members, exclude) {
   const meta = await relay.state.storage.get(STORE(orgId, key));
   const state = jamState(jamPeers(relay.state.getWebSockets(), orgId, key, exclude), members, meta);
-  const logins = audienceOf(key);
+  const logins = await audienceOf(relay, orgId, key);
   if (!logins) {
     relay.broadcast(orgId, customEvent("jam_state", { channel: key, ...state }), exclude);
     return state;
@@ -130,7 +129,7 @@ async function announceState(relay, orgId, key, members, exclude) {
 async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
   const out = await postMessage(relay.db, { orgId, key, authorLogin: null, body, kind: "ai", parentId });
   if (!out.row) return null;
-  const logins = audienceOf(key);
+  const logins = await audienceOf(relay, orgId, key);
   if (!logins) {
     const [message] = await present(relay.db, orgId, [out.row], null, key, members);
     relay.broadcast(orgId, customEvent("channel_message", { message }));
@@ -147,8 +146,8 @@ async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
 
 /// An event for everyone who can see a stored channel key, each in their
 /// own terms: `make(view)` builds it for the name they give the channel.
-function tellAudience(relay, orgId, key, members, make, exclude) {
-  const logins = audienceOf(key);
+async function tellAudience(relay, orgId, key, members, make, exclude) {
+  const logins = await audienceOf(relay, orgId, key);
   if (!logins) { relay.broadcast(orgId, make(key), exclude); return; }
   for (const login of logins) {
     const view = viewOf(key, login, members);
@@ -219,9 +218,10 @@ export async function jamStatesFor(relay, orgId, login, githubId) {
   }
   if (!keys.size) return [];
   const members = await listMembers(relay.db, orgId, githubId);
+  const access = await accessFor(relay.db, orgId, login);
   const out = [];
   for (const key of keys) {
-    const view = viewOf(key, login, members);
+    const view = viewOf(key, login, members, access);
     if (!view) continue;
     const meta = await relay.state.storage.get(STORE(orgId, key));
     out.push(customEvent("jam_state", { channel: view, ...jamState(jamPeers(relay.state.getWebSockets(), orgId, key), members, meta) }));
@@ -275,7 +275,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     if (!att.jam || !REACTION.test(emoji)) return;
     const members = await listMembers(relay.db, orgId, att.githubId);
     const name = members.find((m) => m.login === att.userId)?.name || "";
-    tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_reaction", { channel: view, peerId: att.jam.peerId, name, emoji, at: new Date().toISOString() }));
+    await tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_reaction", { channel: view, peerId: att.jam.peerId, name, emoji, at: new Date().toISOString() }));
     return;
   }
 
@@ -297,7 +297,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
         await relay.state.storage.put(storeKey, meta);
       }
     }
-    tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_transcript", {
+    await tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_transcript", {
       channel: view, peerId: att.jam.peerId, ref: me?.ref || null, name: me?.name || "", text, final, at,
     }));
     return;

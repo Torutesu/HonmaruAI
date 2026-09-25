@@ -125,6 +125,9 @@ export interface Proposal {
 export interface Business {
   slug: string
   name: string
+  /// Only its members see it; how many there are.
+  private?: boolean
+  memberCount?: number
 }
 
 export interface AppState {

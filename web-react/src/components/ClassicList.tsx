@@ -67,7 +67,7 @@ interface Props {
   /// Channels are the team's businesses: made, renamed and deleted here,
   /// the way a chat client lets you. Each returns what went wrong, if
   /// anything, as a sentence.
-  onCreateChannel: (name: string) => Promise<string | null>
+  onCreateChannel: (name: string, opts?: { private?: boolean }) => Promise<string | null>
   onRenameChannel: (slug: string, name: string) => Promise<string | null>
   onDeleteChannel: (slug: string) => Promise<string | null>
   /// Another screen: the team to invite, tools to connect, you.
@@ -77,7 +77,13 @@ interface Props {
 /// One conversation in the sidebar: a channel (a business), a person, or an app.
 interface Thread {
   key: string
-  kind: 'channel' | 'person' | 'app'
+  /// A group is a DM with several people (`g:<id>`).
+  kind: 'channel' | 'person' | 'group' | 'app'
+  /// A group's people besides you, by ref.
+  refs?: string[]
+  /// A channel only its members see.
+  private?: boolean
+  memberCount?: number
   name: string
   /// The login a presence event names — only a person has one.
   login?: string
@@ -195,6 +201,11 @@ export const ClassicList: React.FC<Props> = ({
   // The team, and what has been said where: loaded once, kept current by
   // the relay's channel events.
   const [members, setMembers] = useState<Member[]>([])
+  // Group DMs you are in, and who else is in each.
+  const [groups, setGroups] = useState<Array<{ view: string; refs: string[] }>>([])
+  const groupsRef = useRef(groups)
+  groupsRef.current = groups
+  const [channelsTick, setChannelsTick] = useState(0)
   const [activity, setActivity] = useState<Record<string, Activity>>({})
   const [seenTick, setSeenTick] = useState(0)
   // How loud each conversation may be: all (the default), mentions, mute.
@@ -215,13 +226,23 @@ export const ClassicList: React.FC<Props> = ({
       .then((data) => {
         if (ignore || !data) return
         setMembers(data.members || [])
+        setGroups(data.groups || [])
         setActivity(Object.fromEntries((data.activity || []).map((a: Activity) => [a.channel, a])))
         setServerReads(data.reads || {})
         setPrefs(data.prefs || {})
       })
       .catch(() => { /* the list still shows every decision */ })
     return () => { ignore = true }
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, channelsTick])
+  // A group somebody just started with you.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const g = (e as CustomEvent<{ view: string; refs: string[] }>).detail
+      if (g?.view) setGroups((prev) => (prev.some((x) => x.view === g.view) ? prev : [...prev, g]))
+    }
+    window.addEventListener('honmaru:channel-group', on)
+    return () => window.removeEventListener('honmaru:channel-group', on)
+  }, [])
 
   // Which login is which member, for the logins this browser already holds.
   const [hashes, setHashes] = useState<Map<string, string>>(new Map())
@@ -263,7 +284,10 @@ export const ClassicList: React.FC<Props> = ({
     for (const c of cards) if (c.business) bySlug.set(c.business, [...(bySlug.get(c.business) || []), c])
     const slugs = [...businesses.map((b) => b.slug), ...[...bySlug.keys()].filter((s) => !businesses.some((b) => b.slug === s))]
     const channels = slugs
-      .map((slug) => build('channel', `channel:${slug}`, nameOfBusiness(slug), { slug, view: `b:${slug}` }, bySlug.get(slug) || [], true))
+      .map((slug) => {
+        const b = businesses.find((x) => x.slug === slug)
+        return build('channel', `channel:${slug}`, nameOfBusiness(slug), { slug, view: `b:${slug}`, private: Boolean(b?.private), memberCount: b?.memberCount }, bySlug.get(slug) || [], true)
+      })
       .filter((x): x is Thread => x !== null)
       .map(withTalk)
 
@@ -299,8 +323,11 @@ export const ClassicList: React.FC<Props> = ({
       .filter(([login]) => !claimed.has(login))
       .map(([login, own]) => build('person', `person:${login}`, personName(login, own), { login }, own))
       .filter((x): x is Thread => x !== null)
+    // Group DMs, named by their people, as a chat client names them.
+    const nameOfRef = (ref: string) => members.find((m) => m.ref === ref)?.name || t('a teammate')
+    const grouped = groups.map((g) => withTalk(build('group', `group:${g.view}`, g.refs.map(nameOfRef).join(', '), { view: g.view, refs: g.refs }, [], true)!))
     const latestOf = (th: Thread) => [th.lastAt || '', th.latest ? stamp(th.latest) : ''].sort().pop() || ''
-    const people = [...teammates, ...former]
+    const people = [...teammates, ...grouped, ...former]
       .sort((a, b) => (b.unread + (b.fresh ? 1 : 0) > 0 ? 1 : 0) - (a.unread + (a.fresh ? 1 : 0) > 0 ? 1 : 0)
         || latestOf(b).localeCompare(latestOf(a)) || a.name.localeCompare(b.name))
 
@@ -315,7 +342,7 @@ export const ClassicList: React.FC<Props> = ({
 
     return { channels, people, apps }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads, prefs])
+  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads, prefs, groups])
 
   const everything = useMemo(() => [...channels, ...people, ...apps], [channels, people, apps])
 
@@ -414,6 +441,7 @@ export const ClassicList: React.FC<Props> = ({
   // Making a channel, renaming one: the box, its text, and what went wrong.
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newPrivate, setNewPrivate] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
   const [busy, setBusy] = useState(false)
@@ -425,10 +453,10 @@ export const ClassicList: React.FC<Props> = ({
     const name = newName.trim()
     if (!name || busy) return
     setBusy(true); setProblem(null)
-    const err = await onCreateChannel(name)
+    const err = await onCreateChannel(name, { private: newPrivate })
     setBusy(false)
     if (err) { setProblem(err); return }
-    setNewName(''); setAdding(false)
+    setNewName(''); setAdding(false); setNewPrivate(false)
   }
   const renameChannel = async (slug: string) => {
     const name = renameTo.trim()
@@ -506,7 +534,20 @@ export const ClassicList: React.FC<Props> = ({
 
   const lead = (thread: Thread, size: 'row' | 'head') => {
     const online = thread.login ? presence[thread.login] === 'online' : false
-    if (thread.kind === 'channel') return <span className={`cl-lead cl-hash sz-${size}`} aria-hidden="true">#</span>
+    if (thread.kind === 'channel') {
+      return thread.private
+        ? <span className={`cl-lead cl-hash cl-lock sz-${size}`} aria-hidden="true"><Icon name="lock" size={size === 'head' ? 16 : 13} /></span>
+        : <span className={`cl-lead cl-hash sz-${size}`} aria-hidden="true">#</span>
+    }
+    if (thread.kind === 'group') {
+      const faces = (thread.refs || []).slice(0, 2).map((r) => memberByRef(r))
+      return (
+        <span className={`cl-lead cl-group sz-${size}`} aria-hidden="true">
+          {faces.map((m, i) => <Avatar key={i} name={m?.name || '?'} url={m?.avatarUrl} size={size === 'head' ? 22 : 15} />)}
+          <b>{(thread.refs || []).length + 1}</b>
+        </span>
+      )
+    }
     if (thread.kind === 'person') {
       return (
         <span className={`cl-lead cl-avatar has-face sz-${size}`} aria-hidden="true">
@@ -586,6 +627,10 @@ export const ClassicList: React.FC<Props> = ({
         disabled={busy}
       />
       <button type="submit" className="cl-nudge" disabled={busy || !newName.trim()}>{busy ? t('Creating…') : t('Create')}</button>
+      <label className="cl-private-toggle" title={t('Only the people you add can see a private channel.')}>
+        <input type="checkbox" checked={newPrivate} onChange={(e) => setNewPrivate(e.target.checked)} data-private="1" />
+        <Icon name="lock" size={12} />{t('Private')}
+      </label>
     </form>
   ) : null
 
@@ -701,6 +746,7 @@ export const ClassicList: React.FC<Props> = ({
         if (m.kind === 'ai') setThinking((prev) => ({ ...prev, [m.channel]: false }))
         return
       }
+      if (m.channel.startsWith('g:') && !groupsRef.current.some((g) => g.view === m.channel)) setChannelsTick((n) => n + 1)
       let isNew = false
       setMessages((prev) => {
         const list = prev[m.channel]
@@ -1178,7 +1224,7 @@ export const ClassicList: React.FC<Props> = ({
         const mineRef = membersRef.current.find((m) => m.mine)?.ref
         const caller = state.participants?.[0]
         const fresh = state.startedAt && Date.now() - Date.parse(state.startedAt) < 45_000
-        const shouldRing = state.active && String(value.channel).startsWith('dm:') && state.participants.length === 1
+        const shouldRing = state.active && /^(dm|g):/.test(String(value.channel)) && state.participants.length === 1
           && caller && caller.ref !== mineRef && fresh && !callRef.current && !declined.current.has(`${value.channel}:${state.startedAt}`)
         if (shouldRing) {
           setRinging({ channel: value.channel, name: caller.name, avatarUrl: caller.avatarUrl || null })
@@ -1697,6 +1743,9 @@ export const ClassicList: React.FC<Props> = ({
     )
   }
 
+  /// How many people a conversation has: a public channel is everyone.
+  const headCount = (th: Thread) => th.kind === 'group' ? (th.refs || []).length + 1
+    : th.kind === 'channel' ? (th.private ? (th.memberCount || 1) : members.length) : 2
   const conversation = (thread: Thread) => {
     const said = thread.view ? (messages[thread.view] || []) : []
     // A card the AI announced sits under its announcement, not twice.
@@ -1782,7 +1831,7 @@ export const ClassicList: React.FC<Props> = ({
                 </h1>
               : <h1>{thread.name}</h1>}
             <p>
-              {!wide && thread.kind === 'channel' && <>{t('{n} members', { n: members.length })} · </>}
+              {!wide && (thread.kind === 'channel' || thread.kind === 'group') && <>{t('{n} members', { n: headCount(thread) })} · </>}
               {thread.cards.length ? t('{n} decisions', { n: thread.cards.length }) : t('No decisions here yet.')}
               {waitingHere > 0 && <> · <b>{t('{n} waiting on you', { n: waitingHere })}</b></>}
             </p>
@@ -1811,9 +1860,9 @@ export const ClassicList: React.FC<Props> = ({
                 type="button"
                 className={`slk-head-btn slk-members-button${side?.kind === 'details' && side.tab === 'members' ? ' on' : ''}`}
                 onClick={() => openSide({ kind: 'details', tab: 'members' })}
-                aria-label={t('Members ({n})', { n: thread.kind === 'channel' ? members.length : 2 })} title={t('Members')}
+                aria-label={t('Members ({n})', { n: headCount(thread) })} title={t('Members')}
               >
-                <Icon name="you" size={14} /><span>{thread.kind === 'channel' ? members.length : 2}</span>
+                <Icon name="you" size={14} /><span>{headCount(thread)}</span>
               </button>
               {thread.kind !== 'app' && (
                 <JamButton
@@ -1916,6 +1965,8 @@ export const ClassicList: React.FC<Props> = ({
                   ))}
                 </span>
                 <button type="button" className="cl-nudge" onClick={() => void dailySummary(thread)}>{t('Daily summary to me')}</button>
+                {thread.private && <button type="button" className="cl-nudge" onClick={() => setAddingTo(thread.view!)} data-add-people="1">{t('Add people')}</button>}
+                {thread.private && <button type="button" className="cl-nudge" onClick={() => void leaveChannel(thread)} data-leave="1">{t('Leave channel')}</button>}
                 <button type="button" className="cl-nudge" onClick={() => { setRenaming(thread.slug!); setRenameTo(thread.name) }}>{t('Rename')}</button>
                 <button type="button" className="cl-nudge cl-danger" onClick={() => void deleteChannel(thread)}>{t('Delete channel')}</button>
               </>
@@ -2203,7 +2254,9 @@ export const ClassicList: React.FC<Props> = ({
                 <button type="button" className={`cl-dm${th.unread || th.fresh ? ' unread' : ''}`} onClick={() => choose(th.key)}>
                   {th.app === 'ai'
                     ? <span className="cl-dm-face app" aria-hidden="true"><img src="/icon.svg" alt="" width={40} height={40} /></span>
-                    : <span className="cl-dm-face" aria-hidden="true"><Avatar name={th.name} url={face?.avatarUrl} size={40} /></span>}
+                    : th.kind === 'group'
+                      ? <span className="cl-dm-face group" aria-hidden="true">{lead(th, 'head')}</span>
+                      : <span className="cl-dm-face" aria-hidden="true"><Avatar name={th.name} url={face?.avatarUrl} size={40} /></span>}
                   <span className="cl-dm-main">
                     <span className="cl-dm-line"><b>{th.name}</b>{at && <time dateTime={at}>{when(at)}</time>}</span>
                     <span className="cl-dm-said">{said}</span>
@@ -2222,11 +2275,43 @@ export const ClassicList: React.FC<Props> = ({
   const tabOn = (which: 'home' | 'dms' | 'activity' | 'later') => (activityOpen ? 'activity' : laterOpen ? 'later' : phoneTab) === which
   const openLater = () => { setOpenKey(null); setActivityOpen(false); setLaterOpen(true); void loadLater() }
   /// Somebody to write to, from "New message": one person is a DM.
-  const startWith = (refs: string[]) => {
+  const startWith = async (refs: string[]) => {
     setStarting(null)
-    if (refs.length !== 1) return
-    const th = people.find((x) => x.view === `dm:${refs[0]}`)
-    if (th) choose(th.key)
+    if (refs.length === 1) {
+      const th = people.find((x) => x.view === `dm:${refs[0]}`)
+      if (th) choose(th.key)
+      return
+    }
+    const res = await fetch(`${api.httpBase}/channels/groups`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, refs }),
+    }).catch(() => null)
+    const data = res ? await res.json().catch(() => null) : null
+    if (!res?.ok || !data?.view) { setProblem(data?.message || t('That did not work. Try again.')); return }
+    setGroups((prev) => (prev.some((g) => g.view === data.view) ? prev : [...prev, { view: data.view, refs: data.refs || refs }]))
+    setPhoneTab('dms')
+    choose(`group:${data.view}`)
+  }
+  /// A private channel's people: bring somebody in, or leave.
+  const [addingTo, setAddingTo] = useState<string | null>(null)
+  const addToChannel = async (view: string, refs: string[]) => {
+    setAddingTo(null)
+    const res = await fetch(`${api.httpBase}/channels/members`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel: view, refs }),
+    }).catch(() => null)
+    if (!res?.ok) { setProblem(t('That did not work. Try again.')); return }
+    window.dispatchEvent(new Event('honmaru:reload-businesses'))
+  }
+  const leaveChannel = async (th: Thread) => {
+    if (!th.view || !window.confirm(t('Leave #{name}? You will need somebody inside to add you again.', { name: th.name }))) return
+    const res = await fetch(`${api.httpBase}/channels/members`, {
+      method: 'DELETE', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel: th.view }),
+    }).catch(() => null)
+    if (!res?.ok) { setProblem(t('That did not work. Try again.')); return }
+    choose(null)
+    window.dispatchEvent(new Event('honmaru:reload-businesses'))
   }
 
   return (
@@ -2353,19 +2438,31 @@ export const ClassicList: React.FC<Props> = ({
           onStart={startWith}
         />
       )}
+      {addingTo && (
+        <PeoplePicker
+          members={members.filter((m) => !m.mine)}
+          onClose={() => setAddingTo(null)}
+          onStart={(refs) => void addToChannel(addingTo, refs)}
+          max={50}
+          title={t('Add people')}
+          go={t('Add')}
+        />
+      )}
       {convSheet && current?.view && (() => {
         const th = current
         const close = (fn: () => void) => () => { setConvSheet(false); fn() }
         return (
           <Sheet label={th.name} onClose={() => setConvSheet(false)}>
-            <p className="msheet-title">{th.kind === 'channel' ? `#${th.name}` : th.name}</p>
+            <p className="msheet-title">{th.kind === 'channel' && !th.private ? `#${th.name}` : th.name}</p>
             <div className="msheet-rows">
-              {th.kind === 'channel' && <SheetRow icon="users" label={t('Members')} hint={String(members.length)} onClick={close(() => openSide({ kind: 'details', tab: 'members' }))} data="members" />}
+              {(th.kind === 'channel' || th.kind === 'group') && <SheetRow icon="users" label={t('Members')} hint={String(headCount(th))} onClick={close(() => openSide({ kind: 'details', tab: 'members' }))} data="members" />}
               {th.kind === 'person' && <SheetRow icon="you" label={t('Profile')} onClick={close(() => void openProfile(th.view!.slice(3)))} data="profile" />}
               <SheetRow icon="book" label={t('Context')} onClick={close(() => openSide({ kind: 'journal' }))} data="context" />
               <SheetRow icon="pin" label={t('Pinned messages')} onClick={close(() => void loadPins(th.view!))} data="pins" />
               {th.kind === 'channel' && <SheetRow icon="repeat" label={t('Automations')} hint={String(automationCount[th.view!] ?? 0)} onClick={close(() => openSide({ kind: 'details', tab: 'automations' }))} data="automations" />}
               {th.kind === 'channel' && th.slug && <SheetRow icon="settings" label={t('Channel settings')} onClick={close(() => { setSettings(true); setRenaming(null) })} data="settings" />}
+              {th.private && <SheetRow icon="invite" label={t('Add people')} onClick={close(() => setAddingTo(th.view!))} data="add-people" />}
+              {th.private && <SheetRow icon="x" label={t('Leave channel')} onClick={close(() => void leaveChannel(th))} danger data="leave" />}
             </div>
           </Sheet>
         )
@@ -2457,7 +2554,7 @@ export const ClassicList: React.FC<Props> = ({
               level={prefs[current.view] || 'all'}
               onLevel={(lv) => void setPref(current.view!, lv)}
               onSettings={current.kind === 'channel' && current.slug ? () => { setSettings(true); setRenaming(null) } : null}
-              onInvite={() => setInviting('people')}
+              onInvite={() => (current.private ? setAddingTo(current.view!) : setInviting('people'))}
               onProfile={(ref) => void openProfile(ref)}
               onJump={(id) => void goToCite(current.view!, { id, parentId: null, at: '' })}
               onCounts={(n) => setAutomationCount((prev) => ({ ...prev, [current.view!]: n.automations }))}

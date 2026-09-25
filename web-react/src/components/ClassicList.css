@@ -1144,3 +1144,17 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 @media (min-width: 720px) { .classic.slk.slk .cl-toast { bottom: 28px; } }
+
+/* A group DM's faces, two overlapping, and how many are in it. */
+.classic.slk.slk .cl-group { position: relative; display: inline-flex; align-items: center; }
+.classic.slk.slk .cl-group > :nth-child(2) { margin-left: -6px; box-shadow: 0 0 0 1.5px var(--slk-side); border-radius: 4px; }
+.classic.slk.slk .cl-group b {
+  position: absolute; right: -5px; bottom: -5px; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 9999px;
+  font-size: 9px; line-height: 13px; font-weight: 700; text-align: center; background: var(--slk-ink); color: var(--slk-bg);
+}
+.classic.slk.slk .cl-group.sz-head b { right: -6px; bottom: -6px; }
+.classic.slk.slk .cl-lock svg { display: block; }
+.classic.slk.slk .cl-private-toggle {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; font-size: 12.5px; color: var(--slk-dim); cursor: pointer; white-space: nowrap;
+}
+.classic.slk.slk .cl-private-toggle input { margin: 0; }

@@ -20,7 +20,7 @@ export type DetailsTab = 'members' | 'attachments' | 'automations'
 export type NotifyLevel = 'all' | 'mentions' | 'mute'
 
 interface Details {
-  channel: { key: string; view: string; kind: 'channel' | 'dm'; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
+  channel: { key: string; view: string; kind: 'channel' | 'dm' | 'group'; private?: boolean; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
   members: {
     people: Array<{ ref: string; name: string; handle: string | null; title: string | null; status: { emoji?: string; text?: string } | null; awayUntil: string | null; you: boolean; avatarUrl?: string | null }>
     agents: Array<{ name: string; kind: 'ai' | 'agent'; owner: string | null; lastSeenAt?: string | null }>
@@ -264,7 +264,7 @@ export function ChannelDetails({
       <header className="slk-pane-head slk-details-head">
         <button className="slk-back pane" onClick={onClose} aria-label={t('Back')}><span aria-hidden="true">‹</span></button>
         <div className="slk-details-title">
-          <h2>{d ? (isChannel ? `#${d.channel.name}` : d.channel.name) : '…'}</h2>
+          <h2>{d ? (isChannel && !d.channel.private ? `#${d.channel.name}` : d.channel.name) : '…'}</h2>
           {d?.channel.createdAt && (
             <p>{d.channel.createdBy
               ? t('Created on {date} by {name}', { date: new Date(d.channel.createdAt).toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' }), name: d.channel.createdBy })

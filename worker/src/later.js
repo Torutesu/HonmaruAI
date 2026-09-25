@@ -1,3 +1,4 @@
+import { accessFor, mayRead } from "./access.js";
 import { getMessage, postMessage } from "./channels.js";
 import { saveCard } from "./db.js";
 import { appendCardEvent } from "./events.js";
@@ -106,6 +107,8 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
         "SELECT 1 FROM memberships ms JOIN users u ON u.github_id = ms.user_github_id WHERE ms.org_id = ?1 AND u.login = ?2"
       ).bind(row.org_id, row.author_login).first();
       if (!member) continue;
+      // Nor into a private channel or group they are no longer in.
+      if (!mayRead(row.channel, await accessFor(db, row.org_id, row.author_login))) continue;
       const out = await postMessage(db, { orgId: row.org_id, key: row.channel, authorLogin: row.author_login, body: row.body, parentId: row.parent_id });
       if (out.row) { sent += 1; if (broadcast) await broadcast(row.org_id, row.channel, out.row).catch(() => {}); }
     } catch (err) {

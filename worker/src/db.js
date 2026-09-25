@@ -776,12 +776,30 @@ export function businessSlug(name) {
   return slug || null;
 }
 
-export async function listBusinesses(db, orgId) {
+/// The channels a business runs, for one person to see: every public one,
+/// and the private ones they are in. With no viewer — the router filing a
+/// card, the AI suggesting, a broadcast to the whole room — public ones only:
+/// a private channel is never somewhere a stranger's card lands or a name
+/// the room is told.
+export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   const { results } = await db
-    .prepare("SELECT slug, name, created_by, created_at FROM businesses WHERE org_id = ?1 ORDER BY created_at")
-    .bind(orgId)
+    .prepare(
+      `SELECT b.slug, b.name, b.created_by, b.created_at, b.private,
+              CASE WHEN b.private = 1 THEN (SELECT COUNT(*) FROM conversation_members c2 WHERE c2.org_id = ?1 AND c2.channel = 'b:' || b.slug) END AS member_count
+         FROM businesses b
+        WHERE b.org_id = ?1 AND (b.private = 0 OR (?2 IS NOT NULL AND EXISTS (
+          SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = 'b:' || b.slug AND c.login = ?2)))
+        ORDER BY b.created_at`
+    )
+    .bind(orgId, viewer)
     .all();
-  return (results || []).map((r) => ({ slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at }));
+  return (results || []).map((r) => ({ slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at, ...(r.private ? { private: true, memberCount: r.member_count || 0 } : {}) }));
+}
+
+/// Whether the workspace has any private channel: a room told about the
+/// public ones should ask for its own list again.
+export async function hasPrivateBusinesses(db, orgId) {
+  return Boolean(await db.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND private = 1 LIMIT 1").bind(orgId).first());
 }
 
 /// Create a business, or return the one a name already means. The name that

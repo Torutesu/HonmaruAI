@@ -1,4 +1,4 @@
-import { getSession, isMember, getUserByGithubId, saveCard, getCard } from "./db.js";
+import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard } from "./dailyReport.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
@@ -29,6 +29,7 @@ import { allowanceFor } from "./gate.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
 import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";
+import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP } from "./access.js";
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
 } from "./jam.js";
@@ -70,12 +71,12 @@ async function inChannel(env, request, { orgId, channel }) {
 }
 
 /// Tell whoever can see a channel about a message in it, each in their own
-/// terms: the room for a business, the two people for a direct one. The
+/// terms: the room for a public channel, the members of a closed one. The
 /// same event carries a new message, an edit, a deletion, a reaction, a
 /// pin, and a thread's new count — the browser replaces by id.
 async function broadcast(env, orgId, resolved, row, members) {
   const fresh = (await getMessage(env.DB, orgId, row.id)) || row;
-  if (resolved.kind === "business") {
+  if (resolved.kind === "business" && !resolved.private) {
     const [message] = await present(env.DB, orgId, [fresh], null, resolved.key, members);
     await announceEvents(env, orgId, [customEvent("channel_message", { message })]);
     return;
@@ -109,7 +110,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
   const progress = async (step, extra = {}) => {
     try {
       const payload = (view) => customEvent("channel_ai_progress", { channel: view, parentId: row.parent_id || null, messageId: row.id, step, ...extra });
-      if (resolved.kind === "business") await announceEvents(env, orgId, [payload(resolved.key)]);
+      if (resolved.kind === "business" && !resolved.private) await announceEvents(env, orgId, [payload(resolved.key)]);
       else await announceTo(env, orgId, resolved.logins.map((login) => ({ to: login, event: payload(viewOf(resolved.key, login, members)) })));
     } catch (err) {
       console.error("progress event failed", safe(err?.message));
@@ -241,13 +242,19 @@ export async function handleChannels(request, env, url, { route, after }) {
     const tz = url.searchParams.get("tz");
     if (tz) await rememberTimezone(env.DB, who.session.github_id, tz).catch(() => {});
     const members = await listMembers(env.DB, orgId, who.session.github_id);
+    const access = await accessFor(env.DB, orgId, who.user.login);
     const prefs = {};
     for (const p of await prefsFor(env.DB, orgId, who.user.login)) {
-      const v = viewOf(p.channel, who.user.login, members);
+      const v = viewOf(p.channel, who.user.login, members, access);
       if (v) prefs[v] = p.level;
     }
     const me = members.find((m) => m.mine);
+    const refOf = (login) => members.find((m) => m.login === login)?.ref || null;
     return json({
+      // Group DMs you are in: who else, by ref (a former member has none).
+      groups: (await groupsOf(env.DB, orgId, who.user.login)).map((g) => ({
+        view: g.key, refs: g.logins.filter((l) => l !== who.user.login).map(refOf).filter(Boolean),
+      })),
       activity: await channelActivity(env.DB, orgId, who.user.login, members),
       prefs,
       // Your own away settings, with the delegate as a ref you can show.
@@ -435,6 +442,71 @@ export async function handleChannels(request, env, url, { route, after }) {
     return uploadFile(request, env, url, { orgId, resolved: ctx.resolved, login: ctx.who.user.login });
   }
 
+  // A conversation with several people: one other is a DM, two to eight
+  // others a group DM — the same people always find the same one.
+  if (path === "/channels/groups" && request.method === "POST") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, body.orgId, who.session.github_id);
+    const refs = [...new Set((Array.isArray(body.refs) ? body.refs : []).map(String))];
+    const picked = members.filter((m) => refs.includes(m.ref) && m.login !== who.user.login);
+    if (!refs.length || picked.length !== refs.length) return json({ message: "Somebody in that list is not in this workspace." }, 404);
+    if (picked.length === 1) return json({ view: `dm:${picked[0].ref}` });
+    if (picked.length + 1 > MAX_GROUP) return json({ message: `A group holds up to ${MAX_GROUP} people.` }, 400);
+    const logins = [who.user.login, ...picked.map((m) => m.login)];
+    const key = await groupFor(env.DB, { orgId: body.orgId, logins, createdBy: who.user.login });
+    // Everyone in it has it in their list now, before a word is said.
+    await announceTo(env, body.orgId, logins.map((login) => ({
+      to: login,
+      event: customEvent("channel_group", { view: key, refs: members.filter((m) => logins.includes(m.login) && m.login !== login).map((m) => m.ref) }),
+    })));
+    return json({ view: key, refs: picked.map((m) => m.ref) }, 201);
+  }
+
+  // A private channel's members: anyone inside may bring somebody in, or
+  // take somebody out; anyone may leave.
+  if (path === "/channels/members" && (request.method === "POST" || request.method === "DELETE")) {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    if (!(ctx.resolved.kind === "business" && ctx.resolved.private)) return json({ message: "Only a private channel has members to add or remove." }, 400);
+    const orgId = body.orgId;
+    const key = ctx.resolved.key;
+    const me = ctx.who.user;
+    const locale = await loadCopy(env, me.locale || "en", { orgId });
+    const nameOf = (login) => ctx.members.find((m) => m.login === login)?.name || login;
+    const listFor = async (login) => ({ to: login, event: customEvent("businesses", { businesses: await listBusinesses(env.DB, orgId, { viewer: login }) }) });
+    const note = async (text) => {
+      const out = await postMessage(env.DB, { orgId, key, authorLogin: null, body: text, kind: "ai" });
+      if (out.row) await broadcast(env, orgId, { ...ctx.resolved, logins: await membersOf(env.DB, orgId, key) }, out.row, ctx.members);
+    };
+    if (request.method === "POST") {
+      const refs = (Array.isArray(body.refs) ? body.refs : []).map(String);
+      const inside = new Set(ctx.resolved.logins);
+      const adding = ctx.members.filter((m) => refs.includes(m.ref) && !inside.has(m.login));
+      if (!adding.length) return json({ added: 0 });
+      await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login });
+      await announceTo(env, orgId, await Promise.all(adding.map((m) => listFor(m.login))));
+      await note(serverText(locale, "channel.added", { who: nameOf(me.login), names: adding.map((m) => m.name).join(", ") }));
+      return json({ added: adding.length });
+    }
+    const target = body.ref ? ctx.members.find((m) => m.ref === String(body.ref)) : ctx.members.find((m) => m.login === me.login);
+    if (!target || !ctx.resolved.logins.includes(target.login)) return json({ message: "They are not in this channel." }, 404);
+    await removeMember(env.DB, { orgId, key, login: target.login });
+    await announceTo(env, orgId, [await listFor(target.login)]);
+    await note(target.login === me.login
+      ? serverText(locale, "channel.left", { who: nameOf(me.login) })
+      : serverText(locale, "channel.removed", { who: nameOf(me.login), name: target.name }));
+    return json({ removed: target.ref });
+  }
+
   // Where a message is, for a link to it: the conversation as this reader
   // names it, and the thread it is in. A link carries only the message's id,
   // so anybody may hold one; only somebody who can read the conversation
@@ -445,7 +517,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (who.denied) return who.denied;
     const row = await getMessage(env.DB, orgId, String(url.searchParams.get("messageId") || "").slice(0, 80));
     const members = row ? await listMembers(env.DB, orgId, who.session.github_id) : [];
-    const view = row && !row.deleted_at ? viewOf(row.channel, who.user.login, members) : null;
+    const view = row && !row.deleted_at ? viewOf(row.channel, who.user.login, members, await accessFor(env.DB, orgId, who.user.login)) : null;
     if (!view) return json({ message: "No such message." }, 404);
     return json({ view, id: row.id, parentId: row.parent_id || null });
   }
@@ -546,7 +618,10 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (ctx.denied) return ctx.denied;
     const out = await setDescription(env.DB, body.orgId, ctx.resolved.key, body.description);
     if (out.error) return json({ message: out.error }, out.status || 400);
-    after(() => announceEvents(env, body.orgId, [customEvent("channel_described", { channel: ctx.resolved.key, description: out.description })]));
+    const described = customEvent("channel_described", { channel: ctx.resolved.key, description: out.description });
+    after(() => (ctx.resolved.private
+      ? announceTo(env, body.orgId, ctx.resolved.logins.map((login) => ({ to: login, event: described })))
+      : announceEvents(env, body.orgId, [described])));
     return json(out);
   }
 
@@ -564,7 +639,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     const locale = await loadCopy(env, ctx.who.user.locale || "en", { orgId });
     const provider = await providerFor(env, orgId);
     const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(ctx.who.session.github_id) }) : null;
-    const name = ctx.resolved.kind === "dm" ? (ctx.resolved.other?.name || "") : `#${ctx.resolved.slug}`;
+    const name = ctx.resolved.kind === "dm" ? (ctx.resolved.other?.name || "")
+      : ctx.resolved.kind === "group" ? ctx.resolved.others.map((m) => m.name).join(", ")
+      : `#${ctx.resolved.slug}`;
     try {
       const page = await channelJournal(env, orgId, {
         resolved: ctx.resolved, members: ctx.members, tz, before, locale, provider, allowance, channelName: name,
@@ -668,7 +745,8 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (who.denied) return who.denied;
       const members = await listMembers(env.DB, orgId, who.session.github_id);
       const rows = await listScheduled(env.DB, orgId, who.user.login);
-      return json({ scheduled: rows.map((r) => ({ id: r.id, body: r.body, sendAt: r.sendAt, parentId: r.parentId, channel: viewOf(r.key, who.user.login, members) })).filter((r) => r.channel) });
+      const access = await accessFor(env.DB, orgId, who.user.login);
+      return json({ scheduled: rows.map((r) => ({ id: r.id, body: r.body, sendAt: r.sendAt, parentId: r.parentId, channel: viewOf(r.key, who.user.login, members, access) })).filter((r) => r.channel) });
     }
     const body = await request.json().catch(() => null);
     if (!body || typeof body.id !== "string") return json({ message: "Invalid JSON body." }, 400);
@@ -685,9 +763,10 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (who.denied) return who.denied;
       const members = await listMembers(env.DB, orgId, who.session.github_id);
       const rows = await listSaved(env.DB, orgId, who.user.login);
+      const access = await accessFor(env.DB, orgId, who.user.login);
       const items = [];
       for (const r of rows) {
-        const view = viewOf(r.channel, who.user.login, members);
+        const view = viewOf(r.channel, who.user.login, members, access);
         if (!view) continue;
         const [message] = await present(env.DB, orgId, [r], who.user.login, view, members);
         items.push({ id: r.saved_id, remindAt: r.remind_at, remindedAt: r.reminded_at, savedAt: r.saved_at, message });
@@ -784,8 +863,10 @@ export async function handleChannels(request, env, url, { route, after }) {
 export async function broadcastStored(env, orgId, key, row) {
   const members = await listMembers(env.DB, orgId, null);
   let resolved;
-  if (key.startsWith("b:")) resolved = { key, kind: "business", slug: key.slice(2) };
-  else if (key.startsWith("dm:")) resolved = { key, kind: "dm", logins: key.slice(3).split("|") };
+  const logins = await audienceOf(env.DB, orgId, key);
+  if (key.startsWith("b:")) resolved = logins ? { key, kind: "business", slug: key.slice(2), private: true, logins } : { key, kind: "business", slug: key.slice(2) };
+  else if (key.startsWith("dm:")) resolved = { key, kind: "dm", logins };
+  else if (key.startsWith("g:")) resolved = { key, kind: "group", logins };
   else return;
   await broadcastWithParent(env, orgId, resolved, row, members);
   await emitMessage(env, orgId, row);

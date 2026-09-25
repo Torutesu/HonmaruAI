@@ -1268,6 +1268,11 @@ const ja: Dict = {
   'Wait for the files to finish uploading.': 'ファイルのアップロードが終わるまでお待ちください。',
   '{name} did not upload. Try again.': '{name}をアップロードできませんでした。もう一度お試しください。',
   '{name} is larger than 25 MB.': '{name}は25MBを超えています。',
+  'Add people': 'メンバーを追加',
+  'Leave #{name}? You will need somebody inside to add you again.': '#{name}から抜けますか？もう一度入るには、中にいる人に追加してもらう必要があります。',
+  'Leave channel': 'チャンネルから抜ける',
+  'Only the people you add can see a private channel.': '非公開チャンネルは、追加した人だけが見られます。',
+  'Private': '非公開',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -2293,6 +2298,11 @@ const es: Dict = {
   'Wait for the files to finish uploading.': 'Espera a que terminen de subirse los archivos.',
   '{name} did not upload. Try again.': 'No se pudo subir {name}. Inténtalo de nuevo.',
   '{name} is larger than 25 MB.': '{name} ocupa más de 25 MB.',
+  'Add people': 'Añadir personas',
+  'Leave #{name}? You will need somebody inside to add you again.': '¿Salir de #{name}? Para volver, alguien de dentro tendrá que añadirte.',
+  'Leave channel': 'Salir del canal',
+  'Only the people you add can see a private channel.': 'Solo las personas que añadas pueden ver un canal privado.',
+  'Private': 'Privado',
 }
 
 const fr: Dict = {
@@ -3276,6 +3286,11 @@ const fr: Dict = {
   'Wait for the files to finish uploading.': 'Attendez la fin de l’envoi des fichiers.',
   '{name} did not upload. Try again.': '{name} n’a pas pu être envoyé. Réessayez.',
   '{name} is larger than 25 MB.': '{name} dépasse 25 Mo.',
+  'Add people': 'Ajouter des personnes',
+  'Leave #{name}? You will need somebody inside to add you again.': 'Quitter #{name} ? Pour revenir, quelqu’un à l’intérieur devra vous ajouter.',
+  'Leave channel': 'Quitter le canal',
+  'Only the people you add can see a private channel.': 'Seules les personnes que vous ajoutez voient un canal privé.',
+  'Private': 'Privé',
 }
 
 const de: Dict = {
@@ -4259,6 +4274,11 @@ const de: Dict = {
   'Wait for the files to finish uploading.': 'Warte, bis die Dateien hochgeladen sind.',
   '{name} did not upload. Try again.': '{name} konnte nicht hochgeladen werden. Versuch es noch einmal.',
   '{name} is larger than 25 MB.': '{name} ist größer als 25 MB.',
+  'Add people': 'Personen hinzufügen',
+  'Leave #{name}? You will need somebody inside to add you again.': '#{name} verlassen? Um zurückzukommen, muss dich jemand darin wieder hinzufügen.',
+  'Leave channel': 'Kanal verlassen',
+  'Only the people you add can see a private channel.': 'Nur die Personen, die du hinzufügst, sehen einen privaten Kanal.',
+  'Private': 'Privat',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }

@@ -253,10 +253,16 @@ async function spendInvite(db, code) {
   return Boolean(meta?.changes);
 }
 
-/// The slugs asked for that are channels of this team, in the order asked.
-export async function channelsOf(db, orgId, asked) {
+/// The slugs asked for that are channels of this team, in the order asked
+/// — a private one only if the person inviting is in it, since joining by
+/// the invitation brings the newcomer into it.
+export async function channelsOf(db, orgId, asked, inviterGithubId = null) {
   if (!Array.isArray(asked) || !asked.length) return [];
-  const { results } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1").bind(orgId).all();
+  const inviter = inviterGithubId ? await db.prepare("SELECT login FROM users WHERE github_id = ?1").bind(String(inviterGithubId)).first().catch(() => null) : null;
+  const { results } = await db.prepare(
+    `SELECT b.slug FROM businesses b WHERE b.org_id = ?1 AND (b.private = 0 OR EXISTS (
+       SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = 'b:' || b.slug AND c.login = ?2))`
+  ).bind(orgId, inviter?.login || null).all();
   const known = new Set((results || []).map((r) => r.slug));
   return [...new Set(asked.filter((s) => typeof s === "string" && known.has(s)))].slice(0, 50);
 }
@@ -298,7 +304,7 @@ export async function createInvite(env, { orgId, createdBy, role, uses, channels
   // invite in the workspace and hashing each until one matches.
   const ref = (await sha256Hex(code)).slice(0, 16);
   // Where they are introduced when they join: only channels this team has.
-  const introduce = await channelsOf(env.DB, orgId, channels);
+  const introduce = await channelsOf(env.DB, orgId, channels, createdBy);
   await env.DB
     .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, ref, channels) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
     .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses, ref, introduce.length ? JSON.stringify(introduce) : null)

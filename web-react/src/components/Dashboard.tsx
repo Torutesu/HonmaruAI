@@ -223,7 +223,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:comment', { detail: { cardId, comment } }))
     }
-    wsClient.onBusinesses = (list) => { if (!ignore) setBusinesses(list) }
+    wsClient.onBusinesses = (list, partial) => {
+      if (ignore) return
+      // Told only the public channels: ask for our own list, private ones too.
+      if (partial) window.dispatchEvent(new Event('honmaru:reload-businesses'))
+      else setBusinesses(list)
+    }
+    wsClient.onChannelGroup = (group) => {
+      if (!ignore) window.dispatchEvent(new CustomEvent('honmaru:channel-group', { detail: group }))
+    }
     // Something said in a channel: the list listens for its own.
     wsClient.onChannelMessage = (message) => {
       if (ignore) return
@@ -300,6 +308,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     } catch { /* a label is a convenience */ }
   }, [relayHttpUrl, orgId, sessionToken])
   useEffect(() => { loadBusinesses() }, [loadBusinesses])
+  useEffect(() => {
+    const on = () => { void loadBusinesses() }
+    window.addEventListener('honmaru:reload-businesses', on)
+    return () => window.removeEventListener('honmaru:reload-businesses', on)
+  }, [loadBusinesses])
   // Every workspace this person is in, with its name and mark, for the
   // switcher at the top of the rail. Re-read when the team screen changes
   // a name or a logo (it says so through a window event).
@@ -687,7 +700,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onWorkspace={() => setScreen('team')}
           onOpenScreen={(sc) => setScreen(sc)}
           workspaceMenu={workspaceSwitcher('header')}
-          onCreateChannel={(name) => channelCall('POST', { name })}
+          onCreateChannel={(name, opts) => channelCall('POST', { name, ...(opts?.private ? { private: true } : {}) })}
           onRenameChannel={(slug, name) => channelCall('PUT', { slug, name })}
           onDeleteChannel={(slug) => channelCall('DELETE', { slug })}
         />

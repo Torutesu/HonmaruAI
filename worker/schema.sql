@@ -125,6 +125,8 @@ CREATE TABLE IF NOT EXISTS businesses (
   created_at  TEXT NOT NULL,
   /* What the channel is for, in a sentence anyone may write. */
   description TEXT,
+  /* 1: only its members (conversation_members) can see it at all. */
+  private     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, slug)
 );
 
@@ -684,3 +686,16 @@ CREATE TABLE IF NOT EXISTS message_files (
 );
 CREATE INDEX IF NOT EXISTS idx_message_files ON message_files(org_id, message_id);
 CREATE INDEX IF NOT EXISTS idx_message_files_unsent ON message_files(message_id, created_at);
+
+/* Who is in a conversation with a closed door: a private channel
+   (`b:<slug>`) or a group DM (`g:<id>`). A two-person DM needs no rows —
+   its key names the two. */
+CREATE TABLE IF NOT EXISTS conversation_members (
+  org_id      TEXT NOT NULL,
+  channel     TEXT NOT NULL,
+  login       TEXT NOT NULL,
+  added_by    TEXT,
+  added_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel, login)
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_members_login ON conversation_members(org_id, login);
