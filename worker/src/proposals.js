@@ -5,6 +5,9 @@ import { describeSchedule, defaultTimeZoneFor, zonedParts } from "./schedule.js"
 import { createRoutine, plainName } from "./routines.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
+import { loadCopy } from "./copy.js";
+import { serverText } from "./serverCopy.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
 
@@ -98,19 +101,6 @@ export function inferSchedule(cards, timezone) {
   return { cadence: "weekly", weekday: topDay, hour, minute: 0 };
 }
 
-const COPY = {
-  en: {
-    title: (what) => `Automate: ${what}`,
-    summary: (n, schedule) => `You asked for this ${n} times in the last few weeks. Approve, and your AI will do it ${schedule.toLowerCase()} and bring the result here.`,
-    context: (dates) => `Asked on ${dates}. Decline and this will not be proposed again. You can change or stop the routine any time under Automations.`,
-  },
-  ja: {
-    title: (what) => `自動化しませんか: ${what}`,
-    summary: (n, schedule) => `この数週間で${n}回依頼しています。承認すると、AIが${schedule}に実行して結果をここに届けます。`,
-    context: (dates) => `依頼日: ${dates}。却下すると二度と提案しません。ルーティンはいつでも「自動化」から変更・停止できます。`,
-  },
-};
-
 function clip(text, n) {
   const s = String(text || "").replace(/\s+/g, " ").trim();
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -165,11 +155,14 @@ export async function proposeForOrg(env, orgId, { now = new Date() } = {}) {
     });
     if (declinedLike) continue;
 
-    const locale = user.locale === "ja" ? "ja" : "en";
+    const locale = await loadCopy(env, user.locale || "en", { orgId });
     const timezone = defaultTimeZoneFor(user.locale);
     const schedule = inferSchedule(group.cards, timezone);
     const routine = { title: clip(representative.title || instruction, 60), instruction, timezone, ...schedule };
-    const copy = COPY[locale];
+    const say = (key, vars) => serverText(locale, key, vars);
+    // Mid-sentence, so not capitalised — in the languages that have case.
+    const when = describeSchedule(routine, locale);
+    const lowered = when.charAt(0).toLocaleLowerCase(locale) + when.slice(1);
     const dates = group.cards.map((c) => String(c.createdAt).slice(0, 10)).join(", ");
     const cardId = `proposal-${signature}`;
     const card = {
@@ -177,15 +170,15 @@ export async function proposeForOrg(env, orgId, { now = new Date() } = {}) {
       recipientUserID: login,
       senderUserID: login,
       type: "approval",
-      title: clip(copy.title(routine.title), 120),
-      summary: copy.summary(group.cards.length, describeSchedule(routine, locale)),
-      context: copy.context(dates),
+      title: clip(say("proposal.title", { what: routine.title }), 120),
+      summary: say("proposal.summary", { count: group.cards.length, schedule: lowered }),
+      context: say("proposal.context", { dates }),
       priority: "low",
       status: "pending",
       createdAt: now.toISOString(),
       sourceApp: "Your AI",
       requestedBy: { login, name: user.name || plainName(login) },
-      sourceDetail: locale === "ja" ? "自動化の提案" : "Automation proposal",
+      sourceDetail: say("proposal.source"),
       originalLanguage: locale,
       proposal: { kind: "routine", signature, routine, evidence: group.cards.slice(-5).map((c) => ({ id: c.id, title: clip(c.title, 100), createdAt: c.createdAt })) },
     };
@@ -199,10 +192,12 @@ export async function proposeForOrg(env, orgId, { now = new Date() } = {}) {
     made.push(card);
   }
   if (made.length) {
-    await announceCards(env, orgId, made);
+    const shown = [];
+    for (const card of made) shown.push(await localizeForRecipient(env, orgId, card));
+    await announceCards(env, orgId, shown);
     if (anyChannelConfigured(env)) {
-      for (const card of made) {
-        await notifyCard(env, { card, kind: "created", excludeLogin: null }).catch((err) => console.error("proposal notify failed", safe(err?.message)));
+      for (const card of shown) {
+        await notifyCard(env, { card, kind: "created", excludeLogin: null, orgId }).catch((err) => console.error("proposal notify failed", safe(err?.message)));
       }
     }
   }

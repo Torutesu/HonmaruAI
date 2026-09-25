@@ -205,14 +205,18 @@ export function renderRich(text: string, mentionClass: (name: string) => string)
     }
     const lines = chunk.split('\n')
     let list: React.ReactNode[] = []
-    const flush = (k: string) => { if (list.length) { out.push(<ul key={`ul-${k}`} className="slk-ul">{list}</ul>); list = [] } }
+    // A list or a quote ends its own line: the line after it needs no break
+    // of its own, or a blank line after a list reads as two.
+    let afterBlock = false
+    const flush = (k: string) => { if (list.length) { out.push(<ul key={`ul-${k}`} className="slk-ul">{list}</ul>); list = []; afterBlock = true } }
     lines.forEach((line, li) => {
       const key = `${ci}-${li}`
       const bullet = /^\s*[-•*]\s+(.*)$/.exec(line)
       if (bullet && !/^\*[^*]+\*/.test(line.trim())) { list.push(<li key={key}>{inline(bullet[1], mentionClass)}</li>); return }
       flush(key)
       const quote = /^>\s?(.*)$/.exec(line)
-      if (quote) { out.push(<blockquote key={key} className="slk-quote">{inline(quote[1], mentionClass)}</blockquote>); return }
+      if (quote) { out.push(<blockquote key={key} className="slk-quote">{inline(quote[1], mentionClass)}</blockquote>); afterBlock = true; return }
+      if (afterBlock) { afterBlock = false; out.push(<React.Fragment key={key}>{inline(line, mentionClass)}</React.Fragment>); return }
       if (li > 0 || (ci > 0 && line)) out.push(<br key={`br-${key}`} />)
       out.push(<React.Fragment key={key}>{inline(line, mentionClass)}</React.Fragment>)
     })
@@ -223,11 +227,15 @@ export function renderRich(text: string, mentionClass: (name: string) => string)
   return out
 }
 
+const JAM_AUDIO = /^https?:\/\/[^\s]+\/channels\/jam\/audio\/[0-9a-f-]{36}$/
+
 function inline(line: string, mentionClass: (name: string) => string): React.ReactNode[] {
   const tokens = line.split(/(`[^`\n]+`|https?:\/\/[^\s<>"）」]+|[@＠][^\s@＠,，。、!?！？:;]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g)
   return tokens.map((part, i) => {
     if (!part) return null
     if (/^`[^`]+`$/.test(part)) return <code key={i} className="slk-code">{part.slice(1, -1)}</code>
+    // A Jam's recording plays where it was posted.
+    if (JAM_AUDIO.test(part)) return <audio key={i} className="slk-jam-audio" controls preload="none" src={part} />
     if (/^https?:\/\//.test(part)) return <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
     if (/^[@＠]/.test(part)) return <span key={i} className={mentionClass(part)}>{part}</span>
     if (/^\*[^*]+\*$/.test(part)) return <b key={i}>{inline(part.slice(1, -1), mentionClass)}</b>

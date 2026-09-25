@@ -20,7 +20,7 @@ import { Automations } from '../screens/Automations'
 import { Playbook } from '../screens/Playbook'
 import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
-import { notifyNewDecision, setTabBadge } from '../utils/notifications'
+import { notifyNewDecision, setNotificationCopy, setTabBadge } from '../utils/notifications'
 import { syncLocale } from '../utils/push'
 import type { AppState, Business, DecisionCard } from '../types/card'
 import './Dashboard.css'
@@ -162,7 +162,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     const wsClient = wsClientRef.current!
     let ignore = false
     wsClient.onStateChange = (newState) => { if (!ignore) setState(newState) }
-    wsClient.onSynced = () => { if (!ignore) setSynced(true) }
+    wsClient.onSynced = () => {
+      if (ignore) return
+      setSynced(true)
+      // A new socket is in no Jam: a call this tab was in joins again.
+      window.dispatchEvent(new CustomEvent('honmaru:jam', { detail: { name: 'reset', value: {} } }))
+    }
+    wsClient.onJam = (name, value) => {
+      if (!ignore) window.dispatchEvent(new CustomEvent('honmaru:jam', { detail: { name, value } }))
+    }
     wsClient.onOutboxChange = (n) => { if (!ignore) setUnsent(n) }
     wsClient.onCardCreated = (card) => {
       if (ignore) return
@@ -227,7 +235,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         ? t('You are offline. What you decide will be sent when you are back.')
         : (message ? t('Could not connect: {why}', { why: message }) : t('Could not connect. Retrying.')))
     })
-    return () => { ignore = true; wsClient.disconnect() }
+    const jamSend = (e: Event) => {
+      const { type, payload } = (e as CustomEvent<{ type: string; payload: unknown }>).detail || {}
+      if (type) wsClient.sendJam(type, payload)
+    }
+    window.addEventListener('honmaru:jam-send', jamSend)
+    return () => { ignore = true; window.removeEventListener('honmaru:jam-send', jamSend); wsClient.disconnect() }
   }, [relayUrl, userId, orgId, sessionToken, addDebugLog, onLeft])
 
   // A notification tapped while a tab is open: the service worker tells us
@@ -265,8 +278,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (!res.ok) return
       const me = await res.json()
       if (Array.isArray(me.orgs)) setWorkspaces(me.orgs)
+      setNotificationCopy(me.notificationCopy)
     } catch { /* the switcher shows what it last knew */ }
-  }, [relayHttpUrl, sessionToken])
+    // Read again when the language changes, for the notification words.
+  }, [relayHttpUrl, sessionToken, localeVersion])
   useEffect(() => { void loadWorkspaces() }, [loadWorkspaces])
   useEffect(() => {
     const onChange = () => { void loadWorkspaces() }

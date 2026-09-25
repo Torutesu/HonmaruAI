@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { getLocale, setLocale, linkedLocale } from './locale'
+import { getLocale, setLocale, linkedLocale, readerLanguageOptions, languageLabel, isLanguage, browserLanguage } from './locale'
 
 function fakeStorage(): Storage {
   const m = new Map<string, string>()
@@ -51,5 +51,41 @@ describe('locale', () => {
   it('uses the browser when nothing links', () => {
     visit('', 'ja-JP')
     expect(getLocale()).toBe('ja')
+  })
+})
+
+// The language a person reads is not limited to the five the screens are in.
+describe('reader languages', () => {
+  it('offers the screens’ languages first, then every other one', () => {
+    const options = readerLanguageOptions('en')
+    expect(options.slice(0, 5).map((o) => o.code)).toEqual(['en', 'ja', 'es', 'fr', 'de'])
+    expect(options.slice(0, 5).every((o) => o.screens)).toBe(true)
+    const vi = options.find((o) => o.code === 'vi')
+    expect(vi).toMatchObject({ screens: false })
+    expect(vi?.label).not.toBe('vi')
+  })
+
+  it('keeps a current language that is not on the list, and refuses made-up ones', () => {
+    expect(readerLanguageOptions('yo-NG').some((o) => o.code === 'yo')).toBe(true)
+    expect(readerLanguageOptions('xx').some((o) => o.code === 'xx')).toBe(false)
+    expect(isLanguage('vi')).toBe(true)
+    expect(isLanguage('xx')).toBe(false)
+    expect(languageLabel('ja')).toBe('日本語')
+  })
+})
+
+describe('browser language for onboarding', () => {
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'location', { value: saved.location, configurable: true })
+    Object.defineProperty(globalThis, 'navigator', { value: saved.navigator, configurable: true })
+  })
+
+  it('is the linking page’s language first, then any language the browser names', () => {
+    visit('?lang=ja', 'vi-VN')
+    expect(browserLanguage()).toBe('ja')
+    visit('', 'vi-VN')
+    expect(browserLanguage()).toBe('vi')
+    visit('', 'xx')
+    expect(browserLanguage()).toBe('en')
   })
 })

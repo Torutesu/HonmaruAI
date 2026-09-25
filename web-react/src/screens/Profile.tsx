@@ -1,6 +1,7 @@
 import { forgetMembers } from '../utils/mentions'
 import React, { useEffect, useRef, useState } from 'react'
-import { getLocale, LOCALE_NAMES } from '../utils/locale'
+import { getLocale, primary } from '../utils/locale'
+import { LanguageOptions } from '../components/LanguageOptions'
 import type { Business } from '../types/card'
 import { useT, changeLocale as applyLocale } from '../utils/i18n'
 import { Icon } from '../components/Icon'
@@ -127,6 +128,9 @@ export const Profile: React.FC<Props> = ({
   // Typed before the profile arrived: the fetch must not overwrite it. That
   // race is exactly what the end-to-end suite hit on a fast machine.
   const aliasesTouched = useRef(false)
+  // What this screen saved, as the Worker answered: a profile read that set
+  // out before the save must not put the old values back.
+  const savedHere = useRef<Record<string, unknown>>({})
   // Your name and username, as you are typing them, and what the Worker
   // said about the username — taken, reserved, or the wrong shape.
   const [nameDraft, setNameDraft] = useState<string | null>(null)
@@ -145,6 +149,7 @@ export const Profile: React.FC<Props> = ({
       return false
     }
     setError(null)
+    savedHere.current = { ...savedHere.current, ...(data.name ? { name: data.name } : {}), handle: data.handle ?? null }
     setMe((prev) => (prev ? { ...prev, name: data.name ?? prev.name, handle: data.handle ?? null } : prev))
     // Everyone's @ list is cached per workspace; yours has just changed.
     forgetMembers()
@@ -156,7 +161,7 @@ export const Profile: React.FC<Props> = ({
     fetch(`${httpBase}/me?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => r.json())
       .then((data) => {
-        setMe(data)
+        setMe({ ...data, ...savedHere.current })
         if (data.locale) setLocaleState(data.locale)
         if (!aliasesTouched.current) setAliases((data.aliases || []).join(', '))
       })
@@ -172,6 +177,7 @@ export const Profile: React.FC<Props> = ({
     const data = await res.json().catch(() => ({}))
     if (!res.ok) { setError(data.message || t('That did not save.')); return }
     setError(null)
+    savedHere.current = { ...savedHere.current, ...data }
     setMe((prev) => (prev ? { ...prev, ...data } : prev))
   }
 
@@ -530,10 +536,8 @@ export const Profile: React.FC<Props> = ({
                 {t('Language')}
                 <span className="row-sub">{t('Every notification arrives written in it.')}</span>
               </span>
-              <select className="row-select" value={locale} onChange={(e) => changeLocale(e.target.value)} aria-label={t('Language')}>
-                {Object.entries(LOCALE_NAMES).map(([code, label]) => (
-                  <option key={code} value={code}>{label}</option>
-                ))}
+              <select className="row-select" value={primary(locale)} onChange={(e) => changeLocale(e.target.value)} aria-label={t('Language')}>
+                <LanguageOptions current={locale} />
               </select>
             </div>
           </div>

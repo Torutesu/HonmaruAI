@@ -7,6 +7,8 @@ import { useT } from '../utils/i18n'
 import { ReplyDraft } from './ReplyDraft'
 import { CardThread } from './CardThread'
 import { ReportDoc, ProposalNote } from './Report'
+import { DailyReportDraft } from './DailyReport'
+import { awaitsPost } from '../utils/automation'
 import { ago } from '../utils/ago'
 import { sourceLabel } from '../utils/automation'
 
@@ -139,7 +141,8 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
       const card = cards[index]
       if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); scrollTo(index + 1) }
       else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); scrollTo(index - 1) }
-      else if (card && card.status === 'pending' && (e.key === 'a' || e.key === 'A' || e.key === 'ArrowRight')) { e.preventDefault(); fling(card, isFyi(card) ? 'acknowledge' : 'approve') }
+      // A daily report's draft is posted, not put away: A does nothing to it.
+      else if (card && card.status === 'pending' && !awaitsPost(card) && (e.key === 'a' || e.key === 'A' || e.key === 'ArrowRight')) { e.preventDefault(); fling(card, isFyi(card) ? 'acknowledge' : 'approve') }
       else if (card && card.status === 'pending' && !isFyi(card) && (e.key === 'd' || e.key === 'D' || e.key === 'ArrowLeft')) { e.preventDefault(); fling(card, 'decline') }
     }
     window.addEventListener('keydown', onKey)
@@ -257,8 +260,10 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   }
 
   const last = useRef<{ x: number; t: number }[]>([])
+  // A draft that has to be posted cannot be swiped away.
+  const mustPost = awaitsPost(card)
   const onPointerDown = (e: React.PointerEvent) => {
-    if (decided || flying) return
+    if (decided || flying || mustPost) return
     // A report is read, and its words can be selected; dragging across one
     // must not decide the card.
     if ((e.target as HTMLElement).closest('button, textarea, input, select, a, .report-body, .thread')) return
@@ -315,11 +320,11 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
     >
       <div className="page-inner">
         <article
-          className={`card${decided ? '' : ' swipeable'}`}
+          className={`card${decided || mustPost ? '' : ' swipeable'}`}
           aria-label={title}
           style={cardStyle}
         >
-          {!decided && (
+          {!decided && !mustPost && (
             <>
               <span className="swipe-stamp yes" aria-hidden="true" style={{ opacity: hint === 'approve' ? certainty : 0 }}>
                 {isFyi(card) ? t('Got it') : t('Approve')}
@@ -353,7 +358,9 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             </div>
           )}
 
-          {card.report?.markdown && <ReportDoc report={card.report} title={title} />}
+          {card.dailyReport && api
+            ? <DailyReportDraft card={card} api={api} />
+            : card.report?.markdown && <ReportDoc report={card.report} title={title} />}
           {card.proposal && <ProposalNote proposal={card.proposal} />}
 
           {/* A proposal's context repeats its evidence as a sentence; the
@@ -421,7 +428,8 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             )}
           </div>
         ) : (
-          isFyi(card) ? (
+          // Its Post button is the draft's own; there is nothing else to press.
+          mustPost ? null : isFyi(card) ? (
             <div className="decide-row">
               <button className="decide approve" onClick={() => decide('acknowledge')} aria-label={t('Got it')} aria-keyshortcuts="a">✓</button>
             </div>

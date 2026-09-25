@@ -504,3 +504,21 @@
 }
 .swipe-hint-desk { margin-left: 8px; font-size: 12.5px; color: #838383; }
 .mention-handle { margin-left: auto; font-size: 12px; opacity: .7; }
+
+/* A daily report's draft: the words to post, editable in place. */
+.daily-text {
+  width: 100%; box-sizing: border-box; min-height: 240px; resize: vertical;
+  font: inherit; font-size: 14.5px; line-height: 1.6; color: #202020;
+  border: 1px solid #e2e2e2; border-radius: 10px; padding: 12px 14px; background: #ffffff;
+}
+.daily-text:focus { outline: none; border-color: #202020; }
+.daily-actions { display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+.daily-count { margin-right: auto; font-family: var(--font-mono); font-size: 11px; color: #838383; font-variant-numeric: tabular-nums; }
+.daily-count.over { color: #c0392b; }
+.daily-posted { white-space: pre-wrap; font-size: 14.5px; line-height: 1.6; color: #202020; user-select: text; -webkit-user-select: text; }
+@media (prefers-color-scheme: dark) {
+  .daily-text { background: #121212; color: #f2f2f2; border-color: #2a2a2a; }
+  .daily-text:focus { border-color: #f2f2f2; }
+  .daily-posted { color: #f2f2f2; }
+  .daily-count { color: #8a8a8a; }
+}

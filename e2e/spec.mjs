@@ -76,7 +76,8 @@ async function typeCode(p, code) {
 const browser = await chromium.launch({
   ...(process.env.E2E_CHROMIUM ? { executablePath: process.env.E2E_CHROMIUM } : {}),
   ignoreDefaultArgs: ['--headless=old'],
-  args: ['--headless=new'],
+  // A Jam needs a microphone: a fake one, allowed without asking.
+  args: ['--headless=new', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
 })
 
 // One person, signing up from scratch, on a phone.
@@ -260,6 +261,16 @@ await step('onboarding runs to the end and saves', async () => {
   await page.click('text=Set me up')
   await page.waitForSelector('.radio')
   await shot('06-onboarding-role')
+  await page.click('.screen-foot .btn-primary:has-text("Next")')
+  // The daily report, set up before the first card: 08:00 and 22:00 where
+  // the person is, into a channel made for it.
+  await page.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
+  const am = await page.$eval('.daily-part[data-part="morning"] input[type="time"]', (el) => el.value)
+  const pm = await page.$eval('.daily-part[data-part="evening"] input[type="time"]', (el) => el.value)
+  if (am !== '08:00' || pm !== '22:00') throw new Error(`onboarding does not offer 08:00 and 22:00: ${am} / ${pm}`)
+  const name = await page.$eval('.ob-daily input[aria-label="New channel name"]', (el) => el.value)
+  if (name !== 'daily-reports') throw new Error(`onboarding does not propose a channel for it: ${name}`)
+  await shot('06b-onboarding-daily')
   await page.click('text=Open my feed')
   await page.waitForSelector('.tabbar', { timeout: 20000 })
   await shot('07-feed-empty')
@@ -1353,7 +1364,7 @@ await step('the cron delivers a routine that is due, live, to the open feed', as
   await d.click('.auto-preset')
   await d.waitForSelector('.routine-row:has-text("Morning brief")', { timeout: 15000 })
     .catch(() => { throw new Error('the Morning brief preset made nothing') })
-  if (await d.$('.auto-preset')) throw new Error('the preset is still offered once a brief exists')
+  if (await d.$('.auto-preset:has-text("Morning brief")')) throw new Error('the preset is still offered once a brief exists')
   const id = await d.$eval('.routine-row:has-text("Morning brief")', (el) => el.getAttribute('data-routine'))
   // Make it due, and fire the cron the way Cloudflare does.
   d1(`UPDATE routines SET next_run_at = '2026-01-01T00:00:00.000Z' WHERE id = '${id}'`)
@@ -1695,6 +1706,232 @@ await step('people talk in a channel, and @AI turns what was said into a decisio
   }
 })
 
+await step('the daily report: morning and evening at the person’s own times, drafted in their words, announced, and only gone once they post it', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
+  try {
+    await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
+    // Made in onboarding: both halves, at 08:00 and 22:00, already listed.
+    const evRow = '.routine-row:has-text("Daily report")'
+    const amRow = '.routine-row:has-text("Morning plan")'
+    await d.waitForSelector(evRow, { timeout: 20000 }).catch(() => { throw new Error('onboarding did not set up the evening report') })
+    await d.waitForSelector(amRow, { timeout: 20000 }).catch(() => { throw new Error('onboarding did not set up the morning plan') })
+    const before = await d.$eval(evRow, (el) => el.innerText)
+    const am = await d.$eval(amRow, (el) => el.innerText)
+    if (!/22:00/.test(before) || !/#daily-reports/.test(before)) throw new Error(`the evening row is not 22:00 in #daily-reports: ${before.slice(0, 160)}`)
+    if (!/08:00/.test(am)) throw new Error(`the morning row is not at 08:00: ${am.slice(0, 160)}`)
+    if (await d.$('.auto-preset:has-text("Daily report")')) throw new Error('the daily report is still offered once both halves exist')
+
+    // Each person's own time and channel: moved here.
+    await d.click(`${evRow} .btn-text:has-text("Edit")`)
+    await d.waitForSelector('.routine-row.editing select[aria-label="Post to"]', { timeout: 10000 })
+    await d.selectOption('.routine-row.editing select[aria-label="Post to"]', 'b:kitchen')
+    await d.fill('.routine-row.editing input[aria-label="Time"]', '21:30')
+    await d.screenshot({ path: `${SHOTS}/40-daily-setup.png` })
+    await d.click('.routine-row.editing .pill-btn:has-text("Save")')
+    await d.waitForFunction(() => !document.querySelector('.routine-row.editing'), null, { timeout: 10000 })
+    const ev = await d.$eval(evRow, (el) => el.innerText)
+    if (!/21:30/.test(ev) || !/#kitchen/.test(ev)) throw new Error(`the evening row did not take the new time and channel: ${ev.slice(0, 160)}`)
+
+    // Run now: the draft, in the feed, for its owner to change.
+    await d.click(`${evRow} .btn-text:has-text("Run now")`)
+    await d.waitForFunction(() => /^#\/feed\/daily-/.test(location.hash), null, { timeout: 20000 })
+      .catch(() => { throw new Error('Run now did not open the draft') })
+    await d.waitForSelector('.daily-text', { timeout: 20000 }).catch(() => { throw new Error('the draft is not shown for editing') })
+    const draft = await d.$eval('.daily-text', (el) => el.value)
+    for (const heading of ['What I did today', 'Task progress', 'What went well', 'What to improve', 'Tomorrow']) {
+      if (!draft.includes(`*${heading}*`)) throw new Error(`the draft has no "${heading}": ${draft.slice(0, 200)}`)
+    }
+    // What was said today, in the channel it was said in.
+    if (!/#kitchen/.test(draft)) throw new Error(`the draft does not count what was said in #kitchen: ${draft.slice(0, 300)}`)
+    if (/@example\.com|\bu:|\bemail:/.test(draft)) throw new Error('the draft shows an account id')
+    // It has to be dealt with: no "Got it", and A does not put it away.
+    if (await d.$('.workbench .decide.approve')) throw new Error('a draft can be put away with Got it')
+    const draftId = await d.evaluate(() => location.hash.split('/').pop())
+    await d.click('.card-title')
+    await d.keyboard.press('a')
+    await d.waitForTimeout(800)
+    if (!(await d.$('.daily-text'))) throw new Error('pressing A put the draft away')
+    const still = d1(`SELECT status FROM cards WHERE card_id = '${draftId}'`)[0]
+    if (still?.status !== 'pending') throw new Error(`the draft is no longer waiting: ${JSON.stringify(still)}`)
+    await d.screenshot({ path: `${SHOTS}/41-daily-draft.png` })
+
+    // In the person's own words, then posted by them.
+    // Unique to this run: the local database outlives it.
+    const words = `Got the fridge quote in the same morning (${Date.now()}).`
+    const mine = draft.replace('(add this in your own words)', words)
+    await d.fill('.daily-text', mine)
+    await d.click('.daily-report .pill-btn:has-text("Post to #kitchen")')
+    await d.waitForSelector('.daily-posted', { timeout: 15000 }).catch(() => { throw new Error('posting the report did not say it was posted') })
+    // instr, not LIKE: D1 refuses a LIKE pattern this long.
+    const said = d1(`SELECT body FROM channel_messages WHERE channel = 'b:kitchen' AND instr(body, '${words}') > 0`)
+    if (said.length !== 1) throw new Error(`the report did not land in #kitchen exactly once: ${said.length}`)
+
+    // The morning's plan, from its own routine.
+    await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
+    await d.waitForSelector(amRow, { timeout: 15000 })
+    await d.click(`${amRow} .btn-text:has-text("Run now")`)
+    await d.waitForFunction(() => /^#\/feed\/daily-/.test(location.hash), null, { timeout: 20000 })
+    await d.waitForSelector('.daily-text', { timeout: 20000 })
+    const plan = await d.$eval('.daily-text', (el) => el.value)
+    for (const heading of ['Today', 'Task status', 'Where I need help']) {
+      if (!plan.includes(`*${heading}*`)) throw new Error(`the morning plan has no "${heading}": ${plan.slice(0, 200)}`)
+    }
+    if (!/Plan for today/.test(await d.$eval('.card-title', (el) => el.innerText))) throw new Error('the morning draft is not titled as a plan')
+
+    // There, in the channel, under the person's name.
+    await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await d.waitForSelector('.cl-thread:has-text("Kitchen")', { timeout: 20000 })
+    await d.click('.cl-thread:has-text("Kitchen") .cl-open')
+    await d.waitForSelector(`.slk-msg:has-text("${words}")`, { timeout: 15000 })
+      .catch(() => { throw new Error('the posted report does not show in the channel') })
+    await d.screenshot({ path: `${SHOTS}/42-daily-posted.png` })
+  } finally {
+    await ctx.close()
+    // This step reads the team list several times for one person; the
+    // steps after it must not find that person's window already spent.
+    try { d1('DELETE FROM rate_limits') } catch { /* the next step says so if it matters */ }
+  }
+})
+
+await step('the channel header opens its context, its automations, its members, and a Jam', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['microphone'] })
+  // Each tab counts its calls, so the test can see two browsers actually connect.
+  await ctx.addInitScript(() => {
+    const Real = window.RTCPeerConnection
+    if (!Real) return
+    window.__pcs = []
+    window.RTCPeerConnection = class extends Real { constructor(...a) { super(...a); window.__pcs.push(this) } }
+  })
+  const d = await ctx.newPage()
+  const e = await ctx.newPage()
+  for (const p of [d, e]) p.on('pageerror', (err) => thrown.push(String(err).slice(0, 200)))
+  const open = async (p) => {
+    await p.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await p.waitForSelector('.cl-thread:has-text("Kitchen")', { timeout: 20000 })
+    await p.click('.cl-thread:has-text("Kitchen") .cl-open')
+    await p.waitForSelector('.slk-head h1:has-text("Kitchen")', { timeout: 10000 })
+  }
+  // The local database outlives a run: start this channel's header from
+  // nothing, so what the step makes is what it finds.
+  d1("DELETE FROM routines WHERE channel = 'b:kitchen' AND kind = 'report'")
+  d1("UPDATE businesses SET description = NULL WHERE slug = 'kitchen'")
+  d1("DELETE FROM channel_messages WHERE channel = 'b:kitchen' AND kind = 'ai' AND (instr(body, 'Jam') > 0)")
+  try {
+    await open(d)
+    const buttons = await d.$$eval('.slk-head-actions > *', (els) => els.map((el) => el.className))
+    if (!/slk-context-button/.test(buttons[0]) || !/slk-automations-button/.test(buttons[1]) || !/slk-members-button/.test(buttons[2]) || !/slk-jam/.test(buttons[3])) {
+      throw new Error(`the header's buttons are not context, automations, members, Jam: ${buttons.join(' | ')}`)
+    }
+
+    // 1. Context: what the channel is for, and its days, back to the start.
+    await d.click('.slk-context-button')
+    await d.waitForSelector('.slk-journal .slk-jday', { timeout: 20000 }).catch(() => { throw new Error('the journal shows no day') })
+    if (!/#kitchen/i.test(await d.$eval('.slk-journal h2', (el) => el.innerText))) throw new Error('the journal does not say which channel')
+    const day = await d.$eval('.slk-journal .slk-jday', (el) => el.innerText)
+    if (!/\d+ messages/.test(day)) throw new Error(`a journal day does not count its messages: ${day.slice(0, 200)}`)
+    if (!/fridge/i.test(await d.$eval('.slk-journal', (el) => el.innerText))) throw new Error('the journal does not mention what was said')
+    await d.waitForSelector('.slk-jstart:has-text("Start of the journal")', { timeout: 5000 }).catch(() => { throw new Error('the journal does not end at its start') })
+    const purpose = `Everything about the kitchen (${Date.now()})`
+    await d.click('.slk-journal .slk-link-button:has-text("Add description")')
+    await d.fill('.slk-journal textarea', purpose)
+    await d.click('.slk-journal .slk-describe .slk-send')
+    await d.waitForSelector(`.slk-description p:has-text("${purpose}")`, { timeout: 10000 }).catch(() => { throw new Error('the description did not save') })
+    // A citation goes to the message it came from.
+    await d.click('.slk-journal .slk-cite')
+    await d.waitForSelector('.slk-msg.flash', { timeout: 10000 }).catch(() => { throw new Error('a citation did not go to its message') })
+    await d.screenshot({ path: `${SHOTS}/43-channel-context.png` })
+
+    // 2. Automations: none yet; one made from a sentence, and switched off.
+    // The daily report already posts here; the header counts it.
+    const counted = Number(await d.$eval('.slk-automations-button span', (el) => el.textContent))
+    await d.click('.slk-automations-button')
+    await d.waitForSelector('.slk-details [data-tab="automations"][aria-selected="true"]', { timeout: 10000 })
+    await d.waitForSelector('.slk-details .slk-automation:has-text("Daily report")', { timeout: 10000 })
+      .catch(() => { throw new Error('the daily report that posts here is not among its automations') })
+    await d.click('.slk-details .slk-details-add:has-text("New automation")')
+    await d.fill('.slk-details textarea', 'Every Monday at 9, summarise last week’s decisions here')
+    await d.click('.slk-details .slk-describe .slk-send')
+    const made = '.slk-details .slk-automation:has-text("last week")'
+    await d.waitForSelector(made, { timeout: 15000 }).catch(async () => {
+      throw new Error(`the automation was not made: ${await d.$eval('.slk-details', (el) => el.innerText).catch(() => '')}`)
+    })
+    await d.waitForFunction((n) => document.querySelector('.slk-automations-button span')?.textContent === String(n), counted + 1, { timeout: 10000 })
+      .catch(() => { throw new Error('the header does not count the new automation') })
+    const routine = d1("SELECT kind, channel, cadence, hour FROM routines WHERE channel = 'b:kitchen' AND kind = 'report'")
+    if (routine.length !== 1 || routine[0].cadence !== 'weekly' || routine[0].hour !== 9) throw new Error(`the automation is not a weekly report into #kitchen: ${JSON.stringify(routine)}`)
+    if (await d.$eval(`${made} .slk-switch input`, (el) => el.disabled)) throw new Error('your own automation cannot be switched')
+    await d.click(`${made} .slk-switch`)
+    await d.waitForFunction((sel) => document.querySelector(sel)?.checked === false,
+      '.slk-details .slk-automation:last-child .slk-switch input', { timeout: 5000 })
+      .catch(() => { throw new Error('the switch did not move') })
+    let paused = null
+    for (let i = 0; i < 20 && paused !== 0; i++) {
+      paused = d1("SELECT enabled FROM routines WHERE channel = 'b:kitchen' AND kind = 'report'")[0]?.enabled
+      if (paused !== 0) await d.waitForTimeout(250)
+    }
+    if (paused !== 0) throw new Error(`the switch did not pause the automation: ${JSON.stringify(paused)}`)
+    await d.screenshot({ path: `${SHOTS}/44-channel-automations.png` })
+
+    // 3. Members: people and agents, searchable, with a way to add more.
+    await d.click('.slk-members-button')
+    await d.waitForSelector('.slk-details [data-tab="members"][aria-selected="true"]', { timeout: 10000 })
+    const panel = await d.$eval('.slk-details', (el) => el.innerText)
+    if (!/#kitchen/i.test(panel)) throw new Error('the members panel does not say which channel')
+    for (const want of ['Created on', 'People (', 'Agents (', 'Your AI', 'Add members', 'Attachments', 'Automations']) {
+      if (!panel.includes(want)) throw new Error(`the members panel has no "${want}": ${panel.slice(0, 300)}`)
+    }
+    if (/@example\.com|\bu:|\bemail:/.test(panel)) throw new Error('the members panel shows an account id')
+    await d.fill('.slk-details-search', 'zzzz-nobody')
+    if ((await d.$$('.slk-details .slk-member-row:not(.static)')).length !== 0) throw new Error('searching members does not narrow them')
+    await d.fill('.slk-details-search', '')
+    await d.screenshot({ path: `${SHOTS}/45-channel-members.png` })
+    await d.click('.slk-details .slk-pane-close')
+
+    // 4. Jam: the options, then two tabs talking, recorded in full.
+    await d.click('.slk-jam-more')
+    await d.waitForSelector('.slk-jam-menu', { timeout: 5000 })
+    const menu = await d.$eval('.slk-jam-menu', (el) => el.innerText)
+    for (const want of ['Microphone', 'Recording', 'Start Jam']) if (!menu.includes(want)) throw new Error(`the Jam menu has no "${want}": ${menu}`)
+    await d.selectOption('.slk-jam-menu label:has-text("Recording") select', 'full')
+    await d.screenshot({ path: `${SHOTS}/46-jam-menu.png` })
+    await d.click('.slk-jam-start')
+    await d.waitForSelector('.slk-jambar', { timeout: 15000 }).catch(() => { throw new Error('starting a Jam shows no Jam bar') })
+    await d.waitForSelector('.slk-msg:has-text("started a Jam")', { timeout: 15000 }).catch(() => { throw new Error('the channel was not told the Jam started') })
+
+    await open(e)
+    await e.waitForSelector('.slk-jam-button.live:has-text("Join Jam")', { timeout: 15000 }).catch(() => { throw new Error('the other tab does not see the Jam going on') })
+    await e.click('.slk-jam-button.live')
+    await e.waitForSelector('.slk-jambar', { timeout: 15000 })
+    for (const p of [d, e]) {
+      await p.waitForFunction(() => document.querySelectorAll('.slk-jambar-people li').length === 2, null, { timeout: 15000 })
+        .catch(() => { throw new Error('the Jam bar does not show both people') })
+      await p.waitForFunction(() => (window.__pcs || []).some((pc) => pc.connectionState === 'connected'), null, { timeout: 20000 })
+        .catch(() => { throw new Error('the two browsers in the Jam never connected') })
+    }
+    if (!(await d.$('.slk-jambar-rec'))) throw new Error('the Jam is not said to be recording')
+    await e.click('.slk-jambar .cl-nudge:has-text("Mute")')
+    await d.waitForSelector('.slk-jambar-people li.muted', { timeout: 10000 }).catch(() => { throw new Error('muting is not shown to the others') })
+    await d.screenshot({ path: `${SHOTS}/47-jam-live.png` })
+    await d.waitForTimeout(2500)
+
+    // The recorder leaves: the recording goes up and comes back as a
+    // message that plays. The last one out ends the Jam.
+    await d.click('.slk-jambar .cl-danger')
+    await e.click('.slk-jambar .cl-danger')
+    await d.waitForSelector('.slk-msg:has-text("Jam ended")', { timeout: 20000 }).catch(() => { throw new Error('the channel was not told the Jam ended') })
+    await d.waitForSelector('.slk-msg .slk-jam-audio', { timeout: 30000 }).catch(() => { throw new Error('the recording did not come back as something to play') })
+    const src = await d.$eval('.slk-msg .slk-jam-audio', (el) => el.getAttribute('src'))
+    const played = await d.evaluate(async (u) => { const r = await fetch(u); return { ok: r.ok, type: r.headers.get('content-type'), size: (await r.arrayBuffer()).byteLength } }, src)
+    if (!played.ok || !/^audio\//.test(played.type) || played.size < 1024) throw new Error(`the recording does not play back: ${JSON.stringify(played)}`)
+    await d.screenshot({ path: `${SHOTS}/48-jam-recorded.png` })
+  } finally {
+    await ctx.close()
+    try { d1('DELETE FROM rate_limits') } catch { /* the next step says so if it matters */ }
+  }
+})
+
 await step('a card is decided by dragging it off, the way it is swiped on a phone', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
@@ -1767,6 +2004,11 @@ await step('a second person joins by invite and the card reaches them', async ()
   await b.click('text=Next'); await b.waitForSelector('.ob-art-route')
   await b.click('text=Next'); await b.waitForSelector('.ob-demo')
   await b.click('text=Set me up'); await b.waitForSelector('.radio')
+  await b.click('.screen-foot .btn-primary:has-text("Next")'); await b.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
+  // Joining a team whose first member set up a daily report: the same
+  // channel is offered, not a second one beside it.
+  const offered = await b.$eval('.ob-daily select[aria-label="Post to"]', (el) => el.value)
+  if (offered !== 'b:daily-reports') throw new Error(`a teammate is not offered the team's daily-report channel: ${offered}`)
   await b.click('text=Open my feed')
   await b.waitForSelector('.dot.on', { timeout: 25000 })
 
@@ -1845,6 +2087,7 @@ await step('an invite reaches someone who already has an account', async () => {
   await c.click('text=Next'); await c.waitForSelector('.ob-art-route')
   await c.click('text=Next'); await c.waitForSelector('.ob-demo')
   await c.click('text=Set me up'); await c.waitForSelector('.radio')
+  await c.click('.screen-foot .btn-primary:has-text("Next")'); await c.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
   await c.click('text=Open my feed')
   await c.waitForSelector('.dot.on', { timeout: 25000 })
 
@@ -2000,6 +2243,7 @@ async function freshAccount(name, email, { start } = {}) {
   await p.click('text=Next'); await p.waitForSelector('.ob-art-route')
   await p.click('text=Next'); await p.waitForSelector('.ob-demo')
   await p.click('text=Set me up'); await p.waitForSelector('.radio')
+  await p.click('.screen-foot .btn-primary:has-text("Next")'); await p.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
   await p.click('text=Open my feed')
   await p.waitForSelector('.dot.on', { timeout: 25000 })
   return p

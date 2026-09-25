@@ -2,13 +2,15 @@ import { getSession, isMember, getUserByGithubId } from "./db.js";
 import { ROLE_RANK } from "./auth.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
-import { parseSchedule, describeSchedule } from "./schedule.js";
+import { parseSchedule, describeSchedule, isTimeZone } from "./schedule.js";
 import {
   validateRoutineInput, createRoutine, listRoutines, getRoutine, updateRoutine, deleteRoutine,
   runRoutine, publicRoutine, briefInstruction,
 } from "./routines.js";
 import { listMemories, getMemory, addMemory, updateMemory, deleteMemory, forgetMemories } from "./memory.js";
 import { createApiToken, listApiTokens, revokeApiToken, handleMcp, TOOLS } from "./mcp.js";
+import { loadCopy } from "./copy.js";
+import { DAILY_KINDS } from "./dailyReport.js";
 
 // The routes for what the AI does on its own: routines, the playbook, and
 // the tokens agents use to reach the team. One module, so index.js — already
@@ -91,7 +93,9 @@ export async function handleAutomation(request, env, url) {
     const body = await request.json().catch(() => null);
     const text = typeof body?.text === "string" ? body.text.slice(0, 2000) : "";
     const parsed = parseSchedule(text);
-    const locale = body?.locale === "ja" ? "ja" : "en";
+    // No model call from a route that asks no one who they are: a language
+    // not yet learned reads English here.
+    const locale = typeof body?.locale === "string" ? body.locale : "en";
     if (!parsed) return json({ parsed: null });
     return json({ parsed: { ...parsed, schedule: describeSchedule(parsed, locale) } });
   }
@@ -104,7 +108,7 @@ export async function handleAutomation(request, env, url) {
     const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
-    const locale = who.user.locale === "ja" ? "ja" : "en";
+    const locale = await loadCopy(env, who.user.locale || "en", { orgId });
     if (request.method === "GET") {
       const rows = await listRoutines(env.DB, orgId, who.session.github_id);
       // The member list once, for every routine that reports to someone else.
@@ -115,9 +119,18 @@ export async function handleAutomation(request, env, url) {
       for (const r of rows) routines.push(await withRecipient(env, orgId, who.user, r, locale, members));
       return json({ routines, briefInstruction: briefInstruction(locale) });
     }
+    // Where the person lives, when the page did not say: the zone their
+    // browser last told us. A daily report at 08:00 means their 08:00.
+    if (!isTimeZone(body.timezone)) {
+      const stored = await env.DB.prepare("SELECT timezone FROM users WHERE github_id = ?1").bind(String(who.session.github_id)).first().catch(() => null);
+      if (isTimeZone(stored?.timezone)) body.timezone = stored.timezone;
+    }
     const checked = validateRoutineInput(body, { locale });
     if (checked.error) return json({ message: checked.error }, 400);
-    const recipientLogin = await resolveRecipient(env, orgId, who.user, body.recipient);
+    // A daily report is a draft of your own day: it only ever comes to you.
+    const recipientLogin = DAILY_KINDS.includes(checked.value.kind)
+      ? who.user.login
+      : await resolveRecipient(env, orgId, who.user, body.recipient);
     if (!recipientLogin) return json({ message: "That recipient is not a current member of this workspace." }, 400);
     const out = await createRoutine(env.DB, {
       orgId, owner: { github_id: who.session.github_id, login: who.user.login }, recipientLogin, input: checked.value,
@@ -135,7 +148,7 @@ export async function handleAutomation(request, env, url) {
     const orgId = request.method === "DELETE" ? url.searchParams.get("orgId") : body?.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
-    const locale = who.user.locale === "ja" ? "ja" : "en";
+    const locale = await loadCopy(env, who.user.locale || "en", { orgId });
     const current = await getRoutine(env.DB, orgId, id);
     // Somebody else's routine does not exist, as far as this caller knows.
     if (!current || current.owner_github_id !== String(who.session.github_id)) return json({ message: "no such routine" }, 404);

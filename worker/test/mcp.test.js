@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
+import { fetchMock } from "./helpers/fetch-mock.js";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { findMember } from "../src/mcp.js";
@@ -101,6 +102,30 @@ test("request_decision puts a card in a teammate's feed, and get_decision reads 
   // What Toru is waiting on from others.
   const sent = (await tool(token, "list_pending", { direction: "sent" })).structuredContent;
   expect(sent.decisions).toEqual([]);
+});
+
+test("an agent's card reaches a teammate who reads another language in theirs", async () => {
+  const { setUserLocale, getCard } = await import("../src/db.js");
+  await setUserLocale(env.DB, "8702", "ja");
+  const { token } = await mintToken(toru, "Release bot");
+  fetchMock.activate();
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, { choices: [{ message: { content: JSON.stringify({ title: "2.4リリースを承認しますか？", summary: "全チェック合格。出荷を推奨します。" }) } }] })
+    .times(1);
+  const res = await worker.fetch(new Request("https://example.com/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "request_decision", arguments: {
+      to: "mika", title: "Approve the 2.4 release?", summary: "All checks green; I recommend shipping.",
+    } } }),
+  }), { ...env, OPENAI_API_KEY: "sk-test" });
+  const { cardId } = (await res.json()).result.structuredContent;
+  fetchMock.assertNoPendingInterceptors();
+  const card = await getCard(env.DB, ORG, cardId);
+  // The agent's words stay as written; Mika reads hers.
+  expect(card.title).toBe("Approve the 2.4 release?");
+  expect(card.localized.ja.title).toBe("2.4リリースを承認しますか？");
 });
 
 test("a name that is nobody on the team is an error that lists who is", async () => {

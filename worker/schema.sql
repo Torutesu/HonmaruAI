@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS businesses (
   name        TEXT NOT NULL,
   created_by  TEXT,
   created_at  TEXT NOT NULL,
+  /* What the channel is for, in a sentence anyone may write. */
+  description TEXT,
   PRIMARY KEY (org_id, slug)
 );
 
@@ -421,7 +423,10 @@ CREATE TABLE IF NOT EXISTS routines (
   runs           INTEGER NOT NULL DEFAULT 0,
   origin         TEXT NOT NULL DEFAULT 'manual',
   created_at     TEXT NOT NULL,
-  updated_at     TEXT NOT NULL
+  updated_at     TEXT NOT NULL,
+  /* A daily report's channel (`b:<slug>`): where the owner posts it once
+     they have read the draft. Null for every other kind. */
+  channel        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_routines_due ON routines(enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_routines_org ON routines(org_id);
@@ -578,3 +583,33 @@ CREATE TABLE IF NOT EXISTS auto_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_auto_rules ON auto_rules(org_id, recipient_login);
 
+
+/* The Worker's own words in a language nobody wrote them in by hand: one row
+   per language and catalog, written by the model the first time a reader of
+   that language needed them. `version` tags the English it was made from, so
+   a reworded catalog is translated again rather than read stale. */
+CREATE TABLE IF NOT EXISTS copy_translations (
+  locale     TEXT NOT NULL,
+  catalog    TEXT NOT NULL,
+  version    TEXT NOT NULL,
+  strings    TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (locale, catalog)
+);
+
+/* A channel's journal: one day's conversation, summarized for a reader —
+   in their time zone and language — with each line pointing at the
+   messages it came from. Kept until the day gains a message, so reading
+   the journal again costs nothing. */
+CREATE TABLE IF NOT EXISTS channel_journal (
+  org_id     TEXT NOT NULL,
+  channel    TEXT NOT NULL,
+  day        TEXT NOT NULL,
+  tz         TEXT NOT NULL,
+  locale     TEXT NOT NULL,
+  count      INTEGER NOT NULL,
+  items      TEXT NOT NULL,
+  by_model   INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel, day, tz, locale)
+);

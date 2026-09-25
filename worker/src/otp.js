@@ -17,6 +17,7 @@ import {
 import { createSession, primaryOrgId } from "./db.js";
 import { isMailConfigured, sendMail } from "./mailer.js";
 import { composeCodeEmail } from "./notifyCopy.js";
+import { loadCopy } from "./copy.js";
 
 // Long enough to switch to a mail app and back, short enough that a code read
 // over someone's shoulder is worth little by the time they type it.
@@ -84,7 +85,7 @@ export async function requestCode(env, { email, locale }) {
   // In the language they read, like every other message this product sends.
   // A person who has not signed in yet has no stored language, so the browser's
   // Accept-Language is all we have — which is exactly what it is for.
-  const mail = composeCodeEmail({ code, locale, minutes: Math.round(CODE_TTL_MS / 60000) });
+  const mail = composeCodeEmail({ code, locale: await loadCopy(env, locale || "en"), minutes: Math.round(CODE_TTL_MS / 60000) });
   const sent = await sendMail(env, { to: address, subject: mail.subject, text: mail.text });
   if (!sent.ok) {
     // The row would otherwise sit there refusing a resend for a minute over a

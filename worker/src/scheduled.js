@@ -5,10 +5,12 @@ import { notifyCard } from "./notify.js";
 import { sweepRateLimits } from "./ratelimit.js";
 import { cardsCreatedSince, primaryOrgId } from "./db.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
 import { providerFor } from "./orgAI.js";
 import { alert } from "./alert.js";
 import { safe } from "./log.js";
 import { runDueRoutines } from "./routines.js";
+import { remindDailyDrafts } from "./dailyReport.js";
 import { runProposals, isProposalTick } from "./proposals.js";
 
 // "Your AI triaged three decisions overnight" cannot be true if the AI only
@@ -90,7 +92,10 @@ export async function runScheduledSync(env, ctx) {
       if (!newCards) continue;
       created += newCards;
 
-      const fresh = await cardsCreatedSince(env.DB, row.org_id, row.login, startedAt);
+      const fresh = [];
+      for (const c of await cardsCreatedSince(env.DB, row.org_id, row.login, startedAt)) {
+        fresh.push(await localizeForRecipient(env, row.org_id, c, { payerGithubId: row.github_id }));
+      }
       // Anyone with the app open sees these now. Without it the push below
       // announced a decision that was not yet in the feed it points at.
       await announceCards(env, row.org_id, fresh);
@@ -137,12 +142,18 @@ export async function runScheduledSync(env, ctx) {
 /// The AI's own work: routines that are due, and — on the day's first tick
 /// — the automations it would propose. Each half fails alone.
 export async function runAutomations(env, ctx, now = new Date()) {
-  const out = { routines: null, proposals: null };
+  const out = { routines: null, proposals: null, dailyReminders: null };
   try {
     out.routines = await runDueRoutines(env, { now });
   } catch (err) {
     console.error("routines failed", err?.message || err);
     alert(ctx, env, "routines", safe(err?.message));
+  }
+  // A daily report's draft still unposted after two hours: asked once more.
+  try {
+    out.dailyReminders = await remindDailyDrafts(env, { now });
+  } catch (err) {
+    console.error("daily reminders failed", err?.message || err);
   }
   if (isProposalTick(now)) {
     try {

@@ -1,3 +1,4 @@
+import { serverText } from "./serverCopy.js";
 // When a routine runs, read from one sentence and computed in the owner's
 // own time zone.
 //
@@ -211,25 +212,18 @@ export function parseSchedule(text) {
 }
 
 /// "Every Monday at 09:00" in the reader's language, for cards and lists.
+/// A language not written by hand needs `loadCopy` awaited first.
 export function describeSchedule(routine, locale = "en") {
   const hh = String(routine.hour ?? 9).padStart(2, "0");
   const mm = String(routine.minute ?? 0).padStart(2, "0");
   const time = `${hh}:${mm}`;
-  if (locale === "ja") {
-    switch (routine.cadence) {
-      case "daily": return `毎日 ${time}`;
-      case "weekdays": return `平日 ${time}`;
-      case "weekly": return `毎週${WEEKDAYS_JA[routine.weekday ?? 1]}曜 ${time}`;
-      case "monthly": return routine.monthday >= 31 ? `毎月末 ${time}` : `毎月${routine.monthday ?? 1}日 ${time}`;
-      default: return time;
-    }
-  }
-  const day = WEEKDAYS_EN[routine.weekday ?? 1][0];
   switch (routine.cadence) {
-    case "daily": return `Every day at ${time}`;
-    case "weekdays": return `Weekdays at ${time}`;
-    case "weekly": return `Every ${day[0].toUpperCase()}${day.slice(1)} at ${time}`;
-    case "monthly": return routine.monthday >= 31 ? `Last day of the month at ${time}` : `Monthly on day ${routine.monthday ?? 1} at ${time}`;
+    case "daily": return serverText(locale, "schedule.daily", { time });
+    case "weekdays": return serverText(locale, "schedule.weekdays", { time });
+    case "weekly": return serverText(locale, "schedule.weekly", { time, day: serverText(locale, `schedule.day${routine.weekday ?? 1}`) });
+    case "monthly": return routine.monthday >= 31
+      ? serverText(locale, "schedule.monthEnd", { time })
+      : serverText(locale, "schedule.monthly", { time, day: routine.monthday ?? 1 });
     default: return time;
   }
 }

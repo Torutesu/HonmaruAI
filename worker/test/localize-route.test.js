@@ -96,3 +96,15 @@ test("the last of a metered day's allowance is kept for the person's own instruc
   expect(res.status).toBe(429);
   expect((await res.json()).quotaExceeded).toBe(true);
 });
+
+test("any language a person reads can be asked for, not only the ones the notification copy is written in", async () => {
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, { choices: [{ message: { content: JSON.stringify({ title: "Phê duyệt tăng giá nhà cung cấp 8%" }) } }] })
+    .times(1);
+  const res = await localize(toru, "l-1", "vi-VN");
+  expect(res.status).toBe(200);
+  expect((await res.json()).localized.title).toBe("Phê duyệt tăng giá nhà cung cấp 8%");
+  const { getCard } = await import("../src/db.js");
+  expect((await getCard(env.DB, ORG, "l-1")).localized.vi.title).toBe("Phê duyệt tăng giá nhà cung cấp 8%");
+});

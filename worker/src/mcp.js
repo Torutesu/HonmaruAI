@@ -4,6 +4,7 @@ import { listMembers } from "./team.js";
 import { searchDecisions } from "./insights.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { enforceSubject } from "./ratelimit.js";
 import { listMemories } from "./memory.js";
@@ -238,9 +239,12 @@ async function callTool(env, agent, name, args, request) {
       };
       await saveCard(db, agent.orgId, card);
       await appendCardEvent(db, agent.orgId, { cardId: card.id, type: "created", actorUserId: agent.login, note: `agent: ${agent.agentName}`, snapshot: card });
-      await announceCards(env, agent.orgId, [card]);
+      // An agent writes in whatever language it was prompted in; the person
+      // deciding reads theirs.
+      const shown = await localizeForRecipient(env, agent.orgId, card, { payerGithubId: agent.githubId });
+      await announceCards(env, agent.orgId, [shown]);
       if (anyChannelConfigured(env)) {
-        await notifyCard(env, { card, kind: "created", excludeLogin: null }).catch((err) => console.error("mcp notify failed", safe(err?.message)));
+        await notifyCard(env, { card: shown, kind: "created", excludeLogin: null, orgId: agent.orgId, payerGithubId: agent.githubId }).catch((err) => console.error("mcp notify failed", safe(err?.message)));
       }
       const link = env.APP_WEB_URL ? `${String(env.APP_WEB_URL).replace(/\/$/, "")}/#/feed/${encodeURIComponent(card.id)}` : null;
       return text({ cardId: card.id, status: "pending", recipient: recipient.name, ...(link ? { url: link } : {}), next: "Call get_decision with this cardId to read the answer." });

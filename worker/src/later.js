@@ -2,6 +2,9 @@ import { getMessage, postMessage } from "./channels.js";
 import { saveCard } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { localizeForRecipient } from "./localize.js";
+import { loadCopy } from "./copy.js";
+import { serverText } from "./serverCopy.js";
 
 // Time, in a conversation: messages written now and sent later, messages
 // saved to come back to, and the reminder that brings one back as a card.
@@ -110,15 +113,17 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
     }
   }
   const { results: remind } = await db.prepare(
-    `SELECT s.*, m.body, m.author_login, u.name AS author_name FROM saved_items s
+    `SELECT s.*, m.body, m.author_login, u.name AS author_name, me.locale AS reader_locale FROM saved_items s
        JOIN channel_messages m ON m.id = s.message_id AND m.org_id = s.org_id
        LEFT JOIN users u ON u.login = m.author_login
+       LEFT JOIN users me ON me.login = s.login
       WHERE s.done_at IS NULL AND s.reminded_at IS NULL AND s.remind_at IS NOT NULL AND s.remind_at <= ?1 LIMIT 50`
   ).bind(at).all();
   for (const r of remind || []) {
     try {
       const claim = await db.prepare("UPDATE saved_items SET reminded_at = ?2 WHERE id = ?1 AND reminded_at IS NULL").bind(r.id, at).run();
       if (!(claim.meta?.changes > 0)) continue;
+      const lang = await loadCopy(env, r.reader_locale || "en", { orgId: r.org_id });
       const card = {
         id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         type: "notification",
@@ -126,9 +131,9 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
         status: "pending",
         recipientUserID: r.login,
         senderUserID: r.login,
-        title: `Reminder: ${String(r.body || "").replace(/\s+/g, " ").slice(0, 120)}`,
+        title: serverText(lang, "reminder.title", { text: String(r.body || "").replace(/\s+/g, " ").slice(0, 120) }),
         summary: String(r.body || "").slice(0, 1500),
-        context: r.author_name ? `Saved from a message by ${r.author_name}.` : "Saved from a message.",
+        context: r.author_name ? serverText(lang, "reminder.savedBy", { name: r.author_name }) : serverText(lang, "reminder.saved"),
         priority: "medium",
         createdAt: at,
         sourceApp: "Your AI",
@@ -136,7 +141,8 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
       };
       await saveCard(db, r.org_id, card);
       await appendCardEvent(db, r.org_id, { cardId: card.id, type: "created", actorUserId: r.login, note: "reminder", snapshot: card });
-      await announceCards(env, r.org_id, [card]);
+      // The saved message may be a colleague's, in their language.
+      await announceCards(env, r.org_id, [await localizeForRecipient(env, r.org_id, card)]);
       reminded += 1;
     } catch (err) {
       console.error("reminder failed", err?.message || err);

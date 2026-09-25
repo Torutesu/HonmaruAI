@@ -28,7 +28,7 @@ struct SourceSheet: View {
                     else {
                         Text("The original message was not included with this request.").font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
                         Text("Summary").font(.subheadline.weight(.semibold))
-                        Text(card.summary).font(.body).lineSpacing(5)
+                        Text(card.displaySummary).font(.body).lineSpacing(5)
                     }
                     if !appState.isGuest, let source = card.requestedBy?.sourceUrl, let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
                         Link(destination: url) { Label("Open original source", systemImage: "arrow.up.right") }.font(.subheadline.weight(.medium))

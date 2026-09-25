@@ -25,6 +25,10 @@ import { redirectIfAway } from "./people.js";
 import { listMembers } from "./team.js";
 import { learnFromDecision } from "./memory.js";
 import { settleProposal } from "./proposals.js";
+import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
+
+/// Said to a client that tries to put an unposted daily report away.
+const DRAFT_MUST_POST = "This daily report is a draft: check it and post it to finish it.";
 
 // One socket's allowance. Well above anything the app does — it sends a message
 // per decision, not per frame — and far below what a loop can produce.
@@ -205,16 +209,18 @@ export class OrgRelay {
   /// In memory, so it is lost when the object hibernates. That fails toward
   /// letting someone through after an idle gap, which is the right way for a
   /// limiter to be wrong.
-  overBudget(userId) {
+  overBudget(userId, jam = false) {
     const now = Date.now();
-    const window = this.messageWindow ||= new Map();
+    // A Jam's signals are many and small, and counted on their own: a call
+    // setting up must not use up the budget for everything else.
+    const window = jam ? (this.jamWindow ||= new Map()) : (this.messageWindow ||= new Map());
     const seen = window.get(userId);
     if (!seen || now - seen.since > MESSAGE_WINDOW_MS) {
       window.set(userId, { since: now, count: 1 });
       return false;
     }
     seen.count += 1;
-    return seen.count > MESSAGE_BUDGET;
+    return seen.count > (jam ? JAM_SIGNAL_BUDGET : MESSAGE_BUDGET);
   }
 
   async webSocketMessage(ws, raw) {
@@ -239,7 +245,7 @@ export class OrgRelay {
     if (type !== "join" && !att.authed) {
       return this.refuse(ws, att.agui, "Join with a valid session before sending anything.");
     }
-    if (type !== "join" && this.overBudget(att.userId)) {
+    if (type !== "join" && this.overBudget(att.userId, JAM_TYPES.has(type))) {
       // Told, not closed: a burst is far more often a client bug than an
       // attack, and dropping the socket turns a recoverable moment into a
       // reconnect loop.
@@ -302,6 +308,13 @@ export class OrgRelay {
       // regardless of which one it spoke, so every client received it as a
       // CUSTOM event and again as a legacy message.
       for (const ev of presenceEvents(userId, "online")) this.broadcast(orgId, ev, ws);
+      // Who is talking where, for the channels this person can see.
+      for (const ev of await jamStatesFor(this, orgId, userId, String(session.github_id))) ws.send(JSON.stringify(ev));
+      return;
+    }
+
+    if (JAM_TYPES.has(type)) {
+      await handleJamMessage(this, ws, ws.deserializeAttachment() || att, type, payload || {});
       return;
     }
 
@@ -382,6 +395,12 @@ export class OrgRelay {
         // checks. Legacy clients may continue sending a login.
         delete card.recipientMemberRef;
         delete card.recipientName;
+        // Translations are the relay's to write. One the sender supplied is
+        // words the recipient would read as the card that are not the card.
+        delete card.localized;
+        // And a daily report's draft is the Worker's to make: a client cannot
+        // hand someone a "draft" that posts in their name.
+        delete card.dailyReport;
         if (card.recipientUserID.startsWith("member:")) {
           const member = (await listMembers(this.db, orgId, att.githubId))
             .find(m => `member:${m.ref}` === card.recipientUserID);
@@ -464,7 +483,21 @@ export class OrgRelay {
         // created — the translation, the business, who asked, what the AI
         // advised. A client that does not know a field must not erase it.
         if (existing) {
-          for (const field of ["localized", "business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "reminder", "autoApproved", "coveringFor"]) {
+          // The translations are the stored ones, whatever the client's copy
+          // says: a phone republishing what it loaded an hour ago must not
+          // drop the language somebody else asked for since.
+          if (existing.localized !== undefined) card.localized = existing.localized;
+          else delete card.localized;
+          // A daily report's state is the Worker's: posted only through Post.
+          if (existing.dailyReport !== undefined) card.dailyReport = existing.dailyReport;
+          else delete card.dailyReport;
+          // An unposted draft is not put away by deciding it — from any
+          // client, however old: the only way off the feed is to post it.
+          if (existing.dailyReport?.status === "draft" && card.decision?.action) {
+            ws.send(JSON.stringify(runError(DRAFT_MUST_POST)));
+            return;
+          }
+          for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "reminder", "autoApproved", "coveringFor"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
         }
@@ -527,7 +560,7 @@ export class OrgRelay {
       // did, above, and the sender knows. Refs from the client, resolved
       // against the real member list: a ref that names nobody names nobody.
       if (type === "card_created" && Array.isArray(card.mentions) && card.mentions.length && anyChannelConfigured(this.env)) {
-        this.state.waitUntil(this.notifyMentioned(orgId, card, att.userId));
+        this.state.waitUntil(this.notifyMentioned(orgId, card, att.userId, att.githubId));
       }
       return;
     }
@@ -652,7 +685,7 @@ export class OrgRelay {
   /// carries a version for them. When it produces something, the card is saved
   /// again and re-broadcast so every open device shows the same words the
   /// notification did.
-  async notifyMentioned(orgId, card, authorLogin) {
+  async notifyMentioned(orgId, card, authorLogin, authorGithubId) {
     try {
       const members = await listMembers(this.db, orgId, null);
       const wanted = new Set(card.mentions.map((m) => String(m).replace(/^member:/, "")).slice(0, 10));
@@ -662,7 +695,13 @@ export class OrgRelay {
         if (!wanted.has(m.ref) && !wanted.has(m.login)) continue;
         if (told.has(m.login)) continue;
         told.add(m.login);
-        await notifyCard(this.env, { card, kind: "mentioned", toLogin: m.login, comment: who });
+        // In the language of the one mentioned, which need not be the
+        // recipient's. No announce: this is the room, and it does not call
+        // itself; the words are stored for the next snapshot.
+        await notifyCard(this.env, {
+          card, kind: "mentioned", toLogin: m.login, comment: who,
+          orgId, payerGithubId: authorGithubId, announce: false,
+        });
       }
     } catch (err) {
       console.error("mention notify failed", err?.message || err);
@@ -758,6 +797,7 @@ export class OrgRelay {
       if (target && target.recipientUserID !== actorUserId) {
         throw new Error("Only the recipient can decide this card.");
       }
+      if (target?.dailyReport?.status === "draft") throw new Error(DRAFT_MUST_POST);
     }
     const out = applyDecision(store, content);
     if (out.removed) {
@@ -810,6 +850,10 @@ export class OrgRelay {
     const att = ws.deserializeAttachment() || {};
     if (att.userId) {
       for (const ev of presenceEvents(att.userId, "offline")) this.broadcast(att.orgId, ev, ws);
+    }
+    // A closed tab has left its Jam.
+    if (att.jam) {
+      try { await leaveJam(this, ws, att, { closing: true }); } catch (err) { console.error("jam leave failed", err?.message || err); }
     }
   }
 

@@ -6,7 +6,7 @@ import type { Cadence, DecisionCard } from '../types/card'
 
 export interface Routine {
   id: string
-  kind: 'report' | 'brief'
+  kind: 'report' | 'brief' | 'daily_plan' | 'daily_report'
   title: string
   instruction: string
   cadence: Cadence
@@ -27,6 +27,8 @@ export interface Routine {
   runs: number
   origin: 'manual' | 'proposal'
   recipient: { name: string; ref: string | null; self: boolean }
+  /// A daily report's channel, `b:<slug>`; null for every other kind.
+  channel?: string | null
   createdAt: string
 }
 
@@ -41,6 +43,8 @@ export interface RoutineDraft {
   hour: number
   minute: number
   recipient: string
+  /// A daily report's channel, `b:<slug>`.
+  channel?: string
 }
 
 export const CADENCES: Cadence[] = ['daily', 'weekdays', 'weekly', 'monthly']
@@ -60,6 +64,7 @@ export function draftFromRoutine(r: Routine): RoutineDraft {
     hour: r.hour,
     minute: r.minute,
     recipient: r.recipient.self || !r.recipient.ref ? 'me' : r.recipient.ref,
+    ...(r.channel ? { channel: r.channel } : {}),
   }
 }
 
@@ -83,6 +88,7 @@ export function routineBody(draft: RoutineDraft, timezone = localTimeZone()): Re
   if (draft.title !== undefined && draft.title.trim()) body.title = draft.title.trim()
   if (draft.cadence === 'weekly') body.weekday = draft.weekday
   if (draft.cadence === 'monthly') body.monthday = draft.monthday
+  if (draft.channel) body.channel = draft.channel
   return body
 }
 
@@ -135,4 +141,10 @@ export function sourceLabel(card: Pick<DecisionCard, 'sourceApp' | 'sourceDetail
   if (!card.sourceApp) return ''
   if (card.sourceApp === 'Agent' && card.sourceDetail) return `${t('Agent')} · ${card.sourceDetail}`
   return SOURCE_WORD[card.sourceApp] ? t(SOURCE_WORD[card.sourceApp]) : card.sourceApp
+}
+
+/// A daily report's draft that is still waiting for its owner to post it:
+/// not something put away with "Got it" — the only way off the feed is Post.
+export function awaitsPost(card: Pick<DecisionCard, 'dailyReport' | 'status'>): boolean {
+  return card.status === 'pending' && (card.dailyReport?.status === 'draft' || card.dailyReport?.status === 'posting')
 }

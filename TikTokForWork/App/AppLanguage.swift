@@ -33,8 +33,20 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     /// The reader-language code sent to the AI, resolved against the system when `.system`.
     var readerLanguageCode: String {
         switch self {
-        case .system: return Locale.current.language.languageCode?.identifier ?? "en"
+        case .system: return AppLanguage.deviceLanguageCode
         default: return rawValue
         }
+    }
+
+    /// The device's own first language, whichever it is. Not `Locale.current`:
+    /// that resolves to one of the app's own localizations, so a phone set to
+    /// Vietnamese reported English and every card and notification followed.
+    /// The screens can only be in the five languages above; what a person
+    /// reads — cards, notifications, email — can be in any.
+    static var deviceLanguageCode: String {
+        for tag in Locale.preferredLanguages {
+            if let code = Locale(identifier: tag).language.languageCode?.identifier { return code }
+        }
+        return Locale.current.language.languageCode?.identifier ?? "en"
     }
 }

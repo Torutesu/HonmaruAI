@@ -1,3 +1,5 @@
+import { primaryLanguage } from "./language.js";
+import { registerCatalog } from "./copy.js";
 // Every word a notification says, in every language it can say it in.
 //
 // A notification is read on a lock screen, in a browser corner, or in a mail
@@ -19,6 +21,10 @@ const STRINGS = {
     digest: "{count} decisions need you",
     nudge: "{name} is still waiting on your decision",
     nudgeSubtitle: "A gentle reminder",
+    tabNewDecision: "New decision for you",
+    dailyDraft: "Your draft is ready. Check it and post it to {channel}.",
+    dailyReminder: "Your draft is still not posted. Check it and post it to {channel}.",
+    tabFrom: "From {name}",
     commented: "{name}: {text}",
     mentioned: "{name} mentioned you: {text}",
     emailCommentIntro: "{name} said something under a decision you are part of.",
@@ -55,6 +61,10 @@ const STRINGS = {
     digest: "{count}件の決定があなたを待っています",
     nudge: "{name}があなたの決定を待っています",
     nudgeSubtitle: "リマインダー",
+    tabNewDecision: "新しい決定が届きました",
+    dailyDraft: "下書きができました。確認して {channel} に投稿してください。",
+    dailyReminder: "下書きがまだ投稿されていません。確認して {channel} に投稿してください。",
+    tabFrom: "{name}から",
     commented: "{name}: {text}",
     mentioned: "{name}があなたをメンションしました: {text}",
     emailCommentIntro: "{name}が、あなたに関わる決定にコメントしました。",
@@ -91,6 +101,10 @@ const STRINGS = {
     digest: "{count} decisiones te esperan",
     nudge: "{name} sigue esperando tu decisión",
     nudgeSubtitle: "Un recordatorio amable",
+    tabNewDecision: "Tienes una nueva decisión",
+    dailyDraft: "Tu borrador está listo. Revísalo y publícalo en {channel}.",
+    dailyReminder: "Tu borrador aún no está publicado. Revísalo y publícalo en {channel}.",
+    tabFrom: "De {name}",
     commented: "{name}: {text}",
     mentioned: "{name} te mencionó: {text}",
     emailCommentIntro: "{name} dijo algo bajo una decisión de la que formas parte.",
@@ -127,6 +141,10 @@ const STRINGS = {
     digest: "{count} décisions vous attendent",
     nudge: "{name} attend toujours votre décision",
     nudgeSubtitle: "Un petit rappel",
+    tabNewDecision: "Nouvelle décision pour vous",
+    dailyDraft: "Votre brouillon est prêt. Relisez-le et publiez-le dans {channel}.",
+    dailyReminder: "Votre brouillon n'est pas encore publié. Relisez-le et publiez-le dans {channel}.",
+    tabFrom: "De la part de {name}",
     commented: "{name} : {text}",
     mentioned: "{name} vous a mentionné : {text}",
     emailCommentIntro: "{name} a écrit sous une décision qui vous concerne.",
@@ -163,6 +181,10 @@ const STRINGS = {
     digest: "{count} Entscheidungen warten auf dich",
     nudge: "{name} wartet noch auf deine Entscheidung",
     nudgeSubtitle: "Eine freundliche Erinnerung",
+    tabNewDecision: "Neue Entscheidung für dich",
+    dailyDraft: "Dein Entwurf ist fertig. Prüf ihn und poste ihn in {channel}.",
+    dailyReminder: "Dein Entwurf ist noch nicht gepostet. Prüf ihn und poste ihn in {channel}.",
+    tabFrom: "Von {name}",
     commented: "{name}: {text}",
     mentioned: "{name} hat dich erwähnt: {text}",
     emailCommentIntro: "{name} hat unter einer Entscheidung geschrieben, an der du beteiligt bist.",
@@ -192,7 +214,18 @@ const STRINGS = {
   },
 };
 
+/// The languages written by hand here. Every other language is written by
+/// the model on first use (see copy.js) — this is not the list of languages a
+/// person can be told in, which is all of them.
 export const SUPPORTED_LOCALES = Object.keys(STRINGS);
+
+// The same tables, flat, as the catalog copy.js serves: `actions.approve`.
+const notifyText = registerCatalog("notify", Object.fromEntries(
+  Object.entries(STRINGS).map(([lang, table]) => {
+    const { actions, ...rest } = table;
+    return [lang, { ...rest, ...Object.fromEntries(Object.entries(actions).map(([k, v]) => [`actions.${k}`, v])) }];
+  })
+));
 
 /// The strings for a locale, falling back to English for one we have not
 /// written yet. A person whose language we cannot speak still gets told.
@@ -207,31 +240,31 @@ export function stringsFor(locale) {
   return STRINGS[primary] || STRINGS.en;
 }
 
-function fill(template, vars = {}) {
-  return String(template).replace(/\{(\w+)\}/g, (_, key) => (vars[key] ?? ""));
-}
-
+/// One string in the reader's language: written by hand, or learned by
+/// copy.js for this language (callers await `loadCopy` first), or English.
 export function t(locale, key, vars) {
-  const table = stringsFor(locale);
-  const template = table[key] ?? STRINGS.en[key] ?? key;
-  return fill(template, vars);
+  return notifyText(locale, key, vars);
 }
 
 /// A decision action as a word: "approved", "承認".
 export function actionLabel(locale, action) {
-  const table = stringsFor(locale);
-  return table.actions[action] || STRINGS.en.actions[action] || action || "";
+  if (!action) return "";
+  return notifyText(locale, `actions.${action}`, {}, action);
 }
 
 /// The card's title in this person's language, when the relay has produced
 /// one; the original otherwise. The original is written in the sender's
 /// language, which is the right thing to show the sender.
+///
+/// The card's words are looked up under the reader's own language, not the
+/// table the chrome fell back to: a Vietnamese reader's card is translated
+/// into Vietnamese even while "From Mai's AI" is still in English.
 export function titleFor(card, locale) {
-  return card?.localized?.[locale]?.title || card?.title || "";
+  return card?.localized?.[primaryLanguage(locale)]?.title || card?.title || "";
 }
 
 export function summaryFor(card, locale) {
-  return card?.localized?.[locale]?.summary || card?.summary || "";
+  return card?.localized?.[primaryLanguage(locale)]?.summary || card?.summary || "";
 }
 
 /// The plain name to show for a login: "u:someone@x.com" → "someone".
@@ -246,7 +279,16 @@ export function displayName(login) {
 /// line only: the lock screen is a public surface, and a summary can carry a
 /// salary or a client's name. The card id rides alongside so a tap can open it.
 export function composeAlert({ card, kind, locale, count, comment }) {
-  const lang = stringsFor(locale) === STRINGS.en ? "en" : locale;
+  const lang = primaryLanguage(locale) || "en";
+  const reader = lang;
+  // A daily report's draft: yours to check and post, and it says where.
+  if (card?.dailyReport && (kind === "created" || kind === "nudged")) {
+    const channel = `#${String(card.dailyReport.channel || "").replace(/^b:/, "")}`;
+    return {
+      title: titleFor(card, reader) || t(lang, "waiting"),
+      subtitle: t(lang, kind === "nudged" ? "dailyReminder" : "dailyDraft", { channel }),
+    };
+  }
   if (kind === "digest") {
     return { title: t(lang, "digest", { count }), subtitle: t(lang, "yourAI") };
   }
@@ -254,13 +296,13 @@ export function composeAlert({ card, kind, locale, count, comment }) {
     const action = actionLabel(lang, card.decision?.action || card.status);
     const actor = displayName(card.decision?.actorUserID) || displayName(card.recipientUserID);
     return {
-      title: titleFor(card, lang) || t(lang, "decided"),
+      title: titleFor(card, reader) || t(lang, "decided"),
       subtitle: t(lang, "decidedBy", { actor, action }),
     };
   }
   if (kind === "nudged") {
     return {
-      title: titleFor(card, lang) || t(lang, "waiting"),
+      title: titleFor(card, reader) || t(lang, "waiting"),
       subtitle: t(lang, "nudge", { name: displayName(card.senderUserID) }),
     };
   }
@@ -270,14 +312,14 @@ export function composeAlert({ card, kind, locale, count, comment }) {
     const text = String(comment?.text || "").replace(/\s+/g, " ").trim();
     const short = text.length > 90 ? `${text.slice(0, 89)}…` : text;
     return {
-      title: titleFor(card, lang) || t(lang, "waiting"),
+      title: titleFor(card, reader) || t(lang, "waiting"),
       subtitle: t(lang, kind, { name: comment?.name || displayName(comment?.author), text: short }),
     };
   }
   const sender = card.senderUserID;
   const selfSent = !sender || sender === "deleted-user" || sender === card.recipientUserID;
   return {
-    title: titleFor(card, lang) || t(lang, "waiting"),
+    title: titleFor(card, reader) || t(lang, "waiting"),
     subtitle: selfSent ? t(lang, "yourAI") : t(lang, "fromAI", { name: displayName(sender) }),
   };
 }
@@ -285,10 +327,12 @@ export function composeAlert({ card, kind, locale, count, comment }) {
 /// The same alert, as an email. Plain text: it renders everywhere, and a
 /// decision is not a newsletter.
 export function composeEmail({ card, kind, locale, count, url, comment }) {
-  const lang = stringsFor(locale) === STRINGS.en ? "en" : locale;
-  const alert = composeAlert({ card, kind, locale: lang, count, comment });
+  const lang = primaryLanguage(locale) || "en";
+  const alert = composeAlert({ card, kind, locale, count, comment });
   const who = comment?.name || displayName(comment?.author);
-  const intro = kind === "decided"
+  const intro = card?.dailyReport && (kind === "created" || kind === "nudged")
+    ? alert.subtitle
+    : kind === "decided"
     ? t(lang, "emailDecidedIntro")
     : kind === "nudged"
       ? t(lang, "emailNudgeIntro", { name: displayName(card.senderUserID) })
@@ -297,8 +341,9 @@ export function composeEmail({ card, kind, locale, count, url, comment }) {
         : kind === "mentioned"
           ? t(lang, "emailMentionIntro", { name: who })
           : t(lang, "emailIntro");
-  const lines = [intro, "", alert.title, alert.subtitle];
-  const summary = kind === "digest" ? "" : summaryFor(card, lang);
+  const daily = Boolean(card?.dailyReport) && (kind === "created" || kind === "nudged");
+  const lines = daily ? [intro, "", alert.title] : [intro, "", alert.title, alert.subtitle];
+  const summary = kind === "digest" ? "" : summaryFor(card, locale);
   if (summary) lines.push("", summary);
   if (url) lines.push("", t(lang, "emailOpen", { url }));
   lines.push("", "—", t(lang, "emailFooter"));

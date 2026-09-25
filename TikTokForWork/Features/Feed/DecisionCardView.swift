@@ -26,11 +26,11 @@ struct DecisionCardView: View {
             VStack(alignment: .leading, spacing: 14) {
                 cardHeader
                 Button(action: onShowDetails) {
-                    Text(card.title).font(.system(size: titleSize, weight: .bold)).tracking(-0.5)
+                    Text(card.displayTitle).font(.system(size: titleSize, weight: .bold)).tracking(-0.5)
                         .foregroundStyle(Theme.Colors.textPrimary).frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }.buttonStyle(.plain)
-                Text(card.summary).font(.system(size: bodySize)).lineSpacing(3)
+                Text(card.displaySummary).font(.system(size: bodySize)).lineSpacing(3)
                     .foregroundStyle(Theme.Colors.textSecondary).fixedSize(horizontal: false, vertical: true)
                 if let source = card.sourceApp {
                     Button { showSource = true } label: {
@@ -88,7 +88,7 @@ struct DecisionCardView: View {
                     Button("Delegate", systemImage: "person.badge.plus") { onAction(.delegate) }
                 }
             }
-            if showsActions, card.isPending { DecisionCardActions(card: card, onAction: onAction) }
+            if showsActions, card.isPending, !card.awaitsPost { DecisionCardActions(card: card, onAction: onAction) }
         }
         .sheet(isPresented: $showSource) {
             if let app = card.sourceApp { SourceSheet(app: app, detail: card.sourceDetail, card: card).presentationDetents([.medium, .large]) }

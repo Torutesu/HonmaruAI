@@ -23,7 +23,7 @@ struct DelegatePickerSheet: View {
         NavigationStack {
             List {
                 Section {
-                    Text(card.title)
+                    Text(card.displayTitle)
                         .font(Theme.TypeScale.caption)
                         .foregroundStyle(Theme.Colors.textSecondary)
                 } header: {

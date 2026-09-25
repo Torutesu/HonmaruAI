@@ -2,7 +2,7 @@ import {env} from "cloudflare:test";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
-import { detectLanguage, needsLocalizing, localizeCard } from "../src/localize.js";
+import { detectLanguage, needsLocalizing, localizeCard, localizeForRecipient, localizeStored } from "../src/localize.js";
 import { joined, message } from "./helpers.js";
 
 // The router writes a card in the sender's language. The relay is the first
@@ -103,4 +103,99 @@ test("a card still arrives, unchanged, when the relay has no model to translate 
   const stored = await getCard(env.DB, ORG, "card-plain");
   expect(stored.title).toBe("Approve the lease");
   expect(stored.localized).toBeUndefined();
+});
+
+test("the language of a card is placed whatever it was written in, and a guess is not an answer", () => {
+  expect(detectLanguage("¿Aprobamos el presupuesto de marketing?")).toBe("es");
+  expect(detectLanguage("Merci de valider le budget avant vendredi")).toBe("fr");
+  expect(detectLanguage("Bitte genehmigen Sie das Budget für Q3")).toBe("de");
+  expect(detectLanguage("Bạn có duyệt ngân sách không?")).toBe("vi");
+  expect(detectLanguage("Mohon setujui anggaran untuk Q3")).toBe("id");
+  expect(detectLanguage("อนุมัติงบประมาณไหม")).toBe("th");
+  expect(detectLanguage("هل نوافق على الميزانية؟")).toBe("ar");
+  expect(detectLanguage("बजट को मंज़ूरी दें")).toBe("hi");
+  expect(detectLanguage("批准第三季度预算")).toBe("zh");
+  expect(detectLanguage("Затвердити бюджет і план")).toBe("uk");
+  // A Japanese sentence with an English word in it is Japanese; an English
+  // one with a Japanese name in it is not Chinese.
+  expect(detectLanguage("田中さんの予算 Q3 budget approval")).toBe("ja");
+  expect(detectLanguage("Approve 田中 budget?")).not.toBe("zh");
+  // Too little to tell: the translator decides, not a guess.
+  expect(detectLanguage("Presupuesto Q3")).toBe("und");
+  expect(detectLanguage("12345")).toBeNull();
+});
+
+test("a card in any other language is translated for its reader, and only a card known to be theirs is not", () => {
+  // The bug this replaces: every Latin-script language read as English.
+  expect(needsLocalizing({ title: "¿Aprobamos el presupuesto de marketing?" }, "en")).toBe(true);
+  expect(needsLocalizing({ title: "Bạn có duyệt ngân sách không?" }, "en")).toBe(true);
+  expect(needsLocalizing({ title: "อนุมัติงบประมาณไหม" }, "en")).toBe(true);
+  expect(needsLocalizing({ title: "Approve the lease" }, "vi")).toBe(true);
+  expect(needsLocalizing({ title: "¿Aprobamos el presupuesto de marketing?" }, "es")).toBe(false);
+  // Undetermined goes to the model, which returns it unchanged if it was theirs.
+  expect(needsLocalizing({ title: "Presupuesto Q3" }, "es")).toBe(true);
+  // A region is not a language, and the model's own report for this reader is theirs.
+  expect(needsLocalizing({ title: "賃貸契約の承認" }, "ja-JP")).toBe(false);
+  expect(needsLocalizing({ title: "Presupuesto Q3", originalLanguage: "es" }, "es")).toBe(false);
+  expect(needsLocalizing({ title: "Approve the lease", localized: { vi: { title: "Phê duyệt hợp đồng thuê" } } }, "vi-VN")).toBe(false);
+});
+
+test("a stored card reaches a reader of any language in theirs, is kept, and is asked for once", async () => {
+  const { upsertUser, saveCard, getCard } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "5203", login: "linh", name: "Linh", avatarUrl: null, locale: "vi" });
+  const card = {
+    id: "c-vi", recipientUserID: "linh", senderUserID: "taro", type: "approval", status: "pending", priority: "high",
+    title: "Q3予算を承認してください", summary: "マーケティングが400万円を追加で希望", createdAt: "2026-09-10T00:00:00Z",
+  };
+  await saveCard(env.DB, ORG, card);
+  let prompt;
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST", body: (b) => { prompt = JSON.parse(b); return true; } })
+    .reply(200, { choices: [{ message: { content: JSON.stringify({ title: "Vui lòng phê duyệt ngân sách Q3", summary: "Marketing muốn thêm 4 triệu yên" }) } }] })
+    .times(1);
+  const withKey = { ...env, OPENAI_API_KEY: "sk-test" };
+  const out = await localizeForRecipient(withKey, ORG, card, { payerGithubId: "5201" });
+  expect(out.localized.vi.title).toBe("Vui lòng phê duyệt ngân sách Q3");
+  expect(prompt.messages[1].content).toContain("Reader language: vi (Vietnamese)");
+  expect((await getCard(env.DB, ORG, "c-vi")).localized.vi.title).toBe("Vui lòng phê duyệt ngân sách Q3");
+  // The second time is read off the card: no model call is mocked for it.
+  expect((await localizeForRecipient(withKey, ORG, out)).localized.vi.title).toBe("Vui lòng phê duyệt ngân sách Q3");
+  // Billed to whoever caused it.
+  const row = await env.DB.prepare("SELECT user_github_id, purpose FROM ai_calls WHERE org_id = ?1").bind(ORG).first();
+  expect(row).toMatchObject({ user_github_id: "5201", purpose: "localize" });
+});
+
+test("without a model the card is handed back as it was, never lost", async () => {
+  const card = { id: "c-none", recipientUserID: "alice", title: "Q3予算を承認してください" };
+  expect(await localizeStored({ ...env, OPENAI_API_KEY: undefined }, ORG, card, { locale: "en" })).toBe(card);
+  expect(await localizeStored(env, ORG, card, { locale: null })).toBe(card);
+});
+
+test("a translation is the relay's to write: a sender cannot supply one, and a republished copy cannot drop one", async () => {
+  const taro = await joined(ORG, taroToken);
+  const base = {
+    id: "card-forged", type: "task", status: "pending", recipientUserID: "taro", priority: "medium",
+    title: "Approve the $100 refund", summary: "One customer.", createdAt: new Date().toISOString(),
+  };
+  taro.ws.send(JSON.stringify({
+    type: "card_created",
+    payload: { card: { ...base, localized: { ja: { title: "1万ドルの返金を承認" } } } },
+  }));
+  await message(taro.messages, (m) => JSON.stringify(m).includes("card-forged"));
+  const { getCard, saveCardLocalization } = await import("../src/db.js");
+  expect((await getCard(env.DB, ORG, "card-forged")).localized).toBeUndefined();
+
+  // Somebody asked for Vietnamese since; the phone republishes the copy it
+  // loaded before that, with a decision on it.
+  await saveCardLocalization(env.DB, ORG, "card-forged", "vi", { title: "Phê duyệt hoàn tiền 100 đô" });
+  taro.messages.length = 0;
+  taro.ws.send(JSON.stringify({
+    type: "card_updated",
+    payload: { card: { ...base, status: "approved", localized: { ja: { title: "1万ドルの返金を承認" } },
+      decision: { action: "approve", actorUserID: "taro", decidedAt: new Date().toISOString() } } },
+  }));
+  await message(taro.messages, (m) => JSON.stringify(m).includes("card-forged"));
+  const stored = await getCard(env.DB, ORG, "card-forged");
+  expect(stored.status).toBe("approved");
+  expect(stored.localized).toEqual({ vi: { title: "Phê duyệt hoàn tiền 100 đô" } });
 });

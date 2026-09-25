@@ -63,6 +63,27 @@ export interface DecisionCard {
   // Your AI offering to automate something you keep asking for. Approving
   // the card creates the routine.
   proposal?: Proposal
+  // Your daily report, drafted in your voice: you read it, change it, and
+  // post it to its channel yourself.
+  dailyReport?: DailyReport
+}
+
+export interface DailyReport {
+  routineId: string
+  /// The morning plan or the evening report.
+  part?: 'morning' | 'evening'
+  /// `b:<slug>`: where it is posted.
+  channel: string
+  /// The day it covers, in the owner's time zone: "2026-09-24".
+  date: string
+  /// `expired`: a newer draft from the same routine replaced it unposted.
+  status: 'draft' | 'posting' | 'posted' | 'expired'
+  /// The draft, or — once posted — the words as posted.
+  text: string
+  messageId?: string
+  postedAt?: string
+  /// The placeholder the draft leaves for the owner's own words.
+  fillIn?: string
 }
 
 export type Cadence = 'daily' | 'weekdays' | 'weekly' | 'monthly'

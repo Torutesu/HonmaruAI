@@ -73,4 +73,38 @@ final class DecisionCardTests: XCTestCase {
         XCTAssertFalse(linked.showsGitHubLink(for: "other/repo"))
         XCTAssertFalse(linked.showsGitHubLink(for: ""))
     }
+
+    func testTheReaderSeesTheRelaysTranslationAndTheOriginalIsKept() {
+        let previous = UserDefaults.standard.string(forKey: "appLanguage")
+        defer { UserDefaults.standard.set(previous, forKey: "appLanguage") }
+        UserDefaults.standard.set("ja", forKey: "appLanguage")
+
+        var translated = card(daysAgo: 0)
+        translated.context = "deadline: Friday"
+        translated.localized = ["ja": CardTranslation(title: "予算の承認", summary: "第3四半期のマーケティング", context: "期限: 金曜")]
+        XCTAssertEqual(translated.displayTitle, "予算の承認")
+        XCTAssertEqual(translated.displaySummary, "第3四半期のマーケティング")
+        XCTAssertEqual(translated.displayContext, "期限: 金曜")
+        // The sender's words are what gets republished on a decision.
+        XCTAssertEqual(translated.title, "Approve the budget")
+
+        // A region is not a language; another language's translation is not yours.
+        XCTAssertEqual(translated.translation(for: "ja-JP")?.title, "予算の承認")
+        XCTAssertNil(translated.translation(for: "vi"))
+        UserDefaults.standard.set("en", forKey: "appLanguage")
+        XCTAssertEqual(translated.displayTitle, "Approve the budget")
+    }
+
+    func testATranslationArrivesFromTheRelayUnderLocalized() throws {
+        let json = """
+        {"id":"c-1","recipientUserID":"alice","senderUserID":"bob","type":"approval","title":"Approve the budget",
+         "summary":"Q3","context":"","status":"pending","priority":"high","createdAt":"2026-09-24T00:00:00Z",
+         "localized":{"vi":{"title":"Phê duyệt ngân sách","summary":"Quý 3"}}}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(DecisionCard.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.translation(for: "vi")?.title, "Phê duyệt ngân sách")
+        XCTAssertNil(decoded.translation(for: "vi")?.context)
+    }
 }

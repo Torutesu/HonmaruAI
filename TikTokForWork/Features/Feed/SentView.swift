@@ -44,7 +44,7 @@ struct SentView: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             // The row opens the card: what was decided, the note, and — once
             // it is decided — the reply back to whoever asked, drafted.
-            Text(card.title)
+            Text(card.displayTitle)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .multilineTextAlignment(.leading)
