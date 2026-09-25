@@ -34,3 +34,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/toString').screen).toBeNull()
   })
 })
+
+it('a link to a message opens the list at it', () => {
+  expect(parseRoute('#/m/msg_abc-123')).toMatchObject({ mode: 'classic', messageId: 'msg_abc-123' })
+  expect(parseRoute('#/m/<script>').messageId).toBeNull()
+})

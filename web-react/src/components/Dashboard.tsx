@@ -147,6 +147,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // The card the URL names — from a notification tap, a pasted link, or a
   // row picked in the inbox.
   const focusCardId = route.cardId
+  // A link to a message: the list opens where it is, then the address goes
+  // back to the list's own, so a reload does not jump again.
+  useEffect(() => {
+    const id = route.messageId
+    if (!id) return
+    try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.jumpId', id) } catch {}
+    window.dispatchEvent(new CustomEvent('honmaru:open-message-id', { detail: id }))
+    navigate(hashForMode('classic'), true)
+  }, [route.messageId, navigate])
   // A `?card=` link from before the hash routes: turned into one, once.
   useEffect(() => {
     try {
@@ -592,7 +601,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // open: on a phone a screen owns the viewport and the tab bar goes away,
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
-    <div className={`shell${screen ? ' screen-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}`}>
+    <div className={`shell${screen ? ' screen-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}${mode === 'classic' && !screen ? ' list-mode' : ''}`}>
       {workbench ? (
         <div className="workbench">
           <Inbox

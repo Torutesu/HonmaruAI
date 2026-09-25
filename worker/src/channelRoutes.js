@@ -416,6 +416,21 @@ export async function handleChannels(request, env, url, { route, after }) {
     return json(thread);
   }
 
+  // Where a message is, for a link to it: the conversation as this reader
+  // names it, and the thread it is in. A link carries only the message's id,
+  // so anybody may hold one; only somebody who can read the conversation
+  // learns where it goes.
+  if (path === "/channels/locate" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const row = await getMessage(env.DB, orgId, String(url.searchParams.get("messageId") || "").slice(0, 80));
+    const members = row ? await listMembers(env.DB, orgId, who.session.github_id) : [];
+    const view = row && !row.deleted_at ? viewOf(row.channel, who.user.login, members) : null;
+    if (!view) return json({ message: "No such message." }, 404);
+    return json({ view, id: row.id, parentId: row.parent_id || null });
+  }
+
   // A reaction, on or off.
   if (path === "/channels/reactions" && request.method === "POST") {
     const limited = await enforce(env, request, "chat");

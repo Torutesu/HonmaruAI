@@ -1,0 +1,78 @@
+/* A sheet from the bottom of a phone, in both themes. */
+.msheet-scrim {
+  --sh-bg: #ffffff; --sh-ink: #1d1c1d; --sh-dim: #616061; --sh-line: #e8e8e8; --sh-field: #f2f2f3; --sh-hover: #f0f0f0; --sh-red: #e01e5a;
+  position: fixed; inset: 0; z-index: 210;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(15, 15, 15, .42);
+  animation: msheet-fade .14s ease-out;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .msheet-scrim {
+    --sh-bg: #1c1c1e; --sh-ink: #f2f2f2; --sh-dim: #a3a3a3; --sh-line: #2e2e31; --sh-field: #2a2a2d; --sh-hover: #26262a;
+    background: rgba(0, 0, 0, .6);
+  }
+}
+:root[data-theme="dark"] .msheet-scrim {
+  --sh-bg: #1c1c1e; --sh-ink: #f2f2f2; --sh-dim: #a3a3a3; --sh-line: #2e2e31; --sh-field: #2a2a2d; --sh-hover: #26262a;
+  background: rgba(0, 0, 0, .6);
+}
+@keyframes msheet-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes msheet-up { from { transform: translateY(24px); } to { transform: none; } }
+
+.msheet {
+  width: min(560px, 100%); max-height: 86vh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px 8px calc(10px + env(safe-area-inset-bottom));
+  background: var(--sh-bg); color: var(--sh-ink);
+  border-radius: 16px 16px 0 0; box-shadow: 0 -12px 40px rgba(0, 0, 0, .18);
+  animation: msheet-up .18s ease-out;
+}
+@media (min-width: 720px) {
+  .msheet-scrim { align-items: center; }
+  .msheet { border-radius: 16px; padding-bottom: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .msheet, .msheet-scrim { animation: none; } }
+
+.msheet-handle { display: block; width: 36px; height: 5px; margin: 2px auto 8px; border-radius: 9999px; background: var(--sh-line); }
+.msheet-title { margin: 2px 12px 8px; font-size: 15px; font-weight: 700; }
+.msheet-sub { margin: -4px 12px 10px; font-size: 13px; color: var(--sh-dim); }
+
+.msheet-reactions { display: flex; justify-content: space-between; gap: 6px; padding: 4px 6px 10px; border-bottom: 1px solid var(--sh-line); }
+.msheet-reactions button {
+  flex: 1; max-width: 52px; height: 48px; border-radius: 9999px; border: none; cursor: pointer;
+  background: var(--sh-field); font-size: 23px; display: grid; place-items: center; color: var(--sh-ink);
+}
+.msheet-reactions button:active { transform: scale(.94); }
+.msheet-picker { padding: 6px 4px 0; }
+.msheet-picker .slk-picker { position: static; width: auto; max-height: 240px; box-shadow: none; border: 1px solid var(--sh-line); background: var(--sh-bg); }
+
+.msheet-rows { display: flex; flex-direction: column; padding-top: 6px; }
+.msheet-row {
+  display: flex; align-items: center; gap: 14px; min-height: 50px; padding: 0 12px; width: 100%;
+  border: none; background: none; border-radius: 10px; cursor: pointer; text-align: left;
+  font: inherit; font-size: 15.5px; color: var(--sh-ink);
+}
+.msheet-row:hover, .msheet-row:focus-visible { background: var(--sh-hover); outline: none; }
+.msheet-row svg { color: var(--sh-dim); flex: none; }
+.msheet-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msheet-row small { font-size: 12.5px; color: var(--sh-dim); }
+.msheet-row.danger, .msheet-row.danger svg { color: var(--sh-red); }
+
+/* Picking people: a search and a list with ticks. */
+.msheet-search {
+  display: flex; align-items: center; gap: 8px; margin: 0 6px 6px; padding: 0 12px; height: 42px;
+  border-radius: 10px; background: var(--sh-field); color: var(--sh-dim);
+}
+.msheet-search input { flex: 1; min-width: 0; border: none; background: none; outline: none; font: inherit; font-size: 15px; color: var(--sh-ink); }
+.msheet-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 8px 8px; }
+.msheet-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px 0 4px; border-radius: 9999px; border: none; background: var(--sh-field); color: var(--sh-ink); font: inherit; font-size: 13px; cursor: pointer; }
+.msheet-person { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 12px; width: 100%; border: none; background: none; border-radius: 10px; cursor: pointer; text-align: left; font: inherit; font-size: 15px; color: var(--sh-ink); }
+.msheet-person:hover { background: var(--sh-hover); }
+.msheet-person > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msheet-tick { width: 22px; height: 22px; border-radius: 9999px; border: 2px solid var(--sh-line); display: grid; place-items: center; color: #fff; flex: none; }
+.msheet-person[aria-checked="true"] .msheet-tick { background: #1264a3; border-color: #1264a3; }
+.msheet-go {
+  position: sticky; bottom: 0; display: block; width: calc(100% - 12px); margin: 8px 6px 0; height: 46px; border-radius: 12px; border: none; cursor: pointer;
+  background: #1264a3; color: #fff; font: inherit; font-size: 15px; font-weight: 700;
+}
+.msheet-go:disabled { opacity: .4; cursor: default; }
+.msheet-empty { padding: 10px 14px; font-size: 13.5px; color: var(--sh-dim); }
