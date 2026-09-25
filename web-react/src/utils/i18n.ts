@@ -15,6 +15,7 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'Other suggestions': 'ほかの提案',
   '(you)': '（あなた）',
   '1 message': '1件のメッセージ',
   '{n} messages': '{n}件のメッセージ',
@@ -1140,6 +1141,7 @@ const en: Dict = {
 }
 
 const es: Dict = {
+  'Other suggestions': 'Otras sugerencias',
   '(you)': '(tú)',
   '1 message': '1 mensaje',
   '{n} messages': '{n} mensajes',
@@ -1944,6 +1946,7 @@ const es: Dict = {
 }
 
 const fr: Dict = {
+  'Other suggestions': 'Autres suggestions',
   '(you)': '(vous)',
   '1 message': '1 message',
   '{n} messages': '{n} messages',
@@ -2753,6 +2756,7 @@ const fr: Dict = {
 }
 
 const de: Dict = {
+  'Other suggestions': 'Andere Vorschläge',
   '(you)': '(du)',
   '1 message': '1 Nachricht',
   '{n} messages': '{n} Nachrichten',

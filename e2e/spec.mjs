@@ -1932,6 +1932,27 @@ await step('the channel header opens its context, its automations, its members, 
   }
 })
 
+await step('your AI suggests what to tell it from your own work, not the same examples for everyone', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  try {
+    await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await d.waitForSelector('.slk-side', { timeout: 20000 })
+    const got = await d.evaluate(async (api) => {
+      const r = await fetch(`${api}/ai/suggestions?orgId=${encodeURIComponent(localStorage.getItem('orgId') || '')}`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') || '' } })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }, 'http://127.0.0.1:8787')
+    if (got.status !== 200) throw new Error(`suggestions answered ${got.status}`)
+    const texts = (got.body?.suggestions || []).map((s) => s.text)
+    if (texts.length !== 3) throw new Error(`not three suggestions: ${JSON.stringify(texts)}`)
+    if (texts.some((x) => /Kenji|supplier price/.test(x))) throw new Error(`the suggestions are still the fixed examples: ${JSON.stringify(texts)}`)
+    // This person has channels: at least one suggestion is about one of them.
+    if (!texts.some((x) => /#(Kitchen|kitchen|Front desk|daily-reports)/.test(x))) throw new Error(`no suggestion names one of this person's channels: ${JSON.stringify(texts)}`)
+  } finally {
+    await ctx.close()
+  }
+})
+
 await step('a card is decided by dragging it off, the way it is swiped on a phone', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()

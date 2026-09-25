@@ -43,6 +43,9 @@ export const LIMITS = {
   // writes — a burst of emoji is normal — so this is its own, wider bucket,
   // and chatting never locks a person out of their team screen.
   chat: { max: 600, windowSeconds: 300 },
+  // What to tell your AI: a model call when the kept ones are stale or the
+  // person asks for others.
+  "ai/suggest": { max: 30, windowSeconds: 300 },
   // A channel's journal: reading one can have the model write a few days.
   journal: { max: 60, windowSeconds: 300 },
   // A Jam's recording: each one is a transcription and notes.

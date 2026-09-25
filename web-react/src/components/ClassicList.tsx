@@ -995,6 +995,25 @@ export const ClassicList: React.FC<Props> = ({
     else setProblem(t('That could not become a decision. Try again.'))
   }
 
+  // ---- What to tell your AI ----
+  // Suggested from this person's own work — teammates, channels, what is
+  // waiting — by the Worker; the examples everyone used to see only when it
+  // cannot be reached.
+  const [aiSamples, setAiSamples] = useState<string[] | null>(null)
+  const [samplesBusy, setSamplesBusy] = useState(false)
+  const loadSamples = useCallback(async (refresh = false) => {
+    setSamplesBusy(true)
+    if (refresh) setAiSamples(null)
+    const res = await fetch(`${api.httpBase}/ai/suggestions?orgId=${encodeURIComponent(api.orgId)}${refresh ? '&refresh=1' : ''}`, { headers: authHeaders }).catch(() => null)
+    const data = res?.ok ? await res.json().catch(() => null) : null
+    const texts = Array.isArray(data?.suggestions) ? data.suggestions.map((x: { text?: string }) => x?.text).filter((x: unknown): x is string => typeof x === 'string' && x.length > 0) : []
+    setAiSamples(texts.length ? texts : [t('Every Monday at 9, summarise last week’s decisions'), t('Remind the team to submit expenses by the 25th')])
+    setSamplesBusy(false)
+  }, [api.httpBase, api.orgId, authHeaders, t])
+  const aiOpen = current?.app === 'ai'
+  useEffect(() => { if (aiOpen && aiSamples === null && !samplesBusy) void loadSamples() }, [aiOpen, aiSamples, samplesBusy, loadSamples])
+  useEffect(() => { setAiSamples(null) }, [api.orgId])
+
   // ---- The decision pane ----
   // A decision opens beside the conversation — as a chat client opens a
   // thread — never by leaving the list for the feed.
@@ -1711,10 +1730,17 @@ export const ClassicList: React.FC<Props> = ({
             block('ai-intro', { joined: false, at: new Date().toISOString(), app: 'ai', name: t('Your AI'), badge: t('AI') }, (
               <>
                 <div className="slk-text">{t('Hi — I turn what you tell me into decisions for the right person, with what they need to decide. Try one of these, or write your own:')}</div>
-                <div className="slk-samples">
-                  {[t('Ask Kenji to approve the new supplier price, +8% from Friday'), t('Every Monday at 9, summarise last week’s decisions'), t('Remind the team to submit expenses by the 25th')].map((x) => (
-                    <button key={x} type="button" className="slk-sample" onClick={() => { setDraft(x); composer.current?.focus() }}>{x}</button>
-                  ))}
+                <div className="slk-samples" aria-busy={aiSamples === null}>
+                  {aiSamples === null
+                    ? [0, 1, 2].map((i) => <span key={i} className="slk-sample skeleton" aria-hidden="true" />)
+                    : aiSamples.map((x) => (
+                      <button key={x} type="button" className="slk-sample" onClick={() => { setDraft(x); composer.current?.focus() }}>{x}</button>
+                    ))}
+                  {aiSamples !== null && (
+                    <button type="button" className="slk-samples-more" onClick={() => void loadSamples(true)} disabled={samplesBusy}>
+                      <span aria-hidden="true">↻</span> {t('Other suggestions')}
+                    </button>
+                  )}
                 </div>
               </>
             ))

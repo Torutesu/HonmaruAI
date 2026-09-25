@@ -613,3 +613,15 @@ CREATE TABLE IF NOT EXISTS channel_journal (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (org_id, channel, day, tz, locale)
 );
+
+/* What to tell your AI, suggested from a person's own work, per language.
+   Kept a few hours so opening the conversation is not a model call. */
+CREATE TABLE IF NOT EXISTS ai_suggestions (
+  org_id     TEXT NOT NULL,
+  login      TEXT NOT NULL,
+  locale     TEXT NOT NULL,
+  items      TEXT NOT NULL,
+  by_model   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, login, locale)
+);
