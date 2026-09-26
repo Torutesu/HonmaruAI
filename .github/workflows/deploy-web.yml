@@ -9,6 +9,11 @@ name: Deploy Web
 # quietly tries to reach localhost and never connects — which is why the
 # bundle is checked for the host before anything is uploaded.
 #
+# The app's own address is app.honmaruai.com (or the APP_DOMAIN repository
+# variable): each run attaches it to the Pages project and, when the token may
+# edit that zone's DNS, points it there; otherwise the run's warning names
+# the record to add. pages.dev keeps serving the app as well.
+#
 # Uses the same two repository secrets as Deploy Worker. The API token needs
 # "Cloudflare Pages: Edit" on the account as well as the Workers permissions;
 # without it the deploy step fails with an authentication error and nothing
@@ -20,6 +25,7 @@ on:
     paths:
       - "web-react/**"
       - ".github/workflows/deploy-web.yml"
+      - ".github/scripts/attach-pages-domain.sh"
   workflow_dispatch:
     inputs:
       api_host:
@@ -47,6 +53,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       API_HOST: ${{ inputs.api_host || 'tiktokforwork.torubj0904.workers.dev' }}
       PROJECT: ${{ inputs.project || 'honmaru-web' }}
+      APP_HOST: ${{ vars.APP_DOMAIN || 'app.honmaruai.com' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -78,6 +85,10 @@ jobs:
       - name: Deploy to Pages
         run: npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
 
+      - name: Attach the app domain
+        working-directory: .
+        run: .github/scripts/attach-pages-domain.sh "$PROJECT" "${APP_HOST#*.}" "$APP_HOST"
+
       # The site serves what was just built: the bundle's own file name is the
       # proof, since every build gets a new hash.
       - name: Verify
@@ -92,3 +103,17 @@ jobs:
           done
           echo "::error::https://$PROJECT.pages.dev does not serve $asset yet."
           exit 1
+
+      # Informational until its DNS record exists: the app on its own domain.
+      - name: Check the app domain
+        run: |
+          asset=$(ls dist/assets/index-*.js | head -1 | xargs basename)
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS -m 15 "https://$APP_HOST/" 2>/dev/null | grep -q "$asset"; then
+              echo "https://$APP_HOST serves $asset"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::https://$APP_HOST does not serve the app yet (its DNS record or certificate is missing); https://$PROJECT.pages.dev does."
+

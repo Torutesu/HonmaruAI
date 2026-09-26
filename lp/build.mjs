@@ -1,6 +1,9 @@
 // Builds the published landing page from lp/ into one folder for Cloudflare Pages.
 //
-//   node lp/build.mjs [out=dist] [site=https://honmaru-lp.pages.dev]
+//   node lp/build.mjs [out=dist] [site=https://honmaru-lp.pages.dev] [web=https://honmaru-web.pages.dev]
+//
+//   `web` is where the web app lives; every link to it (and the address shown
+//   in the page) is written for that host.
 //
 //   /<lang>/index.html  a page per language (en ja es fr de) with its words
 //                       already in the HTML, so a Japanese reader never sees
@@ -25,11 +28,17 @@ import { fileURLToPath } from 'node:url'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const out = path.resolve(process.argv[2] || 'dist')
 const site = (process.argv[3] || 'https://honmaru-lp.pages.dev').replace(/\/+$/, '')
+const WEB_DEFAULT = 'https://honmaru-web.pages.dev'
+const web = (process.argv[4] || WEB_DEFAULT).replace(/\/+$/, '')
 const LANGS = ['en', 'ja', 'es', 'fr', 'de']
 const OG_LOCALE = { en: 'en_US', ja: 'ja_JP', es: 'es_ES', fr: 'fr_FR', de: 'de_DE' }
 const ESBUILD = ['-y', 'esbuild@0.24.2']
 
-const read = (f) => fs.readFileSync(path.join(here, f), 'utf8')
+// Sources as the published page uses them: links to the web app name its host.
+const read = (f) => {
+  const text = fs.readFileSync(path.join(here, f), 'utf8')
+  return /\.(html|js)$/.test(f) && f !== 'worker.js' ? text.split(WEB_DEFAULT).join(web).split(new URL(WEB_DEFAULT).host).join(new URL(web).host) : text
+}
 function fail(message) {
   console.error('::error::' + message)
   process.exit(1)
@@ -127,7 +136,8 @@ fs.mkdirSync(path.join(out, 'badges'), { recursive: true })
 const tmp = fs.mkdtempSync(path.join(out, '.css-'))
 const esbuild = (...args) => execFileSync('npx', [...ESBUILD, ...args, '--log-level=warning'], { stdio: 'inherit' })
 esbuild(path.join(here, 'main.js'), '--minify', '--target=es2019', `--outfile=${path.join(out, 'main.js')}`)
-esbuild(path.join(here, 'i18n.js'), '--minify', '--target=es2019', `--outfile=${path.join(out, 'i18n.js')}`)
+fs.writeFileSync(path.join(tmp, 'i18n.js'), read('i18n.js'))
+esbuild(path.join(tmp, 'i18n.js'), '--minify', '--target=es2019', `--outfile=${path.join(out, 'i18n.js')}`)
 esbuild(path.join(here, 'styles.css'), '--minify', '--loader:.css=css', `--outfile=${path.join(tmp, 'styles.css')}`)
 // Pages live one folder down (/ja/), so every local url() becomes absolute.
 const css = fs.readFileSync(path.join(tmp, 'styles.css'), 'utf8').replace(/url\((["']?)(?!data:|https?:|\/)/g, 'url($1/')
@@ -206,4 +216,4 @@ fs.writeFileSync(path.join(out, '_headers'), `/*
   Cache-Control: public, max-age=86400
 `)
 
-console.log(`built ${LANGS.map((l) => '/' + l + '/').join(' ')} for ${site}${canonical ? ' (other hosts redirect there)' : ''} into ${path.relative(process.cwd(), out) || '.'}`)
+console.log(`built ${LANGS.map((l) => '/' + l + '/').join(' ')} for ${site}${canonical ? ' (other hosts redirect there)' : ''}, web app at ${web}, into ${path.relative(process.cwd(), out) || '.'}`)
