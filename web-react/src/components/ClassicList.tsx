@@ -10,6 +10,7 @@ import { useT } from '../utils/i18n'
 import { useMembers } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
 import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/customEmoji'
+import { DailyReportDraft } from './DailyReport'
 import { MessageActions, Reactions, EmojiPicker, EmojiGlyph, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite } from './ChannelPanes'
@@ -232,6 +233,9 @@ export const ClassicList: React.FC<Props> = ({
   const [serverReads, setServerReads] = useState<Record<string, string>>({})
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
+  // Your daily report's draft, waiting in the channel it is for.
+  const dailyDrafts = useMemo(() => pending.filter((c) => c.dailyReport && awaitsPost(c) && c.dailyReport.status === 'draft'), [pending])
+  const draftsFor = (view: string) => dailyDrafts.filter((c) => c.dailyReport!.channel === view)
   useEffect(() => {
     let ignore = false
     let tz = ''
@@ -595,6 +599,7 @@ export const ClassicList: React.FC<Props> = ({
 
   const row = (thread: Thread) => {
     const on = !special && current?.key === thread.key
+    const hasDraft = Boolean(thread.view && draftsFor(thread.view).length)
     return (
       <li key={thread.key} data-view={thread.view} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
@@ -609,7 +614,7 @@ export const ClassicList: React.FC<Props> = ({
           {thread.view && (mentionsIn[thread.view] || 0) > 0 && thread.unread === 0 && <span className="cl-badge mention">@{mentionsIn[thread.view]}</span>}
           {thread.unread > 0 && <span className="cl-badge">{thread.unread}</span>}
           {thread.unread === 0 && thread.fresh && !on && <span className="cl-fresh" aria-label={t('New messages')} />}
-          {!on && thread.view && drafts[thread.view] && <span className="cl-draft" title={t('Draft')} aria-label={t('Draft')}><Icon name="edit" size={12} /></span>}
+          {!on && thread.view && (drafts[thread.view] || hasDraft) && <span className={`cl-draft${hasDraft ? ' daily' : ''}`} title={hasDraft ? t('Your daily report is waiting to be posted') : t('Draft')} aria-label={t('Draft')} data-has-daily={hasDraft ? '1' : undefined}><Icon name="edit" size={12} /></span>}
         </button>
       </li>
     )
@@ -2237,6 +2242,11 @@ export const ClassicList: React.FC<Props> = ({
             </>
           )
         })()}
+        {thread.view && draftsFor(thread.view).map((card) => (
+          <div key={card.id} className="slk-daily-draft">
+            <DailyReportDraft card={card} api={api} inChannel />
+          </div>
+        ))}
         {thread.view ? (
           <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
             <PendingUploads items={uploads.items} onRemove={uploads.remove} />

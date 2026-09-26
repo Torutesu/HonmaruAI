@@ -1832,8 +1832,10 @@ await step('the daily report: morning and evening at the person’s own times, d
     await d.waitForSelector('.daily-text', { timeout: 20000 }).catch(() => { throw new Error('the draft is not shown for editing') })
     const draft = await d.$eval('.daily-text', (el) => el.value)
     for (const heading of ['What I did today', 'Task progress', 'What went well', 'What to improve', 'Tomorrow']) {
-      if (!draft.includes(`*${heading}*`)) throw new Error(`the draft has no "${heading}": ${draft.slice(0, 200)}`)
+      if (!draft.split('\n').includes(heading)) throw new Error(`the draft has no "${heading}": ${draft.slice(0, 200)}`)
     }
+    // Headings as plain lines: no marks to delete before posting.
+    if (draft.includes('*')) throw new Error(`the draft still has asterisks: ${draft.slice(0, 200)}`)
     // What was said today, in the channel it was said in.
     if (!/#kitchen/.test(draft)) throw new Error(`the draft does not count what was said in #kitchen: ${draft.slice(0, 300)}`)
     if (/@example\.com|\bu:|\bemail:/.test(draft)) throw new Error('the draft shows an account id')
@@ -1867,7 +1869,7 @@ await step('the daily report: morning and evening at the person’s own times, d
     await d.waitForSelector('.daily-text', { timeout: 20000 })
     const plan = await d.$eval('.daily-text', (el) => el.value)
     for (const heading of ['Today', 'Task status', 'Where I need help']) {
-      if (!plan.includes(`*${heading}*`)) throw new Error(`the morning plan has no "${heading}": ${plan.slice(0, 200)}`)
+      if (!plan.split('\n').includes(heading)) throw new Error(`the morning plan has no "${heading}": ${plan.slice(0, 200)}`)
     }
     if (!/Plan for today/.test(await d.$eval('.card-title', (el) => el.innerText))) throw new Error('the morning draft is not titled as a plan')
 
@@ -1878,6 +1880,27 @@ await step('the daily report: morning and evening at the person’s own times, d
     await d.waitForSelector(`.slk-msg:has-text("${words}")`, { timeout: 15000 })
       .catch(() => { throw new Error('the posted report does not show in the channel') })
     await d.screenshot({ path: `${SHOTS}/42-daily-posted.png` })
+
+    // The morning's draft waits in #kitchen itself, above the box you write
+    // in — only its owner sees it — and is edited, talked over and posted there.
+    await d.waitForSelector('.slk-daily-draft .daily-fold', { timeout: 15000 })
+      .catch(() => { throw new Error('the morning draft is not waiting in its channel') })
+    await d.click('.slk-daily-draft .daily-fold')
+    await d.waitForSelector('.slk-daily-draft .daily-text', { timeout: 5000 })
+    const planWords = `Call the fridge supplier first thing (${Date.now()}).`
+    await d.fill('.slk-daily-draft .daily-text', `${plan}\n- ${planWords}`)
+    // Asked to change it: with no model in this run, it says so and keeps the words.
+    await d.fill('.slk-daily-draft [data-daily-ask]', 'make it shorter')
+    await d.press('.slk-daily-draft [data-daily-ask]', 'Enter')
+    await d.waitForSelector('.slk-daily-draft .daily-note', { timeout: 15000 })
+    const kept = await d.$eval('.slk-daily-draft .daily-text', (el) => el.value)
+    if (!kept.includes(planWords)) throw new Error('asking the AI lost the words typed into the draft')
+    await d.screenshot({ path: `${SHOTS}/42b-daily-in-channel.png` })
+    await d.click('.slk-daily-draft [data-daily-post]')
+    await d.waitForSelector(`.slk-msg:has-text("${planWords}")`, { timeout: 15000 })
+      .catch(() => { throw new Error('the plan posted from the channel does not show there') })
+    await d.waitForSelector('.slk-daily-draft [data-daily-draft]', { state: 'detached', timeout: 15000 })
+      .catch(() => { throw new Error('the draft stayed in the channel after it was posted') })
   } finally {
     await ctx.close()
     // This step reads the team list several times for one person; the
@@ -2683,6 +2706,38 @@ await step('threads you are in, a message marked unread, and one forwarded as a 
     await kenji.screenshot({ path: `${SHOTS}/58-marked-unread.png` })
   } finally {
     await desk.close()
+  }
+})
+
+await step('the mark at the top left lists every workspace, and adds one', async () => {
+  // Its own browser with the same sign-in, so switching here moves nobody
+  // else's page.
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    const was = await w.evaluate(() => localStorage.getItem('orgId'))
+    await w.click('.ws-rail .ws-button')
+    await w.waitForSelector('.ws-rail .ws-menu .ws-item', { timeout: 10000 })
+    if (!(await w.isVisible('.ws-rail .ws-menu .ws-item.on .ws-key'))) throw new Error('the workspaces carry no key to open them')
+    await w.screenshot({ path: `${SHOTS}/59-workspaces.png` })
+    await w.click('[data-add-workspace]')
+    await w.waitForSelector('.ws-add-dialog [data-ws-create]', { timeout: 5000 })
+    await w.screenshot({ path: `${SHOTS}/60-add-workspace.png` })
+    await w.click('[data-ws-create]')
+    await w.fill('[data-ws-input]', `Second shop ${Date.now() % 10000}`)
+    await w.click('[data-ws-submit]')
+    await w.waitForFunction((prev) => localStorage.getItem('orgId') && localStorage.getItem('orgId') !== prev, was, { timeout: 15000 })
+      .catch(() => { throw new Error('creating a workspace did not open it') })
+    await w.waitForSelector('.ws-rail .ws-button', { timeout: 20000 })
+    // Both are in the menu now; the first one is back with a click.
+    await w.click('.ws-rail .ws-button')
+    const count = await w.$$eval('.ws-rail .ws-menu .ws-item', (els) => els.length)
+    if (count < 2) throw new Error(`the new workspace is not in the menu: ${count}`)
+    await w.click(`.ws-rail .ws-menu .ws-item[data-org="${was}"]`)
+    await w.waitForFunction((prev) => localStorage.getItem('orgId') === prev, was, { timeout: 15000 })
+  } finally {
+    await ctx.close()
   }
 })
 

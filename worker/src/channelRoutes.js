@@ -1,5 +1,7 @@
 import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
-import { claimDraft, releaseDraft, postedCard } from "./dailyReport.js";
+import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText } from "./dailyReport.js";
+import { providerFor } from "./orgAI.js";
+import { allowanceFor } from "./gate.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
 import { resolveMentions } from "./threads.js";
@@ -451,6 +453,37 @@ export async function handleChannels(request, env, url, { route, after }) {
     const view = viewOf(resolved.key, who.user.login, members);
     const [message] = await present(env.DB, body.orgId, [out.row], who.user.login, view, members);
     return json({ card: posted, message }, 201);
+  }
+
+  // A daily report's draft, kept as its owner edits it (PUT), or changed by
+  // the AI the way they ask (POST refine). Only its owner, only a draft.
+  if ((path === "/channels/daily-report/draft" && request.method === "PUT") || (path === "/channels/daily-report/refine" && request.method === "POST")) {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || typeof body.cardId !== "string") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const card = await getCard(env.DB, body.orgId, body.cardId);
+    if (!card?.dailyReport || card.recipientUserID !== who.user.login) return json({ message: "No such draft." }, 404);
+    if (card.dailyReport.status !== "draft") return json({ message: "This report has already been posted." }, 409);
+    const text = String(typeof body.text === "string" ? body.text : card.dailyReport.text || "");
+    if (text.length > MAX_MESSAGE_CHARS) return json({ message: `A message is at most ${MAX_MESSAGE_CHARS} characters.` }, 400);
+    let note = null;
+    let next = text;
+    if (path.endsWith("/refine")) {
+      const ask = typeof body.ask === "string" ? body.ask.trim() : "";
+      if (!ask) return json({ message: "Say what to change." }, 400);
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      const provider = await providerFor(env, body.orgId, userKey);
+      const allowance = provider ? await allowanceFor(env, body.orgId, { githubId: String(who.session.github_id), userKey }) : null;
+      const out = await refineDailyReport(text, ask, { locale: who.user.locale || "en", provider, allowance });
+      next = out.text; note = out.note;
+    }
+    await saveDraftText(env.DB, body.orgId, card.id, next);
+    const saved = await getCard(env.DB, body.orgId, card.id);
+    after(async () => { if (saved) await announceCards(env, body.orgId, [saved], { isNew: false }); });
+    return json({ card: saved, text: next, note });
   }
 
   // A thread: the message and its replies.

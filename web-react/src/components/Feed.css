@@ -528,3 +528,35 @@
   .daily-posted { color: #f2f2f2; }
   .daily-count { color: #8a8a8a; }
 }
+
+/* Asking the AI to change the draft: what you asked, what it did, and a box. */
+.daily-ai { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.daily-talk { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.daily-talk li { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.daily-ask { align-self: flex-end; max-width: 85%; padding: 5px 10px; border-radius: 12px 12px 3px 12px; background: #202020; color: #fff; }
+.daily-note { align-self: flex-start; max-width: 85%; padding: 5px 10px; border-radius: 12px 12px 12px 3px; background: #f1f1f1; color: #333; }
+.daily-suggest { display: flex; flex-wrap: wrap; gap: 6px; }
+.daily-chip { border: 1px solid #e2e2e2; background: none; border-radius: 9999px; padding: 4px 10px; font: inherit; font-size: 12.5px; color: #555; cursor: pointer; }
+.daily-chip:hover:not(:disabled) { border-color: #202020; color: #202020; }
+.daily-ask-form { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #e2e2e2; border-radius: 10px; color: #838383; }
+.daily-ask-form:focus-within { border-color: #202020; }
+.daily-ask-form input { flex: 1; min-width: 0; border: none; background: none; outline: none; font: inherit; font-size: 13.5px; color: inherit; }
+.daily-ask-form input { color: #202020; }
+/* In its channel, over the box you write in: folded to one line until opened. */
+.daily-in-channel { margin: 0 16px 8px; padding: 10px 12px; border: 1px dashed #c9c9c9; border-radius: 12px; background: #fffdf5; }
+.daily-in-channel .report-meta { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.daily-in-channel .daily-text { min-height: 160px; }
+.daily-fold, .daily-fold-close { border: none; background: none; cursor: pointer; font: inherit; color: inherit; }
+.daily-fold { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; font-size: 13px; padding: 0; }
+.daily-fold > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daily-fold-open { font-weight: 600; color: #1264a3; white-space: nowrap; }
+.daily-fold-close { margin-left: auto; display: grid; place-items: center; }
+.cl-draft.daily { color: #e8912d; }
+@media (prefers-color-scheme: dark) {
+  .daily-ask { background: #f2f2f2; color: #121212; }
+  .daily-note { background: #2a2a2a; color: #e6e6e6; }
+  .daily-chip, .daily-ask-form { border-color: #2a2a2a; color: #a3a3a3; }
+  .daily-ask-form input { color: #f2f2f2; }
+  .daily-in-channel { background: #1e1b12; border-color: #4a4430; }
+  .daily-fold-open { color: #6cb4ee; }
+}

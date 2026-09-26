@@ -627,6 +627,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       onCreate={() => setScreen('profile')}
       onJoin={() => setScreen('profile')}
       onLogout={onLogout}
+      api={{ httpBase: relayHttpUrl, sessionToken }}
     />
   )
 
