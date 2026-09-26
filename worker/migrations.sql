@@ -67,3 +67,4 @@ ALTER TABLE sessions ADD COLUMN place TEXT;
 ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;
 ALTER TABLE api_tokens ADD COLUMN scopes TEXT;
 ALTER TABLE users ADD COLUMN notify_keywords TEXT;
+ALTER TABLE audit_events ADD COLUMN enc INTEGER NOT NULL DEFAULT 0;

@@ -806,6 +806,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
   body          TEXT NOT NULL,
   prev_hash     TEXT,
   hash          TEXT,
+  /* 1 when the people in `body` are encrypted, each under their own key
+     (audit_principal_keys), and actor_id / entity_id hold pseudonyms. */
+  enc           INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, seq)
 );
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(org_id, created_at);
@@ -877,3 +880,21 @@ CREATE TABLE IF NOT EXISTS owner_transfers (
   created_at      TEXT NOT NULL,
   expires_at      TEXT NOT NULL
 );
+
+/* The key each person's entries in a workspace's audit log are encrypted
+   under (docs/audit-log-phase2.md §2), wrapped by AUDIT_MASTER_KEY. Deleting
+   an account sets wrapped_key to NULL: the rows stay and still verify, and
+   nobody can read who they were about again. `principal` is the pseudonym
+   the log keeps for them; `subject` finds all of one person's keys. `hold`
+   keeps a key through deletion while a legal hold needs it. */
+CREATE TABLE IF NOT EXISTS audit_principal_keys (
+  org_id        TEXT NOT NULL,
+  principal     TEXT NOT NULL,
+  subject       TEXT,
+  wrapped_key   TEXT,
+  created_at    TEXT NOT NULL,
+  shredded_at   TEXT,
+  hold          INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, principal)
+);
+CREATE INDEX IF NOT EXISTS idx_audit_keys_subject ON audit_principal_keys(subject);

@@ -34,7 +34,8 @@ import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
 import { handleChannels, broadcastStored } from "./channelRoutes.js";
-import { handleAudit, audit, auditEverywhere, person } from "./audit.js";
+import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from "./audit.js";
+import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
 import { handleOwners, transferFor, mailOwners } from "./owners.js";
 import { handleSessions, signedIn } from "./sessions.js";
@@ -159,6 +160,9 @@ export default {
       return;
     }
     ctx.waitUntil(runScheduledSync(env, ctx));
+    // Phase 1 audit rows, a few workspaces at a time, into per-person
+    // encryption. Nothing to do once every row is.
+    ctx.waitUntil(migrateLegacyAudit(env).catch((err) => console.error("audit migration failed", err?.message || err)));
     // Routines whose hour has come, and once a day the automations the AI
     // would propose. Separate from the sync, so a slow inbox cannot make a
     // Monday report late.
@@ -1364,6 +1368,15 @@ async function handle(request, env, url, ctx) {
           { "cache-control": "no-store" });
       }
       await deleteAccount(env.DB, session.github_id, user?.login || null);
+      // Their entries in every audit log become unreadable: the rows stay and
+      // still verify, and who they were goes with the key.
+      const shredded = await shredPerson(env, user?.login || null).catch((err) => {
+        console.error("audit shred failed", err?.message || err);
+        return [];
+      });
+      for (const s of shredded) {
+        await audit(env, null, { orgId: s.orgId, action: "audit.principal_shredded", actor: { type: "system" }, details: { principal: s.principal } });
+      }
       for (const org of wasIn) await evictMember(env, org.id, user?.login || null);
       return json({ ok: true });
     }

@@ -14,6 +14,7 @@ import { getSession, isMember, getUserByGithubId } from "./db.js";
 import { ROLE_RANK, sha256Hex } from "./auth.js";
 import { memberRef } from "./team.js";
 import { safe } from "./log.js";
+import { auditCryptoReady, encryptBody, decryptBody, principalOf } from "./auditCrypto.js";
 
 /// Every action this deployment records: its category, how much it
 /// matters, and a sentence for the screen ({actor} did it to {entity}).
@@ -40,8 +41,8 @@ export const AUDIT_ACTIONS = {
   "workspace.icon_changed": { category: "workspace", severity: "info", text: "{actor} changed the workspace icon" },
   "workspace.ai_settings_changed": { category: "workspace", severity: "warning", text: "{actor} changed the workspace AI settings" },
   "channel.created": { category: "channel", severity: "notice", text: "{actor} created {entity}" },
-  "channel.member_added": { category: "channel", severity: "notice", text: "{actor} added someone to {entity}" },
-  "channel.member_removed": { category: "channel", severity: "notice", text: "{actor} removed someone from {entity}" },
+  "channel.member_added": { category: "channel", severity: "notice", text: "{actor} added {entity} to a channel" },
+  "channel.member_removed": { category: "channel", severity: "notice", text: "{actor} removed {entity} from a channel" },
   "emoji.added": { category: "workspace", severity: "info", text: "{actor} added the emoji {entity}" },
   "emoji.removed": { category: "workspace", severity: "info", text: "{actor} removed the emoji {entity}" },
   "api_token.created": { category: "integration", severity: "warning", text: "{actor} created the API key {entity}" },
@@ -53,6 +54,8 @@ export const AUDIT_ACTIONS = {
   "data.account_exported": { category: "data", severity: "warning", text: "{actor} downloaded their data" },
   "audit.viewed": { category: "audit", severity: "notice", text: "{actor} read the audit log" },
   "audit.exported": { category: "audit", severity: "notice", text: "{actor} downloaded the audit log" },
+  "audit.principal_shredded": { category: "audit", severity: "notice", text: "A deleted account's entries were made unreadable" },
+  "audit.chain_migrated": { category: "audit", severity: "critical", text: "The audit log was moved to per-person encryption" },
   "security.permission_denied": { category: "security", severity: "warning", text: "{actor} was refused: {entity}" },
 };
 
@@ -110,18 +113,30 @@ export async function audit(env, request, { orgId, action, actor, entity = null,
       context: contextOf(request),
       details,
     };
+    // People go in under their own keys, when this deployment has them.
+    let stored = body;
+    let actorId = body.actor.id || null;
+    let entityId = entity?.id || null;
+    let encrypted = 0;
+    if (auditCryptoReady(env)) {
+      const hidden = await encryptBody(env, orgId, body);
+      stored = hidden.body;
+      actorId = hidden.actorId;
+      entityId = hidden.entityId;
+      encrypted = 1;
+    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const last = await env.DB.prepare("SELECT seq, hash FROM audit_events WHERE org_id = ?1 ORDER BY seq DESC LIMIT 1").bind(orgId).first();
       const seq = (last?.seq || 0) + 1;
       const prev = last?.hash || null;
-      const hash = await sha256Hex(`${prev || ""}\n${seq}\n${canonical(body)}`);
+      const hash = await sha256Hex(`${prev || ""}\n${seq}\n${canonical(stored)}`);
       try {
         await env.DB.prepare(
-          `INSERT INTO audit_events (org_id, seq, id, created_at, action, category, severity, outcome, actor_type, actor_id, entity_type, entity_id, body, prev_hash, hash)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
+          `INSERT INTO audit_events (org_id, seq, id, created_at, action, category, severity, outcome, actor_type, actor_id, entity_type, entity_id, body, prev_hash, hash, enc)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`
         ).bind(orgId, seq, id, body.date_create, action, body.category, body.severity, outcome,
-          body.actor.type || "user", body.actor.id || null, entity?.type || null, entity?.id || null,
-          JSON.stringify(body), prev, hash).run();
+          body.actor.type || "user", actorId, entity?.type || null, entityId,
+          JSON.stringify(stored), prev, hash, encrypted).run();
         return id;
       } catch (err) {
         // Somebody else took this number between the read and the write.
@@ -211,7 +226,10 @@ export async function readAudit(db, orgId, filters = {}) {
     const at = SEVERITIES.slice(SEVERITIES.indexOf(filters.severity));
     add(`severity IN (${at.map(() => "?").join(", ")})`, ...at);
   }
-  if (filters.actorLogin) add("actor_id = ?", filters.actorLogin);
+  // A person is their login in a phase 1 row and their pseudonym in one
+  // written since; `actorIds` holds both.
+  const actorIds = (filters.actorIds || (filters.actorLogin ? [filters.actorLogin] : [])).filter(Boolean);
+  if (actorIds.length) add(`actor_id IN (${actorIds.map(() => "?").join(", ")})`, ...actorIds);
   if (filters.entityId) add("entity_id = ?", filters.entityId);
   const cursor = filters.cursor ? decodeCursor(filters.cursor) : null;
   if (cursor) add("(created_at < ? OR (created_at = ? AND seq < ?))", cursor.at, cursor.at, cursor.seq);
@@ -234,6 +252,8 @@ export async function readAudit(db, orgId, filters = {}) {
 export async function presentEntry(entry, orgId, ids, cache = new Map()) {
   const who = async (p) => {
     if (!p) return null;
+    // Someone whose account is gone: their key went with it.
+    if (p.deleted) return { type: p.type, name: null, deleted: true, principal: p.principal };
     const out = { type: p.type, name: p.name || null };
     if ((p.type === "user" || p.type === "agent") && p.id) {
       if (!cache.has(p.id)) cache.set(p.id, ids.has(p.id) ? await memberRef(orgId, ids.get(p.id)) : null);
@@ -265,7 +285,8 @@ export function toCsv(entries) {
   for (const e of entries) {
     lines.push([
       new Date(e.date_create * 1000).toISOString(), e.action, e.severity, e.outcome,
-      e.actor?.name || e.actor?.id || "", e.actor?.type || "", e.entity?.name || e.entity?.id || "", e.entity?.type || "",
+      e.actor?.name || e.actor?.id || (e.actor?.deleted ? `deleted user (${e.actor.principal})` : ""), e.actor?.type || "",
+      e.entity?.name || e.entity?.id || (e.entity?.deleted ? `deleted user (${e.entity.principal})` : ""), e.entity?.type || "",
       e.context?.country, e.context?.client, e.context?.ip_address, e.details,
     ].map(cell).join(","));
   }
@@ -334,20 +355,30 @@ export async function handleAudit(request, env, url) {
   const ids = new Map(members.map((m) => [m.login, String(m.id)]));
   const refs = new Map();
   // "actor" is a member ref, as the screen knows people.
-  let actorLogin = null;
+  // Or a pseudonym, `p_…`, for someone who has left and is known by no other.
+  let actorIds = null;
   if (q.get("actor")) {
-    for (const m of members) if ((await memberRef(orgId, String(m.id))) === q.get("actor")) actorLogin = m.login;
-    if (!actorLogin) return json({ entries: [], response_metadata: { next_cursor: "" } });
+    const asked = q.get("actor");
+    if (/^p_[0-9a-f]{16}$/.test(asked)) actorIds = [asked];
+    else {
+      for (const m of members) {
+        if ((await memberRef(orgId, String(m.id))) === asked) {
+          actorIds = [m.login, ...(auditCryptoReady(env) ? [await principalOf(env, orgId, m.login)] : [])];
+        }
+      }
+    }
+    if (!actorIds) return json({ entries: [], response_metadata: { next_cursor: "" } });
   }
   const format = q.get("format");
   const exporting = format === "csv" || format === "jsonl";
   const out = await readAudit(env.DB, orgId, {
     oldest: q.get("oldest"), latest: q.get("latest"), action: q.get("action"), category: q.get("category"),
-    severity: q.get("severity"), actorLogin, cursor: q.get("cursor"),
+    severity: q.get("severity"), actorIds, cursor: q.get("cursor"),
     limit: exporting ? MAX_LIMIT : q.get("limit"),
   });
   const entries = [];
-  for (const e of out.entries) entries.push(await presentEntry(e, orgId, ids, refs));
+  const keys = new Map();
+  for (const e of out.entries) entries.push(await presentEntry(await decryptBody(env, orgId, e, keys), orgId, ids, refs));
 
   // Reading the log is itself on it: once an hour per reader, every export.
   const actor = { ...person(who.user), ...(who.via.type === "api_token" ? { via: who.via } : {}) };
@@ -355,7 +386,8 @@ export async function handleAudit(request, env, url) {
     await audit(env, request, { orgId, action: "audit.exported", actor, details: { format, count: entries.length } });
   } else {
     const hourAgo = Math.floor(Date.now() / 1000) - 3600;
-    const recent = await env.DB.prepare("SELECT 1 FROM audit_events WHERE org_id = ?1 AND action = 'audit.viewed' AND actor_id = ?2 AND created_at >= ?3 LIMIT 1").bind(orgId, who.user.login, hourAgo).first();
+    const self = auditCryptoReady(env) ? await principalOf(env, orgId, who.user.login) : who.user.login;
+    const recent = await env.DB.prepare("SELECT 1 FROM audit_events WHERE org_id = ?1 AND action = 'audit.viewed' AND actor_id IN (?2, ?4) AND created_at >= ?3 LIMIT 1").bind(orgId, who.user.login, hourAgo, self).first();
     if (!recent && !q.get("cursor")) await audit(env, request, { orgId, action: "audit.viewed", actor });
   }
 
@@ -366,4 +398,84 @@ export async function handleAudit(request, env, url) {
     return new Response(entries.map((e) => JSON.stringify(e)).join("\n") + "\n", { headers: { "content-type": "application/x-ndjson", "content-disposition": `attachment; filename="audit-log.jsonl"`, "cache-control": "no-store", ...CORS_HEADERS } });
   }
   return json({ entries, response_metadata: { next_cursor: out.next || "" } });
+}
+
+// ---- Phase 1 rows, moved to per-person encryption ----
+
+/// Rewrite one workspace's phase 1 rows in the encrypted form and chain the
+/// whole log again from the first row, then record where the plaintext chain
+/// ended (docs/audit-log-phase2.md §2.5). One transaction: an event written
+/// meanwhile takes the marker's number, the batch fails, and the next run
+/// tries again. People whose accounts were deleted before this ran are
+/// encrypted and their keys thrown away at once.
+export async function migrateOrgAudit(env, orgId) {
+  if (!auditCryptoReady(env)) return null;
+  const { results } = await env.DB.prepare("SELECT seq, body, hash, enc, actor_id, entity_id FROM audit_events WHERE org_id = ?1 ORDER BY seq").bind(orgId).all();
+  const rows = results || [];
+  const legacy = rows.filter((r) => !r.enc);
+  if (!legacy.length) return null;
+  const lastLegacy = legacy[legacy.length - 1];
+  const gone = new Set();
+  const statements = [];
+  let prev = null;
+  for (const r of rows) {
+    let stored = JSON.parse(r.body);
+    let actorId = r.actor_id;
+    let entityId = r.entity_id;
+    if (!r.enc) {
+      for (const p of [stored.actor, stored.entity]) {
+        if (p?.type === "user" && p.id && !(await env.DB.prepare("SELECT 1 FROM users WHERE login = ?1").bind(p.id).first())) gone.add(p.id);
+      }
+      const hidden = await encryptBody(env, orgId, stored);
+      stored = hidden.body;
+      actorId = hidden.actorId;
+      entityId = hidden.entityId;
+    }
+    const hash = await sha256Hex(`${prev || ""}\n${r.seq}\n${canonical(stored)}`);
+    statements.push(env.DB.prepare(
+      "UPDATE audit_events SET body = ?3, actor_id = ?4, entity_id = ?5, enc = 1, prev_hash = ?6, hash = ?7 WHERE org_id = ?1 AND seq = ?2"
+    ).bind(orgId, r.seq, JSON.stringify(stored), actorId, entityId, prev, hash));
+    prev = hash;
+  }
+  const now = Date.now();
+  const marker = {
+    id: `aud_${now.toString(36)}${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`,
+    date_create: Math.floor(now / 1000),
+    action: "audit.chain_migrated",
+    category: "audit",
+    severity: "critical",
+    outcome: "success",
+    actor: { type: "system" },
+    entity: null,
+    context: {},
+    details: { legacy_last_seq: lastLegacy.seq, legacy_last_hash: lastLegacy.hash, rows: legacy.length },
+    v: 2,
+  };
+  const seq = rows[rows.length - 1].seq + 1;
+  const hash = await sha256Hex(`${prev || ""}\n${seq}\n${canonical(marker)}`);
+  statements.push(env.DB.prepare(
+    `INSERT INTO audit_events (org_id, seq, id, created_at, action, category, severity, outcome, actor_type, actor_id, entity_type, entity_id, body, prev_hash, hash, enc)
+     VALUES (?1, ?2, ?3, ?4, 'audit.chain_migrated', 'audit', 'critical', 'success', 'system', NULL, NULL, NULL, ?5, ?6, ?7, 1)`
+  ).bind(orgId, seq, marker.id, marker.date_create, JSON.stringify(marker), prev, hash));
+  try {
+    await env.DB.batch(statements);
+  } catch (err) {
+    console.error("audit migration deferred", orgId, safe(err?.message));
+    return null;
+  }
+  const { shredPrincipal } = await import("./auditCrypto.js");
+  for (const login of gone) await shredPrincipal(env, orgId, await principalOf(env, orgId, login));
+  return { orgId, rows: legacy.length, shredded: gone.size };
+}
+
+/// A few workspaces' phase 1 rows per run, from the 15-minute cron.
+export async function migrateLegacyAudit(env, { orgs = 5 } = {}) {
+  if (!auditCryptoReady(env)) return [];
+  const { results } = await env.DB.prepare("SELECT DISTINCT org_id FROM audit_events WHERE enc = 0 LIMIT ?1").bind(orgs).all();
+  const done = [];
+  for (const r of results || []) {
+    const out = await migrateOrgAudit(env, r.org_id).catch((err) => { console.error("audit migration failed", safe(err?.message)); return null; });
+    if (out) done.push(out);
+  }
+  return done;
 }

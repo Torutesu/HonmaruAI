@@ -609,7 +609,11 @@ export async function handleChannels(request, env, url, { route, after }) {
       await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login });
       await announceTo(env, orgId, await Promise.all(adding.map((m) => listFor(m.login))));
       await note(serverText(locale, "channel.added", { who: nameOf(me.login), names: adding.map((m) => m.name).join(", ") }));
-      await audit(env, request, { orgId, action: "channel.member_added", actor: person(me), entity: { type: "channel", id: ctx.resolved.slug, name: `#${ctx.resolved.slug}` }, details: { people: adding.map((m) => m.name) } });
+      // One entry per person, who is the entity — so their name goes under
+      // their own key, never into the details in the clear.
+      for (const m of adding) {
+        await audit(env, request, { orgId, action: "channel.member_added", actor: person(me), entity: { type: "user", id: m.login, name: m.name }, details: { channel: `#${ctx.resolved.slug}` } });
+      }
       return json({ added: adding.length });
     }
     const target = body.ref ? ctx.members.find((m) => m.ref === String(body.ref)) : ctx.members.find((m) => m.login === me.login);
@@ -619,7 +623,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     await note(target.login === me.login
       ? serverText(locale, "channel.left", { who: nameOf(me.login) })
       : serverText(locale, "channel.removed", { who: nameOf(me.login), name: target.name }));
-    await audit(env, request, { orgId, action: "channel.member_removed", actor: person(me), entity: { type: "channel", id: ctx.resolved.slug, name: `#${ctx.resolved.slug}` }, details: { person: target.name, left: target.login === me.login } });
+    await audit(env, request, { orgId, action: "channel.member_removed", actor: person(me), entity: { type: "user", id: target.login, name: target.name }, details: { channel: `#${ctx.resolved.slug}`, left: target.login === me.login } });
     return json({ removed: target.ref });
   }
 
