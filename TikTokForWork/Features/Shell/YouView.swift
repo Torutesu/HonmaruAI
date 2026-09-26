@@ -24,6 +24,9 @@ struct YouView: View {
                     if let chat, !appState.isGuest {
                         group {
                             Button { editingIdentity = true } label: { row("Name, username and status", icon: "at", value: statusLine(chat)) }
+                            separator
+                            // "@hayao": the agents the team writes, and your own.
+                            NavigationLink { AgentsView(store: chat).environmentObject(appState) } label: { row("Custom agents", icon: "wand.and.stars") }
                         }
                     }
                     group {

@@ -19,7 +19,7 @@ interface Props {
   businesses: Business[]
   pendingCount: number
   decidedCount: number
-  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team' | 'insights' | 'automations' | 'playbook') => void
+  onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team' | 'insights' | 'automations' | 'playbook' | 'agents') => void
   onLocaleChange: () => void
   onSwitchOrg: (orgId: string) => void
   onLogout: () => void
@@ -330,6 +330,11 @@ export const Profile: React.FC<Props> = ({
             <button className="row" onClick={() => onOpen('playbook')}>
               <span className="row-icon"><Icon name="book" size={18} /></span>
               <span className="row-main">{t('Playbook')}<span className="row-sub">{t('The rules your AI has learned from your decisions, and the ones you told it.')}</span></span>
+              <span className="row-value">›</span>
+            </button>
+            <button className="row" onClick={() => onOpen('agents')} data-open="agents">
+              <span className="row-icon"><Icon name="sparkle" size={18} /></span>
+              <span className="row-main">{t('Agents')}<span className="row-sub">{t('Teammates written in Markdown. Call one with @ in any conversation.')}</span></span>
               <span className="row-value">›</span>
             </button>
             <button className="row" onClick={() => onOpen('record')}>

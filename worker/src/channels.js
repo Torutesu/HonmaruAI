@@ -95,7 +95,9 @@ export function viewOf(key, viewerLogin, members, access = null) {
 /// handle, never by login. `extra` carries what hydrate() gathered: the
 /// thread under it and the reactions on it.
 export function toMessage(row, viewerLogin, view, members, extra = {}) {
-  const author = row.kind === "ai" ? null : members.find((m) => m.login === row.author_login);
+  const author = row.kind === "ai" || row.kind === "agent" ? null : members.find((m) => m.login === row.author_login);
+  // An agent the team wrote speaks as itself: its name and face.
+  const agent = row.kind === "agent" ? (extra.agent || null) : null;
   const deleted = Boolean(row.deleted_at);
   const refOf = (login) => members.find((m) => m.login === login)?.ref || null;
   const reactions = [];
@@ -114,7 +116,7 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     // A deleted message keeps its place (its thread hangs off it) and
     // loses its words.
     body: deleted ? "" : row.body,
-    authorName: row.kind === "ai" ? null : (author?.name || row.author_name || null),
+    authorName: row.kind === "ai" ? null : (agent?.name || author?.name || row.author_name || null),
     authorRef: author ? author.ref : null,
     authorAvatar: author?.avatarUrl || null,
     mine: Boolean(viewerLogin) && row.author_login === viewerLogin,
@@ -129,7 +131,21 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     pinned: !deleted && Boolean(row.pinned_at),
     reactions: deleted ? [] : reactions,
     files: deleted ? [] : (extra.files || []),
+    ...(agent ? { agent: { id: agent.id, handle: agent.handle, name: agent.name, emoji: agent.emoji || null } } : {}),
   };
+}
+
+/// The agents that wrote any of these rows, by id — the deleted too, so
+/// what one said keeps its name.
+async function agentsOf(db, orgId, rows) {
+  const ids = [...new Set(rows.filter((r) => r.kind === "agent" && String(r.author_login || "").startsWith("agent:")).map((r) => r.author_login.slice(6)))];
+  const out = new Map();
+  if (!ids.length) return out;
+  const { results } = await db.prepare(
+    `SELECT id, handle, name, emoji FROM custom_agents WHERE org_id = ?1 AND id IN (${ids.slice(0, 90).map((_, i) => `?${i + 2}`).join(", ")})`
+  ).bind(orgId, ...ids.slice(0, 90)).all().catch(() => ({ results: [] }));
+  for (const r of results || []) out.set(`agent:${r.id}`, r);
+  return out;
 }
 
 /// The threads and reactions for a page of messages, in as few queries as
@@ -164,20 +180,20 @@ export async function hydrate(db, orgId, rows) {
 /// Rows to messages, with their threads, reactions and files — each file
 /// with an address signed for whoever is being shown it.
 export async function present(db, orgId, rows, viewerLogin, view, members) {
-  const [extras, files] = await Promise.all([hydrate(db, orgId, rows), filesFor(db, orgId, rows.map((r) => r.id))]);
+  const [extras, files, agents] = await Promise.all([hydrate(db, orgId, rows), filesFor(db, orgId, rows.map((r) => r.id)), agentsOf(db, orgId, rows)]);
   const now = Date.now();
   return Promise.all(rows.map(async (r) => {
     const x = extras.get(r.id) || {};
     const replyRefs = (x.replyLogins || []).map((l) => members.find((m) => m.login === l)?.ref).filter(Boolean).slice(0, 5);
     const own = await Promise.all((files.get(r.id) || []).map((f) => toFile(db, f, now)));
-    return toMessage(r, viewerLogin, view, members, { ...x, replyRefs, files: own });
+    return toMessage(r, viewerLogin, view, members, { ...x, replyRefs, files: own, agent: agents.get(r.author_login) || null });
   }));
 }
 
 export async function listMessages(db, orgId, resolved, viewerLogin, view, members, { before } = {}) {
   const { results } = await db
     .prepare(
-      `SELECT m.*, u.name AS author_name FROM channel_messages m
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.channel = ?2 AND m.parent_id IS NULL ${before ? "AND m.created_at < ?4" : ""}
         ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?3`
@@ -196,7 +212,7 @@ export async function listThread(db, orgId, key, parentId, viewerLogin, view, me
   if (!parent || parent.channel !== key || parent.parent_id) return null;
   const { results } = await db
     .prepare(
-      `SELECT m.*, u.name AS author_name FROM channel_messages m
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.deleted_at IS NULL
         ORDER BY m.created_at, m.rowid`
@@ -211,7 +227,7 @@ export async function listThread(db, orgId, key, parentId, viewerLogin, view, me
 export async function listPins(db, orgId, key, viewerLogin, view, members) {
   const { results } = await db
     .prepare(
-      `SELECT m.*, u.name AS author_name FROM channel_messages m
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.channel = ?2 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
         ORDER BY m.pinned_at DESC LIMIT 50`
@@ -289,7 +305,7 @@ export async function setPinned(db, { orgId, id, login, pinned }) {
 
 export async function getMessage(db, orgId, id) {
   return db
-    .prepare("SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2")
+    .prepare("SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2")
     .bind(orgId, id)
     .first();
 }
@@ -328,7 +344,7 @@ export async function linkCard(db, orgId, messageId, cardId) {
 export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24 } = {}) {
   const { results } = await db
     .prepare(
-      `SELECT m.kind, m.body, m.created_at, u.name AS author_name, m.author_login,
+      `SELECT m.kind, m.body, m.created_at, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, m.author_login,
               (SELECT group_concat(f.name, ', ') FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id) AS file_names
          FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
@@ -354,7 +370,7 @@ export async function recentBusinessTalk(db, orgId, slugs, { since, limit = 30 }
     + " AND NOT EXISTS (SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1)";
   const { results } = await db
     .prepare(
-      `SELECT m.channel, m.kind, m.body, m.created_at, u.name AS author_name FROM channel_messages m
+      `SELECT m.channel, m.kind, m.body, m.created_at, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.created_at >= ?2 AND m.deleted_at IS NULL ${where}
         ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(100, limit))}`
@@ -374,7 +390,7 @@ export async function recentBusinessTalk(db, orgId, slugs, { since, limit = 30 }
 export async function channelActivity(db, orgId, viewerLogin, members) {
   const { results } = await db
     .prepare(
-      `SELECT m.channel, m.body, m.kind, m.created_at, m.author_login, u.name AS author_name,
+      `SELECT m.channel, m.body, m.kind, m.created_at, m.author_login, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name,
               (SELECT f.name FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id ORDER BY f.created_at LIMIT 1) AS file_name
          FROM channel_messages m
          JOIN (SELECT channel, MAX(created_at) AS at FROM channel_messages
@@ -454,7 +470,7 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   const since = new Date(Date.now() - days * 86400000).toISOString();
   const [recent, mine, read, kw] = await Promise.all([
     db.prepare(
-      `SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND ${VISIBLE} AND m.deleted_at IS NULL AND m.created_at >= ?3
           AND (m.author_login IS NULL OR m.author_login != ?2)
         ORDER BY m.created_at DESC LIMIT 500`
@@ -518,7 +534,7 @@ export async function threadsFor(db, orgId, login, members, { days = 30, limit =
   const since = new Date(Date.now() - days * 86400000).toISOString();
   const [recent, mine] = await Promise.all([
     db.prepare(
-      `SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND ${VISIBLE} AND m.parent_id IS NOT NULL AND m.deleted_at IS NULL AND m.created_at >= ?3
         ORDER BY m.created_at DESC LIMIT 1000`
     ).bind(orgId, login, since).all(),
@@ -540,7 +556,7 @@ export async function threadsFor(db, orgId, login, members, { days = 30, limit =
   for (const [parentId, replies] of byParent) {
     if (out.length >= limit) break;
     const parentRow = await db.prepare(
-      "SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
+      "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
     ).bind(orgId, parentId).first();
     if (!parentRow || parentRow.deleted_at) continue;
     if (!inThread.has(parentId) && !named(parentRow) && !replies.some(named)) continue;
@@ -662,7 +678,7 @@ export async function searchMessages(db, orgId, login, members, raw, { limit = 3
   const narrowed = q.text || q.phrases.length || q.from || q.in || q.to || q.on || q.during || q.before || q.after || q.hasList.length || q.isList.length;
   if (!narrowed) return { messages: [], query: q };
   const { results } = await db.prepare(
-    `SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+    `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
       WHERE ${where.join(" AND ")} ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(50, limit))}`
   ).bind(...binds).all();
   const rows = results || [];

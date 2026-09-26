@@ -61,10 +61,12 @@ export async function isActive(db, login, now = Date.now()) {
 /// never somebody who muted the conversation, and in one set to mentions
 /// only, only for a mention or a DM.
 export async function recipientsOf(db, orgId, row, members) {
-  if (!row?.id || row.deleted_at || row.kind !== "message") return [];
+  // An agent's answer reaches whoever called it the way a teammate's reply
+  // would: through the thread it answers in.
+  if (!row?.id || row.deleted_at || (row.kind !== "message" && row.kind !== "agent")) return [];
   const author = row.author_login;
   const out = new Map();
-  const add = (login, reason) => { if (login && login !== author && !out.has(login)) out.set(login, reason); };
+  const add = (login, reason) => { if (login && login !== author && !String(login).startsWith("agent:") && !out.has(login)) out.set(login, reason); };
   const key = String(row.channel || "");
   if (key.startsWith("dm:") || key.startsWith("g:")) {
     for (const login of (await audienceOf(db, orgId, key)) || []) add(login, "direct");
@@ -129,7 +131,7 @@ export async function sendDuePushes(env, now = Date.now()) {
     if (!(claim?.meta?.changes > 0)) continue;
     try {
       const msg = await db.prepare(
-        "SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
+        "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
       ).bind(job.org_id, job.message_id).first();
       if (!msg || msg.deleted_at) { skipped += 1; continue; }
       // Read it already, here or anywhere.

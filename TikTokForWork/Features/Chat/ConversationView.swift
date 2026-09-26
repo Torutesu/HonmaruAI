@@ -7,6 +7,8 @@ enum ChatRoute: Hashable {
     case activity
     case later
     case threads
+    /// The team's agents: "@hayao" and the rest.
+    case agents
 }
 
 /// One conversation, the way a chat app on a phone draws it: messages you
@@ -75,6 +77,7 @@ struct ConversationView: View {
                         .accessibilityLabel(Text("Only visible to you. \(n)"))
                     }
                     if let step = store.thinking[view] { ChatAISteps(step: step).padding(.vertical, 6) }
+                    if let typing = store.agentTyping[view] { ChatAgentTypingRow(agent: typing.agent).padding(.vertical, 6) }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.bottom, 8)
@@ -83,6 +86,7 @@ struct ConversationView: View {
             .defaultScrollAnchor(.bottom)
             .onChange(of: list.count) { _, _ in if jump == nil { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onChange(of: store.thinking[view]) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: store.agentTyping[view]) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             .task(id: view) {
                 newSince = store.reads[view]
                 draft = store.draft(view)
@@ -406,9 +410,13 @@ struct ConversationView: View {
     private var mentionSuggestions: some View {
         if let token = draft.split(separator: " ", omittingEmptySubsequences: false).last, token.hasPrefix("@"), token.count >= 1 {
             let q = token.dropFirst().lowercased()
-            let people = [("AI", "AI")] + store.members.filter { !$0.mine }.map { ($0.handle ?? $0.name, $0.name) }
-                + store.userGroups.map { ($0.handle, "@\($0.handle) · \($0.name)") }
-            let hits = people.filter { q.isEmpty || $0.0.lowercased().hasPrefix(q) || $0.1.lowercased().hasPrefix(q) }.prefix(5)
+            // (what goes after "@", what the chip says, an agent's face)
+            let ai: [(String, String, String?)] = [("AI", "AI", nil)]
+            let humans: [(String, String, String?)] = store.members.filter { !$0.mine }.map { ($0.handle ?? $0.name, $0.name, nil) }
+            let teamAgents: [(String, String, String?)] = store.agentMentions.map { ($0.handle, "@\($0.handle) · \($0.label)", $0.emoji) }
+            let groupsList: [(String, String, String?)] = store.userGroups.map { ($0.handle, "@\($0.handle) · \($0.name)", nil) }
+            let people = ai + teamAgents + humans + groupsList
+            let hits = people.filter { q.isEmpty || $0.0.lowercased().hasPrefix(q) || $0.1.lowercased().hasPrefix(q) }.prefix(6)
             if !hits.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -419,7 +427,7 @@ struct ConversationView: View {
                                 draft = parts.joined(separator: " ")
                             } label: {
                                 HStack(spacing: 6) {
-                                    ChatAvatar(name: p.1, isAI: p.0 == "AI", size: 22)
+                                    ChatAvatar(name: p.1, isAI: p.0 == "AI" && p.2 == nil, size: 22, agentEmoji: p.2)
                                     Text(p.1).font(.footnote.weight(.semibold))
                                 }.padding(.horizontal, 10).padding(.vertical, 6).glassCapsule(interactive: true)
                             }.buttonStyle(.plain)

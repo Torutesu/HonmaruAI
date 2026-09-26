@@ -55,6 +55,21 @@ struct ChatHomeView: View {
                             ForEach(store.people.filter { store.isUnplaced($0.view) }) { row($0) }
                         } header: { Text("Direct messages") }
                     }
+                    Section {
+                        ForEach(store.agents.prefix(5)) { a in
+                            NavigationLink(value: ChatRoute.agents) {
+                                HStack(spacing: 10) {
+                                    ChatAvatar(name: a.name, size: 28, agentEmoji: a.glyph)
+                                    Text(verbatim: a.name).lineLimit(1)
+                                    Text(verbatim: "@\(a.handle)").font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)
+                                }
+                            }
+                        }
+                        NavigationLink(value: ChatRoute.agents) {
+                            Label(store.agents.isEmpty ? LocalizedStringKey("Make an agent") : LocalizedStringKey("All agents"), systemImage: "wand.and.stars")
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                        }
+                    } header: { Text("Custom agents") }
                 }
             }
             .listStyle(.insetGrouped)
@@ -72,6 +87,10 @@ struct ChatHomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { WorkspaceSwitcherButton(size: 30) }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button { path.append(.agents) } label: { Image(systemName: "wand.and.stars") }
+                        .accessibilityLabel("Custom agents")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { startingMessage = true } label: { Image(systemName: "square.and.pencil") }
                         .accessibilityLabel("New message")
                 }
@@ -88,6 +107,7 @@ struct ChatHomeView: View {
                 case .activity: ChatActivityView(store: store)
                 case .later: ChatLaterView(store: store)
                 case .threads: ChatThreadsView(store: store)
+                case .agents: AgentsView(store: store).environmentObject(appState)
                 }
             }
             .alert("New channel", isPresented: $creating) {

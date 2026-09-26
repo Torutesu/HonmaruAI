@@ -682,3 +682,78 @@
 .team-transfer .row-sub { flex-basis: 100%; }
 .team-transfer-offer { display: flex; align-items: center; gap: 10px; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--bone); border-radius: 12px; }
 .team-transfer-offer > svg { color: #b7791f; flex: none; }
+
+/* The team's agents: "@hayao", written in Markdown. (`ca-`: custom agent,
+   apart from the `agent-` of the coding agents under Tools.) */
+.ca-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+.ca-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.ca-row { align-items: flex-start; }
+.ca-face {
+  width: 40px; height: 40px; flex: none; border-radius: 11px;
+  display: grid; place-items: center; font-size: 21px; line-height: 1;
+  background: #f1ecfe;
+}
+.ca-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.ca-handle { font-weight: 500; font-size: 13px; color: var(--brand-violet); }
+.ca-desc { display: block; font-size: 13.5px; line-height: 1.45; color: var(--slate); margin-top: 2px; overflow-wrap: anywhere; }
+.ca-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.ca-preset {
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px;
+  background: var(--signal-white); border: 1px solid var(--bone); border-radius: 16px;
+}
+.ca-preset-text { flex: 1; min-width: 0; font-size: 15px; }
+.ca-preset .pill-btn { flex: none; align-self: center; }
+
+.dialog.ca-dialog { width: min(680px, 100%); max-height: min(860px, calc(100vh - 32px)); }
+.ca-grid { display: grid; grid-template-columns: 76px 1fr 1fr; gap: 10px 12px; }
+.ca-field { display: block; min-width: 0; }
+.ca-emoji { text-align: center; font-size: 18px; }
+.ca-handle-field { position: relative; display: block; }
+.ca-at { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--dlg-faint); font-weight: 600; pointer-events: none; }
+.ca-handle-input { padding-left: 24px; }
+.ca-scope { display: inline-flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--dlg-line); border-radius: 9px; overflow: hidden; }
+.ca-scope button {
+  border: none; background: var(--dlg-bg); color: var(--dlg-dim); font: inherit; font-size: 13px; font-weight: 600;
+  padding: 7px 14px; cursor: pointer;
+}
+.ca-scope button + button { border-left: 1px solid var(--dlg-line); }
+.ca-scope button.on { background: var(--dlg-ink); color: var(--dlg-bg); }
+.ca-scope button:disabled { cursor: default; opacity: .7; }
+.ca-instr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ca-tabs { display: inline-flex; gap: 2px; margin-bottom: 6px; }
+.ca-tabs button {
+  border: none; background: none; color: var(--dlg-dim); font: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 4px 9px; border-radius: 7px; cursor: pointer;
+}
+.ca-tabs button.on { background: var(--dlg-hover); color: var(--dlg-ink); }
+.ca-instructions {
+  height: auto; min-height: 280px; padding: 10px 12px; resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; line-height: 1.55;
+}
+.ca-preview {
+  min-height: 280px; max-height: 50vh; overflow: auto; padding: 4px 14px;
+  border: 1px solid var(--dlg-line); border-radius: 9px; background: var(--dlg-field);
+  font-size: 14px; line-height: 1.55;
+}
+.ca-md h2 { font-size: 17px; margin: 14px 0 6px; }
+.ca-md h3 { font-size: 14.5px; margin: 12px 0 4px; }
+.ca-md ul, .ca-md ol { padding-left: 20px; margin: 6px 0; }
+.ca-md p { margin: 8px 0; }
+
+@media (max-width: 560px) {
+  .ca-grid { grid-template-columns: 64px 1fr; }
+  .ca-grid .ca-field:last-child { grid-column: 1 / -1; }
+  .ca-presets { grid-template-columns: 1fr; }
+  .ca-instructions, .ca-preview { min-height: 220px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ca-face { background: #2b2340; }
+  :root:not([data-theme="light"]) .ca-handle { color: #a996ff; }
+  :root:not([data-theme="light"]) .ca-desc { color: #a3a3a3; }
+  :root:not([data-theme="light"]) .ca-preset { background: #1a1a1a; border-color: #2a2a2a; }
+}
+:root[data-theme="dark"] .ca-face { background: #2b2340; }
+:root[data-theme="dark"] .ca-handle { color: #a996ff; }
+:root[data-theme="dark"] .ca-desc { color: #a3a3a3; }
+:root[data-theme="dark"] .ca-preset { background: #1a1a1a; border-color: #2a2a2a; }

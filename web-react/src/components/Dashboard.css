@@ -512,6 +512,9 @@
 .hist-note { margin: 0 0 8px; color: #646464; font-size: 13px; font-style: italic; }
 .hist-link { display: inline-block; color: #6647f0; text-decoration: none; font-size: 13px; margin-right: 12px; }
 .hist-undo { margin-top: 4px; }
+.hist-delete, .hist-delete-ask { margin-top: 8px; }
+.hist-delete-ask { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; }
+.hist-delete-yes { background: #d64545; color: #fff; }
 .hist-draft { margin-top: 4px; margin-left: 8px; }
 .hist-copy { margin-top: 2px; }
 .hist-draft-box { margin-top: 10px; }

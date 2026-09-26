@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { insertMention, matchMembers, mentionQuery } from '../utils/mentions'
 import type { Mentionable } from '../utils/mentions'
 import { useCustomEmoji, type CustomEmoji } from '../utils/customEmoji'
+import { t } from '../utils/i18n'
 
 /// ":sho" before the caret, after a space or at the start: the workspace's
 /// emoji whose names hold "sho". Two letters first, as Slack waits for, so
@@ -91,7 +92,7 @@ export function useMentionMenu(
   }
 
   const menu = open && !people ? (
-    <ul className="mention-menu emoji" role="listbox" aria-label="Emoji">
+    <ul className="mention-menu emoji" role="listbox" aria-label={t('Emoji')}>
       {emojiOptions.map((e, i) => (
         <li key={e.name} role="option" aria-selected={i === index}>
           <button
@@ -108,7 +109,7 @@ export function useMentionMenu(
       ))}
     </ul>
   ) : open ? (
-    <ul className="mention-menu" role="listbox" aria-label="Teammates">
+    <ul className="mention-menu" role="listbox" aria-label={t('Teammates')}>
       {peopleOptions.map((m, i) => (
         <li key={m.ref} role="option" aria-selected={i === index}>
           <button
@@ -116,9 +117,11 @@ export function useMentionMenu(
             className={`mention-option${i === index ? ' on' : ''}`}
             onMouseDown={(e) => { e.preventDefault(); pick(m) }}
             onMouseEnter={() => setIndex(i)}
+            data-mention-option={m.agent ? `agent:${m.handle}` : undefined}
           >
-            <span className="mention-avatar" aria-hidden="true">{m.name.charAt(0).toUpperCase()}</span>
-            <span className="mention-name">{m.name}</span>
+            <span className={`mention-avatar${m.agent ? ' agent' : ''}`} aria-hidden="true">{m.agent ? (m.emoji || '🤖') : m.name.charAt(0).toUpperCase()}</span>
+            <span className="mention-name" title={m.title || undefined}>{m.name}</span>
+            {m.agent && <span className="mention-tag">{t('Agent')}</span>}
             {m.handle && <span className="mention-handle">@{m.handle}</span>}
           </button>
         </li>

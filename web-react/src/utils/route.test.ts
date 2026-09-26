@@ -26,6 +26,8 @@ describe('parseRoute', () => {
     expect(hashForScreen('automations')).toBe('#/automations')
     expect(hashForScreen('playbook')).toBe('#/playbook')
     expect(parseRoute(hashForScreen('playbook')).screen).toBe('playbook')
+    expect(parseRoute('#/agents').screen).toBe('agents')
+    expect(hashForScreen('agents')).toBe('#/agents')
   })
 
   it('names no screen for a path that is not one', () => {

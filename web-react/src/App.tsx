@@ -11,7 +11,7 @@ import type { GitHubWebConfig } from './utils/githubAuth'
 import { clearCardCache } from './utils/cardCache'
 import { parseRoute } from './utils/route'
 import { onboardingKey, needsOnboarding, completeOnboarding } from './utils/onboardingProgress'
-import { t } from './utils/i18n'
+import { t, adoptAccountLocale } from './utils/i18n'
 import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush } from './utils/push'
 import './theme.css'
@@ -268,6 +268,25 @@ function App() {
   const leftOrgRef = useRef(leftOrg)
   leftOrgRef.current = leftOrg
   const onLeft = useCallback(() => { void leftOrgRef.current() }, [])
+
+  // One language for the account, whichever device chose it last: read
+  // when the app opens and whenever it comes back to the front.
+  useEffect(() => {
+    if (stage !== 'app' || !sessionToken) return
+    const controller = new AbortController()
+    const check = () => {
+      fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken }, signal: controller.signal })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((me) => { if (me) adoptAccountLocale(me.locale) })
+        .catch(() => { /* offline: the language this browser last had */ })
+    }
+    // On open, whatever the tab's state — a tab opened behind another is
+    // "hidden" and would otherwise never ask.
+    check()
+    const onVisible = () => { if (document.visibilityState === 'visible') check() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { controller.abort(); document.removeEventListener('visibilitychange', onVisible) }
+  }, [stage, sessionToken, host])
 
   const finishOnboarding = () => {
     if (userId) completeOnboarding(localStorage, httpBase(host), userId)
