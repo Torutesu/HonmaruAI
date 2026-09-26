@@ -76,3 +76,8 @@
 }
 .msheet-go:disabled { opacity: .4; cursor: default; }
 .msheet-empty { padding: 10px 14px; font-size: 13.5px; color: var(--sh-dim); }
+
+/* Forwarding: what goes, where to, a word with it. */
+.msheet-quote { margin: 0 12px 10px; padding: 6px 10px; border-left: 3px solid var(--sh-line); color: var(--sh-dim); font-size: 13.5px; white-space: pre-wrap; max-height: 96px; overflow: hidden; }
+.msheet-place-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--sh-field); display: grid; place-items: center; flex: none; color: var(--sh-dim); }
+.msheet-comment { margin-top: 8px; }

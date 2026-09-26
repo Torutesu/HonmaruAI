@@ -10,7 +10,7 @@ import { emojiQuery, matchEmoji } from '../components/MentionMenu'
 
 const html = (text: string) => renderToStaticMarkup(<>{renderRich(text, () => 'm')}</>)
 const serve = (emoji: Array<{ name: string; url: string }>) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ emoji }), { status: 200 })))
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals() })
 
 describe('workspace emoji', () => {
   it('draws a name the workspace has, and leaves any other as text', async () => {

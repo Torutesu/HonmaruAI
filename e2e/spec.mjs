@@ -2618,6 +2618,74 @@ await step('a workspace adds its own emoji, and uses them in a message and a rea
   }
 })
 
+await step('threads you are in, a message marked unread, and one forwarded as a link only', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    // The owner asks in the group; Kenji answers in a thread, on his phone.
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.cl-thread[data-view^="g:"] .cl-open')
+    const ask = `which supplier? ${Date.now()}`
+    await desk.fill('.slk-composer .slk-input', ask)
+    await desk.keyboard.press('Enter')
+    await desk.waitForSelector(`.slk-text:has-text("${ask}")`, { timeout: 10000 })
+
+    await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await kenji.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await kenji.click('.cl-thread[data-view^="g:"] .cl-open')
+    const asked = kenji.locator('.slk-msg[id^="msg-"]', { hasText: ask }).last()
+    await asked.waitFor({ timeout: 15000 })
+    await asked.click({ button: 'right', position: { x: 200, y: 20 } })
+    await kenji.click('[data-sheet="reply"]')
+    await kenji.fill('.slk-composer.thread .slk-input', 'the one from Kyoto')
+    await kenji.click('.slk-composer.thread .slk-send[type="submit"]')
+    await kenji.waitForSelector('.slk-composer.thread ~ * .slk-text:has-text("the one from Kyoto"), .slk-text:has-text("the one from Kyoto")', { timeout: 10000 })
+
+    // Threads: the owner's thread, unread, with Kenji's answer in it.
+    await desk.waitForSelector('[data-threads] .cl-badge', { timeout: 20000 })
+    await desk.click('[data-threads]')
+    const card = desk.locator('.slk-thread-card', { hasText: ask })
+    await card.waitFor({ timeout: 10000 })
+    if (!(await card.evaluate((el) => el.classList.contains('unread')))) throw new Error('a new reply did not make the thread unread')
+    await card.locator('.slk-text:has-text("the one from Kyoto")').waitFor({ timeout: 5000 })
+    await desk.screenshot({ path: `${SHOTS}/57-threads.png` })
+    await card.locator('[data-open-thread]').click()
+    await desk.waitForSelector('.slk-composer.thread', { timeout: 10000 })
+    await desk.waitForFunction(() => !document.querySelector('[data-threads] .cl-badge'), null, { timeout: 10000 })
+
+    // Forward the group's message: a closed conversation, so only a link.
+    const mine = desk.locator('.slk-main .slk-msg[id^="msg-"]', { hasText: ask }).last()
+    await mine.hover()
+    await mine.locator('.slk-tool[aria-label="More actions"]').click()
+    await desk.click('[data-menu="forward"]')
+    await desk.waitForSelector('.msheet.forward', { timeout: 5000 })
+    const target = await desk.getAttribute('.msheet.forward [data-forward-to^="dm:"], .msheet.forward [data-forward-to^="b:"]', 'data-forward-to')
+    await desk.click(`.msheet.forward [data-forward-to="${target}"]`)
+    await desk.click('[data-forward-send]')
+    await desk.waitForSelector('.msheet.forward', { state: 'detached', timeout: 10000 })
+    const sent = await desk.evaluate(async ({ host, to }) => {
+      const org = localStorage.getItem('orgId'); const token = localStorage.getItem('sessionToken')
+      const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(org)}&channel=${encodeURIComponent(to)}`, { headers: { 'x-session-token': token } })
+      const d = await r.json(); return d.messages[d.messages.length - 1].body
+    }, { host: API, to: target })
+    if (!/#\/m\//.test(sent) || sent.includes(ask)) throw new Error(`a forward from a group said "${sent}"`)
+
+    // Kenji marks the owner's question unread: back to the list, bold again.
+    await kenji.click('.slk-back.pane').catch(() => {})
+    const again = kenji.locator('.slk-msg[id^="msg-"]', { hasText: ask }).last()
+    await again.click({ button: 'right', position: { x: 200, y: 20 } })
+    await kenji.click('[data-sheet="unread"]')
+    await kenji.waitForSelector('.cl-thread.unread[data-view^="g:"]', { timeout: 10000 })
+    await kenji.screenshot({ path: `${SHOTS}/58-marked-unread.png` })
+  } finally {
+    await desk.close()
+  }
+})
+
 await step('removing someone takes them out of the room, not just the table', async () => {
   // A socket is authorized once, at join, and never asked again — so before
   // this, taking somebody out of a workspace left them holding a live

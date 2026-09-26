@@ -14,7 +14,7 @@ import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity,
   viewOf, asksTheAI, withoutAI, MAX_MESSAGE_CHARS,
   present, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned,
-  markRead, readsFor, activityFeed, searchMessages,
+  markRead, markUnreadFrom, readsFor, activityFeed, searchMessages, threadsFor,
 } from "./channels.js";
 import { safe } from "./log.js";
 import { emitMessage, emitCard } from "./webhooks.js";
@@ -286,7 +286,36 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     const ctx = await inChannel(env, request, body);
     if (ctx.denied) return ctx.denied;
+    // One thread in it: Threads stops calling it unread.
+    if (body.thread) {
+      const parent = await getMessage(env.DB, body.orgId, String(body.thread));
+      if (!parent || parent.channel !== ctx.resolved.key) return json({ message: "No such thread." }, 404);
+      return json({ lastReadAt: await markRead(env.DB, body.orgId, ctx.who.user.login, `t:${parent.id}`, body.at) });
+    }
     return json({ lastReadAt: await markRead(env.DB, body.orgId, ctx.who.user.login, ctx.resolved.key, body.at) });
+  }
+
+  // "Mark unread": back to just before one message, on every device.
+  if (path === "/channels/unread" && request.method === "POST") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const row = await getMessage(env.DB, body.orgId, String(body.messageId || ""));
+    if (!row || row.deleted_at || row.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
+    const key = row.parent_id ? `t:${row.parent_id}` : ctx.resolved.key;
+    return json({ lastReadAt: await markUnreadFrom(env.DB, body.orgId, ctx.who.user.login, key, row.created_at), thread: row.parent_id || null });
+  }
+
+  // Threads: every thread you are in, the newest reply first.
+  if (path === "/channels/threads" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    return json({ threads: await threadsFor(env.DB, orgId, who.user.login, members) });
   }
 
   // Activity: what named you, and replies in your threads.

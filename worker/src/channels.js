@@ -405,6 +405,17 @@ export async function markRead(db, orgId, login, key, at) {
   return when;
 }
 
+/// "Mark unread from here": read only up to just before this message,
+/// even if that is further back than before.
+export async function markUnreadFrom(db, orgId, login, key, createdAt) {
+  const when = new Date(Date.parse(createdAt) - 1).toISOString();
+  await db.prepare(
+    `INSERT INTO channel_reads (org_id, login, channel, last_read_at) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT (org_id, login, channel) DO UPDATE SET last_read_at = excluded.last_read_at`
+  ).bind(orgId, login, key, when).run();
+  return when;
+}
+
 /// Every read position this person has, as they name the conversations.
 export async function readsFor(db, orgId, login, members) {
   const { results } = await db.prepare("SELECT channel, last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2")
@@ -484,6 +495,58 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   }
   out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
   return { items: out.slice(0, limit), lastRead };
+}
+
+/// Threads: every thread this person is in — started, answered, or named
+/// in — with a reply in the last 30 days, the newest reply first. Each is
+/// its first message, the last two replies, how many there are, and
+/// whether one came after they last read it (`t:<parent id>` in
+/// channel_reads, or their own last word in it).
+export async function threadsFor(db, orgId, login, members, { days = 30, limit = 30 } = {}) {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const [recent, mine] = await Promise.all([
+    db.prepare(
+      `SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+        WHERE m.org_id = ?1 AND ${VISIBLE} AND m.parent_id IS NOT NULL AND m.deleted_at IS NULL AND m.created_at >= ?3
+        ORDER BY m.created_at DESC LIMIT 1000`
+    ).bind(orgId, login, since).all(),
+    db.prepare(
+      `SELECT DISTINCT COALESCE(parent_id, id) AS thread FROM channel_messages
+        WHERE org_id = ?1 AND author_login = ?2 AND deleted_at IS NULL AND created_at >= ?3`
+    ).bind(orgId, login, new Date(Date.now() - 90 * 86400000).toISOString()).all(),
+  ]);
+  const inThread = new Set((mine.results || []).map((r) => r.thread));
+  const named = (row) => Boolean(row.body) && resolveMentions(row.body, members).some((m) => m.login === login);
+  // Replies by thread, newest first, in the order their newest reply came.
+  const byParent = new Map();
+  for (const r of recent.results || []) {
+    if (!byParent.has(r.parent_id)) byParent.set(r.parent_id, []);
+    byParent.get(r.parent_id).push(r);
+  }
+  const access = await accessFor(db, orgId, login);
+  const out = [];
+  for (const [parentId, replies] of byParent) {
+    if (out.length >= limit) break;
+    const parentRow = await db.prepare(
+      "SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
+    ).bind(orgId, parentId).first();
+    if (!parentRow || parentRow.deleted_at) continue;
+    if (!inThread.has(parentId) && !named(parentRow) && !replies.some(named)) continue;
+    const view = viewOf(parentRow.channel, login, members, access);
+    if (!view) continue;
+    const [count, read] = await Promise.all([
+      db.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND parent_id = ?2 AND deleted_at IS NULL").bind(orgId, parentId).first(),
+      db.prepare("SELECT last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2 AND channel = ?3").bind(orgId, login, `t:${parentId}`).first(),
+    ]);
+    const lastMine = replies.find((r) => r.author_login === login)?.created_at || (parentRow.author_login === login ? parentRow.created_at : "");
+    const seen = [read?.last_read_at || "", lastMine].sort().pop();
+    const newest = replies[0];
+    const unread = replies.some((r) => r.author_login !== login && r.created_at > seen);
+    const shown = replies.slice(0, 2).reverse();
+    const [parent, ...last] = await present(db, orgId, [parentRow, ...shown], login, view, members);
+    out.push({ parent, replies: last, replyCount: count?.n || replies.length, lastReplyAt: newest.created_at, unread });
+  }
+  return out;
 }
 
 /// Search what was said. `q` may carry Slack's filters: from:@name,

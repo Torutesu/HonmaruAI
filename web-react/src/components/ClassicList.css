@@ -1169,3 +1169,24 @@
   display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; font-size: 12.5px; color: var(--slk-dim); cursor: pointer; white-space: nowrap;
 }
 .classic.slk.slk .cl-private-toggle input { margin: 0; }
+
+/* Threads: each thread a card — where, its first message, the last replies. */
+.classic.slk.slk .slk-threads { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 24px; }
+.classic.slk.slk .slk-thread-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 10px;
+  border: 1px solid var(--slk-line); border-radius: 10px; background: var(--slk-bg);
+}
+.classic.slk.slk .slk-thread-card.unread { border-left: 4px solid var(--slk-accent); }
+.classic.slk.slk .slk-thread-where {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; font-size: 12.5px; font-weight: 700; color: var(--slk-ink);
+}
+.classic.slk.slk .slk-thread-where:hover { text-decoration: underline; }
+.classic.slk.slk .slk-thread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--slk-accent); margin-left: 4px; }
+.classic.slk.slk .slk-thread-line { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 4px 10px; align-items: start; }
+.classic.slk.slk .slk-thread-line:not(.first) { margin-left: 14px; padding-left: 12px; border-left: 2px solid var(--slk-line); grid-template-columns: 26px minmax(0, 1fr); }
+.classic.slk.slk .slk-thread-face img, .classic.slk.slk .slk-thread-face > * { max-width: 100%; }
+.classic.slk.slk .slk-thread-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.classic.slk.slk .slk-thread-text .slk-text { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.classic.slk.slk .slk-thread-more { grid-column: 2; justify-self: start; padding: 0; border: none; background: none; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--slk-accent); }
+.classic.slk.slk .slk-thread-card .slk-act-actions { display: flex; gap: 6px; }

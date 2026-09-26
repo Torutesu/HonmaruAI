@@ -118,9 +118,12 @@ export const MessageActions: React.FC<{
   onLater?: (remindAt: string | null) => void
   /// Add to the clip being gathered for one decision.
   onClip?: () => void
+  onUnread?: () => void
+  onForward?: () => void
+  onCopyLink?: () => void
   clipped?: boolean
   onOpenChange: (open: boolean) => void
-}> = ({ message, inThread, onReact, onReply, onPin, onEdit, onDelete, onDecide, onLater, onClip, clipped, onOpenChange }) => {
+}> = ({ message, inThread, onReact, onReply, onPin, onEdit, onDelete, onDecide, onLater, onClip, clipped, onOpenChange, onUnread, onForward, onCopyLink }) => {
   const t = useT()
   const [picker, setPicker] = useState(false)
   const [menu, setMenu] = useState(false)
@@ -156,6 +159,9 @@ export const MessageActions: React.FC<{
             {onDecide && <button type="button" role="menuitem" onClick={() => { setMenu(false); onDecide() }}>{t('Make it a decision')}</button>}
             {onPin && !inThread && <button type="button" role="menuitem" onClick={() => { setMenu(false); onPin() }}>{message.pinned ? t('Unpin') : t('Pin to channel')}<kbd>P</kbd></button>}
             {onClip && <button type="button" role="menuitem" onClick={() => { setMenu(false); onClip() }}>{clipped ? t('Remove from clip') : t('Add to clip')}</button>}
+            {onUnread && <button type="button" role="menuitem" onClick={() => { setMenu(false); onUnread() }} data-menu="unread">{t('Mark unread')}</button>}
+            {onForward && <button type="button" role="menuitem" onClick={() => { setMenu(false); onForward() }} data-menu="forward">{t('Forward')}</button>}
+            {onCopyLink && <button type="button" role="menuitem" onClick={() => { setMenu(false); onCopyLink() }}>{t('Copy link')}</button>}
             {onLater && (
               <>
                 <div className="slk-menu-sep" />
