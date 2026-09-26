@@ -4,12 +4,16 @@ import SwiftUI
 
 /// One conversation in the list: a channel, a teammate, or your AI.
 struct ChatConversation: Identifiable, Hashable {
-    enum Kind: Hashable { case channel, person }
+    enum Kind: Hashable { case channel, person, group }
     let kind: Kind
-    /// `b:<slug>` or `dm:<ref>` — what the Worker calls it for this person.
+    /// `b:<slug>`, `dm:<ref>` or `g:<id>` — what the Worker calls it for this person.
     let view: String
     let name: String
     var member: ChatMember?
+    /// A channel only its members see.
+    var isPrivate: Bool = false
+    /// A group's people besides you.
+    var refs: [String] = []
     var id: String { view }
 }
 
@@ -18,6 +22,9 @@ struct ChatConversation: Identifiable, Hashable {
 final class ChatStore: ObservableObject {
     @Published private(set) var members: [ChatMember] = []
     @Published private(set) var businesses: [ChatBusiness] = []
+    @Published private(set) var groups: [ChatGroup] = []
+    /// This workspace's own emoji, by name. Only this workspace's.
+    @Published private(set) var emoji: [ChatEmoji] = []
     @Published private(set) var activity: [String: ChatActivity] = [:]
     @Published private(set) var reads: [String: String] = [:]
     @Published var prefs: [String: String] = [:]
@@ -55,13 +62,27 @@ final class ChatStore: ObservableObject {
     // MARK: The list
 
     var channels: [ChatConversation] {
-        businesses.map { ChatConversation(kind: .channel, view: "b:\($0.slug)", name: $0.name, member: nil) }
+        businesses.map { ChatConversation(kind: .channel, view: "b:\($0.slug)", name: $0.name, member: nil, isPrivate: $0.isPrivate == true) }
     }
+    /// Group DMs, named by their people, newest talk first.
+    var groupConversations: [ChatConversation] {
+        groups.map { g in
+            let names = g.refs.map { ref in members.first { $0.ref == ref }?.name ?? String(localized: "a teammate") }
+            return ChatConversation(kind: .group, view: g.view, name: ListFormatter.localizedString(byJoining: names), member: nil, refs: g.refs)
+        }
+        .sorted { (activity[$0.view]?.lastAt ?? "") > (activity[$1.view]?.lastAt ?? "") }
+    }
+    func emojiURL(_ name: String) -> URL? {
+        let bare = name.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+        guard let e = emoji.first(where: { $0.name == bare }) else { return nil }
+        return URL(string: e.url)
+    }
+    var baseURL: URL? { base }
     var people: [ChatConversation] {
         members.filter { !$0.mine }.map { ChatConversation(kind: .person, view: "dm:\($0.ref)", name: $0.name, member: $0) }
             .sorted { (activity[$0.view]?.lastAt ?? "") > (activity[$1.view]?.lastAt ?? "") }
     }
-    func conversation(for view: String) -> ChatConversation? { (channels + people).first { $0.view == view } }
+    func conversation(for view: String) -> ChatConversation? { (channels + people + groupConversations).first { $0.view == view } }
 
     /// Said since you last read, and not muted.
     func isFresh(_ view: String) -> Bool {
@@ -86,8 +107,10 @@ final class ChatStore: ObservableObject {
             reads = overview.reads ?? [:]
             prefs = overview.prefs ?? [:]
             mine = overview.mine
+            groups = overview.groups ?? []
             businesses = list
         } catch { self.error = error.localizedDescription }
+        if let list = try? await ChatService.emoji(orgId: orgId, base: base) { emoji = list } else { emoji = [] }
         async let i: Void = loadInbox()
         async let l: Void = loadLater()
         async let s: Void = loadScheduled()
@@ -141,16 +164,33 @@ final class ChatStore: ObservableObject {
     }
 
     @discardableResult
-    func send(_ view: String, text: String, decide: Bool = false, parentId: String? = nil, at: Date? = nil) async -> Bool {
+    func send(_ view: String, text: String, decide: Bool = false, parentId: String? = nil, at: Date? = nil, files: [ChatFile] = []) async -> Bool {
         guard let orgId, let base else { return false }
         do {
-            let sent = try await ChatService.send(orgId: orgId, channel: view, body: text, decide: decide, parentId: parentId, sendAt: at, base: base)
+            let sent = try await ChatService.send(orgId: orgId, channel: view, body: text, decide: decide, parentId: parentId, sendAt: at, files: files.map(\.id), base: base)
             if let s = sent.scheduled { scheduled.append(s); scheduled.sort { $0.sendAt < $1.sendAt } }
             if let m = sent.message { upsert(m) }
             if sent.deciding == true { thinking[view] = "reading" }
             Haptics.success()
             return true
         } catch { self.error = error.localizedDescription; return false }
+    }
+
+    /// A picture or a file for the message about to be sent, uploaded now.
+    func upload(_ view: String, data: Data, type: String, name: String, width: Int? = nil, height: Int? = nil) async -> ChatFile? {
+        guard let orgId, let base else { return nil }
+        do { return try await ChatService.upload(orgId: orgId, channel: view, data: data, type: type, name: name, width: width, height: height, base: base) }
+        catch { self.error = error.localizedDescription; return nil }
+    }
+
+    /// A conversation with several people: the same people, the same one.
+    func startGroup(_ refs: [String]) async -> String? {
+        guard let orgId, let base else { return nil }
+        do {
+            let view = try await ChatService.startGroup(orgId: orgId, refs: refs, base: base)
+            if view.hasPrefix("g:"), !groups.contains(where: { $0.view == view }) { groups.append(ChatGroup(view: view, refs: refs)) }
+            return view
+        } catch { self.error = error.localizedDescription; return nil }
     }
 
     func edit(_ m: ChatMessage, to text: String) async {
@@ -283,6 +323,8 @@ final class ChatStore: ObservableObject {
         guard let data, let m = try? JSONDecoder().decode(Envelope.self, from: data).message else { return }
         upsert(m)
         if m.isAI { thinking[m.channel] = nil }
+        // Somebody started a group with you: it joins the list.
+        if m.channel.hasPrefix("g:"), !groups.contains(where: { $0.view == m.channel }) { Task { await refresh() } }
         if !m.mine && (m.parentId != nil || m.body.contains("@") || m.body.contains("＠")) {
             Task { await loadInbox() }
         }

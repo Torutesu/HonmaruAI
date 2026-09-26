@@ -306,3 +306,80 @@ struct ChatStatusEditor: View {
         } catch { problem = error.localizedDescription }
     }
 }
+
+/// "New message": one person for a DM, or up to eight for a group — the
+/// same people always open the same conversation.
+struct ChatNewMessageSheet: View {
+    @ObservedObject var store: ChatStore
+    let onOpen: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var picked: [String] = []
+    @State private var busy = false
+
+    private var others: [ChatMember] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return store.members.filter { !$0.mine && (q.isEmpty || $0.name.lowercased().contains(q) || ($0.title ?? "").lowercased().contains(q)) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if !picked.isEmpty {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(picked, id: \.self) { ref in
+                                    Button { picked.removeAll { $0 == ref } } label: {
+                                        HStack(spacing: 4) {
+                                            Text(store.nameOf(ref: ref)).font(.subheadline)
+                                            Image(systemName: "xmark").font(.caption2.weight(.bold))
+                                        }
+                                        .padding(.horizontal, 10).padding(.vertical, 6)
+                                        .background(Theme.Colors.textTertiary.opacity(0.15), in: Capsule())
+                                    }.buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    ForEach(others) { m in
+                        Button {
+                            if picked.contains(m.ref) { picked.removeAll { $0 == m.ref } }
+                            else if picked.count < 8 { picked.append(m.ref) }
+                        } label: {
+                            HStack(spacing: 10) {
+                                ChatAvatar(name: m.name, size: 32)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(m.name).foregroundStyle(Theme.Colors.textPrimary)
+                                    if let title = m.title, !title.isEmpty { Text(title).font(.caption).foregroundStyle(Theme.Colors.textSecondary) }
+                                }
+                                Spacer()
+                                Image(systemName: picked.contains(m.ref) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(picked.contains(m.ref) ? Theme.Colors.accent : Theme.Colors.textTertiary)
+                            }
+                        }
+                        .accessibilityAddTraits(picked.contains(m.ref) ? .isSelected : [])
+                    }
+                }
+            }
+            .searchable(text: $query, prompt: Text("Find somebody"))
+            .navigationTitle("New message").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(picked.count > 1 ? String(localized: "Start a group of \(picked.count + 1)") : String(localized: "Start")) {
+                        busy = true
+                        Task {
+                            defer { busy = false }
+                            if picked.count == 1 { onOpen("dm:\(picked[0])"); return }
+                            if let view = await store.startGroup(picked) { onOpen(view) }
+                        }
+                    }
+                    .disabled(picked.isEmpty || busy)
+                }
+            }
+        }
+    }
+}

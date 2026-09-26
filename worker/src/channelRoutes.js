@@ -26,8 +26,6 @@ import { setStatus, rememberTimezone, redirectIfAway, setChannelPref, prefsFor, 
 import { scheduleMessage, listScheduled, cancelScheduled, saveForLater, listSaved, finishSaved } from "./later.js";
 import { channelDetails, setDescription, channelRow } from "./channelDetails.js";
 import { channelJournal, forgetJournalDay, validDay, validZone } from "./journal.js";
-import { providerFor } from "./orgAI.js";
-import { allowanceFor } from "./gate.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
 import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";

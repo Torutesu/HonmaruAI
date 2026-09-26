@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -33,11 +34,15 @@ struct ConversationView: View {
     @State private var showScheduled = false
     @State private var newSince: String?
     @State private var highlight: String?
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var attached: [ChatFile] = []
+    @State private var uploading = 0
 
     private var conversation: ChatConversation? { store.conversation(for: view) }
     private var title: String {
         guard let c = conversation else { return "" }
-        return c.kind == .channel ? "#\(c.name)" : c.name
+        if c.kind == .channel { return c.isPrivate ? "🔒 \(c.name)" : "#\(c.name)" }
+        return c.name
     }
     private var list: [ChatMessage] { store.messages[view] ?? [] }
     private var here: [ChatScheduled] { store.scheduled.filter { $0.channel == view } }
@@ -255,40 +260,94 @@ struct ConversationView: View {
 
     private var composer: some View {
         GlassGroup(spacing: 10) {
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField(placeholder, text: $draft, axis: .vertical)
-                    .lineLimit(1...6)
-                    .focused($focused)
-                    .padding(.horizontal, 16).padding(.vertical, 11)
-                    .glassPanel(cornerRadius: 22, interactive: true)
-                    .accessibilityLabel(placeholder)
-                // Tap sends; hold for the rest — as a decision, or later.
-                Menu {
-                    Button { Task { await submit(decide: true) } } label: { Label("Send as a decision", systemImage: "sparkles") }
-                    Section("Schedule message") {
-                        Button("In 30 minutes") { Task { await submit(at: .now.addingTimeInterval(1800)) } }
-                        Button("In 1 hour") { Task { await submit(at: .now.addingTimeInterval(3600)) } }
-                        Button("Tomorrow at 9:00") { Task { await submit(at: ChatTimes.tomorrow(at: 9)) } }
-                        Button("Monday at 9:00") { Task { await submit(at: ChatTimes.nextMonday(at: 9)) } }
-                        Button("Custom time…") { customTime = true }
+            VStack(alignment: .leading, spacing: 6) {
+                if !attached.isEmpty || uploading > 0 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(attached) { f in
+                                ZStack(alignment: .topTrailing) {
+                                    if f.isPicture, let url = store.baseURL.flatMap({ f.address(base: $0) }) {
+                                        AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Theme.Colors.surfaceRaised }
+                                            .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    } else {
+                                        Image(systemName: "doc").frame(width: 56, height: 56)
+                                            .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    }
+                                    Button { attached.removeAll { $0.id == f.id } } label: {
+                                        Image(systemName: "xmark.circle.fill").font(.system(size: 18)).symbolRenderingMode(.palette)
+                                            .foregroundStyle(.white, .black.opacity(0.6))
+                                    }.offset(x: 6, y: -6).accessibilityLabel(Text("Remove \(f.name)"))
+                                }
+                            }
+                            if uploading > 0 { ProgressView().frame(width: 56, height: 56) }
+                        }.padding(.horizontal, 4).padding(.top, 6)
                     }
-                } label: {
-                    Image(systemName: editing == nil ? "arrow.up" : "checkmark")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(canSend ? Color.white : Theme.Colors.textTertiary)
-                        .frame(width: 44, height: 44)
-                        .glassCircle(tint: canSend ? Theme.Colors.accent : nil)
-                } primaryAction: {
-                    Task { await submit() }
                 }
-                .disabled(!canSend)
-                .accessibilityLabel(editing == nil ? Text("Send") : Text("Save"))
-                .accessibilityHint("Hold for more: send as a decision, or schedule.")
+                HStack(alignment: .bottom, spacing: 8) {
+                    // Photos from the camera roll, uploaded as soon as they are picked.
+                    PhotosPicker(selection: $photoItems, maxSelectionCount: 10, matching: .images) {
+                        Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .frame(width: 44, height: 44).glassCircle()
+                    }
+                    .accessibilityLabel("Add photos")
+                    .onChange(of: photoItems) { _, items in
+                        guard !items.isEmpty else { return }
+                        photoItems = []
+                        Task { await attach(items) }
+                    }
+                    TextField(placeholder, text: $draft, axis: .vertical)
+                        .lineLimit(1...6)
+                        .focused($focused)
+                        .padding(.horizontal, 16).padding(.vertical, 11)
+                        .glassPanel(cornerRadius: 22, interactive: true)
+                        .accessibilityLabel(placeholder)
+                    // Tap sends; hold for the rest — as a decision, or later.
+                    Menu {
+                        Button { Task { await submit(decide: true) } } label: { Label("Send as a decision", systemImage: "sparkles") }
+                        Section("Schedule message") {
+                            Button("In 30 minutes") { Task { await submit(at: .now.addingTimeInterval(1800)) } }
+                            Button("In 1 hour") { Task { await submit(at: .now.addingTimeInterval(3600)) } }
+                            Button("Tomorrow at 9:00") { Task { await submit(at: ChatTimes.tomorrow(at: 9)) } }
+                            Button("Monday at 9:00") { Task { await submit(at: ChatTimes.nextMonday(at: 9)) } }
+                            Button("Custom time…") { customTime = true }
+                        }
+                    } label: {
+                        Image(systemName: editing == nil ? "arrow.up" : "checkmark")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(canSend ? Color.white : Theme.Colors.textTertiary)
+                            .frame(width: 44, height: 44)
+                            .glassCircle(tint: canSend ? Theme.Colors.accent : nil)
+                    } primaryAction: {
+                        Task { await submit() }
+                    }
+                    .disabled(!canSend)
+                    .accessibilityLabel(editing == nil ? Text("Send") : Text("Save"))
+                    .accessibilityHint("Hold for more: send as a decision, or schedule.")
+                }
             }
         }
     }
 
-    private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var canSend: Bool {
+        uploading == 0 && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
+    }
+
+    /// Picked photos: each made a JPEG (a HEIC would not show everywhere),
+    /// uploaded, and held for the message you are about to send.
+    private func attach(_ items: [PhotosPickerItem]) async {
+        for (i, item) in items.enumerated() {
+            uploading += 1
+            defer { uploading -= 1 }
+            guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
+                  let jpeg = image.jpegData(compressionQuality: 0.85) else { continue }
+            let w = Int(image.size.width * image.scale), h = Int(image.size.height * image.scale)
+            let name = "photo-\(Int(Date().timeIntervalSince1970))-\(i + 1).jpg"
+            if let file = await store.upload(view, data: jpeg, type: "image/jpeg", name: name, width: w, height: h) {
+                attached.append(file)
+            }
+        }
+    }
 
     @ViewBuilder
     private var slashSuggestions: some View {
@@ -348,7 +407,11 @@ struct ConversationView: View {
 
     private func submit(decide: Bool = false, at: Date? = nil) async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || (!attached.isEmpty && editing == nil) else { return }
+        if at != nil && !attached.isEmpty {
+            notes.append(String(localized: "A scheduled message cannot carry files yet."))
+            return
+        }
         if let editing {
             await store.edit(editing, to: text)
             self.editing = nil; draft = ""
@@ -377,8 +440,9 @@ struct ConversationView: View {
             if let note = await store.command(view, name: name, rest: rest) { notes.append(note); draft = "" }
             return
         }
-        if await store.send(view, text: text, decide: decide, at: at) {
+        if await store.send(view, text: text, decide: decide, at: at, files: attached) {
             draft = ""
+            attached = []
             if let at { notes.append(String(localized: "Scheduled for \(at.formatted(date: .abbreviated, time: .shortened)).")) }
         }
     }

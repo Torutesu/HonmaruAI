@@ -44,4 +44,28 @@ final class ChatTests: XCTestCase {
         XCTAssertFalse(m.isDeleted)
         XCTAssertEqual(m.date, ChatDates.parse("2026-09-24T09:00:00.000Z"))
     }
+
+    func testFilesGroupsPrivateChannelsAndEmojiDecode() throws {
+        let message = """
+        {"id":"m2","channel":"g:0123456789abcdef","kind":"message","body":"","mine":true,"createdAt":"2026-09-26T01:00:00.000Z",
+         "files":[{"id":"f_1","name":"menu.png","type":"image/png","size":2048,"width":400,"height":250,"url":"/files/f_1?e=1&s=ab"}]}
+        """.data(using: .utf8)!
+        let m = try JSONDecoder().decode(ChatMessage.self, from: message)
+        let file = try XCTUnwrap(m.files?.first)
+        XCTAssertTrue(file.isPicture)
+        XCTAssertEqual(file.address(base: URL(string: "https://api.example.com")!)?.absoluteString, "https://api.example.com/files/f_1?e=1&s=ab")
+
+        let business = try JSONDecoder().decode(ChatBusiness.self, from: #"{"slug":"payroll","name":"Payroll","private":true}"#.data(using: .utf8)!)
+        XCTAssertEqual(business.isPrivate, true)
+        let open = try JSONDecoder().decode(ChatBusiness.self, from: #"{"slug":"cafe","name":"Cafe"}"#.data(using: .utf8)!)
+        XCTAssertNil(open.isPrivate)
+
+        let overview = try JSONDecoder().decode(ChatOverview.self, from: #"{"activity":[],"members":[],"groups":[{"view":"g:0123456789abcdef","refs":["r1","r2"]}]}"#.data(using: .utf8)!)
+        XCTAssertEqual(overview.groups?.first?.refs, ["r1", "r2"])
+
+        let assets = ChatAssets(emoji: [ChatEmoji(name: "shogun_party", url: "https://api.example.com/emoji/img/emoji-1")], base: nil)
+        XCTAssertNotNil(assets.emojiURL(":shogun_party:"))
+        XCTAssertNil(assets.emojiURL(":other:"))
+        XCTAssertNil(assets.emojiURL("👍"))
+    }
 }
