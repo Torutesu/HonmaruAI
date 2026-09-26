@@ -105,7 +105,10 @@ to `main` that touches `lp/`, and can also be run by hand from Actions. It:
    (`CNAME` to `honmaru-lp.pages.dev`, proxied) when the token may edit that
    zone. If it may not, the run's warnings name the two records to add by hand
    in Cloudflare DNS;
-3. picks the address: the domain once its root is answered by this page,
+3. picks the addresses: links to the web app go to `app.honmaruai.com` (or
+   the `APP_DOMAIN` variable) once it serves the app, else to
+   `honmaru-web.pages.dev`; and the page itself is built for
+   the domain once its root is answered by this page,
    otherwise `honmaru-lp.pages.dev`, so no link points at a domain that is
    not serving yet (`LP_SITE_URL` or the run's `site_url` input overrides it);
 4. tests the worker (`worker.test.mjs`) and runs `build.mjs` for that address,

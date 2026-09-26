@@ -20,6 +20,7 @@ on:
     paths:
       - "lp/**"
       - ".github/workflows/deploy-lp.yml"
+      - ".github/scripts/attach-pages-domain.sh"
   workflow_dispatch:
     inputs:
       project:
@@ -45,6 +46,7 @@ jobs:
       PROJECT: ${{ inputs.project || 'honmaru-lp' }}
       SITE_URL: ${{ inputs.site_url || vars.LP_SITE_URL || '' }}
       DOMAIN: ${{ vars.LP_DOMAIN || 'honmaruai.com' }}
+      APP_HOST: ${{ vars.APP_DOMAIN || 'app.honmaruai.com' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -70,32 +72,7 @@ jobs:
       # issues their certificates once DNS points at it. Nothing here fails
       # the deploy: without the domain the page stays on pages.dev.
       - name: Attach the domain
-        run: |
-          api="https://api.cloudflare.com/client/v4"
-          auth=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json")
-          have=$(curl -s "${auth[@]}" "$api/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT/domains" | jq -r '.result[]? | "\(.name) \(.status)"')
-          echo "attached now:"; echo "${have:-  (none)}"
-          for host in "$DOMAIN" "www.$DOMAIN"; do
-            if ! grep -q "^$host " <<<"$have"; then
-              out=$(curl -s "${auth[@]}" -X POST "$api/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT/domains" --data "{\"name\":\"$host\"}")
-              jq -e .success <<<"$out" >/dev/null && echo "attached $host" || echo "::warning::Could not attach $host to $PROJECT: $(jq -c .errors <<<"$out")"
-            fi
-          done
-          zone=$(curl -s "${auth[@]}" "$api/zones?name=$DOMAIN" | jq -r '.result[0].id // empty')
-          if [ -z "$zone" ]; then
-            echo "::warning::The token cannot read the $DOMAIN zone. In Cloudflare DNS for $DOMAIN add: CNAME @ -> $PROJECT.pages.dev and CNAME www -> $PROJECT.pages.dev (both proxied)."
-            exit 0
-          fi
-          for host in "$DOMAIN" "www.$DOMAIN"; do
-            rec=$(curl -s "${auth[@]}" "$api/zones/$zone/dns_records?name=$host" | jq -r '.result[]? | "\(.type) \(.content)"')
-            if [ -n "$rec" ]; then
-              echo "$host already has: $rec"
-              grep -q "CNAME $PROJECT.pages.dev" <<<"$rec" || echo "::warning::$host points elsewhere ($rec); left as it is."
-              continue
-            fi
-            out=$(curl -s "${auth[@]}" -X POST "$api/zones/$zone/dns_records" --data "{\"type\":\"CNAME\",\"name\":\"$host\",\"content\":\"$PROJECT.pages.dev\",\"proxied\":true}")
-            jq -e .success <<<"$out" >/dev/null && echo "added CNAME $host -> $PROJECT.pages.dev" || echo "::warning::Could not add the DNS record for $host (the token may lack DNS edit): $(jq -c .errors <<<"$out"). Add CNAME $host -> $PROJECT.pages.dev (proxied) in Cloudflare DNS."
-          done
+        run: .github/scripts/attach-pages-domain.sh "$PROJECT" "$DOMAIN" "$DOMAIN" "www.$DOMAIN"
 
       # The domain is live when its root is answered by this page's worker
       # (a redirect to a language). Only then is the page built for it.
@@ -110,6 +87,11 @@ jobs:
           fi
           echo "SITE_URL=${SITE_URL%/}" >> "$GITHUB_ENV"
           echo "building for ${SITE_URL%/}"
+          # Links to the web app use app.<domain> once it serves the app.
+          web="https://honmaru-web.pages.dev"
+          if curl -fsS -m 15 "https://$APP_HOST/" 2>/dev/null | grep -q 'id="root"'; then web="https://$APP_HOST"; fi
+          echo "WEB_URL=$web" >> "$GITHUB_ENV"
+          echo "web app links go to $web"
 
       # lp/build.mjs writes a page per language with its words already in the
       # HTML, inlines the stylesheet, minifies the scripts, and adds the
@@ -120,7 +102,7 @@ jobs:
         run: |
           node --check lp/main.js
           node --test lp/worker.test.mjs
-          node lp/build.mjs dist "$SITE_URL"
+          node lp/build.mjs dist "$SITE_URL" "$WEB_URL"
           ls -la dist dist/ja
 
       - name: Deploy to Pages
