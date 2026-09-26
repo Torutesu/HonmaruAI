@@ -1165,13 +1165,23 @@ async function handle(request, env, url, ctx) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       const me = await getUserByGithubId(env.DB, session.github_id);
       const locale = normalizeLocale(url.searchParams.get("locale")) || me?.locale || "en";
-      const record = await buildRecord(env.DB, orgId, { locale, viewer: me?.login || null });
+      // ?channel=b:slug: that channel only, with its context written out.
+      const wanted = String(url.searchParams.get("channel") || "");
+      const channel = /^b:[^\s]+$/.test(wanted) ? wanted.slice(2) : null;
+      const record = await buildRecord(env.DB, orgId, { locale, viewer: me?.login || null, channel });
+      let context = null;
+      if (channel && record.businesses.length) {
+        const { channelContext } = await import("./channelContext.js");
+        context = await channelContext(env, { orgId, key: `b:${channel}`, locale, githubId: session.github_id, refresh: url.searchParams.get("refresh") === "1" })
+          .catch((err) => { console.error("channel context failed", err?.message || err); return null; });
+      }
+      if (channel && !record.businesses.length) return json({ message: "No such channel." }, 404);
       if (url.searchParams.get("format") === "md") {
-        return new Response(recordToMarkdown(record, locale), {
+        return new Response(recordToMarkdown(record, locale, { context: context?.markdown || null }), {
           headers: { "content-type": "text/markdown; charset=utf-8", "access-control-allow-origin": "*" },
         });
       }
-      return json(record);
+      return json(context ? { ...record, context: context.markdown, contextAt: context.generatedAt, contextNote: context.noModel ? "noModel" : context.quota ? "quota" : null } : record);
     }
 
     // What this account can spend, and what there is to buy. Read by the

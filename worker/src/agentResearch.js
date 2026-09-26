@@ -44,17 +44,17 @@ const COUNTRY = { ja: "JP", en: "US", es: "ES", fr: "FR", de: "DE", ko: "KR", zh
 /// any model was paid for; `answer` null when none came back.
 /// `plain`: the workspace's own model, the search tool bare, nothing a
 /// model might refuse — the retry when the full call is turned down.
-export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null }) {
+export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null }) {
   const endpoint = provider.endpoint.replace(/\/chat\/completions$/, "/responses");
   const model = plain ? provider.model : agentModelFor(env, provider);
   const reasoning = isReasoningModel(model);
   const country = COUNTRY[String(language || "").slice(0, 2).toLowerCase()];
   const definitions = [
-    plain ? { type: "web_search" } : {
+    ...(!webSearch ? [] : [plain ? { type: "web_search" } : {
       type: "web_search",
       search_context_size: "high",
       ...(country ? { user_location: { type: "approximate", country } } : {}),
-    },
+    }]),
     ...Object.entries(tools).map(([name, t]) => ({
       type: "function", name, description: t.description, parameters: t.parameters, strict: true,
     })),
@@ -83,10 +83,9 @@ export async function research({ provider, env, instructions, input, tools = {},
       model,
       instructions,
       input: next,
-      tools: definitions,
-      tool_choice: finalOnly ? "none" : "auto",
-      parallel_tool_calls: true,
-      max_output_tokens: reasoning ? 12000 : 3000,
+      ...(definitions.length ? { tools: definitions } : {}),
+      ...(definitions.length ? { tool_choice: finalOnly ? "none" : "auto", parallel_tool_calls: true } : {}),
+      max_output_tokens: maxOutput || (reasoning ? 12000 : 3000),
       ...(previous ? { previous_response_id: previous } : {}),
       ...(reasoning ? { reasoning: { effort: effort || env?.AGENT_REASONING || "medium" } } : {}),
       // Verbosity is the GPT-5 family's; an o-series model refuses it.

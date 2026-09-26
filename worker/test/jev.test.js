@@ -163,7 +163,8 @@ test("filing: an existing business is a choice Jev makes; 'none' goes on to the 
   });
   expect(slug).toBe("cafe-honmaru");
 
-  // "none": the language model may name a new business.
+  // "none": the language model is asked, and it too only picks a channel
+  // that exists — a new name files nothing.
   interceptJev(jevAnswer({ business: choice("none", 0.9) }));
   fetchMock.get("https://api.openai.com")
     .intercept({ path: "/v1/chat/completions", method: "POST" })
@@ -172,7 +173,7 @@ test("filing: an existing business is a choice Jev makes; 'none' goes on to the 
     orgId: "personal:jev", card: { title: "Lobby signage", summary: "for the hotel" }, provider: OPENAI, githubId: "1",
     allowance: { allowed: true, metered: false, consume: async () => {} },
   });
-  expect(fresh).toBe("hotel-honmaru");
+  expect(fresh).toBeNull();
 });
 
 test("POST /ai/route with a Jev key routes without spending the language-model allowance", async () => {

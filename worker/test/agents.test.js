@@ -418,3 +418,19 @@ test("a message to an agent never becomes a card for a person, even with @AI or 
   expect(routed.every((p) => p === "/v1/responses")).toBe(true);
   fetchMock.get("https://api.openai.com").interceptors = [];
 });
+
+test("an agent added from a preset and never changed follows the preset's current version; an edited one keeps its words", async () => {
+  const { textHash, upgradedInstructions } = await import("../src/agentPresets.js");
+  const EARLIER = "# 壁打ち相手\n\n反論することで、チームのアイデアを強くする役です。\n\n## 進め方\n- まずアイデアを一番良い形で一文にまとめる。\n- 次に: 懐疑的な人がする厳しい質問を3つ、最大のリスク、うまくいくために成り立っていなければならない前提。\n- 間違っていたら分かる、一番安い検証方法を提案する。\n- 率直に、でも親切に。反対するのはアイデアで、人ではない。";
+  const current = PRESETS.find((p) => p.id === "sparring").instructions.ja;
+  expect(upgradedInstructions(EARLIER)).toBe(current);
+  expect(upgradedInstructions(`${EARLIER}\n- うちの業界に合わせて`)).toBe(null);
+  expect(textHash("a  b\n c")).toBe(textHash("a b c"));
+  // Stored with the earlier words, it reads — and is written back — as the current ones.
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, name: "壁打ち相手", handle: "sparring", instructions: "x", preset: "sparring" })).json();
+  await env.DB.prepare("UPDATE custom_agents SET instructions = ?1 WHERE id = ?2").bind(EARLIER, made.agent.id).run();
+  const { agents } = await (await get(`/channels/agents?${q({ orgId: ORG })}`, toru)).json();
+  expect(agents.find((a) => a.handle === "sparring").instructions).toBe(current);
+  const row = await env.DB.prepare("SELECT instructions FROM custom_agents WHERE id = ?1").bind(made.agent.id).first();
+  expect(row.instructions).toBe(current);
+});

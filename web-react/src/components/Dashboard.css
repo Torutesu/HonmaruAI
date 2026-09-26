@@ -275,11 +275,22 @@
 .record-title { color: #202020; }
 .record-action { color: #6647f0; font-size: 12px; }
 .record-note { color: #646464; font-size: 13px; font-style: italic; }
+.record-context h3, .record-decisions-title { font-size: 15px; font-weight: 600; margin: 18px 0 8px; color: #202020; }
+.record-md { font-size: 14px; line-height: 1.6; color: #202020; }
+.record-md h2 { font-size: 14px; font-weight: 700; margin: 16px 0 6px; }
+.record-md h3 { font-size: 13.5px; font-weight: 700; margin: 12px 0 4px; }
+.record-md ul, .record-md ol { padding-left: 20px; margin: 4px 0 8px; }
+.record-md li { margin: 2px 0; }
+.record-md a { color: #6647f0; word-break: break-all; }
+.record-context-at { margin-top: 10px; }
+.linkish { border: none; background: none; padding: 0; color: #6647f0; cursor: pointer; font: inherit; }
+.linkish:disabled { color: #838383; cursor: default; }
 .debug-log { position: fixed; left: 8px; bottom: 8px; width: 320px; max-height: 40vh; overflow: auto; background: rgba(255,255,255,0.92); border: 1px solid #e8e8e8; border-radius: 10px; padding: 8px; font-size: 11px; z-index: 40; }
 
 @media (prefers-color-scheme: dark) {
   .you-select, .you-row input, .you-row button, .record-copy { background: #1a1a1a; color: #f2f2f2; border-color: #2a2a2a; }
-  .record-section h3, .record-title, .record-open li { color: #f2f2f2; }
+  .record-section h3, .record-title, .record-open li, .record-context h3, .record-decisions-title, .record-md { color: #f2f2f2; }
+  .record-md a, .linkish { color: #b4a1ff; }
   .record-decided li { border-top-color: #2a2a2a; }
 }
 

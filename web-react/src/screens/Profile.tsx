@@ -305,7 +305,7 @@ export const Profile: React.FC<Props> = ({
           <div className="profile-stats">
             <div><b>{pendingCount}</b><span>{t('waiting')}</span></div>
             <div><b>{decidedCount}</b><span>{t('decided')}</span></div>
-            <div><b>{businesses.length}</b><span>{t('businesses')}</span></div>
+            <div><b>{businesses.length}</b><span>{t('channels (count)')}</span></div>
           </div>
 
           </section>
@@ -339,7 +339,7 @@ export const Profile: React.FC<Props> = ({
             </button>
             <button className="row" onClick={() => onOpen('record')}>
               <span className="row-icon"><Icon name="record" size={18} /></span>
-              <span className="row-main">{t('The record')}<span className="row-sub">{t('Every decision, by business, written by nobody.')}</span></span>
+              <span className="row-main">{t('The record')}<span className="row-sub">{t('Every decision in a channel, and what led to it.')}</span></span>
               <span className="row-value">›</span>
             </button>
             <button className="row" onClick={() => onOpen('tools')}>
@@ -594,20 +594,6 @@ export const Profile: React.FC<Props> = ({
                   </button>
                 ))}
               </div>
-            </>
-          )}
-
-          </section>
-          <section className="pf-sec pf-biz">
-          {businesses.length > 0 && (
-            <>
-              <div className="rows-title">{t('Businesses your AI has found')}</div>
-              <div className="chips">
-                {businesses.map((b) => <span key={b.slug} className="pill-tag">{b.name}</span>)}
-              </div>
-              <p className="hint" style={{ margin: '8px 4px 20px', color: 'var(--ash)', fontSize: 12.5 }}>
-                {t('businesses.blurb')}
-              </p>
             </>
           )}
 

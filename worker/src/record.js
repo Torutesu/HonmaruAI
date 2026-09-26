@@ -12,7 +12,7 @@
 import { loadStore, listBusinesses } from "./db.js";
 import { actionLabel, displayName } from "./notifyCopy.js";
 
-export async function buildRecord(db, orgId, { locale = "en", viewer = null } = {}) {
+export async function buildRecord(db, orgId, { locale = "en", viewer = null, channel = null } = {}) {
   const store = await loadStore(db, orgId);
   // The channels this reader can see. A private channel's decisions are its
   // members' (and the two people on each card): nobody else's record.
@@ -71,20 +71,45 @@ export async function buildRecord(db, orgId, { locale = "en", viewer = null } = 
     if (!a.slug !== !b.slug) return a.slug ? -1 : 1;
     return String(b.decided[0]?.decidedAt || "").localeCompare(String(a.decided[0]?.decidedAt || ""));
   });
+  // One channel's record: that channel only, readable by this viewer.
+  if (channel) {
+    const one = list.find((s) => s.slug === channel && names.has(channel));
+    return { orgId, channel, generatedAt: new Date().toISOString(), businesses: one ? [one] : [] };
+  }
   return { orgId, generatedAt: new Date().toISOString(), businesses: list.filter((s) => s.slug || s.decided.length || s.open.length) };
 }
 
 const T = {
-  en: { title: "Decision record", open: "Open", decided: "Decided", unfiled: "Not yet filed", by: "by", waitingOn: "waiting on", none: "Nothing yet." },
-  ja: { title: "決定の記録", open: "未決", decided: "決定済み", unfiled: "未分類", by: "決定者", waitingOn: "待ち", none: "まだありません。" },
+  en: { title: "Decision record", open: "Open", decided: "Decided", unfiled: "Not yet filed", by: "by", waitingOn: "waiting on", none: "Nothing yet.", context: "Context", decisions: "Decisions" },
+  ja: { title: "決定の記録", open: "未決", decided: "決定済み", unfiled: "未分類", by: "決定者", waitingOn: "待ち", none: "まだありません。", context: "コンテキスト", decisions: "決定" },
 };
 
 function day(iso) {
   return iso ? String(iso).slice(0, 10) : "";
 }
 
-export function recordToMarkdown(record, locale = "en") {
-  const t = T[locale] || T.en;
+export function recordToMarkdown(record, locale = "en", { context = null } = {}) {
+  const t = T[String(locale || "en").slice(0, 2)] || T.en;
+  // One channel: its name as the title, the written context, then its
+  // decisions — one level down, under their own heading.
+  if (record.channel) {
+    const b = record.businesses[0];
+    const lines = [`# #${b?.name || record.channel}`, "", `_${day(record.generatedAt)}_`, ""];
+    if (context) lines.push(`## ${t.context}`, "", String(context).replace(/^## /gm, "### ").trim(), "");
+    lines.push(`## ${t.decisions}`, "");
+    if (!b || (!b.open.length && !b.decided.length)) lines.push(t.none, "");
+    if (b?.open.length) {
+      lines.push(`### ${t.open} (${b.open.length})`, "");
+      for (const c of b.open) lines.push(`- [ ] ${c.title} — ${t.waitingOn} ${c.recipient}${c.createdAt ? ` · ${day(c.createdAt)}` : ""}${c.summary ? `\n  ${c.summary}` : ""}`);
+      lines.push("");
+    }
+    if (b?.decided.length) {
+      lines.push(`### ${t.decided} (${b.decided.length})`, "");
+      for (const c of b.decided) lines.push(`- **${day(c.decidedAt)}** ${c.title} — ${c.actionLabel} ${t.by} ${c.actor}${c.note ? ` — “${c.note}”` : ""}${c.summary ? `\n  ${c.summary}` : ""}`);
+      lines.push("");
+    }
+    return lines.join("\n");
+  }
   const lines = [`# ${t.title} · ${record.orgId}`, "", `_${day(record.generatedAt)}_`, ""];
   if (!record.businesses.length) lines.push(t.none);
   for (const b of record.businesses) {

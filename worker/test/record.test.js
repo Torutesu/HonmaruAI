@@ -156,3 +156,42 @@ test("the card carries who asked and what the AI advised, and a republish keeps 
   expect(after.requestedBy).toMatchObject({ login: "owner", name: "Owner" });
   expect(after.recommendation).toMatchObject({ action: "approve" });
 });
+
+test("one channel's record: only that channel, its context written out in full, kept until something new is said", async () => {
+  await seed();
+  const { fetchMock } = await import("./helpers/fetch-mock.js");
+  const { default: worker } = await import("../src/index.js");
+  const { postMessage } = await import("../src/channels.js");
+  fetchMock.activate();
+  await postMessage(env.DB, { orgId: ORG, key: "b:hotel-本丸", authorLogin: "owner", body: "Lease signed for two floors; opening in April." });
+  const call = (q) => worker.fetch(new Request(`https://example.com/record?${new URLSearchParams({ orgId: ORG, locale: "ja", ...q })}`, { headers: { "x-session-token": ownerToken } }), { ...env, OPENAI_API_KEY: "sk-test" }, { waitUntil() {}, passThroughOnException() {} });
+  const asked = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    asked.push(JSON.parse(opts.body));
+    return { id: "r", output_text: "## 目的\nホテル本丸の開業準備。\n\n## 現状\n- 2フロアで賃貸契約済み", output: [] };
+  });
+  const res = await call({ channel: "b:hotel-本丸" });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.businesses.map((b) => b.slug)).toEqual(["hotel-本丸"]);
+  expect(body.context).toContain("ホテル本丸の開業準備");
+  // It read the channel — messages and decisions — with no web search.
+  expect(asked[0].tools).toBeUndefined();
+  expect(asked[0].input).toContain("Lease signed for two floors");
+  expect(asked[0].input).toContain("賃貸契約の承認");
+  expect(asked[0].input).toContain("Two floors only");
+  expect(asked[0].instructions).toContain("How we got here");
+  // Nothing new said: the Markdown comes from what was kept — no model call.
+  const md = await (await call({ channel: "b:hotel-本丸", format: "md" })).text();
+  expect(md.startsWith("# #Hotel 本丸")).toBe(true);
+  expect(md).toContain("## コンテキスト");
+  expect(md).toContain("### 目的");
+  expect(md).toContain("## 決定");
+  expect(md).toContain("賃貸契約の承認");
+  expect(md).not.toContain("Cafe Sakura");
+  expect(asked).toHaveLength(1);
+  // A channel this reader cannot see is not theirs to read.
+  expect((await call({ channel: "b:nope" })).status).toBe(404);
+  fetchMock.assertNoPendingInterceptors();
+  fetchMock.deactivate();
+});
