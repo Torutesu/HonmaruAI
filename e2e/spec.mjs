@@ -2852,6 +2852,135 @@ await step('the mark at the top left lists every workspace, and adds one', async
   }
 })
 
+await step('where you are signed in: this browser and another, and the other signed out from here', async () => {
+  const other = await freshSignIn(email)
+  await other.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
+  const otherToken = await other.evaluate(() => localStorage.getItem('sessionToken'))
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/you`, { waitUntil: 'load' })
+    await w.waitForSelector('[data-sessions] .session-row[data-current="1"]', { timeout: 20000 })
+    const rows = await w.$$eval('[data-sessions] .session-row', (els) => els.length)
+    if (rows < 2) throw new Error(`only ${rows} signed-in device listed`)
+    await w.screenshot({ path: `${SHOTS}/64-signed-in.png` })
+    if (await w.isVisible('.sessions-end-others')) await w.click('.sessions-end-others')
+    else await w.click('[data-sessions] .session-row:not([data-current]) .session-end')
+    await w.waitForFunction(() => document.querySelectorAll('[data-sessions] .session-row').length === 1, null, { timeout: 10000 })
+      .catch(() => { throw new Error('the other device is still listed') })
+    const status = (await fetch(`${API}/sessions`, { headers: { 'x-session-token': otherToken } })).status
+    if (status !== 401) throw new Error(`the signed-out device still gets in (${status})`)
+  } finally {
+    await ctx.close()
+  }
+})
+
+await step('the audit log shows an admin what happened, narrows it, and downloads it', async () => {
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 }, acceptDownloads: true })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/tools/audit`, { waitUntil: 'load' })
+    await w.waitForSelector('[data-studio-page="audit"] [data-audit-action]', { timeout: 20000 })
+      .catch(async () => { throw new Error(`no audit entries: ${await w.textContent('[data-studio-page="audit"]').catch(() => '')}`) })
+    const actions = await w.$$eval('[data-audit-action]', (els) => els.map((e) => e.getAttribute('data-audit-action')))
+    for (const want of ['auth.session_revoked', 'invite.created']) {
+      if (!actions.includes(want)) throw new Error(`the log has no ${want}: ${[...new Set(actions)].join(', ')}`)
+    }
+    await w.screenshot({ path: `${SHOTS}/65-audit-log.png` })
+    await w.selectOption('[data-audit-filter="category"]', 'membership')
+    await w.waitForFunction(() => {
+      const rows = [...document.querySelectorAll('[data-audit-action]')].map((e) => e.getAttribute('data-audit-action'))
+      return rows.length > 0 && rows.every((a) => /^(member|invite)\./.test(a))
+    }, null, { timeout: 10000 }).catch(() => { throw new Error('the category filter did not narrow the log') })
+    const [download] = await Promise.all([w.waitForEvent('download', { timeout: 15000 }), w.click('[data-audit-export="csv"]')])
+    if (!/\.csv$/.test(download.suggestedFilename())) throw new Error(`the export is not a CSV: ${download.suggestedFilename()}`)
+  } finally {
+    await ctx.close()
+  }
+})
+
+await step('a guest invited to one channel sees that channel and nothing else', async () => {
+  const link = await page.evaluate(async (host) => {
+    const r = await fetch(`${host}/invites/create`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') },
+      body: JSON.stringify({ orgId: localStorage.getItem('orgId'), role: 'guest', channels: ['kitchen'] }),
+    })
+    return (await r.json()).link
+  }, API)
+  if (!link) throw new Error('no guest invitation link was made')
+  const g = await freshAccount('Gin', `e2e-guest-${Date.now()}@example.com`, { start: link })
+  await g.evaluate(() => { location.hash = '#/list' })
+  await g.waitForSelector('.cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
+    .catch(() => { throw new Error('the guest does not see the channel they were invited to') })
+  if (await g.$('.cl-thread[data-view="b:front-desk"]')) throw new Error('the guest sees a channel they were not let into')
+  const denied = await g.evaluate(async (host) => {
+    const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(localStorage.getItem('orgId'))}&channel=b:front-desk`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') } })
+    return r.status
+  }, API)
+  if (denied !== 404) throw new Error(`the guest can read another channel (${denied})`)
+  await g.screenshot({ path: `${SHOTS}/66-guest.png` })
+})
+
+await step('a bookmark kept at the top of a channel, a keyword that reaches Activity, and a key that only reads', async () => {
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  await kenji.evaluate(async (host) => {
+    await fetch(`${host}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ notifyKeywords: ['invoice'] }) })
+  }, API)
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await w.waitForSelector('.slk-side .cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
+    await w.click('.slk-side .cl-thread[data-view="b:kitchen"] .cl-open')
+    await w.click('[data-bookmark-add]')
+    await w.fill('[data-bookmark-url]', 'https://docs.example.com/menu')
+    await w.fill('[data-bookmark-title]', 'Menu')
+    await w.click('[data-bookmark-save]')
+    await w.waitForSelector('.slk-bookmark:has-text("Menu")', { timeout: 10000 })
+      .catch(() => { throw new Error('the bookmark is not at the top of the channel') })
+    // Kenji sees it too.
+    const seen = await kenji.evaluate(async (host) => {
+      const r = await fetch(`${host}/channels/bookmarks?orgId=${encodeURIComponent(localStorage.getItem('orgId'))}&channel=b:kitchen`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') } })
+      return (await r.json()).bookmarks?.map((b) => b.title) || []
+    }, API)
+    if (!seen.includes('Menu')) throw new Error('the bookmark is not the channel’s')
+
+    await w.click('.slk-composer .slk-input')
+    await w.keyboard.type('the invoice from the fish market came')
+    await w.keyboard.press('Enter')
+    await w.screenshot({ path: `${SHOTS}/67-bookmark.png` })
+    const hit = await kenji.evaluate(async (host) => {
+      for (let i = 0; i < 20; i++) {
+        const r = await fetch(`${host}/channels/activity?orgId=${encodeURIComponent(localStorage.getItem('orgId'))}`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') } })
+        const d = await r.json()
+        if ((d.items || []).some((x) => x.type === 'keyword' && /fish market/.test(x.message.body))) return true
+        await new Promise((res) => setTimeout(res, 500))
+      }
+      return false
+    }, API)
+    if (!hit) throw new Error('a keyword said in a channel did not reach Activity')
+
+    // A key that may only read.
+    await w.goto(`${WEB}#/tools/api`, { waitUntil: 'load' })
+    await w.click('.studio-create-key')
+    await w.click('[data-key-kind="personal"]')
+    await w.fill('#key-name', 'Read-only reporter')
+    await w.uncheck('.key-dialog [data-scope="write"]')
+    await w.click('.key-dialog .dlg-btn.primary')
+    await w.waitForSelector('[data-agent-minted]', { timeout: 10000 })
+    await w.click('.agent-done')
+    const chips = await w.$$eval('.agent-token:has-text("Read-only reporter") .key-scopes i', (els) => els.map((e) => e.getAttribute('data-scope')))
+    if (chips.join(',') !== 'read') throw new Error(`the key's scopes are ${chips.join(',')}`)
+    await w.screenshot({ path: `${SHOTS}/68-key-scopes.png` })
+  } finally {
+    await kenji.evaluate(async (host) => {
+      await fetch(`${host}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ notifyKeywords: [] }) })
+    }, API).catch(() => {})
+    await ctx.close()
+  }
+})
+
 await step('removing someone takes them out of the room, not just the table', async () => {
   // A socket is authorized once, at join, and never asked again — so before
   // this, taking somebody out of a workspace left them holding a live

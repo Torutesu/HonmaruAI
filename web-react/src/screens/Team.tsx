@@ -301,9 +301,6 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
                   {m.role === 'guest' && m.channels && ` · ${m.channels.map((c) => `#${allChannels.find((x) => x.slug === c)?.name || c}`).join(' ')}`}
                 </span>
               </span>
-              {editable && canRename && !m.mine && m.role !== 'admin' && (
-                <button className="btn-text team-manage" aria-expanded={managing?.ref === m.ref} onClick={() => manage(m)}>{t('Manage')}</button>
-              )}
               {editable && (
                 confirm === m.ref ? (
                   <span className="team-confirm">
@@ -317,6 +314,9 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
                     {m.mine ? t('Leave') : t('Remove')}
                   </button>
                 )
+              )}
+              {editable && canRename && !m.mine && m.role !== 'admin' && (
+                <button className="btn-text team-manage" aria-expanded={managing?.ref === m.ref} onClick={() => manage(m)}>{t('Manage')}</button>
               )}
               {managing?.ref === m.ref && (
                 <div className="team-manage-panel" data-manage={m.ref}>
