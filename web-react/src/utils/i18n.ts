@@ -1567,6 +1567,12 @@ const ja: Dict = {
   'This workspace has all the agents it can hold.': 'このワークスペースに作れるエージェントの上限に達しています。',
   'A guest cannot make or change agents.': 'ゲストはエージェントを作成・変更できません。',
   'No such agent.': 'エージェントが見つかりません。',
+  'Message {name}': '{name}にメッセージ',
+  'Talk to an agent': 'エージェントと話す',
+  'Make or change agents': 'エージェントを作成・編集',
+  'Talk to one of your team’s agents: it answers you here.': 'チームのエージェントと話せます。ここで返事が来ます。',
+  'Only you see this conversation. {name} answers everything you write here, with your past decisions and connected tools at hand.': 'この会話はあなたにしか見えません。ここに書いたことには、{name}があなたの過去の決定と接続したツールを参照しながらすべて答えます。',
+  'Or message one directly: it answers you there, with your past decisions and connected tools at hand.': 'または直接メッセージを送ることもできます。あなたの過去の決定と接続したツールを参照して、その会話で答えます。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -3108,6 +3114,12 @@ const es: Dict = {
   'This workspace has all the agents it can hold.': 'Este espacio de trabajo ya tiene todos los agentes que admite.',
   'A guest cannot make or change agents.': 'Un invitado no puede crear ni cambiar agentes.',
   'No such agent.': 'No existe ese agente.',
+  'Message {name}': 'Mensaje a {name}',
+  'Talk to an agent': 'Hablar con un agente',
+  'Make or change agents': 'Crear o cambiar agentes',
+  'Talk to one of your team’s agents: it answers you here.': 'Habla con uno de los agentes de tu equipo: te responde aquí.',
+  'Only you see this conversation. {name} answers everything you write here, with your past decisions and connected tools at hand.': 'Solo tú ves esta conversación. {name} responde a todo lo que escribes aquí, con tus decisiones pasadas y tus herramientas conectadas a mano.',
+  'Or message one directly: it answers you there, with your past decisions and connected tools at hand.': 'O escríbele directamente: te responde allí, con tus decisiones pasadas y tus herramientas conectadas a mano.',
 }
 
 const fr: Dict = {
@@ -4599,6 +4611,12 @@ const fr: Dict = {
   'This workspace has all the agents it can hold.': 'Cet espace de travail a déjà tous les agents qu’il peut contenir.',
   'A guest cannot make or change agents.': 'Un invité ne peut pas créer ni modifier d’agents.',
   'No such agent.': 'Cet agent n’existe pas.',
+  'Message {name}': 'Écrire à {name}',
+  'Talk to an agent': 'Parler à un agent',
+  'Make or change agents': 'Créer ou modifier des agents',
+  'Talk to one of your team’s agents: it answers you here.': 'Parlez à l’un des agents de votre équipe : il vous répond ici.',
+  'Only you see this conversation. {name} answers everything you write here, with your past decisions and connected tools at hand.': 'Vous seul voyez cette conversation. {name} répond à tout ce que vous écrivez ici, avec vos décisions passées et vos outils connectés sous la main.',
+  'Or message one directly: it answers you there, with your past decisions and connected tools at hand.': 'Ou écrivez-lui directement : il vous répond là, avec vos décisions passées et vos outils connectés sous la main.',
 }
 
 const de: Dict = {
@@ -6090,6 +6108,12 @@ const de: Dict = {
   'This workspace has all the agents it can hold.': 'Dieser Workspace hat so viele Agenten, wie er fassen kann.',
   'A guest cannot make or change agents.': 'Ein Gast kann keine Agenten erstellen oder ändern.',
   'No such agent.': 'Diesen Agenten gibt es nicht.',
+  'Message {name}': 'Nachricht an {name}',
+  'Talk to an agent': 'Mit einem Agenten sprechen',
+  'Make or change agents': 'Agenten erstellen oder ändern',
+  'Talk to one of your team’s agents: it answers you here.': 'Sprich mit einem der Agenten deines Teams: Er antwortet dir hier.',
+  'Only you see this conversation. {name} answers everything you write here, with your past decisions and connected tools at hand.': 'Nur du siehst dieses Gespräch. {name} antwortet auf alles, was du hier schreibst – mit deinen früheren Entscheidungen und verbundenen Tools zur Hand.',
+  'Or message one directly: it answers you there, with your past decisions and connected tools at hand.': 'Oder schreib ihm direkt: Er antwortet dir dort – mit deinen früheren Entscheidungen und verbundenen Tools zur Hand.',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }

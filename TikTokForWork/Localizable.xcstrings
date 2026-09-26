@@ -34175,6 +34175,91 @@
           }
         }
       }
+    },
+    "Talk to an agent": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントと話す"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hablar con un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parler à un agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit einem Agenten sprechen"
+          }
+        }
+      }
+    },
+    "Only you see this conversation. Write anything and the agent answers there.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話はあなただけに表示されます。何か書くと、エージェントがここで答えます。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo tú ves esta conversación. Escribe lo que quieras y el agente responde aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous seul voyez cette conversation. Écrivez ce que vous voulez et l’agent y répond."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur du siehst diese Unterhaltung. Schreib einfach etwas, und der Agent antwortet hier."
+          }
+        }
+      }
+    },
+    "Only you see this conversation. Just write — %@ reads what you say here and answers right below.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話はあなただけに表示されます。書くだけで、%@ が内容を読んで、すぐ下に答えます。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo tú ves esta conversación. Solo escribe: %@ lee lo que dices aquí y responde justo debajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous seul voyez cette conversation. Écrivez simplement : %@ lit ce que vous dites ici et répond juste en dessous."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur du siehst diese Unterhaltung. Schreib einfach – %@ liest, was du hier sagst, und antwortet direkt darunter."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

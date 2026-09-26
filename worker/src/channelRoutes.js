@@ -38,6 +38,9 @@ import { listBookmarks, toClientBookmark, addBookmark, editBookmark, removeBookm
 import {
   listAgents, saveAgent, deleteAgent, toClientAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, playbookFor,
 } from "./customAgents.js";
+import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
+import { searchTermsFor } from "./ask.js";
+import { searchDecisions } from "./insights.js";
 import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP, isPrivate, isGuest } from "./access.js";
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
@@ -249,13 +252,19 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
   let agents;
   try {
     agents = agentsCalled(row.body, await listAgents(env.DB, orgId, user.login));
+    // In a conversation with an agent, everything said is said to it: it
+    // answers without being named, in the conversation, not a thread.
+    if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
+      const own = (await listAgents(env.DB, orgId, user.login)).find((a) => a.id === resolved.agent.id);
+      if (own) agents = [own, ...agents].slice(0, 3);
+    }
   } catch (err) {
     console.error("agents lookup failed", safe(err?.message));
     return 0;
   }
   if (!agents.length) return 0;
   locale = await loadCopy(env, locale || "en", { orgId });
-  const parentId = row.parent_id || row.id;
+  const parentId = row.parent_id || (resolved.kind === "agent" ? null : row.id);
   const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null });
   const progress = async (agent, step) => {
     try {
@@ -271,7 +280,28 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
   const [transcript, playbook] = provider && allowance?.allowed
     ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row), playbookFor(env.DB, orgId, row.body)])
     : [[], []];
-  const where = resolved.kind === "business" ? `#${resolved.slug}` : "a direct conversation";
+  // Research, in a conversation with the agent only: past decisions and
+  // what this person's connected tools hold are theirs to read, and would
+  // be somebody else's to read if the answer went into a shared channel.
+  let research = "";
+  if (resolved.kind === "agent" && provider && allowance?.allowed) {
+    try {
+      const terms = searchTermsFor(row.body, null);
+      const available = await connectedSources(env, session, orgId);
+      const [decisions, notion, github] = await Promise.all([
+        terms ? searchDecisions(env.DB, orgId, terms).catch(() => []) : [],
+        available.notion && terms ? searchNotion(env, session.github_id, terms).catch(() => []) : [],
+        available.github && terms ? searchGithubIssues(session, orgId, terms, env).catch(() => []) : [],
+      ]);
+      const lines = decisions.slice(0, 8).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 140)}`);
+      const tools = [...notion, ...github].slice(0, 8);
+      if (lines.length) research += `Past decisions that match:\n${lines.join("\n")}\n`;
+      if (tools.length) research += `From the person's connected tools:\n${formatSourcesForModel(tools)}\n`;
+    } catch (err) {
+      console.error("agent research failed", safe(err?.message));
+    }
+  }
+  const where = resolved.kind === "business" ? `#${resolved.slug}` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
   let answered = 0;
   for (const agent of agents) {
     await progress(agent, "agent");
@@ -281,7 +311,7 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
       else if (!allowance.allowed) text = serverText(locale, "agent.quota");
       else {
         const result = await askAgent({
-          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where,
+          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research,
           askedBy: user.name || "a teammate", readerLanguage: locale,
         });
         if (result.called && allowance.metered) await allowance.consume();
@@ -1177,6 +1207,7 @@ export async function broadcastStored(env, orgId, key, row) {
   if (key.startsWith("b:")) resolved = logins ? { key, kind: "business", slug: key.slice(2), private: await isPrivate(env.DB, orgId, key.slice(2)), logins } : { key, kind: "business", slug: key.slice(2) };
   else if (key.startsWith("dm:")) resolved = { key, kind: "dm", logins };
   else if (key.startsWith("g:")) resolved = { key, kind: "group", logins };
+  else if (key.startsWith("ag:")) resolved = { key, kind: "agent", logins };
   else return;
   await broadcastWithParent(env, orgId, resolved, row, members);
   await emitMessage(env, orgId, row);

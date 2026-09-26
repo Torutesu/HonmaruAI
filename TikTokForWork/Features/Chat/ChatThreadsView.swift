@@ -104,7 +104,7 @@ struct ChatForwardSheet: View {
                     ForEach(places) { c in
                         Button { target = c.view } label: {
                             HStack(spacing: 10) {
-                                Image(systemName: c.kind == .channel ? (c.isPrivate ? "lock.fill" : "number") : c.kind == .group ? "person.2.fill" : "person.fill")
+                                Image(systemName: c.kind == .channel ? (c.isPrivate ? "lock.fill" : "number") : c.kind == .group ? "person.2.fill" : c.kind == .agent ? "wand.and.stars" : "person.fill")
                                     .foregroundStyle(Theme.Colors.textSecondary).frame(width: 24)
                                 Text(verbatim: c.name).foregroundStyle(Theme.Colors.textPrimary)
                                 Spacer()

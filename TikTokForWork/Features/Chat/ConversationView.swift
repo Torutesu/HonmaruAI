@@ -50,8 +50,11 @@ struct ConversationView: View {
     private var title: String {
         guard let c = conversation else { return "" }
         if c.kind == .channel { return c.isPrivate ? "🔒 \(c.name)" : "#\(c.name)" }
+        if c.kind == .agent { return "\(c.agent?.glyph ?? ChatAgent.glyph(nil)) \(c.name)" }
         return c.name
     }
+    /// Your own conversation with one of the team's agents.
+    private var isAgentConversation: Bool { view.hasPrefix("ag:") }
     private var list: [ChatMessage] { store.messages[view] ?? [] }
     private var here: [ChatScheduled] { store.scheduled.filter { $0.channel == view } }
 
@@ -77,7 +80,9 @@ struct ConversationView: View {
                         .accessibilityLabel(Text("Only visible to you. \(n)"))
                     }
                     if let step = store.thinking[view] { ChatAISteps(step: step).padding(.vertical, 6) }
-                    if let typing = store.agentTyping[view] { ChatAgentTypingRow(agent: typing.agent).padding(.vertical, 6) }
+                    if let typing = store.agentTyping[view], typing.parentId == nil || !isAgentConversation {
+                        ChatAgentTypingRow(agent: typing.agent).padding(.vertical, 6)
+                    }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.bottom, 8)
@@ -146,6 +151,14 @@ struct ConversationView: View {
                     Image(systemName: "number").font(.title2.weight(.bold)).frame(width: 48, height: 48).glassPanel(cornerRadius: 14)
                     Text("This is the start of #\(c.name)").font(.title3.weight(.bold))
                     Text("Talk about \(c.name) here. Write @AI — or long-press a message and pick Make it a decision — and your AI turns it into a decision card, written from what was said.")
+                        .font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
+                } else if c.kind == .agent {
+                    ChatAvatar(name: c.name, size: 48, agentEmoji: c.agent?.glyph ?? ChatAgent.glyph(nil))
+                    Text(c.name).font(.title3.weight(.bold))
+                    if let d = c.agent?.description, !d.isEmpty {
+                        Text(verbatim: d).font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                    Text("Only you see this conversation. Just write — \(c.name) reads what you say here and answers right below.")
                         .font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
                 } else {
                     ChatAvatar(name: c.name, size: 48)
@@ -505,9 +518,11 @@ struct ConversationView: View {
             .onTapGesture { if let ref = conversation?.member?.ref { profileRef = ref } }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button { jamOpen = true } label: { Image(systemName: "headphones") }
-                .accessibilityLabel("Jam")
-                .accessibilityHint("Start or join a call in this conversation.")
+            if !isAgentConversation {
+                Button { jamOpen = true } label: { Image(systemName: "headphones") }
+                    .accessibilityLabel("Jam")
+                    .accessibilityHint("Start or join a call in this conversation.")
+            }
             Button { Task { pins = await store.pins(view); showPins = true } } label: { Image(systemName: "pin") }
                 .accessibilityLabel("Pinned messages")
             Menu {

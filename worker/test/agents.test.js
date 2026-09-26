@@ -177,3 +177,55 @@ test("a personal agent answers only its owner; with no model, the agent says so 
   expect(said.replies[0]).toMatchObject({ kind: "agent", authorName: "My notes" });
   expect(said.replies[0].body).toContain("no AI model");
 });
+
+test("a conversation with an agent is one person's, and the agent answers everything said in it, in the conversation", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  const view = `ag:${made.agent.id}`;
+  let prompt;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
+    prompt = JSON.parse(opts.body);
+    return { choices: [{ message: { content: "Deep green, gold leaf." } }] };
+  });
+  // No @ needed: in the agent's own conversation, it is spoken to.
+  const sent = await send("POST", "/channels/messages", mika, { orgId: ORG, channel: view, body: "What colour for the menu?" }, { OPENAI_API_KEY: "sk-test" });
+  expect(sent.status).toBe(201);
+  expect(prompt.messages[1].content).toContain("a direct conversation with you");
+  const { messages } = await (await get(`/channels/messages?${q({ orgId: ORG, channel: view })}`, mika)).json();
+  expect(messages.map((m) => [m.kind, m.body, m.parentId])).toEqual([
+    ["message", "What colour for the menu?", null],
+    ["agent", "Deep green, gold leaf.", null],
+  ]);
+  expect(messages[1]).toMatchObject({ channel: view, authorName: "Hayao" });
+  // Kenji's conversation with the same agent is his own: empty.
+  const his = await (await get(`/channels/messages?${q({ orgId: ORG, channel: view })}`, kenji)).json();
+  expect(his.messages).toEqual([]);
+  // It shows in Mika's list of conversations, and nobody else's.
+  const mine = await (await get(`/channels?${q({ orgId: ORG })}`, mika)).json();
+  expect(mine.activity.map((a) => a.channel)).toContain(view);
+  const theirs = await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json();
+  expect(theirs.activity.map((a) => a.channel)).not.toContain(view);
+  // Mika hears the answer as a direct message.
+  const queued = await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id = ?1 AND message_id = ?2").bind(ORG, messages[1].id).all();
+  expect(queued.results).toEqual([{ login: "mika", reason: "direct" }]);
+});
+
+test("someone else's personal agent has no conversation to open", async () => {
+  const made = await (await send("POST", "/channels/agents", mika, { orgId: ORG, name: "Diary", handle: "diary", instructions: "x", scope: "personal" })).json();
+  expect((await get(`/channels/messages?${q({ orgId: ORG, channel: `ag:${made.agent.id}` })}`, kenji)).status).toBe(404);
+  expect((await get(`/channels/messages?${q({ orgId: ORG, channel: `ag:${made.agent.id}` })}`, mika)).status).toBe(200);
+});
+
+test("in its own conversation an agent reads the team's past decisions; in a channel it does not", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  const { saveCard } = await import("../src/db.js");
+  await saveCard(env.DB, ORG, { id: "c-roast", recipientUserID: "mika", senderUserID: "kenji", title: "Switch roaster supplier", status: "approved", createdAt: new Date().toISOString(), decision: { action: "approve", actorUserID: "mika", decidedAt: new Date().toISOString() } });
+  const prompts = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
+    prompts.push(JSON.parse(opts.body).messages[1].content);
+    return { choices: [{ message: { content: "ok" } }] };
+  }).times(2);
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "What did we decide about the roaster supplier?" }, { OPENAI_API_KEY: "sk-test" });
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao what about the roaster supplier?" }, { OPENAI_API_KEY: "sk-test" });
+  expect(prompts[0]).toContain("Switch roaster supplier");
+  expect(prompts[1]).not.toContain("Switch roaster supplier");
+});

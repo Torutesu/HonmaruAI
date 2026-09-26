@@ -1308,3 +1308,20 @@
 .classic.slk.slk .slk-app-badge.agent { background: var(--slk-agent-bg); color: var(--slk-agent); }
 .classic.slk.slk .slk-agent-typing { flex-direction: column; align-items: flex-start; gap: 4px; }
 .classic.slk.slk .slk-agent-writing { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---- Conversations with the team's agents ---- */
+.classic.slk.slk .cl-agent { border-radius: 5px; background: var(--slk-field); line-height: 1; }
+.classic.slk.slk .cl-agent.sz-row { font-size: 13px; }
+.classic.slk.slk .cl-agent.sz-head { font-size: 18px; }
+.classic.slk.slk .slk-start .cl-agent { font-size: 26px; }
+.classic.slk.slk .cl-dm-face.agent { border-radius: 10px; background: var(--slk-field); font-size: 22px; }
+.classic.slk.slk .cl-agent-pick { list-style: none; margin: 2px 10px 6px 14px; padding: 4px; border: 1px solid var(--slk-line); border-radius: 8px; background: var(--slk-bg); }
+.classic.slk.slk .cl-agent-option {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 8px;
+  border: 0; border-radius: 6px; background: none; color: var(--slk-ink); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.classic.slk.slk .cl-agent-option:hover, .classic.slk.slk .cl-agent-option:focus-visible { background: var(--slk-hover); }
+.classic.slk.slk .cl-agent-option-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.classic.slk.slk .cl-agent-option-handle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--slk-dim); font-size: 12.5px; }
+.classic.slk.slk .cl-agent-manage .cl-agent-option-name { font-weight: 400; color: var(--slk-dim); }
+.classic.slk.slk .slk-head-agent .slk-head-handle { color: var(--slk-dim); font-weight: 600; }
