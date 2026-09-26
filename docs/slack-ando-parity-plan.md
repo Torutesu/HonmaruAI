@@ -81,7 +81,7 @@
 
 | 機能 | Slack | Ando | HonmaruAI | 優先 |
 |---|---|---|---|---|
-| 監査ログ | Enterprise | — | ✅ Phase 1（記録・閲覧・絞り込み・CSV/JSONL・チェーン検証）。Phase 2 は未実装（[enterprise-audit-log.md](enterprise-audit-log.md)） | P1 |
+| 監査ログ | Enterprise | — | ✅ Phase 1（記録・閲覧・絞り込み・CSV/JSONL・チェーン検証）と Phase 2（下の行）（[enterprise-audit-log.md](enterprise-audit-log.md)） | P1 |
 | 役割（Guest / Member / Admin / Owner） | ✓ | ✓ | ✅ Guest は選んだチャンネルだけ。Owner は Admin の上（権限表は permissions.js） | P1 |
 | セッション管理（端末一覧、個別・一括ログアウト、管理者による強制ログアウト） | ✓ | — | ✅ | P1 |
 | セッション寿命のポリシー | ✓ | — | ✅ ブラウザ・アプリの最長、無操作、管理操作の再認証（[admin-controls.md](admin-controls.md) §3） | P2 |
