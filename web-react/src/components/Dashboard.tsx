@@ -117,6 +117,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
   // Bumped when the language changes, so cards re-read their localized text.
   const [localeVersion, setLocaleVersion] = useState(0)
+  // The language changed from elsewhere — another device, adopted on focus.
+  useEffect(() => {
+    const on = () => setLocaleVersion((v) => v + 1)
+    window.addEventListener('honmaru:locale', on)
+    return () => window.removeEventListener('honmaru:locale', on)
+  }, [])
   // Cards is one decision per screen; Classic is the same decisions as a list
   // you can scan. Remembered, because it is a way of working, not a detour.
   const storedMode: Mode = (() => {
@@ -524,6 +530,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     setSuggestRule(null)
     if (!res?.ok) setError(t('That did not save.'))
   }, [suggestRule, relayHttpUrl, sessionToken, orgId, t])
+  const handleDelete = useCallback((cardId: string) => {
+    wsClientRef.current?.sendDeleteCard(cardId)
+    addDebugLog(`Deleted: ${cardId}`)
+    // Open on screen, it goes back to the feed rather than a card that is gone.
+    if (route.cardId === cardId) navigate(hashForMode('cards'), true)
+  }, [addDebugLog, route.cardId, navigate])
   const handleRollback = useCallback((cardId: string) => {
     wsClientRef.current!.sendRollback(cardId)
     addDebugLog(`Rolled back: ${cardId}`)
@@ -686,6 +698,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             onFlag={handleFlag}
             answers={answers}
             onUndo={handleRollback}
+            onDelete={handleDelete}
             api={api}
             layout="desk"
           />
@@ -704,6 +717,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onFlag={handleFlag}
           answers={answers}
           onUndo={handleRollback}
+          onDelete={handleDelete}
           api={api}
           layout="phone"
         />
@@ -741,6 +755,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               onFlag={handleFlag}
               answers={answers}
               onUndo={handleRollback}
+              onDelete={handleDelete}
               api={api}
               layout="desk"
             />
@@ -933,6 +948,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           businesses={businesses}
           userId={userId}
           onUndo={handleRollback}
+          onDelete={handleDelete}
           onClose={closeScreen}
           httpBase={relayHttpUrl}
           orgId={orgId}

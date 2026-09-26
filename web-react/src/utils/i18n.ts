@@ -15,6 +15,10 @@ import { useSyncExternalStore, useCallback } from 'react'
 type Dict = Record<string, string>
 
 const ja: Dict = {
+  'Delete card': 'カードを削除',
+  'Delete this card?': 'このカードを削除しますか？',
+  'Claude Code': 'Claude Code',
+  'Teammates': 'チームメイト',
   'Camera': 'カメラ',
   'Expand': '大きく表示',
   'Jam controls': 'Jamの操作',
@@ -5206,6 +5210,20 @@ export function changeLocale(code: string | null): void {
   current = primary(getLocale())
   if (typeof document !== 'undefined') document.documentElement.lang = current
   for (const fn of listeners) fn()
+  // Screens keyed on the language redraw whole, not just their labels.
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('honmaru:locale'))
+}
+
+/// The account's language, as the Worker has it: the one choice every
+/// device follows. Chosen on the phone or in another browser, it reaches
+/// this one the next time it opens or comes back to the front — before, a
+/// browser in English showed English beside cards written in Japanese.
+/// Returns whether anything changed.
+export function adoptAccountLocale(code: unknown): boolean {
+  if (typeof code !== 'string' || !/^[a-z]{2,3}([-_][A-Za-z0-9]+)*$/.test(code)) return false
+  if (primary(code) === primary(getLocale())) return false
+  changeLocale(primary(code))
+  return true
 }
 
 /// Call once at start-up so the document agrees with the stored choice.

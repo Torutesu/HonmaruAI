@@ -34,6 +34,9 @@ interface Props {
   answers: Record<string, Answer>
   /// Take a decision back. Shown on a decided card, for the person who made it.
   onUndo: (cardId: string) => void
+  /// Delete a card: its recipient any time, its sender while it waits.
+  /// Absent where deleting is not offered.
+  onDelete?: (cardId: string) => void
   /// The Worker, for what a card carries beyond the relay's snapshot: its
   /// thread, and the reply draft. Absent in tests that have no Worker.
   api?: { httpBase: string; orgId: string; sessionToken: string }
@@ -95,7 +98,7 @@ const isFyi = (card: DecisionCard) => Boolean(card.report) || card.format === 'f
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
-export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag, answers, onUndo, api, layout = 'phone' }) => {
+export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag, answers, onUndo, onDelete, api, layout = 'phone' }) => {
   const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -178,6 +181,7 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
           onFlag={onFlag}
           answer={answers[card.id]}
           onUndo={onUndo}
+          onDelete={onDelete}
           api={api}
           layout={layout}
           flingers={flingers.current}
@@ -199,6 +203,7 @@ interface PageProps {
   onFlag: Props['onFlag']
   answer?: Answer
   onUndo: Props['onUndo']
+  onDelete?: Props['onDelete']
   api?: Props['api']
   layout: 'phone' | 'desk'
   flingers: Map<string, (action: string) => void>
@@ -211,8 +216,10 @@ const DONE_WORD: Record<string, string> = {
   delegate: 'Delegated', later: 'Deferred',
 }
 
-const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, onAsk, onFlag, answer, onUndo, api, layout, flingers }) => {
+const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, onAsk, onFlag, answer, onUndo, onDelete, api, layout, flingers }) => {
   const t = useT()
+  // Deleting asks once, in place: the button becomes "Delete this card?".
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [dx, setDx] = useState(0)
   const [ask, setAsk] = useState('')
   // Closed → open (the reasons) → sent (thanks). Never blocks the decision.
@@ -241,6 +248,9 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   // buttons were, with the way back and the reply that follows it.
   const decided = card.status !== 'pending' || Boolean(card.decision)
   const onThisCard = card.recipientUserID === userId || card.senderUserID === userId
+  // Whoever it was for may clear it away; whoever asked may take the ask
+  // back while nobody has answered it.
+  const canDelete = Boolean(onDelete) && (card.recipientUserID === userId || (card.senderUserID === userId && !decided))
 
   // The card leaves the way it was decided: off to the right for yes, to
   // the left for no, turning as it goes — then the decision is sent. Every
@@ -346,12 +356,27 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
           )}
           <header className="card-top">
             <span className="card-kind">{card.report ? t('Report') : t(KIND[card.type] || card.type)}</span>
-            <span className="priority-legend" aria-label={t('Priority')}>
-              {(['low', 'medium', 'high'] as const).map((step) => (
-                <span key={step} className={`legend ${level === step ? 'on' : ''} p-${step}${card.priority === 'urgent' && step === 'high' ? ' urgent' : ''}`}>
-                  <i /> {card.priority === 'urgent' && step === 'high' ? t('Urgent') : t(step[0].toUpperCase() + step.slice(1))}
+            <span className="card-top-end">
+              {/* This card's priority, and only it: a scale of three with two
+                  of them dark said less than one word. */}
+              {level && (
+                <span className={`legend on p-${level}${card.priority === 'urgent' ? ' urgent' : ''}`} aria-label={t('Priority')}>
+                  <i /> {card.priority === 'urgent' ? t('Urgent') : t(level[0].toUpperCase() + level.slice(1))}
                 </span>
-              ))}
+              )}
+              {canDelete && (
+                confirmDelete ? (
+                  <span className="card-delete-ask" role="group" aria-label={t('Delete this card?')}>
+                    <span>{t('Delete this card?')}</span>
+                    <button type="button" className="card-delete-yes" onClick={() => { setConfirmDelete(false); onDelete!(card.id) }}>{t('Delete')}</button>
+                    <button type="button" className="card-delete-no" onClick={() => setConfirmDelete(false)}>{t('Cancel')}</button>
+                  </span>
+                ) : (
+                  <button type="button" className="card-delete" onClick={() => setConfirmDelete(true)} aria-label={t('Delete card')} title={t('Delete card')}>
+                    <Icon name="trash" size={14} />
+                  </button>
+                )
+              )}
             </span>
           </header>
 

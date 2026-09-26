@@ -24690,6 +24690,68 @@
           }
         }
       }
+    },
+    "Delete card": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードを削除"
+          }
+        }
+      }
+    },
+    "Delete this card?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このカードを削除しますか？"
+          }
+        }
+      }
+    },
+    "Priority: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先度: %@"
+          }
+        }
+      }
+    },
+    "Only the person it is for can delete this card.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このカードを削除できるのは受け取った人だけです。"
+          }
+        }
+      }
+    },
+    "Routed to the %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に振り分けました"
+          }
+        }
+      }
+    },
+    "Manage members and invitations": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーと招待を管理"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
