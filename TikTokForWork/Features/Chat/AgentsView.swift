@@ -63,6 +63,7 @@ struct AgentDraft: Identifiable, Hashable {
 /// The team's agents: "@hayao" is a teammate that is instructions, written
 /// in Markdown. Team agents are everyone's to call and improve; personal
 /// ones answer only you. Start from a preset, write one, or bring a .md.
+@MainActor
 struct AgentsView: View {
     var store: ChatStore?
     @EnvironmentObject private var appState: AppState
@@ -172,7 +173,7 @@ struct AgentsView: View {
             }
             Button("Cancel", role: .cancel) { confirmDelete = nil }
         }
-        .alert("Agents", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("Custom agents", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK", role: .cancel) { error = nil }
         } message: {
             Text(error ?? "")
@@ -347,7 +348,7 @@ enum AgentFiles {
 /// Writing an agent: who it is, who may call it, and its instructions in
 /// Markdown — with a preview of how they read.
 struct AgentEditorSheet: View {
-    @State var draft: AgentDraft
+    @State private var draft: AgentDraft
     var exportURL: URL?
     let onSave: (AgentDraft) async -> String?
 
@@ -355,6 +356,13 @@ struct AgentEditorSheet: View {
     @State private var preview = false
     @State private var saving = false
     @State private var problem: String?
+
+    init(draft: AgentDraft, exportURL: URL? = nil, onSave: @escaping (AgentDraft) async -> String?) {
+        _draft = State(initialValue: draft)
+        _preview = State(initialValue: !draft.canEdit)
+        self.exportURL = exportURL
+        self.onSave = onSave
+    }
 
     private var readOnly: Bool { !draft.canEdit }
     private var canSave: Bool {
@@ -387,6 +395,7 @@ struct AgentEditorSheet: View {
                 } footer: {
                     Text("Call it by writing @\(draft.cleanHandle) in any conversation.")
                 }
+                .disabled(readOnly)
 
                 Section {
                     Picker("Who can call it", selection: $draft.scope) {
@@ -394,7 +403,7 @@ struct AgentEditorSheet: View {
                         Text("Only me").tag("personal")
                     }
                     .pickerStyle(.segmented)
-                    .disabled(!draft.canChangeScope)
+                    .disabled(readOnly || !draft.canChangeScope)
                 } header: {
                     Text("Who can call it")
                 } footer: {
@@ -414,11 +423,12 @@ struct AgentEditorSheet: View {
                             .frame(minHeight: 260)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
+                            .disabled(readOnly)
                     }
                 } header: {
                     Text("Instructions")
                 } footer: {
-                    Text("Markdown: who it is, what it does and how it answers. # headings, - lists, **bold**.")
+                    Text(String(localized: "Markdown: who it is, what it does and how it answers. # headings, - lists, **bold**."))
                 }
 
                 if let who = draft.createdByName, !who.isEmpty {
@@ -436,7 +446,6 @@ struct AgentEditorSheet: View {
                     }
                 }
             }
-            .disabled(readOnly)
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle(draft.isNew ? LocalizedStringKey("New agent") : (readOnly ? LocalizedStringKey("Agent") : LocalizedStringKey("Edit agent")))
             .navigationBarTitleDisplayMode(.inline)

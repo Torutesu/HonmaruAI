@@ -19,6 +19,7 @@ import { Profile } from '../screens/Profile'
 import { Insights } from '../screens/Insights'
 import { Automations } from '../screens/Automations'
 import { Playbook } from '../screens/Playbook'
+import { Agents } from '../screens/Agents'
 import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setNotificationCopy, setTabBadge } from '../utils/notifications'
@@ -975,6 +976,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
       {screen === 'playbook' && (
         <Playbook httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
+      )}
+      {screen === 'agents' && (
+        <Agents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />

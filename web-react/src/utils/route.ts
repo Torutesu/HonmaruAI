@@ -15,9 +15,10 @@ import { useCallback, useEffect, useState } from 'react'
 //   #/history … #/tools … #/you … #/team … #/insights … #/plans … #/notifications
 //   #/automations     what your AI does on a schedule
 //   #/playbook        the rules it follows
+//   #/agents          the team's own agents: @hayao and the rest
 //   #/join/<code>     an invitation: sign up into the team, or join it
 
-export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights' | 'automations' | 'playbook'
+export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights' | 'automations' | 'playbook' | 'agents'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
@@ -37,12 +38,12 @@ export interface Route {
 const SCREEN_BY_PATH: Record<string, Screen> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', you: 'profile', team: 'team', insights: 'insights',
-  automations: 'automations', playbook: 'playbook',
+  automations: 'automations', playbook: 'playbook', agents: 'agents',
 }
 const PATH_BY_SCREEN: Record<Screen, string> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', profile: 'you', team: 'team', insights: 'insights',
-  automations: 'automations', playbook: 'playbook',
+  automations: 'automations', playbook: 'playbook', agents: 'agents',
 }
 
 export function parseRoute(hash: string): Route {
