@@ -176,3 +176,39 @@
 .key-dialog .agent-snippet { border: 1px solid var(--dlg-line); border-radius: 9px; overflow: hidden; }
 .key-dialog .agent-snippet-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--dlg-line); }
 .key-dialog .agent-code { margin: 0; padding: 10px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--dlg-field); color: var(--dlg-ink); }
+
+/* Emoji: a place to drop a pack, what is waiting to be added, and the
+   workspace's own in a grid. */
+.emoji-drop {
+  display: flex; align-items: center; gap: 14px; padding: 16px 18px;
+  border: 1.5px dashed var(--st-line); border-radius: 12px; background: var(--st-bg); color: var(--st-dim);
+}
+.emoji-drop.over { border-color: var(--st-accent); background: rgba(102, 71, 240, .06); }
+.emoji-drop > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.emoji-drop b { font-size: 14px; color: var(--st-ink); }
+.emoji-drop span { font-size: 12.5px; line-height: 1.5; }
+.emoji-pending { display: flex; flex-direction: column; border: 1px solid var(--st-line); border-radius: 10px; background: var(--st-bg); }
+.emoji-pending-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--st-line); }
+.emoji-pending-row img { width: 32px; height: 32px; object-fit: contain; flex: none; }
+.emoji-name-field { display: inline-flex; align-items: center; gap: 1px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--st-faint); }
+.emoji-name-field input { width: 200px; max-width: 42vw; border: 1px solid var(--st-line); border-radius: 6px; padding: 4px 7px; font: inherit; color: var(--st-ink); background: var(--st-bg); }
+.emoji-pending-row.bad .emoji-name-field input, .emoji-pending-row.failed .emoji-name-field input { border-color: #e5484d; }
+.emoji-pending-state { flex: 1; min-width: 0; font-size: 12.5px; color: var(--st-dim); display: inline-flex; align-items: center; gap: 4px; }
+.emoji-pending-row.bad .emoji-pending-state, .emoji-pending-row.failed .emoji-pending-state { color: #e5484d; }
+.emoji-pending-row.added .emoji-pending-state { color: #1f9d6b; }
+.emoji-pending-go { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; }
+.emoji-count { margin-left: 6px; font-size: 12px; font-weight: 600; color: var(--st-faint); }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+.emoji-tile {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px 10px;
+  border: 1px solid var(--st-line); border-radius: 10px; background: var(--st-bg);
+}
+.emoji-tile img { width: 44px; height: 44px; object-fit: contain; }
+.emoji-tile-name { max-width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--st-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.emoji-tile-remove { position: absolute; top: 4px; right: 4px; opacity: 0; }
+.emoji-tile:hover .emoji-tile-remove, .emoji-tile-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .emoji-tile-remove { opacity: 1; } }
+@media (max-width: 719px) {
+  .emoji-drop { flex-wrap: wrap; }
+  .emoji-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+}

@@ -9,6 +9,7 @@ import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
 import { useMembers } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
+import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/customEmoji'
 import { MessageActions, Reactions, EmojiPicker, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite } from './ChannelPanes'
@@ -213,6 +214,18 @@ export const ClassicList: React.FC<Props> = ({
   // The sound for a message is decided where the socket is; it needs to
   // know what you muted and what you are looking at.
   useEffect(() => { rememberLevels(api.orgId, prefs) }, [api.orgId, prefs])
+  // This workspace's own emoji: fetched when it opens, and again (at most
+  // once a minute) when a message names one not yet in the list — somebody
+  // just added it.
+  useCustomEmoji()
+  const emojiFetchedAt = useRef(0)
+  useEffect(() => { emojiFetchedAt.current = Date.now(); void loadCustomEmoji(api.httpBase, api.sessionToken, api.orgId) }, [api.httpBase, api.sessionToken, api.orgId])
+  const maybeNewEmoji = useCallback((text: string) => {
+    const names = String(text || '').match(/:[a-z0-9_+-]{1,30}:/g)
+    if (!names || names.every((n) => customEmojiUrl(n)) || Date.now() - emojiFetchedAt.current < 60_000) return
+    emojiFetchedAt.current = Date.now()
+    void loadCustomEmoji(api.httpBase, api.sessionToken, api.orgId)
+  }, [api.httpBase, api.sessionToken, api.orgId])
   // Read positions from the server: the same on the phone and the laptop.
   const [serverReads, setServerReads] = useState<Record<string, string>>({})
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
@@ -733,6 +746,7 @@ export const ClassicList: React.FC<Props> = ({
       // read from the refs, not from a flag set for somebody else.
       const reactions = (m.reactions || []).map((r) => ({ ...r, mine: myRef ? r.refs.includes(myRef) : r.mine }))
       const msg = { ...m, mine, reactions }
+      maybeNewEmoji(`${m.body || ''} ${reactions.map((r) => r.emoji).join(' ')}`)
       if (m.parentId) {
         // A reply: into the thread if it is open; its parent's count comes
         // as an event of its own.
@@ -767,7 +781,7 @@ export const ClassicList: React.FC<Props> = ({
     }
     window.addEventListener('honmaru:channel-message', on)
     return () => window.removeEventListener('honmaru:channel-message', on)
-  }, [members, loadMessages])
+  }, [members, loadMessages, maybeNewEmoji])
   // The AI's steps, as it takes them.
   useEffect(() => {
     const on = (e: Event) => {

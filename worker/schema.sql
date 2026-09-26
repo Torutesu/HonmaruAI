@@ -725,3 +725,17 @@ CREATE TABLE IF NOT EXISTS push_queue (
   UNIQUE (login, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_push_queue_due ON push_queue(sent_at, due_at);
+
+/* A workspace's own emoji: `:name:` drawn from a picture one of its members
+   added. Only this workspace has them. The bytes live in R2 under media_id
+   (an unguessable id, like the workspace's logo); created_by is the login
+   of whoever added it, who with an admin may remove it. */
+CREATE TABLE IF NOT EXISTS org_emoji (
+  org_id        TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  media_id      TEXT NOT NULL,
+  content_type  TEXT NOT NULL,
+  created_by    TEXT,
+  created_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, name)
+);

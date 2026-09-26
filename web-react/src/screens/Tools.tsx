@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon, type IconName } from '../components/Icon'
+import { EmojiManager } from '../components/EmojiManager'
 import { BrandLogo, isBrand } from '../components/BrandLogo'
 import { getAIKey } from '../utils/aiKey'
 import { ago } from '../utils/ago'
@@ -10,7 +11,7 @@ import './Studio.css'
 
 interface Connector { id: string; label: string; status: string }
 
-type StudioPage = 'apps' | 'ai' | 'api'
+type StudioPage = 'apps' | 'ai' | 'api' | 'emoji'
 
 /// One tile in the catalogue: a connector of your own, the workspace's
 /// GitHub, or the address that turns mail into cards.
@@ -428,7 +429,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
 
   const [page, setPage] = useState<StudioPage>(() => {
     const asked = (typeof window !== 'undefined' ? window.location.hash : '').split('/')[2]
-    return asked === 'ai' || asked === 'api' ? asked : 'apps'
+    return asked === 'ai' || asked === 'api' || asked === 'emoji' ? asked : 'apps'
   })
   const go = (next: StudioPage) => {
     setPage(next)
@@ -975,6 +976,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     { id: 'apps', label: t('Apps'), icon: 'grid' },
     { id: 'ai', label: t('AI'), icon: 'sparkle' },
     { id: 'api', label: t('API & Webhooks'), icon: 'code' },
+    { id: 'emoji', label: t('Emoji'), icon: 'smile' },
   ]
 
   return (
@@ -999,6 +1001,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             {page === 'apps' && appsPage}
             {page === 'ai' && aiPage}
             {page === 'api' && apiPage}
+            {page === 'emoji' && <EmojiManager httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
           </main>
         </div>
       </div>

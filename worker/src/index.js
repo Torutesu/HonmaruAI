@@ -64,6 +64,7 @@ import { fetchCollaborators } from "./github.js";
 import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
 import { uploadOrgIcon, removeOrgIcon, serveOrgIcon, getOrgIcon, iconsFor, iconUrl } from "./orgIcon.js";
+import { listEmoji, addEmoji, removeEmoji, serveEmoji } from "./emoji.js";
 import { CONNECTORS, connectorById, authConfigFor, availableConnectors } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
 import { syncAll } from "./sync.js";
@@ -432,6 +433,32 @@ async function handle(request, env, url, ctx) {
       const result = await uploadOrgIcon(request, env, orgId);
       if (result.error) return json({ message: result.error }, result.status || 400);
       return json({ orgId, icon: iconUrl(url.origin, result.mediaId) });
+    }
+    // The workspace's own emoji. Its members list, add and use them; the
+    // pictures are served like the logo, by an id only members are given.
+    const emojiImg = url.pathname.match(/^\/emoji\/img\/([^/]+)$/);
+    if (emojiImg && request.method === "GET") {
+      return serveEmoji(decodeURIComponent(emojiImg[1]), env);
+    }
+    if (url.pathname === "/emoji" && ["GET", "POST", "DELETE"].includes(request.method)) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      if (request.method === "GET") return json({ orgId, emoji: await listEmoji(env.DB, orgId, url.origin) });
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (request.method === "POST") {
+        const result = await addEmoji(request, env, { orgId, login: user?.login || null, name: url.searchParams.get("name"), origin: url.origin });
+        if (result.error) return json({ message: result.error }, result.status || 400);
+        return json({ orgId, emoji: result.emoji }, 201);
+      }
+      const name = url.searchParams.get("name") || "";
+      const result = await removeEmoji(env, { orgId, name, login: user?.login || null, isAdmin: await canRename(env.DB, orgId, session.github_id) });
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      return json({ orgId, ...result });
     }
     if (url.pathname === "/orgs/name" && request.method === "PUT") {
       const limited = await enforce(env, request, "team");

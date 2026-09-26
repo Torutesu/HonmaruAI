@@ -391,6 +391,7 @@
 .mention-option.on { background: #1264a3; color: #fff; }
 .mention-avatar { width: 22px; height: 22px; border-radius: 6px; background: #e8e8e8; color: #202020; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
 .mention-option.on .mention-avatar { background: rgba(255,255,255,.25); color: #fff; }
+.mention-emoji { width: 22px; height: 22px; object-fit: contain; flex: none; }
 .create-decision { position: relative; }
 @media (prefers-color-scheme: dark) {
   .thread-comment { color: #f2f2f2; }

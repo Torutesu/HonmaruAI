@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import type { ChannelMessage } from '../types/card'
 import { Icon } from './Icon'
+import { customEmojiUrl, useCustomEmoji, CUSTOM_EMOJI } from '../utils/customEmoji'
 
 // The pieces of a message a chat client has and a plain log does not:
 // formatting, reactions, the emoji picker, and the bar of things you can do
@@ -22,6 +23,7 @@ const EMOJI_SETS: Array<{ label: string; list: string[] }> = [
 export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: () => void }> = ({ onPick, onClose }) => {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
+  const custom = useCustomEmoji()
   useEffect(() => {
     const down = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) onClose() }
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -31,6 +33,21 @@ export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: (
   }, [onClose])
   return (
     <div className="slk-picker" ref={box} role="dialog" aria-label={t('Add reaction')}>
+      <div className="slk-picker-set workspace">
+        <div className="slk-picker-label">
+          {t('This workspace')}
+          <a className="slk-picker-add" href="#/tools/emoji" onClick={() => onClose()} data-add-emoji="1"><Icon name="plus" size={12} /> {t('Add emoji')}</a>
+        </div>
+        {custom.length > 0 && (
+          <div className="slk-picker-grid">
+            {custom.map((e) => (
+              <button key={e.name} type="button" className="slk-picker-emoji custom" onClick={() => { onPick(`:${e.name}:`); onClose() }} aria-label={`:${e.name}:`} title={`:${e.name}:`} data-custom-emoji={e.name}>
+                <img src={e.url} alt={`:${e.name}:`} loading="lazy" draggable={false} />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {EMOJI_SETS.map((set) => (
         <div key={set.label} className="slk-picker-set">
           <div className="slk-picker-label">{t(set.label)}</div>
@@ -46,6 +63,15 @@ export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: (
 }
 
 /// The pills under a message: each emoji, how many, and whether you are one.
+/// An emoji as it is drawn: the character, or this workspace's picture for
+/// a `:name:` it has.
+export const EmojiGlyph: React.FC<{ emoji: string; size?: number }> = ({ emoji, size }) => {
+  useCustomEmoji()
+  const url = CUSTOM_EMOJI.test(emoji) ? customEmojiUrl(emoji) : null
+  if (!url) return <>{emoji}</>
+  return <img className="slk-custom-emoji" src={url} alt={emoji} title={emoji} draggable={false} style={size ? { width: size, height: size } : undefined} />
+}
+
 export const Reactions: React.FC<{
   message: ChannelMessage
   nameOf: (ref: string) => string
@@ -66,7 +92,7 @@ export const Reactions: React.FC<{
           title={r.refs.map(nameOf).join(', ')}
           onClick={() => onToggle(r.emoji)}
         >
-          <span className="slk-reaction-emoji">{r.emoji}</span>
+          <span className="slk-reaction-emoji"><EmojiGlyph emoji={r.emoji} /></span>
           <span className="slk-reaction-count">{r.count}</span>
         </button>
       ))}
@@ -231,10 +257,17 @@ export function renderRich(text: string, mentionClass: (name: string) => string)
 const JAM_AUDIO = /^https?:\/\/[^\s]+\/channels\/jam\/audio\/[0-9a-f-]{36}$/
 
 function inline(line: string, mentionClass: (name: string) => string): React.ReactNode[] {
-  const tokens = line.split(/(`[^`\n]+`|https?:\/\/[^\s<>"）」]+|[@＠][^\s@＠,，。、!?！？:;]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g)
+  const tokens = line.split(/(`[^`\n]+`|https?:\/\/[^\s<>"）」]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g)
+  // A line that is nothing but this workspace's emoji draws them large.
+  const onlyEmoji = tokens.every((p) => !p || !p.trim() || (CUSTOM_EMOJI.test(p) && Boolean(customEmojiUrl(p))))
   return tokens.map((part, i) => {
     if (!part) return null
     if (/^`[^`]+`$/.test(part)) return <code key={i} className="slk-code">{part.slice(1, -1)}</code>
+    if (CUSTOM_EMOJI.test(part)) {
+      const url = customEmojiUrl(part)
+      if (url) return <img key={i} className={`slk-custom-emoji${onlyEmoji ? ' big' : ''}`} src={url} alt={part} title={part} draggable={false} />
+      return <React.Fragment key={i}>{part}</React.Fragment>
+    }
     // A Jam's recording plays where it was posted.
     if (JAM_AUDIO.test(part)) return <audio key={i} className="slk-jam-audio" controls preload="none" src={part} />
     if (/^https?:\/\//.test(part)) return <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>

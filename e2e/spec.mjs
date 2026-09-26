@@ -11,6 +11,7 @@
 import { chromium } from '../web-react/node_modules/playwright/index.mjs'
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const WEB = 'http://127.0.0.1:4173'
 const SINK = 'http://127.0.0.1:9099'
@@ -2565,6 +2566,56 @@ await step('on a phone the list has tabs, a long press, pictures, groups and pri
   // Back to the cards, where the steps after this one start.
   await page.click('.mode-switch button >> nth=0')
   await page.waitForSelector('.feed', { timeout: 10000 })
+})
+
+await step('a workspace adds its own emoji, and uses them in a message and a reaction', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  // The owner, at a laptop, in the same browser as their phone.
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    await desk.goto(`${WEB}#/tools/emoji`, { waitUntil: 'load' })
+    await desk.waitForSelector('[data-studio-page="emoji"]', { timeout: 20000 })
+    // Part of the ShogunAI pack, chosen at once, each named after its file.
+    const names = ['shogun_party', 'shogun_lgtm', 'shogun_shipit', 'shogun_thanks']
+    await desk.setInputFiles('input[data-emoji-input]', names.map((n) => fileURLToPath(new URL(`../assets/emoji/shogunai/${n}.svg`, import.meta.url))))
+    await desk.click('[data-emoji-add]')
+    await desk.waitForSelector('.emoji-tile[data-emoji="shogun_thanks"]', { timeout: 15000 })
+    await desk.waitForFunction(() => { const all = [...document.querySelectorAll('.emoji-tile img')]; return all.length >= 4 && all.every((i) => i.complete && i.naturalWidth > 0) }, null, { timeout: 15000 })
+    await desk.screenshot({ path: `${SHOTS}/54-emoji-studio.png` })
+
+    // In a message: a colon and two letters offer it, Enter takes it.
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.cl-thread[data-view^="g:"] .cl-open')
+    await desk.click('.slk-composer .slk-input')
+    await desk.keyboard.type('shipped it :shogun_pa')
+    await desk.waitForSelector('[data-emoji-option="shogun_party"]', { timeout: 5000 })
+    await desk.keyboard.press('Enter')
+    const typed = await desk.inputValue('.slk-composer .slk-input')
+    if (typed !== 'shipped it :shogun_party: ') throw new Error(`the emoji menu wrote "${typed}"`)
+    await desk.keyboard.press('Enter')
+    await desk.waitForFunction(() => { const i = document.querySelector('.slk-text img.slk-custom-emoji[alt=":shogun_party:"]'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
+
+    // Kenji, in the same workspace, sees the picture, and answers with one.
+    await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await kenji.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await kenji.click('.cl-thread[data-view^="g:"] .cl-open')
+    await kenji.waitForFunction(() => { const i = document.querySelector('.slk-text img.slk-custom-emoji[alt=":shogun_party:"]'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
+    const last = kenji.locator('.slk-msg[id^="msg-"]').last()
+    await last.click({ button: 'right', position: { x: 200, y: 20 } })
+    await kenji.waitForSelector('.msheet', { timeout: 5000 })
+    await kenji.click('.msheet-reactions .more')
+    await kenji.click('[data-custom-emoji="shogun_lgtm"]')
+    await desk.waitForSelector('.slk-reaction img[alt=":shogun_lgtm:"]', { timeout: 15000 })
+    await desk.screenshot({ path: `${SHOTS}/55-emoji-message.png` })
+    await kenji.screenshot({ path: `${SHOTS}/56-emoji-phone.png` })
+    await kenji.click('.slk-back').catch(() => {})
+  } finally {
+    await desk.close()
+  }
 })
 
 await step('removing someone takes them out of the room, not just the table', async () => {

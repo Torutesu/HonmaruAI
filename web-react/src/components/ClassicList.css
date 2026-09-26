@@ -549,6 +549,17 @@
 .classic.slk.slk .slk-picker-emoji { border: none; background: none; font-size: 20px; line-height: 1; padding: 5px 0; border-radius: 6px; cursor: pointer; }
 .classic.slk.slk .slk-picker-emoji:hover { background: var(--slk-hover); }
 
+/* The workspace's own emoji: a picture the height of a line of text, as an
+   emoji character is; larger when a line is nothing else. */
+.slk-custom-emoji { width: 1.35em; height: 1.35em; vertical-align: -0.3em; object-fit: contain; display: inline-block; margin: 0 1px; }
+.slk-custom-emoji.big { width: 32px; height: 32px; vertical-align: middle; }
+.slk-reaction-emoji .slk-custom-emoji { width: 16px; height: 16px; vertical-align: -3px; margin: 0; }
+.slk-picker-emoji.custom { display: flex; align-items: center; justify-content: center; }
+.slk-picker-emoji.custom img { width: 24px; height: 24px; object-fit: contain; }
+.slk-picker-label:has(.slk-picker-add) { display: flex; align-items: center; justify-content: space-between; }
+.slk-picker-add { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; letter-spacing: 0; color: var(--slk-accent, #1d9bd1); text-decoration: none; }
+.slk-picker-add:hover { text-decoration: underline; }
+
 .classic.slk.slk .slk-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .classic.slk.slk .slk-reaction {
   display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px;
