@@ -3234,6 +3234,9 @@ await step('a guest invited to one channel sees that channel and nothing else', 
 
 await step('a bookmark kept at the top of a channel, a keyword that reaches Activity, and a key that only reads', async () => {
   if (!mate) throw new Error('the teammate this step needs is not here')
+  // The admin steps before this one spend the minute's allowance; this one
+  // mints a key, which is counted too.
+  try { d1('DELETE FROM rate_limits') } catch { /* the key wait below says so if it matters */ }
   const kenji = mate.pages()[0] || await mate.newPage()
   await kenji.evaluate(async (host) => {
     await fetch(`${host}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ notifyKeywords: ['invoice'] }) })
