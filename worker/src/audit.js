@@ -27,6 +27,8 @@ export const AUDIT_ACTIONS = {
   "sso.enforced": { category: "workspace", severity: "critical", text: "{actor} made single sign-on required" },
   "sso.enforcement_removed": { category: "workspace", severity: "critical", text: "{actor} stopped requiring single sign-on" },
   "sso.disabled": { category: "workspace", severity: "critical", text: "{actor} turned off single sign-on" },
+  "sso.idp_signed_out": { category: "auth", severity: "notice", text: "The identity provider signed {entity} out" },
+  "sso.session_revoked": { category: "auth", severity: "warning", text: "The identity provider no longer lets {entity} in; their session ended" },
   "sso.identity_unlinked": { category: "auth", severity: "warning", text: "{actor} unlinked {entity} from single sign-on" },
   "auth.logout": { category: "auth", severity: "info", text: "{actor} signed out" },
   "auth.session_revoked": { category: "auth", severity: "notice", text: "{actor} signed out a session of {entity}" },

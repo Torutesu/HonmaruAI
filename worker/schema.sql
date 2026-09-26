@@ -198,7 +198,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   longest_idle_ms     INTEGER,
   /* For an SSO sign-in: which workspace's identity provider it came through. */
   sso_org_id          TEXT,
-  sso_connection_id   TEXT
+  sso_connection_id   TEXT,
+  /* For an OIDC sign-in, what lets the provider end it (sso.js): who it
+     was there (sub), which sign-in (sid), and a refresh token (sealed) to
+     ask it now and then whether they may still sign in. */
+  sso_subject         TEXT,
+  sso_sid             TEXT,
+  sso_refresh         TEXT,
+  sso_checked_at      TEXT
 );
 
 /* One row per authorization attempt, deleted the moment it is redeemed. The
@@ -1292,3 +1299,10 @@ CREATE TABLE IF NOT EXISTS compliance_exports (
   expires_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_compliance_exports_org ON compliance_exports(org_id, created_at);
+
+/* Logout tokens already taken (OIDC back-channel logout), so one sent again
+   cannot end a later sign-in. Kept a little past when they could be used. */
+CREATE TABLE IF NOT EXISTS sso_logout_tokens (
+  id          TEXT PRIMARY KEY,
+  expires_at  TEXT NOT NULL
+);

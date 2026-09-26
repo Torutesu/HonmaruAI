@@ -1814,6 +1814,9 @@ const ja: Dict = {
   'Who may be invited': '招待できる人',
   'cut short: narrow the dates': '途中で打ち切り: 期間を狭めてください',
   '{n} years': '{n}年',
+  'So signing out there, or being switched off there, ends the session here at once, give your identity provider this back-channel logout address:': 'IDプロバイダでのサインアウトや利用停止をすぐにここにも反映するには、このバックチャネル・ログアウトのアドレスをIDプロバイダに登録してください:',
+  'Back-channel logout': 'バックチャネル・ログアウト',
+  'Where your provider gives a refresh token, it is also asked every 15 minutes whether each person may still sign in.': 'IDプロバイダがリフレッシュトークンを発行する場合は、15分ごとに各メンバーがまだサインインできるかも確認します。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -3602,6 +3605,9 @@ const es: Dict = {
   'Who may be invited': 'A quién se puede invitar',
   'cut short: narrow the dates': 'recortada: acota las fechas',
   '{n} years': '{n} años',
+  'So signing out there, or being switched off there, ends the session here at once, give your identity provider this back-channel logout address:': 'Para que cerrar sesión allí, o ser desactivado allí, cierre la sesión aquí al instante, da a tu proveedor de identidad esta dirección de cierre de sesión por canal secundario:',
+  'Back-channel logout': 'Cierre de sesión por canal secundario',
+  'Where your provider gives a refresh token, it is also asked every 15 minutes whether each person may still sign in.': 'Si tu proveedor entrega un token de actualización, también se le pregunta cada 15 minutos si cada persona aún puede iniciar sesión.',
 }
 
 const fr: Dict = {
@@ -5340,6 +5346,9 @@ const fr: Dict = {
   'Who may be invited': 'Qui peut être invité',
   'cut short: narrow the dates': 'tronqué : réduisez les dates',
   '{n} years': '{n} ans',
+  'So signing out there, or being switched off there, ends the session here at once, give your identity provider this back-channel logout address:': 'Pour qu’une déconnexion là-bas, ou une désactivation là-bas, mette fin à la session ici aussitôt, donnez à votre fournisseur d’identité cette adresse de déconnexion back-channel :',
+  'Back-channel logout': 'Déconnexion back-channel',
+  'Where your provider gives a refresh token, it is also asked every 15 minutes whether each person may still sign in.': 'Si votre fournisseur délivre un jeton d’actualisation, on lui demande aussi toutes les 15 minutes si chaque personne peut encore se connecter.',
 }
 
 const de: Dict = {
@@ -7078,6 +7087,9 @@ const de: Dict = {
   'Who may be invited': 'Wer eingeladen werden darf',
   'cut short: narrow the dates': 'gekürzt: Zeitraum eingrenzen',
   '{n} years': '{n} Jahre',
+  'So signing out there, or being switched off there, ends the session here at once, give your identity provider this back-channel logout address:': 'Damit eine Abmeldung oder Sperrung dort die Sitzung hier sofort beendet, gib deinem Identitätsanbieter diese Back-Channel-Logout-Adresse:',
+  'Back-channel logout': 'Back-Channel-Logout',
+  'Where your provider gives a refresh token, it is also asked every 15 minutes whether each person may still sign in.': 'Wenn dein Anbieter ein Refresh-Token ausgibt, wird er außerdem alle 15 Minuten gefragt, ob sich jede Person noch anmelden darf.',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }

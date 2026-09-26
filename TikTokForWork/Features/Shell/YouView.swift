@@ -36,6 +36,12 @@ struct YouView: View {
                     group {
                         NavigationLink { TeamSettingsView().environmentObject(appState) } label: { row("Team", icon: "person.2") }
                         separator
+                        // Data rules, compliance, SSO and audit streams, for
+                        // the admins (the same people who may rename it).
+                        if appState.canRenameWorkspace && !appState.isGuest {
+                            NavigationLink { WorkspaceAdminView().environmentObject(appState) } label: { row("Workspace admin", icon: "checkmark.shield") }
+                            separator
+                        }
                         NavigationLink { APIKeyView().environmentObject(appState) } label: { row("AI", icon: "sparkles") }
                         separator
                         Menu {

@@ -43,7 +43,7 @@ import { handleAdminApi } from "./adminApi.js";
 import { handleScim } from "./scim.js";
 import { handleDlp } from "./dlp.js";
 import { handleDomains, recheckDomains } from "./domains.js";
-import { handleSso } from "./sso.js";
+import { handleSso, checkSsoGrants } from "./sso.js";
 import { requestContext } from "./requestContext.js";
 import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
@@ -187,6 +187,8 @@ export default {
       return;
     }
     ctx.waitUntil(runScheduledSync(env, ctx));
+    // SSO sign-ins the identity provider no longer stands behind, ended.
+    ctx.waitUntil(checkSsoGrants(env, { now: event?.scheduledTime || Date.now(), limit: 200 }).catch((err) => console.error("sso grant check failed", err?.message || err)));
     // Phase 1 audit rows, a few workspaces at a time, into per-person
     // encryption. Nothing to do once every row is.
     ctx.waitUntil(migrateLegacyAudit(env).catch((err) => console.error("audit migration failed", err?.message || err)));

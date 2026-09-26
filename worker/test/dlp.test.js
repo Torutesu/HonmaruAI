@@ -4,6 +4,7 @@ import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { myNumberValid, luhnValid, cleanPattern, scan, DETECTORS } from "../src/dlp.js";
 import { fileText, readerFor, zipEntries } from "../src/dlpFiles.js";
+import { pdfText } from "../src/pdfText.js";
 
 // Data rules (docs/enterprise-audit-log.md §10): a message is read against
 // the workspace's rules before it is kept. A warning can be sent through; a
@@ -152,7 +153,7 @@ test("what a file says is read: plain text, and the words inside Word, Excel and
   expect(readerFor("text/csv", "people.csv")).toBe("text");
   expect(readerFor("application/octet-stream", "notes.md")).toBe("text");
   expect(readerFor("image/png", "a.png")).toBe(null);
-  expect(readerFor("application/pdf", "a.pdf")).toBe(null);
+  expect(readerFor("application/pdf", "a.pdf")).toBe("pdf");
   const docx = await zip({ "[Content_Types].xml": "<Types/>", "word/document.xml": "<w:document><w:body><w:p><w:r><w:t>Card </w:t></w:r><w:r><w:t>4111 1111 1111 1111</w:t></w:r></w:p></w:body></w:document>" });
   expect(await fileText(docx, { type: DOCX, name: "memo.docx" })).toContain("Card 4111 1111 1111 1111");
   const xlsx = await zip({ "xl/sharedStrings.xml": "<sst><si><t>My Number</t></si><si><t>1234-5678-9018</t></si></sst>" }, { store: true });
@@ -183,3 +184,121 @@ test("a rule met inside an attached file stops the message, and names the file",
   const png = await upload(mika, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), "image/png", "shot.png");
   expect((await post(mika, "a picture", { files: [png] })).status).toBe(201);
 });
+
+// ---- PDFs ----
+
+const deflate = async (text) => new Uint8Array(await new Response(new Blob([typeof text === "string" ? latinBytes(text) : text]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
+const latinBytes = (s) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 0xff);
+
+/// A PDF as office software writes one: `objects` numbered from 1, each a
+/// dictionary string, or { dict, stream, flate } for a stream.
+async function pdf(objects, { trailer = "" } = {}) {
+  const parts = [latinBytes("%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")];
+  let n = 0;
+  for (const o of objects) {
+    n += 1;
+    if (typeof o === "string") { parts.push(latinBytes(`${n} 0 obj\n${o}\nendobj\n`)); continue; }
+    const data = o.flate ? await deflate(o.stream) : latinBytes(o.stream);
+    parts.push(latinBytes(`${n} 0 obj\n<< ${o.dict || ""} ${o.flate ? "/Filter /FlateDecode" : ""} /Length ${data.length} >>\nstream\n`), data, latinBytes("\nendstream\nendobj\n"));
+  }
+  parts.push(latinBytes(`trailer\n<< /Root 1 0 R /Size ${n + 1} ${trailer} >>\n%%EOF\n`));
+  return new Blob(parts).arrayBuffer();
+}
+
+const TO_UNICODE = `/CIDInit /ProcSet findresource begin 12 dict begin begincmap
+1 begincodespacerange <0000> <FFFF> endcodespacerange
+2 beginbfchar <0003> <6A5F> <0004> <5BC6> endbfchar
+1 beginbfrange <0010> <0019> <0030> endbfrange
+endcmap CMapName currentdict /CMap defineresource pop end end`;
+
+test("the words in a PDF are read: plain fonts, fonts with a ToUnicode map, forms and object streams", async () => {
+  // Helvetica, compressed, across two pages and a TJ with kerning.
+  const plain = await pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 /Resources << /Font << /F1 7 0 R >> >> >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+    { stream: "BT /F1 12 Tf 72 700 Td (Card \\(test\\)) Tj 0 -14 Td [(4111 1111) -250 (1111 1111)] TJ ET", flate: true },
+    "<< /Type /Page /Parent 2 0 R /Contents [6 0 R] >>",
+    { stream: "BT /F1 12 Tf 72 700 Td <41 4B 49 41> Tj (ABCDEFGHIJKLMNOP) Tj ET" },
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ]);
+  const text = await pdfText(plain);
+  expect(text).toContain("Card (test)");
+  expect(text).toContain("4111 1111 1111 1111");
+  expect(text).toContain("AKIAABCDEFGHIJKLMNOP");
+  expect(await fileText(plain, { type: "application/pdf", name: "card.pdf" })).toContain("4111 1111 1111 1111");
+
+  // A Type0 font: two-byte glyph numbers, read through ToUnicode — Japanese
+  // and digits — inside a form XObject.
+  const cid = await pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Fm1 5 0 R >> >> >>",
+    { stream: "q /Fm1 Do Q", flate: true },
+    { dict: "/Type /XObject /Subtype /Form /Resources << /Font << /C0 6 0 R >> >>", stream: "BT /C0 10 Tf <00030004> Tj ( ) Tj <0011001200130014> Tj ET", flate: true },
+    "<< /Type /Font /Subtype /Type0 /BaseFont /NotoSansJP /Encoding /Identity-H /ToUnicode 7 0 R >>",
+    { stream: TO_UNICODE, flate: true },
+  ]);
+  const said = await pdfText(cid);
+  expect(said).toContain("機密");
+  expect(said).toContain("1234");
+
+  // The same font with no ToUnicode says nothing (glyph numbers are not words).
+  const bare = await pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /C0 5 0 R >> >> >>",
+    { stream: "BT /C0 10 Tf <00030004> Tj ET" },
+    "<< /Type /Font /Subtype /Type0 /Encoding /Identity-H >>",
+  ]);
+  expect((await pdfText(bare)).trim()).toBe("");
+
+  // Pages and fonts kept in an object stream, as newer PDFs do.
+  const packed2 = "7 0 6 90 ";
+  const body2 = "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> >> >>".padEnd(90) + "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+  const objstm = await pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [7 0 R] /Count 1 >>",
+    { dict: `/Type /ObjStm /N 2 /First ${packed2.length}`, stream: packed2 + body2, flate: true },
+    { stream: "BT /F1 12 Tf (Bluebird launch plan) Tj ET", flate: true },
+  ]);
+  expect(await pdfText(objstm)).toContain("Bluebird launch plan");
+
+  // Stray delimiters by the hundred thousand are skipped, not recursed into.
+  const stray = await pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+    { stream: ")".repeat(200_000) + " BT (after the noise) Tj ET", flate: true },
+  ]);
+  expect(await pdfText(stray)).toContain("after the noise");
+
+  // Encrypted: not read. Not a PDF: not read.
+  const locked = await pdf(["<< /Type /Catalog >>", "<< /Filter /Standard /V 2 >>"], { trailer: "/Encrypt 2 0 R" });
+  expect(await pdfText(locked)).toBe(null);
+  expect(await fileText(new TextEncoder().encode("hello").buffer, { type: "application/pdf", name: "x.pdf" })).toBe(null);
+  // A stream that would inflate past the cap is not read past it.
+  const huge = await pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+    { stream: "BT (x) Tj ET " + " ".repeat(9 * 1024 * 1024), flate: true },
+  ]);
+  expect((await pdfText(huge)).trim()).toBe("");
+});
+
+test("a rule met inside an attached PDF stops the message", async () => {
+  await rule(toru, { kind: "builtin", detector: "credit_card", action: "block" });
+  const bytes = await pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    { stream: "BT /F1 12 Tf (Card 4111 1111 1111 1111) Tj ET", flate: true },
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ]);
+  const id = await upload(mika, bytes, "application/pdf", "invoice.pdf");
+  const blocked = await post(mika, "invoice attached", { files: [id] });
+  expect(blocked.status).toBe(422);
+  expect(await blocked.json()).toMatchObject({ code: "dlp-blocked", files: ["invoice.pdf"] });
+});
+
