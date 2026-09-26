@@ -76,6 +76,9 @@ struct AgentsView: View {
     @State private var confirmDelete: ChatAgent?
     @State private var importing = false
     @State private var files: [String: URL] = [:]
+    /// The agent conversation being opened (`ag:<id>`), pushed on whichever
+    /// stack shows this screen — Chat's or You's.
+    @State private var messaging: String?
 
     private var orgId: String? { appState.currentUser?.teamID }
     private var base: URL? { appState.backendBaseURL }
@@ -146,6 +149,13 @@ struct AgentsView: View {
                 .disabled(appState.isGuest)
             }
         }
+        .navigationDestination(item: $messaging) { view in
+            if let store {
+                ConversationView(view: view, jump: nil, store: store)
+                    .environmentObject(appState)
+                    .environment(\.chatAssets, ChatAssets(emoji: store.emoji, base: store.baseURL))
+            }
+        }
         .task(id: orgId) { await load() }
         .refreshable { await load() }
         .sheet(item: $editing) { draft in
@@ -183,6 +193,57 @@ struct AgentsView: View {
     // MARK: Rows
 
     private func row(_ a: ChatAgent) -> some View {
+        HStack(spacing: 8) {
+            rowLabel(a)
+            if store != nil {
+                Button { message(a) } label: {
+                    Image(systemName: "bubble.left")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.Colors.interactive)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text("Message \(a.name)"))
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if store != nil {
+                Button { message(a) } label: { Label("Message", systemImage: "bubble.left") }
+                    .tint(Theme.Colors.accent)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if a.canDelete == true {
+                Button(role: .destructive) { confirmDelete = a } label: { Label("Delete", systemImage: "trash") }
+            }
+            if a.canEdit == true {
+                Button { editing = AgentDraft(agent: a) } label: { Label("Edit", systemImage: "pencil") }
+                    .tint(Theme.Colors.interactive)
+            }
+        }
+        .contextMenu {
+            if store != nil {
+                Button { message(a) } label: { Label("Message", systemImage: "bubble.left") }
+            }
+            if a.canEdit == true {
+                Button { editing = AgentDraft(agent: a) } label: { Label("Edit", systemImage: "pencil") }
+            }
+            if let url = files[a.id] {
+                ShareLink(item: url) { Label("Export as .md", systemImage: "square.and.arrow.up") }
+            }
+            if a.canDelete == true {
+                Button(role: .destructive) { confirmDelete = a } label: { Label("Delete agent", systemImage: "trash") }
+            }
+        }
+    }
+
+    /// Opens your own conversation with this agent.
+    private func message(_ a: ChatAgent) {
+        messaging = ChatConversation.agentView(a.id)
+    }
+
+    private func rowLabel(_ a: ChatAgent) -> some View {
         Button {
             editing = AgentDraft(agent: a)
         } label: {
@@ -209,26 +270,6 @@ struct AgentsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if a.canDelete == true {
-                Button(role: .destructive) { confirmDelete = a } label: { Label("Delete", systemImage: "trash") }
-            }
-            if a.canEdit == true {
-                Button { editing = AgentDraft(agent: a) } label: { Label("Edit", systemImage: "pencil") }
-                    .tint(Theme.Colors.interactive)
-            }
-        }
-        .contextMenu {
-            if a.canEdit == true {
-                Button { editing = AgentDraft(agent: a) } label: { Label("Edit", systemImage: "pencil") }
-            }
-            if let url = files[a.id] {
-                ShareLink(item: url) { Label("Export as .md", systemImage: "square.and.arrow.up") }
-            }
-            if a.canDelete == true {
-                Button(role: .destructive) { confirmDelete = a } label: { Label("Delete agent", systemImage: "trash") }
-            }
-        }
     }
 
     private func presetRow(_ p: ChatAgentPreset) -> some View {
