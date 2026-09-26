@@ -34,6 +34,10 @@ on:
         description: "Run the D1 migration but do not deploy"
         type: boolean
         default: false
+      app_web_url:
+        description: "Set APP_WEB_URL (where invite and notification links open), e.g. https://app.honmaruai.com. Empty = leave it"
+        type: string
+        default: ""
 
 concurrency:
   group: deploy-worker-${{ inputs.environment || (github.ref_name == 'staging' && 'staging' || 'production') }}
@@ -129,6 +133,16 @@ jobs:
           exit $status
 
 
+      # The web app's address lives in a Worker secret. Changing it here keeps
+      # the change in the Actions log instead of on someone's laptop.
+      - name: Set the web app address
+        if: ${{ inputs.app_web_url != '' && !inputs.migrate_only }}
+        env:
+          APP_WEB_URL: ${{ inputs.app_web_url }}
+        run: |
+          case "$APP_WEB_URL" in https://*) ;; *) echo "::error::app_web_url must start with https://"; exit 1 ;; esac
+          printf '%s' "${APP_WEB_URL%/}" | npx -y wrangler@4 secret put APP_WEB_URL ${{ steps.target.outputs.flag }}
+
       - name: Deploy
         if: ${{ !inputs.migrate_only }}
         # --keep-vars preserves dashboard-managed non-secret runtime variables
@@ -150,3 +164,12 @@ jobs:
           done
           echo "::error::/health did not report ok after the deploy."
           exit 1
+
+      - name: Check the web app address
+        if: ${{ inputs.app_web_url != '' && !inputs.migrate_only }}
+        env:
+          APP_WEB_URL: ${{ inputs.app_web_url }}
+        run: |
+          got=$(curl -fsS ${{ steps.target.outputs.health }} | jq -r .webUrl)
+          [ "$got" = "${APP_WEB_URL%/}" ] || { echo "::error::/health reports webUrl $got, not ${APP_WEB_URL%/}"; exit 1; }
+          echo "invite and notification links now open $got"
