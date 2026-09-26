@@ -511,7 +511,7 @@
   :root:not([data-theme="light"]) .cl-icon-button { background: #222529; border-color: #35373b; color: #d1d2d3; }
   :root:not([data-theme="light"]) .cl-search, :root:not([data-theme="light"]) .cl-app { background: #222529; color: #ababad; }
   :root:not([data-theme="light"]) .cl-avatar { background: #35373b; }
-  :root:not([data-theme="light"]) .cl-presence { background: #1a1d21; border-color: #ababad; box-shadow: 0 0 0 2px #1a1d21; }
+  :root:not([data-theme="light"]) .cl-presence { background: #1a1d21; border-color: #ababad; box-shadow: 0 0 0 1.5px #1a1d21; }
   :root:not([data-theme="light"]) .cl-presence.on { background: #2bac76; border-color: #2bac76; }
   :root:not([data-theme="light"]) .cl-open:hover, :root:not([data-theme="light"]) .cl-thread.expanded > .cl-open { background: #222529; }
   :root:not([data-theme="light"]) .cl-thread-cards { background: #1e2126; border-bottom-color: #2c2f33; }
@@ -528,7 +528,7 @@
 :root[data-theme="dark"] .cl-icon-button { background: #222529; border-color: #35373b; color: #d1d2d3; }
 :root[data-theme="dark"] .cl-search, :root[data-theme="dark"] .cl-app { background: #222529; color: #ababad; }
 :root[data-theme="dark"] .cl-avatar { background: #35373b; }
-:root[data-theme="dark"] .cl-presence { background: #1a1d21; border-color: #ababad; box-shadow: 0 0 0 2px #1a1d21; }
+:root[data-theme="dark"] .cl-presence { background: #1a1d21; border-color: #ababad; box-shadow: 0 0 0 1.5px #1a1d21; }
 :root[data-theme="dark"] .cl-presence.on { background: #2bac76; border-color: #2bac76; }
 :root[data-theme="dark"] .cl-open:hover, :root[data-theme="dark"] .cl-thread.expanded > .cl-open { background: #222529; }
 :root[data-theme="dark"] .cl-thread-cards { background: #1e2126; border-bottom-color: #2c2f33; }
