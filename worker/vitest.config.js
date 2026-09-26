@@ -20,6 +20,7 @@ export default defineConfig({
         bindings: {
           COMPOSIO_API_KEY: "ak_test_relay",
           AUDIT_MASTER_KEY: "Qk16NjpxdRgOAokyadLTYJpxp/SpANl9tBELtbnSi8M=",
+          SSO_SECRET_KEY: "6pDBbf4ednHp34e7vEaE1q+QVMR9O7HyOxk1KrNi78U=",
           AUDIT_PSEUDONYM_KEY: "ln7/yH8WhNONheAGVvzq0ptYmGOdFxOJ3RInaq9stYY=",
         },
       },

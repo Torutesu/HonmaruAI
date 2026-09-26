@@ -161,7 +161,7 @@ jobs:
         run: |
           have="$(npx -y wrangler@4 secret list ${{ steps.target.outputs.flag }})" || { echo "::error::Could not list the Worker's secrets; not generating any."; exit 1; }
           printf '%s' "$have" | grep -q '^[[:space:]]*\[' || { echo "::error::Unexpected answer listing secrets; not generating any."; exit 1; }
-          for name in AUDIT_MASTER_KEY AUDIT_PSEUDONYM_KEY; do
+          for name in AUDIT_MASTER_KEY AUDIT_PSEUDONYM_KEY SSO_SECRET_KEY; do
             if printf '%s' "$have" | grep -q "\"$name\""; then
               echo "$name: already set"
             else

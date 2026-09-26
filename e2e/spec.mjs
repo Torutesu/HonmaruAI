@@ -3055,6 +3055,36 @@ await step('the owner sets how long a sign-in lasts here, and the rules are save
   }
 })
 
+await step('an owner makes a workspace key; the admin API reads the team with it; Domains & SSO opens', async () => {
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/tools/api`, { waitUntil: 'load' })
+    await w.waitForSelector('[data-make-org-key]', { timeout: 20000 })
+      .catch(async () => { throw new Error(`no way to make a workspace key: ${await w.textContent('[data-studio-page="api"]').catch(() => '')}`) })
+    await w.click('[data-make-org-key]')
+    await w.fill('[data-org-key-name]', 'HR sync')
+    await w.click('.org-key-form button[type="submit"]')
+    const key = (await (await w.waitForSelector('[data-org-key-minted] code', { timeout: 10000 })).textContent() || '').trim()
+    if (!/^hmo_[0-9a-f]{64}$/.test(key)) throw new Error(`the key shown is not a workspace key: ${key.slice(0, 12)}`)
+    await w.screenshot({ path: `${SHOTS}/71-workspace-key.png` })
+    const people = await w.evaluate(async ({ host, key }) => {
+      const r = await fetch(`${host}/admin/v1/members`, { headers: { authorization: `Bearer ${key}` } })
+      return { status: r.status, body: await r.json() }
+    }, { host: API, key })
+    if (people.status !== 200 || !people.body.data?.length) throw new Error(`the admin API did not list the team: ${JSON.stringify(people).slice(0, 200)}`)
+    if (!people.body.data.every((m) => m.ref && m.role)) throw new Error('a member came back without a ref or a role')
+    // Only the hash changes, and the Studio reads its page on load.
+    await w.goto(`${WEB}#/tools/sso`, { waitUntil: 'load' })
+    await w.reload({ waitUntil: 'load' })
+    await w.waitForSelector('[data-studio-page="sso"] [data-add-domain]', { timeout: 20000 })
+      .catch(async () => { throw new Error(`Domains & SSO did not open for the owner: ${await w.textContent('[data-studio-page="sso"]').catch(() => '')}`) })
+    await w.screenshot({ path: `${SHOTS}/72-domains-sso.png` })
+  } finally {
+    await ctx.close()
+  }
+})
+
 await step('a guest invited to one channel sees that channel and nothing else', async () => {
   const link = await page.evaluate(async (host) => {
     const r = await fetch(`${host}/invites/create`, {

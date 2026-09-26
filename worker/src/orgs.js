@@ -42,7 +42,7 @@ export async function createTeam(db, { name, createdBy }) {
     .prepare("INSERT INTO orgs (id, name, created_at) VALUES (?1, ?2, ?3)")
     .bind(id, clean, new Date().toISOString())
     .run();
-  await upsertMembership(db, id, createdBy, "owner");
+  await upsertMembership(db, id, createdBy, "owner", "created");
   return { orgId: id, name: clean };
 }
 

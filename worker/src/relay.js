@@ -300,6 +300,9 @@ export class OrgRelay {
       if (brokenRule(policy, session)) {
         return this.refuse(ws, agui, "This workspace asks you to sign in again.", "session-policy");
       }
+      const { ssoDenial } = await import("./sso.js");
+      const sso = await ssoDenial(this.env, session, orgId);
+      if (sso) return this.refuse(ws, agui, sso.body.message, sso.body.code);
       const deadline = sessionDeadline(policy, session);
       if (deadline) {
         const current = await this.state.storage.getAlarm().catch(() => null);

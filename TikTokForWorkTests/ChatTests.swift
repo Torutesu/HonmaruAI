@@ -107,6 +107,15 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(item.type, "keyword")
     }
 
+    @MainActor
+    func testSSOOfferAndHandoffAreReadAsTheWorkerSendsThem() throws {
+        let offer = SSOService.decodeOffer(Data(#"{"sso":{"orgId":"team:acme","provider":"okta","providerName":"Okta","name":"Acme","enforced":true}}"#.utf8))
+        XCTAssertEqual(offer, SSOService.Offer(orgId: "team:acme", providerName: "Okta", workspaceName: "Acme", enforced: true))
+        XCTAssertNil(SSOService.decodeOffer(Data("{}".utf8)))
+        XCTAssertEqual(try SSOService.handoff(from: URL(string: "tiktokforwork://sso?code=abc123")!), "abc123")
+        XCTAssertThrowsError(try SSOService.handoff(from: URL(string: "tiktokforwork://sso?error=Nope")!))
+    }
+
     func testOnlyTheWorkspaceRulesCountAsASessionPolicySignOut() {
         let ended = Data(#"{"message":"This workspace asks you to sign in again.","code":"session-policy","orgId":"team:x"}"#.utf8)
         XCTAssertTrue(SessionPolicy.noticeIfEnded(status: 401, data: ended))

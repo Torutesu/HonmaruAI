@@ -38,6 +38,10 @@ import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from 
 import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
 import { handlePolicy, policyDenial, reauthDenial } from "./policy.js";
+import { handleOrgKeys, warnExpiringKeys } from "./orgKeys.js";
+import { handleAdminApi } from "./adminApi.js";
+import { handleDomains, recheckDomains } from "./domains.js";
+import { handleSso } from "./sso.js";
 import { handleOwners, transferFor, mailOwners } from "./owners.js";
 import { handleSessions, signedIn } from "./sessions.js";
 import { handleSuggestions } from "./suggest.js";
@@ -176,6 +180,13 @@ export default {
     // Phase 1 audit rows, a few workspaces at a time, into per-person
     // encryption. Nothing to do once every row is.
     ctx.waitUntil(migrateLegacyAudit(env).catch((err) => console.error("audit migration failed", err?.message || err)));
+    // Once a day: workspace keys about to expire, told to their owners.
+    const at = new Date(event?.scheduledTime || Date.now());
+    if (at.getUTCHours() === 0 && at.getUTCMinutes() < 15) {
+      ctx.waitUntil(warnExpiringKeys(env).catch((err) => console.error("key expiry warning failed", err?.message || err)));
+      // Every proved domain, looked at again.
+      ctx.waitUntil(recheckDomains(env).catch((err) => console.error("domain recheck failed", err?.message || err)));
+    }
     // Routines whose hour has come, and once a day the automations the AI
     // would propose. Separate from the sync, so a slow inbox cannot make a
     // Monday report late.
@@ -220,12 +231,15 @@ async function handle(request, env, url, ctx) {
         status: 204,
         headers: {
           "access-control-allow-origin": "*",
-          "access-control-allow-headers": "content-type, x-session-token, x-ai-key, authorization, mcp-session-id, mcp-protocol-version",
-          "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+          "access-control-allow-headers": "content-type, x-session-token, x-ai-key, authorization, mcp-session-id, mcp-protocol-version, idempotency-key",
+          "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
         },
       });
     }
 
+    // Single sign-on: discovery, the round trip, and its settings.
+    const sso = await handleSso(request, env, url);
+    if (sso) return sso;
     // Where you are signed in, and the audit log.
     const sessions = await handleSessions(request, env, url);
     if (sessions) return sessions;
@@ -234,6 +248,14 @@ async function handle(request, env, url, ctx) {
     // Handing the workspace on.
     const owned = await handleOwners(request, env, url);
     if (owned) return owned;
+    // The admin API, for a workspace's own keys, and the keys themselves.
+    const adminApi = await handleAdminApi(request, env, url);
+    if (adminApi) return adminApi;
+    const orgKeys = await handleOrgKeys(request, env, url);
+    if (orgKeys) return orgKeys;
+    // A company's domains, and who joins by them.
+    const domains = await handleDomains(request, env, url);
+    if (domains) return domains;
     // A workspace's login rules, and proving it is you again.
     const ruled = await handlePolicy(request, env, url);
     if (ruled) return ruled;

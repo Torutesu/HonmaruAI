@@ -74,7 +74,7 @@
 | エージェント招待（1 回限り・15 分のリンク） | — | ✓ | ✅ | — |
 | 個人の API キー、Webhook（署名付き） | ✓ | ✓ | ✅ | — |
 | キーのスコープ（`read` / `write` / `audit:read`） | — | ✓ | ✅ | P1 |
-| Provisioning キー | — | ✓ | ⬜ | P2 |
+| Provisioning キー | — | ✓ | ✅ ワークスペースのキー（hmo_）と管理 API v1、IP 制限、期限、冪等性 | P2 |
 | Webhook の配信ログ・再送・秘密の再発行 | — | ✓ | ✅（直近 50 件） | P1 |
 
 ### 企業向け
@@ -85,9 +85,9 @@
 | 役割（Guest / Member / Admin / Owner） | ✓ | ✓ | ✅ Guest は選んだチャンネルだけ。Owner は Admin の上（権限表は permissions.js） | P1 |
 | セッション管理（端末一覧、個別・一括ログアウト、管理者による強制ログアウト） | ✓ | — | ✅ | P1 |
 | セッション寿命のポリシー | ✓ | — | ✅ ブラウザ・アプリの最長、無操作、管理操作の再認証（[admin-controls.md](admin-controls.md) §3） | P2 |
-| SSO / ドメイン参加 | ✓ | — | ⬜ 設計済み（[sso-and-domain-join.md](sso-and-domain-join.md)） | P1 |
+| SSO / ドメイン参加 | ✓ | — | ✅ DNS で確認したドメイン、参加（招待のみ / リクエスト / 自動）、OIDC（Google・Okta・Entra・汎用）、強制、iOS（[sso-and-domain-join.md](sso-and-domain-join.md)） | P1 |
 | 監査ログ Phase 2（匿名化、封印、SIEM、保持期間） | Enterprise | — | 🟡 匿名化（人ごとの鍵、退会で破棄、平文の行の移行）は実装済み。封印・SIEM・保持期間は未実装（[audit-log-phase2.md](audit-log-phase2.md)） | P1 |
-| Owner / Admin の分離、Provisioning キー、ログイン有効期限 | ✓ | ✓ | 🟡 Owner の分離とログイン有効期限は実装済み。Provisioning キーは未実装（[admin-controls.md](admin-controls.md)） | P1 |
+| Owner / Admin の分離、Provisioning キー、ログイン有効期限 | ✓ | ✓ | ✅（[admin-controls.md](admin-controls.md)） | P1 |
 | SCIM、リーガルホールド（人単位）、DLP | ✓ | — | ⬜ | P2 |
 
 ---

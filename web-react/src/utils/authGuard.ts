@@ -39,10 +39,16 @@ export function installAuthGuard() {
   const original = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const res = await original(input, init)
-    if (res.status !== 401) return res
+    if (res.status !== 401 && res.status !== 403) return res
     const token = headerOf(init, 'x-session-token')
     if (!token) return res
-    const said = await res.clone().json().catch(() => null) as { code?: string; orgId?: string } | null
+    const said = await res.clone().json().catch(() => null) as { code?: string; orgId?: string; start?: string } | null
+    // The workspace wants its single sign-on: off to the provider.
+    if (said?.code === 'sso-required' || said?.code === 'sso-reauth') {
+      window.dispatchEvent(new CustomEvent('honmaru:sso-required', { detail: { orgId: said.orgId || null, start: said.start || null } }))
+      return res
+    }
+    if (res.status !== 401) return res
     if (said?.code === 'session-policy') {
       window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId: said.orgId || null } }))
       return res

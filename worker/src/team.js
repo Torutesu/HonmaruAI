@@ -78,7 +78,8 @@ export async function listMembers(db, orgId, viewerId) {
               m.status_until                                AS statusUntil,
               m.away_until                                  AS awayUntil,
               m.delegate_login                              AS delegateLogin,
-              m.created_at                                  AS joinedAt
+              m.created_at                                  AS joinedAt,
+              m.joined_via                                  AS joinedVia
          FROM memberships m
          LEFT JOIN users u ON u.github_id = m.user_github_id
         WHERE m.org_id = ?1
@@ -123,6 +124,8 @@ export async function listMembers(db, orgId, viewerId) {
       awayUntil: r.awayUntil && r.awayUntil > new Date().toISOString() ? r.awayUntil : null,
       delegateLogin: r.awayUntil && r.awayUntil > new Date().toISOString() ? (r.delegateLogin || null) : null,
       joinedAt: r.joinedAt,
+      // How they came: an invitation, their company's domain, SSO.
+      joinedVia: r.joinedVia || null,
       groups: groups.get(r.login) || [],
       ...(String(r.role || "").toLowerCase() === "guest" ? { channels: guestChannels.get(r.login) || [] } : {}),
       mine: String(r.userId) === String(viewerId),

@@ -1,6 +1,6 @@
 # 管理機能 — Owner と Admin の分離、Provisioning キー、ログイン有効期限 — 詳細設計
 
-作成日: 2026-09-26。状態: **§4（Owner）と §3（ログイン有効期限）は実装済み**。§2（Provisioning キー）は次の PR。
+作成日: 2026-09-26。状態: **§2〜§4 を実装済み**（Owner、ログイン有効期限、Provisioning キーと管理 API v1）。OpenAPI は `docs/admin-api.openapi.json`（Worker の `GET /admin/v1/openapi.json` でも配る）。
 
 実装での決めごと:
 - 権限表は `worker/src/permissions.js` の `PERMISSIONS`（操作 → 最低の役割）。ルートは `allowed()` だけを呼ぶ。

@@ -71,3 +71,7 @@ ALTER TABLE audit_events ADD COLUMN enc INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN reauth_at TEXT;
 ALTER TABLE sessions ADD COLUMN auth_method TEXT;
 ALTER TABLE sessions ADD COLUMN longest_idle_ms INTEGER;
+ALTER TABLE businesses ADD COLUMN archived_at TEXT;
+ALTER TABLE memberships ADD COLUMN joined_via TEXT;
+ALTER TABLE users ADD COLUMN email_verified_at TEXT;
+ALTER TABLE sessions ADD COLUMN sso_org_id TEXT;

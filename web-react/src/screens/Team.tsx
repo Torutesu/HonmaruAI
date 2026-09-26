@@ -26,6 +26,8 @@ interface Member {
   avatarUrl?: string | null
   /// A guest's channels (slugs): all they can see.
   channels?: string[]
+  /// How they came: invite | domain | sso | created.
+  joinedVia?: string | null
 }
 
 interface Invite {
@@ -340,6 +342,8 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
                 <span className="row-sub">
                   {t(ROLE_LABEL[m.role] || m.role)}
                   {m.mine && ` · ${t('you')}`}
+                  {m.joinedVia === 'sso' && ` · ${t('via SSO')}`}
+                  {m.joinedVia === 'domain' && ` · ${t('via your domain')}`}
                   {m.role === 'guest' && m.channels && ` · ${m.channels.map((c) => `#${allChannels.find((x) => x.slug === c)?.name || c}`).join(' ')}`}
                 </span>
               </span>
