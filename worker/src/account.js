@@ -185,6 +185,10 @@ export async function deleteAccount(db, githubId, login) {
       ["DELETE FROM saved_items WHERE login = ?1", [login]],
       ["DELETE FROM auto_rules WHERE recipient_login = ?1 OR sender_login = ?1", [login]],
       ["UPDATE channel_messages SET pinned_by = NULL WHERE pinned_by = ?1", [login]],
+      // A canvas and a bookmark are the conversation's; the name comes off.
+      ["UPDATE channel_canvases SET updated_by = NULL WHERE updated_by = ?1", [login]],
+      ["UPDATE channel_canvas_revisions SET updated_by = NULL WHERE updated_by = ?1", [login]],
+      ["UPDATE channel_bookmarks SET created_by = NULL WHERE created_by = ?1", [login]],
     ]) {
       try {
         await db.prepare(sql).bind(...binds).run();

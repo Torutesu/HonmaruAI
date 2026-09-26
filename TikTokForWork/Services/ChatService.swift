@@ -125,6 +125,21 @@ struct ChatActivityItem: Codable, Identifiable, Hashable {
     var id: String { "\(type)-\(message.id)" }
 }
 
+/// A conversation's shared document.
+struct ChatCanvas: Codable, Hashable {
+    let body: String
+    let version: Int
+    let updatedBy: String?
+    let updatedAt: String?
+}
+
+struct ChatCanvasRevision: Codable, Hashable, Identifiable {
+    let version: Int
+    let updatedBy: String?
+    let updatedAt: String
+    var id: Int { version }
+}
+
 /// A link kept at the top of a conversation.
 struct ChatBookmark: Codable, Identifiable, Hashable {
     let id: String
@@ -334,6 +349,34 @@ enum ChatService {
     static func removeBookmark(orgId: String, channel: String, id: String, base: URL) async throws -> [ChatBookmark] {
         struct R: Decodable { let bookmarks: [ChatBookmark] }
         return try await call("DELETE", "/channels/bookmarks", base: base, body: ["orgId": orgId, "channel": channel, "id": id], as: R.self).bookmarks
+    }
+
+    /// A conversation's canvas, and its earlier versions.
+    static func canvas(orgId: String, channel: String, base: URL) async throws -> (ChatCanvas, [ChatCanvasRevision]) {
+        struct R: Decodable { let canvas: ChatCanvas; let revisions: [ChatCanvasRevision]? }
+        let r = try await call("GET", "/channels/canvas", base: base, query: ["orgId": orgId, "channel": channel], as: R.self)
+        return (r.canvas, r.revisions ?? [])
+    }
+
+    enum CanvasSave { case saved(ChatCanvas), conflict(ChatCanvas) }
+
+    /// Save a version made from `baseVersion`. Somebody else's newer one
+    /// comes back as a conflict rather than being written over.
+    static func saveCanvas(orgId: String, channel: String, body: String, baseVersion: Int, base: URL) async throws -> CanvasSave {
+        struct R: Decodable { let canvas: ChatCanvas }
+        do {
+            return .saved(try await call("PUT", "/channels/canvas", base: base, body: ["orgId": orgId, "channel": channel, "body": body, "baseVersion": baseVersion], as: R.self).canvas)
+        } catch Failure.server(409, _) {
+            let (theirs, _) = try await canvas(orgId: orgId, channel: channel, base: base)
+            return .conflict(theirs)
+        }
+    }
+
+    /// Your AI's proposed update from the conversation; not saved.
+    static func draftCanvas(orgId: String, channel: String, body: String, base: URL) async throws -> (body: String, note: String?, byModel: Bool) {
+        struct R: Decodable { let body: String; let note: String?; let byModel: Bool }
+        let r = try await call("POST", "/channels/canvas/draft", base: base, body: ["orgId": orgId, "channel": channel, "body": body], as: R.self)
+        return (r.body, r.note, r.byModel)
     }
 
     /// Where this account is signed in, this device first.

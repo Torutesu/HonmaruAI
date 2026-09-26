@@ -33,6 +33,7 @@ import { readCapped } from "./media.js";
 import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";
 import { queueMessagePushes } from "./pushes.js";
 import { audit, person } from "./audit.js";
+import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
 import { listBookmarks, toClientBookmark, addBookmark, editBookmark, removeBookmark } from "./bookmarks.js";
 import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP, isPrivate, isGuest } from "./access.js";
 import {
@@ -652,6 +653,59 @@ export async function handleChannels(request, env, url, { route, after }) {
     after(() => broadcast(env, body.orgId, ctx.resolved, out.row, ctx.members));
     const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
     return json({ message });
+  }
+
+  // The canvas: one shared document per conversation.
+  if (path.startsWith("/channels/canvas") && ["/channels/canvas", "/channels/canvas/revision", "/channels/canvas/draft"].includes(path)) {
+    const reading = request.method === "GET";
+    if (!reading && !(request.method === "PUT" && path === "/channels/canvas") && !(request.method === "POST" && path === "/channels/canvas/draft")) return json({ message: "not found" }, 404);
+    const body = reading ? { orgId: url.searchParams.get("orgId"), channel: url.searchParams.get("channel") } : await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const key = ctx.resolved.key;
+    const login = ctx.who.user.login;
+    if (reading && path === "/channels/canvas") {
+      return json({ canvas: toClientCanvas(await getCanvas(env.DB, body.orgId, key), ctx.members), revisions: await listRevisions(env.DB, body.orgId, key, ctx.members) });
+    }
+    if (reading && path === "/channels/canvas/revision") {
+      const row = await getRevision(env.DB, body.orgId, key, parseInt(url.searchParams.get("version"), 10));
+      if (!row) return json({ message: "No such version." }, 404);
+      return json({ revision: toClientCanvas(row, ctx.members) });
+    }
+    const limited = await enforce(env, request, path.endsWith("/draft") ? "ai/route" : "chat");
+    if (limited) return limited;
+    if (path.endsWith("/draft")) {
+      const current = await getCanvas(env.DB, body.orgId, key);
+      const source = typeof body.body === "string" ? body.body : (current?.body || "");
+      const { results } = await env.DB.prepare(
+        `SELECT m.body, m.created_at, m.kind, m.author_login FROM channel_messages m
+          WHERE m.org_id = ?1 AND m.channel = ?2 AND m.deleted_at IS NULL AND m.body != '' ORDER BY m.created_at DESC LIMIT 150`
+      ).bind(body.orgId, key).all();
+      const messages = (results || []).reverse().map((r) => ({
+        at: r.created_at, text: String(r.body).slice(0, 1000),
+        who: r.kind === "ai" ? "AI" : (ctx.members.find((m) => m.login === r.author_login)?.name || "someone"),
+      }));
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      const provider = await providerFor(env, body.orgId, userKey);
+      const allowance = provider ? await allowanceFor(env, body.orgId, { githubId: String(ctx.who.session.github_id), userKey }) : null;
+      const locale = ctx.who.user.locale || "en";
+      const out = await draftCanvas({ body: source, messages, locale, provider, allowance, unavailableNote: serverText(locale, "canvas.draftUnavailable") });
+      return json(out);
+    }
+    const out = await saveCanvas(env.DB, { orgId: body.orgId, key, body: body.body, baseVersion: body.baseVersion, login });
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    if (out.conflict) return json({ message: "Someone else changed the canvas while you were editing.", canvas: toClientCanvas(out.current, ctx.members) }, 409);
+    const canvas = toClientCanvas(out.canvas, ctx.members);
+    if (!out.unchanged) {
+      // Everyone in the conversation hears that it changed; they fetch it.
+      const event = (view) => customEvent("channel_canvas", { channel: view, version: canvas.version, updatedBy: canvas.updatedBy });
+      after(async () => {
+        if (ctx.resolved.kind === "business" && !ctx.resolved.logins) await announceEvents(env, body.orgId, [event(key)]);
+        else await announceTo(env, body.orgId, ctx.resolved.logins.map((to) => ({ to, event: event(viewOf(key, to, ctx.members)) })));
+      });
+    }
+    return json({ canvas, revisions: await listRevisions(env.DB, body.orgId, key, ctx.members) });
   }
 
   // Bookmarks: links kept at the top of a conversation.

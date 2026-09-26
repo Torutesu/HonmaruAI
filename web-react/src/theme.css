@@ -336,8 +336,13 @@
   .display { color: #f2f2f2; }
   .lede, .row .row-value { color: #a3a3a3; }
   .btn-primary { background: #f2f2f2; color: #1a1a1a; }
+  /* The light theme's hover darkens the button; on a light button in the
+     dark that put dark text on a dark fill. Here it brightens instead. */
+  .btn-primary:hover:not([disabled]) { background: #ffffff; color: #1a1a1a; }
   .btn-primary[disabled] { background: #2a2a2a; color: #646464; }
   .btn-ghost { background: #1a1a1a; color: #f2f2f2; border-color: #2a2a2a; }
+  .btn-quiet { color: #a3a3a3; }
+  .btn-quiet:hover { color: #f2f2f2; }
   .rows, .field input, .field select, .field textarea, .screen-head .back {
     background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2;
   }
