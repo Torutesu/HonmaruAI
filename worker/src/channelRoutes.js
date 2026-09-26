@@ -32,7 +32,9 @@ import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
 import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";
 import { queueMessagePushes } from "./pushes.js";
-import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP } from "./access.js";
+import { audit, person } from "./audit.js";
+import { listBookmarks, toClientBookmark, addBookmark, editBookmark, removeBookmark } from "./bookmarks.js";
+import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP, isPrivate, isGuest } from "./access.js";
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
 } from "./jam.js";
@@ -79,7 +81,7 @@ async function inChannel(env, request, { orgId, channel }) {
 /// pin, and a thread's new count — the browser replaces by id.
 async function broadcast(env, orgId, resolved, row, members) {
   const fresh = (await getMessage(env.DB, orgId, row.id)) || row;
-  if (resolved.kind === "business" && !resolved.private) {
+  if (resolved.kind === "business" && !resolved.logins) {
     const [message] = await present(env.DB, orgId, [fresh], null, resolved.key, members);
     await announceEvents(env, orgId, [customEvent("channel_message", { message })]);
     return;
@@ -113,7 +115,7 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
   const progress = async (step, extra = {}) => {
     try {
       const payload = (view) => customEvent("channel_ai_progress", { channel: view, parentId: row.parent_id || null, messageId: row.id, step, ...extra });
-      if (resolved.kind === "business" && !resolved.private) await announceEvents(env, orgId, [payload(resolved.key)]);
+      if (resolved.kind === "business" && !resolved.logins) await announceEvents(env, orgId, [payload(resolved.key)]);
       else await announceTo(env, orgId, resolved.logins.map((login) => ({ to: login, event: payload(viewOf(resolved.key, login, members)) })));
     } catch (err) {
       console.error("progress event failed", safe(err?.message));
@@ -326,6 +328,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     const list = async () => (await groupsIn(env.DB, orgId)).map((g) => toClientGroup(g, members));
     if (request.method === "GET") return json({ groups: await list() });
+    if (await isGuest(env.DB, orgId, who.session.github_id)) return json({ message: "A guest cannot change user groups." }, 403);
     if (request.method === "DELETE") {
       const out = await deleteGroup(env.DB, orgId, { handle: body.handle, login: who.user.login, isAdmin: await canRename(env.DB, orgId, who.session.github_id) });
       if (out.error) return json({ message: out.error }, out.status || 400);
@@ -597,6 +600,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login });
       await announceTo(env, orgId, await Promise.all(adding.map((m) => listFor(m.login))));
       await note(serverText(locale, "channel.added", { who: nameOf(me.login), names: adding.map((m) => m.name).join(", ") }));
+      await audit(env, request, { orgId, action: "channel.member_added", actor: person(me), entity: { type: "channel", id: ctx.resolved.slug, name: `#${ctx.resolved.slug}` }, details: { people: adding.map((m) => m.name) } });
       return json({ added: adding.length });
     }
     const target = body.ref ? ctx.members.find((m) => m.ref === String(body.ref)) : ctx.members.find((m) => m.login === me.login);
@@ -606,6 +610,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     await note(target.login === me.login
       ? serverText(locale, "channel.left", { who: nameOf(me.login) })
       : serverText(locale, "channel.removed", { who: nameOf(me.login), name: target.name }));
+    await audit(env, request, { orgId, action: "channel.member_removed", actor: person(me), entity: { type: "channel", id: ctx.resolved.slug, name: `#${ctx.resolved.slug}` }, details: { person: target.name, left: target.login === me.login } });
     return json({ removed: target.ref });
   }
 
@@ -639,6 +644,37 @@ export async function handleChannels(request, env, url, { route, after }) {
     after(() => broadcast(env, body.orgId, ctx.resolved, out.row, ctx.members));
     const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
     return json({ message });
+  }
+
+  // Bookmarks: links kept at the top of a conversation.
+  if (path === "/channels/bookmarks" && ["GET", "POST", "PUT", "DELETE"].includes(request.method)) {
+    const body = request.method === "GET" ? { orgId: url.searchParams.get("orgId"), channel: url.searchParams.get("channel") } : await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const login = ctx.who.user.login;
+    const list = async () => (await listBookmarks(env.DB, body.orgId, ctx.resolved.key)).map((b) => toClientBookmark(b, ctx.members, login));
+    if (request.method === "GET") return json({ bookmarks: await list() });
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    let out;
+    if (request.method === "POST") out = await addBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, title: body.title, url: body.url, login });
+    else if (request.method === "PUT") out = await editBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, id: String(body.id || ""), title: body.title, url: body.url });
+    else out = await removeBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, id: String(body.id || ""), login, isAdmin: await canRename(env.DB, body.orgId, ctx.who.session.github_id) });
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    // Everyone in the conversation sees the bar change, each in their terms
+    // — though a bookmark carries no one's login, only names.
+    const rows = await listBookmarks(env.DB, body.orgId, ctx.resolved.key);
+    after(async () => {
+      if (ctx.resolved.kind === "business" && !ctx.resolved.logins) {
+        await announceEvents(env, body.orgId, [customEvent("channel_bookmarks", { channel: ctx.resolved.key, bookmarks: rows.map((b) => toClientBookmark(b, ctx.members, null)) })]);
+        return;
+      }
+      await announceTo(env, body.orgId, ctx.resolved.logins.map((to) => ({
+        to, event: customEvent("channel_bookmarks", { channel: viewOf(ctx.resolved.key, to, ctx.members), bookmarks: rows.map((b) => toClientBookmark(b, ctx.members, to)) }),
+      })));
+    });
+    return json({ bookmarks: rows.map((b) => toClientBookmark(b, ctx.members, login)) }, request.method === "POST" ? 201 : 200);
   }
 
   // Pins: what a channel keeps at hand.
@@ -721,7 +757,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const out = await setDescription(env.DB, body.orgId, ctx.resolved.key, body.description);
     if (out.error) return json({ message: out.error }, out.status || 400);
     const described = customEvent("channel_described", { channel: ctx.resolved.key, description: out.description });
-    after(() => (ctx.resolved.private
+    after(() => (ctx.resolved.logins
       ? announceTo(env, body.orgId, ctx.resolved.logins.map((login) => ({ to: login, event: described })))
       : announceEvents(env, body.orgId, [described])));
     return json(out);
@@ -966,7 +1002,7 @@ export async function broadcastStored(env, orgId, key, row) {
   const members = await listMembers(env.DB, orgId, null);
   let resolved;
   const logins = await audienceOf(env.DB, orgId, key);
-  if (key.startsWith("b:")) resolved = logins ? { key, kind: "business", slug: key.slice(2), private: true, logins } : { key, kind: "business", slug: key.slice(2) };
+  if (key.startsWith("b:")) resolved = logins ? { key, kind: "business", slug: key.slice(2), private: await isPrivate(env.DB, orgId, key.slice(2)), logins } : { key, kind: "business", slug: key.slice(2) };
   else if (key.startsWith("dm:")) resolved = { key, kind: "dm", logins };
   else if (key.startsWith("g:")) resolved = { key, kind: "group", logins };
   else return;

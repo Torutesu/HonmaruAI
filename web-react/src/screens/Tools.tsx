@@ -3,6 +3,7 @@ import { useT } from '../utils/i18n'
 import { Icon, type IconName } from '../components/Icon'
 import { EmojiManager } from '../components/EmojiManager'
 import { UserGroupsManager } from '../components/UserGroupsManager'
+import { AuditLog } from '../components/AuditLog'
 import { BrandLogo, isBrand } from '../components/BrandLogo'
 import { getAIKey } from '../utils/aiKey'
 import { ago } from '../utils/ago'
@@ -12,7 +13,7 @@ import './Studio.css'
 
 interface Connector { id: string; label: string; status: string }
 
-type StudioPage = 'apps' | 'ai' | 'api' | 'emoji' | 'groups'
+type StudioPage = 'apps' | 'ai' | 'api' | 'emoji' | 'groups' | 'audit'
 
 /// One tile in the catalogue: a connector of your own, the workspace's
 /// GitHub, or the address that turns mail into cards.
@@ -40,13 +41,20 @@ const EVENT_WORD: Record<string, string> = {
   'call.started': 'Jam started', 'call.ended': 'Jam ended', 'webhook.test': 'Webhook test',
 }
 
-/// What a key lets a tool do, from the MCP tools it can call.
-const PERMISSIONS: Array<{ label: string; tools: string[] }> = [
-  { label: 'Decisions: ask', tools: ['request_decision'] },
-  { label: 'Decisions: read', tools: ['get_decision', 'list_pending', 'search_decisions'] },
-  { label: 'Members: read', tools: ['list_members'] },
-  { label: 'Playbook: read', tools: ['get_playbook'] },
-]
+/// What a key may do (its scopes), as words.
+const SCOPE_WORD: Record<string, string> = {
+  read: 'Read decisions, people and the playbook',
+  write: 'Ask for decisions',
+  'audit:read': 'Read the audit log (admins)',
+}
+const SCOPE_CHIP: Record<string, string> = { read: 'Read', write: 'Ask', 'audit:read': 'Audit log' }
+
+/// One attempt to deliver a webhook, as the Worker keeps it.
+interface Delivery {
+  id: string; eventId: string; event: string; status: number | null; ok: boolean; error: string | null
+  durationMs: number | null; redelivery: boolean; at: string; body?: unknown
+}
+
 
 /// GitHub for this workspace: built in (a repository workspace, synced as
 /// your own account from the phone), connected (the workspace names a
@@ -83,7 +91,7 @@ interface AIStatus {
 /// A personal token an agent uses to reach this workspace over MCP. The
 /// secret itself is shown once, when it is made; after that only its first
 /// characters, so a person can tell two apart.
-interface AgentToken { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null }
+interface AgentToken { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; scopes?: string[] }
 
 interface Props {
   httpBase: string
@@ -269,13 +277,13 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
       const res = await fetch(`${httpBase}/tokens`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
-        body: JSON.stringify({ orgId, name }),
+        body: JSON.stringify({ orgId, name, scopes: keyScopes }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setAgentError(data.message || t('That did not save.')); return }
       setMinted({ token: data.token, name: data.name, endpoint: data.endpoint || agents?.endpoint || '' })
       setAgents((a) => ({
-        tokens: [{ id: data.id, name: data.name, prefix: data.prefix, createdAt: data.createdAt, lastUsedAt: null }, ...(a?.tokens || [])],
+        tokens: [{ id: data.id, name: data.name, prefix: data.prefix, createdAt: data.createdAt, lastUsedAt: null, scopes: data.scopes }, ...(a?.tokens || [])],
         endpoint: data.endpoint || a?.endpoint || '',
         tools: a?.tools || [],
       }))
@@ -430,7 +438,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
 
   const [page, setPage] = useState<StudioPage>(() => {
     const asked = (typeof window !== 'undefined' ? window.location.hash : '').split('/')[2]
-    return asked === 'ai' || asked === 'api' || asked === 'emoji' || asked === 'groups' ? asked : 'apps'
+    return asked === 'ai' || asked === 'api' || asked === 'emoji' || asked === 'groups' || asked === 'audit' ? asked : 'apps'
   })
   const go = (next: StudioPage) => {
     setPage(next)
@@ -442,6 +450,9 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   const [keyMenu, setKeyMenu] = useState(false)
   const [keyDialog, setKeyDialog] = useState(false)
   const [keyMenuFor, setKeyMenuFor] = useState<string | null>(null)
+  // What a new key may do. Read and ask, as keys always could; the audit
+  // log only when chosen.
+  const [keyScopes, setKeyScopes] = useState<string[]>(['read', 'write'])
   // A menu closes when you click anywhere else, or press Escape.
   useEffect(() => {
     const away = (e: MouseEvent) => {
@@ -500,6 +511,42 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
       void loadHooks()
     } catch (err) { setHookNote(err instanceof Error ? err.message : String(err)) } finally { setHookBusy(null) }
   }
+  // What was sent and what came back; one sent again; a new secret.
+  const [hookLog, setHookLog] = useState<{ id: string; name: string; deliveries: Delivery[] | null; open: string | null } | null>(null)
+  const [hookRotated, setHookRotated] = useState<{ id: string; name: string; secret: string | null } | null>(null)
+  const openLog = async (h: Webhook) => {
+    setHookMenu(null)
+    setHookLog({ id: h.id, name: h.name || h.url, deliveries: null, open: null })
+    try {
+      const res = await fetch(`${httpBase}/webhooks/${encodeURIComponent(h.id)}/deliveries?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setHookNote(data.message || t('That did not work. Try again in a moment.')); setHookLog(null); return }
+      setHookLog((l) => (l && l.id === h.id ? { ...l, deliveries: data.deliveries || [] } : l))
+    } catch (err) { setHookNote(err instanceof Error ? err.message : String(err)); setHookLog(null) }
+  }
+  const redeliver = async (hookId: string, deliveryId: string) => {
+    setHookBusy(deliveryId)
+    try {
+      const res = await fetch(`${httpBase}/webhooks/${encodeURIComponent(hookId)}/deliveries/${encodeURIComponent(deliveryId)}/redeliver`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken }, body: JSON.stringify({ orgId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (data.delivery) setHookLog((l) => (l && l.id === hookId ? { ...l, deliveries: [data.delivery, ...(l.deliveries || [])], open: data.delivery.id } : l))
+      else setHookNote(data.message || t('That did not work. Try again in a moment.'))
+      void loadHooks()
+    } finally { setHookBusy(null) }
+  }
+  const rotateHook = async (id: string) => {
+    setHookBusy(id)
+    try {
+      const res = await fetch(`${httpBase}/webhooks/${encodeURIComponent(id)}/rotate`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken }, body: JSON.stringify({ orgId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setHookNote(data.message || t('That did not work. Try again in a moment.')); setHookRotated(null); return }
+      setHookRotated((r) => (r ? { ...r, secret: data.secret } : r))
+    } finally { setHookBusy(null) }
+  }
   const deleteHook = async (id: string) => {
     setHookBusy(id); setHookMenu(null)
     try {
@@ -526,7 +573,6 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   )
   const opened = apps.find((a) => a.id === appOpen) || null
   const pullElsewhere = pullsInto && pullsInto.orgId !== orgId
-  const permissions = (agents?.tools || []).length ? PERMISSIONS.filter((p) => p.tools.some((x) => agents!.tools.includes(x))) : PERMISSIONS
   const day = (iso: string) => new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
 
   const appsPage = (
@@ -804,7 +850,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         {(agents?.tokens || []).map((tok) => (
           <div className="studio-tr agent-token" role="row" key={tok.id} data-token={tok.id}>
             <span className="studio-td-name"><b>{tok.name}</b><code className="agent-prefix">{tok.prefix}…</code></span>
-            <span className="studio-chips">{permissions.map((p) => <i key={p.label}>{t(p.label)}</i>)}</span>
+            <span className="studio-chips key-scopes">{(tok.scopes || ['read', 'write']).map((sc) => <i key={sc} data-scope={sc}>{t(SCOPE_CHIP[sc] || sc)}</i>)}</span>
             <span className="studio-td-dim">{day(tok.createdAt)}</span>
             <span className="studio-td-dim">{tok.lastUsedAt ? t('last used {when}', { when: ago(tok.lastUsedAt) }) : t('never used')}</span>
             <span className="studio-td-end studio-menu-wrap">
@@ -869,6 +915,8 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
               {hookMenu === h.id && (
                 <div className="studio-menu right" role="menu">
                   {h.mine && <button type="button" role="menuitem" onClick={() => void testHook(h.id)}><b>{t('Send a test')}</b></button>}
+                  <button type="button" role="menuitem" className="hook-deliveries" onClick={() => void openLog(h)}><b>{t('Deliveries')}</b><span>{t('What was sent, and what came back')}</span></button>
+                  <button type="button" role="menuitem" className="hook-rotate" onClick={() => { setHookMenu(null); setHookRotated({ id: h.id, name: h.name || h.url, secret: null }) }}><b>{t('New signing secret')}</b></button>
                   <button type="button" role="menuitem" className="danger" onClick={() => void deleteHook(h.id)}><b>{t('Delete')}</b></button>
                 </div>
               )}
@@ -890,7 +938,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         ? <button className="dlg-btn primary agent-done" onClick={() => { setKeyDialog(false); setMinted(null) }}>{t('Done')}</button>
         : <>
             <button className="dlg-btn" onClick={() => setKeyDialog(false)}>{t('Cancel')}</button>
-            <button className="dlg-btn primary" disabled={agentBusy === 'create' || !agentName.trim()} onClick={() => void createAgentToken()}>
+            <button className="dlg-btn primary" disabled={agentBusy === 'create' || !agentName.trim() || !keyScopes.length} onClick={() => void createAgentToken()}>
               {agentBusy === 'create' ? t('Creating…') : t('Create key')}
             </button>
           </>}
@@ -900,6 +948,17 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           <label className="dlg-label" htmlFor="key-name">{t('Name')}</label>
           <input id="key-name" className="dlg-input" value={agentName} maxLength={60} onChange={(e) => setAgentName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void createAgentToken() }} placeholder={t('e.g. Claude Code on my laptop')} aria-label={t('Agent name')} disabled={agentBusy === 'create'} />
+          <div className="dlg-label key-scope-label">{t('What it may do')}</div>
+          <div className="dlg-grid key-scope-grid">
+            {Object.keys(SCOPE_WORD).map((sc) => (
+              <label key={sc} className="dlg-check">
+                <input type="checkbox" data-scope={sc} checked={keyScopes.includes(sc)}
+                  onChange={() => setKeyScopes((cur) => (cur.includes(sc) ? cur.filter((x) => x !== sc) : [...cur, sc]))} />
+                {t(SCOPE_WORD[sc])}
+              </label>
+            ))}
+          </div>
+          <p className="dlg-hint">{t('A key does only what it is given. Choose the least it needs.')}</p>
         </div>
       )}
       {minted && (
@@ -973,12 +1032,61 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     </Dialog>
   )
 
+  const hookLogEl = hookLog && (
+    <Dialog className="hook-log-dialog" title={t('Deliveries · {name}', { name: hookLog.name })} lede={t('The last 50 attempts. Open one to see what was sent; send it again if it failed.')} onClose={() => setHookLog(null)}
+      footer={<button className="dlg-btn" onClick={() => setHookLog(null)}>{t('Close')}</button>}>
+      {hookLog.deliveries === null && <p className="dlg-hint">{t('Loading…')}</p>}
+      {hookLog.deliveries && hookLog.deliveries.length === 0 && <p className="dlg-hint">{t('Nothing sent yet')}</p>}
+      <div className="hook-log">
+        {(hookLog.deliveries || []).map((d) => (
+          <div key={d.id} className={`hook-log-row${d.ok ? ' ok' : ' bad'}`} data-delivery={d.id}>
+            <button type="button" className="hook-log-head" aria-expanded={hookLog.open === d.id} onClick={() => setHookLog((l) => (l ? { ...l, open: l.open === d.id ? null : d.id } : l))}>
+              <span className="hook-log-status">{d.status ?? '—'}</span>
+              <span className="hook-log-event">{t(EVENT_WORD[d.event] || d.event)}{d.redelivery && <i>{t('sent again')}</i>}</span>
+              <span className="hook-log-when">{ago(d.at)}{d.durationMs !== null ? ` · ${d.durationMs} ms` : ''}</span>
+            </button>
+            {hookLog.open === d.id && (
+              <div className="hook-log-body">
+                {d.error && <p className="dlg-error">{d.error}</p>}
+                <pre>{JSON.stringify(d.body, null, 2)}</pre>
+                <button type="button" className="dlg-btn hook-redeliver" disabled={hookBusy === d.id} onClick={() => void redeliver(hookLog.id, d.id)}>
+                  <Icon name="refresh" size={13} /> {hookBusy === d.id ? t('Sending…') : t('Send again')}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Dialog>
+  )
+
+  const hookRotateEl = hookRotated && (
+    <Dialog className="hook-rotate-dialog" title={t('New signing secret')} onClose={() => setHookRotated(null)}
+      lede={hookRotated.secret ? undefined : t('“{name}” will be signed with a new secret. The old one stops working at once, so update your service right after.', { name: hookRotated.name })}
+      footer={hookRotated.secret
+        ? <button className="dlg-btn primary" onClick={() => setHookRotated(null)}>{t('Done')}</button>
+        : <>
+            <button className="dlg-btn" onClick={() => setHookRotated(null)}>{t('Cancel')}</button>
+            <button className="dlg-btn primary hook-rotate-confirm" disabled={hookBusy === hookRotated.id} onClick={() => void rotateHook(hookRotated.id)}>{t('Replace the secret')}</button>
+          </>}>
+      {hookRotated.secret && (
+        <>
+          <p className="dlg-warn">{t('Copy the signing secret now. It is shown once, and cannot be read again.')}</p>
+          <div className="dlg-secret hook-secret"><code>{hookRotated.secret}</code>
+            <button className="dlg-btn" onClick={() => { navigator.clipboard?.writeText(hookRotated.secret || '').catch(() => {}) }}><Icon name="copy" size={13} /> {t('Copy')}</button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+
   const NAV: Array<{ id: StudioPage; label: string; icon: IconName }> = [
     { id: 'apps', label: t('Apps'), icon: 'grid' },
     { id: 'ai', label: t('AI'), icon: 'sparkle' },
     { id: 'api', label: t('API & Webhooks'), icon: 'code' },
     { id: 'emoji', label: t('Emoji'), icon: 'smile' },
     { id: 'groups', label: t('User groups'), icon: 'users' },
+    { id: 'audit', label: t('Audit log'), icon: 'shield' },
   ]
 
   return (
@@ -1005,12 +1113,15 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             {page === 'api' && apiPage}
             {page === 'emoji' && <EmojiManager httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
             {page === 'groups' && <UserGroupsManager httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
+            {page === 'audit' && <AuditLog httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
           </main>
         </div>
       </div>
       {appDialog}
       {keyDialogEl}
       {hookDialogEl}
+      {hookLogEl}
+      {hookRotateEl}
       {inviting && (
         <InviteDialog httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} initialTab={inviting} onClose={() => { setInviting(null); void refreshTokens() }} />
       )}

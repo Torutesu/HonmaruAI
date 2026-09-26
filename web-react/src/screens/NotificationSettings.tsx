@@ -18,6 +18,7 @@ interface Me {
   pushWhileActive?: boolean
   notifyPausedUntil?: string | null
   notifySchedule?: NotifySchedule
+  notifyKeywords?: string[]
   locale: string
 }
 
@@ -128,6 +129,8 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
         </div>
 
         <QuietRows me={me} patch={patch} />
+
+        <KeywordRows me={me} patch={patch} />
 
         <SoundRows />
 
@@ -284,6 +287,46 @@ const QuietRows: React.FC<{ me: Me | null; patch: (body: Record<string, unknown>
             </span>
           </div>
         )}
+      </div>
+    </>
+  )
+}
+
+/// Words that notify you wherever they are said — a client's name, "invoice",
+/// 見積 — as if you had been mentioned. Shown in Activity too.
+const KeywordRows: React.FC<{ me: Me | null; patch: (body: Record<string, unknown>) => Promise<boolean> }> = ({ me, patch }) => {
+  const t = useT()
+  const [draft, setDraft] = useState('')
+  const words = me?.notifyKeywords || []
+  const add = async () => {
+    const next = draft.split(/[,、\n]/).map((w) => w.trim()).filter(Boolean)
+    if (!next.length) return
+    if (await patch({ notifyKeywords: [...words, ...next] })) setDraft('')
+  }
+  return (
+    <>
+      <div className="rows-title">{t('My keywords')}</div>
+      <div className="rows">
+        <div className="row static keyword-row">
+          <span className="row-icon"><Icon name="at" size={18} /></span>
+          <span className="row-main">
+            {t('Notify me when these words are said')}
+            <span className="row-sub">{t('In any conversation you can read, as if you had been mentioned. Letters must match a whole word; Japanese matches anywhere.')}</span>
+            <span className="keyword-chips">
+              {words.map((w) => (
+                <span key={w} className="keyword-chip" data-keyword={w}>
+                  {w}
+                  <button type="button" aria-label={t('Remove {word}', { word: w })} onClick={() => void patch({ notifyKeywords: words.filter((x) => x !== w) })}><Icon name="x" size={11} /></button>
+                </span>
+              ))}
+            </span>
+            <span className="keyword-add">
+              <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void add() } }}
+                placeholder={t('e.g. invoice, 見積, Acme')} aria-label={t('Add a keyword')} disabled={!me} data-keyword-input="1" />
+              <button type="button" className="pill-btn" disabled={!me || !draft.trim()} onClick={() => void add()} data-keyword-add="1">{t('Add')}</button>
+            </span>
+          </span>
+        </div>
       </div>
     </>
   )

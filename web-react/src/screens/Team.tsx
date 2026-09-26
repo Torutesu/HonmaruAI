@@ -24,6 +24,8 @@ interface Member {
   title: string | null
   mine: boolean
   avatarUrl?: string | null
+  /// A guest's channels (slugs): all they can see.
+  channels?: string[]
 }
 
 interface Invite {
@@ -45,7 +47,7 @@ interface Invite {
 const ROLE_LABEL: Record<string, string> = {
   founder: 'Founder / operator', operator: 'Ops / business',
   engineer: 'Engineer', designer: 'Designer', member: 'Member',
-  admin: 'Admin', maintainer: 'Maintainer', triager: 'Triager',
+  admin: 'Admin', maintainer: 'Maintainer', triager: 'Triager', guest: 'Guest',
 }
 
 /// Your team: who is here, what is still out, and one more way in.
@@ -73,6 +75,11 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
   const [busy, setBusy] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  // An admin managing one person: their role, a guest's channels, signing
+  // them out everywhere.
+  const [managing, setManaging] = useState<{ ref: string; role: string; channels: string[] } | null>(null)
+  const [allChannels, setAllChannels] = useState<Array<{ slug: string; name: string }>>([])
+  const [manageNote, setManageNote] = useState<string | null>(null)
 
   const headers = { 'x-session-token': sessionToken }
   const org = encodeURIComponent(orgId)
@@ -114,6 +121,40 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
       setConfirm(null)
       if (data.left) { onLeft(); return }
       await load()
+    } finally { setBusy(null) }
+  }
+
+  const manage = (m: Member) => {
+    setManageNote(null); setError(null)
+    setManaging(managing?.ref === m.ref ? null : { ref: m.ref, role: m.role, channels: m.channels || [] })
+    if (!allChannels.length) {
+      fetch(`${httpBase}/businesses?orgId=${org}`, { headers }).then((r) => r.json())
+        .then((d) => setAllChannels((d.businesses || []).map((b: { slug: string; name: string }) => ({ slug: b.slug, name: b.name })))).catch(() => {})
+    }
+  }
+  const saveRole = async () => {
+    if (!managing) return
+    setBusy(`role:${managing.ref}`); setError(null)
+    try {
+      const res = await fetch(`${httpBase}/members/role`, {
+        method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, ref: managing.ref, role: managing.role, ...(managing.role === 'guest' ? { channels: managing.channels } : {}) }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.message || t('That did not save.')); return }
+      setManaging(null)
+      await load()
+    } finally { setBusy(null) }
+  }
+  const signOutEverywhere = async (m: Member) => {
+    setBusy(`out:${m.ref}`); setManageNote(null)
+    try {
+      const res = await fetch(`${httpBase}/members/sessions`, {
+        method: 'DELETE', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ orgId, ref: m.ref }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.message || t('That did not work.')); return }
+      setManageNote(t('{name} was signed out of {n} devices.', { name: m.name, n: data.ended || 0 }))
     } finally { setBusy(null) }
   }
 
@@ -257,8 +298,12 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
                 <span className="row-sub">
                   {t(ROLE_LABEL[m.role] || m.role)}
                   {m.mine && ` · ${t('you')}`}
+                  {m.role === 'guest' && m.channels && ` · ${m.channels.map((c) => `#${allChannels.find((x) => x.slug === c)?.name || c}`).join(' ')}`}
                 </span>
               </span>
+              {editable && canRename && !m.mine && m.role !== 'admin' && (
+                <button className="btn-text team-manage" aria-expanded={managing?.ref === m.ref} onClick={() => manage(m)}>{t('Manage')}</button>
+              )}
               {editable && (
                 confirm === m.ref ? (
                   <span className="team-confirm">
@@ -272,6 +317,40 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
                     {m.mine ? t('Leave') : t('Remove')}
                   </button>
                 )
+              )}
+              {managing?.ref === m.ref && (
+                <div className="team-manage-panel" data-manage={m.ref}>
+                  <div className="dlg-seg" role="radiogroup" aria-label={t('Role')}>
+                    {(['guest', 'member', 'admin'] as const).map((r) => (
+                      <button key={r} type="button" role="radio" aria-checked={managing.role === r} data-role={r}
+                        onClick={() => setManaging({ ...managing, role: r })}>
+                        <b>{t(ROLE_LABEL[r])}</b>
+                        <span>{r === 'guest' ? t('Only the channels you choose') : r === 'member' ? t('Every public channel') : t('Manages the workspace')}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {managing.role === 'guest' && (
+                    <div className="team-guest-channels">
+                      <div className="dlg-label">{t('Channels this guest can see')}</div>
+                      {allChannels.map((c) => (
+                        <label key={c.slug} className="dlg-check">
+                          <input type="checkbox" data-guest-channel={c.slug} checked={managing.channels.includes(c.slug)}
+                            onChange={() => setManaging({ ...managing, channels: managing.channels.includes(c.slug) ? managing.channels.filter((x) => x !== c.slug) : [...managing.channels, c.slug] })} />
+                          # {c.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <div className="team-manage-actions">
+                    <button className="pill-btn team-role-save" disabled={busy === `role:${m.ref}` || (managing.role === 'guest' && !managing.channels.length)} onClick={() => void saveRole()}>{t('Save')}</button>
+                    <button className="btn-text" onClick={() => setManaging(null)}>{t('Cancel')}</button>
+                    <span style={{ flex: 1 }} />
+                    <button className="btn-text danger team-signout" disabled={busy === `out:${m.ref}`} onClick={() => void signOutEverywhere(m)}>
+                      <Icon name="log-out" size={13} /> {t('Sign out of every device')}
+                    </button>
+                  </div>
+                  {manageNote && <p className="row-sub" role="status">{manageNote}</p>}
+                </div>
               )}
             </div>
           ))}

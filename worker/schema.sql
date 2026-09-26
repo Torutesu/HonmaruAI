@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS users (
   /* The hours notifications may come, as JSON (quiet.js): days, from, to,
      in the person's own timezone. */
   notify_schedule TEXT,
+  /* Words that notify this person wherever they are said, as a JSON array
+     ("Keywords" in notification settings). */
+  notify_keywords TEXT,
   /* The secret half of the inbound email address, u-<token>@domain. A GitHub
      id is public and sequential, so u-<github id>@domain is an address anyone
      can guess — and a guessed address is a way to spend someone's AI allowance
@@ -172,7 +175,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   github_id           TEXT NOT NULL,
   github_access_token TEXT NOT NULL,
   created_at          TEXT NOT NULL,
-  expires_at          TEXT
+  expires_at          TEXT,
+  /* What a person sees in "Where you're signed in" (sessions.js): the app
+     or browser it is, where it was last used from, and when. Never the IP. */
+  client              TEXT,
+  user_agent          TEXT,
+  place               TEXT,
+  last_seen_at        TEXT
 );
 
 /* One row per authorization attempt, deleted the moment it is redeemed. The
@@ -487,7 +496,10 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   name           TEXT NOT NULL,
   prefix         TEXT NOT NULL,
   created_at     TEXT NOT NULL,
-  last_used_at   TEXT
+  last_used_at   TEXT,
+  /* What the token may do, as a JSON array: read, write, audit:read.
+     NULL is a token made before scopes, and means read and write. */
+  scopes         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(github_id, org_id);
 
@@ -773,3 +785,59 @@ CREATE TABLE IF NOT EXISTS sidebar_prefs (
   updated_at    TEXT NOT NULL,
   PRIMARY KEY (org_id, login)
 );
+
+/* The audit log (docs/enterprise-audit-log.md): who did what, to what, from
+   where — never what was said. Written only through audit.js, never updated
+   or deleted by the app. `seq` counts up per workspace, so a gap is a
+   deletion; each row's hash covers the one before it. */
+CREATE TABLE IF NOT EXISTS audit_events (
+  org_id        TEXT NOT NULL,
+  seq           INTEGER NOT NULL,
+  id            TEXT NOT NULL UNIQUE,
+  created_at    INTEGER NOT NULL,
+  action        TEXT NOT NULL,
+  category      TEXT NOT NULL,
+  severity      TEXT NOT NULL,
+  outcome       TEXT NOT NULL,
+  actor_type    TEXT NOT NULL,
+  actor_id      TEXT,
+  entity_type   TEXT,
+  entity_id     TEXT,
+  body          TEXT NOT NULL,
+  prev_hash     TEXT,
+  hash          TEXT,
+  PRIMARY KEY (org_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(org_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_events(org_id, action, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_events(org_id, actor_id, created_at);
+
+/* Every attempt to deliver a webhook, the last 50 per webhook: what was
+   sent, what came back, so a failure can be read and sent again. */
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id            TEXT PRIMARY KEY,
+  webhook_id    TEXT NOT NULL,
+  org_id        TEXT NOT NULL,
+  event_id      TEXT NOT NULL,
+  event_type    TEXT NOT NULL,
+  body          TEXT NOT NULL,
+  status        INTEGER,
+  error         TEXT,
+  duration_ms   INTEGER,
+  redelivery    INTEGER NOT NULL DEFAULT 0,
+  attempted_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries ON webhook_deliveries(webhook_id, attempted_at);
+
+/* Links and files kept at the top of a conversation, as in Slack. */
+CREATE TABLE IF NOT EXISTS channel_bookmarks (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  created_by    TEXT,
+  created_at    TEXT NOT NULL,
+  position      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_channel_bookmarks ON channel_bookmarks(org_id, channel, position);

@@ -55,7 +55,10 @@ export function isGitHubSession(session) {
 /// directions: `roleName()` hands it out for GitHub's `maintain` permission, so
 /// a person could hold it — and then rank 0, unable to invite a triager — while
 /// an admin asking to invite one was told "That is not a role."
+// A guest ranks below everyone: in only the channels they were let into
+// (access.js), and able to invite nobody.
 export const ROLE_RANK = new Map([
+  ["guest", -1],
   ["member", 0], ["designer", 0], ["engineer", 0],
   ["triager", 1], ["maintainer", 2], ["admin", 3],
 ]);
@@ -284,6 +287,7 @@ export async function createInvite(env, { orgId, createdBy, role, uses, channels
       .bind(orgId, createdBy)
       .first())?.role || "member"
   ).toLowerCase();
+  if (callerRole === "guest") return { error: "A guest cannot invite anyone." };
   if (ROLE_RANK.get(requested) > (ROLE_RANK.get(callerRole) ?? 0)) {
     return { error: "You cannot invite someone above your own role." };
   }
@@ -305,6 +309,8 @@ export async function createInvite(env, { orgId, createdBy, role, uses, channels
   const ref = (await sha256Hex(code)).slice(0, 16);
   // Where they are introduced when they join: only channels this team has.
   const introduce = await channelsOf(env.DB, orgId, channels, createdBy);
+  // A guest sees only the channels they are let into, so they need one.
+  if (requested === "guest" && !introduce.length) return { error: "Choose the channels a guest can see." };
   await env.DB
     .prepare("INSERT INTO invites (code, org_id, created_by, role, created_at, expires_at, max_uses, ref, channels) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
     .bind(code, orgId, createdBy, inviteRole, now.toISOString(), expires.toISOString(), maxUses, ref, introduce.length ? JSON.stringify(introduce) : null)
@@ -389,5 +395,5 @@ export async function acceptInvite(env, { code, userId }) {
         .catch((err) => console.error("welcome failed", err?.message || err));
     }
   }
-  return { orgId: row.org_id };
+  return { orgId: row.org_id, joined: !existing, role: existing && keep === held ? held : keep };
 }

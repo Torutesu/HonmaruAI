@@ -2,7 +2,7 @@ import { postMessage } from "./channels.js";
 import { getUserByGithubId } from "./db.js";
 import { loadCopy } from "./copy.js";
 import { serverText } from "./serverCopy.js";
-import { isPrivate, addMembers } from "./access.js";
+import { isPrivate, addMembers, isGuestLogin } from "./access.js";
 
 // Somebody new — a person who took an invitation, or an agent that opened
 // its link — said in the channels the invitation named, by the AI, in the
@@ -23,9 +23,12 @@ export async function introduce(env, { orgId, channels, githubId = null, agentNa
   // A private channel the invitation named takes the newcomer in. (An agent
   // acts as the person who invited it, who is already there.)
   const newcomer = githubId ? await getUserByGithubId(env.DB, githubId).catch(() => null) : null;
+  // A guest is let into every channel the invitation named, public ones
+  // too: those are the only channels a guest sees.
+  const guest = newcomer?.login ? await isGuestLogin(env.DB, orgId, newcomer.login) : false;
   let said = 0;
   for (const slug of channels.slice(0, 50)) {
-    if (newcomer?.login && await isPrivate(env.DB, orgId, slug)) {
+    if (newcomer?.login && (guest || await isPrivate(env.DB, orgId, slug))) {
       await addMembers(env.DB, { orgId, key: `b:${slug}`, logins: [newcomer.login], addedBy: inviter?.login || null });
     }
     const out = await postMessage(env.DB, { orgId, key: `b:${slug}`, authorLogin: null, body: line, kind: "ai" });

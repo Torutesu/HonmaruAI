@@ -34,13 +34,38 @@ const TOKEN_PREFIX = "hm_";
 
 // ---- Tokens ----------------------------------------------------------------
 
+/// What a token may do. `read` reads decisions, people and the playbook;
+/// `write` asks for decisions; `audit:read` reads the audit log (and only
+/// an admin's token can use it). A token made before scopes had read and
+/// write, and keeps them.
+export const SCOPES = ["read", "write", "audit:read"];
+const LEGACY_SCOPES = ["read", "write"];
+const TOOL_SCOPE = { request_decision: "write" };
+
+export function cleanScopes(input) {
+  if (!Array.isArray(input)) return LEGACY_SCOPES;
+  const out = SCOPES.filter((s) => input.includes(s));
+  return out.length ? out : ["read"];
+}
+
+export function parseScopes(raw) {
+  if (!raw) return LEGACY_SCOPES;
+  try { return cleanScopes(JSON.parse(raw)); } catch { return LEGACY_SCOPES; }
+}
+
+export function hasScope(scopes, scope) {
+  return Array.isArray(scopes) && scopes.includes(scope);
+}
+
+const scopeOfTool = (name) => TOOL_SCOPE[name] || "read";
+
 function randomToken() {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return TOKEN_PREFIX + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function createApiToken(db, { orgId, githubId, name }) {
+export async function createApiToken(db, { orgId, githubId, name, scopes }) {
   const clean = String(name || "").replace(/\s+/g, " ").trim().slice(0, 60) || "Agent";
   const count = await db
     .prepare("SELECT COUNT(*) AS n FROM api_tokens WHERE github_id = ?1 AND org_id = ?2")
@@ -50,33 +75,37 @@ export async function createApiToken(db, { orgId, githubId, name }) {
   const token = randomToken();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  const granted = cleanScopes(scopes);
   await db
     .prepare(
-      `INSERT INTO api_tokens (id, token_hash, org_id, github_id, name, prefix, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+      `INSERT INTO api_tokens (id, token_hash, org_id, github_id, name, prefix, created_at, scopes)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
     )
-    .bind(id, await sha256Hex(token), orgId, String(githubId), clean, token.slice(0, 10), now)
+    .bind(id, await sha256Hex(token), orgId, String(githubId), clean, token.slice(0, 10), now, JSON.stringify(granted))
     .run();
-  return { token, id, name: clean, prefix: token.slice(0, 10), createdAt: now };
+  return { token, id, name: clean, prefix: token.slice(0, 10), createdAt: now, scopes: granted };
 }
 
 export async function listApiTokens(db, { orgId, githubId }) {
   const { results } = await db
     .prepare(
-      `SELECT id, name, prefix, created_at, last_used_at FROM api_tokens
+      `SELECT id, name, prefix, created_at, last_used_at, scopes FROM api_tokens
         WHERE github_id = ?1 AND org_id = ?2 ORDER BY created_at ASC`
     )
     .bind(String(githubId), orgId)
     .all();
-  return (results || []).map((r) => ({ id: r.id, name: r.name, prefix: r.prefix, createdAt: r.created_at, lastUsedAt: r.last_used_at || null }));
+  return (results || []).map((r) => ({ id: r.id, name: r.name, prefix: r.prefix, createdAt: r.created_at, lastUsedAt: r.last_used_at || null, scopes: parseScopes(r.scopes) }));
 }
 
+/// Revoke one of your own. Returns what it was, for the audit log, or null.
 export async function revokeApiToken(db, { orgId, githubId, id }) {
-  const res = await db
-    .prepare("DELETE FROM api_tokens WHERE id = ?1 AND github_id = ?2 AND org_id = ?3")
+  const row = await db
+    .prepare("SELECT name, prefix FROM api_tokens WHERE id = ?1 AND github_id = ?2 AND org_id = ?3")
     .bind(id, String(githubId), orgId)
-    .run();
-  return (res?.meta?.changes || 0) > 0;
+    .first();
+  if (!row) return null;
+  await db.prepare("DELETE FROM api_tokens WHERE id = ?1").bind(id).run();
+  return { name: row.name, prefix: row.prefix };
 }
 
 /// Who a bearer token speaks for, or null. A token outlives nothing: its
@@ -85,7 +114,7 @@ export async function resolveApiToken(db, header) {
   const match = /^Bearer\s+(\S+)$/i.exec(String(header || "").trim());
   if (!match || !match[1].startsWith(TOKEN_PREFIX)) return null;
   const row = await db
-    .prepare("SELECT id, org_id, github_id, name, last_used_at FROM api_tokens WHERE token_hash = ?1")
+    .prepare("SELECT id, org_id, github_id, name, last_used_at, scopes FROM api_tokens WHERE token_hash = ?1")
     .bind(await sha256Hex(match[1]))
     .first();
   if (!row) return null;
@@ -98,7 +127,7 @@ export async function resolveApiToken(db, header) {
   if (!row.last_used_at || now - Date.parse(row.last_used_at) > 300000) {
     await db.prepare("UPDATE api_tokens SET last_used_at = ?2 WHERE id = ?1").bind(row.id, new Date(now).toISOString()).run().catch(() => {});
   }
-  return { tokenId: row.id, agentName: row.name, orgId: row.org_id, githubId: String(row.github_id), login: user.login, name: user.name || user.login };
+  return { tokenId: row.id, agentName: row.name, orgId: row.org_id, githubId: String(row.github_id), login: user.login, name: user.name || user.login, scopes: parseScopes(row.scopes) };
 }
 
 // ---- Tools -------------------------------------------------------------------
@@ -320,10 +349,14 @@ async function handleMessage(env, agent, msg, request, ctx = null) {
     case "ping":
       return isNotification ? null : rpcResult(msg.id, {});
     case "tools/list":
-      return rpcResult(msg.id, { tools: TOOLS });
+      // Only what this token may call.
+      return rpcResult(msg.id, { tools: TOOLS.filter((t) => hasScope(agent.scopes, scopeOfTool(t.name))) });
     case "tools/call": {
       const name = typeof params.name === "string" ? params.name : "";
       const args = params.arguments && typeof params.arguments === "object" ? params.arguments : {};
+      if (TOOLS.some((t) => t.name === name) && !hasScope(agent.scopes, scopeOfTool(name))) {
+        return rpcResult(msg.id, toolError(`This key does not have the ${scopeOfTool(name)} scope. Make a key with it under Studio → API.`));
+      }
       try {
         const out = await callTool(env, agent, name, args, request, ctx);
         if (!out) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);

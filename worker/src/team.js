@@ -88,6 +88,16 @@ export async function listMembers(db, orgId, viewerId) {
     .all();
   // The user groups each person is in: "@sales" reaches all of them.
   const groups = await groupHandlesByLogin(db, orgId);
+  // A guest's channels, which are all they see.
+  const guestChannels = new Map();
+  if ((results || []).some((r) => String(r.role || "").toLowerCase() === "guest")) {
+    const { results: rows } = await db.prepare(
+      `SELECT c.login, substr(c.channel, 3) AS slug FROM conversation_members c
+        JOIN users u ON u.login = c.login JOIN memberships m ON m.user_github_id = u.github_id AND m.org_id = c.org_id
+        WHERE c.org_id = ?1 AND m.role = 'guest' AND c.channel LIKE 'b:%' ORDER BY c.added_at`
+    ).bind(orgId).all().catch(() => ({ results: [] }));
+    for (const r of rows || []) guestChannels.set(r.login, [...(guestChannels.get(r.login) || []), r.slug]);
+  }
   return Promise.all(
     (results || []).map(async (r) => ({
       userId: String(r.userId),
@@ -114,6 +124,7 @@ export async function listMembers(db, orgId, viewerId) {
       delegateLogin: r.awayUntil && r.awayUntil > new Date().toISOString() ? (r.delegateLogin || null) : null,
       joinedAt: r.joinedAt,
       groups: groups.get(r.login) || [],
+      ...(String(r.role || "").toLowerCase() === "guest" ? { channels: guestChannels.get(r.login) || [] } : {}),
       mine: String(r.userId) === String(viewerId),
     }))
   );
@@ -385,4 +396,48 @@ export async function returnOrphanedCards(env, orgId, login) {
 /// server has to do the same or the address is what lands on the card.
 function displayName(login) {
   return String(login || "").replace(/^(u:|email:)/, "").split("@")[0];
+}
+
+/// An admin changes someone's role, or which channels a guest is in.
+///
+/// Only an admin, only for someone below them, never to a role above their
+/// own, and never their own. A guest's channels (`channels`, slugs) replace
+/// the ones they had; they must be channels the admin can see.
+export async function changeRole(env, { orgId, actorId, ref, role, channels }) {
+  if (!orgId || !ref) return { error: "Missing team or person.", status: 400 };
+  if (!membershipIsOurs(orgId)) return { error: "This workspace's roles come from a GitHub repository.", status: 400 };
+  const members = await listMembers(env.DB, orgId, actorId);
+  const actor = members.find((m) => m.userId === String(actorId));
+  const target = members.find((m) => m.ref === String(ref));
+  if (!actor) return { error: "You are not a member of this organization.", status: 403 };
+  if (!target) return { error: "That person is not in this workspace.", status: 404 };
+  if (target.userId === actor.userId) return { error: "You cannot change your own role.", status: 400 };
+  if (rank(actor.role) < rank("admin") || rank(actor.role) <= rank(target.role)) {
+    return { error: "Only an admin can change the role of someone below them.", status: 403 };
+  }
+  const to = role === undefined ? target.role : String(role || "").toLowerCase();
+  if (!["guest", "member", "admin"].includes(to)) return { error: "That is not a role.", status: 400 };
+  if (rank(to) > rank(actor.role)) return { error: "You cannot give a role above your own.", status: 403 };
+  let chosen = null;
+  if (to === "guest" && (Array.isArray(channels) || target.role !== "guest")) {
+    const { channelsOf } = await import("./auth.js");
+    chosen = await channelsOf(env.DB, orgId, Array.isArray(channels) ? channels : [], actorId);
+    if (!chosen.length) return { error: "Choose the channels a guest can see.", status: 400 };
+  }
+  if (to !== target.role) {
+    await env.DB.prepare("UPDATE memberships SET role = ?3 WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, target.userId, to).run();
+  }
+  if (chosen) {
+    // The public channels a guest was in go; private ones stay theirs to
+    // leave, as anyone's do.
+    await env.DB.prepare(
+      `DELETE FROM conversation_members WHERE org_id = ?1 AND login = ?2 AND channel LIKE 'b:%'
+         AND substr(channel, 3) IN (SELECT slug FROM businesses WHERE org_id = ?1 AND private = 0)`
+    ).bind(orgId, target.login).run();
+    const { addMembers } = await import("./access.js");
+    for (const slug of chosen) {
+      await addMembers(env.DB, { orgId, key: `b:${slug}`, logins: [target.login], addedBy: actor.login });
+    }
+  }
+  return { ok: true, login: target.login, name: target.name, from: target.role, to, channels: chosen };
 }

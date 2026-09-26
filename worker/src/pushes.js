@@ -21,7 +21,7 @@ import { audienceOf } from "./access.js";
 import { resolveMentions } from "./threads.js";
 import { viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
-import { quietFor } from "./quiet.js";
+import { quietFor, keywordsIn, keywordHit } from "./quiet.js";
 
 export const PUSH_DELAY_MS = 60_000;
 /// How recent "at the app" has to be for a card not to be pushed.
@@ -70,6 +70,8 @@ export async function recipientsOf(db, orgId, row, members) {
     for (const login of (await audienceOf(db, orgId, key)) || []) add(login, "direct");
   }
   for (const m of resolveMentions(row.body || "", members)) add(m.login, "mention");
+  // Words they asked to hear about, said anywhere they can read.
+  for (const k of await keywordsIn(db, orgId)) if (keywordHit(row.body, k.keywords)) add(k.login, "keyword");
   if (row.parent_id) {
     const { results } = await db.prepare(
       `SELECT DISTINCT author_login FROM channel_messages

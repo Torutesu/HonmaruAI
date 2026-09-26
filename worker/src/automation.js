@@ -8,7 +8,7 @@ import {
   runRoutine, publicRoutine, briefInstruction,
 } from "./routines.js";
 import { listMemories, getMemory, addMemory, updateMemory, deleteMemory, forgetMemories } from "./memory.js";
-import { createApiToken, listApiTokens, revokeApiToken, handleMcp, TOOLS } from "./mcp.js";
+import { createApiToken, listApiTokens, revokeApiToken, handleMcp, TOOLS, SCOPES } from "./mcp.js";
 import { loadCopy } from "./copy.js";
 import { DAILY_KINDS } from "./dailyReport.js";
 
@@ -237,10 +237,14 @@ export async function handleAutomation(request, env, url, ctx = null) {
     if (who.denied) return who.denied;
     const endpoint = `${url.origin}/mcp`;
     if (request.method === "GET") {
-      return json({ tokens: await listApiTokens(env.DB, { orgId, githubId: who.session.github_id }), endpoint, tools: TOOLS.map((t) => t.name) });
+      return json({ tokens: await listApiTokens(env.DB, { orgId, githubId: who.session.github_id }), endpoint, tools: TOOLS.map((t) => t.name), scopes: SCOPES });
     }
-    const out = await createApiToken(env.DB, { orgId, githubId: who.session.github_id, name: body.name });
+    const { isGuest } = await import("./access.js");
+    if (await isGuest(env.DB, orgId, who.session.github_id)) return json({ message: "A guest cannot make API keys." }, 403);
+    const out = await createApiToken(env.DB, { orgId, githubId: who.session.github_id, name: body.name, scopes: body.scopes });
     if (out.error) return json({ message: out.error }, 409);
+    const { audit, person } = await import("./audit.js");
+    await audit(env, request, { orgId, action: "api_token.created", actor: person(who.user), entity: { type: "api_token", id: out.prefix, name: out.name }, details: { scopes: out.scopes } });
     return json({ ...out, endpoint }, 201);
   }
   const tokenMatch = path.match(/^\/tokens\/([^/]+)$/);
@@ -252,6 +256,8 @@ export async function handleAutomation(request, env, url, ctx = null) {
     if (who.denied) return who.denied;
     const removed = await revokeApiToken(env.DB, { orgId, githubId: who.session.github_id, id: decodeURIComponent(tokenMatch[1]) });
     if (!removed) return json({ message: "no such token" }, 404);
+    const { audit, person } = await import("./audit.js");
+    await audit(env, request, { orgId, action: "api_token.revoked", actor: person(who.user), entity: { type: "api_token", id: removed.prefix || null, name: removed.name || null } });
     return json({ revoked: true });
   }
   return null;

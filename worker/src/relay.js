@@ -25,6 +25,7 @@ import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
 import { applyAutoRule } from "./autorules.js";
 import { redirectIfAway } from "./people.js";
 import { listMembers } from "./team.js";
+import { isGuest } from "./access.js";
 import { learnFromDecision } from "./memory.js";
 import { settleProposal } from "./proposals.js";
 import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
@@ -144,9 +145,13 @@ export class OrgRelay {
 
   broadcast(orgId, obj, exclude) {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
+    // A guest hears only what is sent to them by name, and who is online:
+    // an org-wide event is the whole workspace's — every card, every
+    // public channel — and a guest is in only part of it.
+    const forGuests = typeof obj === "object" && obj?.name === "presence";
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && ws !== exclude) OrgRelay.deliver(ws, text);
+      if (att?.orgId === orgId && ws !== exclude && (!att.guest || forGuests)) OrgRelay.deliver(ws, text);
     }
   }
 
@@ -294,9 +299,18 @@ export class OrgRelay {
       }
 
       const userId = access.login;
-      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true });
+      const guest = await isGuest(this.db, orgId, session.github_id);
+      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true, guest });
       const store = await loadStore(this.db, orgId);
-      const contexts = await loadContexts(this.db, orgId);
+      // A guest's feed is the decisions they are on, nobody else's.
+      if (guest) {
+        for (const [owner, cards] of Object.entries(store)) {
+          store[owner] = cards.filter((c) => c.recipientUserID === userId || c.senderUserID === userId);
+          if (!store[owner].length) delete store[owner];
+        }
+      }
+      const everyContext = await loadContexts(this.db, orgId);
+      const contexts = guest ? (everyContext[userId] ? { [userId]: everyContext[userId] } : {}) : everyContext;
       for (const ev of joinEvents(userId, store, contexts)) ws.send(JSON.stringify(ev));
       // Who is already here. Presence otherwise only moves when someone joins
       // or leaves, so a joiner without this sees an empty room until the next
