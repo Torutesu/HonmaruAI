@@ -1133,8 +1133,8 @@ export const ClassicList: React.FC<Props> = ({
     return true
   }
   /// Why a message did not go, in the reader's language where it is ours to say.
-  const refusal = (data: { code?: string; rules?: string[]; message?: string }) => (data.code === 'dlp-blocked'
-    ? t("This can't be sent here: it looks like it contains {what}. Take it out and try again.", { what: (data.rules || []).map((r) => t(r)).join(', ') })
+  const refusal = (data: { code?: string; rules?: string[]; files?: string[]; message?: string }) => (data.code === 'dlp-blocked'
+    ? t("This can't be sent here: it looks like it contains {what}. Take it out and try again.", { what: (data.rules || []).map((r) => t(r)).join(', ') + (data.files?.length ? ` (${data.files.join(', ')})` : '') })
     : data.message || t('That did not send. Try again.'))
   const sendAtTime = async (channel: string, at: string, text?: string) => {
     const body = (text ?? draft).trim()

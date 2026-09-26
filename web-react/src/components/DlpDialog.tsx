@@ -35,6 +35,7 @@ export const DlpDialog: React.FC = () => {
         </>
       )}
     >
+      {ask.files?.length ? <p className="dlg-note" data-dlp-files>{t('Found in: {files}', { files: ask.files.join(', ') })}</p> : null}
       <p className="dlg-note">{t('If you send it, the audit log notes that a rule warned you — not what you wrote.')}</p>
     </Dialog>
   )

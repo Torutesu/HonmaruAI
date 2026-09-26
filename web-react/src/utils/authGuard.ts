@@ -40,13 +40,15 @@ export function askToConfirm(base: string, token: string): Promise<boolean> {
 
 export interface DlpWarning {
   rules: string[]
+  /// Attached files the rules were met in, by name.
+  files?: string[]
   resolve: (send: boolean) => void
 }
 
 /// Ask whoever is listening (DlpDialog); false — do not send — when nobody is.
-export function askAboutData(rules: string[]): Promise<boolean> {
+export function askAboutData(rules: string[], files: string[] = []): Promise<boolean> {
   return new Promise((resolve) => {
-    const event = new CustomEvent<DlpWarning>('honmaru:dlp-warning', { detail: { rules, resolve }, cancelable: true })
+    const event = new CustomEvent<DlpWarning>('honmaru:dlp-warning', { detail: { rules, files, resolve }, cancelable: true })
     if (window.dispatchEvent(event)) resolve(false)
   })
 }
@@ -58,11 +60,11 @@ export function installAuthGuard() {
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const res = await original(input, init)
     if (res.status === 409 && typeof init?.body === 'string') {
-      const said = await res.clone().json().catch(() => null) as { code?: string; rules?: string[] } | null
+      const said = await res.clone().json().catch(() => null) as { code?: string; rules?: string[]; files?: string[] } | null
       if (said?.code !== 'dlp-warning') return res
       let body: Record<string, unknown> | null = null
       try { body = JSON.parse(init.body) as Record<string, unknown> } catch { return res }
-      if (!body || typeof body !== 'object' || !(await askAboutData(said.rules || []))) return res
+      if (!body || typeof body !== 'object' || !(await askAboutData(said.rules || [], said.files || []))) return res
       return original(input, { ...init, body: JSON.stringify({ ...body, dlpAck: true }) })
     }
     if (res.status !== 401 && res.status !== 403) return res

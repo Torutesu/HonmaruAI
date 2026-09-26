@@ -3,6 +3,7 @@ import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { myNumberValid, luhnValid, cleanPattern, scan, DETECTORS } from "../src/dlp.js";
+import { fileText, readerFor, zipEntries } from "../src/dlpFiles.js";
 
 // Data rules (docs/enterprise-audit-log.md §10): a message is read against
 // the workspace's rules before it is kept. A warning can be sent through; a
@@ -114,4 +115,71 @@ test("an edit is read too, and a rule turned off stops applying", async () => {
   const tried = await (await call("/orgs/dlp/test", toru, { method: "POST", body: { orgId: ORG, text: "SECRET-999" } })).json();
   expect(tried.hits.map((h) => h.name)).toEqual(["Tickets"]);
   expect((await call(`/orgs/dlp/${made.rule.id}?orgId=${encodeURIComponent(ORG)}`, toru, { method: "DELETE" })).status).toBe(200);
+});
+
+// ---- Attached files ----
+
+/// A ZIP, as Office writes one: `entries` of name → text, deflated or stored.
+async function zip(entries, { store = false } = {}) {
+  const enc = new TextEncoder();
+  const locals = []; const centrals = []; let offset = 0;
+  for (const [name, text] of Object.entries(entries)) {
+    const raw = enc.encode(text);
+    const data = store ? raw : new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
+    const n = enc.encode(name);
+    const local = new Uint8Array(30 + n.length); const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true); lv.setUint16(8, store ? 0 : 8, true); lv.setUint32(18, data.length, true); lv.setUint32(22, raw.length, true); lv.setUint16(26, n.length, true); local.set(n, 30);
+    const central = new Uint8Array(46 + n.length); const cv = new DataView(central.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(10, store ? 0 : 8, true); cv.setUint32(20, data.length, true); cv.setUint32(24, raw.length, true); cv.setUint16(28, n.length, true); cv.setUint32(42, offset, true); central.set(n, 46);
+    locals.push(local, data); centrals.push(central); offset += local.length + data.length;
+  }
+  const cdSize = centrals.reduce((a, c) => a + c.length, 0);
+  const end = new Uint8Array(22); const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, centrals.length, true); ev.setUint16(10, centrals.length, true); ev.setUint32(12, cdSize, true); ev.setUint32(16, offset, true);
+  return new Blob([...locals, ...centrals, end]).arrayBuffer();
+}
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const upload = async (token, bytes, type, name) => {
+  const res = await worker.fetch(new Request(`https://example.com/channels/files?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&name=${encodeURIComponent(name)}`, {
+    method: "POST", headers: { "content-type": type, "x-session-token": token }, body: bytes,
+  }), { ...env, OPENAI_API_KEY: undefined }, ctx);
+  while (pending.length) await pending.shift();
+  expect(res.status).toBe(201);
+  return (await res.json()).file.id;
+};
+
+test("what a file says is read: plain text, and the words inside Word, Excel and PowerPoint", async () => {
+  expect(readerFor("text/csv", "people.csv")).toBe("text");
+  expect(readerFor("application/octet-stream", "notes.md")).toBe("text");
+  expect(readerFor("image/png", "a.png")).toBe(null);
+  expect(readerFor("application/pdf", "a.pdf")).toBe(null);
+  const docx = await zip({ "[Content_Types].xml": "<Types/>", "word/document.xml": "<w:document><w:body><w:p><w:r><w:t>Card </w:t></w:r><w:r><w:t>4111 1111 1111 1111</w:t></w:r></w:p></w:body></w:document>" });
+  expect(await fileText(docx, { type: DOCX, name: "memo.docx" })).toContain("Card 4111 1111 1111 1111");
+  const xlsx = await zip({ "xl/sharedStrings.xml": "<sst><si><t>My Number</t></si><si><t>1234-5678-9018</t></si></sst>" }, { store: true });
+  expect(await fileText(xlsx, { type: "application/octet-stream", name: "staff.xlsx" })).toContain("1234-5678-9018");
+  const pptx = await zip({ "ppt/slides/slide1.xml": "<p:sld><a:p><a:r><a:t>AKIAABCDEFGHIJKLMNOP</a:t></a:r></a:p></p:sld>", "ppt/media/image1.png": "not read" });
+  expect((await zipEntries(pptx, /^ppt\/slides\//)).map((e) => e.name)).toEqual(["ppt/slides/slide1.xml"]);
+  // A small file that would inflate into a large one is not read past the cap.
+  const bomb = await zip({ "word/document.xml": "a".repeat(9 * 1024 * 1024) });
+  expect(await fileText(bomb, { type: DOCX, name: "bomb.docx" })).toBe(null);
+});
+
+test("a rule met inside an attached file stops the message, and names the file", async () => {
+  await rule(toru, { kind: "builtin", detector: "credit_card", action: "block" });
+  await rule(toru, { kind: "keywords", name: "Project names", keywords: "Bluebird", action: "warn" });
+  const csv = await upload(mika, new TextEncoder().encode("name,card\nKen,4111 1111 1111 1111\n"), "text/csv", "cards.csv");
+  const blocked = await post(mika, "the list, as asked", { files: [csv] });
+  expect(blocked.status).toBe(422);
+  expect(await blocked.json()).toMatchObject({ code: "dlp-blocked", rules: ["Card number"], files: ["cards.csv"] });
+  const logged = await env.DB.prepare("SELECT details FROM audit_events WHERE org_id = ?1 AND action = 'dlp.blocked'").bind(ORG).first().catch(() => null);
+  expect(JSON.stringify(logged || {})).not.toContain("4111");
+
+  const docx = await upload(mika, await zip({ "word/document.xml": "<w:p><w:t>Bluebird launch plan</w:t></w:p>" }), DOCX, "plan.docx");
+  const warned = await post(mika, "see attached", { files: [docx] });
+  expect(warned.status).toBe(409);
+  expect(await warned.json()).toMatchObject({ code: "dlp-warning", files: ["plan.docx"] });
+  expect((await post(mika, "see attached", { files: [docx], dlpAck: true })).status).toBe(201);
+  // A picture is not read at all.
+  const png = await upload(mika, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), "image/png", "shot.png");
+  expect((await post(mika, "a picture", { files: [png] })).status).toBe(201);
 });

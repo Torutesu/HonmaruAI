@@ -1757,6 +1757,7 @@ const ja: Dict = {
   'Signing certificate (saved; paste to replace)': '署名証明書（保存済み。置き換える場合は貼り付け）',
   'The test sign-in worked. You can turn this connection on.': 'テストサインインに成功しました。この接続をオンにできます。',
   'another connection': '別の接続',
+  'Found in: {files}': '見つかった場所: {files}',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -3488,6 +3489,7 @@ const es: Dict = {
   'Signing certificate (saved; paste to replace)': 'Certificado de firma (guardado; pega uno para reemplazarlo)',
   'The test sign-in worked. You can turn this connection on.': 'La prueba de inicio de sesión funcionó. Puedes activar esta conexión.',
   'another connection': 'otra conexión',
+  'Found in: {files}': 'Encontrado en: {files}',
 }
 
 const fr: Dict = {
@@ -5169,6 +5171,7 @@ const fr: Dict = {
   'Signing certificate (saved; paste to replace)': 'Certificat de signature (enregistré ; collez-en un pour le remplacer)',
   'The test sign-in worked. You can turn this connection on.': 'La connexion de test a fonctionné. Vous pouvez activer cette connexion.',
   'another connection': 'une autre connexion',
+  'Found in: {files}': 'Trouvé dans : {files}',
 }
 
 const de: Dict = {
@@ -6850,6 +6853,7 @@ const de: Dict = {
   'Signing certificate (saved; paste to replace)': 'Signaturzertifikat (gespeichert; zum Ersetzen einfügen)',
   'The test sign-in worked. You can turn this connection on.': 'Die Testanmeldung hat funktioniert. Sie können diese Verbindung einschalten.',
   'another connection': 'eine andere Verbindung',
+  'Found in: {files}': 'Gefunden in: {files}',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }
