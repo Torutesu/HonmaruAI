@@ -8,8 +8,9 @@
 //   /index.html         a plain fallback that points at the languages; on
 //                       Pages the root is answered by _worker.js instead
 //   _worker.js          sends "/" to /ja/ from Japan and /en/ from elsewhere,
-//   _routes.json        unless the visitor chose a language on the page;
-//                       the worker runs for "/" only, the rest is static
+//   _routes.json        unless the visitor chose a language on the page, and,
+//                       when `site` is a domain of its own, sends the pages.dev
+//                       and www. addresses there; it runs for pages only
 //   main.js, i18n.js    minified; the stylesheet is inlined into every page
 //   fonts/, badges/, icon.svg, og.png, robots.txt, sitemap.xml, _headers
 //
@@ -167,8 +168,15 @@ fs.writeFileSync(path.join(out, 'index.html'), `<!doctype html>
 <p>${LANGS.map((l) => `<a href="/${l}/">${l.toUpperCase()}</a>`).join(' · ')}</p>
 `)
 
-fs.copyFileSync(path.join(here, 'worker.js'), path.join(out, '_worker.js'))
-fs.writeFileSync(path.join(out, '_routes.json'), JSON.stringify({ version: 1, include: ['/'], exclude: [] }) + '\n')
+// The site's own domain, if it has one (not the pages.dev address).
+const canonical = /\.pages\.dev$/.test(new URL(site).hostname) ? '' : new URL(site).hostname
+const workerSource = read('worker.js')
+if (!workerSource.includes("const CANONICAL = '';")) fail('worker.js no longer declares CANONICAL')
+fs.writeFileSync(path.join(out, '_worker.js'), workerSource.replace("const CANONICAL = '';", `const CANONICAL = ${JSON.stringify(canonical)};`))
+// The worker sees pages (to pick a language, and to move other hosts to the
+// domain); scripts, fonts and images are served without it.
+const statics = ['/fonts/*', '/badges/*', '/main.js', '/i18n.js', '/og.png', '/icon.svg', '/robots.txt', '/sitemap.xml']
+fs.writeFileSync(path.join(out, '_routes.json'), JSON.stringify({ version: 1, include: ['/*'], exclude: statics }) + '\n')
 for (const f of ['icon.svg', 'og.png']) fs.copyFileSync(path.join(here, f), path.join(out, f))
 for (const f of fs.readdirSync(path.join(here, 'fonts')).filter((f) => f.endsWith('.woff2'))) {
   fs.copyFileSync(path.join(here, 'fonts', f), path.join(out, 'fonts', f))
@@ -198,4 +206,4 @@ fs.writeFileSync(path.join(out, '_headers'), `/*
   Cache-Control: public, max-age=86400
 `)
 
-console.log(`built ${LANGS.map((l) => '/' + l + '/').join(' ')} for ${site} into ${path.relative(process.cwd(), out) || '.'}`)
+console.log(`built ${LANGS.map((l) => '/' + l + '/').join(' ')} for ${site}${canonical ? ' (other hosts redirect there)' : ''} into ${path.relative(process.cwd(), out) || '.'}`)
