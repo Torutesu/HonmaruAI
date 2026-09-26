@@ -63,6 +63,10 @@ test("only an admin makes rules; a member cannot see them", async () => {
   expect((await call(`/orgs/dlp?orgId=${encodeURIComponent(ORG)}`, mika)).status).toBe(403);
   const made = await rule(toru, { kind: "builtin", detector: "credit_card", action: "block" });
   expect(made.status).toBe(201);
+  // The web app calls from its own origin; so does the composer's warning.
+  expect(made.headers.get("access-control-allow-origin")).toBe("*");
+  const warned = await post(mika, "4111 1111 1111 1111");
+  expect(warned.headers.get("access-control-allow-origin")).toBe("*");
   expect((await made.json()).rule).toMatchObject({ name: "Card number", action: "block", enabled: true });
   const list = await (await call(`/orgs/dlp?orgId=${encodeURIComponent(ORG)}`, toru)).json();
   expect(list.rules).toHaveLength(1);

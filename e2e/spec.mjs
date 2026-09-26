@@ -3088,6 +3088,60 @@ await step('an owner makes a workspace key; the admin API reads the team with it
   }
 })
 
+await step('a data rule warns before a message goes, and it goes when the person says so; SCIM and streams are offered', async () => {
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/tools/dlp`, { waitUntil: 'load' })
+    await w.reload({ waitUntil: 'load' })
+    await w.waitForSelector('[data-studio-page="dlp"] [data-dlp-add]', { timeout: 20000 })
+      .catch(async () => { throw new Error(`Data rules did not open for the owner: ${await w.textContent('[data-studio-page="dlp"]').catch(() => '')}`) })
+    await w.selectOption('[data-dlp-kind]', 'keywords')
+    await w.fill('[data-dlp-name]', 'Project names')
+    await w.fill('[data-dlp-keywords]', 'Bluebird')
+    await w.click('[data-dlp-add] button[type="submit"]')
+    await w.waitForSelector('[data-dlp-rule="Project names"]', { timeout: 10000 })
+      .catch(async () => { throw new Error(`the rule did not appear: ${await w.textContent('[data-studio-page="dlp"]').catch(() => '')}`) })
+    await w.fill('[data-dlp-trial]', 'the bluebird brief')
+    await w.click('[data-dlp-trial] ~ .rules-actions button[type="submit"]')
+    await w.waitForSelector('[data-dlp-hits]:has-text("Project names")', { timeout: 10000 })
+    await w.screenshot({ path: `${SHOTS}/73-data-rules.png` })
+
+    // In a channel: asked first, then sent.
+    await w.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await w.waitForSelector('.slk-side .cl-thread[data-view^="b:"]', { timeout: 20000 })
+    await w.click('.slk-side .cl-thread[data-view^="b:"] .cl-open')
+    const said = `The Bluebird launch moved ${Date.now()}`
+    await w.fill('.slk-composer .slk-input', said)
+    await w.keyboard.press('Enter')
+    await w.waitForSelector('[data-dlp-send]', { timeout: 10000 })
+      .catch(() => { throw new Error('no warning before a message the rule is about') })
+    await w.screenshot({ path: `${SHOTS}/74-data-rule-warning.png` })
+    await w.click('[data-dlp-send]')
+    await w.waitForSelector(`.slk-text:has-text("${said}")`, { timeout: 15000 })
+      .catch(() => { throw new Error('sending anyway did not send it') })
+
+    // Provisioning and the SIEM have their places.
+    await w.goto(`${WEB}#/tools/sso`, { waitUntil: 'load' })
+    await w.reload({ waitUntil: 'load' })
+    await w.waitForSelector('[data-scim-base] code:has-text("/scim/v2")', { timeout: 20000 })
+    await w.goto(`${WEB}#/tools/audit`, { waitUntil: 'load' })
+    await w.reload({ waitUntil: 'load' })
+    await w.waitForSelector('[data-audit-streams]', { timeout: 20000 })
+      .catch(async () => { throw new Error(`no streams on the audit log page: ${await w.textContent('[data-studio-page="audit"]').catch(() => '')}`) })
+
+    // The rule goes, so nothing after this is asked about.
+    await w.evaluate(async (host) => {
+      const q = `orgId=${encodeURIComponent(localStorage.getItem('orgId'))}`
+      const headers = { 'x-session-token': localStorage.getItem('sessionToken') }
+      const { rules } = await (await fetch(`${host}/orgs/dlp?${q}`, { headers })).json()
+      for (const r of rules) await fetch(`${host}/orgs/dlp/${r.id}?${q}`, { method: 'DELETE', headers })
+    }, API)
+  } finally {
+    await ctx.close()
+  }
+})
+
 await step('a guest invited to one channel sees that channel and nothing else', async () => {
   const link = await page.evaluate(async (host) => {
     const r = await fetch(`${host}/invites/create`, {
