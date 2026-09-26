@@ -82,4 +82,16 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(entry?.label, "ShogunAI")
         XCTAssertEqual(entry?.memberCount, 7)
     }
+
+    func testThreadsGroupsAndTheSidebarDecodeAsTheWorkerSendsThem() throws {
+        let threads = try JSONDecoder().decode([ChatThreadItem].self, from: #"[{"parent":{"id":"p1","channel":"b:cafe","kind":"message","body":"New beans?","mine":true,"createdAt":"2026-09-26T01:00:00.000Z"},"replies":[{"id":"r1","channel":"b:cafe","kind":"message","body":"Ethiopian","mine":false,"createdAt":"2026-09-26T01:05:00.000Z","parentId":"p1"}],"replyCount":3,"lastReplyAt":"2026-09-26T01:05:00.000Z","unread":true}]"#.data(using: .utf8)!)
+        XCTAssertEqual(threads.first?.id, "p1")
+        XCTAssertEqual(threads.first?.replyCount, 3)
+        XCTAssertTrue(threads.first?.unread == true)
+        let groups = try JSONDecoder().decode([ChatUserGroup].self, from: #"[{"handle":"営業","name":"Sales","refs":["r1","r2"],"createdBy":null}]"#.data(using: .utf8)!)
+        XCTAssertEqual(groups.first?.handle, "営業")
+        let sidebar = try JSONDecoder().decode(ChatSidebar.self, from: #"{"starred":["b:cafe"],"sections":[{"id":"s1","name":"Clients","views":["dm:r1"],"collapsed":false}]}"#.data(using: .utf8)!)
+        XCTAssertEqual(sidebar.starred, ["b:cafe"])
+        XCTAssertEqual(sidebar.sections.first?.views, ["dm:r1"])
+    }
 }

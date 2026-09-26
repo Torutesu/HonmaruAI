@@ -6,6 +6,7 @@ enum ChatRoute: Hashable {
     case conversation(view: String, jump: String?)
     case activity
     case later
+    case threads
 }
 
 /// One conversation, the way a chat app on a phone draws it: messages you
@@ -38,6 +39,9 @@ struct ConversationView: View {
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
     @State private var jamOpen = false
+    @State private var forwarding: ChatMessage?
+    @State private var newSectionName = ""
+    @State private var askingSectionName = false
 
     private var conversation: ChatConversation? { store.conversation(for: view) }
     private var title: String {
@@ -107,6 +111,17 @@ struct ConversationView: View {
         }
         .sheet(item: $openCard) { CardDetailSheet(card: $0).environmentObject(appState) }
         .sheet(isPresented: $customTime) { customTimeSheet }
+        .sheet(item: $forwarding) { m in ChatForwardSheet(store: store, message: m) }
+        .alert("New section", isPresented: $askingSectionName) {
+            TextField("Section name", text: $newSectionName)
+            Button("Create") {
+                let name = newSectionName.trimmingCharacters(in: .whitespaces)
+                newSectionName = ""
+                guard !name.isEmpty else { return }
+                Task { await store.newSection(name, with: view) }
+            }
+            Button("Cancel", role: .cancel) { newSectionName = "" }
+        }
         .fullScreenCover(isPresented: $jamOpen) {
             ChatJamSheet(view: view, title: title, base: store.baseURL, orgId: appState.currentUser?.teamID)
         }
@@ -179,6 +194,10 @@ struct ConversationView: View {
             Button { editing = m; draft = m.body; focused = true } label: { Label("Edit message", systemImage: "pencil") }
         }
         Button { UIPasteboard.general.string = m.body } label: { Label("Copy text", systemImage: "doc.on.doc") }
+        Button { forwarding = m } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+        if !m.mine {
+            Button { Task { await store.markUnread(m) } } label: { Label("Mark unread", systemImage: "envelope.badge") }
+        }
         Button { Task { await store.togglePin(m) } } label: {
             Label(m.pinned == true ? LocalizedStringKey("Unpin") : LocalizedStringKey("Pin to channel"), systemImage: m.pinned == true ? "pin.slash" : "pin")
         }
@@ -385,6 +404,7 @@ struct ConversationView: View {
         if let token = draft.split(separator: " ", omittingEmptySubsequences: false).last, token.hasPrefix("@"), token.count >= 1 {
             let q = token.dropFirst().lowercased()
             let people = [("AI", "AI")] + store.members.filter { !$0.mine }.map { ($0.handle ?? $0.name, $0.name) }
+                + store.userGroups.map { ($0.handle, "@\($0.handle) · \($0.name)") }
             let hits = people.filter { q.isEmpty || $0.0.lowercased().hasPrefix(q) || $0.1.lowercased().hasPrefix(q) }.prefix(5)
             if !hits.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -480,6 +500,20 @@ struct ConversationView: View {
             Button { Task { pins = await store.pins(view); showPins = true } } label: { Image(systemName: "pin") }
                 .accessibilityLabel("Pinned messages")
             Menu {
+                Button { Task { await store.toggleStar(view) } } label: {
+                    Label(store.isStarred(view) ? LocalizedStringKey("Unstar") : LocalizedStringKey("Star"), systemImage: store.isStarred(view) ? "star.slash" : "star")
+                }
+                Menu {
+                    ForEach(store.sidebar.sections) { s in
+                        Button { Task { await store.move(view, to: s.id) } } label: {
+                            if store.section(of: view)?.id == s.id { Label(s.name, systemImage: "checkmark") } else { Text(verbatim: s.name) }
+                        }
+                    }
+                    if store.section(of: view) != nil {
+                        Button("Back to where it was") { Task { await store.move(view, to: nil) } }
+                    }
+                    Button("New section…") { askingSectionName = true }
+                } label: { Label("Move to a section", systemImage: "folder") }
                 Picker("Notify me about", selection: Binding(get: { store.prefs[view] ?? "all" }, set: { v in Task { await store.setPref(view, level: v) } })) {
                     Text("Everything").tag("all")
                     Text("Mentions only").tag("mentions")

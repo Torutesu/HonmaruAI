@@ -25,6 +25,12 @@ final class ChatStore: ObservableObject {
     @Published private(set) var groups: [ChatGroup] = []
     /// This workspace's own emoji, by name. Only this workspace's.
     @Published private(set) var emoji: [ChatEmoji] = []
+    /// Threads you are in, the newest reply first.
+    @Published private(set) var threads: [ChatThreadItem] = []
+    /// "@sales": the workspace's user groups, for the composer.
+    @Published private(set) var userGroups: [ChatUserGroup] = []
+    /// Your starred conversations and your own sections.
+    @Published private(set) var sidebar = ChatSidebar()
     @Published private(set) var activity: [String: ChatActivity] = [:]
     @Published private(set) var reads: [String: String] = [:]
     @Published var prefs: [String: String] = [:]
@@ -111,10 +117,93 @@ final class ChatStore: ObservableObject {
             businesses = list
         } catch { self.error = error.localizedDescription }
         if let list = try? await ChatService.emoji(orgId: orgId, base: base) { emoji = list } else { emoji = [] }
+        if let list = try? await ChatService.userGroups(orgId: orgId, base: base) { userGroups = list } else { userGroups = [] }
+        if let layout = try? await ChatService.sidebar(orgId: orgId, base: base) { sidebar = layout } else { sidebar = ChatSidebar() }
+        await loadThreads()
         async let i: Void = loadInbox()
         async let l: Void = loadLater()
         async let s: Void = loadScheduled()
         _ = await (i, l, s)
+    }
+
+    func loadThreads() async {
+        guard let orgId, let base else { return }
+        if let list = try? await ChatService.threads(orgId: orgId, base: base) { threads = list }
+    }
+    var unreadThreads: Int { threads.filter(\.unread).count }
+    func markThreadRead(_ item: ChatThreadItem) async {
+        guard let orgId, let base else { return }
+        if let i = threads.firstIndex(where: { $0.id == item.id }) { threads[i].unread = false }
+        await ChatService.markThreadRead(orgId: orgId, channel: item.parent.channel, parentId: item.parent.id, base: base)
+    }
+
+    // MARK: Your sidebar
+
+    func isStarred(_ view: String) -> Bool { sidebar.starred.contains(view) }
+    func section(of view: String) -> ChatSidebar.Section? { sidebar.sections.first { $0.views.contains(view) } }
+    /// Not starred and in none of your sections: where it always was.
+    func isUnplaced(_ view: String) -> Bool { !isStarred(view) && section(of: view) == nil }
+    func toggleStar(_ view: String) async {
+        var next = sidebar
+        if next.starred.contains(view) { next.starred.removeAll { $0 == view } } else { next.starred.append(view) }
+        await saveSidebar(next)
+    }
+    func move(_ view: String, to sectionId: String?) async {
+        var next = sidebar
+        for i in next.sections.indices {
+            next.sections[i].views.removeAll { $0 == view }
+            if next.sections[i].id == sectionId { next.sections[i].views.append(view) }
+        }
+        await saveSidebar(next)
+    }
+    func newSection(_ name: String, with view: String?) async {
+        var next = sidebar
+        if let view { for i in next.sections.indices { next.sections[i].views.removeAll { $0 == view } } }
+        next.sections.append(ChatSidebar.Section(id: String(UUID().uuidString.prefix(8)).lowercased(), name: name, views: view.map { [$0] } ?? []))
+        await saveSidebar(next)
+    }
+    func removeSection(_ id: String) async {
+        var next = sidebar
+        next.sections.removeAll { $0.id == id }
+        await saveSidebar(next)
+    }
+    private func saveSidebar(_ next: ChatSidebar) async {
+        guard let orgId, let base else { return }
+        sidebar = next
+        do { sidebar = try await ChatService.saveSidebar(orgId: orgId, sidebar: next, base: base) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    // MARK: Unread, forward
+
+    /// Unread from this message on, on every device.
+    func markUnread(_ m: ChatMessage) async {
+        guard let orgId, let base else { return }
+        do {
+            let out = try await ChatService.markUnread(orgId: orgId, channel: m.channel, messageId: m.id, base: base)
+            if out.thread != nil { await loadThreads() } else { reads[m.channel] = out.lastReadAt }
+            Haptics.light()
+        } catch { self.error = error.localizedDescription }
+    }
+
+    /// Forward into another conversation. From a DM, a group or a private
+    /// channel only a link goes; whoever can read the original opens it.
+    func isClosed(_ view: String) -> Bool {
+        view.hasPrefix("dm:") || view.hasPrefix("g:") || (conversation(for: view)?.isPrivate ?? false)
+    }
+    func forward(_ m: ChatMessage, to target: String, comment: String, webLink: String?) async -> Bool {
+        let link = webLink ?? ""
+        let body: String
+        if isClosed(m.channel) {
+            body = [comment, link].filter { !$0.isEmpty }.joined(separator: "\n")
+        } else {
+            let quoted = m.body.isEmpty ? "> 📎" : m.body.prefix(600).split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n")
+            let from = conversation(for: m.channel)
+            let who = m.isAI ? String(localized: "Your AI") : (m.authorName ?? String(localized: "a teammate"))
+            let whereFrom = from.map { $0.kind == .channel ? ", #\($0.name)" : "" } ?? ""
+            body = [comment, quoted, "— \(who)\(whereFrom)", link].filter { !$0.isEmpty }.joined(separator: "\n")
+        }
+        return await send(target, text: body)
     }
 
     func loadInbox() async {

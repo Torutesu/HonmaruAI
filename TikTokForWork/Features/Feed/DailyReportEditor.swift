@@ -15,6 +15,10 @@ struct DailyReportEditor: View {
     /// it was when it opened.
     @State private var postedText: String?
     @FocusState private var focused: Bool
+    /// Asking the AI to change it: what was asked, what it did.
+    @State private var ask = ""
+    @State private var refining = false
+    @State private var talk: [(ask: String, note: String)] = []
 
     /// A channel message holds this many characters, counted as the Worker
     /// counts them.
@@ -85,6 +89,34 @@ struct DailyReportEditor: View {
             Text(String(localized: "\(unwritten) lines still ask for your own words."))
                 .font(.caption).foregroundStyle(Theme.Colors.textSecondary)
         }
+        // Ask the AI to change it, the way you would ask a colleague.
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(talk.enumerated()), id: \.offset) { _, x in
+                Text(verbatim: x.ask).font(.caption).padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Theme.Colors.textPrimary, in: Capsule()).foregroundStyle(Theme.Colors.background)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Text(verbatim: x.note).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+            }
+            if talk.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach([String(localized: "Make it shorter"), String(localized: "More polite"), String(localized: "Tidy the bullets")], id: \.self) { s in
+                            Button(s) { refine(s) }.font(.caption).buttonStyle(.bordered).disabled(refining)
+                        }
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles").foregroundStyle(Theme.Colors.textSecondary)
+                TextField(String(localized: "Ask your AI to change it"), text: $ask)
+                    .font(.subheadline).submitLabel(.send).onSubmit { refine(ask) }
+                if refining { ProgressView().controlSize(.small) }
+                else { Button(String(localized: "Ask")) { refine(ask) }.font(.subheadline.weight(.semibold)).disabled(ask.trimmingCharacters(in: .whitespaces).isEmpty) }
+            }
+            .padding(10)
+            .background(Theme.Colors.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.Colors.border, lineWidth: 1))
+        }
         if let error {
             Text(error).font(.caption).foregroundStyle(Theme.Colors.reject)
         }
@@ -93,8 +125,25 @@ struct DailyReportEditor: View {
         }
     }
 
+    private func refine(_ request: String) {
+        let said = request.trimmingCharacters(in: .whitespacesAndNewlines)
+        let orgId = appState.currentUser?.teamID ?? SessionStore.orgId ?? ""
+        guard !said.isEmpty, !refining, let base = appState.backendBaseURL, !orgId.isEmpty else { return }
+        refining = true; error = nil; ask = ""
+        Task { @MainActor in
+            do {
+                let out = try await DailyReportService.refine(cardId: card.id, orgId: orgId, text: text, ask: said, backendBaseURL: base)
+                text = out.text
+                UserDefaults.standard.removeObject(forKey: storeKey)
+                talk.append((ask: said, note: out.note ?? String(localized: "Done.")))
+                Haptics.light()
+            } catch { self.error = error.localizedDescription }
+            refining = false
+        }
+    }
+
     private var canPost: Bool {
-        !posting && !appState.isGuest
+        !posting && !refining && !appState.isGuest
             && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && text.utf16.count <= Self.maxCharacters
     }
