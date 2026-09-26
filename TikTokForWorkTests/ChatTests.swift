@@ -108,7 +108,7 @@ final class ChatTests: XCTestCase {
     }
 
     func testTheCanvasDecodesAsTheWorkerSendsIt() throws {
-        let canvas = try JSONDecoder().decode(ChatCanvas.self, from: #"{"body":"## Opening\n- [ ] Unlock at 7","version":3,"updatedBy":"Mika","updatedAt":"2026-09-26T01:00:00.000Z"}"#.data(using: .utf8)!)
+        let canvas = try JSONDecoder().decode(ChatCanvas.self, from: ###"{"body":"## Opening\n- [ ] Unlock at 7","version":3,"updatedBy":"Mika","updatedAt":"2026-09-26T01:00:00.000Z"}"###.data(using: .utf8)!)
         XCTAssertEqual(canvas.version, 3)
         XCTAssertEqual(canvas.updatedBy, "Mika")
         let empty = try JSONDecoder().decode(ChatCanvas.self, from: #"{"body":"","version":0,"updatedBy":null,"updatedAt":null}"#.data(using: .utf8)!)
