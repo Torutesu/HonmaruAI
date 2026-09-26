@@ -322,17 +322,25 @@ OIDC だけでは、IdP 側で止められた人を即座には知れない。SC
    - `org_sso.session_hours`（既定 24 時間、最短 1、最長 720）を過ぎたら、SSO セッションは期限切れにする。
    - 使い続けていても延長しない（今のスライド延長はしない）。
    - クライアントは `code: "sso-reauth"` を受けたら、IdP に黙って行き直す（`prompt=none`）。IdP にセッションがあれば一瞬で戻る。
-2. **再確認**:
-   - `sessions.idp_checked_at` が 1 時間より古い SSO セッションは、次のリクエストで確認する。
-   - IdP の `userinfo`（または refresh_token での更新。保存するなら暗号化）を叩き、失敗（`invalid_grant` や 401）したらセッションを終える。
-   - `offline_access` を IdP が許す場合だけ行う。許さない場合は 1 の寿命だけに頼る。
-3. **管理者の手動停止**:
+2. **再確認**（実装済み、`checkSsoGrants`）:
+   - サインイン時に IdP が refresh_token をくれたら、暗号化して `sessions.sso_refresh` に置く。Google は `access_type=offline`、それ以外は IdP の `scopes_supported` に `offline_access` があれば頼む。
+   - 15 分ごとの cron で、最後の確認（`sso_checked_at`）から 10 分以上たった SSO セッションについて refresh_token で更新を頼む（1 回 200 件まで）。
+   - IdP が `invalid_grant` で断ったら（利用停止・削除・IdP 側でのサインアウト）、そのセッションを終え、`sso.session_revoked`（warning）を残す。新しい refresh_token が返ればそれに置き換える。IdP に届かない・5xx の時は何もしない（次の回にまた聞く）。
+   - refresh_token をくれない IdP では 1 の寿命だけに頼る。
+3. **バックチャネル・ログアウト**（実装済み、OpenID Connect Back-Channel Logout 1.0）:
+   - `POST /sso/oidc/<接続 ID>/backchannel-logout` に IdP が `logout_token` を送る。接続の画面にこのアドレスを出す。
+   - 確かめること: 署名（ID トークンと同じ IdP の鍵）、発行者、Audience（Client ID）、`iat` が 10 分以内、`events` にバックチャネル・ログアウトのイベント、`sub` か `sid`、`nonce` が無いこと、`jti`。同じ `jti` は 1 度しか受けない（`sso_logout_tokens`）。
+   - `sid` があればそのサインイン（`sessions.sso_sid`）だけ、`sub` だけならその人の、その接続から入った全セッションを終える。`sso.idp_signed_out` を残す。
+   - 応答は 200（成功）か 400（`invalid_request`）で、`Cache-Control: no-store`。
+   - SAML のシングルログアウトは受けない。SAML の IdP での停止は SCIM（§11）と寿命で追う。
+4. **管理者の手動停止**:
    - チームの画面の「全端末からログアウト」（#80 で実装済み）に、「そして SSO の紐付けを外す」を足す。
 
 監査ログ:
 - `auth.login`（method = sso）
 - `sso.session_expired`
-- `sso.reauth_failed`（warning）
+- `sso.session_revoked`（warning、IdP が refresh を断った）
+- `sso.idp_signed_out`（IdP のバックチャネル・ログアウト）
 - `sso.identity_unlinked`（warning）
 
 ---

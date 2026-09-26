@@ -11,7 +11,7 @@ import { forgetPolicies } from "../src/policy.js";
 
 const ORG = "team:acme";
 const ISSUER = "https://idp.test";
-let owner; let keyPair; let claims; let tokenAnswer;
+let owner; let keyPair; let claims; let tokenAnswer; let refreshAnswer; let refreshSeen;
 const pending = [];
 const ctx = { waitUntil: (p) => pending.push(p) };
 const realFetch = globalThis.fetch;
@@ -50,19 +50,23 @@ async function signIn(who, { client = "web", mutate = (c) => c } = {}) {
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_domains; DELETE FROM org_sso; DELETE FROM sso_connections; DELETE FROM org_sso_policy; DELETE FROM sso_identities; DELETE FROM sso_states; DELETE FROM sso_handoffs;");
+  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_domains; DELETE FROM org_sso; DELETE FROM sso_connections; DELETE FROM org_sso_policy; DELETE FROM sso_identities; DELETE FROM sso_states; DELETE FROM sso_handoffs; DELETE FROM sso_logout_tokens;");
   forgetProviderDocs();
   forgetPolicies();
   keyPair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
   const jwk = { ...(await crypto.subtle.exportKey("jwk", keyPair.publicKey)), kid: "k1", alg: "RS256", use: "sig" };
-  tokenAnswer = null;
+  tokenAnswer = null; refreshAnswer = null; refreshSeen = [];
   globalThis.fetch = async (input, init) => {
     const u = new URL(typeof input === "string" ? input : input.url);
     if (u.origin === ISSUER) {
-      if (u.pathname === "/.well-known/openid-configuration") return Response.json({ issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, jwks_uri: `${ISSUER}/jwks` });
+      if (u.pathname === "/.well-known/openid-configuration") return Response.json({ issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, jwks_uri: `${ISSUER}/jwks`, scopes_supported: ["openid", "email", "profile", "offline_access"] });
       if (u.pathname === "/jwks") return Response.json({ keys: [jwk] });
       if (u.pathname === "/token") {
         const form = new URLSearchParams(await new Response(init.body).text());
+        if (form.get("grant_type") === "refresh_token") {
+          refreshSeen.push(form.get("refresh_token"));
+          return refreshAnswer ? refreshAnswer() : Response.json({ access_token: "at2" });
+        }
         if (!form.get("code_verifier") || form.get("client_secret") !== "s3cret") return Response.json({ error: "invalid_client" }, { status: 401 });
         return Response.json(tokenAnswer || { id_token: await sign(claims), access_token: "at" });
       }
@@ -181,3 +185,110 @@ test("required: only after the owner came through it; then an email-code sign-in
   expect(stale.status).toBe(401);
   expect((await stale.json()).code).toBe("sso-reauth");
 });
+
+// ---- The provider ending sign-ins (back-channel logout, refresh check) ----
+
+async function ssoSession(who) {
+  const back = await signIn(who);
+  const code = hashParams(back).get("code");
+  return (await (await call("/sso/exchange", null, { method: "POST", body: { code, client: "web" } })).json()).token;
+}
+const logoutToken = (over = {}) => {
+  const now = Math.floor(Date.now() / 1000);
+  return sign({ iss: ISSUER, aud: "client-1", iat: now, exp: now + 120, jti: crypto.randomUUID(), events: { "http://schemas.openid.net/event/backchannel-logout": {} }, ...over });
+};
+const connId = async () => (await env.DB.prepare("SELECT id FROM sso_connections WHERE org_id = ?1").bind(ORG).first()).id;
+const postLogout = async (token, id) => worker.fetch(new Request(`https://api.example.com/sso/oidc/${id || await connId()}/backchannel-logout`, {
+  method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ logout_token: token }),
+}), env, ctx);
+
+test("the provider signs one sign-in out (sid), once; a bad logout token ends nothing", async () => {
+  await activate();
+  // Sign in twice, as two sign-ins at the provider.
+  const sessions = [];
+  for (const sid of ["sid-A", "sid-B"]) {
+    const start = await call(`/sso/start?orgId=${encodeURIComponent(ORG)}&client=web`);
+    const at = where(start);
+    expect(at.searchParams.get("scope")).toContain("offline_access");
+    const now = Math.floor(Date.now() / 1000);
+    claims = { iss: ISSUER, aud: "client-1", sub: "okta-aya", email: "aya@acme.co.jp", email_verified: true, name: "Aya", nonce: at.searchParams.get("nonce"), iat: now, exp: now + 300, sid };
+    tokenAnswer = { id_token: await sign(claims), access_token: "at", refresh_token: "rt-aya" };
+    const back = await call(`/sso/callback?code=abc&state=${at.searchParams.get("state")}`);
+    sessions.push((await (await call("/sso/exchange", null, { method: "POST", body: { code: hashParams(back).get("code"), client: "web" } })).json()).token);
+  }
+  const stored = await env.DB.prepare("SELECT sso_sid, sso_subject, sso_refresh FROM sessions WHERE token = ?1").bind(sessions[0]).first();
+  expect(stored).toMatchObject({ sso_sid: "sid-A", sso_subject: "okta-aya" });
+  expect(stored.sso_refresh).toMatch(/^v1:/);
+  expect(stored.sso_refresh).not.toContain("rt-aya");
+
+  // Refused: another audience, a nonce, no event, too old, unsigned.
+  const now = Math.floor(Date.now() / 1000);
+  for (const bad of [
+    await logoutToken({ sid: "sid-A", aud: "client-2" }),
+    await logoutToken({ sid: "sid-A", nonce: "n" }),
+    await logoutToken({ sid: "sid-A", events: {} }),
+    await logoutToken({ sid: "sid-A", iat: now - 3600, exp: now + 60 }),
+    await logoutToken({}),
+    await sign({ iss: ISSUER, aud: "client-1", iat: now, jti: "x", sid: "sid-A", events: { "http://schemas.openid.net/event/backchannel-logout": {} } }, { alg: "none" }),
+  ]) {
+    const res = await postLogout(bad);
+    expect(res.status).toBe(400);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  }
+  expect((await call(`/members?orgId=${ORG}`, sessions[0])).status).toBe(200);
+  expect((await postLogout(await logoutToken({ sid: "sid-A" }), "nope")).status).toBe(400);
+
+  const token = await logoutToken({ sid: "sid-A", sub: "okta-aya" });
+  expect((await postLogout(token)).status).toBe(200);
+  expect((await call(`/members?orgId=${ORG}`, sessions[0])).status).toBe(401);
+  // The other sign-in at the provider is still on.
+  expect((await call(`/members?orgId=${ORG}`, sessions[1])).status).toBe(200);
+  // The same token again is refused.
+  expect((await postLogout(token)).status).toBe(400);
+  const row = await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1 AND action = 'sso.idp_signed_out'").bind(ORG).first();
+  expect(row).toBeTruthy();
+});
+
+test("the provider signs a person out everywhere (sub); others stay in", async () => {
+  await activate();
+  const aya = await ssoSession({ sub: "okta-aya", email: "aya@acme.co.jp", name: "Aya" });
+  const aya2 = await ssoSession({ sub: "okta-aya", email: "aya@acme.co.jp", name: "Aya" });
+  const mika = await ssoSession({ sub: "okta-mika", email: "mika@acme.co.jp", name: "Mika" });
+  expect((await postLogout(await logoutToken({ sub: "okta-aya" }))).status).toBe(200);
+  expect((await call(`/members?orgId=${ORG}`, aya)).status).toBe(401);
+  expect((await call(`/members?orgId=${ORG}`, aya2)).status).toBe(401);
+  expect((await call(`/members?orgId=${ORG}`, mika)).status).toBe(200);
+  const shown = await (await call(`/orgs/sso?orgId=${ORG}`, owner)).json();
+  expect(shown.connections[0].logoutUrl).toMatch(/\/sso\/oidc\/.+\/backchannel-logout$/);
+});
+
+test("now and then the provider is asked again: a refreshed token is kept, a refused one ends the session", async () => {
+  await activate();
+  const { checkSsoGrants } = await import("../src/sso.js");
+  tokenAnswer = null;
+  const start = await call(`/sso/start?orgId=${encodeURIComponent(ORG)}&client=web`);
+  const at = where(start);
+  const now = Math.floor(Date.now() / 1000);
+  claims = { iss: ISSUER, aud: "client-1", sub: "okta-aya", email: "aya@acme.co.jp", email_verified: true, name: "Aya", nonce: at.searchParams.get("nonce"), iat: now, exp: now + 300 };
+  tokenAnswer = { id_token: await sign(claims), access_token: "at", refresh_token: "rt-1" };
+  const back = await call(`/sso/callback?code=abc&state=${at.searchParams.get("state")}`);
+  const aya = (await (await call("/sso/exchange", null, { method: "POST", body: { code: hashParams(back).get("code"), client: "web" } })).json()).token;
+  // Not due yet.
+  expect((await checkSsoGrants(env)).checked).toBe(0);
+  const later = Date.now() + 11 * 60_000;
+  refreshAnswer = () => Response.json({ access_token: "at2", refresh_token: "rt-2" });
+  expect(await checkSsoGrants(env, { now: later })).toEqual({ checked: 1, ended: 0 });
+  expect(refreshSeen).toEqual(["rt-1"]);
+  // A provider that cannot answer ends nothing.
+  refreshAnswer = () => Response.json({ error: "temporarily_unavailable" }, { status: 503 });
+  expect(await checkSsoGrants(env, { now: later + 11 * 60_000 })).toEqual({ checked: 1, ended: 0 });
+  expect(refreshSeen[1]).toBe("rt-2");
+  expect((await call(`/members?orgId=${ORG}`, aya)).status).toBe(200);
+  // Switched off at the provider.
+  refreshAnswer = () => Response.json({ error: "invalid_grant" }, { status: 400 });
+  expect(await checkSsoGrants(env, { now: later + 22 * 60_000 })).toEqual({ checked: 1, ended: 1 });
+  expect((await call(`/members?orgId=${ORG}`, aya)).status).toBe(401);
+  const row = await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1 AND action = 'sso.session_revoked'").bind(ORG).first();
+  expect(row).toBeTruthy();
+});
+

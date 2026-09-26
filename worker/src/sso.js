@@ -120,7 +120,8 @@ async function importJwk(jwk, alg) {
 
 /// Check an ID token: its signature against the provider's keys (fetched
 /// again once when the key is not known — keys rotate), then every claim.
-export async function verifyIdToken(token, { discovery, clientId, nonce, now = Date.now() }) {
+/// A JWT from the provider whose signature holds, as its claims.
+async function signedClaims(token, discovery) {
   const jwt = decodeJwt(token);
   const alg = jwt.header.alg;
   if (alg !== "RS256" && alg !== "ES256") throw new Error(`The ID token is signed with ${alg || "nothing"}, which is not accepted.`);
@@ -134,7 +135,11 @@ export async function verifyIdToken(token, { discovery, clientId, nonce, now = D
   const key = await importJwk(jwk, alg);
   const params = alg === "RS256" ? { name: "RSASSA-PKCS1-v1_5" } : { name: "ECDSA", hash: "SHA-256" };
   if (!(await crypto.subtle.verify(params, key, jwt.signature, jwt.signed))) throw new Error("The ID token's signature is not valid.");
-  const c = jwt.payload;
+  return jwt.payload;
+}
+
+export async function verifyIdToken(token, { discovery, clientId, nonce, now = Date.now() }) {
+  const c = await signedClaims(token, discovery);
   const seconds = Math.floor(now / 1000);
   if (String(c.iss || "").replace(/\/$/, "") !== String(discovery.issuer).replace(/\/$/, "")) throw new Error("The ID token is from a different issuer.");
   const aud = Array.isArray(c.aud) ? c.aud : [c.aud];
@@ -142,6 +147,27 @@ export async function verifyIdToken(token, { discovery, clientId, nonce, now = D
   if (!Number.isFinite(c.exp) || c.exp + SKEW_SECONDS < seconds) throw new Error("The ID token has expired.");
   if (Number.isFinite(c.iat) && c.iat - SKEW_SECONDS > seconds) throw new Error("The ID token was issued in the future.");
   if (c.nonce !== nonce) throw new Error("The ID token is not for this sign-in.");
+  return c;
+}
+
+const BACKCHANNEL_EVENT = "http://schemas.openid.net/event/backchannel-logout";
+const LOGOUT_TOKEN_MAX_AGE = 10 * 60;
+
+/// Check a logout token (OpenID Connect Back-Channel Logout 1.0 §2.6): the
+/// same signature and issuer and audience as an ID token, the logout event,
+/// someone or some sign-in named, recent, and no nonce.
+export async function verifyLogoutToken(token, { discovery, clientId, now = Date.now() }) {
+  const c = await signedClaims(token, discovery);
+  const seconds = Math.floor(now / 1000);
+  if (String(c.iss || "").replace(/\/$/, "") !== String(discovery.issuer).replace(/\/$/, "")) throw new Error("The logout token is from a different issuer.");
+  const aud = Array.isArray(c.aud) ? c.aud : [c.aud];
+  if (!aud.includes(clientId)) throw new Error("The logout token is for a different application.");
+  if (!Number.isFinite(c.iat) || c.iat - SKEW_SECONDS > seconds || seconds - c.iat > LOGOUT_TOKEN_MAX_AGE) throw new Error("The logout token is too old or from the future.");
+  if (Number.isFinite(c.exp) && c.exp + SKEW_SECONDS < seconds) throw new Error("The logout token has expired.");
+  if (!c.events || typeof c.events !== "object" || typeof c.events[BACKCHANNEL_EVENT] !== "object") throw new Error("The token is not a logout token.");
+  if (!c.sub && !c.sid) throw new Error("The logout token names no one.");
+  if ("nonce" in c) throw new Error("A logout token carries no nonce.");
+  if (!c.jti) throw new Error("The logout token has no identifier.");
   return c;
 }
 
@@ -232,6 +258,7 @@ export function presentConnection(row, base) {
     allowedDomains: domainsOf(row), hostedDomain: row.hosted_domain, tenantId: row.tenant_id,
     sessionHours: row.session_hours, status: row.status,
     testedAt: row.tested_at, test: row.test_result ? JSON.parse(row.test_result) : null,
+    ...(row.provider !== "saml" && base ? { logoutUrl: `${String(base).replace(/\/$/, "")}/sso/oidc/${encodeURIComponent(row.id)}/backchannel-logout` } : {}),
     ...(row.provider === "saml" && base ? { sp: { entityId: spEntityId(base, row.id), acs: acsUrl(base, row.id), metadata: `${spEntityId(base, row.id)}/metadata` } } : {}),
   };
 }
@@ -321,6 +348,12 @@ export async function startUrl(env, url, orgId, { client = "web", email = null, 
     state, nonce, code_challenge: challenge, code_challenge_method: "S256",
   });
   if (conn.provider === "google" && conn.hosted_domain) q.set("hd", conn.hosted_domain);
+  // A refresh token, where the provider gives one, lets us ask it later
+  // whether this person may still sign in (checkSsoGrants).
+  if (client !== "test") {
+    if (conn.provider === "google") q.set("access_type", "offline");
+    else if ((discovery.scopes_supported || []).includes("offline_access")) q.set("scope", "openid email profile offline_access");
+  }
   if (email) q.set("login_hint", email);
   return `${discovery.authorization_endpoint}?${q.toString()}`;
 }
@@ -372,7 +405,7 @@ function failure(env, request, row, client) {
 
 /// An identity the provider vouched for: a test result, or a session handed
 /// back by a one-time code.
-async function finishSignIn(env, request, row, conn, identity) {
+async function finishSignIn(env, request, row, conn, identity, grant = {}) {
   const client = row.return_to || "web";
   const fail = failure(env, request, row, client);
   // A test sign-in proves the connection and signs nobody in.
@@ -400,7 +433,10 @@ async function finishSignIn(env, request, row, conn, identity) {
     await audit(env, request, { orgId: conn.org_id, action: "member.joined", actor: person(joiner), details: { via: "sso", role: "member" } });
   }
   const token = await createSession(env.DB, account.githubId, EMAIL_AUTH_TOKEN, { client: client === "ios" ? "ios" : "web" });
-  const mark = () => env.DB.prepare("UPDATE sessions SET auth_method = 'sso', sso_org_id = ?2, sso_connection_id = ?3 WHERE token = ?1").bind(token, conn.org_id, conn.id).run();
+  const refresh = grant.refresh ? await sealSecret(env, grant.refresh) : null;
+  const mark = () => env.DB.prepare(
+    "UPDATE sessions SET auth_method = 'sso', sso_org_id = ?2, sso_connection_id = ?3, sso_subject = ?4, sso_sid = ?5, sso_refresh = ?6, sso_checked_at = ?7 WHERE token = ?1"
+  ).bind(token, conn.org_id, conn.id, identity.subject, grant.sid || null, refresh, now).run();
   await mark();
   const { signedIn } = await import("./sessions.js");
   await signedIn(env, request, token, account.githubId, "sso");
@@ -420,6 +456,7 @@ export async function callback(env, request, url) {
   if (url.searchParams.get("error")) return fail(`Your identity provider refused: ${url.searchParams.get("error_description") || url.searchParams.get("error")}`);
   if (!conn || conn.provider === "saml") return fail("Single sign-on is not set up for this workspace.");
   let identity;
+  let grant = {};
   try {
     const discovery = await discover(conn.issuer);
     const secret = await openSecret(env, conn.client_secret);
@@ -432,10 +469,11 @@ export async function callback(env, request, url) {
     if (!res.ok || !tokens.id_token) throw new Error(`Your identity provider refused: ${tokens.error_description || tokens.error || res.status}`);
     const claims = await verifyIdToken(tokens.id_token, { discovery, clientId: conn.client_id, nonce: row.nonce });
     identity = identityOf(conn.provider, claims, conn);
+    grant = { sid: typeof claims.sid === "string" ? claims.sid : null, refresh: typeof tokens.refresh_token === "string" ? tokens.refresh_token : null };
   } catch (err) {
     return fail(err?.message || String(err));
   }
-  return finishSignIn(env, request, row, conn, identity);
+  return finishSignIn(env, request, row, conn, identity, grant);
 }
 
 /// The SAML assertion posted back: checked, and the sign-in finished. Only a
@@ -568,8 +606,112 @@ async function saveConnection(env, orgId, id, fields, { createdBy, retest, exist
 /// POST /orgs/sso/connections/:id/test|activate · PUT /orgs/sso/enforce ·
 /// and, for the one connection a workspace used to have, PUT|DELETE /orgs/sso,
 /// POST /orgs/sso/test|activate.
+// ---- The provider ending sign-ins ----
+
+/// POST /sso/oidc/:id/backchannel-logout — the provider says a sign-in (sid)
+/// or everything of one person (sub) has ended there: those sessions end
+/// here too, at once. Each logout token is taken once.
+async function backchannelLogout(env, request, connectionId) {
+  const answer = (status, body) => new Response(body ? JSON.stringify(body) : null, { status, headers: { "cache-control": "no-store", ...(body ? { "content-type": "application/json" } : {}) } });
+  const refuse = (description) => answer(400, { error: "invalid_request", error_description: description });
+  const conn = await env.DB.prepare("SELECT * FROM sso_connections WHERE id = ?1").bind(String(connectionId)).first().catch(() => null);
+  if (!conn || conn.provider === "saml") return refuse("There is no such connection.");
+  const form = new URLSearchParams(await request.text().catch(() => ""));
+  let claims;
+  try {
+    claims = await verifyLogoutToken(form.get("logout_token") || "", { discovery: await discover(conn.issuer), clientId: conn.client_id });
+  } catch (err) {
+    return refuse(err?.message || String(err));
+  }
+  const now = new Date();
+  const seen = await env.DB.prepare("INSERT OR IGNORE INTO sso_logout_tokens (id, expires_at) VALUES (?1, ?2)")
+    .bind(`${conn.id}:${claims.jti}`, new Date(now.getTime() + 2 * LOGOUT_TOKEN_MAX_AGE * 1000).toISOString()).run();
+  if (!seen.meta?.changes) return refuse("This logout token was already used.");
+  const sid = typeof claims.sid === "string" ? claims.sid : null;
+  const sub = claims.sub ? String(claims.sub) : null;
+  const { results } = await env.DB.prepare(
+    `SELECT token, github_id FROM sessions WHERE sso_connection_id = ?1
+       AND (?2 IS NULL OR sso_sid = ?2) AND (?3 IS NULL OR sso_subject = ?3)`
+  ).bind(conn.id, sid, sub).all();
+  const gone = results || [];
+  if (gone.length) await env.DB.batch(gone.map((r) => env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(r.token)));
+  const who = gone[0] ? await getUserByGithubId(env.DB, gone[0].github_id).catch(() => null) : null;
+  await audit(env, request, {
+    orgId: conn.org_id, action: "sso.idp_signed_out", actor: { type: "system" }, entity: person(who) || undefined,
+    details: { connection: conn.id, provider: conn.provider, by: sid ? "sid" : "sub", sessions_ended: gone.length },
+  });
+  return answer(200);
+}
+
+const GRANT_CHECK_MINUTES = 10;
+
+/// Every little while, ask the provider about each SSO sign-in it gave us a
+/// refresh token for. A person switched off, deleted or signed out there is
+/// refused a new token (invalid_grant), and their session here ends. A
+/// provider that cannot be reached leaves sessions alone until next time.
+export async function checkSsoGrants(env, { now = Date.now(), limit = 50 } = {}) {
+  const due = new Date(now - GRANT_CHECK_MINUTES * 60_000).toISOString();
+  const { results } = await env.DB.prepare(
+    `SELECT token, github_id, sso_org_id, sso_connection_id, sso_refresh FROM sessions
+      WHERE auth_method = 'sso' AND sso_refresh IS NOT NULL AND (sso_checked_at IS NULL OR sso_checked_at < ?1)
+      ORDER BY sso_checked_at LIMIT ?2`
+  ).bind(due, limit).all().catch(() => ({ results: [] }));
+  const conns = new Map();
+  let ended = 0;
+  for (const s of results || []) {
+    const stamp = new Date(now).toISOString();
+    if (!conns.has(s.sso_connection_id)) {
+      const conn = await env.DB.prepare("SELECT * FROM sso_connections WHERE id = ?1").bind(String(s.sso_connection_id || "")).first().catch(() => null);
+      let discovery = null;
+      let secret = null;
+      if (conn) {
+        discovery = await discover(conn.issuer).catch(() => null);
+        secret = await openSecret(env, conn.client_secret).catch(() => null);
+      }
+      conns.set(s.sso_connection_id, { conn, discovery, secret });
+    }
+    const { conn, discovery, secret } = conns.get(s.sso_connection_id);
+    const ending = async (reason) => {
+      await env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(s.token).run();
+      ended += 1;
+      const who = await getUserByGithubId(env.DB, s.github_id).catch(() => null);
+      await audit(env, null, { orgId: s.sso_org_id, action: "sso.session_revoked", actor: { type: "system" }, entity: person(who) || undefined, details: { connection: s.sso_connection_id, reason } });
+    };
+    // The connection it came through is gone: so is the sign-in.
+    if (!conn) { await ending("connection-removed"); continue; }
+    const touch = (refresh = null) => env.DB.prepare("UPDATE sessions SET sso_checked_at = ?2, sso_refresh = COALESCE(?3, sso_refresh) WHERE token = ?1").bind(s.token, stamp, refresh).run();
+    if (!discovery) { await touch(); continue; }
+    let res; let body;
+    try {
+      const refreshToken = await openSecret(env, s.sso_refresh);
+      if (!refreshToken) { await touch(); continue; }
+      const form = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: conn.client_id, ...(secret ? { client_secret: secret } : {}) });
+      res = await fetch(discovery.token_endpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form, signal: AbortSignal.timeout(10_000) });
+      body = await res.json().catch(() => ({}));
+    } catch {
+      await touch();
+      continue;
+    }
+    if (res.ok) {
+      await touch(typeof body.refresh_token === "string" ? await sealSecret(env, body.refresh_token) : null);
+    } else if (res.status >= 400 && res.status < 500 && body.error === "invalid_grant") {
+      await ending("idp-refused");
+    } else {
+      await touch();
+    }
+  }
+  await env.DB.prepare("DELETE FROM sso_logout_tokens WHERE expires_at < ?1").bind(new Date(now).toISOString()).run().catch(() => {});
+  return { checked: (results || []).length, ended };
+}
+
 export async function handleSso(request, env, url) {
   const path = url.pathname;
+  const bcl = path.match(/^\/sso\/oidc\/([A-Za-z0-9_-]{1,80})\/backchannel-logout$/);
+  if (bcl && request.method === "POST") {
+    const limited = await enforce(env, request, "sso");
+    if (limited) return limited;
+    return backchannelLogout(env, request, bcl[1]);
+  }
   if (path === "/auth/discover" && request.method === "POST") {
     const limited = await enforce(env, request, "auth/discover");
     if (limited) return limited;
