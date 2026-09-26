@@ -3,7 +3,7 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { agentsCalled, requestFor, parseAgentMarkdown, agentMarkdown, cleanAgentHandle, PRESETS, presetsFor } from "../src/customAgents.js";
+import { agentsCalled, requestFor, parseAgentMarkdown, agentMarkdown, cleanAgentHandle, PRESETS, presetsFor, readResponse, forChat } from "../src/customAgents.js";
 
 // Agents a team writes for itself: "@hayao" answers in the thread under the
 // message that named it, as its Markdown instructions say. A team agent is
@@ -126,6 +126,8 @@ test("@hayao answers in the thread under the message, as itself, from its instru
   await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
   await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "Autumn menu launches on the 1st" });
   let prompt;
+  // A model that cannot search: the ordinary answer.
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(400, { error: { message: "web_search not supported" } });
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
     prompt = JSON.parse(opts.body);
     return { choices: [{ message: { content: "Warm amber and chestnut brown, hand-drawn type." } }], usage: { prompt_tokens: 10, completion_tokens: 8 } };
@@ -228,4 +230,38 @@ test("in its own conversation an agent reads the team's past decisions; in a cha
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao what about the roaster supplier?" }, { OPENAI_API_KEY: "sk-test" });
   expect(prompts[0]).toContain("Switch roaster supplier");
   expect(prompts[1]).not.toContain("Switch roaster supplier");
+});
+
+test("an agent looks things up on the web and answers with what it found, and where", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  let asked;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    asked = JSON.parse(opts.body);
+    return {
+      model: "gpt-4o-mini",
+      output: [
+        { type: "web_search_call", status: "completed" },
+        { type: "message", content: [{ type: "output_text", text: "## 結論\n**Blue Bottle** opened 3 Kyoto shops in 2025.", annotations: [
+          { type: "url_citation", url: "https://example.com/bb", title: "Blue Bottle Kyoto" },
+        ] }] },
+      ],
+      usage: { input_tokens: 40, output_tokens: 20 },
+    };
+  });
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Blue Bottleの京都出店を調べて" }, { OPENAI_API_KEY: "sk-test" });
+  expect(asked.tools).toEqual([{ type: "web_search" }]);
+  expect(asked.instructions).toContain("Deliver findings, never a plan");
+  expect(asked.input).toContain("Blue Bottleの京都出店を調べて");
+  const { messages } = await (await get(`/channels/messages?${q({ orgId: ORG, channel: `ag:${made.agent.id}` })}`, mika)).json();
+  expect(messages[1].body).toBe("*結論*\n*Blue Bottle* opened 3 Kyoto shops in 2025.\n\n*Sources*\n- Blue Bottle Kyoto: https://example.com/bb");
+  const calls = await env.DB.prepare("SELECT purpose FROM ai_calls WHERE org_id = ?1").bind(ORG).all();
+  expect(calls.results.map((r) => r.purpose)).toEqual(["agent"]);
+});
+
+test("a Responses reply reads as text and sources; Markdown becomes the chat's own marks", () => {
+  expect(readResponse({ output_text: "Hi", output: [{ type: "message", content: [{ type: "output_text", text: "Hi", annotations: [
+    { type: "url_citation", url: "https://a.example", title: "A" }, { type: "url_citation", url: "https://a.example", title: "A" },
+  ] }] }] })).toEqual({ text: "Hi", sources: [{ url: "https://a.example", title: "A" }] });
+  expect(readResponse(null)).toEqual({ text: "", sources: [] });
+  expect(forChat("### Plan\n**Key** point, __also__ [Docs](https://d.example/x)")).toBe("*Plan*\n*Key* point, *also* Docs https://d.example/x");
 });

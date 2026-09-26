@@ -34802,6 +34802,35 @@
           }
         }
       }
+    },
+    "%@ · nobody by that name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · 該当する人がいません"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · nadie con ese nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · personne de ce nom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · niemand mit diesem Namen"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

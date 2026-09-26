@@ -9,9 +9,9 @@ import { displayName, properName } from '../utils/names'
 import { Icon } from './Icon'
 import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
-import { useMembers, agentMentionables } from '../utils/mentions'
+import { useMembers, agentMentionables, mentionKind } from '../utils/mentions'
 import type { AgentFace } from '../utils/mentions'
-import { useMentionMenu } from './MentionMenu'
+import { useMentionMenu, useMentionHighlight } from './MentionMenu'
 import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/customEmoji'
 import { DailyReportDraft } from './DailyReport'
 import { MessageActions, Reactions, EmojiPicker, EmojiGlyph, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
@@ -1612,6 +1612,9 @@ export const ClassicList: React.FC<Props> = ({
   ], [mentionable, userGroups, agents, t])
   const mention = useMentionMenu(composer, draft, setDraft, withAI)
   const threadMention = useMentionMenu(threadComposer, threadDraft, setThreadDraft, withAI)
+  // @names that reach somebody light up as they are typed.
+  const draftHl = useMentionHighlight(composer, draft, withAI)
+  const threadHl = useMentionHighlight(threadComposer, threadDraft, withAI)
 
   // The newest message in view when a conversation opens, as in any chat.
   const logRef = useRef<HTMLDivElement>(null)
@@ -1768,10 +1771,14 @@ export const ClassicList: React.FC<Props> = ({
   /// Words as written, with Slack's formatting read back: lines kept,
   /// links clickable, @names marked.
   const agentHandles = new Set(agents.map((a) => a.handle.normalize('NFKC').toLowerCase()))
+  // Only an @name that reaches somebody is drawn as a mention; one that
+  // names nobody stays a word, so a typo reads as one.
   const rich = (text: string) => renderRich(text, (part) => {
-    const said = part.replace(/[にへ]$/, '')
-    if (/^[@＠]ai$/i.test(said)) return 'slk-mention ai'
-    return `slk-mention${agentHandles.has(said.replace(/^[@＠]/, '').normalize('NFKC').toLowerCase()) ? ' agent' : ''}`
+    const kind = mentionKind(part, withAI)
+    if (!kind) return ''
+    if (kind === 'ai') return 'slk-mention ai'
+    if (kind === 'agent' || agentHandles.has(part.replace(/^[@＠]/, '').replace(/[にへ]$/, '').normalize('NFKC').toLowerCase())) return 'slk-mention agent'
+    return `slk-mention${kind === 'group' ? ' group' : ''}`
   })
 
   /// What sits under a message's words: its reactions and its thread.
@@ -2531,10 +2538,11 @@ export const ClassicList: React.FC<Props> = ({
         {thread.view ? (
           <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
             <PendingUploads items={uploads.items} onRemove={uploads.remove} />
+            {draftHl.layer}
             <textarea
               ref={composer}
               onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); uploads.add(files, thread.view!) } }}
-              className="slk-input"
+              className={`slk-input${draftHl.active ? ' has-mentions' : ''}`}
               value={draft}
               rows={1}
               maxLength={4000}
@@ -3106,10 +3114,11 @@ export const ClassicList: React.FC<Props> = ({
           </div>
           <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
             <PendingUploads items={threadUploads.items} onRemove={threadUploads.remove} />
+            {threadHl.layer}
             <textarea
               ref={threadComposer}
               onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); threadUploads.add(files, thread.channel) } }}
-              className="slk-input"
+              className={`slk-input${threadHl.active ? ' has-mentions' : ''}`}
               value={threadDraft}
               rows={1}
               maxLength={4000}

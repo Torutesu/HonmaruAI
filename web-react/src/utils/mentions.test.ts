@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mentionQuery, matchMembers, insertMention, mentionedRefs, splitMentions } from './mentions'
+import { mentionQuery, matchMembers, insertMention, mentionedRefs, splitMentions, mentionKind, mentionSegments } from './mentions'
 
 const team = [
   { ref: 'r1', name: 'Toru Bando' },
@@ -54,5 +54,31 @@ describe('usernames', () => {
   it('reads a username back out of a sentence', () => {
     expect(mentionedRefs('@mikas approve the price', team)).toEqual(['r1'])
     expect(mentionedRefs('@Mika approve the price', team)).toEqual(['r1'])
+  })
+})
+
+
+describe('mentionKind', () => {
+  const list = [
+    { ref: '__ai', name: 'AI' },
+    { ref: 'm1', name: 'Mika Sato', handle: 'mika' },
+    { ref: 'group:sales', name: 'Sales', handle: 'sales' },
+    { ref: 'agent:a1', name: 'Hayao', handle: 'hayao' },
+  ]
+  it('names who a mention reaches, and nobody for a name nobody has', () => {
+    expect(mentionKind('@AI', list)).toBe('ai')
+    expect(mentionKind('@mika', list)).toBe('person')
+    expect(mentionKind('@Mika', list)).toBe('person')
+    expect(mentionKind('@sales', list)).toBe('group')
+    expect(mentionKind('@hayaoに', list)).toBe('agent')
+    expect(mentionKind('＠hayao', list)).toBe('agent')
+    expect(mentionKind('@nobody', list)).toBeNull()
+  })
+  it('cuts a text into runs that join back exactly', () => {
+    const text = '@mika and @nobody, ask @hayaoに'
+    const parts = mentionSegments(text, list)
+    expect(parts.map((p) => p.text).join('')).toBe(text)
+    expect(parts.filter((p) => p.mention).map((p) => [p.text, p.kind])).toEqual([['@mika', 'person'], ['@nobody', null], ['@hayaoに', 'agent']])
+    expect(mentionSegments('mail a@b.com', list).some((p) => p.mention)).toBe(false)
   })
 })

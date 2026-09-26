@@ -2792,6 +2792,15 @@ await step('a star, a section of your own, and a user group one mention reaches'
     await desk.keyboard.type(`@${handle.slice(0, 4)}`)
     await desk.waitForSelector(`.mention-option:has-text("@${handle}")`, { timeout: 5000 })
     await desk.keyboard.press('Enter')
+    // A name that reaches somebody lights up as it is typed; one that
+    // names nobody stays plain.
+    await desk.waitForSelector(`.slk-composer .mention-layer .mention-hl.m-group:has-text("@${handle}")`, { timeout: 5000 })
+      .catch(() => { throw new Error('a mention that reaches a group is not marked in the composer') })
+    await desk.keyboard.type('@nobodyhere ')
+    const plain = await desk.$$eval('.slk-composer .mention-layer .mention-hl', (els) => els.map((e) => e.textContent))
+    if (plain.some((x) => /nobodyhere/.test(x || ''))) throw new Error('a mention of nobody is marked as if it reached someone')
+    await desk.screenshot({ path: `${SHOTS}/62a-mention-colour.png` })
+    for (let i = 0; i < '@nobodyhere '.length; i++) await desk.keyboard.press('Backspace')
     await desk.keyboard.type('the delivery is at 3')
     await desk.keyboard.press('Enter')
     await desk.screenshot({ path: `${SHOTS}/62-sections-and-group.png` })

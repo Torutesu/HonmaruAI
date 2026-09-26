@@ -1325,3 +1325,25 @@
 .classic.slk.slk .cl-agent-option-handle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--slk-dim); font-size: 12.5px; }
 .classic.slk.slk .cl-agent-manage .cl-agent-option-name { font-weight: 400; color: var(--slk-dim); }
 .classic.slk.slk .slk-head-agent .slk-head-handle { color: var(--slk-dim); font-weight: 600; }
+
+/* @names as they are typed: the layer under the box draws the words with
+   every mention that reaches somebody marked; the box's own letters go
+   transparent over it. Nothing here may change width — no weight, no
+   padding — or the caret would drift from the letters. */
+.classic.slk.slk .mention-layer {
+  position: absolute; z-index: 0; margin: 0; overflow: hidden; pointer-events: none;
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+  color: var(--slk-ink); background: transparent;
+}
+.classic.slk.slk .slk-input.has-mentions {
+  position: relative; z-index: 1; color: transparent; caret-color: var(--slk-ink); background: transparent;
+}
+.classic.slk.slk .slk-input.has-mentions::selection { color: var(--slk-ink); }
+.classic.slk.slk .mention-hl {
+  color: var(--slk-accent); background: rgba(29, 155, 209, 0.16); border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(29, 155, 209, 0.16);
+}
+.classic.slk.slk .mention-hl.m-ai { color: #7c3aed; background: rgba(124, 58, 237, 0.14); box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.14); }
+.classic.slk.slk .mention-hl.m-agent { color: var(--slk-agent); background: color-mix(in srgb, var(--slk-agent) 16%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--slk-agent) 16%, transparent); }
+.classic.slk.slk .slk-mention.group { color: #0f7b6c; background: rgba(15, 123, 108, 0.12); }
+.classic.slk.slk .mention-hl.m-group { color: #0f7b6c; background: rgba(15, 123, 108, 0.14); box-shadow: 0 0 0 1px rgba(15, 123, 108, 0.14); }

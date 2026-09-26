@@ -263,7 +263,7 @@ export function renderRich(text: string, mentionClass: (name: string) => string)
 const JAM_AUDIO = /^https?:\/\/[^\s]+\/channels\/jam\/audio\/[0-9a-f-]{36}$/
 
 function inline(line: string, mentionClass: (name: string) => string): React.ReactNode[] {
-  const tokens = line.split(/(`[^`\n]+`|https?:\/\/[^\s<>"）」]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g)
+  const tokens = line.split(/(`[^`\n]+`|https?:\/\/[^\s<>"）」]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;]+|\*\*[^*\n]+\*\*|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g)
   // A line that is nothing but this workspace's emoji draws them large.
   const onlyEmoji = tokens.every((p) => !p || !p.trim() || (CUSTOM_EMOJI.test(p) && Boolean(customEmojiUrl(p))))
   return tokens.map((part, i) => {
@@ -278,6 +278,7 @@ function inline(line: string, mentionClass: (name: string) => string): React.Rea
     if (JAM_AUDIO.test(part)) return <audio key={i} className="slk-jam-audio" controls preload="none" src={part} />
     if (/^https?:\/\//.test(part)) return <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
     if (/^[@＠]/.test(part)) return <span key={i} className={mentionClass(part)}>{part}</span>
+    if (/^\*\*[^*]+\*\*$/.test(part)) return <b key={i}>{inline(part.slice(2, -2), mentionClass)}</b>
     if (/^\*[^*]+\*$/.test(part)) return <b key={i}>{inline(part.slice(1, -1), mentionClass)}</b>
     if (/^_[^_]+_$/.test(part)) return <i key={i}>{inline(part.slice(1, -1), mentionClass)}</i>
     if (/^~[^~]+~$/.test(part)) return <s key={i}>{inline(part.slice(1, -1), mentionClass)}</s>
