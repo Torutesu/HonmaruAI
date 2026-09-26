@@ -2750,8 +2750,8 @@ await step('the mark at the top left lists every workspace, and adds one', async
     await w.waitForSelector('.ws-rail .ws-button', { timeout: 20000 })
     // Both are in the menu now; the first one is back with a click.
     await w.click('.ws-rail .ws-button')
-    const count = await w.$$eval('.ws-rail .ws-menu .ws-item', (els) => els.length)
-    if (count < 2) throw new Error(`the new workspace is not in the menu: ${count}`)
+    await w.waitForFunction(() => document.querySelectorAll('.ws-rail .ws-menu .ws-item').length >= 2, null, { timeout: 10000 })
+      .catch(async () => { throw new Error(`the new workspace is not in the menu: ${await w.$$eval('.ws-rail .ws-menu .ws-item', (els) => els.length)}`) })
     await w.click(`.ws-rail .ws-menu .ws-item[data-org="${was}"]`)
     await w.waitForFunction((prev) => localStorage.getItem('orgId') === prev, was, { timeout: 15000 })
   } finally {
