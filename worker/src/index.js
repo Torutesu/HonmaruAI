@@ -107,6 +107,7 @@ import { buildRecord, recordToMarkdown } from "./record.js";
 const MAX_INSTRUCTION_CHARS = 4000;
 
 export { OrgRelay } from "./relay.js";
+export { AgentRunner } from "./agentRunner.js";
 
 /// The language a request was made in, from the header every client sends
 /// without being asked: URLSession fills Accept-Language from the device's

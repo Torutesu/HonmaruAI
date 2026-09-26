@@ -13,9 +13,19 @@ crons = ["*/15 * * * *", "* * * * *"]
 name = "ORG_RELAY"
 class_name = "OrgRelay"
 
+# Agents answer from here: research outlasts a request's half minute
+# (src/agentRunner.js).
+[[durable_objects.bindings]]
+name = "AGENT_RUNNER"
+class_name = "AgentRunner"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["OrgRelay"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AgentRunner"]
 
 [[d1_databases]]
 binding = "DB"
@@ -53,6 +63,10 @@ crons = ["*/15 * * * *", "* * * * *"]
 [[env.staging.durable_objects.bindings]]
 name = "ORG_RELAY"
 class_name = "OrgRelay"
+
+[[env.staging.durable_objects.bindings]]
+name = "AGENT_RUNNER"
+class_name = "AgentRunner"
 
 [[env.staging.d1_databases]]
 binding = "DB"
