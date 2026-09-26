@@ -903,7 +903,12 @@ export const ClassicList: React.FC<Props> = ({
       if (parentId) {
         setThreadDraft('')
         setThread((prev) => (prev && prev.parent.id === parentId && !prev.replies.some((x) => x.id === msg.id) ? { ...prev, replies: [...prev.replies, msg] } : prev))
-        setMessages((prev) => ({ ...prev, [channel]: (prev[channel] || []).map((x) => (x.id === parentId ? { ...x, replyCount: (x.replyCount || 0) + 1, lastReplyAt: msg.createdAt } : x)) }))
+        // The parent as the server now has it: its count is a fact, not
+        // one more than whatever the live event already made it.
+        const parent = data.parent as ChannelMessage | undefined
+        setMessages((prev) => ({ ...prev, [channel]: (prev[channel] || []).map((x) => (x.id !== parentId ? x
+          : parent ? { ...x, replyCount: Math.max(parent.replyCount || 0, x.replyCount || 0), lastReplyAt: parent.lastReplyAt || msg.createdAt, replyRefs: parent.replyRefs || x.replyRefs }
+            : { ...x, replyCount: (x.replyCount || 0) + 1, lastReplyAt: msg.createdAt })) }))
         if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
         return
       }

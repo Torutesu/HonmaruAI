@@ -91,7 +91,9 @@ test("replies go in a thread: off the main log, counted on the parent, readable 
   const m = await say(mika, "Friday price change?");
   const r1 = await say(toru, "Yes, from Friday", { parentId: m.id });
   expect(r1.parentId).toBe(m.id);
-  await say(kenji, "Agreed", { parentId: m.id });
+  // The reply comes back with its parent's count, said outright.
+  const second = await (await post("/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "Agreed", parentId: m.id })).json();
+  expect(second.parent).toMatchObject({ id: m.id, replyCount: 2 });
   const main = await list(toru);
   expect(main).toHaveLength(1);
   expect(main[0]).toMatchObject({ replyCount: 2 });

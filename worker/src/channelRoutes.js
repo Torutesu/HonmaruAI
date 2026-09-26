@@ -424,7 +424,15 @@ export async function handleChannels(request, env, url, { route, after }) {
     // What you said, you have read.
     if (!parentId) await markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at);
     const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
-    return json({ message, deciding: wantsDecision }, 201);
+    // A reply comes back with its parent as it now stands — its count said
+    // outright, so a client never adds one to a number the live event may
+    // already have raised.
+    let parent = null;
+    if (parentId) {
+      const row = await getMessage(env.DB, orgId, parentId);
+      if (row) [parent] = await present(env.DB, orgId, [row], who.user.login, view, members);
+    }
+    return json({ message, deciding: wantsDecision, ...(parent ? { parent } : {}) }, 201);
   }
 
   // Edit or unsend your own message.
