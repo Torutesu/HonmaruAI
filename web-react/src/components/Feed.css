@@ -402,6 +402,9 @@
 .mention-option.on { background: #1264a3; color: #fff; }
 .mention-avatar { width: 22px; height: 22px; border-radius: 6px; background: #e8e8e8; color: #202020; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
 .mention-option.on .mention-avatar { background: rgba(255,255,255,.25); color: #fff; }
+.mention-avatar.agent { background: #f1ecfe; font-size: 14px; font-weight: 400; }
+.mention-tag { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; background: rgba(124, 58, 237, .12); color: #7c3aed; flex: none; }
+.mention-option.on .mention-tag { background: rgba(255,255,255,.25); color: #fff; }
 .mention-emoji { width: 22px; height: 22px; object-fit: contain; flex: none; }
 .create-decision { position: relative; }
 @media (prefers-color-scheme: dark) {
@@ -418,6 +421,8 @@
   .reaction-choices button:hover { background: #2a2a2a; }
   .mention-option { color: #f2f2f2; }
   .mention-avatar { background: #2a2a2a; color: #f2f2f2; }
+  .mention-avatar.agent { background: #2b2340; }
+  .mention-tag { background: rgba(167, 139, 250, .18); color: #c4b5fd; }
 }
 
 /* A routine's report: a document inside the card. Its words can be selected

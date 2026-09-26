@@ -16,6 +16,39 @@ export interface Mentionable {
   aliases?: string[]
   /// Their username: what @ writes, when they have one.
   handle?: string | null
+  /// A line under the name: a group's size, an agent's job.
+  title?: string
+  /// One of the team's agents: drawn with its emoji and an "Agent" tag.
+  agent?: boolean
+  emoji?: string | null
+}
+
+/// An agent as the workspace lists it (GET /channels, /channels/agents).
+export interface AgentFace {
+  id: string
+  handle: string
+  name: string
+  emoji?: string | null
+  description?: string
+  scope?: 'team' | 'personal'
+}
+
+/// The team's agents as names "@" offers: `@hayao` is written by its handle,
+/// found by its name too. A handle a person or group already offers is left
+/// to them — the server would not have let it be made, but a list loaded a
+/// moment apart can disagree.
+export function agentMentionables(agents: AgentFace[], taken: Mentionable[] = []): Mentionable[] {
+  const fold = (x: string) => x.normalize('NFKC').toLowerCase()
+  const used = new Set(taken.map((m) => fold(m.handle || '')).filter(Boolean))
+  const seen = new Set<string>()
+  const out: Mentionable[] = []
+  for (const a of agents) {
+    const h = fold(a.handle || '')
+    if (!h || used.has(h) || seen.has(h)) continue
+    seen.add(h)
+    out.push({ ref: `agent:${a.id}`, name: a.name || a.handle, handle: a.handle, title: a.description || undefined, agent: true, emoji: a.emoji || null })
+  }
+  return out
 }
 
 /// The `@` token the caret is inside, if any: where it starts and what has
