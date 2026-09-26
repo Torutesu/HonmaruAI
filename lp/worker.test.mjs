@@ -1,7 +1,7 @@
 // node --test lp/worker.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import worker from './worker.js'
+import worker, { makeWorker } from './worker.js'
 
 const env = { ASSETS: { fetch: (req) => new Response('asset ' + new URL(req.url).pathname) } }
 function visit(path, { country, cookie } = {}) {
@@ -43,4 +43,21 @@ test('the redirect is never cached for someone else', async () => {
 test('everything but the root is left to the static files', async () => {
   assert.equal(await (await visit('/ja/')).text(), 'asset /ja/')
   assert.equal(await (await visit('/main.js')).text(), 'asset /main.js')
+})
+
+test('with its own domain, the other addresses send people there', async () => {
+  const site = makeWorker('honmaruai.com')
+  const go = (url) => site.fetch({ url, headers: new Headers(), cf: { country: 'JP' } }, env)
+  for (const from of ['https://honmaru-lp.pages.dev/ja/?utm_source=x', 'https://www.honmaruai.com/ja/?utm_source=x']) {
+    const res = await go(from)
+    assert.equal(res.status, 301, from)
+    assert.equal(res.headers.get('Location'), 'https://honmaruai.com/ja/?utm_source=x')
+  }
+  assert.equal((await go('https://honmaruai.com/')).headers.get('Location'), '/ja/', 'the domain itself picks a language')
+  assert.equal(await (await go('https://honmaruai.com/ja/')).text(), 'asset /ja/')
+  assert.equal(await (await go('https://abc123.honmaru-lp.pages.dev/ja/')).text(), 'asset /ja/', 'a preview stays a preview')
+})
+
+test('without a domain of its own, pages.dev is the site', async () => {
+  assert.equal(await (await visit('/ja/')).text(), 'asset /ja/')
 })
