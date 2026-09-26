@@ -96,9 +96,18 @@ struct TeamView: View {
         card {
             HStack(spacing: Theme.Spacing.sm) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(member.name)
-                        .font(.system(size: 15))
-                        .foregroundStyle(Theme.Colors.textPrimary)
+                    HStack(spacing: 4) {
+                        Text(member.name)
+                            .font(.system(size: 15))
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                        // An owner holds the workspace; the crown says so.
+                        if member.role == "owner" {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.orange)
+                                .accessibilityLabel(Text("Owner"))
+                        }
+                    }
                     Text(member.mine ? "\(roleLabel(member.role)) · \(String(localized: "you"))" : roleLabel(member.role))
                         .font(Theme.TypeScale.micro)
                         .foregroundStyle(Theme.Colors.textTertiary)
@@ -208,7 +217,11 @@ struct TeamView: View {
     }
 
     private func roleLabel(_ id: String) -> String {
-        Self.roles.first { $0.id == id }?.label ?? id
+        switch id {
+        case "owner": return String(localized: "Owner")
+        case "guest": return String(localized: "Guest")
+        default: return Self.roles.first { $0.id == id }?.label ?? id
+        }
     }
 
     private func inviteSubtitle(_ invite: TeamInvite) -> String {

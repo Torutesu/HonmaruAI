@@ -35,6 +35,8 @@ import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
 import { handleChannels, broadcastStored } from "./channelRoutes.js";
 import { handleAudit, audit, auditEverywhere, person } from "./audit.js";
+import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
+import { handleOwners, transferFor, mailOwners } from "./owners.js";
 import { handleSessions, signedIn } from "./sessions.js";
 import { handleSuggestions } from "./suggest.js";
 import { handleWebhooks } from "./webhooks.js";
@@ -212,6 +214,9 @@ async function handle(request, env, url, ctx) {
     if (sessions) return sessions;
     const audited = await handleAudit(request, env, url);
     if (audited) return audited;
+    // Handing the workspace on.
+    const owned = await handleOwners(request, env, url);
+    if (owned) return owned;
 
     // The workspace's webhooks.
     const hooked = await handleWebhooks(request, env, url);
@@ -429,7 +434,7 @@ async function handle(request, env, url, ctx) {
       const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
       if (!orgId || typeof orgId !== "string") return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
-      const canEdit = await canRename(env.DB, orgId, session.github_id);
+      const canEdit = membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.ai_settings");
       if (request.method === "PUT") {
         if (!canEdit) return json({ message: "Only an admin of this workspace can change what its AI runs on." }, 403);
         const result = await saveAISettings(env.DB, orgId, {
@@ -459,7 +464,7 @@ async function handle(request, env, url, ctx) {
       const orgId = url.searchParams.get("orgId") || "";
       if (!orgId) return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
-      if (!(await canRename(env.DB, orgId, session.github_id))) return json({ message: "Only an admin of this workspace can change its logo." }, 403);
+      if (!membershipIsOurs(orgId) || !(await allowed(env.DB, orgId, session.github_id, "workspace.icon"))) return json({ message: "Only an admin of this workspace can change its logo." }, 403);
       if (request.method === "DELETE") {
         await removeOrgIcon(env, orgId);
         await audit(env, request, { orgId, action: "workspace.icon_changed", actor: await actorOf(env, session), details: { removed: true } });
@@ -494,7 +499,7 @@ async function handle(request, env, url, ctx) {
         return json({ orgId, emoji: result.emoji }, 201);
       }
       const name = url.searchParams.get("name") || "";
-      const result = await removeEmoji(env, { orgId, name, login: user?.login || null, isAdmin: await canRename(env.DB, orgId, session.github_id) });
+      const result = await removeEmoji(env, { orgId, name, login: user?.login || null, isAdmin: await allowed(env.DB, orgId, session.github_id, "emoji.remove_others") });
       if (result.error) return json({ message: result.error }, result.status || 400);
       await audit(env, request, { orgId, action: "emoji.removed", actor: person(user), entity: { type: "emoji", id: name, name: `:${name}:` } });
       return json({ orgId, ...result });
@@ -523,8 +528,17 @@ async function handle(request, env, url, ctx) {
       if (!orgId) return json({ message: "orgId is required" }, 400);
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
+      // A workspace made before owners existed is given one the first time
+      // anyone looks at who is in it.
+      const assigned = await ensureOwner(env.DB, orgId);
+      if (assigned) {
+        const owner = await getUserByGithubId(env.DB, assigned).catch(() => null);
+        await audit(env, request, { orgId, action: "owner.assigned", actor: { type: "system" }, entity: { type: "user", id: owner?.login || null, name: owner?.name || null } });
+      }
       return json({
         members: await listMembersForClient(env.DB, orgId, session.github_id),
+        // An offer to hand the workspace on, when one is standing.
+        ownerTransfer: await transferFor(env.DB, orgId, session.github_id),
         // Whether this list is ours to change. A repository-backed org's
         // members are its collaborators, so the screen shows them and says
         // where they are actually decided rather than offering a button that
@@ -555,7 +569,7 @@ async function handle(request, env, url, ctx) {
         targetId: body.userId,
         ref: body.ref,
       });
-      if (result.error) return json({ message: result.error }, result.status || 400);
+      if (result.error) return json({ message: result.error, code: result.code }, result.status || 400);
       // Out of the table is not out of the room. A socket is authorized once,
       // at join, so the one they are already holding keeps receiving this
       // org's cards until something else drops it.
@@ -581,11 +595,21 @@ async function handle(request, env, url, ctx) {
       const result = await changeRole(env, { orgId: body.orgId, actorId: session.github_id, ref: body.ref, role: body.role, channels: body.channels });
       if (result.error) {
         if (result.status === 403) await audit(env, request, { orgId: body.orgId, action: "security.permission_denied", actor: await actorOf(env, session), entity: { type: "resource", id: "member_role", name: "a member's role" }, outcome: "denied" });
-        return json({ message: result.error }, result.status || 400);
+        return json({ message: result.error, code: result.code }, result.status || 400);
       }
       const actor = await actorOf(env, session);
       const entity = { type: "user", id: result.login, name: result.name };
       if (result.from !== result.to) await audit(env, request, { orgId: body.orgId, action: "member.role_changed", actor, entity, details: { from: result.from, to: result.to } });
+      // Owners are critical, and every owner hears about it.
+      if (result.from !== result.to && (result.to === "owner" || result.from === "owner")) {
+        const added = result.to === "owner";
+        await audit(env, request, { orgId: body.orgId, action: added ? "owner.added" : "owner.removed", actor, entity });
+        const name = (await teamName(env.DB, body.orgId)) || "your workspace";
+        await mailOwners(env, body.orgId, {
+          subject: added ? `${result.name} is now an owner of ${name}` : `${result.name} is no longer an owner of ${name}`,
+          text: `${actor?.name || "An owner"} ${added ? "made" : "took owner away from"} ${result.name}${added ? " an owner" : ""} of ${name}.`,
+        });
+      }
       if (result.channels) await audit(env, request, { orgId: body.orgId, action: "member.channels_changed", actor, entity, details: { channels: result.channels } });
       if (result.from !== result.to) await evictMember(env, body.orgId, result.login);
       return json({ ok: true, role: result.to, channels: result.channels || null });
@@ -1321,6 +1345,16 @@ async function handle(request, env, url, ctx) {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "invalid session" }, 401);
       const user = await getUserByGithubId(env.DB, session.github_id);
+      // Nobody walks away from a workspace other people are still in and that
+      // nobody else holds: it could never be run again.
+      const holding = await soleOwnerships(env.DB, session.github_id);
+      if (holding.length) {
+        return json({
+          message: "You are the only owner of a workspace other people are in. Make someone else an owner of it first.",
+          code: "last-owner",
+          workspaces: holding.map((w) => ({ id: w.orgId, name: w.name })),
+        }, 409, { "cache-control": "no-store" });
+      }
       // Where they were, before the rows saying so are deleted. A socket is
       // authorized once, at join, so a deleted account's open connection would
       // otherwise go on receiving its old team's cards.
@@ -1470,7 +1504,7 @@ async function handle(request, env, url, ctx) {
       const orgId = request.method === "GET" ? (url.searchParams.get("orgId") || "") : String(body?.orgId || "");
       if (!orgId) return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
-      const isAdmin = await canRename(env.DB, orgId, session.github_id) || orgId.includes("/");
+      const isAdmin = (membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.integrations")) || orgId.includes("/");
       // Connecting with your own GitHub is yours to do as a member — it is
       // your credential, and the issues are written as you. A pasted token
       // and a disconnect are the workspace's, so an admin's (or the person

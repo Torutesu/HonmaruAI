@@ -41,7 +41,7 @@ beforeEach(async () => {
 });
 afterEach(() => fetchMock.assertNoPendingInterceptors());
 
-test("a team is made with a name, its maker is its admin, and it is listed by that name", async () => {
+test("a team is made with a name, its maker is its owner, and it is listed by that name", async () => {
   let res = await post("/orgs", toru, { name: "  Honmaru   Coffee  " });
   expect(res.status).toBe(200);
   const made = await res.json();
@@ -51,7 +51,7 @@ test("a team is made with a name, its maker is its admin, and it is listed by th
   res = await get("/me", toru);
   const me = await res.json();
   const team = me.orgs.find((o) => o.id === made.orgId);
-  expect(team).toMatchObject({ name: "Honmaru Coffee", role: "admin", mine: true });
+  expect(team).toMatchObject({ name: "Honmaru Coffee", role: "owner", mine: true });
   // The personal workspace has no name and says so.
   expect(me.orgs.find((o) => o.id === "personal:toru").name).toBeNull();
 

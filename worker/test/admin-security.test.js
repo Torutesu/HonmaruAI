@@ -185,7 +185,8 @@ test("a guest is invited to chosen channels, and an admin changes their role and
   // Made a member: every public channel.
   expect((await (await call("/members/role", toru, { method: "PUT", body: { orgId: ORG, ref: gusRef, role: "member" } })).json()).role).toBe("member");
   expect(mayRead("b:cafe", await accessFor(env.DB, ORG, "gus"))).toBe(true);
-  expect((await call("/members/role", toru, { method: "PUT", body: { orgId: ORG, ref: toruRef, role: "member" } })).status).toBe(400);
+  // Toru is the only owner: stepping down would leave nobody holding it.
+  expect((await call("/members/role", toru, { method: "PUT", body: { orgId: ORG, ref: toruRef, role: "member" } })).status).toBe(409);
   const log = await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1").bind(ORG).all();
   expect(log.results.map((r) => r.action)).toEqual(expect.arrayContaining(["member.joined", "member.channels_changed", "member.role_changed"]));
 });

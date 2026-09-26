@@ -61,6 +61,9 @@ export const ROLE_RANK = new Map([
   ["guest", -1],
   ["member", 0], ["designer", 0], ["engineer", 0],
   ["triager", 1], ["maintainer", 2], ["admin", 3],
+  // Holds the workspace: its security, its keys, its existence
+  // (permissions.js). There is always at least one.
+  ["owner", 4],
 ]);
 
 function toHex(buffer) {
@@ -171,7 +174,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
     // hashed: this id travels in the socket's query string, and a URL is the
     // classic place an address ends up somewhere it was never meant to be.
     org = `personal:${(await sha256Hex(userId)).slice(0, 24)}`;
-    joinRole = "admin";
+    joinRole = "owner";
   }
 
   await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: locale || undefined });
@@ -281,6 +284,10 @@ export async function createInvite(env, { orgId, createdBy, role, uses, channels
   // themselves in two calls.
   const requested = String(role || "member").trim().toLowerCase();
   if (!ROLE_RANK.has(requested)) return { error: "That is not a role." };
+  // A workspace from before owners existed gets one before anyone is asked
+  // whether they are it.
+  const { ensureOwner } = await import("./permissions.js");
+  await ensureOwner(env.DB, orgId);
   const callerRole = String(
     (await env.DB
       .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
@@ -288,8 +295,15 @@ export async function createInvite(env, { orgId, createdBy, role, uses, channels
       .first())?.role || "member"
   ).toLowerCase();
   if (callerRole === "guest") return { error: "A guest cannot invite anyone." };
+  // An owner is made from the team screen, by an owner, not by a link that
+  // whoever holds it can redeem.
+  if (requested === "owner") return { error: "An owner is added from the team screen, not by invitation." };
   if (ROLE_RANK.get(requested) > (ROLE_RANK.get(callerRole) ?? 0)) {
     return { error: "You cannot invite someone above your own role." };
+  }
+  // Admins are the owners' to choose (permissions.js, member.invite_admin).
+  if (requested === "admin" && callerRole !== "owner" && !String(orgId).includes("/")) {
+    return { error: "Only an owner can invite an admin." };
   }
   const inviteRole = requested;
   // Invites expire. A code that works forever is a permanent unaudited way in,

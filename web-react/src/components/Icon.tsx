@@ -25,7 +25,7 @@ export type IconName =
   | 'smile' | 'message' | 'paperclip' | 'clock' | 'edit' | 'x' | 'check'
   | 'bell-off' | 'zap' | 'settings' | 'external' | 'list' | 'quote' | 'code' | 'sparkle' | 'refresh' | 'grid' | 'key' | 'link' | 'copy'
   | 'mic-off' | 'video' | 'video-off' | 'monitor' | 'phone-off' | 'maximize' | 'minimize'
-  | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out'
+  | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // Figma: Chrome/Tab Bar → icon/home
@@ -425,6 +425,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
       <polyline points="16 17 21 12 16 7" />
       <line x1="21" y1="12" x2="9" y2="12" />
+    </>
+  ),
+  // An owner, beside their name.
+  crown: (
+    <>
+      <path d="M2 7l4.5 4L12 4l5.5 7L22 7l-2 12H4L2 7z" />
     </>
   ),
 }

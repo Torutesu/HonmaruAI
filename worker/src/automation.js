@@ -30,11 +30,8 @@ function json(body, status = 200) {
 }
 
 async function isAdmin(db, orgId, githubId) {
-  const row = await db
-    .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
-    .bind(orgId, String(githubId))
-    .first();
-  return Boolean(row) && (ROLE_RANK.get(String(row.role || "member").toLowerCase()) ?? 0) >= ROLE_RANK.get("admin");
+  const { allowed } = await import("./permissions.js");
+  return allowed(db, orgId, githubId, "playbook.manage");
 }
 
 /// Session, user and membership, or the Response that says which is missing.

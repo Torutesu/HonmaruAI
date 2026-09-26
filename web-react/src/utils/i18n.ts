@@ -1515,6 +1515,20 @@ const ja: Dict = {
   'someone': '誰か',
   'canvas.empty': 'この会話のための共有メモです。手順、決まったこと、担当、未完了の作業などを皆で書き足せます。AIに会話から下書きさせることもできます。',
   'canvas.syntax': '## 見出し · - 箇条書き · - [ ] やること · **太字** · ⌘Enterで保存',
+  'Owner': 'オーナー',
+  'Holds the workspace: security, keys, owners': 'ワークスペースを持つ人。セキュリティ、キー、オーナーを決める',
+  '{name} would like you to become an owner of this workspace.': '{name}さんが、あなたにこのワークスペースのオーナーになってほしいと言っています。',
+  '{from} offered this workspace to {to}. Waiting for them to accept.': '{from}さんが{to}さんにこのワークスペースを譲ろうとしています。承認を待っています。',
+  '{name} becomes an admin once it is accepted.': '承認されると、{name}さんは管理者になります。',
+  'Accept': '承認する',
+  'Call it off': '取り消す',
+  'Hand the workspace on': 'ワークスペースを譲る',
+  'Who should own it': '譲る相手',
+  'Choose someone…': '相手を選ぶ…',
+  'Become an admin once they accept': '承認されたら自分は管理者になる',
+  'Offer it': '譲る',
+  'They become an owner when they accept. Every owner is told by email.': '相手が承認するとオーナーになります。オーナー全員にメールで知らせます。',
+  'You are the only owner of {names}. Make someone else an owner there first, from its team screen.': 'あなたは{names}の唯一のオーナーです。先にチームの画面から、ほかの人をオーナーにしてください。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -2794,6 +2808,20 @@ const es: Dict = {
   'someone': 'alguien',
   'canvas.empty': 'Un documento compartido para esta conversación: procedimientos, decisiones, responsables y lo que queda pendiente. Todos pueden editarlo, y tu IA puede redactarlo a partir de la conversación.',
   'canvas.syntax': '## Título · - lista · - [ ] tarea · **negrita** · ⌘Enter para guardar',
+  'Owner': 'Propietario',
+  'Holds the workspace: security, keys, owners': 'Es dueño del espacio: seguridad, claves y propietarios',
+  '{name} would like you to become an owner of this workspace.': '{name} quiere que seas propietario de este espacio.',
+  '{from} offered this workspace to {to}. Waiting for them to accept.': '{from} ofreció este espacio a {to}. Esperando a que acepte.',
+  '{name} becomes an admin once it is accepted.': '{name} pasa a ser administrador cuando se acepte.',
+  'Accept': 'Aceptar',
+  'Call it off': 'Cancelar la oferta',
+  'Hand the workspace on': 'Traspasar el espacio',
+  'Who should own it': 'Quién será propietario',
+  'Choose someone…': 'Elige a alguien…',
+  'Become an admin once they accept': 'Pasar a administrador cuando acepte',
+  'Offer it': 'Ofrecer',
+  'They become an owner when they accept. Every owner is told by email.': 'Será propietario cuando acepte. Se avisa por correo a todos los propietarios.',
+  'You are the only owner of {names}. Make someone else an owner there first, from its team screen.': 'Eres el único propietario de {names}. Primero haz propietario a otra persona desde su pantalla de equipo.',
 }
 
 const fr: Dict = {
@@ -4024,6 +4052,20 @@ const fr: Dict = {
   'someone': 'quelqu’un',
   'canvas.empty': 'Un document partagé pour cette conversation : procédures, décisions, responsables et ce qui reste à faire. Tout le monde peut le modifier, et votre IA peut le rédiger d’après la conversation.',
   'canvas.syntax': '## Titre · - liste · - [ ] à faire · **gras** · ⌘Entrée pour enregistrer',
+  'Owner': 'Propriétaire',
+  'Holds the workspace: security, keys, owners': 'Détient l\'espace : sécurité, clés, propriétaires',
+  '{name} would like you to become an owner of this workspace.': '{name} aimerait que vous deveniez propriétaire de cet espace.',
+  '{from} offered this workspace to {to}. Waiting for them to accept.': '{from} a proposé cet espace à {to}. En attente de son accord.',
+  '{name} becomes an admin once it is accepted.': '{name} deviendra administrateur une fois l\'offre acceptée.',
+  'Accept': 'Accepter',
+  'Call it off': 'Annuler l\'offre',
+  'Hand the workspace on': 'Transmettre l\'espace',
+  'Who should own it': 'Qui en sera propriétaire',
+  'Choose someone…': 'Choisissez quelqu\'un…',
+  'Become an admin once they accept': 'Devenir administrateur une fois accepté',
+  'Offer it': 'Proposer',
+  'They become an owner when they accept. Every owner is told by email.': 'La personne devient propriétaire en acceptant. Chaque propriétaire est prévenu par e-mail.',
+  'You are the only owner of {names}. Make someone else an owner there first, from its team screen.': 'Vous êtes le seul propriétaire de {names}. Nommez d\'abord quelqu\'un d\'autre propriétaire depuis l\'écran de l\'équipe.',
 }
 
 const de: Dict = {
@@ -5254,6 +5296,20 @@ const de: Dict = {
   'someone': 'jemand',
   'canvas.empty': 'Ein gemeinsames Dokument für dieses Gespräch: Abläufe, Entscheidungen, Zuständigkeiten und Offenes. Alle können es bearbeiten, und deine KI kann es aus dem Gespräch entwerfen.',
   'canvas.syntax': '## Überschrift · - Liste · - [ ] Aufgabe · **fett** · ⌘Enter zum Speichern',
+  'Owner': 'Inhaber',
+  'Holds the workspace: security, keys, owners': 'Hält den Workspace: Sicherheit, Schlüssel, Inhaber',
+  '{name} would like you to become an owner of this workspace.': '{name} möchte, dass du Inhaber dieses Workspace wirst.',
+  '{from} offered this workspace to {to}. Waiting for them to accept.': '{from} hat diesen Workspace {to} angeboten. Warten auf Zustimmung.',
+  '{name} becomes an admin once it is accepted.': '{name} wird Admin, sobald angenommen wurde.',
+  'Accept': 'Annehmen',
+  'Call it off': 'Zurückziehen',
+  'Hand the workspace on': 'Workspace übergeben',
+  'Who should own it': 'Wer soll ihn halten',
+  'Choose someone…': 'Jemanden wählen…',
+  'Become an admin once they accept': 'Nach der Annahme Admin werden',
+  'Offer it': 'Anbieten',
+  'They become an owner when they accept. Every owner is told by email.': 'Mit der Annahme wird die Person Inhaber. Alle Inhaber erhalten eine E-Mail.',
+  'You are the only owner of {names}. Make someone else an owner there first, from its team screen.': 'Du bist der einzige Inhaber von {names}. Mache zuerst jemand anderen über den Team-Bildschirm zum Inhaber.',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }

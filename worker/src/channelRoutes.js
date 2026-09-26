@@ -5,7 +5,7 @@ import { groupsIn, toClientGroup, saveGroup, deleteGroup, getSidebar, saveSideba
 import { allowanceFor } from "./gate.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
-import { canRename } from "./orgs.js";
+import { allowed } from "./permissions.js";
 import { resolveMentions } from "./threads.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards, announceEvents, announceTo } from "./announce.js";
@@ -331,7 +331,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (request.method === "GET") return json({ groups: await list() });
     if (await isGuest(env.DB, orgId, who.session.github_id)) return json({ message: "A guest cannot change user groups." }, 403);
     if (request.method === "DELETE") {
-      const out = await deleteGroup(env.DB, orgId, { handle: body.handle, login: who.user.login, isAdmin: await canRename(env.DB, orgId, who.session.github_id) });
+      const out = await deleteGroup(env.DB, orgId, { handle: body.handle, login: who.user.login, isAdmin: await allowed(env.DB, orgId, who.session.github_id, "usergroup.delete_others") });
       if (out.error) return json({ message: out.error }, out.status || 400);
       return json({ groups: await list() });
     }
@@ -722,7 +722,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     let out;
     if (request.method === "POST") out = await addBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, title: body.title, url: body.url, login });
     else if (request.method === "PUT") out = await editBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, id: String(body.id || ""), title: body.title, url: body.url });
-    else out = await removeBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, id: String(body.id || ""), login, isAdmin: await canRename(env.DB, body.orgId, ctx.who.session.github_id) });
+    else out = await removeBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, id: String(body.id || ""), login, isAdmin: await allowed(env.DB, body.orgId, ctx.who.session.github_id, "bookmark.remove_others") });
     if (out.error) return json({ message: out.error }, out.status || 400);
     // Everyone in the conversation sees the bar change, each in their terms
     // — though a bookmark carries no one's login, only names.

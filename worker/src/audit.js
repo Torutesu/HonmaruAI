@@ -26,6 +26,12 @@ export const AUDIT_ACTIONS = {
   "member.left": { category: "membership", severity: "notice", text: "{actor} left the workspace" },
   "member.role_changed": { category: "membership", severity: "warning", text: "{actor} changed the role of {entity}" },
   "member.channels_changed": { category: "membership", severity: "notice", text: "{actor} changed the channels of guest {entity}" },
+  "owner.added": { category: "membership", severity: "critical", text: "{actor} made {entity} an owner" },
+  "owner.removed": { category: "membership", severity: "critical", text: "{actor} took owner away from {entity}" },
+  "owner.transfer_offered": { category: "membership", severity: "critical", text: "{actor} offered the workspace to {entity}" },
+  "owner.transfer_cancelled": { category: "membership", severity: "warning", text: "{actor} called off handing the workspace on" },
+  "owner.transferred": { category: "membership", severity: "critical", text: "{actor} accepted the workspace from {entity}" },
+  "owner.assigned": { category: "membership", severity: "critical", text: "The workspace was given an owner: {entity}" },
   "invite.created": { category: "membership", severity: "notice", text: "{actor} created an invitation" },
   "invite.revoked": { category: "membership", severity: "notice", text: "{actor} cancelled an invitation" },
   "invite.email_sent": { category: "membership", severity: "info", text: "{actor} emailed an invitation" },
@@ -278,8 +284,8 @@ function json(body, status = 200) {
 }
 
 async function isAdmin(db, orgId, githubId) {
-  const row = await db.prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, String(githubId)).first();
-  return (ROLE_RANK.get(String(row?.role || "member").toLowerCase()) ?? 0) >= ROLE_RANK.get("admin");
+  const { allowed } = await import("./permissions.js");
+  return allowed(db, orgId, githubId, "audit.read");
 }
 
 /// Who is reading: an admin's session, or an API key with `audit:read`

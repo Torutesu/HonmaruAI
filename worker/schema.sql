@@ -866,3 +866,14 @@ CREATE TABLE IF NOT EXISTS channel_canvas_revisions (
   updated_at    TEXT NOT NULL,
   PRIMARY KEY (org_id, channel, version)
 );
+
+/* An owner's offer to hand the workspace on (docs/admin-controls.md §4.4).
+   One at a time per workspace; the person named accepts or declines. */
+CREATE TABLE IF NOT EXISTS owner_transfers (
+  org_id          TEXT PRIMARY KEY,
+  from_github_id  TEXT NOT NULL,
+  to_github_id    TEXT NOT NULL,
+  step_down       INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL,
+  expires_at      TEXT NOT NULL
+);

@@ -28,12 +28,12 @@ export function normalizeTeamName(name) {
   return clean.length ? clean : null;
 }
 
-/// Start a team. The maker is its first admin.
+/// Start a team. The maker is its first owner.
 export async function createTeam(db, { name, createdBy }) {
   const clean = normalizeTeamName(name);
   if (!clean) return { error: "Give the team a name." };
   const made = await db
-    .prepare("SELECT COUNT(*) AS n FROM memberships WHERE user_github_id = ?1 AND org_id LIKE 'team:%' AND role = 'admin'")
+    .prepare("SELECT COUNT(*) AS n FROM memberships WHERE user_github_id = ?1 AND org_id LIKE 'team:%' AND role IN ('admin', 'owner')")
     .bind(String(createdBy))
     .first();
   if (Number(made?.n || 0) >= MAX_TEAMS_PER_PERSON) return { error: "That is as many teams as one account can start." };
@@ -42,7 +42,7 @@ export async function createTeam(db, { name, createdBy }) {
     .prepare("INSERT INTO orgs (id, name, created_at) VALUES (?1, ?2, ?3)")
     .bind(id, clean, new Date().toISOString())
     .run();
-  await upsertMembership(db, id, createdBy, "admin");
+  await upsertMembership(db, id, createdBy, "owner");
   return { orgId: id, name: clean };
 }
 
@@ -82,9 +82,6 @@ export async function teamName(db, orgId) {
 /// membership is ours.
 export async function canRename(db, orgId, userId) {
   if (!membershipIsOurs(orgId)) return false;
-  const row = await db
-    .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
-    .bind(orgId, String(userId))
-    .first();
-  return Boolean(row) && (ROLE_RANK.get(String(row.role || "member").toLowerCase()) ?? 0) >= ROLE_RANK.get("admin");
+  const { allowed } = await import("./permissions.js");
+  return allowed(db, orgId, userId, "workspace.rename");
 }

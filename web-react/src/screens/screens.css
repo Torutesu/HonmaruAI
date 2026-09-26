@@ -675,3 +675,10 @@
   .keyword-chip button:hover { background: #333; }
   .keyword-add input, .team-manage-panel { border-color: #333; }
 }
+/* Owners: a crown beside the name, and handing the workspace on. */
+.team-crown { display: inline-flex; margin-left: 6px; color: #b7791f; vertical-align: -1px; }
+.team-transfer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 0 8px; }
+.team-transfer .dlg-input { min-width: 200px; flex: 1 1 200px; }
+.team-transfer .row-sub { flex-basis: 100%; }
+.team-transfer-offer { display: flex; align-items: center; gap: 10px; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--bone); border-radius: 12px; }
+.team-transfer-offer > svg { color: #b7791f; flex: none; }

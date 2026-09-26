@@ -8,6 +8,9 @@ interface Props {
   /// A code was minted. The team screen around this one lists the codes that
   /// are still out, and a new one belongs in that list straight away.
   onMinted?: () => void
+  /// Whether an admin invitation is on offer: admins are the owners' to
+  /// choose. Unknown (undefined) offers it and lets the server decide.
+  canInviteAdmin?: boolean
 }
 
 /// The roles an invite can grant. The label is what the person minting the
@@ -26,7 +29,7 @@ const ROLES: Array<{ id: string; label: string }> = [
 /// it, and it borrows the same rows, buttons and type as every other screen
 /// rather than the hand-written styles it had — an invite is the first thing
 /// a new person sees of this product through somebody else.
-export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionToken, onMinted }) => {
+export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionToken, onMinted, canInviteAdmin }) => {
   const t = useT()
   const [code, setCode] = useState<string | null>(null)
   const [link, setLink] = useState<string | null>(null)
@@ -143,7 +146,7 @@ export const InviteTeammate: React.FC<Props> = ({ relayHttpUrl, orgId, sessionTo
           onChange={(e) => setRole(e.target.value)}
           aria-label={t('Their role')}
         >
-          {ROLES.map((r) => <option key={r.id} value={r.id}>{t(r.label)}</option>)}
+          {ROLES.filter((r) => r.id !== 'admin' || canInviteAdmin !== false).map((r) => <option key={r.id} value={r.id}>{t(r.label)}</option>)}
         </select>
       </div>
       <div className="row static invite-mail">
