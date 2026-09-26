@@ -104,8 +104,8 @@
 .classic.slk.slk .cl-avatar.sz-row { font-size: 11px; }
 .classic.slk.slk .cl-avatar.sz-head { font-size: 15px; }
 .classic.slk.slk .cl-presence {
-  width: 9px; height: 9px; right: -3px; bottom: -3px;
-  background: var(--slk-side); border-color: var(--slk-dim); box-shadow: 0 0 0 2px var(--slk-side);
+  width: 7px; height: 7px; right: -2px; bottom: -2px;
+  background: var(--slk-side); border-color: var(--slk-dim); box-shadow: 0 0 0 1.5px var(--slk-side);
 }
 .classic.slk.slk .cl-presence.on { background: var(--slk-green); border-color: var(--slk-green); }
 .classic.slk.slk .cl-app { border-radius: 5px; background: var(--slk-field); color: var(--slk-dim); }
@@ -970,8 +970,8 @@
 
 /* Presence: a dot cut out of whatever the avatar sits on. On the picked
    row that is the light bar, and a dark ring there read as a smudge. */
-.classic.slk.slk .cl-presence { width: 10px; height: 10px; right: -3px; bottom: -3px; border-width: 1.5px; }
-.shell .classic.slk.slk .slk-side .cl-thread.on .cl-presence { box-shadow: 0 0 0 2px #e9e8ea; background: #e9e8ea; border-color: #616061; }
+.classic.slk.slk .cl-presence { width: 7px; height: 7px; right: -2px; bottom: -2px; border-width: 1.25px; }
+.shell .classic.slk.slk .slk-side .cl-thread.on .cl-presence { box-shadow: 0 0 0 1.5px #e9e8ea; background: #e9e8ea; border-color: #616061; }
 .shell .classic.slk.slk .slk-side .cl-thread.on .cl-presence.on { background: var(--slk-green); border-color: var(--slk-green); }
 
 /* A decision in the side pane: the buttons keep their words on one line,
