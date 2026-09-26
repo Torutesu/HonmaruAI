@@ -2770,14 +2770,17 @@ await step('a star, a section of your own, and a user group one mention reaches'
     await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
     await desk.waitForSelector('.slk-side .cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
     await desk.click('.slk-side .cl-thread[data-view="b:kitchen"] .cl-open')
-    await desk.click('[data-star]')
+    // The sidebar moves at once and is saved behind it; each save is waited
+    // for, so the reload below reads what the server kept, not a race.
+    const saved = (want) => desk.waitForResponse((r) => r.url().includes('/channels/sidebar') && r.request().method() === 'PUT' && (r.request().postData() || '').includes(want), { timeout: 10000 })
+    await Promise.all([saved('b:kitchen'), desk.click('[data-star]')])
     await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Starred")) .cl-thread[data-view="b:kitchen"]', { timeout: 10000 })
       .catch(() => { throw new Error('a starred channel is not under Starred') })
     await desk.click('.slk-side .cl-thread[data-view="b:front-desk"] .cl-open')
     await desk.click('[data-move]')
     await desk.click('[data-new-section]')
     await desk.fill('[data-section-name]', 'Shop floor')
-    await desk.click('[data-section-create]')
+    await Promise.all([saved('Shop floor'), desk.click('[data-section-create]')])
     await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Shop floor")) .cl-thread[data-view="b:front-desk"]', { timeout: 10000 })
       .catch(() => { throw new Error('the channel is not in the new section') })
     // Kept on the server: a reload keeps it.
