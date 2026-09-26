@@ -76,6 +76,85 @@ struct ChatAvatar: View {
     }
 }
 
+/// What a message needs from its workspace to be drawn: its own emoji, and
+/// the API's address that a file's signed path hangs from.
+struct ChatAssets {
+    var emoji: [ChatEmoji] = []
+    var base: URL?
+    func emojiURL(_ text: String) -> URL? {
+        guard text.hasPrefix(":"), text.hasSuffix(":"), text.count > 2 else { return nil }
+        let name = String(text.dropFirst().dropLast())
+        return emoji.first { $0.name == name }.flatMap { URL(string: $0.url) }
+    }
+}
+
+private struct ChatAssetsKey: EnvironmentKey { static let defaultValue = ChatAssets() }
+extension EnvironmentValues {
+    var chatAssets: ChatAssets {
+        get { self[ChatAssetsKey.self] }
+        set { self[ChatAssetsKey.self] = newValue }
+    }
+}
+
+/// An emoji as it is drawn: the character, or this workspace's picture for
+/// a `:name:` it has.
+struct ChatEmojiGlyph: View {
+    let emoji: String
+    var size: CGFloat = 16
+    @Environment(\.chatAssets) private var assets
+    var body: some View {
+        if let url = assets.emojiURL(emoji) {
+            AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { Color.clear }
+                .frame(width: size, height: size)
+                .accessibilityLabel(Text(verbatim: emoji))
+        } else {
+            Text(emoji).font(.system(size: size - 1))
+        }
+    }
+}
+
+/// The files on a message: pictures at their own shape, the rest as a row
+/// with its name and size. Either opens where the phone shows it.
+struct ChatAttachments: View {
+    let files: [ChatFile]
+    @Environment(\.chatAssets) private var assets
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(files) { f in
+                if let url = assets.base.flatMap({ f.address(base: $0) }) {
+                    Link(destination: url) {
+                        if f.isPicture {
+                            AsyncImage(url: url) { image in
+                                image.resizable().scaledToFit()
+                            } placeholder: {
+                                Rectangle().fill(Theme.Colors.surfaceRaised)
+                                    .aspectRatio(CGFloat(f.width ?? 4) / CGFloat(max(f.height ?? 3, 1)), contentMode: .fit)
+                            }
+                            .frame(maxWidth: 260, maxHeight: 260, alignment: .leading)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .accessibilityLabel(Text(verbatim: f.name))
+                        } else {
+                            HStack(spacing: 10) {
+                                Image(systemName: "doc").font(.system(size: 18)).foregroundStyle(Theme.Colors.textSecondary)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(verbatim: f.name).font(.subheadline.weight(.semibold)).lineLimit(1).foregroundStyle(Theme.Colors.textPrimary)
+                                    Text(ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Colors.textSecondary)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: 280)
+                            .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
 /// The reactions under a message: each emoji and how many, yours outlined.
 struct ChatReactionBar: View {
     let message: ChatMessage
@@ -90,7 +169,7 @@ struct ChatReactionBar: View {
                     ForEach(list, id: \.emoji) { r in
                         Button { onToggle(r.emoji) } label: {
                             HStack(spacing: 4) {
-                                Text(r.emoji).font(.system(size: 15))
+                                ChatEmojiGlyph(emoji: r.emoji, size: 16)
                                 Text(verbatim: "\(r.count)").font(.caption.weight(.bold)).monospacedDigit()
                             }
                             .padding(.horizontal, 9).padding(.vertical, 4)
@@ -116,6 +195,7 @@ struct ChatReactionBar: View {
 struct ChatEmojiPicker: View {
     let onPick: (String) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.chatAssets) private var assets
     private let sets: [(LocalizedStringKey, [String])] = [
         ("Frequently used", ["👍", "✅", "👀", "🙌", "🎉", "🙏", "❤️", "😂", "🔥", "💯", "👏", "🚀"]),
         ("Work", ["📌", "📎", "📅", "⏰", "💡", "❓", "❗", "⚠️", "🛑", "✍️", "📈", "💰", "🧾", "📦", "🤝", "🗳️"]),
@@ -126,6 +206,19 @@ struct ChatEmojiPicker: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if !assets.emoji.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("This workspace").font(.caption.weight(.semibold)).foregroundStyle(Theme.Colors.textSecondary)
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 4) {
+                                ForEach(assets.emoji) { e in
+                                    Button { onPick(":\(e.name):"); dismiss() } label: {
+                                        AsyncImage(url: URL(string: e.url)) { image in image.resizable().scaledToFit() } placeholder: { Color.clear }
+                                            .frame(width: 30, height: 30).frame(maxWidth: .infinity, minHeight: 44)
+                                    }.buttonStyle(PressFeedbackStyle()).accessibilityLabel(Text(verbatim: ":\(e.name):"))
+                                }
+                            }
+                        }
+                    }
                     ForEach(Array(sets.enumerated()), id: \.offset) { _, set in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(set.0).font(.caption.weight(.semibold)).foregroundStyle(Theme.Colors.textSecondary)
@@ -190,6 +283,14 @@ struct ChatMessageRow: View {
     let onOpenCard: (String) -> Void
     let onProfile: (String) -> Void
 
+    @Environment(\.chatAssets) private var assets
+    /// A message that is nothing but this workspace's emoji: drawn large.
+    private var onlyEmoji: [String]? {
+        let parts = message.body.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !parts.isEmpty, parts.count <= 6, parts.allSatisfy({ assets.emojiURL($0) != nil }) else { return nil }
+        return parts
+    }
+
     private var author: String {
         if message.isAI { return String(localized: "Your AI") }
         if message.mine { return String(localized: "You") }
@@ -222,7 +323,12 @@ struct ChatMessageRow: View {
                 if message.isDeleted {
                     Text("This message was deleted.").font(.body.italic()).foregroundStyle(Theme.Colors.textTertiary)
                 } else {
-                    ChatRichText(text: message.body)
+                    if let big = onlyEmoji {
+                        HStack(spacing: 4) { ForEach(Array(big.enumerated()), id: \.offset) { _, e in ChatEmojiGlyph(emoji: e, size: 34) } }
+                    } else if !message.body.isEmpty {
+                        ChatRichText(text: message.body)
+                    }
+                    if let files = message.files, !files.isEmpty { ChatAttachments(files: files) }
                     if message.editedAt != nil {
                         Text("(edited)").font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
                     }

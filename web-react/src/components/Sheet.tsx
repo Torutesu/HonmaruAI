@@ -71,7 +71,9 @@ export const MessageSheet: React.FC<{
   onDecide?: () => void
   onLater?: (remindAt: string | null) => void
   onCopyLink?: () => void
-}> = ({ message, inThread, onClose, onReact, onReply, onPin, onEdit, onDelete, onDecide, onLater, onCopyLink }) => {
+  onUnread?: () => void
+  onForward?: () => void
+}> = ({ message, inThread, onClose, onReact, onReply, onPin, onEdit, onDelete, onDecide, onLater, onCopyLink, onUnread, onForward }) => {
   const t = useT()
   const [picker, setPicker] = React.useState(false)
   const run = (fn?: () => void) => () => { onClose(); fn?.() }
@@ -89,6 +91,8 @@ export const MessageSheet: React.FC<{
         {onReply && !inThread && <SheetRow icon="message" label={t('Reply in thread')} onClick={run(onReply)} data="reply" />}
         {message.body && <SheetRow icon="copy" label={t('Copy text')} onClick={run(() => { void navigator.clipboard?.writeText(message.body) })} data="copy" />}
         {onCopyLink && <SheetRow icon="link" label={t('Copy link')} onClick={run(onCopyLink)} data="link" />}
+        {onForward && <SheetRow icon="send" label={t('Forward')} onClick={run(onForward)} data="forward" />}
+        {onUnread && <SheetRow icon="bell" label={t('Mark unread')} onClick={run(onUnread)} data="unread" />}
         {onLater && <SheetRow icon="bookmark" label={t('Save for later')} onClick={run(() => onLater(null))} data="later" />}
         {onLater && <SheetRow icon="clock" label={t('Remind me in 1 hour')} onClick={run(() => onLater(new Date(Date.now() + 3600000).toISOString()))} />}
         {onPin && !inThread && <SheetRow icon="pin" label={message.pinned ? t('Unpin') : t('Pin to channel')} onClick={run(onPin)} data="pin" />}
@@ -182,6 +186,58 @@ export const PeoplePicker: React.FC<{
       <button type="button" className="msheet-go" disabled={!picked.length} onClick={() => onStart(picked)} data-start="1">
         {go || (picked.length > 1 ? t('Start a group of {n}', { n: picked.length + 1 }) : t('Start'))}
       </button>
+    </Sheet>
+  )
+}
+
+/// Forward a message into another conversation, with a word of your own.
+/// From a conversation with a closed door — a DM, a group, a private
+/// channel — only a link goes: whoever can read the original opens it, and
+/// nobody else learns what it said.
+export const ForwardSheet: React.FC<{
+  message: ChannelMessage
+  closed: boolean
+  places: Array<{ view: string; name: string; kind: 'channel' | 'person' | 'group'; private?: boolean }>
+  onClose: () => void
+  onSend: (to: string, comment: string) => Promise<boolean>
+}> = ({ message, closed, places, onClose, onSend }) => {
+  const t = useT()
+  const [q, setQ] = React.useState('')
+  const [to, setTo] = React.useState<string | null>(null)
+  const [comment, setComment] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
+  const needle = q.trim().toLowerCase()
+  const shown = places.filter((p) => !needle || p.name.toLowerCase().includes(needle)).slice(0, 40)
+  return (
+    <Sheet label={t('Forward')} onClose={onClose} className="people forward">
+      <p className="msheet-title">{t('Forward')}</p>
+      <p className="msheet-sub">{closed
+        ? t('This is from a private conversation, so only a link goes. Whoever can read the original can open it.')
+        : t('The message goes with a line saying where it came from, and a link to it.')}</p>
+      <blockquote className="msheet-quote">{message.body.length > 240 ? `${message.body.slice(0, 240)}…` : message.body || '📎'}</blockquote>
+      <label className="msheet-search">
+        <Icon name="search" size={16} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Find a conversation')} aria-label={t('Find a conversation')} />
+      </label>
+      <div role="listbox" aria-label={t('Where to')}>
+        {shown.map((p) => (
+          <button key={p.view} type="button" role="option" className="msheet-person" aria-selected={to === p.view} aria-checked={to === p.view} onClick={() => setTo(p.view)} data-forward-to={p.view}>
+            <span className="msheet-place-icon" aria-hidden="true"><Icon name={p.kind === 'channel' ? (p.private ? 'lock' : 'hash') : p.kind === 'group' ? 'users' : 'message'} size={15} /></span>
+            <span>{p.name}</span>
+            <span className="msheet-tick" aria-hidden="true">{to === p.view && <Icon name="check" size={13} />}</span>
+          </button>
+        ))}
+      </div>
+      <label className="msheet-search msheet-comment">
+        <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder={t('Add a message (optional)')} aria-label={t('Add a message (optional)')} />
+      </label>
+      <button type="button" className="msheet-go" disabled={!to || busy} data-forward-send="1" onClick={async () => {
+        if (!to) return
+        setBusy(true)
+        const ok = await onSend(to, comment.trim())
+        setBusy(false)
+        if (ok) onClose()
+      }}>{busy ? t('Sending…') : t('Forward')}</button>
     </Sheet>
   )
 }

@@ -607,6 +607,45 @@
 .ws-action { display: block; width: 100%; text-align: left; background: none; border: none; padding: 8px 10px; border-radius: 10px; font: inherit; font-size: 14px; color: var(--ink-black); cursor: pointer; }
 .ws-action:hover { background: var(--mist); }
 .ws-quiet { color: var(--ash); }
+/* Slack's workspace menu: every workspace with its mark, who is in it, and
+   the key that opens it; then "Add a workspace". */
+.ws-menu { min-width: 320px; max-width: min(94vw, 380px); padding: 8px; }
+.ws-item { gap: 12px; padding: 8px 10px; }
+.ws-item .ws-mark { border-radius: 10px; }
+.ws-key { flex: none; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; color: var(--ash); background: none; border: none; }
+.ws-item.on .ws-mark { box-shadow: 0 0 0 2px var(--signal-white, #fff), 0 0 0 4px var(--ink-black, #111); }
+.ws-add { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+.ws-add-plus { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--mist, #f2f2f2); flex: none; }
+.ws-add-scrim { position: fixed; inset: 0; z-index: 220; background: rgba(15, 15, 15, .45); display: grid; place-items: center; padding: 16px; }
+.ws-add-dialog { width: min(460px, 100%); background: #fff; color: var(--ink-black); border-radius: 16px; padding: 18px 18px 20px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+.ws-add-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.ws-add-head h2 { flex: 1; margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+.ws-add-back, .ws-add-close { border: none; background: none; cursor: pointer; color: inherit; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; }
+.ws-add-back:hover, .ws-add-close:hover { background: var(--mist, #f2f2f2); }
+.ws-add-choices { display: flex; flex-direction: column; gap: 8px; }
+.ws-add-choice { display: flex; align-items: center; gap: 14px; text-align: left; padding: 14px; border: 1px solid var(--bone, #e5e5e5); border-radius: 12px; background: none; cursor: pointer; font: inherit; color: inherit; }
+.ws-add-choice:hover { border-color: var(--ink-black, #111); }
+.ws-add-choice > span:last-child { display: flex; flex-direction: column; gap: 3px; }
+.ws-add-choice b { font-size: 15px; }
+.ws-add-choice small { font-size: 13px; color: var(--ash); line-height: 1.45; }
+.ws-add-icon { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; background: var(--mist, #f2f2f2); flex: none; }
+.ws-add-form { display: flex; flex-direction: column; gap: 8px; }
+.ws-add-form label { font-size: 13px; font-weight: 600; }
+.ws-add-form input { height: 42px; padding: 0 12px; border: 1px solid var(--bone, #e5e5e5); border-radius: 10px; font: inherit; font-size: 15px; background: none; color: inherit; }
+.ws-add-form input:focus { outline: none; border-color: var(--ink-black, #111); }
+.ws-add-hint { margin: 0; font-size: 12.5px; color: var(--ash); }
+.ws-add-go { align-self: flex-end; margin-top: 6px; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ws-add-dialog { background: #1a1a1a; color: #f2f2f2; }
+  :root:not([data-theme="light"]) .ws-add-choice, :root:not([data-theme="light"]) .ws-add-form input { border-color: #2e2e2e; }
+  :root:not([data-theme="light"]) .ws-add-choice:hover, :root:not([data-theme="light"]) .ws-add-form input:focus { border-color: #f2f2f2; }
+  :root:not([data-theme="light"]) .ws-add-icon, :root:not([data-theme="light"]) .ws-add-plus, :root:not([data-theme="light"]) .ws-add-back:hover, :root:not([data-theme="light"]) .ws-add-close:hover { background: #2a2a2a; }
+  :root:not([data-theme="light"]) .ws-item.on .ws-mark { box-shadow: 0 0 0 2px #1a1a1a, 0 0 0 4px #f2f2f2; }
+}
+:root[data-theme="dark"] .ws-add-dialog { background: #1a1a1a; color: #f2f2f2; }
+:root[data-theme="dark"] .ws-add-choice, :root[data-theme="dark"] .ws-add-form input { border-color: #2e2e2e; }
+:root[data-theme="dark"] .ws-add-icon, :root[data-theme="dark"] .ws-add-plus { background: #2a2a2a; }
+:root[data-theme="dark"] .ws-item.on .ws-mark { box-shadow: 0 0 0 2px #1a1a1a, 0 0 0 4px #f2f2f2; }
 /* Phone: the rail is a bottom bar, so the switcher lives in the headers. */
 .ws-rail { display: none; }
 .team-name-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -722,8 +761,8 @@
   .shell .ws-rail { display: block; position: relative; order: -2; margin-bottom: 4px; }
   .shell .ws-rail .ws-button { padding: 0; border-radius: 10px; }
   .shell .ws-rail .ws-button:hover { background: none; box-shadow: 0 0 0 3px var(--chrome-hover); }
-  .shell .ws-rail .ws-mark { width: 36px !important; height: 36px !important; border-radius: 10px; }
-  .shell .ws-rail .ws-mark-letter { background: #fff; color: #1d1c1d; }
+  .shell .ws-rail .ws-button .ws-mark { width: 36px !important; height: 36px !important; border-radius: 10px; }
+  .shell .ws-rail .ws-button .ws-mark-letter { background: #fff; color: #1d1c1d; }
   .shell .ws-rail .ws-name, .shell .ws-rail .ws-caret { display: none; }
   .shell .ws-rail .ws-menu { left: calc(100% + 10px); top: 0; }
   /* At the foot: telling your AI, the one action, and you. */

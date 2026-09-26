@@ -12,7 +12,7 @@
 // translate here, and nothing to fetch. Show it, and when it is tapped,
 // bring the feed to the front on the card it names.
 
-const SHELL = 'honmaru-shell-v1'
+const SHELL = 'honmaru-shell-v2'
 const PRECACHE = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg']
 
 self.addEventListener('install', (event) => {
@@ -77,7 +77,7 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     tag: data.tag || data.cardId || 'honmaru',
     renotify: Boolean(data.kind === 'nudged'),
-    data: { cardId: data.cardId || null, url: data.url || null, kind: data.kind || null },
+    data: { cardId: data.cardId || null, messageId: data.messageId || null, url: data.url || null, kind: data.kind || null },
     icon: '/icon.svg',
     badge: '/icon.svg',
   }
@@ -91,14 +91,16 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const cardId = event.notification.data && event.notification.data.cardId
+  const messageId = event.notification.data && event.notification.data.messageId
   const target = new URL(self.registration.scope)
-  // The card's own address, so a fresh tab opens on it.
+  // The card's (or the message's) own address, so a fresh tab opens on it.
   if (cardId) target.hash = '#/feed/' + encodeURIComponent(cardId)
+  else if (messageId) target.hash = '#/m/' + encodeURIComponent(messageId)
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
       for (const client of windows) {
         if ('focus' in client) {
-          client.postMessage({ type: 'open-card', cardId })
+          client.postMessage(messageId && !cardId ? { type: 'open-message', messageId } : { type: 'open-card', cardId })
           return client.focus()
         }
       }

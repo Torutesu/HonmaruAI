@@ -11,6 +11,7 @@
 import { chromium } from '../web-react/node_modules/playwright/index.mjs'
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const WEB = 'http://127.0.0.1:4173'
 const SINK = 'http://127.0.0.1:9099'
@@ -1831,8 +1832,10 @@ await step('the daily report: morning and evening at the person’s own times, d
     await d.waitForSelector('.daily-text', { timeout: 20000 }).catch(() => { throw new Error('the draft is not shown for editing') })
     const draft = await d.$eval('.daily-text', (el) => el.value)
     for (const heading of ['What I did today', 'Task progress', 'What went well', 'What to improve', 'Tomorrow']) {
-      if (!draft.includes(`*${heading}*`)) throw new Error(`the draft has no "${heading}": ${draft.slice(0, 200)}`)
+      if (!draft.split('\n').includes(heading)) throw new Error(`the draft has no "${heading}": ${draft.slice(0, 200)}`)
     }
+    // Headings as plain lines: no marks to delete before posting.
+    if (draft.includes('*')) throw new Error(`the draft still has asterisks: ${draft.slice(0, 200)}`)
     // What was said today, in the channel it was said in.
     if (!/#kitchen/.test(draft)) throw new Error(`the draft does not count what was said in #kitchen: ${draft.slice(0, 300)}`)
     if (/@example\.com|\bu:|\bemail:/.test(draft)) throw new Error('the draft shows an account id')
@@ -1866,7 +1869,7 @@ await step('the daily report: morning and evening at the person’s own times, d
     await d.waitForSelector('.daily-text', { timeout: 20000 })
     const plan = await d.$eval('.daily-text', (el) => el.value)
     for (const heading of ['Today', 'Task status', 'Where I need help']) {
-      if (!plan.includes(`*${heading}*`)) throw new Error(`the morning plan has no "${heading}": ${plan.slice(0, 200)}`)
+      if (!plan.split('\n').includes(heading)) throw new Error(`the morning plan has no "${heading}": ${plan.slice(0, 200)}`)
     }
     if (!/Plan for today/.test(await d.$eval('.card-title', (el) => el.innerText))) throw new Error('the morning draft is not titled as a plan')
 
@@ -1877,6 +1880,31 @@ await step('the daily report: morning and evening at the person’s own times, d
     await d.waitForSelector(`.slk-msg:has-text("${words}")`, { timeout: 15000 })
       .catch(() => { throw new Error('the posted report does not show in the channel') })
     await d.screenshot({ path: `${SHOTS}/42-daily-posted.png` })
+
+    // The morning's draft waits in its own channel, #daily-reports, marked
+    // in the sidebar, above the box you write in — only its owner sees it —
+    // and is edited, talked over and posted there.
+    await d.waitForSelector('.slk-side .cl-thread[data-view="b:daily-reports"] [data-has-daily]', { timeout: 15000 })
+      .catch(() => { throw new Error('the channel with the morning draft is not marked in the sidebar') })
+    await d.click('.slk-side .cl-thread[data-view="b:daily-reports"] .cl-open')
+    await d.waitForSelector('.slk-daily-draft .daily-fold', { timeout: 15000 })
+      .catch(() => { throw new Error('the morning draft is not waiting in its channel') })
+    await d.click('.slk-daily-draft .daily-fold')
+    await d.waitForSelector('.slk-daily-draft .daily-text', { timeout: 5000 })
+    const planWords = `Call the fridge supplier first thing (${Date.now()}).`
+    await d.fill('.slk-daily-draft .daily-text', `${plan}\n- ${planWords}`)
+    // Asked to change it: with no model in this run, it says so and keeps the words.
+    await d.fill('.slk-daily-draft [data-daily-ask]', 'make it shorter')
+    await d.press('.slk-daily-draft [data-daily-ask]', 'Enter')
+    await d.waitForSelector('.slk-daily-draft .daily-note', { timeout: 15000 })
+    const kept = await d.$eval('.slk-daily-draft .daily-text', (el) => el.value)
+    if (!kept.includes(planWords)) throw new Error('asking the AI lost the words typed into the draft')
+    await d.screenshot({ path: `${SHOTS}/42b-daily-in-channel.png` })
+    await d.click('.slk-daily-draft [data-daily-post]')
+    await d.waitForSelector(`.slk-msg:has-text("${planWords}")`, { timeout: 15000 })
+      .catch(() => { throw new Error('the plan posted from the channel does not show there') })
+    await d.waitForSelector('.slk-daily-draft [data-daily-draft]', { state: 'detached', timeout: 15000 })
+      .catch(() => { throw new Error('the draft stayed in the channel after it was posted') })
   } finally {
     await ctx.close()
     // This step reads the team list several times for one person; the
@@ -2565,6 +2593,170 @@ await step('on a phone the list has tabs, a long press, pictures, groups and pri
   // Back to the cards, where the steps after this one start.
   await page.click('.mode-switch button >> nth=0')
   await page.waitForSelector('.feed', { timeout: 10000 })
+})
+
+await step('a workspace adds its own emoji, and uses them in a message and a reaction', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  // The owner, at a laptop, in the same browser as their phone.
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    await desk.goto(`${WEB}#/tools/emoji`, { waitUntil: 'load' })
+    await desk.waitForSelector('[data-studio-page="emoji"]', { timeout: 20000 })
+    // Part of the ShogunAI pack, chosen at once, each named after its file.
+    const names = ['shogun_party', 'shogun_lgtm', 'shogun_shipit', 'shogun_thanks']
+    await desk.setInputFiles('input[data-emoji-input]', names.map((n) => fileURLToPath(new URL(`../assets/emoji/shogunai/${n}.svg`, import.meta.url))))
+    await desk.click('[data-emoji-add]')
+    await desk.waitForSelector('.emoji-tile[data-emoji="shogun_thanks"]', { timeout: 15000 })
+    await desk.waitForFunction(() => { const all = [...document.querySelectorAll('.emoji-tile img')]; return all.length >= 4 && all.every((i) => i.complete && i.naturalWidth > 0) }, null, { timeout: 15000 })
+    await desk.screenshot({ path: `${SHOTS}/54-emoji-studio.png` })
+
+    // In a message: a colon and two letters offer it, Enter takes it.
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
+    await desk.click('.slk-composer .slk-input')
+    await desk.keyboard.type('shipped it :shogun_pa')
+    await desk.waitForSelector('[data-emoji-option="shogun_party"]', { timeout: 5000 })
+    await desk.keyboard.press('Enter')
+    const typed = await desk.inputValue('.slk-composer .slk-input')
+    if (typed !== 'shipped it :shogun_party: ') throw new Error(`the emoji menu wrote "${typed}"`)
+    await desk.keyboard.press('Enter')
+    await desk.waitForFunction(() => { const i = document.querySelector('.slk-text img.slk-custom-emoji[alt=":shogun_party:"]'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
+
+    // Kenji, in the same workspace, sees the picture, and answers with one.
+    await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    // Out of whatever conversation the phone was left in, to its list.
+    for (let i = 0; i < 3 && await kenji.isVisible('.slk-head .slk-back'); i++) await kenji.click('.slk-head .slk-back').catch(() => {})
+    await kenji.click('[data-phone-tab="home"]').catch(() => {})
+    await kenji.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await kenji.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
+    await kenji.waitForFunction(() => { const i = document.querySelector('.slk-text img.slk-custom-emoji[alt=":shogun_party:"]'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
+    const last = kenji.locator('.slk-msg[id^="msg-"]').last()
+    await last.click({ button: 'right', position: { x: 200, y: 20 } })
+    await kenji.waitForSelector('.msheet', { timeout: 5000 })
+    await kenji.click('.msheet-reactions .more')
+    await kenji.click('[data-custom-emoji="shogun_lgtm"]')
+    await desk.waitForSelector('.slk-reaction img[alt=":shogun_lgtm:"]', { timeout: 15000 })
+    await desk.screenshot({ path: `${SHOTS}/55-emoji-message.png` })
+    await kenji.screenshot({ path: `${SHOTS}/56-emoji-phone.png` })
+    await kenji.click('.slk-back').catch(() => {})
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-desk.png` }).catch(() => {})
+    await kenji.screenshot({ path: `${SHOTS}/fail-${Date.now()}-kenji.png` }).catch(() => {})
+    throw err
+  } finally {
+    await desk.close()
+  }
+})
+
+await step('threads you are in, a message marked unread, and one forwarded as a link only', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    // The owner asks in the group; Kenji answers in a thread, on his phone.
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
+    const ask = `which supplier? ${Date.now()}`
+    await desk.fill('.slk-composer .slk-input', ask)
+    await desk.keyboard.press('Enter')
+    await desk.waitForSelector(`.slk-text:has-text("${ask}")`, { timeout: 10000 })
+
+    await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    // Out of whatever conversation the phone was left in, to its list.
+    for (let i = 0; i < 3 && await kenji.isVisible('.slk-head .slk-back'); i++) await kenji.click('.slk-head .slk-back').catch(() => {})
+    await kenji.click('[data-phone-tab="home"]').catch(() => {})
+    await kenji.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await kenji.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
+    const asked = kenji.locator('.slk-msg[id^="msg-"]', { hasText: ask }).last()
+    await asked.waitFor({ timeout: 15000 })
+    await asked.click({ button: 'right', position: { x: 200, y: 20 } })
+    await kenji.click('[data-sheet="reply"]')
+    await kenji.fill('.slk-composer.thread .slk-input', 'the one from Kyoto')
+    await kenji.click('.slk-composer.thread .slk-send[type="submit"]')
+    await kenji.waitForSelector('.slk-composer.thread ~ * .slk-text:has-text("the one from Kyoto"), .slk-text:has-text("the one from Kyoto")', { timeout: 10000 })
+
+    // Threads: the owner's thread, unread, with Kenji's answer in it.
+    await desk.waitForSelector('[data-threads] .cl-badge', { timeout: 20000 })
+    await desk.click('[data-threads]')
+    const card = desk.locator('.slk-thread-card', { hasText: ask })
+    await card.waitFor({ timeout: 10000 })
+    if (!(await card.evaluate((el) => el.classList.contains('unread')))) throw new Error('a new reply did not make the thread unread')
+    await card.locator('.slk-text:has-text("the one from Kyoto")').waitFor({ timeout: 5000 })
+    await desk.screenshot({ path: `${SHOTS}/57-threads.png` })
+    await card.locator('[data-open-thread]').click()
+    await desk.waitForSelector('.slk-composer.thread', { timeout: 10000 })
+    await desk.waitForFunction(() => !document.querySelector('[data-threads] .cl-badge'), null, { timeout: 10000 })
+
+    // Forward the group's message: a closed conversation, so only a link.
+    const mine = desk.locator('.slk-main .slk-msg[id^="msg-"]', { hasText: ask }).last()
+    await mine.hover()
+    await mine.locator('.slk-tool[aria-label="More actions"]').click()
+    await desk.click('[data-menu="forward"]')
+    await desk.waitForSelector('.msheet.forward', { timeout: 5000 })
+    const target = await desk.getAttribute('.msheet.forward [data-forward-to^="dm:"], .msheet.forward [data-forward-to^="b:"]', 'data-forward-to')
+    await desk.click(`.msheet.forward [data-forward-to="${target}"]`)
+    await desk.click('[data-forward-send]')
+    await desk.waitForSelector('.msheet.forward', { state: 'detached', timeout: 10000 })
+    const sent = await desk.evaluate(async ({ host, to }) => {
+      const org = localStorage.getItem('orgId'); const token = localStorage.getItem('sessionToken')
+      const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(org)}&channel=${encodeURIComponent(to)}`, { headers: { 'x-session-token': token } })
+      const d = await r.json(); return d.messages[d.messages.length - 1].body
+    }, { host: API, to: target })
+    if (!/#\/m\//.test(sent) || sent.includes(ask)) throw new Error(`a forward from a group said "${sent}"`)
+
+    // Kenji marks the owner's question unread: back to the list, bold again.
+    await kenji.click('.slk-back.pane').catch(() => {})
+    const again = kenji.locator('.slk-msg[id^="msg-"]', { hasText: ask }).last()
+    await again.click({ button: 'right', position: { x: 200, y: 20 } })
+    await kenji.click('[data-sheet="unread"]')
+    await kenji.waitForSelector('.slk-side .cl-thread.unread[data-view^="g:"]', { timeout: 10000 })
+    await kenji.screenshot({ path: `${SHOTS}/58-marked-unread.png` })
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-desk.png` }).catch(() => {})
+    await kenji.screenshot({ path: `${SHOTS}/fail-${Date.now()}-kenji.png` }).catch(() => {})
+    throw err
+  } finally {
+    await desk.close()
+  }
+})
+
+await step('the mark at the top left lists every workspace, and adds one', async () => {
+  // Its own browser with the same sign-in, so switching here moves nobody
+  // else's page.
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    const was = await w.evaluate(() => localStorage.getItem('orgId'))
+    await w.click('.ws-rail .ws-button')
+    await w.waitForSelector('.ws-rail .ws-menu .ws-item', { timeout: 10000 })
+    if (!(await w.isVisible('.ws-rail .ws-menu .ws-item.on .ws-key'))) throw new Error('the workspaces carry no key to open them')
+    await w.screenshot({ path: `${SHOTS}/59-workspaces.png` })
+    await w.click('[data-add-workspace]')
+    await w.waitForSelector('.ws-add-dialog [data-ws-create]', { timeout: 5000 })
+    await w.screenshot({ path: `${SHOTS}/60-add-workspace.png` })
+    await w.click('[data-ws-create]')
+    await w.fill('[data-ws-input]', `Second shop ${Date.now() % 10000}`)
+    await w.click('[data-ws-submit]')
+    await w.waitForFunction((prev) => localStorage.getItem('orgId') && localStorage.getItem('orgId') !== prev, was, { timeout: 15000 })
+      .catch(() => { throw new Error('creating a workspace did not open it') })
+    await w.waitForSelector('.ws-rail .ws-button', { timeout: 20000 })
+    // Both are in the menu now; the first one is back with a click.
+    await w.click('.ws-rail .ws-button')
+    await w.waitForFunction(() => document.querySelectorAll('.ws-rail .ws-menu .ws-item').length >= 2, null, { timeout: 10000 })
+      .catch(async () => { throw new Error(`the new workspace is not in the menu: ${await w.$$eval('.ws-rail .ws-menu .ws-item', (els) => els.length)}`) })
+    await w.click(`.ws-rail .ws-menu .ws-item[data-org="${was}"]`)
+    await w.waitForFunction((prev) => localStorage.getItem('orgId') === prev, was, { timeout: 15000 })
+  } finally {
+    await ctx.close()
+  }
 })
 
 await step('removing someone takes them out of the room, not just the table', async () => {

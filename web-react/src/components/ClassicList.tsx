@@ -9,7 +9,9 @@ import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
 import { useMembers } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
-import { MessageActions, Reactions, EmojiPicker, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
+import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/customEmoji'
+import { DailyReportDraft } from './DailyReport'
+import { MessageActions, Reactions, EmojiPicker, EmojiGlyph, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
@@ -17,7 +19,7 @@ import { JamPanel } from './JamPanel'
 import type { JamMode, JamState } from '../utils/jam'
 import { InviteDialog } from './InviteDialog'
 import { Avatar } from './Avatar'
-import { Sheet, SheetRow, MessageSheet, PeoplePicker, longPress } from './Sheet'
+import { Sheet, SheetRow, MessageSheet, PeoplePicker, ForwardSheet, longPress } from './Sheet'
 import { useUploads, PendingUploads, MessageFiles } from './Attachments'
 import { playSound, setOpenView, rememberLevels, startRing, stopRing } from '../utils/sound'
 import './ClassicList.css'
@@ -134,6 +136,8 @@ interface Activity { channel: string; lastAt: string; preview: string; lastBy: s
 interface Face { name: string; url?: string | null }
 /// One notification: somebody named you, replied in your thread, or reacted
 /// to what you wrote.
+/// A thread you are in: its first message, the last replies, how many.
+interface ThreadItem { parent: ChannelMessage; replies: ChannelMessage[]; replyCount: number; lastReplyAt: string; unread: boolean }
 interface ActivityItem { type: 'mention' | 'reply' | 'reaction'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null; byAvatar?: string | null }
 
 async function hash16(text: string): Promise<string> {
@@ -213,10 +217,28 @@ export const ClassicList: React.FC<Props> = ({
   // The sound for a message is decided where the socket is; it needs to
   // know what you muted and what you are looking at.
   useEffect(() => { rememberLevels(api.orgId, prefs) }, [api.orgId, prefs])
+  // This workspace's own emoji: fetched when it opens, and again when a
+  // message — live or loaded — names one not yet in the list: somebody just
+  // added it. A name asked about once is not asked about again for a minute,
+  // so text that only looks like :this: costs one request, not one a render.
+  useCustomEmoji()
+  const emojiAsked = useRef<Map<string, number>>(new Map())
+  useEffect(() => { emojiAsked.current.clear(); void loadCustomEmoji(api.httpBase, api.sessionToken, api.orgId) }, [api.httpBase, api.sessionToken, api.orgId])
+  const maybeNewEmoji = useCallback((text: string) => {
+    const now = Date.now()
+    const unknown = (String(text || '').match(/:[a-z0-9_+-]{1,30}:/g) || [])
+      .filter((n) => !customEmojiUrl(n) && now - (emojiAsked.current.get(n) || 0) > 60_000)
+    if (!unknown.length) return
+    for (const n of unknown) emojiAsked.current.set(n, now)
+    void loadCustomEmoji(api.httpBase, api.sessionToken, api.orgId)
+  }, [api.httpBase, api.sessionToken, api.orgId])
   // Read positions from the server: the same on the phone and the laptop.
   const [serverReads, setServerReads] = useState<Record<string, string>>({})
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
+  // Your daily report's draft, waiting in the channel it is for.
+  const dailyDrafts = useMemo(() => pending.filter((c) => c.dailyReport && awaitsPost(c) && c.dailyReport.status === 'draft'), [pending])
+  const draftsFor = (view: string) => dailyDrafts.filter((c) => c.dailyReport!.channel === view)
   useEffect(() => {
     let ignore = false
     let tz = ''
@@ -366,6 +388,7 @@ export const ClassicList: React.FC<Props> = ({
   const choose = (key: string | null) => {
     setActivityOpen(false)
     setLaterOpen(false)
+    setThreadsOpen(false)
     setOpenKey(key)
     setProblem(null)
     setRenaming(null)
@@ -388,6 +411,17 @@ export const ClassicList: React.FC<Props> = ({
 
   // The Activity inbox: what named you, and replies in your threads.
   const [activityOpen, setActivityOpen] = useState(false)
+  // Threads: every thread you are in, the one with the newest reply first.
+  const [threadsOpen, setThreadsOpen] = useState(false)
+  const [threadItems, setThreadItems] = useState<ThreadItem[] | null>(null)
+  const loadThreads = useCallback(() => {
+    return fetch(`${api.httpBase}/channels/threads?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setThreadItems(data.threads || []) })
+      .catch(() => { /* the list stays as it was */ })
+  }, [api.httpBase, api.orgId, authHeaders])
+  useEffect(() => { void loadThreads() }, [loadThreads])
+  const threadsUnread = (threadItems || []).filter((x) => x.unread).length
   const [activityItems, setActivityItems] = useState<ActivityItem[] | null>(null)
   // What was unread when you opened it stays marked while you are there —
   // the Unread tab is for exactly that — but the badge goes at once.
@@ -414,6 +448,7 @@ export const ClassicList: React.FC<Props> = ({
   const openActivity = () => {
     setOpenKey(null)
     setLaterOpen(false)
+    setThreadsOpen(false)
     setActivityOpen(true)
     setDetailId(null)
     setActivityPick(null)
@@ -566,7 +601,8 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   const row = (thread: Thread) => {
-    const on = !activityOpen && !laterOpen && current?.key === thread.key
+    const on = !special && current?.key === thread.key
+    const hasDraft = Boolean(thread.view && draftsFor(thread.view).length)
     return (
       <li key={thread.key} data-view={thread.view} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
@@ -581,7 +617,7 @@ export const ClassicList: React.FC<Props> = ({
           {thread.view && (mentionsIn[thread.view] || 0) > 0 && thread.unread === 0 && <span className="cl-badge mention">@{mentionsIn[thread.view]}</span>}
           {thread.unread > 0 && <span className="cl-badge">{thread.unread}</span>}
           {thread.unread === 0 && thread.fresh && !on && <span className="cl-fresh" aria-label={t('New messages')} />}
-          {!on && thread.view && drafts[thread.view] && <span className="cl-draft" title={t('Draft')} aria-label={t('Draft')}><Icon name="edit" size={12} /></span>}
+          {!on && thread.view && (drafts[thread.view] || hasDraft) && <span className={`cl-draft${hasDraft ? ' daily' : ''}`} title={hasDraft ? t('Your daily report is waiting to be posted') : t('Draft')} aria-label={t('Draft')} data-has-daily={hasDraft ? '1' : undefined}><Icon name="edit" size={12} /></span>}
         </button>
       </li>
     )
@@ -665,9 +701,10 @@ export const ClassicList: React.FC<Props> = ({
         if (!data) return
         setMessages((prev) => ({ ...prev, [channel]: data.messages || [] }))
         setMore((prev) => ({ ...prev, [channel]: (data.messages || []).length >= PAGE }))
+        maybeNewEmoji((data.messages || []).map((m: ChannelMessage) => `${m.body || ''} ${(m.reactions || []).map((r) => r.emoji).join(' ')}`).join(' '))
       })
       .catch(() => { /* the decisions still show */ })
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, maybeNewEmoji])
   // Scrolled to the top: the page before, kept in place as it arrives.
   const loadingOlder = useRef(false)
   const keepScroll = useRef<number | null>(null)
@@ -699,9 +736,12 @@ export const ClassicList: React.FC<Props> = ({
     setNewSince({ view, at: readAt(view) })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
-  // Opened is read — here, and on the server for your other devices.
+  // Opened is read — here, and on the server for your other devices —
+  // unless you just marked it unread and are still looking at it.
+  const heldUnread = useRef<string | null>(null)
+  useEffect(() => { if (heldUnread.current && heldUnread.current !== view) heldUnread.current = null }, [view])
   useEffect(() => {
-    if (!view) return
+    if (!view || heldUnread.current === view) return
     const now = new Date().toISOString()
     try { localStorage.setItem(seenKey(api.orgId, view), now) } catch { /* private mode: nothing remembered */ }
     setSeenTick((n) => n + 1)
@@ -733,6 +773,7 @@ export const ClassicList: React.FC<Props> = ({
       // read from the refs, not from a flag set for somebody else.
       const reactions = (m.reactions || []).map((r) => ({ ...r, mine: myRef ? r.refs.includes(myRef) : r.mine }))
       const msg = { ...m, mine, reactions }
+      maybeNewEmoji(`${m.body || ''} ${reactions.map((r) => r.emoji).join(' ')}`)
       if (m.parentId) {
         // A reply: into the thread if it is open; its parent's count comes
         // as an event of its own.
@@ -767,7 +808,7 @@ export const ClassicList: React.FC<Props> = ({
     }
     window.addEventListener('honmaru:channel-message', on)
     return () => window.removeEventListener('honmaru:channel-message', on)
-  }, [members, loadMessages])
+  }, [members, loadMessages, maybeNewEmoji])
   // The AI's steps, as it takes them.
   useEffect(() => {
     const on = (e: Event) => {
@@ -881,8 +922,10 @@ export const ClassicList: React.FC<Props> = ({
 
   // Later: saved messages.
   const [laterOpen, setLaterOpen] = useState(false)
+  // One of the lists that is not a conversation is on screen.
+  const special = activityOpen || laterOpen || threadsOpen
   // Which conversation is on screen, for the sound a new message makes.
-  const openView = !activityOpen && !laterOpen ? (current?.view || null) : null
+  const openView = !special ? (current?.view || null) : null
   useEffect(() => { setOpenView(openView); return () => { setOpenView(null) } }, [openView])
   const [laterItems, setLaterItems] = useState<Array<{ id: string; remindAt: string | null; remindedAt: string | null; message: ChannelMessage }> | null>(null)
   const loadLater = useCallback(() => {
@@ -977,6 +1020,45 @@ export const ClassicList: React.FC<Props> = ({
   const [flash, setFlash] = useState<string | null>(null)
   // On a phone: a long press on a message brings up what you can do to it.
   const [sheet, setSheet] = useState<{ channel: string; m: ChannelMessage; inThread: boolean } | null>(null)
+  const [forwarding, setForwarding] = useState<{ channel: string; m: ChannelMessage } | null>(null)
+  /// "Mark unread from here": the conversation (or the thread) is read only
+  /// up to just before this message, on every device.
+  const markUnread = async (channel: string, m: ChannelMessage) => {
+    const res = await fetch(`${api.httpBase}/channels/unread`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel, messageId: m.id }),
+    }).catch(() => null)
+    const data = res?.ok ? await res.json().catch(() => null) as { lastReadAt: string; thread: string | null } | null : null
+    if (!data) { setProblem(t('That did not save.')); return }
+    if (data.thread) { void loadThreads(); setToast(t('Marked unread')); return }
+    heldUnread.current = channel
+    try { localStorage.setItem(seenKey(api.orgId, channel), data.lastReadAt) } catch { /* the server remembers */ }
+    setServerReads((prev) => ({ ...prev, [channel]: data.lastReadAt }))
+    setSeenTick((n) => n + 1)
+    setToast(t('Marked unread'))
+    // On a phone, back to the list, where it now shows as unread.
+    if (!wide) choose(null)
+  }
+  /// Forward into another conversation. From a closed one only a link goes.
+  const isClosed = (view: string) => view.startsWith('dm:') || view.startsWith('g:') || Boolean(everything.find((x) => x.view === view)?.private)
+  const forwardTo = async (from: string, m: ChannelMessage, to: string, comment: string) => {
+    const link = `${location.origin}${location.pathname}#/m/${encodeURIComponent(m.id)}`
+    const src = everything.find((x) => x.view === from)
+    const who = m.kind === 'ai' ? t('Your AI') : (m.authorName || t('a teammate'))
+    const quoted = m.body ? m.body.slice(0, 600).split('\n').map((l) => `> ${l}`).join('\n') : '> 📎'
+    const body = isClosed(from)
+      ? [comment, link].filter(Boolean).join('\n')
+      : [comment, quoted, `— ${who}${src?.kind === 'channel' ? `, #${src.name}` : ''}`, link].filter(Boolean).join('\n')
+    const res = await fetch(`${api.httpBase}/channels/messages`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel: to, body }),
+    }).catch(() => null)
+    if (!res?.ok) { setProblem(t('That did not send. Try again.')); return false }
+    const dest = everything.find((x) => x.view === to)
+    setToast(t('Forwarded to {name}', { name: dest ? (dest.kind === 'channel' ? `#${dest.name}` : dest.name) : '' }))
+    void loadMessages(to)
+    return true
+  }
   const messagesRef = useRef(messages)
   messagesRef.current = messages
   const myRef = members.find((m) => m.mine)?.ref
@@ -1038,6 +1120,16 @@ export const ClassicList: React.FC<Props> = ({
     const data = res?.ok ? await res.json().catch(() => null) : null
     if (data) setThread((prev) => (prev && prev.parent.id === m.id ? { channel, parent: data.parent, replies: data.replies || [] } : prev))
     requestAnimationFrame(() => threadComposer.current?.focus())
+    markThreadRead(channel, m.id)
+  }
+  /// Read this thread, here and on every other device: Threads stops
+  /// calling it unread.
+  const markThreadRead = (channel: string, parentId: string) => {
+    setThreadItems((prev) => prev && prev.map((x) => (x.parent.id === parentId ? { ...x, unread: false } : x)))
+    void fetch(`${api.httpBase}/channels/read`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel, thread: parentId }),
+    }).catch(() => {})
   }
   const loadPins = async (channel: string) => {
     if (pins) { setPins(null); return }
@@ -1076,11 +1168,11 @@ export const ClassicList: React.FC<Props> = ({
       const m = (e as CustomEvent<ChannelMessage>).detail
       if (!m || m.mine || (!m.parentId && !/[@＠]/.test(m.body || ''))) return
       if (timer) clearTimeout(timer)
-      timer = setTimeout(() => { void loadActivity() }, 800)
+      timer = setTimeout(() => { void loadActivity(); if (m.parentId) void loadThreads() }, 800)
     }
     window.addEventListener('honmaru:channel-message', on)
     return () => { window.removeEventListener('honmaru:channel-message', on); if (timer) clearTimeout(timer) }
-  }, [loadActivity])
+  }, [loadActivity, loadThreads])
   // From search: open the conversation and go to the message.
   useEffect(() => {
     const go = (target: { view: string; id: string; parentId?: string | null }) => openAt(target)
@@ -1310,7 +1402,7 @@ export const ClassicList: React.FC<Props> = ({
   // A phone gives a conversation, or a decision, the whole screen.
   // A conversation, a card or a thread takes the whole phone; Activity and
   // Later are tabs, with the tab bar under them.
-  useEffect(() => { onImmersive(!wide && (Boolean(current && !activityOpen && !laterOpen) || Boolean(detail) || Boolean(thread))) }, [wide, current?.key, detail?.id, thread, activityOpen, laterOpen, onImmersive])
+  useEffect(() => { onImmersive(!wide && (Boolean(current && !special) || Boolean(detail) || Boolean(thread))) }, [wide, current?.key, detail?.id, thread, special, onImmersive])
   useEffect(() => () => onImmersive(false), [onImmersive])
 
   // Messages, or the decisions in this conversation as a list.
@@ -1549,6 +1641,9 @@ export const ClassicList: React.FC<Props> = ({
       onLater={(at) => void saveLater(channel, m, at)}
       onClip={() => toggleClip(channel, m)}
       clipped={clip.some((x) => x.id === m.id)}
+      onUnread={m.mine ? undefined : () => void markUnread(channel, m)}
+      onForward={m.kind === 'message' || m.kind === 'ai' ? () => setForwarding({ channel, m }) : undefined}
+      onCopyLink={() => copyLink(m)}
       onOpenChange={(open) => setToolsOpen((cur) => (open ? m.id : cur === m.id ? null : cur))}
     />
   )
@@ -1626,6 +1721,60 @@ export const ClassicList: React.FC<Props> = ({
     </>
   )
 
+  /// Threads: each thread you started, answered or were named in, the
+  /// newest reply first — its first message, how many replies, the last two.
+  const threadsView = () => (
+    <>
+      <header className="slk-head slk-later-head slk-threads-head">
+        <button className="slk-back" onClick={() => setThreadsOpen(false)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
+        <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="message" size={16} /></span>
+        <div className="slk-head-text">
+          <h1>{t('Threads')}</h1>
+          <p>{t('Threads you started, answered or were named in. The newest reply first.')}</p>
+        </div>
+      </header>
+      <div className="slk-log slk-activity slk-threads">
+        {threadItems === null && <p className="slk-empty">{t('Loading…')}</p>}
+        {threadItems && threadItems.length === 0 && (
+          <div className="slk-start">
+            <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="message" size={16} /></span>
+            <h2>{t('No threads yet')}</h2>
+            <p>{t('Reply in a thread, or be named in one, and it is kept here.')}</p>
+          </div>
+        )}
+        {(threadItems || []).map((x) => {
+          const th = everything.find((y) => y.view === x.parent.channel)
+          const who = (m: ChannelMessage) => (m.kind === 'ai' ? t('Your AI') : m.mine ? t('You') : (m.authorName || t('a teammate')))
+          const open = () => { markThreadRead(x.parent.channel, x.parent.id); openAt({ view: x.parent.channel, id: x.parent.id, parentId: x.parent.id }) }
+          return (
+            <article key={x.parent.id} className={`slk-thread-card${x.unread ? ' unread' : ''}`} data-thread={x.parent.id}>
+              <button type="button" className="slk-thread-where" onClick={open}>
+                {th?.kind === 'channel' ? <Icon name="hash" size={12} /> : <Icon name="message" size={12} />}
+                {th ? th.name : ''}
+                {x.unread && <span className="slk-thread-dot" aria-label={t('New replies')} />}
+              </button>
+              {[x.parent, ...x.replies].map((m, i) => (
+                <div key={m.id} className={`slk-thread-line${i === 0 ? ' first' : ''}`}>
+                  <span className="slk-thread-face" aria-hidden="true">{avatarFor(m.kind === 'ai' ? 'ai' : '', faceOfMessage(m))}</span>
+                  <span className="slk-thread-text">
+                    <span className="slk-act-line"><b>{who(m)}</b><span className="slk-act-when">{when(m.createdAt)}</span></span>
+                    <span className="slk-text">{rich(m.body.length > 400 ? `${m.body.slice(0, 400)}…` : m.body)}</span>
+                  </span>
+                  {i === 0 && x.replyCount > x.replies.length && (
+                    <button type="button" className="slk-thread-more" onClick={open}>{t('{n} more replies', { n: x.replyCount - x.replies.length })}</button>
+                  )}
+                </div>
+              ))}
+              <div className="slk-act-actions">
+                <button type="button" className="cl-nudge" onClick={open} data-open-thread="1">{t('Reply')}</button>
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </>
+  )
+
   const activityView = () => {
     const nameOfView = (v: string) => {
       const th = everything.find((x) => x.view === v)
@@ -1687,7 +1836,7 @@ export const ClassicList: React.FC<Props> = ({
                     </span>
                     {where(m.channel)}
                     <span className="slk-act-body">{i.type === 'reaction' ? <>{t('You')}: </> : null}{m.body.slice(0, 280)}</span>
-                    {i.type === 'reaction' && i.emoji && <span className="slk-note-reaction"><span>{i.emoji}</span> 1</span>}
+                    {i.type === 'reaction' && i.emoji && <span className="slk-note-reaction"><span><EmojiGlyph emoji={i.emoji} /></span> 1</span>}
                   </span>
                 </button>
               )
@@ -1714,7 +1863,7 @@ export const ClassicList: React.FC<Props> = ({
               </header>
               <div className="slk-inbox-view-body">
                 {picked.type === 'reaction' && picked.emoji && (
-                  <p className="slk-inbox-said"><span className="slk-note-reaction big"><span>{picked.emoji}</span></span> {t('{name} reacted to your message', { name: whoOf(picked) })}</p>
+                  <p className="slk-inbox-said"><span className="slk-note-reaction big"><span><EmojiGlyph emoji={picked.emoji} /></span></span> {t('{name} reacted to your message', { name: whoOf(picked) })}</p>
                 )}
                 <article className="slk-msg slk-inbox-msg">
                   <div className="slk-gutter" aria-hidden="true">
@@ -1729,7 +1878,7 @@ export const ClassicList: React.FC<Props> = ({
                     {(picked.message.reactions || []).length > 0 && (
                       <div className="slk-reactions">
                         {(picked.message.reactions || []).map((r) => (
-                          <span key={r.emoji} className={`slk-reaction${r.mine ? ' mine' : ''}`}><span className="slk-reaction-emoji">{r.emoji}</span><span className="slk-reaction-count">{r.count}</span></span>
+                          <span key={r.emoji} className={`slk-reaction${r.mine ? ' mine' : ''}`}><span className="slk-reaction-emoji"><EmojiGlyph emoji={r.emoji} /></span><span className="slk-reaction-count">{r.count}</span></span>
                         ))}
                       </div>
                     )}
@@ -2097,6 +2246,11 @@ export const ClassicList: React.FC<Props> = ({
             </>
           )
         })()}
+        {thread.view && draftsFor(thread.view).map((card) => (
+          <div key={card.id} className="slk-daily-draft">
+            <DailyReportDraft card={card} api={api} inChannel />
+          </div>
+        ))}
         {thread.view ? (
           <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
             <PendingUploads items={uploads.items} onRemove={uploads.remove} />
@@ -2273,7 +2427,8 @@ export const ClassicList: React.FC<Props> = ({
   const dmUnread = people.filter((th) => th.unread > 0 || th.fresh).length
   const phoneRoot = !wide && !current && !detail && !thread && !profile
   const tabOn = (which: 'home' | 'dms' | 'activity' | 'later') => (activityOpen ? 'activity' : laterOpen ? 'later' : phoneTab) === which
-  const openLater = () => { setOpenKey(null); setActivityOpen(false); setLaterOpen(true); void loadLater() }
+  const openLater = () => { setOpenKey(null); setActivityOpen(false); setThreadsOpen(false); setLaterOpen(true); void loadLater() }
+  const openThreads = () => { setOpenKey(null); setActivityOpen(false); setLaterOpen(false); setThreadsOpen(true); void loadThreads() }
   /// Somebody to write to, from "New message": one person is a DM.
   const startWith = async (refs: string[]) => {
     setStarting(null)
@@ -2315,7 +2470,7 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   return (
-    <div className={`classic slk${current || activityOpen || laterOpen ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sideHidden ? ' side-hidden' : ''}`}>
+    <div className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sideHidden ? ' side-hidden' : ''}`}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         {!wide && phoneTab === 'dms' ? dmsView() : <>
         <header className="cl-top">
@@ -2346,8 +2501,15 @@ export const ClassicList: React.FC<Props> = ({
                 {activityUnread > 0 && <span className="cl-badge">{activityUnread}</span>}
               </button>
             </li>
+            <li className={`cl-row cl-thread${threadsOpen ? ' on' : ''}${threadsUnread ? ' unread' : ''}`}>
+              <button className="cl-open" onClick={openThreads} aria-current={threadsOpen ? 'true' : undefined} data-threads="1">
+                <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="message" size={13} /></span>
+                <span className="cl-title">{t('Threads')}</span>
+                {threadsUnread > 0 && <span className="cl-badge">{threadsUnread}</span>}
+              </button>
+            </li>
             <li className={`cl-row cl-thread${laterOpen ? ' on' : ''}`}>
-              <button className="cl-open" onClick={() => { setOpenKey(null); setActivityOpen(false); setLaterOpen(true); void loadLater() }} aria-current={laterOpen ? 'true' : undefined} data-later="1">
+              <button className="cl-open" onClick={openLater} aria-current={laterOpen ? 'true' : undefined} data-later="1">
                 <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="bookmark" size={13} /></span>
                 <span className="cl-title">{t('Later')}</span>
                 {(laterItems || []).length > 0 && <span className="cl-count">{laterItems!.length}</span>}
@@ -2361,14 +2523,14 @@ export const ClassicList: React.FC<Props> = ({
         </>}
       </aside>
       <main className={`slk-main${dropping ? ' slk-dropping' : ''}`}
-        onDragOver={(e) => { if (current?.view && current.kind !== 'app' && !activityOpen && !laterOpen && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDropping(true) } }}
+        onDragOver={(e) => { if (current?.view && current.kind !== 'app' && !special && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDropping(true) } }}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false) }}
         onDrop={(e) => { setDropping(false); if (current?.view && current.kind !== 'app' && e.dataTransfer.files.length) { e.preventDefault(); uploads.add([...e.dataTransfer.files], current.view) } }}>
-        {activityOpen ? activityView() : laterOpen ? laterView() : current ? conversation(current) : (
+        {activityOpen ? activityView() : laterOpen ? laterView() : threadsOpen ? threadsView() : current ? conversation(current) : (
           <div className="slk-none"><p>{t('Pick a conversation.')}</p></div>
         )}
       </main>
-      {phoneRoot && !activityOpen && !laterOpen && (
+      {phoneRoot && !special && (
         <button type="button" className="cl-fab" onClick={() => setStarting('menu')} aria-label={t('New message')} data-fab="1">
           <Icon name="edit" size={22} />
         </button>
@@ -2418,9 +2580,20 @@ export const ClassicList: React.FC<Props> = ({
             onDecide={!m.cardId && m.kind === 'message' && !inThread ? () => void decideMessage(channel, m) : undefined}
             onLater={(at) => void saveLater(channel, m, at)}
             onCopyLink={() => copyLink(m)}
+            onUnread={m.mine ? undefined : () => void markUnread(channel, m)}
+            onForward={() => setForwarding({ channel, m })}
           />
         )
       })()}
+      {forwarding && (
+        <ForwardSheet
+          message={forwarding.m}
+          closed={isClosed(forwarding.channel)}
+          places={everything.filter((x) => x.view && x.kind !== 'app' && x.view !== forwarding.channel).map((x) => ({ view: x.view!, name: x.name, kind: x.kind as 'channel' | 'person' | 'group', private: x.private }))}
+          onClose={() => setForwarding(null)}
+          onSend={(to, comment) => forwardTo(forwarding.channel, forwarding.m, to, comment)}
+        />
+      )}
       {starting === 'menu' && (
         <Sheet label={t('New')} onClose={() => setStarting(null)}>
           <div className="msheet-rows">

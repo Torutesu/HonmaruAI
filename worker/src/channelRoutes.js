@@ -1,5 +1,7 @@
 import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
-import { claimDraft, releaseDraft, postedCard } from "./dailyReport.js";
+import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText } from "./dailyReport.js";
+import { providerFor } from "./orgAI.js";
+import { allowanceFor } from "./gate.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
 import { resolveMentions } from "./threads.js";
@@ -14,7 +16,7 @@ import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity,
   viewOf, asksTheAI, withoutAI, MAX_MESSAGE_CHARS,
   present, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned,
-  markRead, readsFor, activityFeed, searchMessages,
+  markRead, markUnreadFrom, readsFor, activityFeed, searchMessages, threadsFor,
 } from "./channels.js";
 import { safe } from "./log.js";
 import { emitMessage, emitCard } from "./webhooks.js";
@@ -24,11 +26,10 @@ import { setStatus, rememberTimezone, redirectIfAway, setChannelPref, prefsFor, 
 import { scheduleMessage, listScheduled, cancelScheduled, saveForLater, listSaved, finishSaved } from "./later.js";
 import { channelDetails, setDescription, channelRow } from "./channelDetails.js";
 import { channelJournal, forgetJournalDay, validDay, validZone } from "./journal.js";
-import { providerFor } from "./orgAI.js";
-import { allowanceFor } from "./gate.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
 import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";
+import { queueMessagePushes } from "./pushes.js";
 import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP } from "./access.js";
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
@@ -285,7 +286,36 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     const ctx = await inChannel(env, request, body);
     if (ctx.denied) return ctx.denied;
+    // One thread in it: Threads stops calling it unread.
+    if (body.thread) {
+      const parent = await getMessage(env.DB, body.orgId, String(body.thread));
+      if (!parent || parent.channel !== ctx.resolved.key) return json({ message: "No such thread." }, 404);
+      return json({ lastReadAt: await markRead(env.DB, body.orgId, ctx.who.user.login, `t:${parent.id}`, body.at) });
+    }
     return json({ lastReadAt: await markRead(env.DB, body.orgId, ctx.who.user.login, ctx.resolved.key, body.at) });
+  }
+
+  // "Mark unread": back to just before one message, on every device.
+  if (path === "/channels/unread" && request.method === "POST") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const row = await getMessage(env.DB, body.orgId, String(body.messageId || ""));
+    if (!row || row.deleted_at || row.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
+    const key = row.parent_id ? `t:${row.parent_id}` : ctx.resolved.key;
+    return json({ lastReadAt: await markUnreadFrom(env.DB, body.orgId, ctx.who.user.login, key, row.created_at), thread: row.parent_id || null });
+  }
+
+  // Threads: every thread you are in, the newest reply first.
+  if (path === "/channels/threads" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    return json({ threads: await threadsFor(env.DB, orgId, who.user.login, members) });
   }
 
   // Activity: what named you, and replies in your threads.
@@ -343,6 +373,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     after(async () => {
       await broadcastWithParent(env, orgId, resolved, out.row, members);
       await emitMessage(env, orgId, out.row);
+      // Whoever this is for hears it on their phone in a minute, unless
+      // they read it or are at the app by then.
+      await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));
       if (wantsDecision) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
@@ -418,6 +451,37 @@ export async function handleChannels(request, env, url, { route, after }) {
     const view = viewOf(resolved.key, who.user.login, members);
     const [message] = await present(env.DB, body.orgId, [out.row], who.user.login, view, members);
     return json({ card: posted, message }, 201);
+  }
+
+  // A daily report's draft, kept as its owner edits it (PUT), or changed by
+  // the AI the way they ask (POST refine). Only its owner, only a draft.
+  if ((path === "/channels/daily-report/draft" && request.method === "PUT") || (path === "/channels/daily-report/refine" && request.method === "POST")) {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || typeof body.cardId !== "string") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const card = await getCard(env.DB, body.orgId, body.cardId);
+    if (!card?.dailyReport || card.recipientUserID !== who.user.login) return json({ message: "No such draft." }, 404);
+    if (card.dailyReport.status !== "draft") return json({ message: "This report has already been posted." }, 409);
+    const text = String(typeof body.text === "string" ? body.text : card.dailyReport.text || "");
+    if (text.length > MAX_MESSAGE_CHARS) return json({ message: `A message is at most ${MAX_MESSAGE_CHARS} characters.` }, 400);
+    let note = null;
+    let next = text;
+    if (path.endsWith("/refine")) {
+      const ask = typeof body.ask === "string" ? body.ask.trim() : "";
+      if (!ask) return json({ message: "Say what to change." }, 400);
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      const provider = await providerFor(env, body.orgId, userKey);
+      const allowance = provider ? await allowanceFor(env, body.orgId, { githubId: String(who.session.github_id), userKey }) : null;
+      const out = await refineDailyReport(text, ask, { locale: who.user.locale || "en", provider, allowance });
+      next = out.text; note = out.note;
+    }
+    await saveDraftText(env.DB, body.orgId, card.id, next);
+    const saved = await getCard(env.DB, body.orgId, card.id);
+    after(async () => { if (saved) await announceCards(env, body.orgId, [saved], { isNew: false }); });
+    return json({ card: saved, text: next, note });
   }
 
   // A thread: the message and its replies.
@@ -870,4 +934,5 @@ export async function broadcastStored(env, orgId, key, row) {
   else return;
   await broadcastWithParent(env, orgId, resolved, row, members);
   await emitMessage(env, orgId, row);
+  await queueMessagePushes(env, orgId, row, { members }).catch(() => {});
 }

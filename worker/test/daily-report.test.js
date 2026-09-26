@@ -122,7 +122,9 @@ test("the day is the owner's own, in their time zone: what they said, were given
 test("with no model the draft states the facts and leaves the reflection to its owner", async () => {
   const day = await gatherDay(env.DB, ORG, { owner_login: "toru", timezone: "Asia/Tokyo" }, { now: NOW, locale: "ja" });
   const text = dailyDigest(day, "ja");
-  for (const heading of ["*今日やったこと*", "*タスクの進捗*", "*良かった点*", "*反省点*", "*明日やること*"]) expect(text).toContain(heading);
+  for (const heading of ["今日やったこと\n", "タスクの進捗\n", "良かった点\n", "反省点\n", "明日やること\n"]) expect(text).toContain(heading);
+  // No marks for the person to delete before posting.
+  expect(text).not.toContain("*");
   expect(text).toContain("週末バイトの採用: 承認");
   expect(text).toContain("Mikaさんに依頼: 仕入先の見積もりを3社分");
   expect(text).toContain("秋メニューの原価表を作る（Mikaさんから）— 対応中、2日目");
@@ -145,13 +147,13 @@ test("the model writes it in the owner's voice from the day, never from a privat
   const user = prompt.messages[1].content;
   expect(system).toContain("first person");
   expect(user).toContain("Reader language: ja");
-  expect(user).toContain("*今日やったこと* · *タスクの進捗* · *良かった点* · *反省点* · *明日やること*");
+  expect(user).toContain("今日やったこと · タスクの進捗 · 良かった点 · 反省点 · 明日やること");
   expect(user).toContain("原価表を完成させる"); // yesterday's plan, to be checked against
   expect(user).not.toContain("Mika's own message");
 
   expect(out.card).toMatchObject({
     recipientUserID: "toru", title: "日報 2026-09-24", format: "fyi",
-    dailyReport: { channel: "b:general", date: "2026-09-24", status: "draft", text: "*今日やったこと*\n- 週末バイトの採用を承認（週20時間まで）\n*明日やること*\n- 原価表を昼までに提出" },
+    dailyReport: { channel: "b:general", date: "2026-09-24", status: "draft", text: "今日やったこと\n- 週末バイトの採用を承認（週20時間まで）\n明日やること\n- 原価表を昼までに提出" },
   });
   expect(out.card.summary).toContain("#general");
 });
@@ -224,12 +226,13 @@ test("the morning carries last night's tomorrow into today, says where tasks sta
   expect(day.date).toBe("2026-09-25");
   expect(day.sent).toEqual([expect.objectContaining({ title: "仕入先の見積もりを3社分", to: "Mika", status: "pending" })]);
   const text = dailyDigest(day, "ja");
-  expect(text).toMatch(/^\*今日やること\*\n- 原価表を完成させる\n- 見積もり依頼を出す\n- 秋メニューの原価表を作る/);
-  expect(text).toContain("*タスクの状況*");
+  expect(text).toMatch(/^今日やること\n- 原価表を完成させる\n- 見積もり依頼を出す\n- 秋メニューの原価表を作る/);
+  expect(text).toContain("\nタスクの状況\n");
   expect(text).toContain("秋メニューの原価表を作る（Mikaさんから）— 対応中、2日目");
   expect(text).toContain("Mikaさんの返事待ち: 仕入先の見積もりを3社分");
-  expect(text).toContain("*相談したいこと*\n- （自分の言葉で書いてください）");
+  expect(text).toContain("相談したいこと\n- （自分の言葉で書いてください）");
   expect(linesUnder("*明日やること*\n- a\n- b\n\n*X*\n- c", "明日やること")).toEqual(["a", "b"]);
+  expect(linesUnder("明日やること\n- a\n- b\n\n次\n- c", "明日やること")).toEqual(["a", "b"]);
 });
 
 test("the morning is written by the model as a plan, from the open work and last night's report", async () => {
@@ -243,7 +246,7 @@ test("the morning is written by the model as a plan, from the open work and last
   const out = await runRoutine(ENV({ OPENAI_API_KEY: "sk-test" }), routine, { now: new Date("2026-09-24T23:00:00Z"), manual: true });
   fetchMock.assertNoPendingInterceptors();
   expect(prompt.messages[0].content).toContain("morning plan");
-  expect(prompt.messages[1].content).toContain("*今日やること* · *タスクの状況* · *相談したいこと*");
+  expect(prompt.messages[1].content).toContain("今日やること · タスクの状況 · 相談したいこと");
   expect(prompt.messages[1].content).toContain("requestsStillWaiting");
   expect(out.card).toMatchObject({ title: "今日の予定 2026-09-25", priority: "high", dailyReport: { part: "morning", status: "draft" } });
 });
@@ -310,4 +313,48 @@ test("an unposted draft cannot be put away by any client, and a client cannot fo
   } } }));
   await message(room.messages, (m) => JSON.stringify(m).includes("forged"));
   expect((await getCard(env.DB, ORG, "forged")).dailyReport).toBeUndefined();
+});
+
+test("the owner changes the draft by asking their AI, and keeps it on every device", async () => {
+  const { data } = await makeDaily();
+  const routine = await getRoutine(env.DB, ORG, data.routine.id);
+  const { card } = await runRoutine(ENV({ OPENAI_API_KEY: undefined }), routine, { now: NOW, manual: true });
+  const put = (token, body) => call("/channels/daily-report/draft", { method: "PUT", headers: headers(token), body: JSON.stringify(body) });
+
+  // Saved as typed, for the phone to open where the laptop left off.
+  expect((await put(mika, { orgId: ORG, cardId: card.id, text: "hijack" })).status).toBe(404);
+  const saved = await (await put(toru, { orgId: ORG, cardId: card.id, text: "今日やること\n- 原価表" })).json();
+  expect(saved.card.dailyReport.text).toBe("今日やること\n- 原価表");
+
+  // Asked to change it: the model gets the draft and the ask, and the
+  // answer loses any bold it put back.
+  let prompt;
+  fetchMock.activate();
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST", body: (b) => { prompt = JSON.parse(b); return true; } })
+    .reply(200, { choices: [{ message: { content: JSON.stringify({ text: "**今日やること**\n- 原価表を昼までに仕上げる", note: "期限を足しました" }) } }] });
+  const res = await post("/channels/daily-report/refine", toru, { orgId: ORG, cardId: card.id, text: "今日やること\n- 原価表", ask: "期限を入れて" }, { OPENAI_API_KEY: "sk-test" });
+  expect(res.status).toBe(200);
+  const out = await res.json();
+  expect(prompt.messages[1].content).toContain("期限を入れて");
+  expect(prompt.messages[1].content).toContain("- 原価表");
+  expect(out).toMatchObject({ text: "今日やること\n- 原価表を昼までに仕上げる", note: "期限を足しました" });
+  expect(out.card.dailyReport.text).toBe(out.text);
+
+  // Without a model it says so and changes nothing.
+  const none = await (await post("/channels/daily-report/refine", toru, { orgId: ORG, cardId: card.id, text: "x", ask: "shorter" }, { OPENAI_API_KEY: undefined })).json();
+  expect(none).toMatchObject({ text: "x", note: "いまは AI を使えないため、下書きはそのままです。" });
+});
+
+test("the daily routines follow the owner's timezone to wherever they are", async () => {
+  const { data } = await makeDaily();
+  const before = await getRoutine(env.DB, ORG, data.routine.id);
+  const { rememberTimezone } = await import("../src/people.js");
+  await rememberTimezone(env.DB, "8601", "America/New_York");
+  const after = await getRoutine(env.DB, ORG, data.routine.id);
+  expect(after.timezone).toBe("America/New_York");
+  expect(after.hour).toBe(before.hour);
+  // Same hour on the clock, there.
+  const local = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" }).format(new Date(after.next_run_at ?? after.nextRunAt));
+  expect(Number(local)).toBe(before.hour);
 });

@@ -11,6 +11,7 @@ struct ChatHomeView: View {
     @State private var creating = false
     @State private var newChannel = ""
     @State private var editingStatus = false
+    @State private var startingMessage = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -31,8 +32,11 @@ struct ChatHomeView: View {
                             Label("Add a channel", systemImage: "plus").foregroundStyle(Theme.Colors.textSecondary)
                         }
                     } header: { Text("Channels") }
-                    if !store.people.isEmpty {
-                        Section { ForEach(store.people) { row($0) } } header: { Text("Direct messages") }
+                    if !store.people.isEmpty || !store.groupConversations.isEmpty {
+                        Section {
+                            ForEach(store.groupConversations) { row($0) }
+                            ForEach(store.people) { row($0) }
+                        } header: { Text("Direct messages") }
                     }
                 }
             }
@@ -49,6 +53,10 @@ struct ChatHomeView: View {
                 results = await store.search(q)
             }
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { startingMessage = true } label: { Image(systemName: "square.and.pencil") }
+                        .accessibilityLabel("New message")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { editingStatus = true } label: {
                         if let e = store.mine?.status?.emoji, !e.isEmpty { Text(e) } else { Image(systemName: "face.smiling") }
@@ -74,7 +82,16 @@ struct ChatHomeView: View {
                 Button("Cancel", role: .cancel) { newChannel = "" }
             } message: { Text("A channel for one business or project. Everyone on the team can see it.") }
             .sheet(isPresented: $editingStatus) { ChatStatusEditor(store: store).environmentObject(appState) }
+            .sheet(isPresented: $startingMessage) {
+                ChatNewMessageSheet(store: store) { view in
+                    startingMessage = false
+                    path.append(.conversation(view: view, jump: nil))
+                }
+            }
         }
+        // The workspace's own emoji and the API's address, for every message
+        // drawn below — sheets included.
+        .environment(\.chatAssets, ChatAssets(emoji: store.emoji, base: store.baseURL))
         .task(id: appState.currentUser?.teamID) {
             store.bind(appState)
             await store.refresh()
@@ -130,8 +147,13 @@ struct ChatHomeView: View {
         return NavigationLink(value: ChatRoute.conversation(view: c.view, jump: nil)) {
             HStack(spacing: 10) {
                 if c.kind == .channel {
-                    Image(systemName: "number").font(.system(size: 15, weight: .semibold))
+                    Image(systemName: c.isPrivate ? "lock.fill" : "number").font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.Colors.textSecondary).frame(width: 28)
+                        .accessibilityLabel(c.isPrivate ? Text("Private channel") : Text("Channel"))
+                } else if c.kind == .group {
+                    Image(systemName: "person.2.fill").font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.Colors.textSecondary).frame(width: 28, height: 28)
+                        .background(Theme.Colors.textTertiary.opacity(0.18), in: RoundedRectangle(cornerRadius: 7))
                 } else {
                     ChatAvatar(name: c.name, size: 28)
                         .overlay(alignment: .bottomTrailing) {
@@ -178,6 +200,6 @@ struct ChatHomeView: View {
 
     private func place(_ view: String) -> String {
         guard let c = store.conversation(for: view) else { return "" }
-        return c.kind == .channel ? "#\(c.name)" : c.name
+        return c.kind == .channel ? (c.isPrivate ? "🔒 \(c.name)" : "#\(c.name)") : c.name
     }
 }

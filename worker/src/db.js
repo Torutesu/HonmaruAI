@@ -283,7 +283,7 @@ export async function getUserByGithubId(db, githubId) {
   return (
     (await db
       .prepare(
-        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, aliases, handle FROM users WHERE github_id = ?1"
+        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, push_while_active, aliases, handle FROM users WHERE github_id = ?1"
       )
       .bind(String(githubId))
       .first()) || null
@@ -923,7 +923,8 @@ export async function listUserOrgs(db, githubId) {
                  FROM memberships om
                 WHERE om.org_id = m.org_id
                 ORDER BY om.created_at ASC, om.user_github_id ASC
-                LIMIT 1)              AS founder_id
+                LIMIT 1)              AS founder_id,
+              (SELECT COUNT(*) FROM memberships om WHERE om.org_id = m.org_id) AS member_count
          FROM memberships m
         WHERE m.user_github_id = ?1
         ORDER BY m.created_at ASC, m.org_id ASC`
@@ -940,6 +941,7 @@ export async function listUserOrgs(db, githubId) {
     // personal workspace needs a person's name to stand in for its id.
     founder: String(r.id).includes("/") ? null : r.founder || null,
     mine: String(r.founder_id) === String(githubId),
+    memberCount: Number(r.member_count) || 1,
   }));
 }
 

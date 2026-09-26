@@ -25,6 +25,7 @@ import { sendMail, isMailConfigured } from "./mailer.js";
 import { composeAlert, composeEmail } from "./notifyCopy.js";
 import { localizeStored } from "./localize.js";
 import { loadCopy } from "./copy.js";
+import { isActive } from "./pushes.js";
 
 export function anyChannelConfigured(env) {
   return apnsConfigured(env) || isWebPushConfigured(env) || isMailConfigured(env);
@@ -75,6 +76,9 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
     return { sent: 0, skipped: "no one to tell", channels };
   }
   if (!anyChannelConfigured(env)) return { sent: 0, skipped: "no channel configured", channels };
+  // At the app right now, on some device: they see it land there, and hear
+  // it. The phone (and the inbox) stay quiet, as in Slack.
+  if (kind !== "digest" && await isActive(env.DB, recipient)) return { sent: 0, skipped: "active", channels };
 
   const user = await getUserByLogin(env.DB, recipient);
   const locale = await loadCopy(env, user?.locale || "en", { orgId });

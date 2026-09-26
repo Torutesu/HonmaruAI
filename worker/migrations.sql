@@ -58,3 +58,4 @@ ALTER TABLE businesses ADD COLUMN description TEXT;
 ALTER TABLE connector_sync_state ADD COLUMN org_id TEXT;
 ALTER TABLE invites ADD COLUMN channels TEXT;
 ALTER TABLE businesses ADD COLUMN private INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN push_while_active INTEGER NOT NULL DEFAULT 0;

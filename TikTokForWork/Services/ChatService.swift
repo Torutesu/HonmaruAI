@@ -12,6 +12,35 @@ struct ChatReaction: Codable, Hashable {
     var mine: Bool
 }
 
+/// A file or a picture on a message. `url` is a signed path on the Worker,
+/// good for a day or two; it is resolved against the API's base.
+struct ChatFile: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let type: String
+    let size: Int
+    let width: Int?
+    let height: Int?
+    let url: String
+
+    var isPicture: Bool { ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"].contains(type) }
+    func address(base: URL) -> URL? { URL(string: url, relativeTo: base)?.absoluteURL }
+}
+
+/// One of the workspace's own emoji: `:name:`, drawn from a picture only
+/// this workspace has.
+struct ChatEmoji: Codable, Identifiable, Hashable {
+    let name: String
+    let url: String
+    var id: String { name }
+}
+
+/// A group DM: three to nine people, `g:<id>`.
+struct ChatGroup: Codable, Hashable {
+    let view: String
+    let refs: [String]
+}
+
 struct ChatMessage: Codable, Identifiable, Hashable {
     let id: String
     var channel: String
@@ -30,6 +59,7 @@ struct ChatMessage: Codable, Identifiable, Hashable {
     var replyRefs: [String]?
     var pinned: Bool?
     var reactions: [ChatReaction]?
+    var files: [ChatFile]?
 
     var isAI: Bool { kind == "ai" }
     var isDeleted: Bool { deleted == true }
@@ -64,7 +94,11 @@ struct ChatActivity: Codable, Hashable {
 struct ChatBusiness: Codable, Identifiable, Hashable {
     let slug: String
     let name: String
+    /// A private channel: only its members see it at all.
+    var isPrivate: Bool?
     var id: String { slug }
+
+    enum CodingKeys: String, CodingKey { case slug, name, isPrivate = "private" }
 }
 
 struct ChatMine: Codable, Hashable {
@@ -79,6 +113,7 @@ struct ChatOverview: Codable {
     let reads: [String: String]?
     let prefs: [String: String]?
     let mine: ChatMine?
+    let groups: [ChatGroup]?
 }
 
 struct ChatActivityItem: Codable, Identifiable, Hashable {
@@ -228,6 +263,45 @@ enum ChatService {
         return try await call("GET", "/channels/later", base: base, query: ["orgId": orgId], as: R.self).items
     }
 
+    /// This workspace's own emoji. Another workspace's are not in it.
+    static func emoji(orgId: String, base: URL) async throws -> [ChatEmoji] {
+        struct R: Decodable { let emoji: [ChatEmoji] }
+        return try await call("GET", "/emoji", base: base, query: ["orgId": orgId], as: R.self).emoji
+    }
+
+    /// A group DM with these people (refs, not counting you): the same
+    /// people always land in the same one.
+    static func startGroup(orgId: String, refs: [String], base: URL) async throws -> String {
+        struct R: Decodable { let view: String }
+        return try await call("POST", "/channels/groups", base: base, body: ["orgId": orgId, "refs": refs], as: R.self).view
+    }
+
+    /// A picture or a file, uploaded into a conversation before the message
+    /// that carries it is sent. The bytes are the body.
+    static func upload(orgId: String, channel: String, data: Data, type: String, name: String, width: Int? = nil, height: Int? = nil, base: URL) async throws -> ChatFile {
+        guard let token = SessionStore.sessionToken else { throw Failure.notSignedIn }
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: true)
+        components?.path = "/channels/files"
+        var q = [URLQueryItem(name: "orgId", value: orgId), URLQueryItem(name: "channel", value: channel), URLQueryItem(name: "name", value: name)]
+        if let width { q.append(URLQueryItem(name: "width", value: String(width))) }
+        if let height { q.append(URLQueryItem(name: "height", value: String(height))) }
+        components?.queryItems = q
+        guard let url = components?.url else { throw Failure.server(0, nil) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        request.setValue(type, forHTTPHeaderField: "Content-Type")
+        let (body, response) = try await URLSession.shared.upload(for: request, from: data)
+        guard let http = response as? HTTPURLResponse else { throw Failure.server(0, nil) }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw Failure.notSignedIn }
+            throw Failure.server(http.statusCode, (try? JSONDecoder().decode(Message.self, from: body))?.message)
+        }
+        struct R: Decodable { let file: ChatFile }
+        return try JSONDecoder().decode(R.self, from: body).file
+    }
+
     static func profile(orgId: String, ref: String, base: URL) async throws -> ChatProfile {
         struct R: Decodable { let member: ChatProfile }
         return try await call("GET", "/channels/member", base: base, query: ["orgId": orgId, "ref": ref], as: R.self).member
@@ -241,9 +315,10 @@ enum ChatService {
         let scheduled: ChatScheduled?
     }
 
-    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, sendAt: Date? = nil, base: URL) async throws -> Sent {
+    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, sendAt: Date? = nil, files: [String] = [], base: URL) async throws -> Sent {
         var b: [String: Any] = ["orgId": orgId, "channel": channel, "body": body, "decide": decide]
         if let parentId { b["parentId"] = parentId }
+        if !files.isEmpty { b["files"] = files }
         if let sendAt { b["sendAt"] = ChatDates.string(sendAt) }
         return try await call("POST", "/channels/messages", base: base, body: b, as: Sent.self)
     }

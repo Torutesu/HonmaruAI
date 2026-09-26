@@ -14,6 +14,7 @@ interface Me {
   email: string | null
   emailEditable: boolean
   notifyEmail: boolean
+  pushWhileActive?: boolean
   locale: string
 }
 
@@ -99,6 +100,25 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
               aria-label={t('Push notifications')}
               disabled={busy || support !== 'ready'}
               onClick={togglePush}
+            />
+          </div>
+        </div>
+
+        <div className="rows">
+          <div className="row static">
+            <span className="row-icon"><Icon name="monitor" size={18} /></span>
+            <span className="row-main">
+              {t('Push to my phone while I use a computer')}
+              <span className="row-sub">{t('Off: while you are using HonmaruAI somewhere, your phone stays quiet, and a message you have not read reaches it after a minute.')}</span>
+            </span>
+            <button
+              className="switch"
+              role="switch"
+              aria-checked={Boolean(me?.pushWhileActive)}
+              aria-label={t('Push to my phone while I use a computer')}
+              disabled={!me}
+              onClick={() => patch({ pushWhileActive: !me?.pushWhileActive })}
+              data-push-active="1"
             />
           </div>
         </div>

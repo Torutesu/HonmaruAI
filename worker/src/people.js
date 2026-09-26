@@ -2,6 +2,8 @@
 // decide in your place meanwhile, how loud each conversation may be, and a
 // profile with the numbers that matter in a decision feed.
 
+import { nextRunAt } from "./schedule.js";
+
 const LEVELS = new Set(["all", "mentions", "mute"]);
 
 export async function setStatus(db, { orgId, githubId, emoji, text, until, awayUntil, delegateLogin }) {
@@ -25,6 +27,24 @@ export async function rememberTimezone(db, githubId, tz) {
   if (typeof tz !== "string" || !/^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(tz) || tz.length > 64) return;
   try { new Intl.DateTimeFormat("en", { timeZone: tz }); } catch { return; }
   await db.prepare("UPDATE users SET timezone = ?2 WHERE github_id = ?1 AND (timezone IS NULL OR timezone != ?2)").bind(String(githubId), tz).run();
+  await followTimezone(db, githubId, tz);
+}
+
+/// A person's morning plan and evening report come at their own morning
+/// and evening, wherever they are: their daily routines move with the
+/// timezone their device reports — 8:00 stays 8:00 in Tokyo, and becomes
+/// 8:00 in New York when they are there.
+export async function followTimezone(db, githubId, tz, now = new Date()) {
+  const { results } = await db.prepare(
+    `SELECT * FROM routines WHERE owner_github_id = ?1 AND kind IN ('daily_plan', 'daily_report') AND timezone != ?2`
+  ).bind(String(githubId), tz).all().catch(() => ({ results: [] }));
+  for (const r of results || []) {
+    const next = { ...r, timezone: tz };
+    const at = r.enabled ? nextRunAt(next, now) : null;
+    await db.prepare("UPDATE routines SET timezone = ?2, next_run_at = ?3, updated_at = ?4 WHERE id = ?1")
+      .bind(r.id, tz, at, now.toISOString()).run();
+  }
+  return (results || []).length;
 }
 
 /// A new card for somebody who is away goes to whoever they named — once,
