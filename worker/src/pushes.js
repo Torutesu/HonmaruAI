@@ -68,7 +68,7 @@ export async function recipientsOf(db, orgId, row, members) {
   const out = new Map();
   const add = (login, reason) => { if (login && login !== author && !String(login).startsWith("agent:") && !out.has(login)) out.set(login, reason); };
   const key = String(row.channel || "");
-  if (key.startsWith("dm:") || key.startsWith("g:")) {
+  if (key.startsWith("dm:") || key.startsWith("g:") || key.startsWith("ag:")) {
     for (const login of (await audienceOf(db, orgId, key)) || []) add(login, "direct");
   }
   for (const m of resolveMentions(row.body || "", members)) add(m.login, "mention");

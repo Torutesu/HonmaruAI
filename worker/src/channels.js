@@ -67,6 +67,18 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     const list = members || await listMembers(db, orgId, viewer.github_id);
     return { key: channel, kind: "group", logins, others: list.filter((m) => logins.includes(m.login) && m.login !== viewer.login) };
   }
+  // A direct conversation with an agent: `ag:<id>` as the person names it,
+  // `ag:<id>|<login>` as stored — theirs alone, one per agent.
+  if (channel.startsWith("ag:")) {
+    const id = channel.slice(3);
+    if (!/^[\w-]{1,80}$/.test(id)) return null;
+    const agent = await db.prepare(
+      `SELECT id, handle, name, emoji, description, instructions, scope, owner_login FROM custom_agents
+        WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL AND (scope = 'team' OR owner_login = ?3)`
+    ).bind(orgId, id, viewer.login).first().catch(() => null);
+    if (!agent) return null;
+    return { key: `ag:${id}|${viewer.login}`, kind: "agent", agent, logins: [viewer.login] };
+  }
   if (channel.startsWith("dm:")) {
     const ref = channel.slice(3).replace(/^member:/, "");
     const list = members || await listMembers(db, orgId, viewer.github_id);
@@ -83,6 +95,10 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
 /// viewer is one of the conversation's people — a broadcast to its members.
 export function viewOf(key, viewerLogin, members, access = null) {
   if (key.startsWith("b:") || key.startsWith("g:")) return !access || mayRead(key, access) ? key : null;
+  if (key.startsWith("ag:")) {
+    const [view, login] = key.split("|");
+    return login === viewerLogin ? view : null;
+  }
   if (!key.startsWith("dm:")) return null;
   const [a, b] = key.slice(3).split("|");
   if (viewerLogin !== a && viewerLogin !== b) return null;
