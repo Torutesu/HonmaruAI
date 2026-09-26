@@ -283,12 +283,33 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => { ignore = true; window.removeEventListener('honmaru:jam-send', jamSend); wsClient.disconnect() }
   }, [relayUrl, userId, orgId, sessionToken, addDebugLog, onLeft])
 
+  // Using the app, here: the relay is told at most every thirty seconds, so
+  // a message for you reaches your phone only when you are not at a screen.
+  // A tab left open in the background is not using it.
+  useEffect(() => {
+    let last = 0
+    const seen = () => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - last < 30_000) return
+      if (wsClientRef.current?.sendJam('activity', { client: 'web' })) last = now
+    }
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'focus'] as const
+    for (const e of events) window.addEventListener(e, seen, { passive: true })
+    document.addEventListener('visibilitychange', seen)
+    return () => {
+      for (const e of events) window.removeEventListener(e, seen)
+      document.removeEventListener('visibilitychange', seen)
+    }
+  }, [])
+
   // A notification tapped while a tab is open: the service worker tells us
   // which card, rather than opening a second tab.
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === 'open-card' && event.data.cardId) { setPanel(null); navigate(hashForCard(event.data.cardId)) }
+      if (event.data?.type === 'open-message' && event.data.messageId) { setPanel(null); window.location.hash = `#/m/${encodeURIComponent(event.data.messageId)}` }
     }
     navigator.serviceWorker.addEventListener('message', onMessage)
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)

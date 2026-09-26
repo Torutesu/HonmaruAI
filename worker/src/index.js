@@ -996,6 +996,7 @@ async function handle(request, env, url, ctx) {
         emailEditable: !String(user.github_id).startsWith("email:"),
         aliases: parseAliases(user.aliases),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
+        pushWhileActive: Boolean(user.push_while_active),
         supportedLocales: SUPPORTED_LOCALES,
         // The words of the notification a browser tab shows by itself, in
         // this person's language — which the page's own tables may not have.
@@ -1068,6 +1069,10 @@ async function handle(request, env, url, ctx) {
       if (body.notifyEmail !== undefined) {
         await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
       }
+      // Push the phone even while at the app on another device.
+      if (body.pushWhileActive !== undefined) {
+        await env.DB.prepare("UPDATE users SET push_while_active = ?2 WHERE github_id = ?1").bind(String(session.github_id), body.pushWhileActive ? 1 : 0).run();
+      }
       // What you are called, and the username @ finds you by.
       if (body.name !== undefined) {
         const name = cleanName(body.name);
@@ -1106,6 +1111,7 @@ async function handle(request, env, url, ctx) {
         locale: user?.locale || "en",
         email: user?.email || null,
         notifyEmail: Number(user?.notify_email ?? 1) !== 0,
+        pushWhileActive: Boolean(user?.push_while_active),
         aliases: parseAliases(user?.aliases),
         name: user?.name || null,
         handle: user?.handle || null,

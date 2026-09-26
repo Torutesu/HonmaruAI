@@ -1,3 +1,4 @@
+import { noteActivity } from "./pushes.js";
 import { settleUsage } from "./ledger.js";
 import {
   joinEvents, upsertEvents, removeEvents,
@@ -321,6 +322,19 @@ export class OrgRelay {
 
     if (JAM_TYPES.has(type)) {
       await handleJamMessage(this, ws, ws.deserializeAttachment() || att, type, payload || {});
+      return;
+    }
+
+    // Somebody is using the app on this socket (typing, clicking, reading),
+    // not merely holding it open: their phone is not pushed about what they
+    // are here to see. Written at most every thirty seconds per socket.
+    if (type === "activity") {
+      const now = Date.now();
+      if (!att.activityAt || now - att.activityAt >= 30_000) {
+        ws.serializeAttachment({ ...att, activityAt: now });
+        const client = payload.client === "ios" ? "ios" : "web";
+        await noteActivity(this.db, att.userId, client, now).catch(() => {});
+      }
       return;
     }
 

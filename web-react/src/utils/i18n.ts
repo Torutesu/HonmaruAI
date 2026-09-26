@@ -1273,6 +1273,8 @@ const ja: Dict = {
   'Leave channel': 'チャンネルから抜ける',
   'Only the people you add can see a private channel.': '非公開チャンネルは、追加した人だけが見られます。',
   'Private': '非公開',
+  'Push to my phone while I use a computer': 'PC を使っている間もスマホに通知する',
+  'Off: while you are using HonmaruAI somewhere, your phone stays quiet, and a message you have not read reaches it after a minute.': 'オフの場合: どこかで HonmaruAI を使っている間はスマホを鳴らさず、読んでいないメッセージだけを 1 分後に届けます。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -2303,6 +2305,8 @@ const es: Dict = {
   'Leave channel': 'Salir del canal',
   'Only the people you add can see a private channel.': 'Solo las personas que añadas pueden ver un canal privado.',
   'Private': 'Privado',
+  'Push to my phone while I use a computer': 'Avisar al móvil mientras uso el ordenador',
+  'Off: while you are using HonmaruAI somewhere, your phone stays quiet, and a message you have not read reaches it after a minute.': 'Desactivado: mientras usas HonmaruAI en algún sitio, el móvil no suena; lo que no hayas leído le llega al cabo de un minuto.',
 }
 
 const fr: Dict = {
@@ -3291,6 +3295,8 @@ const fr: Dict = {
   'Leave channel': 'Quitter le canal',
   'Only the people you add can see a private channel.': 'Seules les personnes que vous ajoutez voient un canal privé.',
   'Private': 'Privé',
+  'Push to my phone while I use a computer': 'Notifier mon téléphone pendant que j’utilise un ordinateur',
+  'Off: while you are using HonmaruAI somewhere, your phone stays quiet, and a message you have not read reaches it after a minute.': 'Désactivé : tant que vous utilisez HonmaruAI quelque part, le téléphone reste silencieux ; ce que vous n’avez pas lu lui arrive au bout d’une minute.',
 }
 
 const de: Dict = {
@@ -4279,6 +4285,8 @@ const de: Dict = {
   'Leave channel': 'Kanal verlassen',
   'Only the people you add can see a private channel.': 'Nur die Personen, die du hinzufügst, sehen einen privaten Kanal.',
   'Private': 'Privat',
+  'Push to my phone while I use a computer': 'Auch aufs Handy, während ich am Computer bin',
+  'Off: while you are using HonmaruAI somewhere, your phone stays quiet, and a message you have not read reaches it after a minute.': 'Aus: Solange du HonmaruAI irgendwo nutzt, bleibt das Handy still; Ungelesenes erreicht es nach einer Minute.',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }

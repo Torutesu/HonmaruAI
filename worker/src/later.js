@@ -1,4 +1,5 @@
 import { accessFor, mayRead } from "./access.js";
+import { sendDuePushes } from "./pushes.js";
 import { getMessage, postMessage } from "./channels.js";
 import { saveCard } from "./db.js";
 import { appendCardEvent } from "./events.js";
@@ -115,6 +116,8 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
       console.error("scheduled send failed", err?.message || err);
     }
   }
+  // Messages that waited a minute to see whether they were read.
+  await sendDuePushes(env, now.getTime()).catch((err) => console.error("message pushes failed", err?.message || err));
   const { results: remind } = await db.prepare(
     `SELECT s.*, m.body, m.author_login, u.name AS author_name, me.locale AS reader_locale FROM saved_items s
        JOIN channel_messages m ON m.id = s.message_id AND m.org_id = s.org_id

@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
   /* Whether a decision may reach this person by email when no push channel
      (APNs device, web push subscription) can. 1 = yes. */
   notify_email  INTEGER NOT NULL DEFAULT 1,
+  /* 1: push the phone even while at the app on another device. */
+  push_while_active INTEGER NOT NULL DEFAULT 0,
   /* The secret half of the inbound email address, u-<token>@domain. A GitHub
      id is public and sequential, so u-<github id>@domain is an address anyone
      can guess — and a guessed address is a way to spend someone's AI allowance
@@ -699,3 +701,27 @@ CREATE TABLE IF NOT EXISTS conversation_members (
   PRIMARY KEY (org_id, channel, login)
 );
 CREATE INDEX IF NOT EXISTS idx_conversation_members_login ON conversation_members(org_id, login);
+
+/* When somebody was last at the app, on any client: the relay writes it at
+   most every thirty seconds while they use it. A phone is not pushed about
+   what its owner was there to see. */
+CREATE TABLE IF NOT EXISTS user_activity (
+  login           TEXT PRIMARY KEY,
+  last_active_at  TEXT NOT NULL,
+  client          TEXT
+);
+
+/* A message that needs somebody, waiting a minute to see whether they read
+   it first. The every-minute cron claims (sent_at) and sends what is due. */
+CREATE TABLE IF NOT EXISTS push_queue (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      TEXT NOT NULL,
+  login       TEXT NOT NULL,
+  message_id  TEXT NOT NULL,
+  reason      TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  due_at      TEXT NOT NULL,
+  sent_at     TEXT,
+  UNIQUE (login, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_push_queue_due ON push_queue(sent_at, due_at);

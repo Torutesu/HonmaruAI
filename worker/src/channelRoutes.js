@@ -29,6 +29,7 @@ import { allowanceFor } from "./gate.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
 import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";
+import { queueMessagePushes } from "./pushes.js";
 import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP } from "./access.js";
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
@@ -343,6 +344,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     after(async () => {
       await broadcastWithParent(env, orgId, resolved, out.row, members);
       await emitMessage(env, orgId, out.row);
+      // Whoever this is for hears it on their phone in a minute, unless
+      // they read it or are at the app by then.
+      await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));
       if (wantsDecision) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
@@ -870,4 +874,5 @@ export async function broadcastStored(env, orgId, key, row) {
   else return;
   await broadcastWithParent(env, orgId, resolved, row, members);
   await emitMessage(env, orgId, row);
+  await queueMessagePushes(env, orgId, row, { members }).catch(() => {});
 }
