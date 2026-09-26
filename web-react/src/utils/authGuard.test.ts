@@ -11,9 +11,13 @@ describe('authGuard', () => {
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
       new Response(JSON.stringify({ code: 'session-policy', orgId: 'team:x' }), { status: 401 }),
       new Response(JSON.stringify({ message: 'nope' }), { status: 401 }),
+      new Response(JSON.stringify({ code: 'dlp-warning', rules: ['Card number'] }), { status: 409 }),
+      new Response(JSON.stringify({ message: { id: 'm1' } }), { status: 201 }),
+      new Response(JSON.stringify({ code: 'dlp-warning', rules: ['Card number'] }), { status: 409 }),
     ]
     const calls: string[] = []
-    const fake = vi.fn(async (input: RequestInfo | URL) => { calls.push(String(input)); return answers.shift()! })
+    const bodies: Array<string | undefined> = []
+    const fake = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => { calls.push(String(input)); bodies.push(init?.body as string | undefined); return answers.shift()! })
     // No DOM in these tests: a window is an EventTarget with fetch on it.
     const w = Object.assign(new EventTarget(), { fetch: fake as unknown as typeof fetch, location: { href: 'https://app.test/' } })
     ;(globalThis as unknown as { window: unknown }).window = w
@@ -43,5 +47,24 @@ describe('authGuard', () => {
     const third = await window.fetch('https://api.test/other', { headers })
     expect(third.status).toBe(401)
     expect(asked).toHaveLength(1)
+
+    // A data rule warns: the person is asked; sending anyway sends it again,
+    // acknowledged. Going back leaves the warning as the answer.
+    let sendAnyway = true
+    const warned: string[][] = []
+    window.addEventListener('honmaru:dlp-warning', (e) => {
+      e.preventDefault()
+      const d = (e as CustomEvent<{ rules: string[]; resolve: (send: boolean) => void }>).detail
+      warned.push(d.rules)
+      d.resolve(sendAnyway)
+    })
+    const post = { method: 'POST', headers, body: JSON.stringify({ orgId: 'team:x', body: 'card' }) }
+    const sent = await window.fetch('https://api.test/channels/messages', post)
+    expect(sent.status).toBe(201)
+    expect(JSON.parse(bodies[bodies.length - 1]!)).toEqual({ orgId: 'team:x', body: 'card', dlpAck: true })
+    sendAnyway = false
+    const kept = await window.fetch('https://api.test/channels/messages', post)
+    expect(kept.status).toBe(409)
+    expect(warned).toEqual([['Card number'], ['Card number']])
   })
 })

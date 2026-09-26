@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
+import { AuditStreams } from './AuditStreams'
 
 // The audit log, in the Studio: who did what, to what, from where — for an
 // admin to look back on, narrow down, and download. What was said is never
@@ -159,6 +160,7 @@ export const AuditLog: React.FC<{ httpBase: string; orgId: string; sessionToken:
           {cursor && <button type="button" className="studio-btn audit-more" disabled={busy} onClick={() => void load(true)}>{busy ? t('Loading…') : t('Load more')}</button>}
         </>
       )}
+      <AuditStreams httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />
     </section>
   )
 }

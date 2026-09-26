@@ -175,6 +175,9 @@ export async function decryptBody(env, orgId, body, keys = new Map()) {
 export async function shredPerson(env, login) {
   if (!auditCryptoReady(env) || !login) return [];
   const subject = await subjectOf(env, login);
+  // A key under a legal hold stays until the hold is lifted, and then goes.
+  await env.DB.prepare("UPDATE audit_principal_keys SET shred_pending = 1 WHERE subject = ?1 AND wrapped_key IS NOT NULL AND COALESCE(hold, 0) = 1")
+    .bind(subject).run().catch(() => {});
   const { results } = await env.DB.prepare(
     "SELECT org_id, principal FROM audit_principal_keys WHERE subject = ?1 AND wrapped_key IS NOT NULL AND COALESCE(hold, 0) = 0"
   ).bind(subject).all();

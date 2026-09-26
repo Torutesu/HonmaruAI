@@ -935,6 +935,9 @@ CREATE TABLE IF NOT EXISTS audit_principal_keys (
   created_at    TEXT NOT NULL,
   shredded_at   TEXT,
   hold          INTEGER NOT NULL DEFAULT 0,
+  /* The person deleted their account while a hold kept this key: it goes
+     when the hold is lifted. */
+  shred_pending INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, principal)
 );
 CREATE INDEX IF NOT EXISTS idx_audit_keys_subject ON audit_principal_keys(subject);
@@ -1076,3 +1079,107 @@ CREATE TABLE IF NOT EXISTS sso_handoffs (
   client          TEXT NOT NULL,
   expires_at      TEXT NOT NULL
 );
+
+/* Each hour of a workspace's audit log sealed into the archive
+   (docs/audit-log-phase2.md §3): the rows it covers, and the digest's hash,
+   which the next hour's digest points back to. */
+CREATE TABLE IF NOT EXISTS audit_seals (
+  org_id        TEXT NOT NULL,
+  hour          TEXT NOT NULL,
+  from_seq      INTEGER NOT NULL,
+  to_seq        INTEGER NOT NULL,
+  digest_sha256 TEXT NOT NULL,
+  sealed_at     TEXT NOT NULL,
+  PRIMARY KEY (org_id, hour)
+);
+
+/* A workspace whose sealing keeps failing, and since when. */
+CREATE TABLE IF NOT EXISTS audit_seal_failures (
+  org_id          TEXT PRIMARY KEY,
+  first_failed_at TEXT NOT NULL,
+  last_error      TEXT,
+  alerted         INTEGER NOT NULL DEFAULT 0
+);
+
+/* How long a workspace's audit log stays in D1, and whether a legal hold
+   keeps all of it. Set by the operator, on the customer's request. */
+CREATE TABLE IF NOT EXISTS org_audit_settings (
+  org_id            TEXT PRIMARY KEY,
+  retention_days    INTEGER,
+  legal_hold        INTEGER NOT NULL DEFAULT 0,
+  legal_hold_reason TEXT,
+  updated_by        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+
+/* Where a workspace's audit log is streamed (docs/audit-log-phase2.md §4):
+   its SIEM over HTTPS, Splunk HEC or Datadog, and how far it has got. The
+   secret is encrypted and never read back. */
+CREATE TABLE IF NOT EXISTS audit_streams (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  endpoint      TEXT NOT NULL,
+  secret        TEXT NOT NULL,
+  region        TEXT,
+  min_severity  TEXT NOT NULL DEFAULT 'info',
+  categories    TEXT,
+  delivered_seq INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'active',
+  failures      INTEGER NOT NULL DEFAULT 0,
+  next_try_at   TEXT,
+  failing_since TEXT,
+  last_error    TEXT,
+  last_sent_at  TEXT,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_streams_org ON audit_streams(org_id);
+
+/* People and groups a workspace's identity provider keeps here over SCIM
+   2.0 (docs/sso-and-domain-join.md §11). `id` is the SCIM id the provider
+   addresses them by; `active = 0` is someone it has stopped, who is no
+   longer a member. A group is a user group (`user_groups.handle`). */
+CREATE TABLE IF NOT EXISTS scim_users (
+  org_id         TEXT NOT NULL,
+  id             TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  user_name      TEXT NOT NULL,
+  external_id    TEXT,
+  display_name   TEXT,
+  active         INTEGER NOT NULL DEFAULT 1,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  PRIMARY KEY (org_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scim_users_name ON scim_users(org_id, user_name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scim_users_user ON scim_users(org_id, user_github_id);
+CREATE TABLE IF NOT EXISTS scim_groups (
+  org_id         TEXT NOT NULL,
+  id             TEXT NOT NULL,
+  handle         TEXT NOT NULL,
+  display_name   TEXT NOT NULL,
+  external_id    TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  PRIMARY KEY (org_id, id)
+);
+
+/* Data loss prevention (docs/enterprise-audit-log.md §10): what a workspace
+   does not want said in it. `kind` is builtin (a detector by `detector`),
+   regex (`pattern`) or keywords (`pattern` is a JSON list). A rule warns or
+   blocks; what it matched is never stored. */
+CREATE TABLE IF NOT EXISTS dlp_rules (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  detector    TEXT,
+  pattern     TEXT,
+  action      TEXT NOT NULL DEFAULT 'warn',
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  created_by  TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dlp_rules_org ON dlp_rules(org_id);

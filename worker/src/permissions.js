@@ -33,6 +33,7 @@ export const PERMISSIONS = {
   "audit.read": "admin",
   "audit.export": "admin",
   "audit.stream.manage": "owner",
+  "dlp.manage": "admin",
   "join_request.decide": "admin",
   "webhook.create": "member",
   "webhook.delete_others": "admin",

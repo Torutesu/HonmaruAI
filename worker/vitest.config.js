@@ -8,7 +8,7 @@ export default defineConfig({
       miniflare: {
         compatibilityFlags: ["nodejs_compat"],
         d1Databases: { DB: "test-db" },
-        r2Buckets: ["MEDIA"],
+        r2Buckets: ["MEDIA", "AUDIT_ARCHIVE"],
         // A fake Composio key so the relay Durable Object (reached via SELF)
         // has one in its OWN env — secrets are not injected into the DO
         // isolate otherwise, and the outbound-Notion write path needs it to
@@ -20,6 +20,8 @@ export default defineConfig({
         bindings: {
           COMPOSIO_API_KEY: "ak_test_relay",
           AUDIT_MASTER_KEY: "Qk16NjpxdRgOAokyadLTYJpxp/SpANl9tBELtbnSi8M=",
+          // Ed25519, PKCS8: signs the archive's hourly digests.
+          AUDIT_SIGNING_KEY: "MC4CAQAwBQYDK2VwBCIEINST0f2O7kgtKc+d9ltsB0U/u4JmkzAFJ8aDR129gou7",
           SSO_SECRET_KEY: "6pDBbf4ednHp34e7vEaE1q+QVMR9O7HyOxk1KrNi78U=",
           AUDIT_PSEUDONYM_KEY: "ln7/yH8WhNONheAGVvzq0ptYmGOdFxOJ3RInaq9stYY=",
         },

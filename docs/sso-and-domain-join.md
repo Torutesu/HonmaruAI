@@ -1,6 +1,6 @@
 # SSO（Google Workspace / Okta / Entra ID）とドメイン参加 — 詳細設計
 
-作成日: 2026-09-26。状態: **段階 A〜E を実装済み**（SAML・SCIM・複数 IdP は §11 のまま）。
+作成日: 2026-09-26。状態: **段階 A〜E と SCIM を実装済み**（SAML・複数 IdP は §11 のまま）。
 
 実装での決めごと:
 - iOS のコールバックは既存のスキーム `tiktokforwork://sso?code=…`（GitHub 連携と同じ）。
@@ -400,10 +400,13 @@ POST /orgs/join-requests       {orgId, ref, approve: bool}
   - `samlify` 相当の検証を Worker に入れる必要がある（XML 署名の検証は自前で書かない）。
   - Cloudflare Access を前段の SAML/OIDC 変換として使う案もある。
   - `org_sso.provider = 'saml'` と `idp_metadata_xml` を足す。
-- **SCIM 2.0**:
-  - `/scim/v2/Users`、`/scim/v2/Groups` を Bearer トークン（Provisioning キー、[admin-controls.md](admin-controls.md) §2 の `scim:write` スコープ）で受ける。
-  - `active=false` で全セッション失効とメンバーからの除外。
-  - Groups はユーザーグループ（`user_groups`）に写す。
+- **SCIM 2.0**（実装済み、`worker/src/scim.js`）:
+  - `/scim/v2/Users`、`/scim/v2/Groups` を Bearer トークン（ワークスペースキー、[admin-controls.md](admin-controls.md) §2 の `scim:write` スコープ）で受ける。`ServiceProviderConfig`・`ResourceTypes` もある。
+  - 受け付けるのは確認済みドメインのアドレスだけ。同じアドレスのアカウントがあればそれにつなぎ、無ければ作る（`joined_via = 'scim'`）。
+  - `active=false`（Okta の `path: active` 形式と Entra の `value: {active}` 形式の両方）で、メンバーから外し、全セッションを即時に失効させ、ソケットも閉じる。`DELETE` も同じで、SCIM の ID も忘れる。
+  - Owner はこの方法では止めない（403）。
+  - Groups はユーザーグループ（`user_groups`）に写す。ハンドルは作った時の名前から作り、名前が変わっても変えない（`@sales` と書かれてきたため）。
+  - フィルタは `属性 eq "値"` だけ。
 - **複数 IdP**: 1 ワークスペースに複数の `org_sso` を持たせる。子会社ごとに IdP が違う場合に使う。主キーを `(org_id, id)` にする。
 
 ---

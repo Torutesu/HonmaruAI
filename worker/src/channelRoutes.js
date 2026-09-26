@@ -1,3 +1,4 @@
+import { checkOutgoing } from "./dlp.js";
 import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText } from "./dailyReport.js";
 import { providerFor } from "./orgAI.js";
@@ -538,6 +539,9 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ messages: await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before }) });
     }
     const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
+    // The workspace's data rules read it before it is kept, sent now or later.
+    const stopped = await checkOutgoing(env, request, { orgId, login: who.user.login, text: typeof body.body === "string" ? body.body : "", ack: body.dlpAck === true, where: body.sendAt ? "scheduled" : parentId ? "reply" : "message" });
+    if (stopped) return stopped;
     // Written now, sent later.
     if (body.sendAt) {
       const sched = await scheduleMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: body.body, parentId, sendAt: body.sendAt });
@@ -587,6 +591,10 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (ctx.denied) return ctx.denied;
     const current = await getMessage(env.DB, body.orgId, body.messageId);
     if (!current || current.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
+    if (request.method === "PUT") {
+      const stopped = await checkOutgoing(env, request, { orgId: body.orgId, login: ctx.who.user.login, text: typeof body.body === "string" ? body.body : "", ack: body.dlpAck === true, where: "edit" });
+      if (stopped) return stopped;
+    }
     const out = request.method === "PUT"
       ? await editMessage(env.DB, { orgId: body.orgId, id: body.messageId, authorLogin: ctx.who.user.login, body: body.body })
       : await deleteMessage(env.DB, { orgId: body.orgId, id: body.messageId, authorLogin: ctx.who.user.login });
@@ -618,6 +626,8 @@ export async function handleChannels(request, env, url, { route, after }) {
     const text = (typeof body.text === "string" ? body.text : card.dailyReport.text || "").trim();
     if (!text) return json({ message: "The report is empty." }, 400);
     if (text.length > MAX_MESSAGE_CHARS) return json({ message: `A message is at most ${MAX_MESSAGE_CHARS} characters.` }, 400);
+    const stopped = await checkOutgoing(env, request, { orgId: body.orgId, login: who.user.login, text, ack: body.dlpAck === true, where: "daily_report" });
+    if (stopped) return stopped;
     const members = await listMembers(env.DB, body.orgId, who.session.github_id);
     const resolved = await resolveChannel(env.DB, body.orgId, who.user, card.dailyReport.channel, members);
     if (!resolved) return json({ message: "No such channel." }, 404);
