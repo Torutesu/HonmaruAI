@@ -1,6 +1,14 @@
 # SSO（Google Workspace / Okta / Entra ID）とドメイン参加 — 詳細設計
 
-作成日: 2026-09-26。状態: **設計のみ（未実装）**。
+作成日: 2026-09-26。状態: **段階 A〜E を実装済み**（SAML・SCIM・複数 IdP は §11 のまま）。
+
+実装での決めごと:
+- iOS のコールバックは既存のスキーム `tiktokforwork://sso?code=…`（GitHub 連携と同じ）。
+- `/sso/exchange` の受け渡しコードは、発行した client（web / ios）でしか使えない。違う client で出されても消費しない。
+- 強制中の「ブレークグラス」は、SSO の対象ドメイン外のアドレスを持つ Owner（自動で対象外）。メールコードの緊急ログイン枠は別に設けていない。
+- IdP の `userinfo` による 1 時間ごとの再確認（§7-2）は入れていない。SSO セッションは `session_hours`（既定 24 時間）で切れ、使っていても延びない。
+- `/auth/discover` は該当あり・なしで同じ時間（約 150 ms）をかけて答える。
+- ドメインの自動参加は、メールコードか SSO で確かめたアドレス（`users.email_verified_at`）だけ。GitHub のメールはまだ使っていない。
 
 関連文書:
 - [enterprise-audit-log.md](enterprise-audit-log.md) §10（企業向けロードマップ）
