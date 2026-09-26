@@ -68,4 +68,10 @@ final class ChatTests: XCTestCase {
         XCTAssertNil(assets.emojiURL(":other:"))
         XCTAssertNil(assets.emojiURL("👍"))
     }
+
+    func testJamOpensTheWebAppOnTheConversationsJam() {
+        let web = URL(string: "https://app.example.com")!
+        XCTAssertEqual(ChatJamLink.jamURL(web: web, view: "b:kitchen")?.absoluteString, "https://app.example.com/#/jam/b:kitchen")
+        XCTAssertEqual(ChatJamLink.jamURL(web: web, view: "g:0123456789abcdef")?.absoluteString, "https://app.example.com/#/jam/g:0123456789abcdef")
+    }
 }
