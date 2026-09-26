@@ -140,8 +140,10 @@ test("a stream sends what is new, in order and signed; a failure backs off; Splu
   expect(sent).toHaveLength(1);
   expect(sent[0].headers["honmaru-signature"]).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
   const lines = sent[0].body.trim().split("\n").map((l) => JSON.parse(l));
-  expect(lines.map((e) => e.action)).toEqual(["emoji.added", "emoji.added", "emoji.added"]);
-  expect(lines[0].actor.name).toBe("Toru");
+  // Its own creation is the first thing it carries.
+  expect(lines.map((e) => e.action)).toEqual(["workspace.audit_stream_changed", "emoji.added", "emoji.added", "emoji.added"]);
+  expect(lines.map((e) => e.seq)).toEqual([...lines.map((e) => e.seq)].sort((a, b) => a - b));
+  expect(lines[1].actor.name).toBe("Toru");
   // Nothing new: nothing sent.
   await deliverStreams(env);
   expect(sent).toHaveLength(1);

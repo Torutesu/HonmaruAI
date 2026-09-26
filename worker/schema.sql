@@ -1111,3 +1111,27 @@ CREATE TABLE IF NOT EXISTS org_audit_settings (
   updated_by        TEXT NOT NULL,
   updated_at        TEXT NOT NULL
 );
+
+/* Where a workspace's audit log is streamed (docs/audit-log-phase2.md §4):
+   its SIEM over HTTPS, Splunk HEC or Datadog, and how far it has got. The
+   secret is encrypted and never read back. */
+CREATE TABLE IF NOT EXISTS audit_streams (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  endpoint      TEXT NOT NULL,
+  secret        TEXT NOT NULL,
+  region        TEXT,
+  min_severity  TEXT NOT NULL DEFAULT 'info',
+  categories    TEXT,
+  delivered_seq INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'active',
+  failures      INTEGER NOT NULL DEFAULT 0,
+  next_try_at   TEXT,
+  failing_since TEXT,
+  last_error    TEXT,
+  last_sent_at  TEXT,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_streams_org ON audit_streams(org_id);
