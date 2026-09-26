@@ -230,6 +230,19 @@ function App() {
     window.addEventListener('honmaru:sso-required', on)
     return () => window.removeEventListener('honmaru:sso-required', on)
   }, [])
+  // Off the company's network: said once, plainly, instead of every screen
+  // failing on its own.
+  useEffect(() => {
+    let said = 0
+    const on = () => {
+      if (Date.now() - said < 30_000) return
+      said = Date.now()
+      setNotice({ text: t('This workspace can only be used from your company\'s network. Connect to it (or its VPN) and try again.'), error: true })
+    }
+    window.addEventListener('honmaru:ip-not-allowed', on)
+    return () => window.removeEventListener('honmaru:ip-not-allowed', on)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   useEffect(() => {
     if (!notice) return
     const id = setTimeout(() => setNotice(null), notice.error ? 8000 : 4000)
