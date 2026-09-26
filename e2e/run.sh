@@ -79,6 +79,7 @@ npx -y wrangler@4 dev --local --test-scheduled --port "$WORKER_PORT" \
   --var APP_WEB_URL:"http://127.0.0.1:$WEB_PORT" \
   --var AUDIT_MASTER_KEY:"$(head -c 32 /dev/urandom | base64)" \
   --var AUDIT_PSEUDONYM_KEY:"$(head -c 32 /dev/urandom | base64)" \
+  --var SSO_SECRET_KEY:"$(head -c 32 /dev/urandom | base64)" \
   >/tmp/e2e-worker.log 2>&1 & pids+=($!)
 cd ..
 

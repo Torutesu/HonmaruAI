@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS users (
   email         TEXT,
   password_hash TEXT,
   password_salt TEXT,
+  /* When the address was proved: an emailed code came back, or an SSO
+     provider vouched for it. Only a proved address joins by its domain. */
+  email_verified_at TEXT,
   /* What else this person is called — a Japanese given name, a nickname —
      as a JSON array. The router matches an instruction against these as
      well as the name, so 「美香に」 reaches mika. */
@@ -80,6 +83,8 @@ CREATE TABLE IF NOT EXISTS memberships (
   user_github_id    TEXT NOT NULL,
   role              TEXT NOT NULL DEFAULT 'member',
   title             TEXT,
+  /* How they came: invite | domain | sso | created. NULL is before this was kept. */
+  joined_via        TEXT,
   created_at        TEXT NOT NULL,
   /* A status, as a chat client has one: an emoji, a few words, until when.
      Away until a time, with somebody to decide in your place meanwhile. */
@@ -137,6 +142,8 @@ CREATE TABLE IF NOT EXISTS businesses (
   description TEXT,
   /* 1: only its members (conversation_members) can see it at all. */
   private     INTEGER NOT NULL DEFAULT 0,
+  /* Set when the channel is archived: out of every list, its history kept. */
+  archived_at TEXT,
   PRIMARY KEY (org_id, slug)
 );
 
@@ -188,7 +195,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   /* How it was signed in: email_code | password | github | sso. */
   auth_method         TEXT,
   /* The longest it has sat unused, for a workspace that ends idle sessions. */
-  longest_idle_ms     INTEGER
+  longest_idle_ms     INTEGER,
+  /* For an SSO sign-in: which workspace's identity provider it came through. */
+  sso_org_id          TEXT
 );
 
 /* One row per authorization attempt, deleted the moment it is redeemed. The
@@ -916,4 +925,130 @@ CREATE TABLE IF NOT EXISTS org_session_policy (
   reauth_for_admin_minutes INTEGER,
   updated_by               TEXT NOT NULL,
   updated_at               TEXT NOT NULL
+);
+
+/* A workspace's own keys (docs/admin-controls.md §2): for an HR system or
+   Terraform, owned by the workspace rather than by whoever made them. The
+   value is shown once and kept only as a hash. */
+CREATE TABLE IF NOT EXISTS org_keys (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  token_hash    TEXT NOT NULL UNIQUE,
+  prefix        TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  scopes        TEXT NOT NULL,
+  allowed_ips   TEXT,
+  expires_at    TEXT,
+  never_reason  TEXT,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  last_used_at  TEXT,
+  last_used_ip  TEXT,
+  warned_at     TEXT,
+  revoked_at    TEXT,
+  revoked_by    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_org_keys_org ON org_keys(org_id);
+
+/* The addresses each workspace key has been used from, so a new one is
+   noticed. */
+CREATE TABLE IF NOT EXISTS org_key_ips (
+  key_id        TEXT NOT NULL,
+  ip            TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  PRIMARY KEY (key_id, ip)
+);
+
+/* The admin API's answers to an Idempotency-Key, for a day. */
+CREATE TABLE IF NOT EXISTS admin_idempotency (
+  key_id        TEXT NOT NULL,
+  idem_key      TEXT NOT NULL,
+  status        INTEGER NOT NULL,
+  body          TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  PRIMARY KEY (key_id, idem_key)
+);
+
+/* Domains a workspace has proved are its own, by a DNS TXT record
+   (docs/sso-and-domain-join.md §4). One domain, one workspace. */
+CREATE TABLE IF NOT EXISTS org_domains (
+  domain          TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL,
+  verify_token    TEXT NOT NULL,
+  verified_at     TEXT,
+  last_checked_at TEXT,
+  fail_count      INTEGER NOT NULL DEFAULT 0,
+  join_policy     TEXT NOT NULL DEFAULT 'off',
+  join_role       TEXT NOT NULL DEFAULT 'member',
+  join_channels   TEXT,
+  created_by      TEXT NOT NULL,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_org_domains_org ON org_domains(org_id);
+
+/* People at a workspace's domain asking to join it, when joining asks. */
+CREATE TABLE IF NOT EXISTS join_requests (
+  org_id          TEXT NOT NULL,
+  user_github_id  TEXT NOT NULL,
+  email           TEXT NOT NULL,
+  requested_at    TEXT NOT NULL,
+  decided_by      TEXT,
+  decided_at      TEXT,
+  outcome         TEXT,
+  PRIMARY KEY (org_id, user_github_id)
+);
+
+/* A workspace's single sign-on connection (docs/sso-and-domain-join.md §6).
+   The client secret is encrypted with SSO_SECRET_KEY and never read back. */
+CREATE TABLE IF NOT EXISTS org_sso (
+  org_id          TEXT PRIMARY KEY,
+  provider        TEXT NOT NULL,
+  issuer          TEXT NOT NULL,
+  client_id       TEXT NOT NULL,
+  client_secret   TEXT NOT NULL,
+  allowed_domains TEXT NOT NULL,
+  hosted_domain   TEXT,
+  tenant_id       TEXT,
+  enforce         INTEGER NOT NULL DEFAULT 0,
+  enforce_since   TEXT,
+  session_hours   INTEGER,
+  status          TEXT NOT NULL DEFAULT 'draft',
+  tested_at       TEXT,
+  test_result     TEXT,
+  created_by      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+
+/* Who a person is at the identity provider, and their account here. */
+CREATE TABLE IF NOT EXISTS sso_identities (
+  org_id          TEXT NOT NULL,
+  issuer          TEXT NOT NULL,
+  subject         TEXT NOT NULL,
+  user_github_id  TEXT NOT NULL,
+  email           TEXT NOT NULL,
+  last_login_at   TEXT NOT NULL,
+  PRIMARY KEY (issuer, subject)
+);
+CREATE INDEX IF NOT EXISTS idx_sso_identities_user ON sso_identities(user_github_id);
+
+/* A sign-in on its way to the provider: state, nonce, PKCE. Ten minutes. */
+CREATE TABLE IF NOT EXISTS sso_states (
+  state           TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL,
+  nonce           TEXT NOT NULL,
+  code_verifier   TEXT NOT NULL,
+  return_to       TEXT,
+  tester_id       TEXT,
+  created_at      TEXT NOT NULL,
+  expires_at      TEXT NOT NULL
+);
+
+/* The one-time code a finished SSO sign-in is handed back with, in place
+   of the session token. A minute, once. `code` is its hash. */
+CREATE TABLE IF NOT EXISTS sso_handoffs (
+  code            TEXT PRIMARY KEY,
+  token           TEXT NOT NULL,
+  org_id          TEXT NOT NULL,
+  client          TEXT NOT NULL,
+  expires_at      TEXT NOT NULL
 );

@@ -92,6 +92,11 @@ export function sessionDeadline(policy, session) {
 /// The refusal for a session this workspace's rules have outgrown, or null.
 export async function policyDenial(env, session, orgId) {
   if (!session || !orgId) return null;
+  // The workspace's single sign-on first: required of this person, or
+  // an SSO sign-in past its hours.
+  const { ssoDenial } = await import("./sso.js");
+  const sso = await ssoDenial(env, session, orgId);
+  if (sso) return sso;
   const policy = await sessionPolicy(env.DB, orgId);
   const rule = brokenRule(policy, session);
   if (!rule) return null;

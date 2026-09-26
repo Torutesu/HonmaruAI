@@ -66,6 +66,18 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
     return () => window.removeEventListener('keydown', onKey)
   }, [variant, workspaces, currentId, onSwitch])
   const box = useRef<HTMLDivElement>(null)
+  // Workspaces your company's domain lets you ask to join.
+  const [joinable, setJoinable] = useState<Array<{ orgId: string; name: string; domain: string; requested: boolean; declined: boolean }>>([])
+  useEffect(() => {
+    if (!open || !api) return
+    fetch(`${api.httpBase}/orgs/joinable`, { headers: { 'x-session-token': api.sessionToken } })
+      .then((r) => (r.ok ? r.json() : { workspaces: [] })).then((d) => setJoinable(d.workspaces || [])).catch(() => {})
+  }, [open, api])
+  const askToJoin = async (orgId: string) => {
+    if (!api) return
+    const res = await fetch(`${api.httpBase}/orgs/join-requests/ask`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': api.sessionToken }, body: JSON.stringify({ orgId }) })
+    if (res.ok) setJoinable((list) => list.map((w) => (w.orgId === orgId ? { ...w, requested: true } : w)))
+  }
   const current = workspaces.find((w) => w.id === currentId)
   const label = workspaceLabel(current, t)
 
@@ -124,6 +136,24 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
               )
             })}
           </ul>
+          {joinable.length > 0 && (
+            <>
+              <div className="ws-menu-sep" />
+              <div className="ws-joinable-title">{t('At your company')}</div>
+              {joinable.map((w) => (
+                <div key={w.orgId} className="ws-joinable" data-joinable={w.orgId}>
+                  <WorkspaceMark label={w.name} size={32} />
+                  <span className="ws-item-text">
+                    <span className="ws-item-name">{w.name}</span>
+                    <span className="ws-item-role">{w.domain}</span>
+                  </span>
+                  <button type="button" className="ws-ask" disabled={w.requested || w.declined} onClick={() => void askToJoin(w.orgId)}>
+                    {w.declined ? t('Declined') : w.requested ? t('Asked') : t('Ask to join')}
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
           <div className="ws-menu-sep" />
           <button type="button" role="menuitem" className="ws-action ws-add" onClick={() => go(() => (api ? setAdding(true) : onCreate()))} data-add-workspace="1">
             <span className="ws-add-plus" aria-hidden="true"><Icon name="plus" size={18} /></span>

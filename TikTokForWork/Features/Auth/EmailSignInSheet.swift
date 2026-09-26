@@ -27,6 +27,8 @@ struct EmailSignInSheet: View {
     @State private var ticker: Task<Void, Never>?
     @State private var requestTask: Task<Void, Never>?
     @State private var requestGeneration = UUID()
+    /// The company's single sign-on, when this address's domain has one.
+    @State private var ssoOffer: SSOService.Offer?
 
     private var emailLooksReal: Bool {
         let value = EmailAuthService.normalizedEmail(email)
@@ -107,6 +109,15 @@ struct EmailSignInSheet: View {
             }
         }
         .onAppear { requestGeneration = UUID(); focus = .email }
+        // Whether this address's company signs in with SSO, asked once the
+        // typing pauses.
+        .task(id: email) {
+            ssoOffer = nil
+            guard emailLooksReal else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            ssoOffer = await SSOService.discover(email: email)
+        }
         .onDisappear { requestGeneration = UUID(); requestTask?.cancel(); ticker?.cancel() }
     }
 
@@ -134,6 +145,27 @@ struct EmailSignInSheet: View {
             field(String(localized: "Invite code (optional)"), text: $inviteCode, field: .invite)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+
+            if let ssoOffer {
+                Button {
+                    requestTask?.cancel()
+                    requestTask = Task { await signInWithSSO(ssoOffer) }
+                } label: {
+                    Text("Continue with \(ssoOffer.providerName)")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Theme.Colors.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.input, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.input, style: .continuous).stroke(Theme.Colors.border, lineWidth: 1))
+                }
+                .disabled(busy)
+                Text(ssoOffer.enforced
+                     ? String(localized: "\(ssoOffer.workspaceName) signs in only with \(ssoOffer.providerName).")
+                     : String(localized: "\(ssoOffer.workspaceName) uses \(ssoOffer.providerName) for sign-in."))
+                    .font(Theme.TypeScale.micro)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
 
             Text("No code? You get a workspace of your own, and can invite people into it. Your name is only used if this address is new here.")
                 .font(Theme.TypeScale.micro)
@@ -255,7 +287,7 @@ struct EmailSignInSheet: View {
     }
     private var primaryEnabled: Bool {
         switch step {
-        case .address: emailLooksReal
+        case .address: emailLooksReal && ssoOffer?.enforced != true
         case .code: code.count == 6
         case .password: emailLooksReal && !password.isEmpty
         }
@@ -266,6 +298,25 @@ struct EmailSignInSheet: View {
         case .address: await sendCode()
         case .code: await verify()
         case .password: await signInWithPassword()
+        }
+    }
+
+    /// The provider's page in a browser sheet, then signed in.
+    private func signInWithSSO(_ offer: SSOService.Offer) async {
+        let generation = requestGeneration
+        busy = true
+        errorMessage = nil
+        defer { if requestGeneration == generation { busy = false } }
+        do {
+            let session = try await SSOService.signIn(orgId: offer.orgId, email: email)
+            guard requestGeneration == generation, !Task.isCancelled else { return }
+            onSignedIn(session, name.trimmingCharacters(in: .whitespaces))
+            dismiss()
+        } catch SSOService.Failure.cancelled {
+            return
+        } catch {
+            guard requestGeneration == generation, !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
         }
     }
 

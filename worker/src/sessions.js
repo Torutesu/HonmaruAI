@@ -80,6 +80,11 @@ export async function signedIn(env, request, token, githubId, method) {
   await env.DB.prepare("UPDATE sessions SET client = ?1, user_agent = ?2, place = ?3, last_seen_at = ?4, auth_method = ?6 WHERE token = ?5")
     .bind(meta.client || null, meta.userAgent || null, meta.place || null, new Date().toISOString(), token, method || null).run().catch(() => {});
   const user = await getUserByGithubId(env.DB, String(githubId)).catch(() => null);
+  // A proved address at a company's domain: its workspace may let them in.
+  if (method === "email_code" || method === "sso") {
+    const { domainJoin } = await import("./domains.js");
+    await domainJoin(env, githubId, { via: method === "sso" ? "sso" : "domain" }).catch((err) => console.error("domain join failed", err?.message || err));
+  }
   await auditEverywhere(env, request, githubId, { action: "auth.login", actor: person(user), details: { method } });
 }
 
@@ -187,6 +192,12 @@ export async function handleSessions(request, env, url) {
       }
       const ended = await endSessions(env.DB, target.userId, self ? { keep: token } : {});
       await audit(env, request, { orgId, action: "auth.session_revoked", actor: person(user), entity: { type: "user", id: target.login, name: target.name }, details: { count: ended, everywhere: true } });
+      // And, if asked, their link to this workspace's identity provider:
+      // the next SSO sign-in has to match them afresh.
+      if (!self && body.unlinkSso === true) {
+        const gone = await env.DB.prepare("DELETE FROM sso_identities WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, target.userId).run().catch(() => null);
+        if (gone?.meta?.changes) await audit(env, request, { orgId, action: "sso.identity_unlinked", actor: person(user), entity: { type: "user", id: target.login, name: target.name } });
+      }
       return json({ ended });
     }
   }

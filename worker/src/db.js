@@ -155,7 +155,7 @@ export async function getSession(db, token) {
   if (!token) return null;
   const row = await db
     .prepare(
-      "SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, reauth_at, auth_method, longest_idle_ms FROM sessions WHERE token = ?1"
+      "SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, reauth_at, auth_method, longest_idle_ms, sso_org_id FROM sessions WHERE token = ?1"
     )
     .bind(token)
     .first();
@@ -390,14 +390,16 @@ export function parseAliases(raw) {
   }
 }
 
-export async function upsertMembership(db, orgId, githubId, role) {
+export async function upsertMembership(db, orgId, githubId, role, via = null) {
+  // `via` is how they came (invite | domain | sso | created); it is kept
+  // from their first arrival and never overwritten.
   await db
     .prepare(
-      `INSERT INTO memberships (org_id, user_github_id, role, created_at)
-       VALUES (?1, ?2, ?3, ?4)
+      `INSERT INTO memberships (org_id, user_github_id, role, created_at, joined_via)
+       VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT(org_id, user_github_id) DO UPDATE SET role = excluded.role`
     )
-    .bind(orgId, String(githubId), role, new Date().toISOString())
+    .bind(orgId, String(githubId), role, new Date().toISOString(), via)
     .run();
 }
 
@@ -807,7 +809,7 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
       `SELECT b.slug, b.name, b.created_by, b.created_at, b.private,
               CASE WHEN b.private = 1 THEN (SELECT COUNT(*) FROM conversation_members c2 WHERE c2.org_id = ?1 AND c2.channel = 'b:' || b.slug) END AS member_count
          FROM businesses b
-        WHERE b.org_id = ?1 AND ((b.private = 0 AND (?2 IS NULL OR NOT EXISTS (
+        WHERE b.org_id = ?1 AND b.archived_at IS NULL AND ((b.private = 0 AND (?2 IS NULL OR NOT EXISTS (
           SELECT 1 FROM memberships gm JOIN users gu ON gu.github_id = gm.user_github_id
            WHERE gm.org_id = ?1 AND gu.login = ?2 AND gm.role = 'guest'))) OR (?2 IS NOT NULL AND EXISTS (
           SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = 'b:' || b.slug AND c.login = ?2)))

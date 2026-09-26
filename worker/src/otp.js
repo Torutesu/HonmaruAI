@@ -115,6 +115,9 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
   const address = normalize(email);
   const spent = await consumeCode(env, address, code);
   if (spent.error) return spent;
+  // The code came back, so the address is theirs.
+  const markProved = () => env.DB.prepare("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?2) WHERE email = ?1")
+    .bind(address, new Date().toISOString()).run().catch(() => {});
 
   const user = await env.DB
     .prepare("SELECT github_id, login FROM users WHERE email = ?1")
@@ -123,12 +126,14 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
   if (!user) {
     const created = await signup(env, { email: address, name, inviteCode, locale, passwordless: true });
     if (created.error) return { error: created.error, status: 400 };
+    await markProved();
     return { ...created, created: true };
   }
 
   // Nothing is written to the account here on purpose. An existing person
   // keeps the name and language they chose; `upsertUser` overwrites `name`
   // with what it is given, and this path is given none.
+  await markProved();
   const token = await createSession(env.DB, user.github_id, EMAIL_AUTH_TOKEN);
 
   // An invite handed to someone who already has an account used to be dropped

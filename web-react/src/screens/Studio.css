@@ -288,3 +288,22 @@
 .login-rules .rules-note { margin: 12px 0 0; font-size: 13px; color: var(--st-dim); }
 .login-rules .rules-label { font-size: 14px; color: var(--st-ink); }
 .login-rules .rules-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+
+/* Workspace keys and the Domains & SSO page reuse the login-rules controls. */
+.workspace-keys { margin-top: 28px; }
+.workspace-keys .rules-number, .sso-page .rules-number { width: 110px; height: 34px; padding: 0 10px; border: 1px solid var(--st-line); border-radius: 8px; font: inherit; font-size: 14px; color: var(--st-ink); background: var(--st-bg); }
+.workspace-keys .rules-number.wide, .sso-page .rules-number.wide { width: 100%; max-width: 520px; }
+.workspace-keys .rules-unit, .sso-page .rules-unit { font-size: 13px; color: var(--st-dim); }
+.workspace-keys .rules-actions, .sso-page .rules-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.org-key-form { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; max-width: 640px; }
+.org-key-scopes { display: flex; flex-direction: column; gap: 4px; }
+.org-key-scopes code { font-size: 11.5px; color: var(--st-dim); margin-left: 4px; }
+.org-key-expiry { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.workspace-keys .studio-table { margin-top: 12px; }
+.studio-btn.danger { color: #c4323b; }
+.sso-domain { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; margin: 10px 0; border: 1px solid var(--st-line); border-radius: 10px; max-width: 720px; }
+.sso-domain-head { display: flex; align-items: center; gap: 10px; }
+.sso-badge { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--st-hover); color: var(--st-dim); }
+.sso-badge.ok { background: #e6f4ea; color: #1e7b34; }
+.sso-domain-policy select { height: 30px; border: 1px solid var(--st-line); border-radius: 8px; background: var(--st-bg); color: var(--st-ink); font: inherit; font-size: 13px; }
+.sso-page .dlg-secret { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
