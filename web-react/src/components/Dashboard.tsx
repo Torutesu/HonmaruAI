@@ -156,6 +156,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     window.dispatchEvent(new CustomEvent('honmaru:open-message-id', { detail: id }))
     navigate(hashForMode('classic'), true)
   }, [route.messageId, navigate])
+  // A Jam to join — the phone app opens this in its own web view: the list
+  // opens on the conversation and joins its Jam.
+  useEffect(() => {
+    const view = route.jamView
+    if (!view) return
+    try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.jamView', view) } catch {}
+    window.dispatchEvent(new CustomEvent('honmaru:join-jam', { detail: view }))
+    navigate(hashForMode('classic'), true)
+  }, [route.jamView, navigate])
   // A `?card=` link from before the hash routes: turned into one, once.
   useEffect(() => {
     try {

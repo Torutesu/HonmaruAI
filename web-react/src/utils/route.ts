@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react'
 //   #/feed/<cardId>   this card
 //   #/list            the same cards as a list
 //   #/m/<messageId>   one message in the list, for whoever can read it
+//   #/jam/<view>      a conversation's Jam, joined — what the phone app opens
 //   #/history … #/tools … #/you … #/team … #/insights … #/plans … #/notifications
 //   #/automations     what your AI does on a schedule
 //   #/playbook        the rules it follows
@@ -29,6 +30,8 @@ export interface Route {
   join: string | null
   /// A message, from "Copy link": the list finds where it is for you.
   messageId?: string | null
+  /// A conversation (as this person names it) whose Jam to join.
+  jamView?: string | null
 }
 
 const SCREEN_BY_PATH: Record<string, Screen> = {
@@ -56,6 +59,11 @@ export function parseRoute(hash: string): Route {
     let id = rest[0] || ''
     try { id = decodeURIComponent(id) } catch { /* as written */ }
     return { screen: null, mode: 'classic', cardId: null, join: null, messageId: /^[\w-]{1,80}$/.test(id) ? id : null }
+  }
+  if (head === 'jam') {
+    let view = rest.join('/')
+    try { view = decodeURIComponent(view) } catch { /* as written */ }
+    return { screen: null, mode: 'classic', cardId: null, join: null, jamView: /^(b|dm|g):[^\s]{1,200}$/.test(view) ? view : null }
   }
   if (head === 'join') {
     const code = (rest[0] || '').trim()

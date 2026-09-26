@@ -1206,3 +1206,12 @@
 .classic.slk.slk .cl-section h2:hover .cl-section-remove, .classic.slk.slk .cl-section-remove:focus-visible { opacity: 1; }
 @media (hover: none) { .classic.slk.slk .cl-section h2 .cl-section-remove { opacity: 1; } }
 .msheet-form { display: flex; flex-direction: column; gap: 8px; }
+/* The star and "move to a section" sit beside the name, as in Slack. */
+.classic.slk.slk .slk-head-text { display: grid; grid-template-columns: minmax(0, auto) auto 1fr; align-items: center; column-gap: 2px; }
+.classic.slk.slk .slk-head-text > h1 { grid-column: 1; min-width: 0; }
+.classic.slk.slk .slk-head-text > .slk-head-tools { grid-column: 2; display: inline-flex; align-items: center; gap: 0; }
+.classic.slk.slk .slk-head-text > p { grid-column: 1 / -1; }
+.classic.slk.slk .slk-head-tools .slk-head-btn { width: 26px; height: 26px; padding: 0; border: none; background: none; justify-content: center; color: var(--slk-dim); }
+.classic.slk.slk .slk-head-tools .slk-head-btn:hover { color: var(--slk-ink); background: var(--slk-hover); }
+@media (max-width: 719px) { .classic.slk.slk .slk-head-tools { display: none !important; } }
+.classic.slk.slk .slk-head-tools .slk-move-menu { left: 0; right: auto; }

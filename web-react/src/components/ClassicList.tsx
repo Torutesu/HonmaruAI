@@ -1246,6 +1246,25 @@ export const ClassicList: React.FC<Props> = ({
     return () => window.removeEventListener('honmaru:open-message-id', on)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [everything.length])
+  // "Join this Jam", from a link (the phone app's web view opens one): the
+  // conversation, then the call. In the app, leaving says so, and the app
+  // closes the view.
+  useEffect(() => {
+    const go = (view: string) => {
+      const th = everything.find((x) => x.view === view)
+      if (!th) { setToast(t('That conversation is not somewhere you can read.')); return }
+      choose(th.key)
+      void startJam(view, { mode: jams[view]?.mode || 'off' })
+    }
+    const on = (e: Event) => { try { sessionStorage.removeItem('list.jamView') } catch {}; go(String((e as CustomEvent).detail || '')) }
+    window.addEventListener('honmaru:join-jam', on)
+    try {
+      const saved = sessionStorage.getItem('list.jamView')
+      if (saved && everything.length) { sessionStorage.removeItem('list.jamView'); setTimeout(() => go(saved), 300) }
+    } catch { /* nothing to join */ }
+    return () => window.removeEventListener('honmaru:join-jam', on)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [everything.length])
   const decideMessage = async (channel: string, m: ChannelMessage) => {
     setProblem(null)
     const res = await fetch(`${api.httpBase}/channels/decide`, {
@@ -1334,6 +1353,14 @@ export const ClassicList: React.FC<Props> = ({
   // Who is talking in which channel, and the call this tab is in.
   const [jams, setJams] = useState<Record<string, JamState>>({})
   const [call, setCall] = useState<JamCall | null>(null)
+  // In the phone app's web view: tell the app when the call is over.
+  const hadCall = useRef(false)
+  useEffect(() => {
+    if (call) { hadCall.current = true; return }
+    if (!hadCall.current) return
+    hadCall.current = false
+    try { (window as unknown as { webkit?: { messageHandlers?: { honmaruJam?: { postMessage: (m: unknown) => void } } } }).webkit?.messageHandlers?.honmaruJam?.postMessage({ type: 'left' }) } catch { /* not in the app */ }
+  }, [call])
   const [, setCallTick] = useState(0)
   // The call's own panel beside the conversation; tucked away, the bar.
   const [jamShown, setJamShown] = useState(true)
@@ -2027,6 +2054,38 @@ export const ClassicList: React.FC<Props> = ({
                   {(() => { const m = members.find((x) => thread.view === `dm:${x.ref}`); return m?.awayUntil ? <span className="slk-head-away"> · {t('Away until {when}', { when: new Date(m.awayUntil).toLocaleDateString(locale, { month: 'short', day: 'numeric' }) })}</span> : null })()}
                 </h1>
               : <h1>{thread.name}</h1>}
+            {thread.view && (
+              <span className="slk-head-tools" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  className={`slk-head-btn slk-star-button${isStarred(thread.view) ? ' on' : ''}`}
+                  onClick={() => toggleStar(thread.view!)}
+                  aria-pressed={isStarred(thread.view)}
+                  aria-label={isStarred(thread.view) ? t('Unstar') : t('Star')} title={isStarred(thread.view) ? t('Unstar') : t('Star')}
+                  data-star="1"
+                >
+                  <Icon name="star" size={15} />
+                </button>
+                <div className="slk-move-wrap">
+                  <button type="button" className={`slk-head-btn slk-move-button${moveMenu ? ' on' : ''}`} onClick={() => setMoveMenu((m) => !m)}
+                    aria-haspopup="menu" aria-expanded={moveMenu} aria-label={t('Move to a section')} title={t('Move to a section')} data-move="1">
+                    <Icon name="folder" size={15} />
+                  </button>
+                  {moveMenu && (
+                    <div className="slk-menu slk-move-menu" role="menu" onMouseLeave={() => setMoveMenu(false)}>
+                      {layout.sections.map((x) => (
+                        <button key={x.id} type="button" role="menuitemradio" aria-checked={sectionOf(thread.view!)?.id === x.id} onClick={() => { setMoveMenu(false); moveTo(thread.view!, x.id) }} data-move-to={x.name}>
+                          {x.name}{sectionOf(thread.view!)?.id === x.id && <Icon name="check" size={13} />}
+                        </button>
+                      ))}
+                      {sectionOf(thread.view) && <button type="button" role="menuitem" onClick={() => { setMoveMenu(false); moveTo(thread.view!, null) }}>{t('Back to where it was')}</button>}
+                      <div className="slk-menu-sep" />
+                      <button type="button" role="menuitem" onClick={() => { setMoveMenu(false); setSectionName(''); setAddingSection({ view: thread.view! }) }} data-new-section="1">{t('New section…')}</button>
+                    </div>
+                  )}
+                </div>
+              </span>
+            )}
             <p>
               {!wide && (thread.kind === 'channel' || thread.kind === 'group') && <>{t('{n} members', { n: headCount(thread) })} · </>}
               {thread.cards.length ? t('{n} decisions', { n: thread.cards.length }) : t('No decisions here yet.')}
@@ -2035,34 +2094,6 @@ export const ClassicList: React.FC<Props> = ({
           </div>
           {thread.view && (
             <div className="slk-head-actions">
-              <button
-                type="button"
-                className={`slk-head-btn slk-star-button${isStarred(thread.view) ? ' on' : ''}`}
-                onClick={() => toggleStar(thread.view!)}
-                aria-pressed={isStarred(thread.view)}
-                aria-label={isStarred(thread.view) ? t('Unstar') : t('Star')} title={isStarred(thread.view) ? t('Unstar') : t('Star')}
-                data-star="1"
-              >
-                <Icon name="star" size={15} />
-              </button>
-              <div className="slk-move-wrap">
-                <button type="button" className={`slk-head-btn slk-move-button${moveMenu ? ' on' : ''}`} onClick={() => setMoveMenu((m) => !m)}
-                  aria-haspopup="menu" aria-expanded={moveMenu} aria-label={t('Move to a section')} title={t('Move to a section')} data-move="1">
-                  <Icon name="folder" size={15} />
-                </button>
-                {moveMenu && (
-                  <div className="slk-menu slk-move-menu" role="menu" onMouseLeave={() => setMoveMenu(false)}>
-                    {layout.sections.map((x) => (
-                      <button key={x.id} type="button" role="menuitemradio" aria-checked={sectionOf(thread.view!)?.id === x.id} onClick={() => { setMoveMenu(false); moveTo(thread.view!, x.id) }} data-move-to={x.name}>
-                        {x.name}{sectionOf(thread.view!)?.id === x.id && <Icon name="check" size={13} />}
-                      </button>
-                    ))}
-                    {sectionOf(thread.view) && <button type="button" role="menuitem" onClick={() => { setMoveMenu(false); moveTo(thread.view!, null) }}>{t('Back to where it was')}</button>}
-                    <div className="slk-menu-sep" />
-                    <button type="button" role="menuitem" onClick={() => { setMoveMenu(false); setSectionName(''); setAddingSection({ view: thread.view! }) }} data-new-section="1">{t('New section…')}</button>
-                  </div>
-                )}
-              </div>
               <button
                 type="button"
                 className={`slk-head-btn slk-context-button${side?.kind === 'journal' ? ' on' : ''}`}

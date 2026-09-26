@@ -37,6 +37,7 @@ struct ConversationView: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
+    @State private var jamOpen = false
 
     private var conversation: ChatConversation? { store.conversation(for: view) }
     private var title: String {
@@ -106,6 +107,9 @@ struct ConversationView: View {
         }
         .sheet(item: $openCard) { CardDetailSheet(card: $0).environmentObject(appState) }
         .sheet(isPresented: $customTime) { customTimeSheet }
+        .fullScreenCover(isPresented: $jamOpen) {
+            ChatJamSheet(view: view, title: title, base: store.baseURL, orgId: appState.currentUser?.teamID)
+        }
         .confirmationDialog("Delete this message? This cannot be undone.", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }), titleVisibility: .visible) {
             Button("Delete message", role: .destructive) { if let m = confirmDelete { Task { await store.delete(m) } }; confirmDelete = nil }
         }
@@ -470,6 +474,9 @@ struct ConversationView: View {
             .onTapGesture { if let ref = conversation?.member?.ref { profileRef = ref } }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
+            Button { jamOpen = true } label: { Image(systemName: "headphones") }
+                .accessibilityLabel("Jam")
+                .accessibilityHint("Start or join a call in this conversation.")
             Button { Task { pins = await store.pins(view); showPins = true } } label: { Image(systemName: "pin") }
                 .accessibilityLabel("Pinned messages")
             Menu {
