@@ -5,8 +5,8 @@ import schemaSql from "../schema.sql?raw";
 import { classifyBusiness, fileCardUnderBusiness } from "../src/classify.js";
 import { routeInstruction } from "../src/routing.js";
 
-// Nobody files a card by hand. The model reads it and picks the business it
-// is about — one of the organization's own, or a new one when nothing fits.
+// Nobody files a card by hand. The model reads it and picks the channel it
+// is about — one of the team's own. It never makes a channel up.
 
 const ORG = "acme/holdings";
 const provider = { providerName: "OpenAI", endpoint: "https://api.openai.com/v1/chat/completions", apiKey: "sk-test", model: "m" };
@@ -30,20 +30,27 @@ test("an existing business comes back as its slug, by slug or by name", async ()
   expect(await classifyBusiness({ title: "予約システムの修正" }, { provider, businesses })).toEqual({ called: true, name: "hotel-本丸" });
 });
 
-test("a new name is created as a business, and the card gets its slug", async () => {
+test("a card is filed in the public channel it is about; a name the model makes up files nothing", async () => {
+  const { upsertBusiness, listBusinesses } = await import("../src/db.js");
+  await upsertBusiness(env.DB, ORG, { name: "Hiring", createdBy: "6101" });
+  await upsertBusiness(env.DB, ORG, { name: "Research", createdBy: "6101" });
+  await env.DB.prepare("INSERT INTO businesses (org_id, slug, name, created_at, private) VALUES (?1, 'secret', 'Secret', ?2, 1)").bind(ORG, new Date().toISOString()).run();
   const prompts = [];
-  intercept(answer("Bakery Kita", true), prompts);
+  intercept({ choices: [{ message: { content: JSON.stringify({ channel: "research" }) } }] }, prompts);
   let consumed = 0;
   const slug = await fileCardUnderBusiness(env, {
     orgId: ORG, provider, githubId: "6101",
-    card: { title: "Sign the lease for the bakery", summary: "Kita-ku, two floors." },
+    card: { title: "YCS26の調査を実施", summary: "Look into YCS26." },
     allowance: { allowed: true, metered: true, consume: async () => { consumed += 1; } },
   });
-  expect(slug).toBe("bakery-kita");
+  expect(slug).toBe("research");
   expect(consumed).toBe(1);
-  expect(prompts[0].messages[1].content).toContain("(none yet)");
-  const { listBusinesses } = await import("../src/db.js");
-  expect(await listBusinesses(env.DB, ORG)).toMatchObject([{ slug: "bakery-kita", name: "Bakery Kita" }]);
+  // The private channel is not offered.
+  expect(prompts[0].messages[1].content).toContain("- research: Research");
+  expect(prompts[0].messages[1].content).not.toContain("secret");
+  intercept(answer("Bakery Kita", true));
+  expect(await fileCardUnderBusiness(env, { orgId: ORG, provider, card: { title: "Sign the bakery lease" } })).toBeNull();
+  expect((await listBusinesses(env.DB, ORG)).map((b) => b.slug).sort()).toEqual(["hiring", "research"]);
 });
 
 test("no model, no allowance, a card already filed, or a useless answer leaves the card alone", async () => {
@@ -52,6 +59,10 @@ test("no model, no allowance, a card already filed, or a useless answer leaves t
   expect(await fileCardUnderBusiness(env, { orgId: ORG, card, provider, allowance: { allowed: false } })).toBeNull();
   expect(await fileCardUnderBusiness(env, { orgId: ORG, card: { ...card, business: "kept" }, provider })).toBe("kept");
 
+  // No channel yet: nothing to file under, and no model asked.
+  expect(await fileCardUnderBusiness(env, { orgId: ORG, card, provider })).toBeNull();
+  const { upsertBusiness } = await import("../src/db.js");
+  await upsertBusiness(env.DB, ORG, { name: "General", createdBy: "6101" });
   intercept({ choices: [{ message: { content: "I cannot say" } }] });
   let consumed = 0;
   expect(await fileCardUnderBusiness(env, {
@@ -60,10 +71,10 @@ test("no model, no allowance, a card already filed, or a useless answer leaves t
   // Answered, so paid for; nothing created.
   expect(consumed).toBe(1);
   const { listBusinesses } = await import("../src/db.js");
-  expect(await listBusinesses(env.DB, ORG)).toEqual([]);
+  expect((await listBusinesses(env.DB, ORG)).map((b) => b.slug)).toEqual(["general"]);
 });
 
-test("the router names a new business when none of the org's fit", async () => {
+test("the router never names a channel that does not exist", async () => {
   const org = {
     nodes: [{ id: "owner", kind: "person", label: "owner · Admin" }, { id: "member", kind: "person", label: "member · Engineer" }],
     edges: [],
@@ -80,5 +91,5 @@ test("the router names a new business when none of the org's fit", async () => {
     text: "ask member to sort out the food truck permit", sender: { id: "owner", name: "owner", role: "admin" },
     organization: org, openRouter: provider,
   });
-  expect(routed.business).toBe("Food Truck");
+  expect(routed.business).toBeNull();
 });

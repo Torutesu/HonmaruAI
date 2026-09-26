@@ -1804,6 +1804,18 @@ await step('people talk in a channel, and @AI turns what was said into a decisio
     await d.click('.slk-msg:has(.slk-app-badge) .slk-card .slk-action.primary')
     await d.waitForSelector('.slk-msg:has(.slk-app-badge) .slk-card.decided', { timeout: 15000 })
       .catch(() => { throw new Error('approving in the channel did not decide the card') })
+    // The channel's record: this channel only — its context and its decisions.
+    await d.click('.slk-more')
+    await d.click('[data-open-record]')
+    await d.waitForSelector('.sheet [data-record-context]', { timeout: 20000 })
+      .catch(() => { throw new Error('the record of the channel shows no context') })
+    await d.waitForSelector('.sheet .record-decided li:has-text("fridge")', { timeout: 10000 })
+      .catch(() => { throw new Error('the channel’s record does not list its decision') })
+    const title = await d.$eval('.sheet .sheet-title', (el) => el.textContent || '')
+    if (!/Kitchen/.test(title)) throw new Error(`the record is not the open channel’s: ${title}`)
+    if ((await d.$$('.sheet .record-section')).length !== 1) throw new Error('the record shows other channels too')
+    await d.screenshot({ path: `${SHOTS}/38b-channel-record.png` })
+    await d.click('.sheet .close')
     // Kept: a reload brings the conversation back.
     await d.reload({ waitUntil: 'load' })
     await d.click('.cl-thread:has-text("Kitchen") .cl-open')

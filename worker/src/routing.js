@@ -321,7 +321,7 @@ export function buildAgentTools(organization) {
                     type: "string",
                     enum: businesses,
                     description:
-                      "Which of the organization's businesses this decision is about. Pick one whenever the instruction plausibly concerns it.",
+                      "The team's channel this decision belongs to, by what it is about. Pick the one whose topic it concerns; company-wide matters go to the general channel if there is one. Omit only when none fits at all.",
                   },
                 }
               : {}),
@@ -335,11 +335,6 @@ export function buildAgentTools(organization) {
               type: "string",
               description:
                 "One or two sentences on why, citing the specific fact that decides it (an amount, a deadline, a precedent). Written in the READER's language, like every other field.",
-            },
-            newBusiness: {
-              type: "string",
-              description:
-                "Only when no listed business fits: the name of the business this is about, 1-3 words, the venture or product itself (never a person or a task). Company-wide matters are 'General'.",
             },
           },
           required: [
@@ -507,7 +502,9 @@ export function buildUserPrompt({ text, sender, organization, readerLanguage, se
   const businesses = (organization?.businesses || [])
     .map((b) => (typeof b === "string" ? `- ${b}` : `- ${b.slug}: ${b.name}`))
     .join("\n");
-  const businessBlock = `\nBusinesses the organization runs (file the card under the one it is about; name a new one in newBusiness only when none fits):\n${businesses || "- (none yet)"}\n`;
+  const businessBlock = businesses
+    ? `\nThe team's channels (file the card under the channel whose topic it is about, by its content — never invent one):\n${businesses}\n`
+    : "";
   return `Sender: ${sender.name} (${sender.id}, ${sender.role})
 Reader language: ${readerLanguage || "ja"}
 Instruction: ${text}
@@ -918,8 +915,7 @@ function validateRouting(routingJSON, sender, originalText, toolCalls = [], orga
       // Never a slug the model made up.
       business: businessSlugsOf(organization).includes(routingJSON.business)
         ? routingJSON.business
-        : (matchBusiness(originalText, organization)
-          || (typeof routingJSON.newBusiness === "string" && routingJSON.newBusiness.trim().slice(0, 40)) || null),
+        : (matchBusiness(originalText, organization) || null),
       toolCalls,
     },
     sender,

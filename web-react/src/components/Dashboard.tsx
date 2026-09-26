@@ -543,6 +543,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     setSuggestRule(null)
     if (!res?.ok) setError(t('That did not save.'))
   }, [suggestRule, relayHttpUrl, sessionToken, orgId, t])
+  // The conversation open in the list: the record shows that channel.
+  const [listView, setListView] = useState<{ view: string; name: string } | null>(null)
+  const onListView = useCallback((view: string | null, name: string | null) => {
+    setListView(view ? { view, name: name || view } : null)
+  }, [])
   const handleDelete = useCallback((cardId: string) => {
     wsClientRef.current?.sendDeleteCard(cardId)
     addDebugLog(`Deleted: ${cardId}`)
@@ -752,6 +757,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onCompose={() => setPanel('compose')}
           onTellAI={(text) => { setComposeSeed({ id: String(Date.now()), text }); setPanel('compose') }}
           onDeleteCard={handleDelete}
+          onViewChange={onListView}
+          onOpenRecord={() => setPanel('record')}
           onImmersive={setImmersive}
           // The whole card — its thread, Ask, the reply draft — drawn in the
           // list's own pane, so opening a decision never leaves the list.
@@ -935,7 +942,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       {panel === 'record' && (
-        <RecordSheet httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={() => setPanel(null)} />
+        <RecordSheet httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} channel={listView?.view.startsWith('b:') ? listView : null} onClose={() => setPanel(null)} />
       )}
 
       {/* The design's own screens. Each takes the viewport while it is open,

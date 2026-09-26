@@ -63,6 +63,10 @@ interface Props {
   onTellAI: (text: string) => void
   /// Take a card back: the sender before it is decided, the recipient any time.
   onDeleteCard?: (cardId: string) => void
+  /// The conversation open now, for what shows beside it (the record).
+  onViewChange?: (view: string | null, name: string | null) => void
+  /// Open the record of the channel open now: its context and decisions.
+  onOpenRecord?: () => void
   /// A conversation (or a decision) fills a phone's screen: the shell hides
   /// its own chrome while this is true.
   onImmersive: (on: boolean) => void
@@ -199,7 +203,7 @@ function when(iso?: string): string {
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
   userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onImmersive, renderCard, onWorkspace, workspaceMenu,
+  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen,
 }) => {
   const t = useT()
@@ -829,6 +833,7 @@ export const ClassicList: React.FC<Props> = ({
   }, [])
   const composer = useRef<HTMLTextAreaElement>(null)
   const view = current?.view
+  useEffect(() => { onViewChange?.(current?.view || null, current?.name || null) }, [current?.view, current?.name, onViewChange])
   // Whether there is more above what is loaded, per conversation.
   const [more, setMore] = useState<Record<string, boolean>>({})
   const PAGE = 150
@@ -2468,6 +2473,7 @@ export const ClassicList: React.FC<Props> = ({
                   ))}
                 </span>
                 <button type="button" className="cl-nudge" onClick={() => void dailySummary(thread)}>{t('Daily summary to me')}</button>
+                {onOpenRecord && <button type="button" className="cl-nudge" onClick={() => { setSettings(false); onOpenRecord() }} data-open-record="1">{t('Record (Markdown)')}</button>}
                 {thread.private && <button type="button" className="cl-nudge" onClick={() => setAddingTo(thread.view!)} data-add-people="1">{t('Add people')}</button>}
                 {thread.private && <button type="button" className="cl-nudge" onClick={() => void leaveChannel(thread)} data-leave="1">{t('Leave channel')}</button>}
                 <button type="button" className="cl-nudge" onClick={() => { setRenaming(thread.slug!); setRenameTo(thread.name) }}>{t('Rename')}</button>
@@ -3016,6 +3022,7 @@ export const ClassicList: React.FC<Props> = ({
               <SheetRow icon="folder" label={t('Move to a section')} hint={sectionOf(th.view!)?.name} onClick={close(() => setMoveSheet(th.view!))} data="move" />
               <SheetRow icon="file" label={t('Canvas')} onClick={close(() => openSide({ kind: 'canvas' }))} data="canvas" />
               <SheetRow icon="book" label={t('Context')} onClick={close(() => openSide({ kind: 'journal' }))} data="context" />
+              {th.kind === 'channel' && th.slug && onOpenRecord && <SheetRow icon="record" label={t('Record (Markdown)')} onClick={close(() => onOpenRecord())} data="record" />}
               <SheetRow icon="pin" label={t('Pinned messages')} onClick={close(() => void loadPins(th.view!))} data="pins" />
               {th.kind === 'channel' && <SheetRow icon="repeat" label={t('Automations')} hint={String(automationCount[th.view!] ?? 0)} onClick={close(() => openSide({ kind: 'details', tab: 'automations' }))} data="automations" />}
               {th.kind === 'channel' && th.slug && <SheetRow icon="settings" label={t('Channel settings')} onClick={close(() => { setSettings(true); setRenaming(null) })} data="settings" />}

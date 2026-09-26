@@ -919,6 +919,19 @@ CREATE TABLE IF NOT EXISTS channel_canvases (
   PRIMARY KEY (org_id, channel)
 );
 
+/* A channel's context, written by the model for the record: kept with the
+   newest message it read, so it is written again only after something new
+   was said (channelContext.js). One per reader language. */
+CREATE TABLE IF NOT EXISTS channel_context_cache (
+  org_id           TEXT NOT NULL,
+  channel          TEXT NOT NULL,
+  locale           TEXT NOT NULL,
+  body             TEXT NOT NULL,
+  generated_at     TEXT NOT NULL,
+  last_message_at  TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel, locale)
+);
+
 /* Earlier versions of a canvas, the last 30, so a save can be undone. */
 CREATE TABLE IF NOT EXISTS channel_canvas_revisions (
   org_id        TEXT NOT NULL,
