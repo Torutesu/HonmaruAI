@@ -1743,6 +1743,20 @@ const ja: Dict = {
   'Secret key or token': '秘密鍵・トークン',
   'US Social Security number': '米国社会保障番号',
   'This can\'t be sent here: it looks like it contains {what}. Take it out and try again.': 'ここには送れません。{what} が含まれているようです。取り除いてからもう一度送ってください。',
+  'Add a connection': '接続を追加',
+  'Entity ID': 'エンティティID',
+  'Give your identity provider these:': 'IDプロバイダーに次の値を設定してください:',
+  'Google Workspace, Okta, Microsoft Entra ID, any OpenID Connect provider, or SAML 2.0. Connect one per company or subsidiary; each covers its own domains.': 'Google Workspace、Okta、Microsoft Entra ID、OpenID Connect 対応のプロバイダー、または SAML 2.0。会社や子会社ごとに接続でき、それぞれが自分のドメインを受け持ちます。',
+  'Identity provider entity ID': 'IDプロバイダーのエンティティID',
+  'Metadata': 'メタデータ',
+  'Name, like Acme Okta': '名前（例: 本社 Okta）',
+  'Paste the metadata XML from your identity provider (or fill in the three fields below)': 'IDプロバイダーのメタデータXMLを貼り付けてください（または下の3項目を入力）',
+  'Reply URL (ACS)': '応答URL（ACS）',
+  'Sign-in address (HTTP-Redirect), https://…': 'サインインURL（HTTP-Redirect）、https://…',
+  'Signing certificate (PEM)': '署名証明書（PEM）',
+  'Signing certificate (saved; paste to replace)': '署名証明書（保存済み。置き換える場合は貼り付け）',
+  'The test sign-in worked. You can turn this connection on.': 'テストサインインに成功しました。この接続をオンにできます。',
+  'another connection': '別の接続',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -3460,6 +3474,20 @@ const es: Dict = {
   'Secret key or token': 'Clave secreta o token',
   'US Social Security number': 'Número de Seguro Social de EE. UU.',
   'This can\'t be sent here: it looks like it contains {what}. Take it out and try again.': 'No se puede enviar aquí: parece que contiene {what}. Quítalo e inténtalo de nuevo.',
+  'Add a connection': 'Añadir una conexión',
+  'Entity ID': 'ID de entidad',
+  'Give your identity provider these:': 'Da estos datos a tu proveedor de identidad:',
+  'Google Workspace, Okta, Microsoft Entra ID, any OpenID Connect provider, or SAML 2.0. Connect one per company or subsidiary; each covers its own domains.': 'Google Workspace, Okta, Microsoft Entra ID, cualquier proveedor OpenID Connect o SAML 2.0. Conecta uno por empresa o filial; cada uno cubre sus propios dominios.',
+  'Identity provider entity ID': 'ID de entidad del proveedor de identidad',
+  'Metadata': 'Metadatos',
+  'Name, like Acme Okta': 'Nombre, p. ej. Acme Okta',
+  'Paste the metadata XML from your identity provider (or fill in the three fields below)': 'Pega el XML de metadatos de tu proveedor de identidad (o rellena los tres campos de abajo)',
+  'Reply URL (ACS)': 'URL de respuesta (ACS)',
+  'Sign-in address (HTTP-Redirect), https://…': 'Dirección de inicio de sesión (HTTP-Redirect), https://…',
+  'Signing certificate (PEM)': 'Certificado de firma (PEM)',
+  'Signing certificate (saved; paste to replace)': 'Certificado de firma (guardado; pega uno para reemplazarlo)',
+  'The test sign-in worked. You can turn this connection on.': 'La prueba de inicio de sesión funcionó. Puedes activar esta conexión.',
+  'another connection': 'otra conexión',
 }
 
 const fr: Dict = {
@@ -5127,6 +5155,20 @@ const fr: Dict = {
   'Secret key or token': 'Clé secrète ou jeton',
   'US Social Security number': 'Numéro de sécurité sociale américain',
   'This can\'t be sent here: it looks like it contains {what}. Take it out and try again.': 'Impossible d\'envoyer ceci ici : cela semble contenir {what}. Retirez-le et réessayez.',
+  'Add a connection': 'Ajouter une connexion',
+  'Entity ID': 'ID d\'entité',
+  'Give your identity provider these:': 'Donnez ceci à votre fournisseur d\'identité :',
+  'Google Workspace, Okta, Microsoft Entra ID, any OpenID Connect provider, or SAML 2.0. Connect one per company or subsidiary; each covers its own domains.': 'Google Workspace, Okta, Microsoft Entra ID, tout fournisseur OpenID Connect ou SAML 2.0. Connectez-en un par société ou filiale ; chacun couvre ses propres domaines.',
+  'Identity provider entity ID': 'ID d\'entité du fournisseur d\'identité',
+  'Metadata': 'Métadonnées',
+  'Name, like Acme Okta': 'Nom, p. ex. Acme Okta',
+  'Paste the metadata XML from your identity provider (or fill in the three fields below)': 'Collez le XML de métadonnées de votre fournisseur d\'identité (ou remplissez les trois champs ci-dessous)',
+  'Reply URL (ACS)': 'URL de réponse (ACS)',
+  'Sign-in address (HTTP-Redirect), https://…': 'Adresse de connexion (HTTP-Redirect), https://…',
+  'Signing certificate (PEM)': 'Certificat de signature (PEM)',
+  'Signing certificate (saved; paste to replace)': 'Certificat de signature (enregistré ; collez-en un pour le remplacer)',
+  'The test sign-in worked. You can turn this connection on.': 'La connexion de test a fonctionné. Vous pouvez activer cette connexion.',
+  'another connection': 'une autre connexion',
 }
 
 const de: Dict = {
@@ -6794,6 +6836,20 @@ const de: Dict = {
   'Secret key or token': 'Geheimer Schlüssel oder Token',
   'US Social Security number': 'US-Sozialversicherungsnummer',
   'This can\'t be sent here: it looks like it contains {what}. Take it out and try again.': 'Das kann hier nicht gesendet werden: Es scheint {what} zu enthalten. Entfernen Sie es und versuchen Sie es erneut.',
+  'Add a connection': 'Verbindung hinzufügen',
+  'Entity ID': 'Entitäts-ID',
+  'Give your identity provider these:': 'Geben Sie Ihrem Identitätsanbieter Folgendes:',
+  'Google Workspace, Okta, Microsoft Entra ID, any OpenID Connect provider, or SAML 2.0. Connect one per company or subsidiary; each covers its own domains.': 'Google Workspace, Okta, Microsoft Entra ID, jeder OpenID-Connect-Anbieter oder SAML 2.0. Verbinden Sie einen pro Firma oder Tochterfirma; jeder deckt seine eigenen Domains ab.',
+  'Identity provider entity ID': 'Entitäts-ID des Identitätsanbieters',
+  'Metadata': 'Metadaten',
+  'Name, like Acme Okta': 'Name, z. B. Acme Okta',
+  'Paste the metadata XML from your identity provider (or fill in the three fields below)': 'Fügen Sie das Metadaten-XML Ihres Identitätsanbieters ein (oder füllen Sie die drei Felder unten aus)',
+  'Reply URL (ACS)': 'Antwort-URL (ACS)',
+  'Sign-in address (HTTP-Redirect), https://…': 'Anmeldeadresse (HTTP-Redirect), https://…',
+  'Signing certificate (PEM)': 'Signaturzertifikat (PEM)',
+  'Signing certificate (saved; paste to replace)': 'Signaturzertifikat (gespeichert; zum Ersetzen einfügen)',
+  'The test sign-in worked. You can turn this connection on.': 'Die Testanmeldung hat funktioniert. Sie können diese Verbindung einschalten.',
+  'another connection': 'eine andere Verbindung',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }
