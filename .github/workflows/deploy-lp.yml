@@ -6,9 +6,13 @@ name: Deploy Landing Page
 # there, with the same two repository secrets. The API token needs
 # "Cloudflare Pages: Edit".
 #
-# The Pages project is created on the first run if it does not exist yet.
-# Attaching a custom domain (honmaruai.com) is a one-time step in the
-# Cloudflare dashboard: Pages → the project → Custom domains.
+# The Pages project is created on the first run if it does not exist yet, and
+# the site's domain (honmaruai.com, or the LP_DOMAIN repository variable) and
+# its www. are attached to it. When the token may also edit that zone's DNS,
+# the records are added too; otherwise the run says which to add. The page is
+# built for the domain as soon as the domain answers: its links and previews
+# name it, and the pages.dev and www. addresses redirect to it. Until then it
+# is built for the pages.dev address, so nothing points at a dead domain.
 
 on:
   push:
@@ -23,7 +27,7 @@ on:
         type: string
         default: honmaru-lp
       site_url:
-        description: "Public URL the page is served from (for link previews). Empty = the pages.dev address"
+        description: "Public URL the page is served from (for link previews). Empty = the domain once it answers, else the pages.dev address"
         type: string
         default: ""
 
@@ -40,6 +44,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PROJECT: ${{ inputs.project || 'honmaru-lp' }}
       SITE_URL: ${{ inputs.site_url || vars.LP_SITE_URL || '' }}
+      DOMAIN: ${{ vars.LP_DOMAIN || 'honmaruai.com' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,18 +58,6 @@ jobs:
             exit 1
           fi
 
-      # lp/build.mjs writes a page per language with its words already in the
-      # HTML, inlines the stylesheet, minifies the scripts, and adds the root
-      # worker that sends Japan to /ja/ and everyone else to /en/. It stops,
-      # naming the key, if a language is missing a string the page uses.
-      - name: Test and build
-        run: |
-          node --check lp/main.js
-          node --test lp/worker.test.mjs
-          url="${SITE_URL:-https://$PROJECT.pages.dev}"
-          node lp/build.mjs dist "${url%/}"
-          ls -la dist dist/ja
-
       - name: Create the Pages project if needed
         run: |
           if npx -y wrangler@4 pages project list 2>/dev/null | grep -qw "$PROJECT"; then
@@ -72,6 +65,63 @@ jobs:
           else
             npx -y wrangler@4 pages project create "$PROJECT" --production-branch=main
           fi
+
+      # Attaches the domain and www. to the project (idempotent). Pages then
+      # issues their certificates once DNS points at it. Nothing here fails
+      # the deploy: without the domain the page stays on pages.dev.
+      - name: Attach the domain
+        run: |
+          api="https://api.cloudflare.com/client/v4"
+          auth=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json")
+          have=$(curl -s "${auth[@]}" "$api/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT/domains" | jq -r '.result[]? | "\(.name) \(.status)"')
+          echo "attached now:"; echo "${have:-  (none)}"
+          for host in "$DOMAIN" "www.$DOMAIN"; do
+            if ! grep -q "^$host " <<<"$have"; then
+              out=$(curl -s "${auth[@]}" -X POST "$api/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT/domains" --data "{\"name\":\"$host\"}")
+              jq -e .success <<<"$out" >/dev/null && echo "attached $host" || echo "::warning::Could not attach $host to $PROJECT: $(jq -c .errors <<<"$out")"
+            fi
+          done
+          zone=$(curl -s "${auth[@]}" "$api/zones?name=$DOMAIN" | jq -r '.result[0].id // empty')
+          if [ -z "$zone" ]; then
+            echo "::warning::The token cannot read the $DOMAIN zone. In Cloudflare DNS for $DOMAIN add: CNAME @ -> $PROJECT.pages.dev and CNAME www -> $PROJECT.pages.dev (both proxied)."
+            exit 0
+          fi
+          for host in "$DOMAIN" "www.$DOMAIN"; do
+            rec=$(curl -s "${auth[@]}" "$api/zones/$zone/dns_records?name=$host" | jq -r '.result[]? | "\(.type) \(.content)"')
+            if [ -n "$rec" ]; then
+              echo "$host already has: $rec"
+              grep -q "CNAME $PROJECT.pages.dev" <<<"$rec" || echo "::warning::$host points elsewhere ($rec); left as it is."
+              continue
+            fi
+            out=$(curl -s "${auth[@]}" -X POST "$api/zones/$zone/dns_records" --data "{\"type\":\"CNAME\",\"name\":\"$host\",\"content\":\"$PROJECT.pages.dev\",\"proxied\":true}")
+            jq -e .success <<<"$out" >/dev/null && echo "added CNAME $host -> $PROJECT.pages.dev" || echo "::warning::Could not add the DNS record for $host (the token may lack DNS edit): $(jq -c .errors <<<"$out"). Add CNAME $host -> $PROJECT.pages.dev (proxied) in Cloudflare DNS."
+          done
+
+      # The domain is live when its root is answered by this page's worker
+      # (a redirect to a language). Only then is the page built for it.
+      - name: Pick the address
+        run: |
+          if [ -z "$SITE_URL" ]; then
+            loc=$(curl -s -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' "https://$DOMAIN/" || true)
+            case "$loc" in
+              "302 https://$DOMAIN/"??/|"301 https://$DOMAIN/"??/) SITE_URL="https://$DOMAIN" ;;
+              *) echo "::notice::https://$DOMAIN/ is not serving the page yet ($loc); building for $PROJECT.pages.dev"; SITE_URL="https://$PROJECT.pages.dev" ;;
+            esac
+          fi
+          echo "SITE_URL=${SITE_URL%/}" >> "$GITHUB_ENV"
+          echo "building for ${SITE_URL%/}"
+
+      # lp/build.mjs writes a page per language with its words already in the
+      # HTML, inlines the stylesheet, minifies the scripts, and adds the
+      # worker that sends Japan to /ja/ and everyone else to /en/ (and, for a
+      # domain, the other addresses to it). It stops, naming the key, if a
+      # language is missing a string the page uses.
+      - name: Test and build
+        run: |
+          node --check lp/main.js
+          node --test lp/worker.test.mjs
+          node lp/build.mjs dist "$SITE_URL"
+          ls -la dist dist/ja
 
       - name: Deploy to Pages
         run: npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
@@ -82,7 +132,8 @@ jobs:
       # language choice sets, to that language).
       - name: Verify
         run: |
-          base="https://$PROJECT.pages.dev"
+          base="$SITE_URL"
+          pages="https://$PROJECT.pages.dev"
           for attempt in 1 2 3 4 5 6 7 8; do
             ok=1
             for l in en ja es fr de; do
@@ -93,8 +144,13 @@ jobs:
             [ "$root" = "302 $base/en/" ] || ok=0
             chosen=$(curl -sS -o /dev/null -w '%{redirect_url}' -H 'Cookie: hm_lang=ja' "$base/")
             [ "$chosen" = "$base/ja/" ] || ok=0
+            if [ "$base" != "$pages" ]; then
+              moved=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$pages/ja/")
+              [ "$moved" = "301 $base/ja/" ] || ok=0
+            fi
             if [ $ok = 1 ]; then
               echo "$base serves this commit; / -> /en/ from here, /ja/ for a Japanese choice"
+              [ "$base" != "$pages" ] && echo "$pages redirects to $base"
               exit 0
             fi
             echo "not yet (root: $root, with ja cookie: $chosen)"

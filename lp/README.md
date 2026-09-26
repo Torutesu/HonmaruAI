@@ -99,20 +99,27 @@ others with `hreflang`, and `x-default` points at the root.
 **Deploy Landing Page** (`.github/workflows/deploy-lp.yml`) runs on every push
 to `main` that touches `lp/`, and can also be run by hand from Actions. It:
 
-1. tests the root's redirect rules (`worker.test.mjs`);
-2. runs `build.mjs`, which stops if any language lacks a string the page uses.
-   It writes a page per language with absolute `og:url`, `canonical` and
-   `hreflang` tags, inlines the stylesheet, minifies the scripts, and adds
-   `_worker.js`, `_routes.json`, `robots.txt`, `sitemap.xml` and `_headers`
-   (fonts are cached for a year);
-3. creates the Pages project `honmaru-lp` if it doesn't exist yet;
-4. deploys, then checks that every language page is the one just built and
-   that `/` redirects (to `/en/` from the runner, to `/ja/` with a Japanese
-   choice).
+1. creates the Pages project `honmaru-lp` if it doesn't exist yet;
+2. attaches the site's domain — `honmaruai.com`, or the repository variable
+   `LP_DOMAIN` — and its `www.` to the project, and adds their DNS records
+   (`CNAME` to `honmaru-lp.pages.dev`, proxied) when the token may edit that
+   zone. If it may not, the run's warnings name the two records to add by hand
+   in Cloudflare DNS;
+3. picks the address: the domain once its root is answered by this page,
+   otherwise `honmaru-lp.pages.dev`, so no link points at a domain that is
+   not serving yet (`LP_SITE_URL` or the run's `site_url` input overrides it);
+4. tests the worker (`worker.test.mjs`) and runs `build.mjs` for that address,
+   which stops if any language lacks a string the page uses. It writes a page
+   per language with absolute `og:url`, `canonical` and `hreflang` tags,
+   inlines the stylesheet, minifies the scripts, and adds `_worker.js`,
+   `_routes.json`, `robots.txt`, `sitemap.xml` and `_headers` (fonts are
+   cached for a year). Built for the domain, the worker also sends
+   `honmaru-lp.pages.dev` and `www.` there with a 301, path and all;
+5. deploys, then checks on that address that every language page is the one
+   just built, that `/` redirects (to `/en/` from the runner, to `/ja/` with
+   a Japanese choice), and that pages.dev redirects to the domain.
 
-It uses the same two secrets as Deploy Web.
-
-Once the site is up, add the custom domain once in the Cloudflare dashboard:
-Pages → `honmaru-lp` → Custom domains. After that, set the repository
-variable `LP_SITE_URL` (for example `https://honmaruai.com`) so link previews
-point at that domain.
+It uses the same two secrets as Deploy Web. For the DNS records to be added
+automatically, the API token also needs *Zone → DNS → Edit* on the domain's
+zone; certificates for the domain are issued by Pages within minutes of the
+records existing, and the next run (or a manual one) switches the page over.
