@@ -80,6 +80,7 @@ npx -y wrangler@4 dev --local --test-scheduled --port "$WORKER_PORT" \
   --var AUDIT_MASTER_KEY:"$(head -c 32 /dev/urandom | base64)" \
   --var AUDIT_PSEUDONYM_KEY:"$(head -c 32 /dev/urandom | base64)" \
   --var SSO_SECRET_KEY:"$(head -c 32 /dev/urandom | base64)" \
+  --var AUDIT_SIGNING_KEY:"$(node -e "const c=require('crypto');process.stdout.write(c.generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'der'}).toString('base64'))")" \
   >/tmp/e2e-worker.log 2>&1 & pids+=($!)
 cd ..
 

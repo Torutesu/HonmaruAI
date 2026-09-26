@@ -75,3 +75,4 @@ ALTER TABLE businesses ADD COLUMN archived_at TEXT;
 ALTER TABLE memberships ADD COLUMN joined_via TEXT;
 ALTER TABLE users ADD COLUMN email_verified_at TEXT;
 ALTER TABLE sessions ADD COLUMN sso_org_id TEXT;
+ALTER TABLE audit_principal_keys ADD COLUMN shred_pending INTEGER NOT NULL DEFAULT 0;

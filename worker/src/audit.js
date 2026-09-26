@@ -82,6 +82,15 @@ export const AUDIT_ACTIONS = {
   "audit.exported": { category: "audit", severity: "notice", text: "{actor} downloaded the audit log" },
   "audit.principal_shredded": { category: "audit", severity: "notice", text: "A deleted account's entries were made unreadable" },
   "audit.chain_migrated": { category: "audit", severity: "critical", text: "The audit log was moved to per-person encryption" },
+  "audit.seal_failed": { category: "audit", severity: "critical", text: "Sealing the audit log into the archive failed" },
+  "audit.pruned": { category: "audit", severity: "notice", text: "Entries past their retention left the log (they stay in the archive)" },
+  "audit.retention_changed": { category: "audit", severity: "critical", text: "{actor} changed how long the audit log is kept" },
+  "audit.legal_hold_changed": { category: "audit", severity: "critical", text: "{actor} changed the legal hold on the audit log" },
+  "audit.principal_hold_changed": { category: "audit", severity: "critical", text: "{actor} changed a legal hold on one person's entries" },
+  "audit.stream_failing": { category: "audit", severity: "warning", text: "Streaming the audit log to {entity} has failed for a day" },
+  "audit.stream_replayed": { category: "audit", severity: "notice", text: "{actor} sent the audit log to {entity} again" },
+  "workspace.audit_stream_changed": { category: "audit", severity: "critical", text: "{actor} changed where the audit log is streamed" },
+  "security.anomaly": { category: "security", severity: "critical", text: "Something unusual was found: {entity}" },
   "security.permission_denied": { category: "security", severity: "warning", text: "{actor} was refused: {entity}" },
 };
 
@@ -363,6 +372,10 @@ async function reader(env, request, orgId) {
 /// GET /audit/logs · GET /audit/actions · GET /audit/verify
 export async function handleAudit(request, env, url) {
   if (!url.pathname.startsWith("/audit/") || request.method !== "GET") return null;
+  if (url.pathname === "/audit/public-key") {
+    const { publicKeys } = await import("./auditArchive.js");
+    return json({ keys: await publicKeys(env) });
+  }
   if (url.pathname === "/audit/actions") {
     return json({ actions: Object.entries(AUDIT_ACTIONS).map(([action, a]) => ({ action, ...a })), severities: SEVERITIES });
   }
@@ -371,7 +384,12 @@ export async function handleAudit(request, env, url) {
   if (who.denied) return who.denied;
 
   if (url.pathname === "/audit/verify") {
-    return json(await verifyChain(env.DB, orgId, { from: parseInt(url.searchParams.get("from"), 10) || 1, to: parseInt(url.searchParams.get("to"), 10) || null }));
+    // From the oldest row D1 still keeps: older ones left for the archive.
+    const oldest = (await env.DB.prepare("SELECT MIN(seq) AS s FROM audit_events WHERE org_id = ?1").bind(orgId).first())?.s || 1;
+    const chain = await verifyChain(env.DB, orgId, { from: parseInt(url.searchParams.get("from"), 10) || oldest, to: parseInt(url.searchParams.get("to"), 10) || null });
+    const { verifyArchive } = await import("./auditArchive.js");
+    const archive = await verifyArchive(env, orgId, { fromHour: Date.parse(url.searchParams.get("fromHour") || "") || 0, toHour: Date.parse(url.searchParams.get("toHour") || "") || Date.now() });
+    return json({ ...chain, ok: chain.ok && archive.ok, checked_rows: chain.checked, archive });
   }
   if (url.pathname !== "/audit/logs") return json({ message: "not found" }, 404);
 

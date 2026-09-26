@@ -935,6 +935,9 @@ CREATE TABLE IF NOT EXISTS audit_principal_keys (
   created_at    TEXT NOT NULL,
   shredded_at   TEXT,
   hold          INTEGER NOT NULL DEFAULT 0,
+  /* The person deleted their account while a hold kept this key: it goes
+     when the hold is lifted. */
+  shred_pending INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, principal)
 );
 CREATE INDEX IF NOT EXISTS idx_audit_keys_subject ON audit_principal_keys(subject);
@@ -1075,4 +1078,36 @@ CREATE TABLE IF NOT EXISTS sso_handoffs (
   org_id          TEXT NOT NULL,
   client          TEXT NOT NULL,
   expires_at      TEXT NOT NULL
+);
+
+/* Each hour of a workspace's audit log sealed into the archive
+   (docs/audit-log-phase2.md §3): the rows it covers, and the digest's hash,
+   which the next hour's digest points back to. */
+CREATE TABLE IF NOT EXISTS audit_seals (
+  org_id        TEXT NOT NULL,
+  hour          TEXT NOT NULL,
+  from_seq      INTEGER NOT NULL,
+  to_seq        INTEGER NOT NULL,
+  digest_sha256 TEXT NOT NULL,
+  sealed_at     TEXT NOT NULL,
+  PRIMARY KEY (org_id, hour)
+);
+
+/* A workspace whose sealing keeps failing, and since when. */
+CREATE TABLE IF NOT EXISTS audit_seal_failures (
+  org_id          TEXT PRIMARY KEY,
+  first_failed_at TEXT NOT NULL,
+  last_error      TEXT,
+  alerted         INTEGER NOT NULL DEFAULT 0
+);
+
+/* How long a workspace's audit log stays in D1, and whether a legal hold
+   keeps all of it. Set by the operator, on the customer's request. */
+CREATE TABLE IF NOT EXISTS org_audit_settings (
+  org_id            TEXT PRIMARY KEY,
+  retention_days    INTEGER,
+  legal_hold        INTEGER NOT NULL DEFAULT 0,
+  legal_hold_reason TEXT,
+  updated_by        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
 );

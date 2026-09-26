@@ -42,6 +42,9 @@ import { handleOrgKeys, warnExpiringKeys } from "./orgKeys.js";
 import { handleAdminApi } from "./adminApi.js";
 import { handleDomains, recheckDomains } from "./domains.js";
 import { handleSso } from "./sso.js";
+import { sealPending, weeklyVerify } from "./auditArchive.js";
+import { pruneAudit, handleOps } from "./auditRetention.js";
+import { deliverStreams, handleStreams } from "./auditStreams.js";
 import { handleOwners, transferFor, mailOwners } from "./owners.js";
 import { handleSessions, signedIn } from "./sessions.js";
 import { handleSuggestions } from "./suggest.js";
@@ -174,6 +177,8 @@ export default {
     if (event?.cron === "* * * * *") {
       ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
         .catch((err) => console.error("minute jobs failed", err?.message || err)));
+      // The audit log, to each workspace's SIEM, as it is written.
+      ctx.waitUntil(deliverStreams(env, { now: event?.scheduledTime || Date.now() }).catch((err) => console.error("audit streams failed", err?.message || err)));
       return;
     }
     ctx.waitUntil(runScheduledSync(env, ctx));
@@ -186,6 +191,18 @@ export default {
       ctx.waitUntil(warnExpiringKeys(env).catch((err) => console.error("key expiry warning failed", err?.message || err)));
       // Every proved domain, looked at again.
       ctx.waitUntil(recheckDomains(env).catch((err) => console.error("domain recheck failed", err?.message || err)));
+    }
+    // Once an hour: the hours just gone, sealed into the archive.
+    if (at.getUTCMinutes() < 15) {
+      ctx.waitUntil(sealPending(env, { now: at.getTime() }).catch((err) => console.error("audit sealing failed", err?.message || err)));
+    }
+    // Once a day: sealed rows past their retention leave D1.
+    if (at.getUTCHours() === 4 && at.getUTCMinutes() < 15) {
+      ctx.waitUntil(pruneAudit(env, { now: at.getTime() }).catch((err) => console.error("audit pruning failed", err?.message || err)));
+    }
+    // Sundays: the last eight days of every archive, checked end to end.
+    if (at.getUTCDay() === 0 && at.getUTCHours() === 3 && at.getUTCMinutes() < 15) {
+      ctx.waitUntil(weeklyVerify(env, { now: at.getTime() }).catch((err) => console.error("audit verify failed", err?.message || err)));
     }
     // Routines whose hour has come, and once a day the automations the AI
     // would propose. Separate from the sync, so a slow inbox cannot make a
@@ -243,6 +260,11 @@ async function handle(request, env, url, ctx) {
     // Where you are signed in, and the audit log.
     const sessions = await handleSessions(request, env, url);
     if (sessions) return sessions;
+    // Where the audit log streams to, and the operator's holds.
+    const streams = await handleStreams(request, env, url);
+    if (streams) return streams;
+    const ops = await handleOps(request, env, url);
+    if (ops) return ops;
     const audited = await handleAudit(request, env, url);
     if (audited) return audited;
     // Handing the workspace on.
