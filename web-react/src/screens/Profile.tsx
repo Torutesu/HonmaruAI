@@ -329,7 +329,7 @@ export const Profile: React.FC<Props> = ({
             </button>
             <button className="row" onClick={() => onOpen('agents')} data-open="agents">
               <span className="row-icon"><Icon name="sparkle" size={18} /></span>
-              <span className="row-main">{t('Agents')}<span className="row-sub">{t('Teammates your team writes in Markdown. Call one with @ in any conversation.')}</span></span>
+              <span className="row-main">{t('Agents')}<span className="row-sub">{t('Teammates written in Markdown. Call one with @ in any conversation.')}</span></span>
               <span className="row-value">›</span>
             </button>
             <button className="row" onClick={() => onOpen('record')}>
