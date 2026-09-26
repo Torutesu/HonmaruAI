@@ -217,16 +217,19 @@ export const ClassicList: React.FC<Props> = ({
   // The sound for a message is decided where the socket is; it needs to
   // know what you muted and what you are looking at.
   useEffect(() => { rememberLevels(api.orgId, prefs) }, [api.orgId, prefs])
-  // This workspace's own emoji: fetched when it opens, and again (at most
-  // once a minute) when a message names one not yet in the list — somebody
-  // just added it.
+  // This workspace's own emoji: fetched when it opens, and again when a
+  // message — live or loaded — names one not yet in the list: somebody just
+  // added it. A name asked about once is not asked about again for a minute,
+  // so text that only looks like :this: costs one request, not one a render.
   useCustomEmoji()
-  const emojiFetchedAt = useRef(0)
-  useEffect(() => { emojiFetchedAt.current = Date.now(); void loadCustomEmoji(api.httpBase, api.sessionToken, api.orgId) }, [api.httpBase, api.sessionToken, api.orgId])
+  const emojiAsked = useRef<Map<string, number>>(new Map())
+  useEffect(() => { emojiAsked.current.clear(); void loadCustomEmoji(api.httpBase, api.sessionToken, api.orgId) }, [api.httpBase, api.sessionToken, api.orgId])
   const maybeNewEmoji = useCallback((text: string) => {
-    const names = String(text || '').match(/:[a-z0-9_+-]{1,30}:/g)
-    if (!names || names.every((n) => customEmojiUrl(n)) || Date.now() - emojiFetchedAt.current < 60_000) return
-    emojiFetchedAt.current = Date.now()
+    const now = Date.now()
+    const unknown = (String(text || '').match(/:[a-z0-9_+-]{1,30}:/g) || [])
+      .filter((n) => !customEmojiUrl(n) && now - (emojiAsked.current.get(n) || 0) > 60_000)
+    if (!unknown.length) return
+    for (const n of unknown) emojiAsked.current.set(n, now)
     void loadCustomEmoji(api.httpBase, api.sessionToken, api.orgId)
   }, [api.httpBase, api.sessionToken, api.orgId])
   // Read positions from the server: the same on the phone and the laptop.
@@ -698,9 +701,10 @@ export const ClassicList: React.FC<Props> = ({
         if (!data) return
         setMessages((prev) => ({ ...prev, [channel]: data.messages || [] }))
         setMore((prev) => ({ ...prev, [channel]: (data.messages || []).length >= PAGE }))
+        maybeNewEmoji((data.messages || []).map((m: ChannelMessage) => `${m.body || ''} ${(m.reactions || []).map((r) => r.emoji).join(' ')}`).join(' '))
       })
       .catch(() => { /* the decisions still show */ })
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, maybeNewEmoji])
   // Scrolled to the top: the page before, kept in place as it arrives.
   const loadingOlder = useRef(false)
   const keepScroll = useRef<number | null>(null)

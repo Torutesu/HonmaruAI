@@ -2628,6 +2628,9 @@ await step('a workspace adds its own emoji, and uses them in a message and a rea
 
     // Kenji, in the same workspace, sees the picture, and answers with one.
     await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    // Out of whatever conversation the phone was left in, to its list.
+    for (let i = 0; i < 3 && await kenji.isVisible('.slk-head .slk-back'); i++) await kenji.click('.slk-head .slk-back').catch(() => {})
+    await kenji.click('[data-phone-tab="home"]').catch(() => {})
     await kenji.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
     await kenji.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
     await kenji.waitForFunction(() => { const i = document.querySelector('.slk-text img.slk-custom-emoji[alt=":shogun_party:"]'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
@@ -2666,6 +2669,9 @@ await step('threads you are in, a message marked unread, and one forwarded as a 
     await desk.waitForSelector(`.slk-text:has-text("${ask}")`, { timeout: 10000 })
 
     await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    // Out of whatever conversation the phone was left in, to its list.
+    for (let i = 0; i < 3 && await kenji.isVisible('.slk-head .slk-back'); i++) await kenji.click('.slk-head .slk-back').catch(() => {})
+    await kenji.click('[data-phone-tab="home"]').catch(() => {})
     await kenji.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
     await kenji.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
     const asked = kenji.locator('.slk-msg[id^="msg-"]', { hasText: ask }).last()
