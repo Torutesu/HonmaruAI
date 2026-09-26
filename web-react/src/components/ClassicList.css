@@ -1112,7 +1112,7 @@
   .classic.slk.slk .slk-head-text { min-width: 0; flex: 1; }
   .classic.slk.slk .slk-head-text h1, .classic.slk.slk .slk-head-text p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .classic.slk.slk .slk-head-text p { font-size: 12px; }
-  .classic.slk.slk .slk-context-button, .classic.slk.slk .slk-members-button, .classic.slk.slk .slk-pins-button, .classic.slk.slk .slk-more { display: none; }
+  .classic.slk.slk .slk-context-button, .classic.slk.slk .slk-members-button, .classic.slk.slk .slk-pins-button, .classic.slk.slk .slk-canvas-button, .classic.slk.slk .slk-more { display: none; }
   .classic.slk.slk .slk-phone-more { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: none; background: none; color: var(--slk-ink); }
 
   /* A phone has no hover: the bar of tools over a message is a long press. */

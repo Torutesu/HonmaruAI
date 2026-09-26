@@ -2103,15 +2103,6 @@ export const ClassicList: React.FC<Props> = ({
             <div className="slk-head-actions">
               <button
                 type="button"
-                className={`slk-head-btn slk-canvas-button${side?.kind === 'canvas' ? ' on' : ''}`}
-                onClick={() => openSide({ kind: 'canvas' })}
-                aria-label={t('Canvas')} title={t('Canvas')} aria-expanded={side?.kind === 'canvas'}
-                data-open-canvas="1"
-              >
-                <Icon name="file" size={15} />
-              </button>
-              <button
-                type="button"
                 className={`slk-head-btn slk-context-button${side?.kind === 'journal' ? ' on' : ''}`}
                 onClick={() => openSide({ kind: 'journal' })}
                 aria-label={t('Context')} title={t('Context')} aria-expanded={side?.kind === 'journal'}
@@ -2155,6 +2146,15 @@ export const ClassicList: React.FC<Props> = ({
               >
                 <Icon name="pin" size={14} />
                 {(messages[thread.view] || []).filter((m) => m.pinned).length > 0 && <span>{(messages[thread.view] || []).filter((m) => m.pinned).length}</span>}
+              </button>
+              <button
+                type="button"
+                className={`slk-head-btn slk-canvas-button${side?.kind === 'canvas' ? ' on' : ''}`}
+                onClick={() => openSide({ kind: 'canvas' })}
+                aria-label={t('Canvas')} title={t('Canvas')} aria-expanded={side?.kind === 'canvas'}
+                data-open-canvas="1"
+              >
+                <Icon name="file" size={15} />
               </button>
               {/* A phone has room for the call and this; the rest is behind it. */}
               <button type="button" className="slk-head-btn slk-phone-more" onClick={() => setConvSheet(true)} aria-label={t('More')} aria-haspopup="dialog">

@@ -2990,6 +2990,7 @@ await step('a channel keeps a canvas: written, a to-do ticked, and a stale edit 
     await w.click('.slk-side .cl-thread[data-view="b:kitchen"] .cl-open')
     await w.click('[data-open-canvas]')
     await w.waitForSelector('[data-canvas="b:kitchen"]', { timeout: 10000 })
+    await w.waitForSelector('[data-canvas-start], [data-canvas-edit]', { timeout: 10000 })
     if (await w.$('[data-canvas-start]')) await w.click('[data-canvas-start]')
     else await w.click('[data-canvas-edit]')
     await w.fill('[data-canvas-text]', '## Closing\n- Lock the back door\n- [ ] Count the till\n- [ ] Switch off the fryer')
