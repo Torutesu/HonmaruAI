@@ -80,3 +80,7 @@ ALTER TABLE sessions ADD COLUMN sso_connection_id TEXT;
 ALTER TABLE sso_states ADD COLUMN connection_id TEXT;
 ALTER TABLE join_requests ADD COLUMN role TEXT;
 ALTER TABLE join_requests ADD COLUMN via TEXT;
+ALTER TABLE sessions ADD COLUMN sso_subject TEXT;
+ALTER TABLE sessions ADD COLUMN sso_sid TEXT;
+ALTER TABLE sessions ADD COLUMN sso_refresh TEXT;
+ALTER TABLE sessions ADD COLUMN sso_checked_at TEXT;

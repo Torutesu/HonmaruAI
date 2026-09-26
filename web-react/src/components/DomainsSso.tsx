@@ -14,6 +14,7 @@ interface Connection {
   sessionHours: number | null; status: 'draft' | 'testing' | 'active' | 'disabled'; testedAt: string | null
   test: { email: string; subject: string; name: string | null } | null
   sp?: { entityId: string; acs: string; metadata: string }
+  logoutUrl?: string
 }
 interface Provider { id: string; name: string; issuer: string | null }
 
@@ -211,6 +212,14 @@ const SsoConnections: React.FC<{ httpBase: string; orgId: string; sessionToken: 
                 <div key={label} className="dlg-secret"><span className="row-sub">{label}</span> <code>{value}</code>
                   <button type="button" className="studio-btn" onClick={() => copy(value)}>{t('Copy')}</button></div>
               ))}
+            </div>
+          )}
+          {c.logoutUrl && (
+            <div className="sso-sp">
+              <p className="row-sub">{t('So signing out there, or being switched off there, ends the session here at once, give your identity provider this back-channel logout address:')}</p>
+              <div className="dlg-secret" data-sso-logout-url><span className="row-sub">{t('Back-channel logout')}</span> <code>{c.logoutUrl}</code>
+                <button type="button" className="studio-btn" onClick={() => copy(c.logoutUrl || '')}>{t('Copy')}</button></div>
+              <p className="row-sub">{t('Where your provider gives a refresh token, it is also asked every 15 minutes whether each person may still sign in.')}</p>
             </div>
           )}
           {canEdit && editing === null && (
