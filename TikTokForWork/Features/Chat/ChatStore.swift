@@ -46,6 +46,19 @@ struct ChatAgentTyping: Hashable {
 @MainActor
 final class ChatStore: ObservableObject {
     @Published private(set) var members: [ChatMember] = []
+    /// What a message needs from the workspace to be drawn: its emoji, the
+    /// API's address, and everyone's photos.
+    var assets: ChatAssets {
+        let me = members.first { $0.mine }
+        var avatars: [String: String] = [:]
+        for m in members { if let a = m.avatarUrl, !a.isEmpty { avatars[m.ref] = a } }
+        return ChatAssets(emoji: emoji, base: baseURL, avatars: avatars, myAvatar: me?.avatarUrl, myName: me?.name)
+    }
+    /// A member's photo, by ref.
+    func avatar(of ref: String?) -> String? {
+        guard let ref else { return nil }
+        return members.first { $0.ref == ref }?.avatarUrl
+    }
     @Published private(set) var businesses: [ChatBusiness] = []
     @Published private(set) var groups: [ChatGroup] = []
     /// This workspace's own emoji, by name. Only this workspace's.

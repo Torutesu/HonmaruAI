@@ -54,6 +54,8 @@ struct ChatThreadSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .sheet(item: $reactingTo) { m in ChatEmojiPicker { e in Task { await store.react(m, e) } } }
         }
+        // Everyone's photos and the workspace's emoji, however the sheet was opened.
+        .environment(\.chatAssets, store.assets)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
@@ -88,7 +90,7 @@ struct ChatProfileSheet: View {
             ScrollView {
                 if let p = profile {
                     VStack(spacing: 14) {
-                        ChatAvatar(name: p.name, size: 96).padding(.top, 20)
+                        ChatAvatar(name: p.name, size: 96, url: store.avatar(of: p.ref)).padding(.top, 20)
                         VStack(spacing: 4) {
                             Text(p.name).font(.title2.weight(.bold))
                             if let h = p.handle { Text(verbatim: "@\(h)").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary) }
@@ -362,7 +364,7 @@ struct ChatNewMessageSheet: View {
                             else if picked.count < 8 { picked.append(m.ref) }
                         } label: {
                             HStack(spacing: 10) {
-                                ChatAvatar(name: m.name, size: 32)
+                                ChatAvatar(name: m.name, size: 32, url: m.avatarUrl)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(m.name).foregroundStyle(Theme.Colors.textPrimary)
                                     if let title = m.title, !title.isEmpty { Text(title).font(.caption).foregroundStyle(Theme.Colors.textSecondary) }

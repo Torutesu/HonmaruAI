@@ -137,7 +137,7 @@ struct ChatHomeView: View {
         }
         // The workspace's own emoji and the API's address, for every message
         // drawn below — sheets included.
-        .environment(\.chatAssets, ChatAssets(emoji: store.emoji, base: store.baseURL))
+        .environment(\.chatAssets, store.assets)
         .task(id: appState.currentUser?.teamID) {
             store.bind(appState)
             await store.refresh()
@@ -204,7 +204,7 @@ struct ChatHomeView: View {
                         .foregroundStyle(Theme.Colors.textSecondary).frame(width: 28, height: 28)
                         .background(Theme.Colors.textTertiary.opacity(0.18), in: RoundedRectangle(cornerRadius: 7))
                 } else {
-                    ChatAvatar(name: c.name, size: 28)
+                    ChatAvatar(name: c.name, size: 28, url: c.member?.avatarUrl)
                         .overlay(alignment: .bottomTrailing) {
                             if ChatDates.parse(c.member?.awayUntil).map({ $0 > Date() }) == true {
                                 Circle().stroke(Theme.Colors.textTertiary, lineWidth: 2).background(Circle().fill(Theme.Colors.surface))

@@ -153,7 +153,7 @@ struct AgentsView: View {
             if let store {
                 ConversationView(view: view, jump: nil, store: store)
                     .environmentObject(appState)
-                    .environment(\.chatAssets, ChatAssets(emoji: store.emoji, base: store.baseURL))
+                    .environment(\.chatAssets, store.assets)
             }
         }
         .task(id: orgId) { await load() }

@@ -50,7 +50,7 @@ struct ChatThreadsView: View {
 
     private func line(_ m: ChatMessage, first: Bool) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            ChatAvatar(name: author(m), isAI: m.isAI, size: first ? 26 : 20)
+            ChatAvatar(name: author(m), isAI: m.isAI, size: first ? 26 : 20, url: store.assets.avatar(of: m))
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: author(m)).font(.footnote.weight(.bold))
                 Text(verbatim: m.body.isEmpty ? "📎" : m.body).font(.subheadline).lineLimit(first ? 4 : 2)

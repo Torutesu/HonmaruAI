@@ -37,7 +37,7 @@ enum WorkspaceMemberService {
                 let result = try JSONDecoder().decode(Response.self, from: data)
                 return result.members.map {
                     WorkspaceMember(id: $0.mine ? (ownID ?? "member:\($0.ref)") : "member:\($0.ref)",
-                                    name: $0.name, role: $0.title ?? $0.role, avatarUrl: nil)
+                                    name: $0.name, role: $0.title ?? $0.role, avatarUrl: $0.avatarUrl)
                 }
             } catch {
                 guard attempt < attempts, isTransient(error) else { throw error }

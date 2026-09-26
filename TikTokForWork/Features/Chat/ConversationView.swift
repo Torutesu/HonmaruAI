@@ -164,7 +164,7 @@ struct ConversationView: View {
                     Text("Only you see this conversation. Just write — \(c.name) reads what you say here and answers right below.")
                         .font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
                 } else {
-                    ChatAvatar(name: c.name, size: 48)
+                    ChatAvatar(name: c.name, size: 48, url: c.member?.avatarUrl)
                     Text(c.name).font(.title3.weight(.bold))
                     Text("Just the two of you. Write @AI and your AI makes what you said a decision for \(c.name).")
                         .font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
