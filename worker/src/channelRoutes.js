@@ -1,5 +1,6 @@
 import { checkOutgoing } from "./dlp.js";
 import { attachedTexts } from "./dlpFiles.js";
+import { linksIn, readLinks, linksBlock } from "./links.js";
 import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText } from "./dailyReport.js";
 import { providerFor } from "./orgAI.js";
@@ -304,6 +305,17 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
       console.error("agent research failed", safe(err?.message));
     }
   }
+  // Links in the message, or else in what was said just before it: a
+  // video, a post or a page the agent is asked about is opened and read.
+  let links = "";
+  if (provider && allowance?.allowed) {
+    try {
+      const urls = linksIn(row.body).length ? linksIn(row.body) : linksIn(transcript.slice(-6).join("\n"));
+      if (urls.length) links = linksBlock(await readLinks(urls, { language: locale }));
+    } catch (err) {
+      console.error("agent links failed", safe(err?.message));
+    }
+  }
   const where = resolved.kind === "business" ? `#${resolved.slug}` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
   let answered = 0;
   for (const agent of agents) {
@@ -314,7 +326,7 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
       else if (!allowance.allowed) text = serverText(locale, "agent.quota");
       else {
         const result = await askAgent({
-          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research,
+          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links,
           askedBy: user.name || "a teammate", readerLanguage: locale,
         });
         if (result.called && allowance.metered) await allowance.consume();

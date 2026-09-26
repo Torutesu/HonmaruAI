@@ -265,3 +265,22 @@ test("a Responses reply reads as text and sources; Markdown becomes the chat's o
   expect(readResponse(null)).toEqual({ text: "", sources: [] });
   expect(forChat("### Plan\n**Key** point, __also__ [Docs](https://d.example/x)")).toBe("*Plan*\n*Key* point, *also* Docs https://d.example/x");
 });
+
+test("a link shared with an agent is opened and read: the post on X is in what the agent sees", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  fetchMock.get("https://api.fxtwitter.com").intercept({ path: "/cafe/status/123", method: "GET" }).reply(200, {
+    code: 200, tweet: { text: "Our pumpkin latte is back Oct 1", author: { name: "Cafe", screen_name: "cafe" }, likes: 42 },
+  });
+  let asked;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    asked = JSON.parse(opts.body);
+    return { output_text: "They bring the pumpkin latte back on Oct 1.", output: [] };
+  });
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "これ要約して https://x.com/cafe/status/123?s=20" }, { OPENAI_API_KEY: "sk-test" });
+  expect(asked.input).toContain("<shared_links>");
+  expect(asked.input).toContain("Post on X: https://x.com/cafe/status/123?s=20");
+  expect(asked.input).toContain("Our pumpkin latte is back Oct 1");
+  expect(asked.instructions).toContain("Never say you cannot open links");
+  const { messages } = await (await get(`/channels/messages?${q({ orgId: ORG, channel: `ag:${made.agent.id}` })}`, mika)).json();
+  expect(messages[1].body).toBe("They bring the pumpkin latte back on Oct 1.");
+});
