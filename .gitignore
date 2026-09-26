@@ -26,4 +26,6 @@ server/data/
 worker/.wrangler/
 worker/seed-dev.sql
 worker/test-join.mjs
-node_modules/
+# node_modules as a directory or as a link to one (a git worktree shares the
+# main checkout's): never committed either way.
+node_modules

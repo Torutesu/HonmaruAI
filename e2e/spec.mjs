@@ -2770,14 +2770,17 @@ await step('a star, a section of your own, and a user group one mention reaches'
     await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
     await desk.waitForSelector('.slk-side .cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
     await desk.click('.slk-side .cl-thread[data-view="b:kitchen"] .cl-open')
-    await desk.click('[data-star]')
+    // The sidebar moves at once and is saved behind it; each save is waited
+    // for, so the reload below reads what the server kept, not a race.
+    const saved = (want) => desk.waitForResponse((r) => r.url().includes('/channels/sidebar') && r.request().method() === 'PUT' && (r.request().postData() || '').includes(want), { timeout: 10000 })
+    await Promise.all([saved('b:kitchen'), desk.click('[data-star]')])
     await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Starred")) .cl-thread[data-view="b:kitchen"]', { timeout: 10000 })
       .catch(() => { throw new Error('a starred channel is not under Starred') })
     await desk.click('.slk-side .cl-thread[data-view="b:front-desk"] .cl-open')
     await desk.click('[data-move]')
     await desk.click('[data-new-section]')
     await desk.fill('[data-section-name]', 'Shop floor')
-    await desk.click('[data-section-create]')
+    await Promise.all([saved('Shop floor'), desk.click('[data-section-create]')])
     await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Shop floor")) .cl-thread[data-view="b:front-desk"]', { timeout: 10000 })
       .catch(() => { throw new Error('the channel is not in the new section') })
     // Kept on the server: a reload keeps it.
@@ -3050,6 +3053,36 @@ await step('the owner sets how long a sign-in lasts here, and the rules are save
     await w.evaluate(async (host) => {
       await fetch(`${host}/orgs/session-policy`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ orgId: localStorage.getItem('orgId') }) })
     }, API)
+  } finally {
+    await ctx.close()
+  }
+})
+
+await step('an owner makes a workspace key; the admin API reads the team with it; Domains & SSO opens', async () => {
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/tools/api`, { waitUntil: 'load' })
+    await w.waitForSelector('[data-make-org-key]', { timeout: 20000 })
+      .catch(async () => { throw new Error(`no way to make a workspace key: ${await w.textContent('[data-studio-page="api"]').catch(() => '')}`) })
+    await w.click('[data-make-org-key]')
+    await w.fill('[data-org-key-name]', 'HR sync')
+    await w.click('.org-key-form button[type="submit"]')
+    const key = (await (await w.waitForSelector('[data-org-key-minted] code', { timeout: 10000 })).textContent() || '').trim()
+    if (!/^hmo_[0-9a-f]{64}$/.test(key)) throw new Error(`the key shown is not a workspace key: ${key.slice(0, 12)}`)
+    await w.screenshot({ path: `${SHOTS}/71-workspace-key.png` })
+    const people = await w.evaluate(async ({ host, key }) => {
+      const r = await fetch(`${host}/admin/v1/members`, { headers: { authorization: `Bearer ${key}` } })
+      return { status: r.status, body: await r.json() }
+    }, { host: API, key })
+    if (people.status !== 200 || !people.body.data?.length) throw new Error(`the admin API did not list the team: ${JSON.stringify(people).slice(0, 200)}`)
+    if (!people.body.data.every((m) => m.ref && m.role)) throw new Error('a member came back without a ref or a role')
+    // Only the hash changes, and the Studio reads its page on load.
+    await w.goto(`${WEB}#/tools/sso`, { waitUntil: 'load' })
+    await w.reload({ waitUntil: 'load' })
+    await w.waitForSelector('[data-studio-page="sso"] [data-add-domain]', { timeout: 20000 })
+      .catch(async () => { throw new Error(`Domains & SSO did not open for the owner: ${await w.textContent('[data-studio-page="sso"]').catch(() => '')}`) })
+    await w.screenshot({ path: `${SHOTS}/72-domains-sso.png` })
   } finally {
     await ctx.close()
   }

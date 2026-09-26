@@ -196,6 +196,39 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restoring])
+  // Back from the company's identity provider: #/sso/done?code=… is a
+  // one-time code, traded here for the session (the token itself never
+  // rides in a URL); #/sso/done?error=… says why it did not work.
+  useEffect(() => {
+    const hash = location.hash
+    if (!hash.startsWith('#/sso/done')) return
+    const q = new URLSearchParams(hash.split('?')[1] || '')
+    try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ }
+    if (q.get('error')) { setGithubError(q.get('error')); setStage('welcome'); return }
+    const code = q.get('code')
+    if (!code) return
+    const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+    fetch(`${base}/sso/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client: 'web' }) })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok || !data.token) { setGithubError(data.message || t('That sign-in did not finish. Try again.')); return }
+        await finishAuthRef.current?.(data.token, data.login || data.userId, data.orgId || '', false)
+      })
+      .catch(() => setGithubError(t('Could not reach the relay.')))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // A workspace that requires its single sign-on, or an SSO sign-in past its
+  // hours: straight to the provider, and back into the same workspace.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const { start } = (e as CustomEvent<{ start?: string }>).detail || {}
+      if (!start) return
+      const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+      window.location.href = `${base}${start}&client=web`
+    }
+    window.addEventListener('honmaru:sso-required', on)
+    return () => window.removeEventListener('honmaru:sso-required', on)
+  }, [])
   useEffect(() => {
     if (!notice) return
     const id = setTimeout(() => setNotice(null), notice.error ? 8000 : 4000)

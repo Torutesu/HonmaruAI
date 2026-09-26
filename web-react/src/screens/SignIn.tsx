@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 
 export interface InvitePeek { team: string | null; inviter: string | null; role: string }
@@ -33,6 +33,8 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, inv
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  // The company's single sign-on, when this address's domain has one.
+  const [sso, setSso] = useState<{ orgId: string; providerName: string; name: string; enforced: boolean } | null>(null)
 
   const post = async (path: string, body: unknown) => {
     const res = await fetch(`${httpBase}${path}`, {
@@ -83,7 +85,26 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, inv
   }
 
   const emailLooksReal = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())
-  const canSubmit = emailLooksReal && (!usePassword || password.length >= 8) && !busy
+  const canSubmit = emailLooksReal && (!usePassword || password.length >= 8) && !busy && !sso?.enforced
+
+  // Whether the address's company signs in through its identity provider.
+  useEffect(() => {
+    setSso(null)
+    if (!emailLooksReal) return
+    let ignore = false
+    const id = setTimeout(() => {
+      post('/auth/discover', { email: email.trim() })
+        .then(({ res, data }) => { if (!ignore && res.ok) setSso(data.sso || null) })
+        .catch(() => { /* nothing to offer */ })
+    }, 400)
+    return () => { ignore = true; clearTimeout(id) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email, emailLooksReal])
+  const continueWithSso = () => {
+    if (!sso) return
+    const q = new URLSearchParams({ orgId: sso.orgId, client: 'web', email: email.trim() })
+    window.location.href = `${httpBase}/sso/start?${q.toString()}`
+  }
 
   return (
     <div className="screen">
@@ -149,9 +170,19 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, inv
           {note && <div className="form-note">{note}</div>}
           {error && <div className="form-error">{error}</div>}
 
-          <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
+          {sso && (
+            <>
+              <button type="button" className="btn btn-primary" data-sso-continue onClick={continueWithSso}>
+                {t('Continue with {provider}', { provider: sso.providerName })}
+              </button>
+              <div className="hint">{sso.enforced
+                ? t('{team} signs in only with {provider}.', { team: sso.name, provider: sso.providerName })
+                : t('{team} uses {provider} for sign-in.', { team: sso.name, provider: sso.providerName })}</div>
+            </>
+          )}
+          {!sso?.enforced && <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
             {busy ? t('One moment…') : usePassword ? (mode === 'signup' ? t('Create account') : t('Sign in')) : t('Email me a code')}
-          </button>
+          </button>}
         </form>
 
         <button className="btn btn-quiet" onClick={() => { setError(null); setUsePassword(!usePassword) }}>

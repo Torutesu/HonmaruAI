@@ -281,6 +281,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (code === 'not-a-member' || code === 'sign-in-required') onLeft()
       // This workspace's login rules have ended the sign-in: out, with why.
       if (code === 'session-policy') window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId } }))
+      if (code === 'sso-required' || code === 'sso-reauth') window.dispatchEvent(new CustomEvent('honmaru:sso-required', { detail: { orgId, start: `/sso/start?orgId=${encodeURIComponent(orgId)}` } }))
     }
     wsClient.onToolCallResult = (toolCallId) => { if (!ignore) addDebugLog(`Tool result: ${toolCallId}`) }
     wsClient.onConnectionChange = (connected) => {

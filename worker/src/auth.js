@@ -182,7 +182,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
     .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3 WHERE github_id = ?4")
     .bind(normalizedEmail, hash, salt, userId)
     .run();
-  await upsertMembership(env.DB, org, userId, joinRole);
+  await upsertMembership(env.DB, org, userId, joinRole, joinedBy ? "invite" : "created");
   // Joined by an invitation that names channels: introduced there.
   if (joinedBy?.channels) {
     const { introduce } = await import("./welcome.js");
@@ -401,7 +401,7 @@ export async function acceptInvite(env, { code, userId }) {
     if (!(await spendInvite(env.DB, code.trim()))) {
       return { error: "That invitation is not valid, or it has expired." };
     }
-    await upsertMembership(env.DB, row.org_id, userId, keep);
+    await upsertMembership(env.DB, row.org_id, userId, keep, "invite");
     // Somebody new: said in the channels the invite named.
     if (!existing && row.channels) {
       const { introduce } = await import("./welcome.js");
