@@ -155,7 +155,7 @@ export async function getSession(db, token) {
   if (!token) return null;
   const row = await db
     .prepare(
-      "SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, reauth_at, auth_method, longest_idle_ms, sso_org_id FROM sessions WHERE token = ?1"
+      "SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, reauth_at, auth_method, longest_idle_ms, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1"
     )
     .bind(token)
     .first();

@@ -11,6 +11,8 @@ import Foundation
 enum SSOService {
     struct Offer: Equatable {
         let orgId: String
+        /// Which of the workspace's identity providers covers this address.
+        var connectionId: String? = nil
         let providerName: String
         let workspaceName: String
         let enforced: Bool
@@ -53,6 +55,7 @@ enum SSOService {
               let orgId = sso["orgId"] as? String else { return nil }
         return Offer(
             orgId: orgId,
+            connectionId: sso["connectionId"] as? String,
             providerName: sso["providerName"] as? String ?? "SSO",
             workspaceName: sso["name"] as? String ?? "",
             enforced: sso["enforced"] as? Bool ?? false
@@ -68,13 +71,13 @@ enum SSOService {
     }
 
     /// The provider's page in a browser sheet, then the session.
-    static func signIn(orgId: String, email: String) async throws -> EmailAuthService.Session {
+    static func signIn(orgId: String, email: String, connectionId: String? = nil) async throws -> EmailAuthService.Session {
         guard let base, var components = URLComponents(url: base.appendingPathComponent("sso/start"), resolvingAgainstBaseURL: false) else { throw Failure.unreachable }
         components.queryItems = [
             URLQueryItem(name: "orgId", value: orgId),
             URLQueryItem(name: "client", value: "ios"),
             URLQueryItem(name: "email", value: EmailAuthService.normalizedEmail(email)),
-        ]
+        ] + (connectionId.map { [URLQueryItem(name: "connection", value: $0)] } ?? [])
         guard let start = components.url else { throw Failure.unreachable }
         let callback: URL = try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(url: start, callbackURLScheme: "tiktokforwork") { url, error in

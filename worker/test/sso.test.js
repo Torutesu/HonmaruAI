@@ -50,7 +50,7 @@ async function signIn(who, { client = "web", mutate = (c) => c } = {}) {
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_domains; DELETE FROM org_sso; DELETE FROM sso_identities; DELETE FROM sso_states; DELETE FROM sso_handoffs;");
+  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_domains; DELETE FROM org_sso; DELETE FROM sso_connections; DELETE FROM org_sso_policy; DELETE FROM sso_identities; DELETE FROM sso_states; DELETE FROM sso_handoffs;");
   forgetProviderDocs();
   forgetPolicies();
   keyPair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
@@ -100,7 +100,7 @@ test("set up, tested by the owner, then turned on; the secret never comes back o
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM sso_handoffs").first()).n).toBe(0);
 });
 
-const activate = () => env.DB.prepare("UPDATE org_sso SET status = 'active', tested_at = ?2 WHERE org_id = ?1").bind(ORG, new Date().toISOString()).run();
+const activate = () => env.DB.prepare("UPDATE sso_connections SET status = 'active', tested_at = ?2 WHERE org_id = ?1").bind(ORG, new Date().toISOString()).run();
 
 test("the round trip: a new person is made, joins by SSO, and trades a one-time code for a session", async () => {
   await activate();
