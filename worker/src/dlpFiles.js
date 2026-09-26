@@ -1,12 +1,15 @@
 // What an attached file says, as text, for the workspace's data rules
 // (dlp.js): plain text of any kind, and the words inside Word, Excel and
-// PowerPoint files (Office Open XML, which is a ZIP of XML). Pictures, PDFs
-// and anything else are not read. Nothing extracted here is kept: it is read
+// PowerPoint files (Office Open XML, which is a ZIP of XML), and the words
+// in a PDF (pdfText.js). Pictures, scanned pages and anything else are not
+// read. Nothing extracted here is kept: it is read
 // against the rules and dropped.
 //
 // A ZIP is a promise about sizes that a file can break; every entry is read
 // with a cap on what it inflates to, and the whole file with a cap on the
 // total, so a small file cannot become a large one here.
+
+import { pdfText } from "./pdfText.js";
 
 const TEXT_TYPES = /^(text\/|application\/(json|xml|x-yaml|yaml|csv|x-ndjson|javascript|x-sh|sql))/;
 const TEXT_NAMES = /\.(txt|md|markdown|csv|tsv|json|ndjson|xml|ya?ml|log|ini|conf|env|sql|sh|py|js|ts|tsx|jsx|rb|go|java|kt|swift|c|h|cpp|cs|php|html?|css)$/i;
@@ -27,6 +30,7 @@ const MAX_TEXT_OUT = 1024 * 1024;
 export function readerFor(type, name) {
   const ext = String(name || "").split(".").pop().toLowerCase();
   if (OOXML[type]) return OOXML[type];
+  if (type === "application/pdf" || (ext === "pdf" && (type === "application/octet-stream" || !type))) return "pdf";
   if (OOXML_NAMES[ext] && (type === "application/octet-stream" || type === "application/zip" || !type)) return OOXML_NAMES[ext];
   if (TEXT_TYPES.test(type || "") || TEXT_NAMES.test(name || "")) return "text";
   return null;
@@ -108,6 +112,9 @@ export async function fileText(bytes, { type, name }) {
     return new TextDecoder().decode(bytes);
   }
   if (bytes.byteLength > MAX_OFFICE_FILE) return null;
+  if (how === "pdf") {
+    try { return (await pdfText(bytes)) || null; } catch { return null; }
+  }
   try {
     const entries = await zipEntries(bytes, how);
     return entries.map((e) => textOfXml(e.text)).join("\n").slice(0, MAX_TEXT_OUT);
