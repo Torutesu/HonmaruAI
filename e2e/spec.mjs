@@ -3274,6 +3274,9 @@ await step('removing someone takes them out of the room, not just the table', as
   // retrying, which nothing on this side had ever read.
   if (!joiner) throw new Error('no teammate to remove')
   const was = await joiner.evaluate(() => localStorage.getItem('orgId'))
+  // The Studio steps before this read the team list many times for this
+  // owner; the list read here must not find that window already spent.
+  try { d1('DELETE FROM rate_limits') } catch { /* the wait below says so if it matters */ }
 
   await closeEverything()
   await page.click('nav [data-tab="you"]')
