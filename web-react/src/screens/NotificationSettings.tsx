@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { enableWebPush, disableWebPush, pushSupport, currentSubscription } from '../utils/push'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
+import { setQuietState, DEFAULT_SCHEDULE, tomorrowAt, type NotifySchedule } from '../utils/quiet'
 import { playSound, loadSoundSettings, saveSoundSettings, type SoundKind, type SoundSettings } from '../utils/sound'
 
 interface Props {
@@ -15,6 +16,8 @@ interface Me {
   emailEditable: boolean
   notifyEmail: boolean
   pushWhileActive?: boolean
+  notifyPausedUntil?: string | null
+  notifySchedule?: NotifySchedule
   locale: string
 }
 
@@ -65,6 +68,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
     const data = await res.json().catch(() => ({}))
     if (!res.ok) { setError(data.message || t('That did not save.')); return false }
     setMe((prev) => (prev ? { ...prev, ...data } : prev))
+    if ('notifyPausedUntil' in data || 'notifySchedule' in data) setQuietState({ pausedUntil: data.notifyPausedUntil ?? null, schedule: data.notifySchedule ?? null })
     return true
   }
 
@@ -122,6 +126,8 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
             />
           </div>
         </div>
+
+        <QuietRows me={me} patch={patch} />
 
         <SoundRows />
 
@@ -214,6 +220,70 @@ const SoundRows: React.FC = () => {
             <button className="switch" role="switch" aria-checked={Boolean(s[k.key])} aria-label={k.label} onClick={() => set({ [k.key]: !s[k.key] } as Partial<SoundSettings>)} />
           </div>
         ))}
+      </div>
+    </>
+  )
+}
+
+/// Pause notifications for a while, and the hours they may come at all.
+/// While paused or outside the hours, nothing reaches your phone, browser or
+/// inbox; it all waits in Activity.
+const QuietRows: React.FC<{ me: Me | null; patch: (body: Record<string, unknown>) => Promise<boolean> }> = ({ me, patch }) => {
+  const t = useT()
+  const locale = typeof navigator !== 'undefined' ? navigator.language : 'en'
+  const paused = me?.notifyPausedUntil && Date.parse(me.notifyPausedUntil) > Date.now() ? me.notifyPausedUntil : null
+  const schedule = me?.notifySchedule || DEFAULT_SCHEDULE
+  const setSchedule = (next: Partial<NotifySchedule>) => void patch({ notifySchedule: { ...schedule, ...next } })
+  const DAYS = [1, 2, 3, 4, 5, 6, 0]
+  const dayName = (d: number) => new Date(2026, 8, 20 + d).toLocaleDateString(locale, { weekday: 'short' })
+  return (
+    <>
+      <div className="rows-title">{t('Pause notifications')}</div>
+      <div className="rows">
+        <div className="row static quiet-row">
+          <span className="row-icon"><Icon name="bell-off" size={18} /></span>
+          <span className="row-main">
+            {paused ? t('Paused until {when}', { when: new Date(paused).toLocaleString(locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) }) : t('Notifications are on')}
+            <span className="row-sub">{t('While paused, nothing reaches your phone, browser or inbox. It all waits in Activity.')}</span>
+            <span className="quiet-choices">
+              {paused
+                ? <button type="button" className="pill-btn" disabled={!me} onClick={() => void patch({ pausedUntil: null })} data-resume-settings="1">{t('Resume now')}</button>
+                : ([[30, t('30 minutes')], [60, t('1 hour')], [120, t('2 hours')]] as Array<[number, string]>).map(([m, label]) => (
+                  <button key={m} type="button" className="quiet-choice" disabled={!me} onClick={() => void patch({ pauseMinutes: m })} data-pause={m}>{label}</button>
+                ))}
+              {!paused && <button type="button" className="quiet-choice" disabled={!me} onClick={() => void patch({ pausedUntil: tomorrowAt(9) })} data-pause="tomorrow">{t('Until tomorrow 9:00')}</button>}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <div className="rows-title">{t('Notification hours')}</div>
+      <div className="rows">
+        <div className="row static">
+          <span className="row-icon"><Icon name="clock" size={18} /></span>
+          <span className="row-main">
+            {t('Only notify me during these hours')}
+            <span className="row-sub">{t('In your own time zone. Outside them it is quiet, as if paused.')}</span>
+          </span>
+          <button className="switch" role="switch" aria-checked={schedule.enabled} aria-label={t('Only notify me during these hours')} disabled={!me} onClick={() => setSchedule({ enabled: !schedule.enabled })} data-schedule="1" />
+        </div>
+        {schedule.enabled && (
+          <div className="row static quiet-hours">
+            <span className="quiet-days" role="group" aria-label={t('Days')}>
+              {DAYS.map((d) => (
+                <button key={d} type="button" className={`quiet-day${schedule.days.includes(d) ? ' on' : ''}`} aria-pressed={schedule.days.includes(d)}
+                  onClick={() => setSchedule({ days: schedule.days.includes(d) ? schedule.days.filter((x) => x !== d) : [...schedule.days, d] })}>
+                  {dayName(d)}
+                </button>
+              ))}
+            </span>
+            <span className="quiet-times">
+              <input type="time" value={schedule.from} aria-label={t('From')} onChange={(e) => e.target.value && setSchedule({ from: e.target.value })} data-schedule-from="1" />
+              <span>–</span>
+              <input type="time" value={schedule.to} aria-label={t('To')} onChange={(e) => e.target.value && setSchedule({ to: e.target.value })} data-schedule-to="1" />
+            </span>
+          </div>
+        )}
       </div>
     </>
   )

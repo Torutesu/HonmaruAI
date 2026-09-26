@@ -21,6 +21,8 @@
 // Settings are per device (a laptop and a phone on one desk should not both
 // knock), in localStorage.
 
+import { isQuiet } from './quiet'
+
 export type SoundKind = 'mention' | 'message' | 'inConversation' | 'sent' | 'decision' | 'jamJoin' | 'jamLeave' | 'ring'
 
 export interface SoundSettings {
@@ -166,6 +168,9 @@ export function playSound(kind: SoundKind, { preview = false }: { preview?: bool
   const settings = loadSoundSettings()
   if (!preview) {
     if (!allowedBy(settings, kind)) return false
+    // Notifications paused, or outside the person's hours: no sound either,
+    // except for what they did themselves (sent, joined, left).
+    if (isQuiet() && !PERSONAL.includes(kind)) return false
     if (!leader && !PERSONAL.includes(kind)) return false
     const now = Date.now()
     if (!PERSONAL.includes(kind)) {

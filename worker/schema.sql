@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS users (
   notify_email  INTEGER NOT NULL DEFAULT 1,
   /* 1: push the phone even while at the app on another device. */
   push_while_active INTEGER NOT NULL DEFAULT 0,
+  /* Notifications paused until then ("Pause notifications"). */
+  notify_paused_until TEXT,
+  /* The hours notifications may come, as JSON (quiet.js): days, from, to,
+     in the person's own timezone. */
+  notify_schedule TEXT,
   /* The secret half of the inbound email address, u-<token>@domain. A GitHub
      id is public and sequential, so u-<github id>@domain is an address anyone
      can guess — and a guessed address is a way to spend someone's AI allowance

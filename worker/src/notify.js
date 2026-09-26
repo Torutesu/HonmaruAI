@@ -16,6 +16,7 @@
 // that a notification that fails is a notification nobody got, not a decision
 // nobody made.
 
+import { quietFor } from "./quiet.js";
 import {
   devicesForLogin, removeDevice, subscriptionsForLogin, removeSubscription, getUserByLogin,
 } from "./db.js";
@@ -79,6 +80,11 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
   // At the app right now, on some device: they see it land there, and hear
   // it. The phone (and the inbox) stay quiet, as in Slack.
   if (kind !== "digest" && await isActive(env.DB, recipient)) return { sent: 0, skipped: "active", channels };
+  // Paused, or outside the hours they set: it waits in the feed and Activity.
+  if (kind !== "digest") {
+    const quiet = await quietFor(env.DB, recipient);
+    if (quiet) return { sent: 0, skipped: `quiet:${quiet.reason}`, channels };
+  }
 
   const user = await getUserByLogin(env.DB, recipient);
   const locale = await loadCopy(env, user?.locale || "en", { orgId });

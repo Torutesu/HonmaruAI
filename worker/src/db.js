@@ -283,7 +283,7 @@ export async function getUserByGithubId(db, githubId) {
   return (
     (await db
       .prepare(
-        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, push_while_active, aliases, handle FROM users WHERE github_id = ?1"
+        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, push_while_active, notify_paused_until, notify_schedule, aliases, handle FROM users WHERE github_id = ?1"
       )
       .bind(String(githubId))
       .first()) || null
