@@ -264,6 +264,15 @@ test("the words in a PDF are read: plain fonts, fonts with a ToUnicode map, form
   ]);
   expect(await pdfText(objstm)).toContain("Bluebird launch plan");
 
+  // Stray delimiters by the hundred thousand are skipped, not recursed into.
+  const stray = await pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+    { stream: ")".repeat(200_000) + " BT (after the noise) Tj ET", flate: true },
+  ]);
+  expect(await pdfText(stray)).toContain("after the noise");
+
   // Encrypted: not read. Not a PDF: not read.
   const locked = await pdf(["<< /Type /Catalog >>", "<< /Filter /Standard /V 2 >>"], { trailer: "/Encrypt 2 0 R" });
   expect(await pdfText(locked)).toBe(null);

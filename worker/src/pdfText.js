@@ -88,6 +88,14 @@ class Lexer {
 
   /// The next token: { t: "num"|"name"|"str"|"kw"|"<<"|">>"|"["|"]"|"{"|"}"|"eof", v }.
   next() {
+    for (;;) {
+      const tok = this.one();
+      if (tok) return tok;
+    }
+  }
+
+  /// One token, or null for a stray character skipped.
+  one() {
     this.skip();
     const s = this.src;
     if (this.pos >= s.length) return { t: "eof" };
@@ -97,13 +105,13 @@ class Lexer {
     if (c === "[" || c === "]" || c === "{" || c === "}") { this.pos++; return { t: c }; }
     if (c === "(") return { t: "str", v: this.literal() };
     if (c === "<") { const h = this.hex(); return { t: "str", v: h.str, hex: h.hex }; }
-    if (c === ">" || c === ")") { this.pos++; return this.next(); }
+    if (c === ">" || c === ")") { this.pos++; return null; }
     if (c === "/") {
       this.pos++;
       return { t: "name", v: this.regular().replace(/#([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16))) };
     }
     const word = this.regular();
-    if (!word) { this.pos++; return this.next(); }
+    if (!word) { this.pos++; return null; }
     if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(word)) return { t: "num", v: Number(word) };
     return { t: "kw", v: word };
   }
