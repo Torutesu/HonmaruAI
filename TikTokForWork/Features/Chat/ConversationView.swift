@@ -124,17 +124,7 @@ struct ConversationView: View {
         .sheet(item: $openCard) { CardDetailSheet(card: $0).environmentObject(appState) }
         .sheet(isPresented: $customTime) { customTimeSheet }
         .sheet(item: $forwarding) { m in ChatForwardSheet(store: store, message: m) }
-        .alert("Send this?", isPresented: Binding(get: { store.dataWarning != nil }, set: { if !$0 { store.dataWarning = nil } }), presenting: store.dataWarning) { w in
-            Button("Send anyway") { Task { if await store.sendAnyway(w) { draft = "" } } }
-            Button("Go back and edit", role: .cancel) { store.dataWarning = nil }
-        } message: { w in
-            Text("It looks like it contains \(w.rules.map { NSLocalizedString($0, comment: "") }.joined(separator: ", ")). Your workspace asks you to check before sending that here.")
-        }
-        .alert("Can't send this", isPresented: Binding(get: { store.dataBlocked != nil }, set: { if !$0 { store.dataBlocked = nil } })) {
-            Button("OK", role: .cancel) { store.dataBlocked = nil }
-        } message: {
-            Text(store.dataBlocked ?? "")
-        }
+        .modifier(DataRuleAlerts(store: store) { draft = "" })
         .alert("New section", isPresented: $askingSectionName) {
             TextField("Section name", text: $newSectionName)
             Button("Create") {
@@ -637,5 +627,39 @@ enum ChatTimes {
         if unit.hasPrefix("h") { return (.now.addingTimeInterval(Double(n) * 3600), text) }
         if unit.hasPrefix("m") { return (.now.addingTimeInterval(Double(n) * 60), text) }
         return nil
+    }
+}
+
+/// What the workspace's data rules say about a message: a warning the person
+/// may send through, or a block. Its own modifier, so the conversation's body
+/// stays small enough to type-check.
+private struct DataRuleAlerts: ViewModifier {
+    @ObservedObject var store: ChatStore
+    let onSent: () -> Void
+
+    private var warning: Binding<Bool> {
+        Binding(get: { store.dataWarning != nil }, set: { if !$0 { store.dataWarning = nil } })
+    }
+    private var blocked: Binding<Bool> {
+        Binding(get: { store.dataBlocked != nil }, set: { if !$0 { store.dataBlocked = nil } })
+    }
+    private static func names(_ rules: [String]) -> String {
+        rules.map { NSLocalizedString($0, comment: "") }.joined(separator: ", ")
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Send this?", isPresented: warning, presenting: store.dataWarning) { (w: ChatStore.DataRuleWarning) in
+                Button("Send anyway") { Task { if await store.sendAnyway(w) { onSent() } } }
+                Button("Go back and edit", role: .cancel) { store.dataWarning = nil }
+            } message: { (w: ChatStore.DataRuleWarning) in
+                let what: String = Self.names(w.rules)
+                Text("It looks like it contains \(what). Your workspace asks you to check before sending that here.")
+            }
+            .alert("Can't send this", isPresented: blocked) {
+                Button("OK", role: .cancel) { store.dataBlocked = nil }
+            } message: {
+                Text(store.dataBlocked ?? "")
+            }
     }
 }
