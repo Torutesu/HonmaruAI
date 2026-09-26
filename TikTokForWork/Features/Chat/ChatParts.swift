@@ -54,17 +54,30 @@ struct ChatRichText: View {
     }
 }
 
-/// Initials in a rounded square, as a chat client draws a person. An agent
-/// the team wrote is its emoji on a tile.
+/// A person as a chat client draws them: their photo when they have one,
+/// otherwise their initial in a rounded square. An agent the team wrote is
+/// its emoji on a tile.
 struct ChatAvatar: View {
     let name: String
     var isAI = false
     var size: CGFloat = 36
     /// Set for one of the team's agents: the face it was given.
     var agentEmoji: String? = nil
+    /// Their photo, when they have one.
+    var url: String? = nil
     var body: some View {
         Group {
-            if let agentEmoji {
+            if agentEmoji == nil, !isAI, let raw = url, let photo = URL(string: raw) {
+                AsyncImage(url: photo) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        initial
+                    }
+                }
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+            } else if let agentEmoji {
                 Text(agentEmoji).font(.system(size: size * 0.55))
                     .frame(width: size, height: size)
                     .background(Theme.Colors.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
@@ -75,12 +88,16 @@ struct ChatAvatar: View {
                     .frame(width: size, height: size)
                     .background(LinearGradient(colors: [Color(hex: 0x7D5BE7), Color(hex: 0xFA24CE), Color(hex: 0x0091FF)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
             } else {
-                Text(String(name.prefix(1)).uppercased()).font(.system(size: size * 0.42, weight: .bold))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .frame(width: size, height: size)
-                    .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+                initial
             }
         }.accessibilityHidden(true)
+    }
+
+    private var initial: some View {
+        Text(String(name.prefix(1)).uppercased()).font(.system(size: size * 0.42, weight: .bold))
+            .foregroundStyle(Theme.Colors.textPrimary)
+            .frame(width: size, height: size)
+            .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
     }
 }
 
@@ -89,6 +106,16 @@ struct ChatAvatar: View {
 struct ChatAssets {
     var emoji: [ChatEmoji] = []
     var base: URL?
+    /// Each member's photo, by ref; and yours.
+    var avatars: [String: String] = [:]
+    var myAvatar: String?
+    var myName: String?
+    /// The photo to draw for a message's author.
+    func avatar(of message: ChatMessage) -> String? {
+        if let a = message.authorAvatar, !a.isEmpty { return a }
+        if message.mine { return myAvatar }
+        return message.authorRef.flatMap { avatars[$0] }
+    }
     func emojiURL(_ text: String) -> URL? {
         guard text.hasPrefix(":"), text.hasSuffix(":"), text.count > 2 else { return nil }
         let name = String(text.dropFirst().dropLast())
@@ -330,7 +357,7 @@ struct ChatMessageRow: View {
                 Color.clear.frame(width: 36, height: 1)
             } else {
                 Button { if let ref = message.authorRef, !message.mine { onProfile(ref) } } label: {
-                    ChatAvatar(name: author, isAI: message.isAI, agentEmoji: message.isAgent ? (message.agent?.glyph ?? "🤖") : nil)
+                    ChatAvatar(name: message.mine ? assets.myName ?? author : author, isAI: message.isAI, agentEmoji: message.isAgent ? (message.agent?.glyph ?? "🤖") : nil, url: assets.avatar(of: message))
                 }.buttonStyle(.plain).disabled(message.authorRef == nil || message.mine)
             }
             VStack(alignment: .leading, spacing: 4) {
@@ -380,7 +407,7 @@ struct ChatMessageRow: View {
                         HStack(spacing: 6) {
                             HStack(spacing: -6) {
                                 ForEach(Array((message.replyRefs ?? []).prefix(3)), id: \.self) { ref in
-                                    ChatAvatar(name: nameOf(ref), size: 20)
+                                    ChatAvatar(name: nameOf(ref), size: 20, url: assets.avatars[ref])
                                 }
                             }
                             Text(n == 1 ? String(localized: "1 reply") : String(localized: "\(n) replies"))

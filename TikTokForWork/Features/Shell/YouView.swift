@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -15,6 +16,9 @@ struct YouView: View {
     @State private var confirmReset = false
     @State private var editingIdentity = false
     @State private var showDailyReport = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var uploadingPhoto = false
+    @State private var photoError: String?
 
     var body: some View {
         NavigationStack {
@@ -99,6 +103,7 @@ struct YouView: View {
                 Button("Cancel", role: .cancel) {}
             } message: { Text("This replaces your demo changes with the original samples. Your real workspace is unaffected.") }
         }.tint(Theme.Colors.textPrimary)
+        .modifier(PhotoUpload(item: $photoItem, error: $photoError) { item in await uploadPhoto(item) })
     }
 
     private func statusLine(_ chat: ChatStore) -> String? {
@@ -111,7 +116,22 @@ struct YouView: View {
     private var identityCard: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 12) {
-                avatar
+                if appState.isGuest {
+                    avatar
+                } else {
+                    // Your photo: what your team sees beside everything you write.
+                    PhotosPicker(selection: $photoItem, matching: .images) {
+                        avatar
+                            .overlay(alignment: .bottomTrailing) {
+                                Image(systemName: uploadingPhoto ? "arrow.triangle.2.circlepath" : "camera.fill")
+                                    .font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                                    .frame(width: 20, height: 20).background(Theme.Colors.accent, in: Circle())
+                                    .overlay(Circle().stroke(Theme.Colors.background, lineWidth: 2))
+                            }
+                    }
+                    .disabled(uploadingPhoto)
+                    .accessibilityLabel("Change your photo")
+                }
                 VStack(alignment: .leading, spacing: 5) {
                     Text(appState.currentUser?.name ?? String(localized: "You")).font(.headline)
                     Text(appState.isGuest ? String(localized: "Demo workspace") : appState.workspaceDisplayName)
@@ -134,6 +154,43 @@ struct YouView: View {
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.Colors.background, in: RoundedRectangle(cornerRadius: 22))
             .overlay(RoundedRectangle(cornerRadius: 22).stroke(Theme.Colors.border, lineWidth: 1))
+    }
+
+    /// The photo picked, made small and sent; everyone sees it next time
+    /// their lists load, and this device at once.
+    private func uploadPhoto(_ item: PhotosPickerItem) async {
+        uploadingPhoto = true
+        defer { uploadingPhoto = false; photoItem = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
+              let jpeg = Self.shrunk(image).jpegData(compressionQuality: 0.85),
+              let base = BackendURL.httpBase(from: AppConfig.relayURL), let token = SessionStore.sessionToken else {
+            photoError = String(localized: "That photo could not be used.")
+            return
+        }
+        var request = URLRequest(url: base.appendingPathComponent("me/avatar"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        request.setValue("image/jpeg", forHTTPHeaderField: "content-type")
+        request.httpBody = jpeg
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            photoError = String(localized: "Your photo did not upload. Try again.")
+            return
+        }
+        await appState.refreshWorkspaceMembers()
+        await chat?.refresh()
+    }
+
+    /// At most 512 points on a side: a face, not a poster.
+    private static func shrunk(_ image: UIImage) -> UIImage {
+        let side = max(image.size.width, image.size.height)
+        guard side > 512 else { return image }
+        let scale = 512 / side
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
     }
 
     private var avatar: some View {
@@ -210,4 +267,24 @@ struct YouView: View {
         else if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
     }
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0" }
+}
+
+/// Picking a photo starts its upload; a failure is said once. Its own
+/// modifier, so the profile's body stays small enough to type-check.
+private struct PhotoUpload: ViewModifier {
+    @Binding var item: PhotosPickerItem?
+    @Binding var error: String?
+    let upload: (PhotosPickerItem) async -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: item) { _, picked in
+                if let picked { Task { await upload(picked) } }
+            }
+            .alert("Photo", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("OK", role: .cancel) { error = nil }
+            } message: {
+                Text(error ?? "")
+            }
+    }
 }

@@ -107,6 +107,19 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(item.type, "keyword")
     }
 
+    func testMessagesAndMembersCarryTheirPhotos() throws {
+        let member = try JSONDecoder().decode(ChatMember.self, from: Data(#"{"ref":"r1","name":"Gota","title":"member","mine":false,"loginHash":null,"handle":null,"status":null,"awayUntil":null,"avatarUrl":"https://api.test/users/avatar/a1"}"#.utf8))
+        XCTAssertEqual(member.avatarUrl, "https://api.test/users/avatar/a1")
+        let bare = try JSONDecoder().decode(ChatMember.self, from: Data(#"{"ref":"r2","name":"Aya","title":"member","mine":true}"#.utf8))
+        XCTAssertNil(bare.avatarUrl)
+        let theirs = try JSONDecoder().decode(ChatMessage.self, from: Data(#"{"id":"m1","channel":"b:x","kind":"message","body":"hi","authorName":"Gota","authorRef":"r1","mine":false,"createdAt":"2026-09-26T10:00:00Z"}"#.utf8))
+        let mine = try JSONDecoder().decode(ChatMessage.self, from: Data(#"{"id":"m2","channel":"b:x","kind":"message","body":"yo","mine":true,"createdAt":"2026-09-26T10:01:00Z","authorAvatar":"https://api.test/users/avatar/me"}"#.utf8))
+        let assets = ChatAssets(avatars: ["r1": "https://api.test/users/avatar/a1"], myAvatar: "https://api.test/users/avatar/old", myName: "Toru")
+        // Someone else's: by their ref. Yours: what the message says first.
+        XCTAssertEqual(assets.avatar(of: theirs), "https://api.test/users/avatar/a1")
+        XCTAssertEqual(assets.avatar(of: mine), "https://api.test/users/avatar/me")
+    }
+
     @MainActor
     func testSSOOfferAndHandoffAreReadAsTheWorkerSendsThem() throws {
         let offer = SSOService.decodeOffer(Data(#"{"sso":{"orgId":"team:acme","provider":"okta","providerName":"Okta","name":"Acme","enforced":true}}"#.utf8))

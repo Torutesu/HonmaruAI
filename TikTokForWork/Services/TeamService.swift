@@ -12,6 +12,8 @@ struct TeamMember: Identifiable, Decodable, Equatable {
     let role: String
     let title: String?
     let mine: Bool
+    /// Their photo, when they have one.
+    var avatarUrl: String? = nil
 
     var id: String { ref }
 }

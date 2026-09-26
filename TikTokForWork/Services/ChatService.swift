@@ -48,6 +48,8 @@ struct ChatMessage: Codable, Identifiable, Hashable {
     var body: String
     var authorName: String?
     var authorRef: String?
+    /// The author's photo, when they have one.
+    var authorAvatar: String?
     var mine: Bool
     var cardId: String?
     var createdAt: String
@@ -85,6 +87,8 @@ struct ChatMember: Codable, Identifiable, Hashable {
     let handle: String?
     let status: ChatMemberStatus?
     let awayUntil: String?
+    /// Their photo, when they have one: uploaded, or their GitHub avatar.
+    var avatarUrl: String? = nil
     var id: String { ref }
 }
 
