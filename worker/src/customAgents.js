@@ -382,6 +382,55 @@ export async function listAgents(db, orgId, login) {
   return (results || []).map(toAgent);
 }
 
+/// The agents added to a channel, oldest first, with who added them.
+export async function channelAgents(db, orgId, key) {
+  const { results } = await db.prepare(
+    `SELECT a.*, ca.added_by AS added_by, ca.added_at AS added_at FROM channel_agents ca
+      JOIN custom_agents a ON a.org_id = ca.org_id AND a.id = ca.agent_id
+      WHERE ca.org_id = ?1 AND ca.channel = ?2 AND a.deleted_at IS NULL ORDER BY ca.added_at, a.name COLLATE NOCASE`
+  ).bind(orgId, String(key || "")).all().catch(() => ({ results: [] }));
+  return (results || []).map((r) => ({ ...toAgent(r), addedBy: r.added_by, addedAt: r.added_at }));
+}
+
+/// Every channel an agent has been added to, for the agents a person can
+/// see: `keys` by agent id.
+export async function agentChannels(db, orgId) {
+  const { results } = await db.prepare(
+    `SELECT a.*, ca.channel AS channel FROM channel_agents ca
+      JOIN custom_agents a ON a.org_id = ca.org_id AND a.id = ca.agent_id
+      WHERE ca.org_id = ?1 AND a.deleted_at IS NULL`
+  ).bind(orgId).all().catch(() => ({ results: [] }));
+  const byId = new Map();
+  for (const r of results || []) {
+    const entry = byId.get(r.id) || { agent: toAgent(r), keys: [] };
+    entry.keys.push(r.channel);
+    byId.set(r.id, entry);
+  }
+  return [...byId.values()];
+}
+
+export async function addChannelAgent(db, { orgId, key, agentId, login }) {
+  const out = await db.prepare("INSERT OR IGNORE INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, ?2, ?3, ?4, ?5)")
+    .bind(orgId, key, agentId, login, new Date().toISOString()).run();
+  return Number(out?.meta?.changes || 0) > 0;
+}
+
+export async function removeChannelAgent(db, { orgId, key, agentId }) {
+  const out = await db.prepare("DELETE FROM channel_agents WHERE org_id = ?1 AND channel = ?2 AND agent_id = ?3").bind(orgId, key, agentId).run();
+  return Number(out?.meta?.changes || 0) > 0;
+}
+
+/// The agents one person can call in one conversation: their own list,
+/// and the ones added there. Their own wins a handle both share.
+export async function agentsHere(db, orgId, login, key) {
+  const own = await listAgents(db, orgId, login);
+  if (!key || !(String(key).startsWith("b:") || String(key).startsWith("g:"))) return own;
+  const added = await channelAgents(db, orgId, key);
+  const handles = new Set(own.map((a) => a.handle));
+  const ids = new Set(own.map((a) => a.id));
+  return [...own, ...added.filter((a) => !ids.has(a.id) && !handles.has(a.handle))];
+}
+
 /// Every agent's name and face, the deleted too — what a message it wrote
 /// once is shown with.
 export async function agentFaces(db, orgId) {

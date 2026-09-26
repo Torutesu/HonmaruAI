@@ -61,6 +61,8 @@ export const AUDIT_ACTIONS = {
   "channel.created": { category: "channel", severity: "notice", text: "{actor} created {entity}" },
   "channel.member_added": { category: "channel", severity: "notice", text: "{actor} added {entity} to a channel" },
   "channel.member_removed": { category: "channel", severity: "notice", text: "{actor} removed {entity} from a channel" },
+  "channel.agent_added": { category: "channel", severity: "notice", text: "{actor} added the agent {entity} to a channel" },
+  "channel.agent_removed": { category: "channel", severity: "notice", text: "{actor} removed the agent {entity} from a channel" },
   "agent.created": { category: "integration", severity: "notice", text: "{actor} created the agent {entity}" },
   "agent.updated": { category: "integration", severity: "info", text: "{actor} changed the agent {entity}" },
   "agent.deleted": { category: "integration", severity: "notice", text: "{actor} deleted the agent {entity}" },

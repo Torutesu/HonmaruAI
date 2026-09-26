@@ -45,6 +45,7 @@ struct ConversationView: View {
     @State private var newSectionName = ""
     @State private var askingSectionName = false
     @State private var canvasOpen = false
+    @State private var agentsOpen = false
 
     private var conversation: ChatConversation? { store.conversation(for: view) }
     private var title: String {
@@ -118,6 +119,7 @@ struct ConversationView: View {
         .sheet(isPresented: $showThread) { ChatThreadSheet(store: store, onOpenCard: open(card:)) }
         .sheet(isPresented: $showPins) { pinsSheet }
         .sheet(isPresented: $canvasOpen) { ChatCanvasSheet(view: view, title: title).environmentObject(appState) }
+        .sheet(isPresented: $agentsOpen) { ChatChannelAgentsSheet(store: store, view: view, title: title) }
         .sheet(item: Binding(get: { profileRef.map { IdentifiedRef(ref: $0) } }, set: { profileRef = $0?.ref })) { r in
             ChatProfileSheet(store: store, ref: r.ref)
         }
@@ -428,7 +430,7 @@ struct ConversationView: View {
             // (what goes after "@", what the chip says, an agent's face)
             let ai: [(String, String, String?)] = [("AI", "AI", nil)]
             let humans: [(String, String, String?)] = store.members.filter { !$0.mine }.map { ($0.handle ?? $0.name, $0.name, nil) }
-            let teamAgents: [(String, String, String?)] = store.agentMentions.map { ($0.handle, "@\($0.handle) · \($0.label)", $0.emoji) }
+            let teamAgents: [(String, String, String?)] = store.agentMentions(in: view).map { ($0.handle, "@\($0.handle) · \($0.label)", $0.emoji) }
             let groupsList: [(String, String, String?)] = store.userGroups.map { ($0.handle, "@\($0.handle) · \($0.name)", nil) }
             let people = ai + teamAgents + humans + groupsList
             let hits = people.filter { q.isEmpty || $0.0.lowercased().hasPrefix(q) || $0.1.lowercased().hasPrefix(q) }.prefix(6)
@@ -572,6 +574,9 @@ struct ConversationView: View {
                 .accessibilityLabel("Pinned messages")
             Menu {
                 Button { canvasOpen = true } label: { Label("Canvas", systemImage: "doc.richtext") }
+                if let c = conversation, c.kind == .channel || c.kind == .group {
+                    Button { agentsOpen = true } label: { Label("Agents in this conversation", systemImage: "sparkles.rectangle.stack") }
+                }
                 Button { Task { await store.toggleStar(view) } } label: {
                     Label(store.isStarred(view) ? LocalizedStringKey("Unstar") : LocalizedStringKey("Star"), systemImage: store.isStarred(view) ? "star.slash" : "star")
                 }

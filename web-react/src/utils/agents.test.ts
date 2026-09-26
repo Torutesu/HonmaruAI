@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { agentError, agentFileName, draftFromPreset, parseAgentFile } from './agents'
-import { agentMentionables, matchMembers } from './mentions'
+import { agentMentionables, agentsIn, matchMembers } from './mentions'
 
 const t = (key: string, vars?: Record<string, string | number>) =>
   Object.entries(vars || {}).reduce((s, [k, v]) => s.replace(`{${k}}`, String(v)), key)
@@ -49,5 +49,17 @@ describe('agentMentionables', () => {
   it('is found by what is typed after @', () => {
     const list = [{ ref: 'm1', name: 'Hanako' }, ...agentMentionables(agents)]
     expect(matchMembers(list, 'hay').map((m) => m.ref)).toEqual(['agent:a1'])
+  })
+})
+
+describe('agentsIn', () => {
+  it('reaches your own agents everywhere, and one added to a channel only there', () => {
+    const agents = [
+      { id: 'a1', handle: 'hayao', name: 'Hayao', channels: ['b:cafe'] },
+      { id: 'a2', handle: 'menu', name: 'Menu', channels: ['b:cafe'], placed: true },
+    ]
+    expect(agentsIn(agents, 'b:cafe').map((a) => a.id)).toEqual(['a1', 'a2'])
+    expect(agentsIn(agents, 'b:kitchen').map((a) => a.id)).toEqual(['a1'])
+    expect(agentsIn(agents, null).map((a) => a.id)).toEqual(['a1'])
   })
 })

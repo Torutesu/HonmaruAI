@@ -9,7 +9,7 @@ import { displayName, properName } from '../utils/names'
 import { Icon } from './Icon'
 import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
-import { useMembers, agentMentionables, mentionKind } from '../utils/mentions'
+import { useMembers, agentMentionables, agentsIn, mentionKind } from '../utils/mentions'
 import type { AgentFace } from '../utils/mentions'
 import { useMentionMenu, useMentionHighlight } from './MentionMenu'
 import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/customEmoji'
@@ -295,8 +295,10 @@ export const ClassicList: React.FC<Props> = ({
   useEffect(() => {
     // Made, changed or deleted on the Agents screen: the names "@" offers follow.
     const on = () => {
-      fetch(`${api.httpBase}/channels/agents?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
-        .then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.agents) setAgents(d.agents) }).catch(() => {})
+      // The whole list — your own and the ones added to channels — as the
+      // overview gives it.
+      fetch(`${api.httpBase}/channels?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+        .then((r) => (r.ok ? r.json() : null)).then((d) => { if (Array.isArray(d?.agents)) setAgents(d.agents) }).catch(() => {})
     }
     window.addEventListener('honmaru:agents-changed', on)
     return () => window.removeEventListener('honmaru:agents-changed', on)
@@ -1608,8 +1610,8 @@ export const ClassicList: React.FC<Props> = ({
     { ref: '__ai', name: 'AI' } as (typeof mentionable)[number],
     ...mentionable,
     ...userGroups.map((g) => ({ ref: `group:${g.handle}`, name: g.name, handle: g.handle, title: t('{n} people', { n: g.refs.length }) }) as (typeof mentionable)[number]),
-    ...agentMentionables(agents, mentionable),
-  ], [mentionable, userGroups, agents, t])
+    ...agentMentionables(agentsIn(agents, current?.view), mentionable),
+  ], [mentionable, userGroups, agents, current?.view, t])
   const mention = useMentionMenu(composer, draft, setDraft, withAI)
   const threadMention = useMentionMenu(threadComposer, threadDraft, setThreadDraft, withAI)
   // @names that reach somebody light up as they are typed.
