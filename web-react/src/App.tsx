@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { ReauthDialog } from './components/ReauthDialog'
+import { DlpDialog } from './components/DlpDialog'
 import { Dashboard } from './components/Dashboard'
 import { Welcome } from './screens/Welcome'
 import { SignIn } from './screens/SignIn'
@@ -440,6 +441,7 @@ function App() {
   return (
     <div className="app">
       <ReauthDialog />
+      <DlpDialog />
       {notice && (
         <div className="toasts app-toasts">
           <div className={`toast${notice.error ? ' error' : ''}`} role={notice.error ? 'alert' : 'status'} onClick={() => setNotice(null)}>{notice.text}</div>

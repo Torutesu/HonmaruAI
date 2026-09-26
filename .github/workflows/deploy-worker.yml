@@ -143,6 +143,25 @@ jobs:
           case "$APP_WEB_URL" in https://*) ;; *) echo "::error::app_web_url must start with https://"; exit 1 ;; esac
           printf '%s' "${APP_WEB_URL%/}" | npx -y wrangler@4 secret put APP_WEB_URL ${{ steps.target.outputs.flag }}
 
+      # The audit archive's bucket, and the lock that keeps its audit/ prefix
+      # for 400 days (docs/audit-log-phase2.md §3.2). Made once; a lock rule
+      # already there is left as it is.
+      - name: Audit archive bucket
+        if: ${{ !inputs.migrate_only }}
+        run: |
+          bucket="tiktokforwork-audit"
+          [ "$TARGET" = "staging" ] && bucket="tiktokforwork-audit-staging"
+          if npx -y wrangler@4 r2 bucket list | grep -q "$bucket"; then
+            echo "$bucket: exists"
+          else
+            npx -y wrangler@4 r2 bucket create "$bucket"
+          fi
+          if npx -y wrangler@4 r2 bucket lock list "$bucket" 2>/dev/null | grep -q "audit/"; then
+            echo "lock: already set"
+          else
+            npx -y wrangler@4 r2 bucket lock add "$bucket" --name audit-400d --prefix audit/ --retention-days 400 --force || echo "::warning::Could not add the bucket lock; add it by hand (docs/setup-secrets.md)."
+          fi
+
       - name: Deploy
         if: ${{ !inputs.migrate_only }}
         # --keep-vars preserves dashboard-managed non-secret runtime variables
@@ -169,6 +188,15 @@ jobs:
               openssl rand -base64 32 | tr -d '\n' | npx -y wrangler@4 secret put "$name" ${{ steps.target.outputs.flag }}
             fi
           done
+          # The archive's signing key: Ed25519, as PKCS8. Its public half is
+          # served at /audit/public-key; a replaced key is listed there only if
+          # AUDIT_PAST_PUBLIC_KEYS names it, so this too is made once.
+          if printf '%s' "$have" | grep -q '"AUDIT_SIGNING_KEY"'; then
+            echo "AUDIT_SIGNING_KEY: already set"
+          else
+            echo "AUDIT_SIGNING_KEY: generating"
+            node -e "const c=require('crypto');process.stdout.write(c.generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'der'}).toString('base64'))" | npx -y wrangler@4 secret put AUDIT_SIGNING_KEY ${{ steps.target.outputs.flag }}
+          fi
 
       - name: Verify
         if: ${{ !inputs.migrate_only }}

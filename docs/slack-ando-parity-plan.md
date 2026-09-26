@@ -44,7 +44,7 @@
 | DM で相手を呼び出す（着信と参加・今はしない） | ✓ | ✓ | ✅ | — |
 | ライブ文字起こし、途中参加でも最初から読める | 英語字幕のみ | ✓ | ✅（ブラウザの音声認識） | — |
 | 通話のスレッド、終了後に文字起こしを返信として残す | ✓ | ✓ | ✅ | — |
-| 8 人を超える通話（SFU） | ✓ | ✓ | ⬜（今はメッシュ） | P2 |
+| 8 人を超える通話（SFU） | ✓ | ✓ | ✅ Cloudflare Realtime の SFU で 50 人まで（アプリ未設定ならメッシュで 8 人。[setup-secrets.md](setup-secrets.md) §4.5b） | — |
 
 ### 通知と音
 
@@ -86,9 +86,9 @@
 | セッション管理（端末一覧、個別・一括ログアウト、管理者による強制ログアウト） | ✓ | — | ✅ | P1 |
 | セッション寿命のポリシー | ✓ | — | ✅ ブラウザ・アプリの最長、無操作、管理操作の再認証（[admin-controls.md](admin-controls.md) §3） | P2 |
 | SSO / ドメイン参加 | ✓ | — | ✅ DNS で確認したドメイン、参加（招待のみ / リクエスト / 自動）、OIDC（Google・Okta・Entra・汎用）、強制、iOS（[sso-and-domain-join.md](sso-and-domain-join.md)） | P1 |
-| 監査ログ Phase 2（匿名化、封印、SIEM、保持期間） | Enterprise | — | 🟡 匿名化（人ごとの鍵、退会で破棄、平文の行の移行）は実装済み。封印・SIEM・保持期間は未実装（[audit-log-phase2.md](audit-log-phase2.md)） | P1 |
+| 監査ログ Phase 2（匿名化、封印、SIEM、保持期間） | Enterprise | — | ✅ 匿名化、毎時の封印（R2 と Ed25519 署名）、SIEM 配信（HTTPS・Splunk HEC・Datadog）、保持期間とリーガルホールド（[audit-log-phase2.md](audit-log-phase2.md)） | — |
 | Owner / Admin の分離、Provisioning キー、ログイン有効期限 | ✓ | ✓ | ✅（[admin-controls.md](admin-controls.md)） | P1 |
-| SCIM、リーガルホールド（人単位）、DLP | ✓ | — | ⬜ | P2 |
+| SCIM、リーガルホールド（人単位）、DLP | ✓ | — | ✅ SCIM 2.0（Users・Groups、停止で即時ログアウト）、リーガルホールド（ワークスペース・人単位）、データルール（マイナンバー・カード番号・秘密鍵・パターン・語句、警告かブロック） | — |
 
 ---
 
@@ -195,12 +195,14 @@
 
 **残り**
 
-1. 監査ログ Phase 2（設計: [audit-log-phase2.md](audit-log-phase2.md)）: 封印 Cron、R2 アーカイブと Ed25519 署名、crypto-shredding、SIEM 配信、保持期間。
-   - アカウントを削除しても、今は監査ログの行が残る（ログインと名前を含む）。
-   - crypto-shredding を入れるまでは、プライバシーポリシーにそう書いておく必要がある。
-2. Provisioning キー、セッション寿命のポリシー、Owner と Admin の分離（設計: [admin-controls.md](admin-controls.md)）。
-3. 8 人を超える通話（SFU）。キャンバスはこの後の PR で入った。
-4. SSO とドメイン参加（設計: [sso-and-domain-join.md](sso-and-domain-join.md)）。SCIM、リーガルホールド（人単位）、DLP（[enterprise-audit-log.md](enterprise-audit-log.md) §10）。
+ここに挙げていた 4 つは、3 つの PR ですべて入った。
+
+1. ~~監査ログ Phase 2~~: 匿名化と crypto-shredding、封印 Cron、R2 アーカイブと Ed25519 署名、SIEM 配信、保持期間。
+2. ~~Provisioning キー、セッション寿命のポリシー、Owner と Admin の分離~~。
+3. ~~8 人を超える通話（SFU）~~: Cloudflare Realtime のアプリを入れたときだけ。キャンバスはこの後の PR で入った。
+4. ~~SSO とドメイン参加、SCIM、リーガルホールド（人単位）、DLP~~。
+
+まだ無いもの: SAML、1 ワークスペースに複数の IdP、DLP のファイル本文の検査、SFU の通話でのサイマルキャスト。
 
 ## 4. 確かめ方
 

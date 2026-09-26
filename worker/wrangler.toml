@@ -26,6 +26,14 @@ database_id = "08d78a7f-45eb-4837-8393-4f7c92bf39cb"
 binding = "MEDIA"
 bucket_name = "tiktokforwork-media"
 
+# The audit log's sealed archive (docs/audit-log-phase2.md §3). Apart from
+# MEDIA because its prefix is under a bucket lock: nothing in it is deleted
+# before the lock's age, by anyone. The deploy workflow makes the bucket and
+# the lock the first time.
+[[r2_buckets]]
+binding = "AUDIT_ARCHIVE"
+bucket_name = "tiktokforwork-audit"
+
 # Staging: the same Worker under another name, with its own relay, database
 # and bucket, so a branch can be tried against real Cloudflare without
 # touching what customers use. `wrangler deploy --env staging` reads this
@@ -56,3 +64,7 @@ database_id = "00000000-0000-0000-0000-000000000000"
 [[env.staging.r2_buckets]]
 binding = "MEDIA"
 bucket_name = "tiktokforwork-media-staging"
+
+[[env.staging.r2_buckets]]
+binding = "AUDIT_ARCHIVE"
+bucket_name = "tiktokforwork-audit-staging"

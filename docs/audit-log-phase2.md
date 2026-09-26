@@ -1,6 +1,14 @@
 # 監査ログ Phase 2 — 退会者の匿名化、封印とアーカイブ、SIEM 配信、保持期間 — 詳細設計
 
-作成日: 2026-09-26。状態: **2-A・2-B は実装済み**（人ごとの鍵、暗号化形式、退会で鍵を捨てる、平文の行の移行）。2-C 以降は未実装。
+作成日: 2026-09-26。状態: **すべて実装済み**。2-A・2-B（人ごとの鍵、暗号化形式、退会で鍵を捨てる、平文の行の移行）と、2-C 以降（封印とアーカイブ、SIEM 配信、保持期間とリーガルホールド）。
+
+2-C 以降の実装での決めごと:
+- 封印は 15 分 Cron のうち毎時 0〜14 分の回に、前の 1 時間分を `sealHour` で閉じる。JSONL を gzip して `audit/<org>/<yyyy>/<mm>/<dd>/<hh>.jsonl.gz` に置き、ダイジェスト（`from_seq`・`to_seq`・`first_hash`・`last_hash`・`prev_digest`・`archive_sha256`・`key_id`・`sig`）を同じ場所の `.digest.json` と `audit_seals` に残す。
+- 置く前に同じキーがあるか確かめる（バケットのロックは上書きを拒むため、再実行で失敗しないように）。3 時間続けて封印できなければ運用アラート。
+- 公開鍵は `/audit/public-key`、過去の鍵は `AUDIT_PAST_PUBLIC_KEYS`。`/audit/verify` は D1 の連鎖とアーカイブの両方を確かめる。毎週日曜に全ワークスペースを確かめ直す。
+- D1 から消すのは `pruneAudit` だけで、封印済みで、保持期間を過ぎて、リーガルホールドが無い行だけ。
+- 保持期間とホールドは運用者の窓口（`/ops/audit/settings`、`/ops/audit/principal-hold`、`OPS_TOKEN`）。人単位のホールドは退会しても鍵を残し（`shred_pending`）、解除した時に捨てる。
+- SIEM 配信は毎分の Cron で `seq` 順に送る。失敗はバックオフし、24 時間続けば `audit.stream_failing`。秘密は `SSO_SECRET_KEY` で暗号化して読み返さない。Owner が Studio の監査ログ画面で追加・テスト・一時停止・再送する。
 
 実装での決めごと:
 - 仮名は `actor_id` / `entity_id` の列にそのまま入れる（別の列は足していない）。暗号化した行は `enc = 1`。

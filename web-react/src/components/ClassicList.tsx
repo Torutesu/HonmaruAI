@@ -976,7 +976,7 @@ export const ClassicList: React.FC<Props> = ({
         body: JSON.stringify({ orgId: api.orgId, channel, body, decide, ...(parentId ? { parentId } : {}), ...(sendAt ? { sendAt } : {}), ...(up.ids.length ? { files: up.ids } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setProblem(data.message || t('That did not send. Try again.')); return }
+      if (!res.ok) { setProblem(refusal(data)); return }
       if (data.scheduled) {
         setDraft('')
         setScheduled((prev) => [...prev, data.scheduled].sort((a, b) => a.sendAt.localeCompare(b.sendAt)))
@@ -1132,6 +1132,10 @@ export const ClassicList: React.FC<Props> = ({
     note(channel, t('/{name} is not a command. Try /decide, /remember, /routine, /schedule or /shortcuts.', { name }))
     return true
   }
+  /// Why a message did not go, in the reader's language where it is ours to say.
+  const refusal = (data: { code?: string; rules?: string[]; message?: string }) => (data.code === 'dlp-blocked'
+    ? t("This can't be sent here: it looks like it contains {what}. Take it out and try again.", { what: (data.rules || []).map((r) => t(r)).join(', ') })
+    : data.message || t('That did not send. Try again.'))
   const sendAtTime = async (channel: string, at: string, text?: string) => {
     const body = (text ?? draft).trim()
     if (!body) return
@@ -1140,7 +1144,7 @@ export const ClassicList: React.FC<Props> = ({
       body: JSON.stringify({ orgId: api.orgId, channel, body, sendAt: at }),
     }).catch(() => null)
     const data = res ? await res.json().catch(() => ({})) : {}
-    if (!res?.ok) { setProblem(data.message || t('That did not send. Try again.')); return }
+    if (!res?.ok) { setProblem(refusal(data)); return }
     setDraft('')
     setScheduled((prev) => [...prev, data.scheduled].sort((a, b) => a.sendAt.localeCompare(b.sendAt)))
     note(channel, t('Scheduled for {when}.', { when: new Date(data.scheduled.sendAt).toLocaleString(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) }))

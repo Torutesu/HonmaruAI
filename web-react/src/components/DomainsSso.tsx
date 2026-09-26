@@ -170,6 +170,12 @@ export const DomainsSso: React.FC<{ httpBase: string; orgId: string; sessionToke
         {!canEdit && <p className="form-note">{t('An owner of this workspace can change these.')}</p>}
         {sso?.status === 'active' && !sso.enforce && canEdit && <p className="row-sub">{t('Requiring it signs out everyone at your domains who did not sign in this way. Keep one owner with an address outside them, so someone can get in if the provider is down.')}</p>}
       </form>
+
+      <div className="studio-section-head"><div><h2>{t('Provisioning (SCIM)')}</h2><p>{t('Let your identity provider add people, stop them, and keep groups in step. Make a workspace key with the scim:write scope under API & Webhooks, and give the provider this address and that key.')}</p></div></div>
+      <div className="sso-domain" data-scim-base>
+        <code>{`${httpBase}/scim/v2`}</code>
+        <p className="row-sub">{t('Only addresses at your verified domains are taken. Someone the provider stops leaves the workspace and is signed out everywhere at once. An owner is never stopped this way.')}</p>
+      </div>
     </section>
   )
 }

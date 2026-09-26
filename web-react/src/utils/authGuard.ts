@@ -6,6 +6,11 @@
 ///
 /// `session-policy`: this workspace's login rules have ended this sign-in.
 /// The app hears `honmaru:session-policy` and signs them out with a reason.
+///
+/// `dlp-warning`: one of the workspace's data rules thinks a message holds
+/// something it should not. The person is asked (DlpDialog); if they send it
+/// anyway, the same request goes again with `dlpAck`. A block is not asked
+/// about: the screen shows its message like any refusal.
 
 export interface ReauthRequest {
   base: string
@@ -33,12 +38,33 @@ export function askToConfirm(base: string, token: string): Promise<boolean> {
   })
 }
 
+export interface DlpWarning {
+  rules: string[]
+  resolve: (send: boolean) => void
+}
+
+/// Ask whoever is listening (DlpDialog); false — do not send — when nobody is.
+export function askAboutData(rules: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    const event = new CustomEvent<DlpWarning>('honmaru:dlp-warning', { detail: { rules, resolve }, cancelable: true })
+    if (window.dispatchEvent(event)) resolve(false)
+  })
+}
+
 export function installAuthGuard() {
   if (installed || typeof window === 'undefined') return
   installed = true
   const original = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const res = await original(input, init)
+    if (res.status === 409 && typeof init?.body === 'string') {
+      const said = await res.clone().json().catch(() => null) as { code?: string; rules?: string[] } | null
+      if (said?.code !== 'dlp-warning') return res
+      let body: Record<string, unknown> | null = null
+      try { body = JSON.parse(init.body) as Record<string, unknown> } catch { return res }
+      if (!body || typeof body !== 'object' || !(await askAboutData(said.rules || []))) return res
+      return original(input, { ...init, body: JSON.stringify({ ...body, dlpAck: true }) })
+    }
     if (res.status !== 401 && res.status !== 403) return res
     const token = headerOf(init, 'x-session-token')
     if (!token) return res
