@@ -211,6 +211,12 @@
             "state": "translated",
             "value": "件名"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel"
+          }
         }
       }
     },
@@ -220,6 +226,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼を作成"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Anfrage"
           }
         }
       }
@@ -231,6 +243,12 @@
             "state": "translated",
             "value": "音声で依頼を入力"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage diktieren"
+          }
         }
       }
     },
@@ -240,6 +258,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カメラのプレビュー"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kameravorschau"
           }
         }
       }
@@ -251,6 +275,12 @@
             "state": "translated",
             "value": "動画に音声は含まれません。話した内容は編集可能なテキストとして追加されます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Video ist stumm. Was du sagst, wird als bearbeitbares Transkript hinzugefügt."
+          }
         }
       }
     },
@@ -260,6 +290,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼したいことを話してください。文字起こしを確認してから下書きに追加できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprich deine Anfrage und prüfe das Transkript, bevor du es deinem Entwurf hinzufügst."
           }
         }
       }
@@ -272,6 +308,12 @@
             "state": "translated",
             "value": "音声は端末内だけで文字起こしします。AIで下書きを生成すると、文字起こししたテキストがOpenAIに送信されます。マイクの音声は送信しません。端末内の音声認識が使えない場合は、文字で入力してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprache wird nur auf diesem Gerät transkribiert. Wenn du einen KI-Entwurf erstellst, wird der Text an OpenAI gesendet, nicht die Mikrofonaufnahme. Ist die Erkennung auf dem Gerät nicht verfügbar, tippe deine Anfrage stattdessen."
+          }
         }
       }
     },
@@ -281,6 +323,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "準備ができたら開始してください"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit, wenn du es bist"
           }
         }
       }
@@ -292,6 +340,12 @@
             "state": "translated",
             "value": "録音を開始"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufnahme starten"
+          }
         }
       }
     },
@@ -301,6 +355,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "文字起こし"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transkript"
           }
         }
       }
@@ -312,6 +372,12 @@
             "state": "translated",
             "value": "この画面を閉じて、文字で入力することもできます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kannst diesen Bildschirm schließen und deine Anfrage stattdessen tippen."
+          }
         }
       }
     },
@@ -321,6 +387,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "動画を撮影"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video aufnehmen"
           }
         }
       }
@@ -332,6 +404,12 @@
             "state": "translated",
             "value": "文字起こしを使う"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transkript verwenden"
+          }
         }
       }
     },
@@ -341,6 +419,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カメラへのアクセスが無効です。設定で許可するか、音声入力を使ってください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Kamerazugriff ist aus. Aktiviere ihn in den Einstellungen oder nutze die Diktierfunktion."
           }
         }
       }
@@ -358,6 +442,12 @@
             "state": "translated",
             "value": "参加中のチーム"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team"
+          }
         }
       }
     },
@@ -368,6 +458,12 @@
             "state": "translated",
             "value": "利用規約"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsbedingungen"
+          }
         }
       }
     },
@@ -377,6 +473,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "プライバシーポリシー"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datenschutzerklärung"
           }
         }
       }
@@ -389,6 +491,12 @@
             "state": "translated",
             "value": "1日"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Tag"
+          }
         }
       }
     },
@@ -399,6 +507,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "1週間"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Woche"
           }
         }
       }
@@ -411,6 +525,12 @@
             "state": "translated",
             "value": "1か月"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Monat"
+          }
         }
       }
     },
@@ -421,6 +541,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "1年"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Jahr"
           }
         }
       }
@@ -462,6 +588,12 @@
             "state": "translated",
             "value": "%lld週間"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Wochen"
+          }
         }
       }
     },
@@ -472,6 +604,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lldか月"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Monate"
           }
         }
       }
@@ -484,6 +622,12 @@
             "state": "translated",
             "value": "%lld年"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Jahre"
+          }
         }
       }
     },
@@ -494,6 +638,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "価格"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preis"
           }
         }
       }
@@ -506,6 +656,12 @@
             "state": "translated",
             "value": "このバージョンではアップグレードはご利用いただけません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrades sind in dieser Version nicht verfügbar."
+          }
         }
       }
     },
@@ -517,6 +673,12 @@
             "state": "translated",
             "value": "上に記載の無料ルーティング上限はそのまま適用されます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das oben genannte kostenlose Routing-Limit gilt weiterhin."
+          }
         }
       }
     },
@@ -526,6 +688,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信前にワークスペースに接続してください。下書きは保持しています。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich vor dem Senden mit deinem Workspace. Dein Entwurf bleibt hier erhalten."
           }
         }
       }
@@ -537,6 +705,12 @@
             "state": "translated",
             "value": "承認"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zustimmen"
+          }
         }
       }
     },
@@ -547,6 +721,12 @@
             "state": "translated",
             "value": "却下"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ablehnen"
+          }
         }
       }
     },
@@ -556,6 +736,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "取り消し"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rückgängig"
           }
         }
       }
@@ -12783,6 +12969,12 @@
             "state": "translated",
             "value": "「依頼を送信」を押すまで、カードはチームに共有されません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team erhält die Karte erst, wenn du auf „Anfrage senden“ tippst."
+          }
         }
       }
     },
@@ -12793,6 +12985,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIで下書きを作成しますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Entwurf mit KI vorbereiten?"
           }
         }
       }
@@ -12805,6 +13003,12 @@
             "state": "translated",
             "value": "AIを使用"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI nutzen"
+          }
         }
       }
     },
@@ -12815,6 +13019,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIを使わずに作成"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne KI vorbereiten"
           }
         }
       }
@@ -12827,6 +13037,12 @@
             "state": "translated",
             "value": "手動の下書き · AIにはテキストを送信していません"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manueller Entwurf · kein Text an die KI gesendet"
+          }
         }
       }
     },
@@ -12837,6 +13053,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "文字起こしを含む入力テキストと必要なチーム情報が、AI提供元のOpenAIに送信されます。マイクの音声は送信しません。AIを使わずに下書きを作成することもできます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Text, inklusive Transkript, und relevanter Teamkontext werden an unseren KI-Anbieter OpenAI gesendet. Mikrofonaudio wird nicht gesendet. Du kannst den Entwurf stattdessen auch ohne KI vorbereiten."
           }
         }
       }
@@ -12849,6 +13071,12 @@
             "state": "translated",
             "value": "判断する"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entscheidungen"
+          }
         }
       }
     },
@@ -12859,6 +13087,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ゲストモード"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gast-Workspace"
           }
         }
       }
@@ -12871,6 +13105,12 @@
             "state": "translated",
             "value": "同期済み"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuell"
+          }
         }
       }
     },
@@ -12881,6 +13121,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
           }
         }
       }
@@ -12893,6 +13139,12 @@
             "state": "translated",
             "value": "次の判断を、ここから。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine nächste Entscheidung beginnt hier"
+          }
         }
       }
     },
@@ -12903,6 +13155,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースを再接続"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace neu verbinden"
           }
         }
       }
@@ -12915,6 +13173,12 @@
             "state": "translated",
             "value": "オフラインです"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist offline"
+          }
         }
       }
     },
@@ -12925,6 +13189,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "未対応の依頼はありません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles erledigt"
           }
         }
       }
@@ -12937,6 +13207,12 @@
             "state": "translated",
             "value": "リポジトリを連携すると、チームの判断がここに届きます。まずは設定から機能を確認できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde ein Repository, um die Entscheidungen deines Teams an einem Ort zu sammeln. Du kannst dir zuerst die Einstellungen ansehen."
+          }
         }
       }
     },
@@ -12947,6 +13223,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存済みのカードは引き続き確認できます。再接続すると新しい更新が届きます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine gespeicherten Entscheidungen bleiben hier. Neue Updates kommen, sobald du wieder verbunden bist."
           }
         }
       }
@@ -12959,6 +13241,12 @@
             "state": "translated",
             "value": "ワークスペースに接続し、新しい更新を確認しています。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung zu deinem Workspace wird hergestellt und nach Updates gesucht."
+          }
         }
       }
     },
@@ -12969,6 +13257,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "いま、あなたの判断を待つカードはありません。次に進めたいことをAIに伝えましょう。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Entscheidungen warten auf dich. Sag deiner KI, was als Nächstes passieren soll."
           }
         }
       }
@@ -12981,6 +13275,12 @@
             "state": "translated",
             "value": "カードのプレビュー"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entscheidungsvorschau"
+          }
         }
       }
     },
@@ -12991,6 +13291,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "あなたの判断を待っています"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit für deine Entscheidung"
           }
         }
       }
@@ -13003,6 +13309,12 @@
             "state": "translated",
             "value": "· %1$lld / %2$lld"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· %lld / %lld"
+          }
         }
       }
     },
@@ -13013,6 +13325,12 @@
             "state": "translated",
             "value": "設定済み"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguriert"
+          }
         }
       }
     },
@@ -13020,6 +13338,12 @@
       "extractionState": "manual",
       "localizations": {
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI"
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Honmaru AI"
@@ -13035,6 +13359,12 @@
             "state": "translated",
             "value": "確認の往復を減らし、\n判断を前へ。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weniger Nachhaken.\nKlarere Entscheidungen."
+          }
         }
       }
     },
@@ -13045,6 +13375,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "あなたを待つ依頼を確認し、相手と内容を確かめて送信。決まったことまで、一か所で追えます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sieh, was dich braucht, sende eine klare Anfrage und behalte jede Entscheidung an einem Ort."
           }
         }
       }
@@ -13057,6 +13393,12 @@
             "state": "translated",
             "value": "受信箱"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posteingang"
+          }
         }
       }
     },
@@ -13067,6 +13409,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信済み"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesendet"
           }
         }
       }
@@ -13079,6 +13427,12 @@
             "state": "translated",
             "value": "完了済み"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erledigt"
+          }
         }
       }
     },
@@ -13089,6 +13443,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルワークスペース"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispiel-Workspace"
           }
         }
       }
@@ -13101,6 +13461,12 @@
             "state": "translated",
             "value": "デモワークスペース"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo-Workspace"
+          }
         }
       }
     },
@@ -13111,6 +13477,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "承認・返信・依頼の作成を試せます。アカウント登録は不要です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Probier Zustimmen, Antworten und das Erstellen einer Anfrage aus. Kein Konto nötig."
           }
         }
       }
@@ -13123,6 +13495,12 @@
             "state": "translated",
             "value": "デモを試す"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo ausprobieren"
+          }
         }
       }
     },
@@ -13133,6 +13511,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "まずはデモを試す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuerst die Demo ausprobieren"
           }
         }
       }
@@ -13145,6 +13529,12 @@
             "state": "translated",
             "value": "あなたのワークスペース"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Workspace"
+          }
         }
       }
     },
@@ -13155,6 +13545,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "チームの仕事を、\nひとつに。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team im Fokus."
           }
         }
       }
@@ -13167,6 +13563,12 @@
             "state": "translated",
             "value": "GitHubリポジトリを連携すると、メンバーに実際の依頼を送れるようになります。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde ein GitHub-Repository, um seine Mitwirkenden zu sehen und echte Anfragen an dein Team zu senden."
+          }
         }
       }
     },
@@ -13177,6 +13579,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "1. GitHubでサインイン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Sicher mit GitHub anmelden"
           }
         }
       }
@@ -13189,6 +13597,12 @@
             "state": "translated",
             "value": "2. チームのリポジトリを選択"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Repository deines Teams auswählen"
+          }
         }
       }
     },
@@ -13199,6 +13613,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "3. チームで依頼を確認"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. Anfragen gemeinsam prüfen"
           }
         }
       }
@@ -13211,6 +13631,12 @@
             "state": "translated",
             "value": "ワークスペースを開く"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace öffnen"
+          }
         }
       }
     },
@@ -13221,6 +13647,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde…"
           }
         }
       }
@@ -13233,6 +13665,12 @@
             "state": "translated",
             "value": "Ken · 承認依頼"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ken · Freigabe"
+          }
         }
       }
     },
@@ -13243,6 +13681,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aya · タスク"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aya · Aufgabe"
           }
         }
       }
@@ -13255,6 +13699,12 @@
             "state": "translated",
             "value": "Mika · 返信依頼"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mika · Frage"
+          }
         }
       }
     },
@@ -13265,6 +13715,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルの依頼をリセットしますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielanfragen zurücksetzen?"
           }
         }
       }
@@ -13277,6 +13733,12 @@
             "state": "translated",
             "value": "デモをリセット"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo zurücksetzen"
+          }
         }
       }
     },
@@ -13287,6 +13749,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デモで行った変更を消し、最初のサンプルに戻します。実際のワークスペースには影響しません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Demo-Änderungen werden durch die ursprünglichen Beispiele ersetzt. Dein echter Workspace bleibt unberührt."
           }
         }
       }
@@ -13299,6 +13767,12 @@
             "state": "translated",
             "value": "デモを終了しますか？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo verlassen?"
+          }
         }
       }
     },
@@ -13309,6 +13783,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デモを終了"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo beenden"
           }
         }
       }
@@ -13321,6 +13801,12 @@
             "state": "translated",
             "value": "このワークスペースからサインアウトしますか？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von diesem Workspace abmelden?"
+          }
         }
       }
     },
@@ -13331,6 +13817,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "あなた · デモアカウント"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du · Demo-Konto"
           }
         }
       }
@@ -13343,6 +13835,12 @@
             "state": "translated",
             "value": "変更はこのデモ内だけに反映されます"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Änderungen bleiben in dieser Demo"
+          }
         }
       }
     },
@@ -13353,6 +13851,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在のワークスペース"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein aktiver Workspace"
           }
         }
       }
@@ -13365,6 +13869,12 @@
             "state": "translated",
             "value": "チームで使い始める"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit, mit deinem Team zu arbeiten?"
+          }
         }
       }
     },
@@ -13375,6 +13885,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHubを連携して、実際のメンバーと依頼をやり取りできます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde GitHub, um die echten Mitglieder und Anfragen deines Repositorys zu nutzen."
           }
         }
       }
@@ -13387,6 +13903,12 @@
             "state": "translated",
             "value": "メンバーを読み込み中…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team wird geladen…"
+          }
         }
       }
     },
@@ -13397,6 +13919,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メンバーを読み込めませんでした"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team konnte nicht geladen werden"
           }
         }
       }
@@ -13409,6 +13937,12 @@
             "state": "translated",
             "value": "ワークスペースを接続すると、メンバーがここに表示されます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde einen Workspace, um dein Team hier zu sehen."
+          }
         }
       }
     },
@@ -13419,6 +13953,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "操作を試すためのサンプルメンバーです。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispiel-Teammitglieder zum Ausprobieren des Ablaufs."
           }
         }
       }
@@ -13431,6 +13971,12 @@
             "state": "translated",
             "value": "このワークスペースに所属するメンバーです。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personen, die zu diesem Workspace gehören."
+          }
         }
       }
     },
@@ -13441,6 +13987,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "連携"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindungen"
           }
         }
       }
@@ -13453,6 +14005,12 @@
             "state": "translated",
             "value": "リポジトリを接続"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository verbinden"
+          }
         }
       }
     },
@@ -13463,6 +14021,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "連携ツール"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbundene Tools"
           }
         }
       }
@@ -13475,6 +14039,12 @@
             "state": "translated",
             "value": "チームの仕事の情報源"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quellen für die Arbeit deines Teams"
+          }
         }
       }
     },
@@ -13485,6 +14055,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIアシスタント"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Unterstützung"
           }
         }
       }
@@ -13497,6 +14073,12 @@
             "state": "translated",
             "value": "デモ用の候補 · 外部AIへの送信なし"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo-Vorschläge · keine externen KI-Aufrufe"
+          }
         }
       }
     },
@@ -13507,6 +14089,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼の下書きに利用できます"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für Anfrageentwürfe verfügbar"
           }
         }
       }
@@ -13519,6 +14107,12 @@
             "state": "translated",
             "value": "手動で依頼を作成できます"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kannst Anfragen weiterhin manuell erstellen"
+          }
         }
       }
     },
@@ -13529,6 +14123,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "表示と通知"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen"
           }
         }
       }
@@ -13541,6 +14141,12 @@
             "state": "translated",
             "value": "このバージョンでは利用できません"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In dieser Version nicht verfügbar"
+          }
         }
       }
     },
@@ -13551,6 +14157,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "最初のサンプルからやり直す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit den Beispielanfragen neu beginnen"
           }
         }
       }
@@ -13563,6 +14175,12 @@
             "state": "translated",
             "value": "あなたの仕事の情報"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Arbeitskontext"
+          }
         }
       }
     },
@@ -13573,6 +14191,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "役割や仕事の進め方をAIに伝える"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hilf der KI, deine Rolle zu verstehen"
           }
         }
       }
@@ -13585,6 +14209,12 @@
             "state": "translated",
             "value": "プランと利用状況"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan und Nutzung"
+          }
         }
       }
     },
@@ -13595,6 +14225,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サブスクリプションを管理"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abo verwalten"
           }
         }
       }
@@ -13607,6 +14243,12 @@
             "state": "translated",
             "value": "AIプロバイダー"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Anbieter"
+          }
         }
       }
     },
@@ -13617,6 +14259,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロバイダーの設定（任意）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optionale Anbieter-Einstellungen"
           }
         }
       }
@@ -13629,6 +14277,12 @@
             "state": "translated",
             "value": "オフライン · 保存済みの依頼を表示"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline · gespeicherte Anfragen werden angezeigt"
+          }
         }
       }
     },
@@ -13639,6 +14293,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "バージョン %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %@"
           }
         }
       }
@@ -13651,6 +14311,12 @@
             "state": "translated",
             "value": "プロダクト責任者"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Produktleitung"
+          }
         }
       }
     },
@@ -13661,6 +14327,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デザイン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Design"
           }
         }
       }
@@ -13673,6 +14345,12 @@
             "state": "translated",
             "value": "開発"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwicklung"
+          }
         }
       }
     },
@@ -13683,6 +14361,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "業務運営"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betrieb"
           }
         }
       }
@@ -13695,6 +14379,12 @@
             "state": "translated",
             "value": "プロダクト"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Produkt"
+          }
         }
       }
     },
@@ -13705,6 +14395,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "マーケティング"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marketing"
           }
         }
       }
@@ -13717,6 +14413,12 @@
             "state": "translated",
             "value": "オンボーディングの公開を承認"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onboarding-Release freigeben"
+          }
         }
       }
     },
@@ -13727,6 +14429,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいオンボーディングの準備ができました。明日10時から公開してよいか確認をお願いします。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der neue Onboarding-Ablauf ist fertig. Bitte bestätige, dass wir ihn morgen um 10:00 ausrollen können."
           }
         }
       }
@@ -13739,6 +14447,12 @@
             "state": "translated",
             "value": "動作確認は完了しています。まず利用者の10%に公開し、ログインエラーを確認してから対象を広げます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die QA-Prüfungen sind abgeschlossen. Wir starten mit 10 % der Nutzer und beobachten Anmeldefehler, bevor wir ausweiten."
+          }
         }
       }
     },
@@ -13749,6 +14463,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このリリースの判断はあなたの担当です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Release-Entscheidung liegt bei dir."
           }
         }
       }
@@ -13761,6 +14481,12 @@
             "state": "translated",
             "value": "ホームページの方針を確認"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richtung der Homepage bestätigen"
+          }
         }
       }
     },
@@ -13771,6 +14497,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デザインを2案に絞りました。どちらのメッセージを前面に出すか、ご意見をお願いします。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wir haben das Design auf zwei Richtungen eingegrenzt. Mit welcher Botschaft soll das Team aufmachen?"
           }
         }
       }
@@ -13783,6 +14515,12 @@
             "state": "translated",
             "value": "A案は判断の速さ、B案は会議の削減を伝えます。短い返信をいただければ、最終レイアウトに進められます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option A setzt auf schnellere Entscheidungen, Option B auf weniger Meetings. Eine kurze Antwort macht den Weg zum finalen Layout frei."
+          }
         }
       }
     },
@@ -13793,6 +14531,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "顧客への引き継ぎ項目を確認"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checkliste für die Kundenübergabe prüfen"
           }
         }
       }
@@ -13805,6 +14549,12 @@
             "state": "translated",
             "value": "金曜の顧客引き継ぎに向けて、担当者・期限・サポート窓口を確認してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe Verantwortliche, Fälligkeitsdatum und Support-Kontakt vor der Kundenübergabe am Freitag."
+          }
         }
       }
     },
@@ -13815,6 +14565,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "営業チームがチェックリストを記入しました。確認が終わったら完了にするか、適切な担当者に委任してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Account-Team hat die Checkliste ausgefüllt. Markiere sie nach deiner Prüfung als erledigt oder delegiere sie an die richtige Person."
           }
         }
       }
@@ -13827,6 +14583,12 @@
             "state": "translated",
             "value": "公開のお知らせ文をレビュー"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch-Ankündigung prüfen"
+          }
         }
       }
     },
@@ -13837,6 +14599,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "顧客への送信前に、お知らせの文面を確認してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitte prüfe den Ankündigungstext, bevor er an die Kunden geht."
           }
         }
       }
@@ -13849,6 +14617,12 @@
             "state": "translated",
             "value": "このサンプル依頼はMikaの確認待ちです。送った依頼はここで結果を追えます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Beispielanfrage wartet auf Mika. Gesendete Anfragen bleiben hier, damit du das Ergebnis verfolgen kannst."
+          }
         }
       }
     },
@@ -13859,6 +14633,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "週次レポートが届きました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Wochenbericht ist fertig"
           }
         }
       }
@@ -13871,6 +14651,12 @@
             "state": "translated",
             "value": "今週の顧客フィードバックとプロダクト指標が共有されました。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team hat das Kundenfeedback und die Produktkennzahlen dieser Woche veröffentlicht."
+          }
         }
       }
     },
@@ -13882,6 +14668,12 @@
             "state": "translated",
             "value": "完了した依頼も、判断結果と一緒に確認できるサンプルです。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Beispiel zeigt, wie eine erledigte Anfrage samt Entscheidung verfügbar bleibt."
+          }
         }
       }
     },
@@ -13891,6 +14683,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルデータ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispieldaten"
           }
         }
       }
@@ -13902,6 +14700,12 @@
             "state": "translated",
             "value": "依頼・メンバーを検索"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfragen oder Personen suchen"
+          }
         }
       }
     },
@@ -13911,6 +14715,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "検索をクリア"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche löschen"
           }
         }
       }
@@ -13922,6 +14732,12 @@
             "state": "translated",
             "value": "すべての種類"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Typen"
+          }
         }
       }
     },
@@ -13931,6 +14747,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "優先度が高い"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hohe Priorität"
           }
         }
       }
@@ -13942,6 +14764,12 @@
             "state": "translated",
             "value": "新しい順"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neueste zuerst"
+          }
         }
       }
     },
@@ -13951,6 +14779,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "古い順"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Älteste zuerst"
           }
         }
       }
@@ -13962,6 +14796,12 @@
             "state": "translated",
             "value": "依頼を並べ替え"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfragen sortieren"
+          }
         }
       }
     },
@@ -13971,6 +14811,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "あなたの対応待ち"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf dich"
           }
         }
       }
@@ -13982,6 +14828,12 @@
             "state": "translated",
             "value": "あなたが送った依頼"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von dir erstellte Anfragen"
+          }
         }
       }
     },
@@ -13991,6 +14843,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "判断・返信の記録"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Entscheidungen und Antworten"
           }
         }
       }
@@ -14002,6 +14860,12 @@
             "state": "translated",
             "value": "最初の依頼を作成"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deine erste Anfrage"
+          }
         }
       }
     },
@@ -14011,6 +14875,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "完了した依頼がここに表示されます"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entscheidungen erscheinen hier"
           }
         }
       }
@@ -14022,6 +14892,12 @@
             "state": "translated",
             "value": "一致する依頼がありません"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine passenden Anfragen"
+          }
         }
       }
     },
@@ -14031,6 +14907,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メンバーから届いた依頼がここに表示されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Anfragen deiner Teammitglieder erscheinen hier."
           }
         }
       }
@@ -14042,6 +14924,12 @@
             "state": "translated",
             "value": "依頼を作成して、その後の対応をここで確認できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstelle eine Anfrage und verfolge hier das Ergebnis."
+          }
         }
       }
     },
@@ -14051,6 +14939,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "承認・返信・完了した依頼をここで確認できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stimme einer Anfrage zu, beantworte oder erledige sie, um sie hier festzuhalten."
           }
         }
       }
@@ -14062,6 +14956,12 @@
             "state": "translated",
             "value": "宛先：%@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An %@"
+          }
         }
       }
     },
@@ -14071,6 +14971,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼内容"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage"
           }
         }
       }
@@ -14082,6 +14988,12 @@
             "state": "translated",
             "value": "参照元"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle"
+          }
         }
       }
     },
@@ -14091,6 +15003,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルの参照元"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielquelle"
           }
         }
       }
@@ -14102,6 +15020,12 @@
             "state": "translated",
             "value": "元の依頼文"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ursprüngliche Anfrage"
+          }
         }
       }
     },
@@ -14111,6 +15035,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースへの保存を確認中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Workspace-Sync"
           }
         }
       }
@@ -14122,6 +15052,12 @@
             "state": "translated",
             "value": "このデモ内にのみ保存しました"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur in dieser Demo gespeichert"
+          }
         }
       }
     },
@@ -14131,6 +15067,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub Issue を開く"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-Issue öffnen"
           }
         }
       }
@@ -14142,6 +15084,12 @@
             "state": "translated",
             "value": "%@ の対応待ち"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf %@"
+          }
         }
       }
     },
@@ -14151,6 +15099,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼を表示できません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage nicht verfügbar"
           }
         }
       }
@@ -14162,6 +15116,12 @@
             "state": "translated",
             "value": "依頼を更新できませんでした"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage konnte nicht aktualisiert werden"
+          }
         }
       }
     },
@@ -14171,6 +15131,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "この依頼を却下しますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Anfrage ablehnen?"
           }
         }
       }
@@ -14182,6 +15148,12 @@
             "state": "translated",
             "value": "この判断を取り消しますか？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Entscheidung rückgängig machen?"
+          }
         }
       }
     },
@@ -14191,6 +15163,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "判断を取り消す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entscheidung rückgängig machen"
           }
         }
       }
@@ -14202,6 +15180,12 @@
             "state": "translated",
             "value": "依頼を未対応に戻します。GitHub に反映済みの変更は取り消されません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anfrage wird wieder geöffnet. Bereits in GitHub vorgenommene Änderungen bleiben bestehen."
+          }
         }
       }
     },
@@ -14211,6 +15195,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "対応するには再接続してください。依頼はここに保存されています。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich neu, um zu antworten. Deine Anfrage bleibt hier."
           }
         }
       }
@@ -14222,6 +15212,12 @@
             "state": "translated",
             "value": "承認すると、このワークスペースに GitHub Issue を作成します。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Zustimmen wird ein GitHub-Issue in diesem Workspace erstellt."
+          }
         }
       }
     },
@@ -14231,6 +15227,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "その他の操作"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weitere Aktionen"
           }
         }
       }
@@ -14242,6 +15244,12 @@
             "state": "translated",
             "value": "完了にする"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als erledigt markieren"
+          }
         }
       }
     },
@@ -14251,6 +15259,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "確認済みにする"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zur Kenntnis nehmen"
           }
         }
       }
@@ -14262,6 +15276,12 @@
             "state": "translated",
             "value": "返信内容"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Antwort"
+          }
         }
       }
     },
@@ -14271,6 +15291,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "修正してほしい内容"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was muss sich ändern?"
           }
         }
       }
@@ -14282,6 +15308,12 @@
             "state": "translated",
             "value": "返信すると依頼が完了し、送信者に返答が届きます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit einer Antwort wird diese Anfrage erledigt und der Absender benachrichtigt."
+          }
         }
       }
     },
@@ -14291,6 +15323,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信者に修正依頼が届きます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Absender erhält deine Überarbeitungsanfrage."
           }
         }
       }
@@ -14302,6 +15340,12 @@
             "state": "translated",
             "value": "担当を引き継ぐ相手"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delegieren an"
+          }
         }
       }
     },
@@ -14311,6 +15355,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デモ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo"
           }
         }
       }
@@ -14322,6 +15372,12 @@
             "state": "translated",
             "value": "デモワークスペース · サンプルデータのみ"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo-Workspace · nur Beispieldaten"
+          }
         }
       }
     },
@@ -14331,6 +15387,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼の種類"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfragetyp"
           }
         }
       }
@@ -14342,6 +15404,12 @@
             "state": "translated",
             "value": "動画を添付済み"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video angehängt"
+          }
         }
       }
     },
@@ -14351,6 +15419,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
           }
         }
       }
@@ -14362,6 +15436,12 @@
             "state": "translated",
             "value": "このデモ内にサンプルの依頼を作成します。誰にも通知されません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies erstellt eine lokale Beispielanfrage. Niemand wird benachrichtigt."
+          }
         }
       }
     },
@@ -14371,6 +15451,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "相手の受信箱に依頼が届きます。送信後は「送信済み」で確認できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anfrage landet im Posteingang des Empfängers. Du kannst sie unter „Gesendet“ verfolgen."
           }
         }
       }
@@ -14382,6 +15468,12 @@
             "state": "translated",
             "value": "依頼を確認"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage prüfen"
+          }
         }
       }
     },
@@ -14391,6 +15483,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼を送信中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage wird gesendet…"
           }
         }
       }
@@ -14402,6 +15500,12 @@
             "state": "translated",
             "value": "下書きを準備中…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Entwurf wird vorbereitet…"
+          }
         }
       }
     },
@@ -14411,6 +15515,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼を送信"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage senden"
           }
         }
       }
@@ -14422,6 +15532,12 @@
             "state": "translated",
             "value": "確認して送信するまで、相手には届きません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts wird gesendet, bevor du bestätigst."
+          }
         }
       }
     },
@@ -14431,6 +15547,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "この下書きを破棄しますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Entwurf verwerfen?"
           }
         }
       }
@@ -14442,6 +15564,12 @@
             "state": "translated",
             "value": "下書きを破棄"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurf verwerfen"
+          }
         }
       }
     },
@@ -14451,6 +15579,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "編集を続ける"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter bearbeiten"
           }
         }
       }
@@ -14462,6 +15596,12 @@
             "state": "translated",
             "value": "メンバーに依頼したいことは？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was brauchst du von deinem Teammitglied?"
+          }
         }
       }
     },
@@ -14471,6 +15611,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼の内容・背景・返答がほしい時期を入力してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beschreibe die Anfrage, den Kontext und bis wann du eine Antwort brauchst."
           }
         }
       }
@@ -14482,6 +15628,12 @@
             "state": "translated",
             "value": "依頼の内容"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beschreibung der Anfrage"
+          }
         }
       }
     },
@@ -14491,6 +15643,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "例：金曜までに公開用の文章を確認してください。見出しとお客様のコメントについて承認をお願いします。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Beispiel: Bitte prüfe den Launch-Text vor Freitag. Wir brauchen eine Freigabe für die Überschrift und das Kundenzitat."
           }
         }
       }
@@ -14502,6 +15660,12 @@
             "state": "translated",
             "value": "音声で入力"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktieren"
+          }
         }
       }
     },
@@ -14511,6 +15675,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "内容が伝わる件名を入力"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib der Anfrage einen klaren Titel"
           }
         }
       }
@@ -14522,6 +15692,12 @@
             "state": "translated",
             "value": "背景・補足（任意）"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontext · optional"
+          }
         }
       }
     },
@@ -14531,6 +15707,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "詳しい内容やリンクを追加"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details oder Links hinzufügen"
           }
         }
       }
@@ -14542,6 +15724,12 @@
             "state": "translated",
             "value": "チームメンバーを選択"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teammitglied auswählen"
+          }
         }
       }
     },
@@ -14551,6 +15739,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メンバーを読み込み中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teammitglieder werden geladen…"
           }
         }
       }
@@ -14562,6 +15756,12 @@
             "state": "translated",
             "value": "接続するとワークスペースのメンバーを表示します。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich, um die Mitglieder deines Workspace zu laden."
+          }
         }
       }
     },
@@ -14571,6 +15771,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信するには再接続してください。下書きは引き続き編集できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich neu, um zu senden. Dein Entwurf bleibt bearbeitbar."
           }
         }
       }
@@ -14582,6 +15788,12 @@
             "state": "translated",
             "value": "このワークスペースのメンバーを選んでください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle jemanden aus diesem Workspace."
+          }
         }
       }
     },
@@ -14591,6 +15803,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デモの下書き · 入力した内容はこの端末内に保存されます"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo-Entwurf · deine Worte bleiben auf diesem Gerät"
           }
         }
       }
@@ -14602,6 +15820,12 @@
             "state": "translated",
             "value": "手動の下書き · 送信前に接続してください"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manueller Entwurf · vor dem Senden neu verbinden"
+          }
         }
       }
     },
@@ -14611,6 +15835,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AI の利用上限に達しました。下書きを確認・編集してから送信してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Limit erreicht. Prüfe diesen manuellen Entwurf vor dem Senden."
           }
         }
       }
@@ -14622,6 +15852,12 @@
             "state": "translated",
             "value": "AI の下書き · 内容を確認してから送信してください"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Entwurf · prüfe vor dem Senden jedes Detail"
+          }
         }
       }
     },
@@ -14631,6 +15867,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AI で準備できませんでした。入力内容は保持しています。内容を編集して送信できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die KI konnte diese Anfrage nicht vorbereiten. Dein Text bleibt unten erhalten; bearbeite ihn und sende ihn, wenn du so weit bist."
           }
         }
       }
@@ -14642,6 +15884,12 @@
             "state": "translated",
             "value": "あなたが指定"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von dir ausgewählt"
+          }
         }
       }
     },
@@ -14651,6 +15899,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デモ内に依頼を作成しました。「送信済み」で確認できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Demo erstellt. Öffne „Gesendet“, um die Anfrage zu verfolgen."
           }
         }
       }
@@ -14662,6 +15916,12 @@
             "state": "translated",
             "value": "送信待ちに追加しました。ワークスペースでの受信は「送信済み」で確認できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage in der Warteschlange. Unter „Gesendet“ siehst du, wann dein Workspace sie erhält."
+          }
         }
       }
     },
@@ -14671,6 +15931,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信状態を確認してください"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zustellung braucht Aufmerksamkeit"
           }
         }
       }
@@ -14682,6 +15948,12 @@
             "state": "translated",
             "value": "デモの依頼を作成しました"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo-Anfrage erstellt"
+          }
         }
       }
     },
@@ -14691,6 +15963,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信待ちに追加しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage in der Warteschlange"
           }
         }
       }
@@ -14702,6 +15980,12 @@
             "state": "translated",
             "value": "操作結果はデモ内にのみ保存されます。誰にも通知されません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aktion bleibt in der Demo. Niemand wird benachrichtigt."
+          }
         }
       }
     },
@@ -14711,6 +15995,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信前に内容を確認してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe vor dem Senden jedes Detail."
           }
         }
       }
@@ -14722,6 +16012,12 @@
             "state": "translated",
             "value": "動画を録画できませんでした。文字起こしは利用できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Video konnte nicht aufgenommen werden. Du kannst das Transkript trotzdem nutzen."
+          }
         }
       }
     },
@@ -14731,6 +16027,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Honmaru AI へ\nようこそ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Willkommen bei\nHonmaru AI"
           }
         }
       }
@@ -14742,6 +16044,12 @@
             "state": "translated",
             "value": "より良い判断を、いつもそばで支える\nあなたのAIチームメイト。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein KI-Teammitglied, das dir hilft, jedes Mal die richtigen Entscheidungen zu treffen."
+          }
         }
       }
     },
@@ -14752,6 +16060,12 @@
             "state": "translated",
             "value": "すでにアカウントをお持ちの方"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ich habe schon ein Konto"
+          }
         }
       }
     },
@@ -14761,6 +16075,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub で続ける"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter mit GitHub"
           }
         }
       }
@@ -14800,6 +16120,12 @@
             "state": "translated",
             "value": "あなたのAIアシスタント"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein KI-Assistent"
+          }
         }
       }
     },
@@ -14809,6 +16135,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルデータのみ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Beispieldaten"
           }
         }
       }
@@ -14820,6 +16152,12 @@
             "state": "translated",
             "value": "依頼の準備をお手伝いします"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit zu helfen"
+          }
         }
       }
     },
@@ -14829,6 +16167,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "手動で依頼を作成できます"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuelle Anfragen sind verfügbar"
           }
         }
       }
@@ -14840,6 +16184,12 @@
             "state": "translated",
             "value": "利用可能"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiv"
+          }
         }
       }
     },
@@ -14850,12 +16200,24 @@
             "state": "translated",
             "value": "設定する"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einrichten"
+          }
         }
       }
     },
     "Honmaru Pro": {
       "localizations": {
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru Pro"
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Honmaru Pro"
@@ -14870,6 +16232,12 @@
             "state": "translated",
             "value": "このビルドでは課金を利用できません"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrechnung ist in diesem Build nicht verfügbar"
+          }
         }
       }
     },
@@ -14879,6 +16247,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "利用不可"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verfügbar"
           }
         }
       }
@@ -14890,6 +16264,12 @@
             "state": "translated",
             "value": "オフ"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
         }
       }
     },
@@ -14899,6 +16279,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "件名は300文字以内にしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Titel darf höchstens 300 Zeichen lang sein."
           }
         }
       }
@@ -14910,6 +16296,12 @@
             "state": "translated",
             "value": "依頼内容は2,000文字以内にしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zusammenfassung darf höchstens 2.000 Zeichen lang sein."
+          }
         }
       }
     },
@@ -14919,6 +16311,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "補足情報は8,000文字以内にしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Kontext darf höchstens 8.000 Zeichen lang sein."
           }
         }
       }
@@ -14930,6 +16328,12 @@
             "state": "translated",
             "value": "依頼を受け付けられませんでした。下書きを復元したので内容を確認してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Workspace konnte diese Anfrage nicht annehmen. Dein Entwurf wurde zur Prüfung wiederhergestellt."
+          }
         }
       }
     },
@@ -14939,6 +16343,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼者"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angefragt von"
           }
         }
       }
@@ -14950,6 +16360,12 @@
             "state": "translated",
             "value": "推奨："
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfohlen: "
+          }
         }
       }
     },
@@ -14959,6 +16375,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "原文を見る"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original ansehen"
           }
         }
       }
@@ -14970,6 +16392,12 @@
             "state": "translated",
             "value": "判断待ち · デモ"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entscheidungen · Demo"
+          }
         }
       }
     },
@@ -14979,6 +16407,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "（任意）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(optional)"
           }
         }
       }
@@ -14990,6 +16424,12 @@
             "state": "translated",
             "value": "宛先を確認できませんでした。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Empfänger konnte nicht bestätigt werden."
+          }
         }
       }
     },
@@ -14999,6 +16439,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIが作成した下書きです。送信前に内容を確認してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-gestützter Entwurf. Prüfe die Details vor dem Senden."
           }
         }
       }
@@ -15010,6 +16456,12 @@
             "state": "translated",
             "value": "引き受ける"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergabe annehmen"
+          }
         }
       }
     },
@@ -15019,6 +16471,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "リンクを追加"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link hinzufügen"
           }
         }
       }
@@ -15030,6 +16488,12 @@
             "state": "translated",
             "value": "依頼に追加"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zur Anfrage hinzufügen"
+          }
         }
       }
     },
@@ -15039,6 +16503,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "動画を添付"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video anhängen"
           }
         }
       }
@@ -15050,6 +16520,12 @@
             "state": "translated",
             "value": "背景・補足"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrund"
+          }
         }
       }
     },
@@ -15059,6 +16535,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "変更はこのブラウザ内だけに保存されます。メッセージや通知は送信されません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen bleiben in diesem Browser. Es werden keine Nachrichten oder Benachrichtigungen gesendet."
           }
         }
       }
@@ -15070,6 +16552,12 @@
             "state": "translated",
             "value": "12 MB未満の動画を選んでください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle ein Video unter 12 MB."
+          }
         }
       }
     },
@@ -15079,6 +16567,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "修正を完了"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überarbeitung abschließen"
           }
         }
       }
@@ -15090,6 +16584,12 @@
             "state": "translated",
             "value": "タスクを完了"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe abschließen"
+          }
         }
       }
     },
@@ -15099,6 +16599,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信を確認中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zustellung wird bestätigt…"
           }
         }
       }
@@ -15110,6 +16616,12 @@
             "state": "translated",
             "value": "送信を確認できませんでした。再送する前に送信済みの依頼を確認してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zustellung konnte nicht bestätigt werden. Prüfe „Gesendet“, bevor du es erneut versuchst."
+          }
         }
       }
     },
@@ -15119,6 +16631,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースに参加できませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beitritt zum Workspace fehlgeschlagen."
           }
         }
       }
@@ -15130,6 +16648,12 @@
             "state": "translated",
             "value": "アカウントを作成"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto erstellen"
+          }
         }
       }
     },
@@ -15139,6 +16663,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "アカウントを作成"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto erstellen"
           }
         }
       }
@@ -15150,6 +16680,12 @@
             "state": "translated",
             "value": "サンプルの依頼を作成"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielanfrage erstellen"
+          }
         }
       }
     },
@@ -15159,6 +16695,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "判断待ちの依頼"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entscheidungs-Feed"
           }
         }
       }
@@ -15170,6 +16712,12 @@
             "state": "translated",
             "value": "直接の依頼"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direkte Anfrage"
+          }
         }
       }
     },
@@ -15179,6 +16727,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "閉じる"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
           }
         }
       }
@@ -15190,6 +16744,12 @@
             "state": "translated",
             "value": "メールアドレスとパスワード"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "E-Mail und Passwort."
+          }
         }
       }
     },
@@ -15199,6 +16759,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メールでコードを受け取る"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stattdessen Code per E-Mail senden"
           }
         }
       }
@@ -15210,6 +16776,12 @@
             "state": "translated",
             "value": "ワークスペースに参加"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace beitreten"
+          }
         }
       }
     },
@@ -15219,6 +16791,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースに参加"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deinem Workspace beitreten"
           }
         }
       }
@@ -15230,6 +16808,12 @@
             "state": "translated",
             "value": "参加中…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trete bei…"
+          }
         }
       }
     },
@@ -15239,6 +16823,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "コードがなくても自分のワークスペースを作成して、メンバーを招待できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Code? Du bekommst einen eigenen Workspace und kannst andere einladen."
           }
         }
       }
@@ -15250,6 +16840,12 @@
             "state": "translated",
             "value": "まだ完了した依頼はありません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nichts entschieden."
+          }
         }
       }
     },
@@ -15259,6 +16855,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "お待ちください…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einen Moment…"
           }
         }
       }
@@ -15270,6 +16872,12 @@
             "state": "translated",
             "value": "ワークスペースを開いています…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Workspace wird geöffnet…"
+          }
         }
       }
     },
@@ -15279,6 +16887,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "元の情報"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ursprüngliche Quelle"
           }
         }
       }
@@ -15290,6 +16904,12 @@
             "state": "translated",
             "value": "AIを使わずに作成しました。送信前に確認・編集してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne KI vorbereitet. Vor dem Senden prüfen und bearbeiten."
+          }
         }
       }
     },
@@ -15299,6 +16919,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "作成中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird vorbereitet…"
           }
         }
       }
@@ -15310,6 +16936,12 @@
             "state": "translated",
             "value": "依頼をすべて読む"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ganze Anfrage lesen"
+          }
         }
       }
     },
@@ -15319,6 +16951,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "宛先"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfänger"
           }
         }
       }
@@ -15330,6 +16968,12 @@
             "state": "translated",
             "value": "推奨："
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfohlen:"
+          }
         }
       }
     },
@@ -15339,6 +16983,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続が戻ってから回答を保存してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich neu, bevor du eine Antwort speicherst."
           }
         }
       }
@@ -15350,6 +17000,12 @@
             "state": "translated",
             "value": "接続が戻ってからリマインダーを送信してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich neu, bevor du eine Erinnerung sendest."
+          }
         }
       }
     },
@@ -15359,6 +17015,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続が戻ってから回答を取り消してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich neu, bevor du eine Antwort zurücknimmst."
           }
         }
       }
@@ -15370,6 +17032,12 @@
             "state": "translated",
             "value": "再接続すると送信できます。下書きは保持されています。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich neu, um zu senden. Dein Entwurf bleibt hier."
+          }
         }
       }
     },
@@ -15379,6 +17047,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼の詳細"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfragedetails"
           }
         }
       }
@@ -15390,6 +17064,12 @@
             "state": "translated",
             "value": "送信しました。リストの「送信した依頼」で確認できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage gesendet. Du findest sie in „Klassisch“ unter „Von dir gesendet“."
+          }
         }
       }
     },
@@ -15399,6 +17079,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼者に回答"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dem Absender antworten"
           }
         }
       }
@@ -15410,6 +17096,12 @@
             "state": "translated",
             "value": "回答を保存しました。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort gespeichert."
+          }
         }
       }
     },
@@ -15419,6 +17111,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "回答を取り消し、判断待ちに戻しました。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort zurückgenommen. Die Anfrage wartet wieder."
           }
         }
       }
@@ -15430,6 +17128,12 @@
             "state": "translated",
             "value": "送信前に依頼を確認・編集してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe und bearbeite die Anfrage vor dem Senden."
+          }
         }
       }
     },
@@ -15439,6 +17143,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "自分で内容を確認"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell prüfen"
           }
         }
       }
@@ -15450,6 +17160,12 @@
             "state": "translated",
             "value": "サンプルの下書きです。このブラウザの外には送信されません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielentwurf. Nichts verlässt diesen Browser."
+          }
         }
       }
     },
@@ -15459,6 +17175,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルの推奨："
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielempfehlung:"
           }
         }
       }
@@ -15470,6 +17192,12 @@
             "state": "translated",
             "value": "サンプルのリマインダーを保存しました。通知は送信されていません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielerinnerung lokal gespeichert. Es wurde keine Benachrichtigung gesendet."
+          }
         }
       }
     },
@@ -15479,6 +17207,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルの依頼を作成しました。リストの「送信した依頼」で確認できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielanfrage lokal erstellt. Du findest sie in „Klassisch“ unter „Von dir gesendet“."
           }
         }
       }
@@ -15490,6 +17224,12 @@
             "state": "translated",
             "value": "サンプルの回答を保存しました。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielantwort lokal gespeichert."
+          }
         }
       }
     },
@@ -15499,6 +17239,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルの回答を取り消しました。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielantwort lokal zurückgenommen."
           }
         }
       }
@@ -15510,6 +17256,12 @@
             "state": "translated",
             "value": "サンプルワークスペース · ローカルのみ"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispiel-Workspace · nur lokal"
+          }
         }
       }
     },
@@ -15519,6 +17271,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "回答を保存中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort wird gespeichert…"
           }
         }
       }
@@ -15530,6 +17288,12 @@
             "state": "translated",
             "value": "閉じる"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weniger anzeigen"
+          }
         }
       }
     },
@@ -15539,6 +17303,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "音声入力を停止"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spracheingabe beenden"
           }
         }
       }
@@ -15550,6 +17320,12 @@
             "state": "translated",
             "value": "例：春のメニューを金曜までに承認してほしいと田中さんに依頼して"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sag es deiner KI – z. B. bitte Yuki, das Frühlingsmenü bis Freitag freizugeben"
+          }
         }
       }
     },
@@ -15559,6 +17335,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "元の依頼の全文は、この要約と一緒に保持されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die vollständige ursprüngliche Anfrage bleibt mit dieser Zusammenfassung erhalten."
           }
         }
       }
@@ -15570,6 +17352,12 @@
             "state": "translated",
             "value": "依頼を判断待ちに戻します。連携ツールで行った変更は取り消されません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anfrage wartet dann wieder. Bereits in verbundenen Tools vorgenommene Änderungen werden nicht rückgängig gemacht."
+          }
         }
       }
     },
@@ -15579,6 +17367,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "回答の保存をまだ確認できていません。再試行の前に依頼の状態を確認してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Antwort ist noch nicht bestätigt. Prüfe die Anfrage, bevor du es erneut versuchst."
           }
         }
       }
@@ -15590,6 +17384,12 @@
             "state": "translated",
             "value": "サンプルの依頼を判断待ちに戻します。通知は送信されません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Beispielanfrage wartet dann wieder. Es werden keine Benachrichtigungen gesendet."
+          }
         }
       }
     },
@@ -15599,6 +17399,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "動画を添付できませんでした。もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Video konnte nicht angehängt werden. Versuch es noch einmal."
           }
         }
       }
@@ -15610,6 +17416,12 @@
             "state": "translated",
             "value": "このワークスペースはメール送信が未設定です。パスワードでサインインできます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Workspace kann noch keine E-Mails senden – nutze vorerst ein Passwort."
+          }
         }
       }
     },
@@ -15619,6 +17431,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルで試す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokalen Beispiel-Workspace ausprobieren"
           }
         }
       }
@@ -15630,6 +17448,12 @@
             "state": "translated",
             "value": "回答を取り消す"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort zurücknehmen"
+          }
         }
       }
     },
@@ -15639,6 +17463,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "回答を取り消しますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort zurücknehmen?"
           }
         }
       }
@@ -15650,6 +17480,12 @@
             "state": "translated",
             "value": "音声入力"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spracheingabe"
+          }
         }
       }
     },
@@ -15659,6 +17495,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "音声入力を開始できませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spracheingabe konnte nicht starten."
           }
         }
       }
@@ -15670,6 +17512,12 @@
             "state": "translated",
             "value": "このブラウザでは音声入力を利用できません。キーボードの音声入力機能をご利用ください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spracheingabe ist in diesem Browser nicht verfügbar. Du kannst die Diktierfunktion deiner Tastatur nutzen."
+          }
         }
       }
     },
@@ -15679,6 +17527,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "音声入力を停止しました。続けて文字を入力できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spracheingabe beendet. Du kannst weitertippen."
           }
         }
       }
@@ -15690,6 +17544,12 @@
             "state": "translated",
             "value": "コードを送信できませんでした。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wir konnten keinen Code senden."
+          }
         }
       }
     },
@@ -15699,6 +17559,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "おかえりなさい。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Willkommen zurück."
           }
         }
       }
@@ -15710,6 +17576,12 @@
             "state": "translated",
             "value": "何を確認しますか？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was braucht deine Aufmerksamkeit?"
+          }
         }
       }
     },
@@ -15719,6 +17591,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "回答を入力…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schreib deine Antwort…"
           }
         }
       }
@@ -15730,6 +17608,12 @@
             "state": "translated",
             "value": "サインイン済みです。メンバーから受け取った招待コードでワークスペースに参加してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist angemeldet. Gib den Einladungscode eines Teammitglieds ein, um wieder Zugriff auf den Workspace zu bekommen."
+          }
         }
       }
     },
@@ -15739,6 +17623,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "自分で内容を確認して続けられます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kannst mit einer manuellen Prüfung fortfahren."
           }
         }
       }
@@ -15750,6 +17640,12 @@
             "state": "translated",
             "value": "メールアドレスを入力してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine KI braucht eine Adresse."
+          }
         }
       }
     },
@@ -15759,6 +17655,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続が完了すると依頼が表示されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Anfragen erscheinen, sobald die Verbindung steht."
           }
         }
       }
@@ -15770,6 +17672,12 @@
             "state": "translated",
             "value": "回答を送信すると、この依頼は完了します。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Antwort schließt diese Anfrage ab."
+          }
         }
       }
     },
@@ -15779,6 +17687,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "チームを読み込み中です。少し待ってからお試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team wird geladen. Versuch es gleich noch einmal."
           }
         }
       }
@@ -15790,6 +17704,12 @@
             "state": "translated",
             "value": "手動作成"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell"
+          }
         }
       }
     },
@@ -15799,6 +17719,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "高"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoch"
           }
         }
       }
@@ -15810,6 +17736,12 @@
             "state": "translated",
             "value": "受信"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingang"
+          }
         }
       }
     },
@@ -15819,6 +17751,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "修正依頼"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überarbeitung"
           }
         }
       }
@@ -15830,6 +17768,12 @@
             "state": "translated",
             "value": "アカウント作成"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrierung"
+          }
         }
       }
     },
@@ -15839,6 +17783,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "タスク"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe"
           }
         }
       }
@@ -15850,6 +17800,12 @@
             "state": "translated",
             "value": "至急"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dringend"
+          }
         }
       }
     },
@@ -15859,6 +17815,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カード"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karten"
           }
         }
       }
@@ -15870,6 +17832,12 @@
             "state": "translated",
             "value": "リスト"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisch"
+          }
         }
       }
     },
@@ -15879,6 +17847,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼を入力…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frag irgendwas…"
           }
         }
       }
@@ -15890,6 +17864,12 @@
             "state": "translated",
             "value": "履歴を見る"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlauf ansehen"
+          }
         }
       }
     },
@@ -15899,6 +17879,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デモに作成しました。履歴で依頼を確認できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Demo erstellt. Du kannst die Anfrage im Verlauf verfolgen."
           }
         }
       }
@@ -15910,6 +17896,12 @@
             "state": "translated",
             "value": "送信待ちに追加しました。履歴で送信状況と結果を確認できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfrage in der Warteschlange. Zustellung und Ergebnis kannst du im Verlauf verfolgen."
+          }
         }
       }
     },
@@ -15919,6 +17911,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "マーケティング責任者"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marketingleitung"
           }
         }
       }
@@ -15930,6 +17928,12 @@
             "state": "translated",
             "value": "案内動画の再撮影費用 $1,840 を承認"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.840 $ für den Neudreh des Onboarding-Videos freigeben"
+          }
         }
       }
     },
@@ -15939,6 +17943,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しい登録手順に合わせて案内動画を再撮影します。6月と同じチームが担当し、今四半期の動画予算を15%下回る見積もりです。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Neudreh deckt den neuen Registrierungsablauf ab. Dieselbe Crew wie im Juni, und er liegt 15 % unter dem Videobudget dieses Quartals."
           }
         }
       }
@@ -15950,6 +17960,12 @@
             "state": "translated",
             "value": "製品デザインのサンプルデータです。デモでは実際の予算承認や外部への操作は行いません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das sind Beispieldaten aus dem Produktdesign. In der Demo werden keine Budgets freigegeben und keine externen Arbeiten ausgeführt."
+          }
         }
       }
     },
@@ -15959,6 +17975,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "今四半期の動画予算を15%下回り、過去に承認した類似の依頼とも整合しています。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Anfrage liegt 15 % unter dem Videobudget dieses Quartals und passt zu ähnlichen Anfragen, denen du früher zugestimmt hast."
           }
         }
       }
@@ -15970,6 +17992,12 @@
             "state": "translated",
             "value": "新しい登録手順を反映するため、案内動画の再撮影が必要です。現在の動画は混乱や離脱の原因になっています。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wir müssen das Onboarding-Video neu drehen, damit es den neuen Registrierungsablauf zeigt. Das aktuelle Video sorgt für Verwirrung und Abbrüche."
+          }
         }
       }
     },
@@ -15979,6 +18007,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "この依頼には元のメッセージが含まれていません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ursprüngliche Nachricht ist in dieser Anfrage nicht enthalten."
           }
         }
       }
@@ -15990,6 +18024,12 @@
             "state": "translated",
             "value": "元の情報を開く"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ursprüngliche Quelle öffnen"
+          }
         }
       }
     },
@@ -15999,6 +18039,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアカウントはワークスペースに参加していません。チームに参加すると依頼を送信できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Konto hat keinen Workspace. Tritt einem Team bei, um Anfragen zu senden."
           }
         }
       }
@@ -16010,6 +18056,12 @@
             "state": "translated",
             "value": "返信"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten"
+          }
         }
       }
     },
@@ -16019,6 +18071,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "承認してGitHubのIssueを作成しますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zustimmen und ein GitHub-Issue erstellen?"
           }
         }
       }
@@ -16030,6 +18088,12 @@
             "state": "translated",
             "value": "メンバーを読み込めませんでした。もう一度お試しください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teammitglieder konnten nicht geladen werden. Versuch es noch einmal."
+          }
         }
       }
     },
@@ -16039,6 +18103,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "デモメンバー"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo-Mitglied"
           }
         }
       }
@@ -16050,6 +18120,12 @@
             "state": "translated",
             "value": "依頼"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfragen"
+          }
         }
       }
     },
@@ -16059,6 +18135,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンプルの依頼"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispielanfragen"
           }
         }
       }
@@ -16070,6 +18152,12 @@
             "state": "translated",
             "value": "チームメンバー"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teammitglieder"
+          }
         }
       }
     },
@@ -16079,6 +18167,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "返信を入力してから送信してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schreib vor dem Senden eine Antwort."
           }
         }
       }
@@ -16096,6 +18190,12 @@
             "state": "translated",
             "value": "何を伝えますか？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worum geht’s?"
+          }
         }
       }
     },
@@ -16111,6 +18211,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "話す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprechen"
           }
         }
       }
@@ -16128,6 +18234,12 @@
             "state": "translated",
             "value": "書く"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schreiben"
+          }
         }
       }
     },
@@ -16143,6 +18255,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIが内容をカードにまとめます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die KI macht aus deinen Worten eine Karte."
           }
         }
       }
@@ -16160,6 +18278,12 @@
             "state": "translated",
             "value": "編集"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details bearbeiten"
+          }
         }
       }
     },
@@ -16175,6 +18299,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "チームを設定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team einrichten"
           }
         }
       }
@@ -16192,6 +18322,12 @@
             "state": "translated",
             "value": "チームに招待するか、参加してください。下書きはここに残ります。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lade ein Teammitglied ein oder tritt einem Team bei. Dein Entwurf bleibt hier."
+          }
         }
       }
     },
@@ -16207,6 +18343,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "チーム"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
           }
         }
       }
@@ -16224,6 +18366,12 @@
             "state": "translated",
             "value": "招待コードを作成"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einladungscode erstellen"
+          }
         }
       }
     },
@@ -16239,6 +18387,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "招待コードを共有"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einladungscode teilen"
           }
         }
       }
@@ -16256,6 +18410,12 @@
             "state": "translated",
             "value": "このコードを受け取った人はチームに参加し、共有された業務を閲覧できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wer diesen Code hat, kann deinem Team beitreten und auf die geteilte Arbeit zugreifen."
+          }
         }
       }
     },
@@ -16271,6 +18431,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メンバーを招待"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teammitglied einladen"
           }
         }
       }
@@ -16288,6 +18454,12 @@
             "state": "translated",
             "value": "招待コード"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einladungscode"
+          }
         }
       }
     },
@@ -16303,6 +18475,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "参加する"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team beitreten"
           }
         }
       }
@@ -16320,6 +18498,12 @@
             "state": "translated",
             "value": "チームに参加"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einem Team beitreten"
+          }
         }
       }
     },
@@ -16335,6 +18519,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "チームに参加しました。下書きは残っています。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team beigetreten. Dein Entwurf ist noch da."
           }
         }
       }
@@ -16352,6 +18542,12 @@
             "state": "translated",
             "value": "メンバーから受け取ったコードを入力して、そのチームに切り替えます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Code deines Teammitglieds ein, um zu dessen Team zu wechseln."
+          }
         }
       }
     },
@@ -16368,6 +18564,12 @@
             "state": "translated",
             "value": "下書きに戻る"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurück zum Entwurf"
+          }
         }
       }
     },
@@ -16377,6 +18579,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "サポート"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Support"
           }
         }
       }
@@ -16389,6 +18597,12 @@
             "state": "translated",
             "value": "相手の役割"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rolle der Person"
+          }
         }
       }
     },
@@ -16399,6 +18613,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "あなたが送信"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von dir gesendet"
           }
         }
       }
@@ -16411,6 +18631,12 @@
             "state": "translated",
             "value": "リマインド"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erinnern"
+          }
         }
       }
     },
@@ -16421,6 +18647,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "その他"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr"
           }
         }
       }
@@ -16433,6 +18665,12 @@
             "state": "translated",
             "value": "このバージョンではまだプランを販売していません。今はすべて無料で使えます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In dieser Version gibt es noch keine Pläne zu kaufen. Vorerst ist hier alles kostenlos."
+          }
         }
       }
     },
@@ -16443,6 +18681,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "インサイト"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einblicke"
           }
         }
       }
@@ -16455,6 +18699,12 @@
             "state": "translated",
             "value": "このカード、違う？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stimmt diese Karte nicht?"
+          }
         }
       }
     },
@@ -16465,6 +18715,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "相手が違う"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falsche Person"
           }
         }
       }
@@ -16477,6 +18733,12 @@
             "state": "translated",
             "value": "決定ではない"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Entscheidung"
+          }
         }
       }
     },
@@ -16487,6 +18749,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "優先度が違う"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falsche Priorität"
           }
         }
       }
@@ -16499,6 +18767,12 @@
             "state": "translated",
             "value": "文面が悪い"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlecht formuliert"
+          }
         }
       }
     },
@@ -16509,6 +18783,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "やっぱりいい"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doch nicht"
           }
         }
       }
@@ -16521,6 +18801,12 @@
             "state": "translated",
             "value": "記録しました。AIが次に活かします。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notiert. Deine KI macht es künftig besser."
+          }
         }
       }
     },
@@ -16531,6 +18817,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "フィードの状況を見るにはサインインしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich an, um zu sehen, wie es um deinen Feed steht."
           }
         }
       }
@@ -16543,6 +18835,12 @@
             "state": "translated",
             "value": "このワークスペースのメンバーではありません。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist kein Mitglied dieses Workspace."
+          }
         }
       }
     },
@@ -16553,6 +18851,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "インサイトの取得に失敗しました（%lld）。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abruf der Einblicke fehlgeschlagen (%lld)."
           }
         }
       }
@@ -16565,6 +18869,12 @@
             "state": "translated",
             "value": "期間"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitraum"
+          }
         }
       }
     },
@@ -16575,6 +18885,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カード"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karten"
           }
         }
       }
@@ -16587,6 +18903,12 @@
             "state": "translated",
             "value": "待ち時間の中央値"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartezeit (Median)"
+          }
         }
       }
     },
@@ -16597,6 +18919,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "却下率"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "abgelehnt"
           }
         }
       }
@@ -16609,6 +18937,12 @@
             "state": "translated",
             "value": "%lld分"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Min."
+          }
         }
       }
     },
@@ -16619,6 +18953,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld時間"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Std."
           }
         }
       }
@@ -16631,6 +18971,12 @@
             "state": "translated",
             "value": "%lld日"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld T."
+          }
         }
       }
     },
@@ -16641,6 +18987,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "1日あたりのカード"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karten pro Tag"
           }
         }
       }
@@ -16653,6 +19005,12 @@
             "state": "translated",
             "value": "いま"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerade jetzt"
+          }
         }
       }
     },
@@ -16663,6 +19021,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "誰かを待っている"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf jemanden"
           }
         }
       }
@@ -16675,6 +19039,12 @@
             "state": "translated",
             "value": "この期間に決まった"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Zeitraum entschieden"
+          }
         }
       }
     },
@@ -16685,6 +19055,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "リマインドした"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erinnert"
           }
         }
       }
@@ -16697,6 +19073,12 @@
             "state": "translated",
             "value": "自分宛のメモ"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notizen an dich selbst"
+          }
         }
       }
     },
@@ -16707,6 +19089,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カードの出どころ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Woher Karten kommen"
           }
         }
       }
@@ -16719,6 +19107,12 @@
             "state": "translated",
             "value": "決まったこと"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was entschieden wurde"
+          }
         }
       }
     },
@@ -16729,6 +19123,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIが間違えたもの"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was deine KI falsch gemacht hat"
           }
         }
       }
@@ -16741,6 +19141,12 @@
             "state": "translated",
             "value": "この期間に報告されたカードはありません。各カードの下に「このカード、違う？」があります。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Zeitraum hat niemand eine Karte gemeldet. „Stimmt diese Karte nicht?“ steht unter jeder Karte."
+          }
         }
       }
     },
@@ -16751,6 +19157,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "修正を依頼"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überarbeitung angefragt"
           }
         }
       }
@@ -16763,6 +19175,12 @@
             "state": "translated",
             "value": "その他"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anderes"
+          }
         }
       }
     },
@@ -16773,6 +19191,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIに聞く"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frag deine KI"
           }
         }
       }
@@ -16785,6 +19209,12 @@
             "state": "translated",
             "value": "この決定についてAIに聞く"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frag deine KI zu dieser Entscheidung"
+          }
         }
       }
     },
@@ -16795,6 +19225,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIが調べています…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine KI sieht nach…"
           }
         }
       }
@@ -16807,6 +19243,12 @@
             "state": "translated",
             "value": "未決"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offen"
+          }
         }
       }
     },
@@ -16817,6 +19259,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "以前の決定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Früher entschieden"
           }
         }
       }
@@ -16829,6 +19277,12 @@
             "state": "translated",
             "value": "AIに聞くにはサインインしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich an, um deine KI zu fragen."
+          }
         }
       }
     },
@@ -16839,6 +19293,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIは今それに答えられませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine KI konnte das gerade nicht beantworten."
           }
         }
       }
@@ -16851,6 +19311,12 @@
             "state": "translated",
             "value": "依頼者への返信"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der fragenden Person antworten"
+          }
         }
       }
     },
@@ -16861,6 +19327,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "返信を下書き"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort entwerfen"
           }
         }
       }
@@ -16873,6 +19345,12 @@
             "state": "translated",
             "value": "AIが書いています…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine KI schreibt…"
+          }
         }
       }
     },
@@ -16883,6 +19361,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "依頼が来た言語での下書きです。読んで、直して、自分で送ってください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Entwurf in der Sprache der Anfrage. Lies ihn, ändere ihn und sende ihn selbst."
           }
         }
       }
@@ -16895,6 +19379,12 @@
             "state": "translated",
             "value": "コピーしました"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert"
+          }
         }
       }
     },
@@ -16905,6 +19395,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "返信を下書きするにはサインインしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich an, um die Antwort zu entwerfen."
           }
         }
       }
@@ -16917,6 +19413,12 @@
             "state": "translated",
             "value": "AIは今それを下書きできませんでした。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine KI konnte das gerade nicht entwerfen."
+          }
         }
       }
     },
@@ -16927,6 +19429,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カードを開きます"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet die Karte"
           }
         }
       }
@@ -16939,6 +19447,12 @@
             "state": "translated",
             "value": "下書き"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Entwurf"
+          }
         }
       }
     },
@@ -16949,6 +19463,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@で送りました。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Über %@ gesendet."
           }
         }
       }
@@ -16961,6 +19481,12 @@
             "state": "translated",
             "value": "%@で送る"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Über %@ senden"
+          }
         }
       }
     },
@@ -16971,6 +19497,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gesendet…"
           }
         }
       }
@@ -16983,6 +19515,12 @@
             "state": "translated",
             "value": "送れませんでした。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden fehlgeschlagen."
+          }
         }
       }
     },
@@ -16993,6 +19531,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AIに質問"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine KI gefragt"
           }
         }
       }
@@ -17005,6 +19549,12 @@
             "state": "translated",
             "value": "返信を下書き済み"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort entworfen"
+          }
         }
       }
     },
@@ -17015,6 +19565,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "返信を送信済み"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort gesendet"
           }
         }
       }
@@ -17027,6 +19583,12 @@
             "state": "translated",
             "value": "分類"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugeordnet"
+          }
         }
       }
     },
@@ -17037,6 +19599,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld件の出来事"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Ereignisse"
           }
         }
       }
@@ -17049,6 +19617,12 @@
             "state": "translated",
             "value": "招待リンクを共有"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einladungslink teilen"
+          }
         }
       }
     },
@@ -17059,6 +19633,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Honmaru AI のチームに参加してください"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tritt meinem Team bei Honmaru AI bei"
           }
         }
       }
@@ -17071,6 +19651,12 @@
             "state": "translated",
             "value": "チームを作成"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team erstellen"
+          }
         }
       }
     },
@@ -17081,6 +19667,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "チームを作成"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team erstellen"
           }
         }
       }
@@ -17093,6 +19685,12 @@
             "state": "translated",
             "value": "チーム名"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamname"
+          }
         }
       }
     },
@@ -17103,6 +19701,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "名前のついた専用のワークスペース。メンバーを招待できます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein eigener Workspace mit Namen, in den du Leute einlädst."
           }
         }
       }
@@ -17115,6 +19719,12 @@
             "state": "translated",
             "value": "名前をつける"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benennen"
+          }
         }
       }
     },
@@ -17125,6 +19735,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "名前を変更"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenennen"
           }
         }
       }
@@ -17137,6 +19753,12 @@
             "state": "translated",
             "value": "どこが違いますか？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was stimmt nicht?"
+          }
         }
       }
     },
@@ -17147,6 +19769,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "AI のコスト"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was deine KI gekostet hat"
           }
         }
       }
@@ -17159,6 +19787,12 @@
             "state": "translated",
             "value": "この期間・定価ベース"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Zeitraum, zum Listenpreis"
+          }
         }
       }
     },
@@ -17170,6 +19804,12 @@
             "state": "translated",
             "value": "自分の API キー分"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit deinen eigenen Schlüsseln"
+          }
         }
       }
     },
@@ -17180,6 +19820,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "言語モデルなしで Jev が決めた割合"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von Jev ohne Sprachmodell entschieden"
           }
         }
       }
@@ -17221,6 +19867,12 @@
             "state": "translated",
             "value": "返信の下書き"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwortentwürfe"
+          }
         }
       }
     },
@@ -17231,6 +19883,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "翻訳"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übersetzung"
           }
         }
       }
@@ -17243,6 +19901,12 @@
             "state": "translated",
             "value": "受信トレイの仕分け"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posteingangs-Triage"
+          }
         }
       }
     },
@@ -17253,6 +19917,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "事業ごとの分類"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuordnung nach Geschäft"
           }
         }
       }
@@ -24698,6 +27368,12 @@
             "state": "translated",
             "value": "カードを削除"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karte löschen"
+          }
         }
       }
     },
@@ -24707,6 +27383,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このカードを削除しますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Karte löschen?"
           }
         }
       }
@@ -24719,6 +27401,12 @@
             "state": "translated",
             "value": "優先度: %@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorität: %@"
+          }
         }
       }
     },
@@ -24728,6 +27416,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このカードを削除できるのは受け取った人だけです。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur die Person, für die sie bestimmt ist, kann diese Karte löschen."
           }
         }
       }
@@ -24740,6 +27434,12 @@
             "state": "translated",
             "value": "%@ に振り分けました"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weitergeleitet an: %@"
+          }
         }
       }
     },
@@ -24749,6 +27449,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メンバーと招待を管理"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitglieder und Einladungen verwalten"
           }
         }
       }
