@@ -21,6 +21,7 @@ import { audienceOf } from "./access.js";
 import { resolveMentions } from "./threads.js";
 import { viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
+import { quietFor } from "./quiet.js";
 
 export const PUSH_DELAY_MS = 60_000;
 /// How recent "at the app" has to be for a card not to be pushed.
@@ -134,6 +135,8 @@ export async function sendDuePushes(env, now = Date.now()) {
         .bind(job.org_id, job.login, msg.channel).first().catch(() => null);
       if (read?.last_read_at && read.last_read_at >= msg.created_at) { skipped += 1; continue; }
       // At the app since it arrived: they saw it come in, and heard it there.
+      // Paused, or outside the hours they set.
+      if (await quietFor(db, job.login, new Date(now))) { skipped += 1; continue; }
       if (!(await pushesWhileActive(db, job.login))) {
         const active = await lastActive(db, job.login);
         if (active && active >= msg.created_at) { skipped += 1; continue; }

@@ -2790,6 +2790,36 @@ await step('a star, a section of your own, and a user group one mention reaches'
   }
 })
 
+await step('notifications paused for an hour, said at the top, and resumed', async () => {
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/notifications`, { waitUntil: 'load' })
+    await w.waitForSelector('[data-pause="60"]', { timeout: 20000 })
+    await w.click('[data-pause="60"]')
+    await w.waitForSelector('[data-resume-settings]', { timeout: 10000 })
+    // The hours, too: weekdays nine to six.
+    await w.click('[data-schedule]')
+    await w.waitForSelector('[data-schedule-from]', { timeout: 10000 })
+    await w.screenshot({ path: `${SHOTS}/63-quiet-settings.png` })
+    const me = await w.evaluate(async (host) => {
+      const r = await fetch(`${host}/me`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') } })
+      return r.json()
+    }, API)
+    if (!me.notifyPausedUntil || !me.notifySchedule?.enabled) throw new Error(`the pause or the hours did not save: ${JSON.stringify({ p: me.notifyPausedUntil, s: me.notifySchedule })}`)
+    await w.goto(`${WEB}#/feed`, { waitUntil: 'load' })
+    await w.waitForSelector('[data-paused]', { timeout: 15000 }).catch(() => { throw new Error('the top bar does not say notifications are paused') })
+    await w.click('[data-resume]')
+    await w.waitForSelector('[data-paused]', { state: 'detached', timeout: 10000 })
+    // Hours off again, for the steps after this one.
+    await w.evaluate(async (host) => {
+      await fetch(`${host}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ notifySchedule: { enabled: false } }) })
+    }, API)
+  } finally {
+    await ctx.close()
+  }
+})
+
 await step('the mark at the top left lists every workspace, and adds one', async () => {
   // Its own browser with the same sign-in, so switching here moves nobody
   // else's page.

@@ -26,16 +26,33 @@ struct ChatHomeView: View {
                     if store.channels.isEmpty && store.people.isEmpty {
                         Section { gettingStarted }.listRowBackground(Color.clear).listRowSeparator(.hidden)
                     }
+                    // Starred first, then your own sections; what they hold
+                    // leaves the sections below.
+                    if !store.sidebar.starred.isEmpty {
+                        Section { ForEach(store.sidebar.starred.compactMap { store.conversation(for: $0) }) { row($0) } } header: { Text("Starred") }
+                    }
+                    ForEach(store.sidebar.sections) { s in
+                        Section {
+                            ForEach(s.views.filter { !store.isStarred($0) }.compactMap { store.conversation(for: $0) }) { row($0) }
+                        } header: {
+                            HStack {
+                                Text(verbatim: s.name)
+                                Spacer()
+                                Button { Task { await store.removeSection(s.id) } } label: { Image(systemName: "xmark").font(.caption2) }
+                                    .accessibilityLabel("Remove section")
+                            }
+                        }
+                    }
                     Section {
-                        ForEach(store.channels) { row($0) }
+                        ForEach(store.channels.filter { store.isUnplaced($0.view) }) { row($0) }
                         Button { creating = true } label: {
                             Label("Add a channel", systemImage: "plus").foregroundStyle(Theme.Colors.textSecondary)
                         }
                     } header: { Text("Channels") }
                     if !store.people.isEmpty || !store.groupConversations.isEmpty {
                         Section {
-                            ForEach(store.groupConversations) { row($0) }
-                            ForEach(store.people) { row($0) }
+                            ForEach(store.groupConversations.filter { store.isUnplaced($0.view) }) { row($0) }
+                            ForEach(store.people.filter { store.isUnplaced($0.view) }) { row($0) }
                         } header: { Text("Direct messages") }
                     }
                 }
@@ -53,6 +70,7 @@ struct ChatHomeView: View {
                 results = await store.search(q)
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { WorkspaceSwitcherButton(size: 30) }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { startingMessage = true } label: { Image(systemName: "square.and.pencil") }
                         .accessibilityLabel("New message")
@@ -69,6 +87,7 @@ struct ChatHomeView: View {
                 case let .conversation(view, jump): ConversationView(view: view, jump: jump, store: store)
                 case .activity: ChatActivityView(store: store)
                 case .later: ChatLaterView(store: store)
+                case .threads: ChatThreadsView(store: store)
                 }
             }
             .alert("New channel", isPresented: $creating) {
@@ -105,6 +124,7 @@ struct ChatHomeView: View {
         GlassGroup(spacing: 10) {
             HStack(spacing: 10) {
                 shortcut("Activity", icon: "bell", badge: store.unreadInbox, route: .activity)
+                shortcut("Threads", icon: "bubble.left.and.bubble.right", badge: store.unreadThreads, route: .threads)
                 shortcut("Later", icon: "bookmark", badge: store.saved.count, route: .later)
             }
         }

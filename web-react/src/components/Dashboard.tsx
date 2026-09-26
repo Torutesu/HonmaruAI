@@ -1,3 +1,4 @@
+import { setQuietState, getQuietState, onQuietChange, type QuietState } from '../utils/quiet'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
 import { Feed } from './Feed'
@@ -349,12 +350,27 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   // Your own name and photo, for the rail.
   const [myFace, setMyFace] = useState<{ name: string; url: string | null }>({ name: '', url: null })
+  // Notifications paused: said at the top, with a way out.
+  const [quiet, setQuiet] = useState<QuietState>(getQuietState())
+  useEffect(() => onQuietChange(() => setQuiet({ ...getQuietState() })), [])
+  useEffect(() => {
+    if (!quiet.pausedUntil) return
+    const left = Date.parse(quiet.pausedUntil) - Date.now()
+    if (left <= 0) return
+    const id = setTimeout(() => setQuiet({ ...getQuietState() }), Math.min(left + 500, 2 ** 31 - 1))
+    return () => clearTimeout(id)
+  }, [quiet.pausedUntil])
+  const resumeNotifications = async () => {
+    const res = await fetch(`${relayHttpUrl}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken }, body: JSON.stringify({ pausedUntil: null }) }).catch(() => null)
+    if (res?.ok) setQuietState({ ...getQuietState(), pausedUntil: null })
+  }
   const loadWorkspaces = useCallback(async () => {
     try {
       const res = await fetch(`${relayHttpUrl}/me`, { headers: { 'x-session-token': sessionToken } })
       if (!res.ok) return
       const me = await res.json()
       if (Array.isArray(me.orgs)) setWorkspaces(me.orgs)
+      setQuietState({ pausedUntil: me.notifyPausedUntil || null, schedule: me.notifySchedule || null })
       setNotificationCopy(me.notificationCopy)
       setMyFace({ name: me.name || '', url: me.avatarUrl || null })
     } catch { /* the switcher shows what it last knew */ }
@@ -739,6 +755,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       <header className="topbar">
+        {/* A phone has no rail: the workspace's mark, and the way to every
+            other workspace and to adding one, sits at the top of the cards. */}
+        {mode === 'cards' && <div className="topbar-ws">{workspaceSwitcher('header')}</div>}
         <div className="mode-switch" role="tablist" aria-label={t('View')}>
           <button
             role="tab"
@@ -758,6 +777,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           </button>
         </div>
         <div className="topbar-right">
+          {quiet.pausedUntil && Date.parse(quiet.pausedUntil) > Date.now() && (
+            <span className="quiet-pill" role="status" data-paused="1">
+              <Icon name="bell-off" size={14} />
+              {t('Paused until {when}', { when: new Date(quiet.pausedUntil).toLocaleString(locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) })}
+              <button type="button" onClick={() => void resumeNotifications()} data-resume="1">{t('Resume')}</button>
+            </span>
+          )}
           {(!isConnected || unsent > 0) && synced && (
             <span className="link-state" role="status">
               {unsent > 0 ? t('{n} waiting to send', { n: unsent }) : t('Reconnecting…')}

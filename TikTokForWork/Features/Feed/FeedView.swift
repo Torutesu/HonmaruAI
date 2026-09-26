@@ -138,6 +138,8 @@ private struct CardHomeContent: View {
 
     private var header: some View {
         HStack {
+            // The workspace's mark: every other workspace, and adding one.
+            WorkspaceSwitcherButton(size: 34).padding(.trailing, 6)
             HStack(spacing: 0) {
                 Button { classic = false } label: {
                     HStack(spacing: 6) {
@@ -166,8 +168,7 @@ private struct CardHomeContent: View {
 
     private var classicWorkspaceHeader: some View {
         HStack(spacing: 10) {
-            AppLogo(size: 24)
-                .padding(4).background(.white, in: RoundedRectangle(cornerRadius: 6))
+            WorkspaceSwitcherButton(size: 32)
             Text(appState.workspaceDisplayName)
                 .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)

@@ -75,6 +75,22 @@ enum DailyReportService {
         return try JSONDecoder.relay().decode(Posted.self, from: data).card
     }
 
+    /// Ask the AI to change the draft ("shorter", "add that the cost sheet
+    /// is done"): the whole draft back, changed, and a line on what changed.
+    /// The Worker keeps it as the draft, so every device opens it so.
+    struct Refined: Decodable { let text: String; let note: String? }
+    static func refine(cardId: String, orgId: String, text: String, ask: String, backendBaseURL: URL, session: URLSession = .shared) async throws -> Refined {
+        let body = try JSONSerialization.data(withJSONObject: ["orgId": orgId, "cardId": cardId, "text": text, "ask": ask])
+        let data = try await send("POST", path: "channels/daily-report/refine", body: body, base: backendBaseURL, session: session)
+        return try JSONDecoder().decode(Refined.self, from: data)
+    }
+
+    /// Keep the draft as typed, for the laptop to open where the phone left off.
+    static func saveDraft(cardId: String, orgId: String, text: String, backendBaseURL: URL, session: URLSession = .shared) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["orgId": orgId, "cardId": cardId, "text": text])
+        _ = try await send("PUT", path: "channels/daily-report/draft", body: body, base: backendBaseURL, session: session)
+    }
+
     static func channels(orgId: String, backendBaseURL: URL, session: URLSession = .shared) async throws -> [Channel] {
         let data = try await send("GET", path: "businesses", query: ["orgId": orgId], base: backendBaseURL, session: session)
         return try JSONDecoder().decode(Channels.self, from: data).businesses

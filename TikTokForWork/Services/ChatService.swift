@@ -123,6 +123,35 @@ struct ChatActivityItem: Codable, Identifiable, Hashable {
     var id: String { "\(type)-\(message.id)" }
 }
 
+/// A thread you are in, for Threads: its first message, the last replies.
+struct ChatThreadItem: Codable, Identifiable, Hashable {
+    let parent: ChatMessage
+    let replies: [ChatMessage]
+    let replyCount: Int
+    let lastReplyAt: String
+    var unread: Bool
+    var id: String { parent.id }
+}
+
+/// A user group: "@handle" names everyone in it.
+struct ChatUserGroup: Codable, Identifiable, Hashable {
+    let handle: String
+    let name: String
+    let refs: [String]
+    var id: String { handle }
+}
+
+/// Your own sidebar: starred conversations and sections you made.
+struct ChatSidebar: Codable, Hashable {
+    struct Section: Codable, Hashable, Identifiable {
+        let id: String
+        var name: String
+        var views: [String]
+    }
+    var starred: [String] = []
+    var sections: [Section] = []
+}
+
 struct ChatThread: Codable {
     var parent: ChatMessage
     var replies: [ChatMessage]
@@ -342,6 +371,45 @@ enum ChatService {
     static func decide(orgId: String, channel: String, messageId: String, base: URL) async throws {
         struct R: Decodable { let deciding: Bool? }
         _ = try await call("POST", "/channels/decide", base: base, body: ["orgId": orgId, "channel": channel, "messageId": messageId], as: R.self)
+    }
+
+    static func threads(orgId: String, base: URL) async throws -> [ChatThreadItem] {
+        struct R: Decodable { let threads: [ChatThreadItem] }
+        return try await call("GET", "/channels/threads", base: base, query: ["orgId": orgId], as: R.self).threads
+    }
+
+    static func markThreadRead(orgId: String, channel: String, parentId: String, base: URL) async {
+        struct R: Decodable { let lastReadAt: String? }
+        _ = try? await call("POST", "/channels/read", base: base, body: ["orgId": orgId, "channel": channel, "thread": parentId], as: R.self)
+    }
+
+    /// Unread from this message on, everywhere. Returns the thread it is in,
+    /// when it is a reply.
+    struct Unread: Decodable { let lastReadAt: String; let thread: String? }
+    static func markUnread(orgId: String, channel: String, messageId: String, base: URL) async throws -> Unread {
+        try await call("POST", "/channels/unread", base: base, body: ["orgId": orgId, "channel": channel, "messageId": messageId], as: Unread.self)
+    }
+
+    static func userGroups(orgId: String, base: URL) async throws -> [ChatUserGroup] {
+        struct R: Decodable { let groups: [ChatUserGroup] }
+        return try await call("GET", "/channels/usergroups", base: base, query: ["orgId": orgId], as: R.self).groups
+    }
+
+    static func sidebar(orgId: String, base: URL) async throws -> ChatSidebar {
+        struct R: Decodable { let sidebar: ChatSidebar }
+        return try await call("GET", "/channels/sidebar", base: base, query: ["orgId": orgId], as: R.self).sidebar
+    }
+
+    static func saveSidebar(orgId: String, sidebar: ChatSidebar, base: URL) async throws -> ChatSidebar {
+        struct R: Decodable { let sidebar: ChatSidebar }
+        let body: [String: Any] = [
+            "orgId": orgId,
+            "sidebar": [
+                "starred": sidebar.starred,
+                "sections": sidebar.sections.map { ["id": $0.id, "name": $0.name, "views": $0.views] as [String: Any] },
+            ] as [String: Any],
+        ]
+        return try await call("PUT", "/channels/sidebar", base: base, body: body, as: R.self).sidebar
     }
 
     static func markRead(orgId: String, channel: String, base: URL) async {

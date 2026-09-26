@@ -65,6 +65,13 @@ import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
 import { uploadOrgIcon, removeOrgIcon, serveOrgIcon, getOrgIcon, iconsFor, iconUrl } from "./orgIcon.js";
 import { listEmoji, addEmoji, removeEmoji, serveEmoji } from "./emoji.js";
+import { cleanSchedule, parseSchedule, pauseUntil } from "./quiet.js";
+
+/// Quiet time as a client shows it: paused until when, and the hours.
+const quietFields = (user) => ({
+  notifyPausedUntil: user?.notify_paused_until && Date.parse(user.notify_paused_until) > Date.now() ? user.notify_paused_until : null,
+  notifySchedule: parseSchedule(user?.notify_schedule),
+});
 import { CONNECTORS, connectorById, authConfigFor, availableConnectors } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
 import { syncAll } from "./sync.js";
@@ -1027,6 +1034,7 @@ async function handle(request, env, url, ctx) {
         aliases: parseAliases(user.aliases),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         pushWhileActive: Boolean(user.push_while_active),
+        ...quietFields(user),
         supportedLocales: SUPPORTED_LOCALES,
         // The words of the notification a browser tab shows by itself, in
         // this person's language — which the page's own tables may not have.
@@ -1099,6 +1107,15 @@ async function handle(request, env, url, ctx) {
       if (body.notifyEmail !== undefined) {
         await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
       }
+      // "Pause notifications": minutes from now, a time, or null to resume.
+      if (body.pauseMinutes !== undefined || body.pausedUntil !== undefined) {
+        const until = pauseUntil(body.pauseMinutes !== undefined ? Number(body.pauseMinutes) || null : body.pausedUntil);
+        await env.DB.prepare("UPDATE users SET notify_paused_until = ?2 WHERE github_id = ?1").bind(String(session.github_id), until).run();
+      }
+      // The hours notifications may come.
+      if (body.notifySchedule !== undefined) {
+        await env.DB.prepare("UPDATE users SET notify_schedule = ?2 WHERE github_id = ?1").bind(String(session.github_id), JSON.stringify(cleanSchedule(body.notifySchedule))).run();
+      }
       // Push the phone even while at the app on another device.
       if (body.pushWhileActive !== undefined) {
         await env.DB.prepare("UPDATE users SET push_while_active = ?2 WHERE github_id = ?1").bind(String(session.github_id), body.pushWhileActive ? 1 : 0).run();
@@ -1142,6 +1159,7 @@ async function handle(request, env, url, ctx) {
         email: user?.email || null,
         notifyEmail: Number(user?.notify_email ?? 1) !== 0,
         pushWhileActive: Boolean(user?.push_while_active),
+        ...quietFields(user),
         aliases: parseAliases(user?.aliases),
         name: user?.name || null,
         handle: user?.handle || null,

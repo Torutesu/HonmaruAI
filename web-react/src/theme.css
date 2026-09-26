@@ -982,3 +982,35 @@
 }
 :root[data-theme="dark"] .shortcuts-sheet { background: #1a1a1a; }
 :root[data-theme="dark"] .shortcuts-group dd { color: #f2f2f2; }
+
+/* The workspace's mark in a phone's top bar (the rail has it on a laptop). */
+.topbar-ws { display: none; }
+@media (max-width: 719px) {
+  .topbar-ws { display: block; flex: none; margin-right: 8px; }
+  .topbar-ws .ws-button { padding: 0; }
+  .topbar-ws .ws-name, .topbar-ws .ws-caret { display: none; }
+  .topbar-ws .ws-mark { width: 36px !important; height: 36px !important; border-radius: 10px; }
+  .topbar-ws .ws-menu { left: 0; }
+}
+
+/* Quiet time: the pill at the top while paused, and its settings. */
+.quiet-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px 0 10px; border-radius: 9999px;
+  background: rgba(232, 145, 45, .16); color: #b35f00; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+}
+.quiet-pill button { border: none; background: #fff; color: #b35f00; border-radius: 9999px; padding: 3px 9px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+@media (max-width: 719px) { .quiet-pill { font-size: 0; gap: 4px; } .quiet-pill button { font-size: 12px; } }
+.quiet-choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.quiet-choice { border: 1px solid var(--bone, #e5e5e5); background: none; border-radius: 9999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; color: inherit; }
+.quiet-choice:hover:not(:disabled) { border-color: currentColor; }
+.quiet-hours { flex-direction: column; align-items: stretch; gap: 10px; }
+.quiet-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.quiet-day { min-width: 44px; height: 32px; border-radius: 9999px; border: 1px solid var(--bone, #e5e5e5); background: none; font: inherit; font-size: 13px; cursor: pointer; color: inherit; }
+.quiet-day.on { background: var(--ink-black, #111); border-color: var(--ink-black, #111); color: var(--signal-white, #fff); }
+.quiet-times { display: flex; align-items: center; gap: 8px; }
+.quiet-times input { height: 36px; padding: 0 8px; border: 1px solid var(--bone, #e5e5e5); border-radius: 8px; font: inherit; background: none; color: inherit; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .quiet-day.on { background: #f2f2f2; border-color: #f2f2f2; color: #0f0f0f; }
+  :root:not([data-theme="light"]) .quiet-pill button { background: #1a1a1a; }
+}
+:root[data-theme="dark"] .quiet-day.on { background: #f2f2f2; border-color: #f2f2f2; color: #0f0f0f; }

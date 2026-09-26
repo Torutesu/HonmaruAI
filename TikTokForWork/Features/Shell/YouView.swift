@@ -39,6 +39,9 @@ struct YouView: View {
                         separator
                         Button(action: openNotifications) { row("Notifications", icon: "bell", value: notificationStatus) }.disabled(!PushService.isEnabledInThisBuild || appState.isGuest)
                         separator
+                        // Pause notifications, and the hours they may come.
+                        NavigationLink { QuietTimeView().environmentObject(appState) } label: { row("Pause and hours", icon: "bell.slash") }.disabled(appState.isGuest)
+                        separator
                         // When the morning plan and the evening report are
                         // drafted, and where they are posted.
                         Button { showDailyReport = true } label: { row("Daily report", icon: "square.and.pencil") }.disabled(appState.isGuest)
