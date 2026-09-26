@@ -9,6 +9,7 @@ import { Icon } from './Icon'
 
 export interface SessionRow {
   ref: string; client: string | null; device: string; place: string | null
+  app?: 'iphone' | 'ipad' | null; browser?: string | null; os?: string | null
   createdAt: string; lastSeenAt: string; current: boolean
 }
 
@@ -49,7 +50,9 @@ export const SignedInSessions: React.FC<{ httpBase: string; sessionToken: string
           <div key={s.ref} className="row static session-row" data-session={s.ref} data-current={s.current ? '1' : undefined}>
             <span className="row-icon"><Icon name={s.client === 'ios' ? 'devices' : 'monitor'} size={18} /></span>
             <span className="row-main">
-              {t(s.device)}
+              {s.app ? t(s.app === 'ipad' ? 'iPad app' : 'iPhone app')
+                : s.browser && s.os ? t('{browser} on {os}', { browser: s.browser, os: s.os })
+                  : s.browser || s.os || t('Unknown device')}
               <span className="row-sub">
                 {s.current ? t('This device') : t('Last used {when}', { when: ago(s.lastSeenAt) })}
                 {s.place ? ` · ${s.place}` : ''}

@@ -139,6 +139,11 @@ struct SignedInSession: Codable, Identifiable, Hashable {
     let ref: String
     let client: String?
     let device: String
+    /// "iphone" / "ipad" for the app; otherwise the browser and the system,
+    /// each a proper name, for a sentence in the reader's language.
+    var app: String?
+    var browser: String?
+    var os: String?
     let place: String?
     let createdAt: String
     let lastSeenAt: String

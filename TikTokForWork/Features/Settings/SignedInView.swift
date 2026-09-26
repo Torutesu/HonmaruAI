@@ -19,7 +19,7 @@ struct SignedInView: View {
                         Image(systemName: s.client == "ios" ? "iphone" : "laptopcomputer")
                             .foregroundStyle(Theme.Colors.textSecondary).frame(width: 26)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(LocalizedStringKey(s.device)).font(.body.weight(.semibold))
+                            Text(name(s)).font(.body.weight(.semibold))
                             Text(detail(s)).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
                         }
                         Spacer()
@@ -46,6 +46,12 @@ struct SignedInView: View {
         .navigationTitle("Where you’re signed in").navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
         .task { await load() }
+    }
+
+    private func name(_ s: SignedInSession) -> String {
+        if let app = s.app { return app == "ipad" ? String(localized: "iPad app") : String(localized: "iPhone app") }
+        if let browser = s.browser, let os = s.os { return String(localized: "\(browser) on \(os)") }
+        return s.browser ?? s.os ?? String(localized: "Unknown device")
     }
 
     private func detail(_ s: SignedInSession) -> String {

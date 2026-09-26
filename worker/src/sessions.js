@@ -32,6 +32,26 @@ export function sessionMeta(request) {
   return { client: clientOf(h.get("x-client"), ua), userAgent: ua, place };
 }
 
+/// A user agent's browser and system, each a proper name ("Chrome",
+/// "macOS"), so a client can say them in its own language.
+export function deviceParts(ua, client) {
+  const u = String(ua || "");
+  if (client === "ios") return { app: /iPad/.test(u) ? "ipad" : "iphone", browser: null, os: /iPad/.test(u) ? "iPad" : "iPhone" };
+  const browser = /Edg\//.test(u) ? "Edge"
+    : /OPR\/|Opera/.test(u) ? "Opera"
+      : /Firefox\//.test(u) ? "Firefox"
+        : /Chrome\//.test(u) ? "Chrome"
+          : /Safari\//.test(u) ? "Safari" : null;
+  const os = /iPhone/.test(u) ? "iPhone"
+    : /iPad/.test(u) ? "iPad"
+      : /Android/.test(u) ? "Android"
+        : /Mac OS X|Macintosh/.test(u) ? "macOS"
+          : /Windows/.test(u) ? "Windows"
+            : /CrOS/.test(u) ? "ChromeOS"
+              : /Linux/.test(u) ? "Linux" : null;
+  return { app: null, browser, os };
+}
+
 /// A user agent, as a person reads it: "Chrome on macOS", "iPhone app".
 export function describeDevice(ua, client) {
   const u = String(ua || "");
@@ -76,6 +96,7 @@ export async function sessionsOf(db, githubId, currentToken = null) {
       ref: await sessionRef(r.token),
       client: r.client || clientOf(null, r.user_agent) || null,
       device: describeDevice(r.user_agent, r.client),
+      ...deviceParts(r.user_agent, r.client),
       place: r.place || null,
       createdAt: r.created_at,
       lastSeenAt: r.last_seen_at || r.created_at,

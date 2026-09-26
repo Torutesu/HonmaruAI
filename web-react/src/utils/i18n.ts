@@ -1492,6 +1492,7 @@ const ja: Dict = {
   '{actor} read the audit log': '{actor}が監査ログを閲覧しました',
   '{actor} downloaded the audit log': '{actor}が監査ログを書き出しました',
   '{actor} was refused: {entity}': '{actor}の操作が拒否されました：{entity}',
+  '{browser} on {os}': '{os}の{browser}',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -2745,6 +2746,7 @@ const es: Dict = {
   '{actor} read the audit log': '{actor} leyó el registro de auditoría',
   '{actor} downloaded the audit log': '{actor} descargó el registro de auditoría',
   '{actor} was refused: {entity}': 'Se rechazó a {actor}: {entity}',
+  '{browser} on {os}': '{browser} en {os}',
 }
 
 const fr: Dict = {
@@ -3952,6 +3954,7 @@ const fr: Dict = {
   '{actor} read the audit log': '{actor} a consulté le journal d’audit',
   '{actor} downloaded the audit log': '{actor} a téléchargé le journal d’audit',
   '{actor} was refused: {entity}': '{actor} a été refusé : {entity}',
+  '{browser} on {os}': '{browser} sur {os}',
 }
 
 const de: Dict = {
@@ -5159,6 +5162,7 @@ const de: Dict = {
   '{actor} read the audit log': '{actor} hat das Audit-Log gelesen',
   '{actor} downloaded the audit log': '{actor} hat das Audit-Log heruntergeladen',
   '{actor} was refused: {entity}': '{actor} wurde abgewiesen: {entity}',
+  '{browser} on {os}': '{browser} auf {os}',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }
