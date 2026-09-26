@@ -1072,6 +1072,15 @@
    you) belongs to the cards; in the list this one takes its place. A
    conversation, a card or a thread takes the whole screen, without it. */
 .classic.slk.slk .cl-tabs, .classic.slk.slk .cl-fab, .classic.slk.slk .slk-phone-more { display: none; }
+
+/* A narrow conversation (a laptop with a pane open) keeps its name on one line:
+   the secondary buttons fold into ⋯, the same sheet a phone uses. */
+.classic.slk.slk .slk-head { container-type: inline-size; }
+@container (max-width: 560px) {
+  .classic.slk.slk .slk-head-text h1, .classic.slk.slk .slk-head-text p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .classic.slk.slk .slk-context-button, .classic.slk.slk .slk-automations-button, .classic.slk.slk .slk-members-button, .classic.slk.slk .slk-pins-button, .classic.slk.slk .slk-canvas-button, .classic.slk.slk .slk-more { display: none; }
+  .classic.slk.slk .slk-phone-more { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: none; background: none; color: var(--slk-ink); }
+}
 @media (max-width: 719px) {
   .shell.list-mode .tabbar, .shell.list-mode .topbar .avatar-button, .shell.list-mode .topbar .palette-button { display: none; }
   .shell.list-mode:not(.immersive) .classic.slk.slk { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
