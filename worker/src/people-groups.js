@@ -64,6 +64,9 @@ export async function saveGroup(db, orgId, { handle: raw, name, refs, login, mem
   // A handle a person already answers to would make "@x" mean two things.
   const taken = members.some((m) => [m.handle, String(m.login || "").split("@")[0]].filter(Boolean).map(fold).includes(handle));
   if (taken) return { error: `@${handle} is already somebody's name here.`, status: 409 };
+  const agent = await db.prepare("SELECT 1 FROM custom_agents WHERE org_id = ?1 AND handle = ?2 AND scope = 'team' AND deleted_at IS NULL")
+    .bind(orgId, handle).first().catch(() => null);
+  if (agent) return { error: `@${handle} is already an agent here.`, status: 409 };
   const existing = await db.prepare("SELECT handle FROM user_groups WHERE org_id = ?1 AND handle = ?2").bind(orgId, handle).first();
   if (creating && existing) return { error: `@${handle} already exists.`, status: 409 };
   if (!creating && !existing) return { error: "No such group.", status: 404 };

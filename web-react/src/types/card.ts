@@ -159,7 +159,9 @@ export interface FileRef {
 export interface ChannelMessage {
   id: string
   channel: string
-  kind: 'message' | 'ai'
+  /// `agent`: one of the team's own agents (see /channels/agents), answering
+  /// in the thread under the message that called it.
+  kind: 'message' | 'ai' | 'agent'
   body: string
   authorName: string | null
   authorRef: string | null
@@ -183,4 +185,6 @@ export interface ChannelMessage {
   /// by this person; a live event is shared, so the refs decide.
   reactions?: Array<{ emoji: string; count: number; refs: string[]; mine: boolean }>
   files?: FileRef[]
+  /// Who wrote it, when an agent did: its name and face.
+  agent?: { id: string; handle: string; name: string; emoji: string | null } | null
 }

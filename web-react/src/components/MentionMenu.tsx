@@ -117,9 +117,11 @@ export function useMentionMenu(
             className={`mention-option${i === index ? ' on' : ''}`}
             onMouseDown={(e) => { e.preventDefault(); pick(m) }}
             onMouseEnter={() => setIndex(i)}
+            data-mention-option={m.agent ? `agent:${m.handle}` : undefined}
           >
-            <span className="mention-avatar" aria-hidden="true">{m.name.charAt(0).toUpperCase()}</span>
-            <span className="mention-name">{m.name}</span>
+            <span className={`mention-avatar${m.agent ? ' agent' : ''}`} aria-hidden="true">{m.agent ? (m.emoji || '🤖') : m.name.charAt(0).toUpperCase()}</span>
+            <span className="mention-name" title={m.title || undefined}>{m.name}</span>
+            {m.agent && <span className="mention-tag">{t('Agent')}</span>}
             {m.handle && <span className="mention-handle">@{m.handle}</span>}
           </button>
         </li>

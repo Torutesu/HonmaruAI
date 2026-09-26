@@ -1293,3 +1293,18 @@
 .classic.slk.slk .slk-canvas-rev:hover, .classic.slk.slk .slk-canvas-rev.on { background: var(--slk-hover); }
 .classic.slk.slk .slk-canvas-preview { margin-top: 10px; padding: 14px; border: 1px solid var(--slk-line); border-radius: 10px; }
 .classic.slk.slk .slk-canvas-preview .pill-btn { margin-top: 12px; }
+
+/* ---- The team's agents: "@hayao" answers as itself ---- */
+
+.classic.slk.slk { --slk-agent: #7c3aed; --slk-agent-bg: #f1ecfe; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .classic.slk.slk { --slk-agent: #c4b5fd; --slk-agent-bg: #2b2340; }
+}
+:root[data-theme="dark"] .classic.slk.slk { --slk-agent: #c4b5fd; --slk-agent-bg: #2b2340; }
+.classic.slk.slk .slk-avatar.agent { background: var(--slk-agent-bg); font-size: 20px; font-weight: 400; line-height: 1; }
+.classic.slk.slk .slk-thread-line:not(.first) .slk-avatar.agent { font-size: 15px; }
+.classic.slk.slk .slk-agent-tile { width: 100%; height: 100%; display: grid; place-items: center; background: var(--slk-agent-bg); font-size: 17px; font-weight: 400; }
+.classic.slk.slk .slk-mention.agent { color: var(--slk-agent); background: color-mix(in srgb, var(--slk-agent) 14%, transparent); }
+.classic.slk.slk .slk-app-badge.agent { background: var(--slk-agent-bg); color: var(--slk-agent); }
+.classic.slk.slk .slk-agent-typing { flex-direction: column; align-items: flex-start; gap: 4px; }
+.classic.slk.slk .slk-agent-writing { display: inline-flex; align-items: center; gap: 6px; }

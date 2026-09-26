@@ -17,6 +17,12 @@ struct ChatConversation: Identifiable, Hashable {
     var id: String { view }
 }
 
+/// One of the team's agents writing its answer, and the thread it goes in.
+struct ChatAgentTyping: Hashable {
+    let agent: ChatAgentFace
+    let parentId: String?
+}
+
 /// Everything the chat tab knows, kept current by the relay's channel events.
 @MainActor
 final class ChatStore: ObservableObject {
@@ -41,6 +47,10 @@ final class ChatStore: ObservableObject {
     @Published private(set) var saved: [ChatSaved] = []
     @Published private(set) var scheduled: [ChatScheduled] = []
     @Published var thinking: [String: String] = [:]
+    /// "@hayao": the agents you can call here, the team's and your own.
+    @Published private(set) var agents: [ChatAgent] = []
+    /// An agent writing its answer, by conversation, until it has.
+    @Published var agentTyping: [String: ChatAgentTyping] = [:]
     @Published var thread: ChatThread?
     @Published var error: String?
 
@@ -114,6 +124,7 @@ final class ChatStore: ObservableObject {
             prefs = overview.prefs ?? [:]
             mine = overview.mine
             groups = overview.groups ?? []
+            agents = overview.agents ?? []
             businesses = list
         } catch { self.error = error.localizedDescription }
         if let list = try? await ChatService.emoji(orgId: orgId, base: base) { emoji = list } else { emoji = [] }
@@ -124,6 +135,15 @@ final class ChatStore: ObservableObject {
         async let l: Void = loadLater()
         async let s: Void = loadScheduled()
         _ = await (i, l, s)
+    }
+
+    /// The agents as `/channels/agents` last returned them, after a change
+    /// made on the Agents screen: the composer offers them at once.
+    func setAgents(_ list: [ChatAgent]) { agents = list }
+
+    /// "@" suggestions for agents: handle, then what the chip says.
+    var agentMentions: [(handle: String, label: String, emoji: String)] {
+        agents.map { (handle: $0.handle, label: $0.name, emoji: $0.glyph) }
     }
 
     func loadThreads() async {
@@ -412,6 +432,7 @@ final class ChatStore: ObservableObject {
         guard let data, let m = try? JSONDecoder().decode(Envelope.self, from: data).message else { return }
         upsert(m)
         if m.isAI { thinking[m.channel] = nil }
+        if m.isAgent { agentTyping[m.channel] = nil }
         // Somebody started a group with you: it joins the list.
         if m.channel.hasPrefix("g:"), !groups.contains(where: { $0.view == m.channel }) { Task { await refresh() } }
         if !m.mine && (m.parentId != nil || m.body.contains("@") || m.body.contains("＠")) {
@@ -422,6 +443,16 @@ final class ChatStore: ObservableObject {
     private func receiveProgress(_ data: Data?) {
         guard let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let channel = json["channel"] as? String, let step = json["step"] as? String else { return }
+        // One of the team's agents, not @AI: its own line, not the card steps.
+        if let a = json["agent"] as? [String: Any], let id = a["id"] as? String {
+            if step == "done" || step == "failed" {
+                agentTyping[channel] = nil
+            } else {
+                let face = ChatAgentFace(id: id, handle: a["handle"] as? String ?? "", name: a["name"] as? String ?? "", emoji: a["emoji"] as? String)
+                agentTyping[channel] = ChatAgentTyping(agent: face, parentId: json["parentId"] as? String)
+            }
+            return
+        }
         thinking[channel] = (step == "done" || step == "failed") ? nil : step
     }
 

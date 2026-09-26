@@ -49,7 +49,7 @@ export class WebSocketClient {
   /// Something said in a channel this person can see, in their own terms.
   onChannelMessage?: (message: ChannelMessage) => void
   /// What the AI is doing with a message it was asked to make a decision of.
-  onChannelProgress?: (progress: { channel: string; parentId: string | null; messageId: string; step: string; cardId?: string; recipientName?: string | null }) => void
+  onChannelProgress?: (progress: { channel: string; parentId: string | null; messageId: string; step: string; cardId?: string; recipientName?: string | null; agent?: { id: string; handle: string; name: string; emoji: string | null } }) => void
   onComment?: (cardId: string, comment: { id: string; author: string; authorName?: string | null; body: string; mentions: string[]; createdAt: string }) => void
   onReaction?: (cardId: string, emoji: string, on: boolean, by: string, reactions: Record<string, number>) => void
   /// A Jam: who is talking where, this browser's place in one, the signals
