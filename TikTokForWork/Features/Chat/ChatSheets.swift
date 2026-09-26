@@ -160,7 +160,7 @@ struct ChatActivityView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             if item.unread { Circle().fill(Theme.Colors.interactive).frame(width: 8, height: 8) }
-                            Text(item.type == "mention" ? String(localized: "Mentioned you in \(place(item.message.channel))") : String(localized: "Replied in a thread in \(place(item.message.channel))"))
+                            Text(label(item))
                                 .font(.caption).foregroundStyle(Theme.Colors.textSecondary)
                             Spacer()
                             Text(item.message.date, style: .relative).font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
@@ -179,6 +179,15 @@ struct ChatActivityView: View {
     private func place(_ view: String) -> String {
         guard let c = store.conversation(for: view) else { return "" }
         return c.kind == .channel ? "#\(c.name)" : c.name
+    }
+    private func label(_ item: ChatActivityItem) -> String {
+        let where_ = place(item.message.channel)
+        switch item.type {
+        case "mention": return String(localized: "Mentioned you in \(where_)")
+        case "keyword": return String(localized: "Said “\(item.keyword ?? "")” in \(where_)")
+        case "reaction": return String(localized: "Reacted in \(where_)")
+        default: return String(localized: "Replied in a thread in \(where_)")
+        }
     }
 }
 

@@ -8,6 +8,8 @@ struct QuietTimeView: View {
     @EnvironmentObject private var appState: AppState
     @State private var pausedUntil: Date?
     @State private var schedule = Schedule()
+    @State private var keywords: [String] = []
+    @State private var newKeyword = ""
     @State private var loaded = false
     @State private var error: String?
 
@@ -17,7 +19,7 @@ struct QuietTimeView: View {
         var from = "09:00"
         var to = "18:00"
     }
-    private struct Me: Decodable { let notifyPausedUntil: String?; let notifySchedule: Schedule? }
+    private struct Me: Decodable { let notifyPausedUntil: String?; let notifySchedule: Schedule?; let notifyKeywords: [String]? }
 
     var body: some View {
         Form {
@@ -58,6 +60,25 @@ struct QuietTimeView: View {
                 }
             } header: { Text("Notification hours") } footer: { Text("In your own time zone. Outside them it is quiet, as if paused.") }
 
+            // Words that notify you wherever they are said, as a mention would.
+            Section {
+                ForEach(keywords, id: \.self) { word in
+                    Text(verbatim: word)
+                }
+                .onDelete { offsets in
+                    let next = keywords.enumerated().filter { !offsets.contains($0.offset) }.map(\.element)
+                    Task { await save(["notifyKeywords": next]) }
+                }
+                HStack {
+                    TextField("Add a keyword", text: $newKeyword)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onSubmit { addKeyword() }
+                    Button("Add") { addKeyword() }
+                        .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            } header: { Text("My keywords") } footer: { Text("Notify me when these words are said in any conversation I can read, as if I had been mentioned.") }
+
             if let error { Section { Text(error).foregroundStyle(Theme.Colors.reject) } }
         }
         .navigationTitle("Pause and hours").navigationBarTitleDisplayMode(.inline)
@@ -90,6 +111,14 @@ struct QuietTimeView: View {
     private func apply(_ me: Me) {
         pausedUntil = ChatDates.parse(me.notifyPausedUntil)
         if let s = me.notifySchedule { schedule = s }
+        if let k = me.notifyKeywords { keywords = k }
+    }
+
+    private func addKeyword() {
+        let words = newKeyword.split(whereSeparator: { $0 == "," || $0 == "、" }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !words.isEmpty else { return }
+        newKeyword = ""
+        Task { await save(["notifyKeywords": keywords + words]) }
     }
 
     private func saveSchedule() async {

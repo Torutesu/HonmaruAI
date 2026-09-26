@@ -1,3 +1,4 @@
+import { BookmarksBar } from './BookmarksBar'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { awaitsPost } from '../utils/automation'
@@ -142,7 +143,7 @@ interface ThreadItem { parent: ChannelMessage; replies: ChannelMessage[]; replyC
 interface SidebarLayout { starred: string[]; sections: Array<{ id: string; name: string; views: string[]; collapsed?: boolean }> }
 /// A user group: "@handle" names everyone in it.
 interface UserGroup { handle: string; name: string; refs: string[]; createdBy: string | null }
-interface ActivityItem { type: 'mention' | 'reply' | 'reaction'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null; byAvatar?: string | null }
+interface ActivityItem { type: 'mention' | 'reply' | 'reaction' | 'keyword'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null; byAvatar?: string | null; keyword?: string }
 
 async function hash16(text: string): Promise<string> {
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
@@ -1858,7 +1859,7 @@ export const ClassicList: React.FC<Props> = ({
     const isChannel = (v: string) => everything.find((x) => x.view === v)?.kind === 'channel'
     const keyOf = (i: ActivityItem) => `${i.type}-${i.message.id}-${i.emoji || ''}-${i.at || ''}`
     const whoOf = (i: ActivityItem) => (i.type === 'reaction' ? (i.by || t('a teammate')) : i.message.kind === 'ai' ? t('Your AI') : (i.message.authorName || t('a teammate')))
-    const verb = (i: ActivityItem) => (i.type === 'reaction' ? t('reacted') : i.type === 'reply' ? t('replied in a thread') : t('mentioned you'))
+    const verb = (i: ActivityItem) => (i.type === 'reaction' ? t('reacted') : i.type === 'reply' ? t('replied in a thread') : i.type === 'keyword' ? t('said “{word}”', { word: i.keyword || '' }) : t('mentioned you'))
     const items = (activityItems || []).filter((i) => activityTab === 'all' || i.unread)
     const picked = (activityItems || []).find((i) => keyOf(i) === activityPick) || null
     const open = (i: ActivityItem) => {
@@ -2157,6 +2158,7 @@ export const ClassicList: React.FC<Props> = ({
             </button>
           )}
         </header>
+        {thread.view && thread.kind !== 'app' && <BookmarksBar httpBase={api.httpBase} orgId={api.orgId} headers={authHeaders} view={thread.view} />}
         {pins && thread.view && (
           <div className="slk-pins" role="dialog" aria-label={t('Pinned messages')}>
             <div className="slk-pins-head">

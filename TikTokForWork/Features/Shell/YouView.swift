@@ -42,6 +42,9 @@ struct YouView: View {
                         // Pause notifications, and the hours they may come.
                         NavigationLink { QuietTimeView().environmentObject(appState) } label: { row("Pause and hours", icon: "bell.slash") }.disabled(appState.isGuest)
                         separator
+                        // Every device signed in to this account, and signing them out.
+                        NavigationLink { SignedInView().environmentObject(appState) } label: { row("Where you’re signed in", icon: "iphone.and.arrow.forward") }.disabled(appState.isGuest)
+                        separator
                         // When the morning plan and the evening report are
                         // drafted, and where they are posted.
                         Button { showDailyReport = true } label: { row("Daily report", icon: "square.and.pencil") }.disabled(appState.isGuest)

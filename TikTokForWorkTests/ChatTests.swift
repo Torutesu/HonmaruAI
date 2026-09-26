@@ -94,4 +94,16 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(sidebar.starred, ["b:cafe"])
         XCTAssertEqual(sidebar.sections.first?.views, ["dm:r1"])
     }
+
+    func testSessionsBookmarksAndKeywordActivityDecodeAsTheWorkerSendsThem() throws {
+        let sessions = try JSONDecoder().decode([SignedInSession].self, from: #"[{"ref":"a1b2c3d4e5f60718","client":"ios","device":"iPhone app","place":"Tokyo, JP","createdAt":"2026-09-26T01:00:00.000Z","lastSeenAt":"2026-09-26T02:00:00.000Z","current":true},{"ref":"ffeeddccbbaa0099","client":"web","device":"Chrome on macOS","place":null,"createdAt":"2026-09-20T01:00:00.000Z","lastSeenAt":"2026-09-25T09:00:00.000Z","current":false}]"#.data(using: .utf8)!)
+        XCTAssertEqual(sessions.count, 2)
+        XCTAssertTrue(sessions[0].current)
+        XCTAssertNil(sessions[1].place)
+        let bookmarks = try JSONDecoder().decode([ChatBookmark].self, from: #"[{"id":"bm_1","title":"Menu","url":"https://docs.example.com/menu","addedBy":"Mika","mine":false,"createdAt":"2026-09-26T01:00:00.000Z"}]"#.data(using: .utf8)!)
+        XCTAssertEqual(bookmarks.first?.title, "Menu")
+        let item = try JSONDecoder().decode(ChatActivityItem.self, from: #"{"type":"keyword","keyword":"invoice","unread":true,"message":{"id":"m1","channel":"b:cafe","kind":"message","body":"The invoice is late","mine":false,"createdAt":"2026-09-26T01:00:00.000Z"}}"#.data(using: .utf8)!)
+        XCTAssertEqual(item.keyword, "invoice")
+        XCTAssertEqual(item.type, "keyword")
+    }
 }

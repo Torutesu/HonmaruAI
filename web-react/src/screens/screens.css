@@ -652,3 +652,26 @@
 .sound-volume input { width: min(260px, 100%); accent-color: var(--brand-violet); }
 .sound-preview { border: none; cursor: pointer; color: inherit; }
 .sound-preview:hover { background: var(--mercury); }
+
+/* Where you're signed in; your keywords; managing one member. */
+.signed-in { margin-bottom: 14px; }
+.session-row .row-sub { display: block; }
+.sessions-end-others { display: inline-flex; align-items: center; gap: 6px; margin: 8px 4px 0; }
+.keyword-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.keyword-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--mercury); font-size: 13px; }
+.keyword-chip button { display: grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 50%; background: transparent; color: var(--slate); cursor: pointer; }
+.keyword-chip button:hover { background: var(--bone); }
+.keyword-add { display: flex; gap: 8px; margin-top: 10px; }
+.keyword-add input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--bone); border-radius: 8px; font: inherit; font-size: 13px; background: transparent; color: inherit; }
+.team-member { flex-wrap: wrap; }
+.team-manage-panel { flex-basis: 100%; margin: 10px 0 2px 46px; padding: 12px; border: 1px solid var(--bone); border-radius: 12px; }
+.team-guest-channels { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; margin-bottom: 12px; }
+.team-guest-channels .dlg-label { grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: var(--slate); }
+.team-manage-actions { display: flex; align-items: center; gap: 8px; }
+.team-signout { display: inline-flex; align-items: center; gap: 5px; }
+@media (max-width: 520px) { .team-manage-panel { margin-left: 0; } }
+@media (prefers-color-scheme: dark) {
+  .keyword-chip { background: #2a2a2a; }
+  .keyword-chip button:hover { background: #333; }
+  .keyword-add input, .team-manage-panel { border-color: #333; }
+}

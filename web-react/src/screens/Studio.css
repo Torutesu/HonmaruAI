@@ -238,3 +238,40 @@
 .ug-name { color: var(--st-dim); }
 .ug-text small { flex-basis: 100%; font-size: 12.5px; color: var(--st-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 719px) { .ug-fields { grid-template-columns: 1fr; } }
+
+/* The audit log: filters, then one line per event. */
+.audit-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 6px 0 16px; }
+.audit-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--slate); }
+.audit-filters select, .audit-filters input { height: 32px; padding: 0 8px; border: 1px solid var(--bone); border-radius: 8px; background: transparent; font: inherit; font-size: 13px; color: inherit; }
+.audit-export { display: flex; gap: 6px; margin-left: auto; }
+.audit-list { display: flex; flex-direction: column; border: 1px solid var(--bone); border-radius: 12px; overflow: hidden; }
+.audit-row + .audit-row { border-top: 1px solid var(--bone); }
+.audit-row-head { display: grid; grid-template-columns: 150px 1fr auto 72px; gap: 12px; align-items: center; width: 100%; padding: 10px 14px; border: 0; background: transparent; font: inherit; font-size: 13px; text-align: left; cursor: pointer; color: inherit; }
+.audit-row-head:hover { background: var(--mist); }
+.audit-when { font-size: 12px; color: var(--ash); font-variant-numeric: tabular-nums; }
+.audit-where { font-size: 12px; color: var(--ash); }
+.audit-outcome { margin-left: 8px; font-style: normal; font-size: 11px; color: #c0264b; background: #fde8ee; border-radius: 6px; padding: 1px 6px; }
+.audit-sev { justify-self: end; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--mercury); color: var(--slate); }
+.audit-sev.sev-notice { background: #e6f0ff; color: #1d5fbf; }
+.audit-sev.sev-warning { background: #fff3dc; color: #9a5b00; }
+.audit-sev.sev-critical { background: #fde8ee; color: #c0264b; }
+.audit-detail { padding: 0 14px 14px 176px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--slate); }
+.audit-detail pre { margin: 0; padding: 10px; font-family: var(--font-mono); font-size: 11.5px; background: var(--mist); border-radius: 8px; overflow: auto; white-space: pre-wrap; }
+.audit-more { margin-top: 12px; }
+.key-scopes i[data-scope="audit:read"] { background: #fff3dc; color: #9a5b00; }
+@media (max-width: 720px) {
+  .audit-row-head { grid-template-columns: 1fr auto; }
+  .audit-when { grid-column: 1 / -1; }
+  .audit-where { display: none; }
+  .audit-detail { padding-left: 14px; }
+  .audit-export { margin-left: 0; }
+}
+@media (prefers-color-scheme: dark) {
+  .audit-list, .audit-row + .audit-row, .audit-filters select, .audit-filters input { border-color: #2a2a2a; }
+  .audit-row-head:hover { background: #1c1c1c; }
+  .audit-detail pre { background: #141414; }
+  .audit-sev { background: #2a2a2a; color: #b3b3b3; }
+  .audit-sev.sev-notice { background: #16263f; color: #8db8ff; }
+  .audit-sev.sev-warning { background: #3a2a0c; color: #f5c46b; }
+  .audit-sev.sev-critical, .audit-outcome { background: #3d1420; color: #ff8fab; }
+}
