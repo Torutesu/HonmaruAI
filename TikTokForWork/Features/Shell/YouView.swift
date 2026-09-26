@@ -162,8 +162,8 @@ struct YouView: View {
                 if !appState.isGuest { NavigationLink("Connected tools") { ConnectorsView().environmentObject(appState) } }
             }
             Section {
-                Link("Privacy Policy", destination: URL(string: "https://honmaru-web.pages.dev/privacy.html")!)
-                Link("Support", destination: URL(string: "https://honmaru-web.pages.dev/support.html")!)
+                Link("Privacy Policy", destination: URL(string: "https://app.honmaruai.com/privacy.html")!)
+                Link("Support", destination: URL(string: "https://app.honmaruai.com/support.html")!)
             }
             Section("Appearance") {
                 Picker("Appearance", selection: $appState.appearance) { ForEach(AppAppearance.allCases) { Text($0.label).tag($0) } }

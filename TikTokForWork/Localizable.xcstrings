@@ -8280,31 +8280,31 @@
         }
       }
     },
-    "Set this up on the web, at honmaru-web.pages.dev — signing in with GitHub is not available on the phone.": {
+    "Set this up on the web, at app.honmaruai.com — signing in with GitHub is not available on the phone.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Richte das im Web ein, unter honmaru-web.pages.dev — die GitHub-Anmeldung ist auf dem Telefon nicht verfügbar."
+            "value": "Richte das im Web ein, unter app.honmaruai.com — die GitHub-Anmeldung ist auf dem Telefon nicht verfügbar."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configúralo en la web, en honmaru-web.pages.dev — el inicio de sesión con GitHub no está disponible en el teléfono."
+            "value": "Configúralo en la web, en app.honmaruai.com — el inicio de sesión con GitHub no está disponible en el teléfono."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurez ceci sur le web, à honmaru-web.pages.dev — la connexion GitHub n’est pas disponible sur le téléphone."
+            "value": "Configurez ceci sur le web, à app.honmaruai.com — la connexion GitHub n’est pas disponible sur le téléphone."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub でのサインインはスマホでは提供していません。honmaru-web.pages.dev で設定してください。"
+            "value": "GitHub でのサインインはスマホでは提供していません。app.honmaruai.com で設定してください。"
           }
         }
       }

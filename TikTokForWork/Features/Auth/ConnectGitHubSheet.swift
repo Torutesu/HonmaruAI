@@ -65,7 +65,7 @@ struct ConnectGitHubSheet: View {
                     // sheet is only reachable by someone who already has one.
                     // Reached anyway, it says where the door is rather than
                     // showing a button that cannot finish.
-                    Text("Set this up on the web, at honmaru-web.pages.dev — signing in with GitHub is not available on the phone.")
+                    Text("Set this up on the web, at app.honmaruai.com — signing in with GitHub is not available on the phone.")
                         .font(Theme.TypeScale.caption)
                         .foregroundStyle(Theme.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

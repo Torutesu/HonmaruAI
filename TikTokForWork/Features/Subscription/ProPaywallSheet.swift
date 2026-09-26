@@ -49,7 +49,7 @@ struct ProPaywallSheet: View {
 /// cannot cover or remove the links App Review and customers need.
 struct SubscriptionLegalLinks: View {
     private let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-    private let privacyURL = URL(string: "https://honmaru-web.pages.dev/privacy.html")!
+    private let privacyURL = URL(string: "https://app.honmaruai.com/privacy.html")!
 
     var body: some View {
         HStack(spacing: Theme.Spacing.sm) {
