@@ -30,11 +30,8 @@ function json(body, status = 200) {
 }
 
 async function isAdmin(db, orgId, githubId) {
-  const row = await db
-    .prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
-    .bind(orgId, String(githubId))
-    .first();
-  return Boolean(row) && (ROLE_RANK.get(String(row.role || "member").toLowerCase()) ?? 0) >= ROLE_RANK.get("admin");
+  const { allowed } = await import("./permissions.js");
+  return allowed(db, orgId, githubId, "playbook.manage");
 }
 
 /// Session, user and membership, or the Response that says which is missing.
@@ -43,6 +40,7 @@ async function caller(env, request, orgId) {
   if (!session) return { denied: json({ message: "Please sign in." }, 401) };
   if (!orgId || typeof orgId !== "string") return { denied: json({ message: "orgId is required" }, 400) };
   if (!(await isMember(env.DB, orgId, session.github_id))) return { denied: json({ message: "not a member of this org" }, 403) };
+  { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return { denied: json(held.body, held.status) }; }
   const user = await getUserByGithubId(env.DB, session.github_id);
   if (!user?.login) return { denied: json({ message: "Please sign in." }, 401) };
   return { session, user };

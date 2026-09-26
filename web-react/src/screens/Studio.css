@@ -275,3 +275,16 @@
   .audit-sev.sev-warning { background: #3a2a0c; color: #f5c46b; }
   .audit-sev.sev-critical, .audit-outcome { background: #3d1420; color: #ff8fab; }
 }
+
+/* Login rules: presets, then one row per rule. */
+.login-rules .rules-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+.login-rules .rules-form { display: flex; flex-direction: column; gap: 12px; max-width: 640px; margin-top: 12px; }
+.login-rules .rules-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.login-rules .rules-label { font-size: 14px; flex: 1 1 260px; }
+.login-rules .rules-input { display: flex; align-items: center; gap: 8px; }
+.login-rules .rules-number { width: 110px; height: 34px; padding: 0 10px; border: 1px solid var(--st-line); border-radius: 8px; font: inherit; font-size: 14px; color: var(--st-ink); background: var(--st-bg); }
+.login-rules .rules-number:disabled { opacity: .6; }
+.login-rules .rules-unit { width: 56px; font-size: 13px; color: var(--st-dim); }
+.login-rules .rules-note { margin: 12px 0 0; font-size: 13px; color: var(--st-dim); }
+.login-rules .rules-label { font-size: 14px; color: var(--st-ink); }
+.login-rules .rules-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }

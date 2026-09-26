@@ -107,6 +107,14 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(item.type, "keyword")
     }
 
+    func testOnlyTheWorkspaceRulesCountAsASessionPolicySignOut() {
+        let ended = Data(#"{"message":"This workspace asks you to sign in again.","code":"session-policy","orgId":"team:x"}"#.utf8)
+        XCTAssertTrue(SessionPolicy.noticeIfEnded(status: 401, data: ended))
+        XCTAssertFalse(SessionPolicy.noticeIfEnded(status: 403, data: ended))
+        XCTAssertFalse(SessionPolicy.noticeIfEnded(status: 401, data: Data(#"{"message":"invalid session"}"#.utf8)))
+        XCTAssertFalse(SessionPolicy.noticeIfEnded(status: 401, data: Data(#"{"code":"reauth-required"}"#.utf8)))
+    }
+
     func testTheCanvasDecodesAsTheWorkerSendsIt() throws {
         let canvas = try JSONDecoder().decode(ChatCanvas.self, from: ###"{"body":"## Opening\n- [ ] Unlock at 7","version":3,"updatedBy":"Mika","updatedAt":"2026-09-26T01:00:00.000Z"}"###.data(using: .utf8)!)
         XCTAssertEqual(canvas.version, 3)

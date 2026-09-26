@@ -15,7 +15,13 @@ export default defineConfig({
         // run at all. Only SELF-based tests see this; tests that call
         // worker.fetch pass their own env and win. Tests that must NOT reach
         // Composio register no interceptor, so a stray call throws.
-        bindings: { COMPOSIO_API_KEY: "ak_test_relay" },
+        // Test-only audit keys, so every test writes the log the way
+        // production does: each person under a key of their own.
+        bindings: {
+          COMPOSIO_API_KEY: "ak_test_relay",
+          AUDIT_MASTER_KEY: "Qk16NjpxdRgOAokyadLTYJpxp/SpANl9tBELtbnSi8M=",
+          AUDIT_PSEUDONYM_KEY: "ln7/yH8WhNONheAGVvzq0ptYmGOdFxOJ3RInaq9stYY=",
+        },
       },
     }),
   ],

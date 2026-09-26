@@ -113,41 +113,8 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
     return { error: "Enter the six-digit code from your email.", status: 400 };
   }
   const address = normalize(email);
-  // One message for missing, expired and exhausted. Which of those it is only
-  // ever tells a guesser how close they are.
-  const dead = { error: "That code is not valid. Ask for a new one.", status: 400 };
-  // The guess is charged before it is checked, in the same statement that
-  // reads the code: `attempts` is spent by the UPDATE, and a row that has no
-  // attempts left does not come back at all. It used to be read, compared
-  // and then incremented in a separate write, so N guesses arriving together
-  // all read "0 attempts" and were all evaluated — five tries became as many
-  // as could be sent inside one round trip.
-  const row = await env.DB
-    .prepare(
-      `UPDATE login_codes SET attempts = attempts + 1
-        WHERE email = ?1 AND attempts < ?2 AND expires_at > ?3
-        RETURNING code_hash, code_salt, attempts`
-    )
-    .bind(address, MAX_ATTEMPTS, new Date().toISOString())
-    .first();
-  if (!row) {
-    // Missing, expired, or out of guesses: whichever it is, it is over.
-    await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
-    return dead;
-  }
-
-  const attempt = await hashPassword(String(code).trim(), row.code_salt);
-  if (!safeEqual(attempt, row.code_hash)) {
-    const left = MAX_ATTEMPTS - row.attempts;
-    if (left <= 0) {
-      await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
-      return dead;
-    }
-    return { error: `That code is not right. ${left} ${left === 1 ? "try" : "tries"} left.`, status: 400 };
-  }
-
-  // Spent. A correct code is single-use, whatever happens after this line.
-  await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
+  const spent = await consumeCode(env, address, code);
+  if (spent.error) return spent;
 
   const user = await env.DB
     .prepare("SELECT github_id, login FROM users WHERE email = ?1")
@@ -194,4 +161,45 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
     orgId: joined || (await primaryOrgId(env.DB, user.github_id)) || undefined,
     ...(inviteError ? { inviteError } : {}),
   };
+}
+
+/// Spend a code: true once for the right one, never again. Charged before it
+/// is checked, and gone after too many wrong guesses or its ten minutes.
+export async function consumeCode(env, address, code) {
+  // One message for missing, expired and exhausted. Which of those it is only
+  // ever tells a guesser how close they are.
+  const dead = { error: "That code is not valid. Ask for a new one.", status: 400 };
+  // The guess is charged before it is checked, in the same statement that
+  // reads the code: `attempts` is spent by the UPDATE, and a row that has no
+  // attempts left does not come back at all. It used to be read, compared
+  // and then incremented in a separate write, so N guesses arriving together
+  // all read "0 attempts" and were all evaluated — five tries became as many
+  // as could be sent inside one round trip.
+  const row = await env.DB
+    .prepare(
+      `UPDATE login_codes SET attempts = attempts + 1
+        WHERE email = ?1 AND attempts < ?2 AND expires_at > ?3
+        RETURNING code_hash, code_salt, attempts`
+    )
+    .bind(address, MAX_ATTEMPTS, new Date().toISOString())
+    .first();
+  if (!row) {
+    // Missing, expired, or out of guesses: whichever it is, it is over.
+    await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
+    return dead;
+  }
+
+  const attempt = await hashPassword(String(code).trim(), row.code_salt);
+  if (!safeEqual(attempt, row.code_hash)) {
+    const left = MAX_ATTEMPTS - row.attempts;
+    if (left <= 0) {
+      await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
+      return dead;
+    }
+    return { error: `That code is not right. ${left} ${left === 1 ? "try" : "tries"} left.`, status: 400 };
+  }
+
+  // Spent. A correct code is single-use, whatever happens after this line.
+  await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
+  return { ok: true };
 }

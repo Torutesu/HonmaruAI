@@ -155,6 +155,8 @@ export async function removeMember(env, { orgId, actorId, targetId, ref }) {
       status: 400,
     };
   }
+  const { ensureOwner } = await import("./permissions.js");
+  await ensureOwner(env.DB, orgId);
   const members = await listMembers(env.DB, orgId, actorId);
   const actor = members.find((m) => m.userId === String(actorId));
   if (!actor) return { error: "You are not a member of this organization.", status: 403 };
@@ -172,8 +174,14 @@ export async function removeMember(env, { orgId, actorId, targetId, ref }) {
     if (members.length === 1) {
       return { error: "You are the only person here, so there is nothing to leave.", status: 400 };
     }
+    // The last owner cannot walk away from people: somebody has to hold it.
+    if (actor.role === "owner" && members.filter((m) => m.role === "owner").length === 1) {
+      return { error: "You are this workspace's only owner. Make someone else an owner first.", status: 409, code: "last-owner" };
+    }
   } else if (rank(actor.role) <= rank(target.role)) {
     return { error: "You cannot remove someone at or above your own role.", status: 403 };
+  } else if (["admin", "owner"].includes(target.role) && actor.role !== "owner") {
+    return { error: "Only an owner can remove an admin.", status: 403 };
   }
 
   await env.DB
@@ -401,22 +409,39 @@ function displayName(login) {
 /// An admin changes someone's role, or which channels a guest is in.
 ///
 /// Only an admin, only for someone below them, never to a role above their
-/// own, and never their own. A guest's channels (`channels`, slugs) replace
-/// the ones they had; they must be channels the admin can see.
+/// own. Admins and owners are the owners' to make and unmake
+/// (permissions.js); an owner may step down themselves, while another owner
+/// remains. A guest's channels (`channels`, slugs) replace the ones they had;
+/// they must be channels the admin can see.
 export async function changeRole(env, { orgId, actorId, ref, role, channels }) {
   if (!orgId || !ref) return { error: "Missing team or person.", status: 400 };
   if (!membershipIsOurs(orgId)) return { error: "This workspace's roles come from a GitHub repository.", status: 400 };
+  const { ensureOwner } = await import("./permissions.js");
+  await ensureOwner(env.DB, orgId);
   const members = await listMembers(env.DB, orgId, actorId);
   const actor = members.find((m) => m.userId === String(actorId));
   const target = members.find((m) => m.ref === String(ref));
   if (!actor) return { error: "You are not a member of this organization.", status: 403 };
   if (!target) return { error: "That person is not in this workspace.", status: 404 };
-  if (target.userId === actor.userId) return { error: "You cannot change your own role.", status: 400 };
-  if (rank(actor.role) < rank("admin") || rank(actor.role) <= rank(target.role)) {
-    return { error: "Only an admin can change the role of someone below them.", status: 403 };
-  }
   const to = role === undefined ? target.role : String(role || "").toLowerCase();
-  if (!["guest", "member", "admin"].includes(to)) return { error: "That is not a role.", status: 400 };
+  if (!["guest", "member", "admin", "owner"].includes(to)) return { error: "That is not a role.", status: 400 };
+  const owners = members.filter((m) => m.role === "owner").length;
+  const self = target.userId === actor.userId;
+  if (self) {
+    // Only downwards, only for an owner, and never the last one.
+    if (actor.role !== "owner" || rank(to) >= rank("owner")) return { error: "You cannot change your own role.", status: 400 };
+    if (owners <= 1) return { error: "You are this workspace's only owner. Make someone else an owner first.", status: 409, code: "last-owner" };
+  } else {
+    if (rank(actor.role) < rank("admin")) return { error: "Only an admin can change the role of someone below them.", status: 403 };
+    const touchesAdmins = ["admin", "owner"].includes(target.role) || ["admin", "owner"].includes(to);
+    if (touchesAdmins && actor.role !== "owner") return { error: "Only an owner can make or change an admin.", status: 403 };
+    if (!touchesAdmins && rank(actor.role) <= rank(target.role)) {
+      return { error: "Only an admin can change the role of someone below them.", status: 403 };
+    }
+    if (target.role === "owner" && to !== "owner" && owners <= 1) {
+      return { error: "This is the workspace's only owner. Make someone else an owner first.", status: 409, code: "last-owner" };
+    }
+  }
   if (rank(to) > rank(actor.role)) return { error: "You cannot give a role above your own.", status: 403 };
   let chosen = null;
   if (to === "guest" && (Array.isArray(channels) || target.role !== "guest")) {

@@ -123,6 +123,8 @@ final class AGUIEventAssembler {
             return [.presence(userId: userId, status: status)]
 
         case "RUN_ERROR":
+            // The workspace's login rules have ended this sign-in.
+            if json["code"] as? String == "session-policy" { SessionPolicy.announce() }
             return [.error(message: json["message"] as? String ?? "AG-UI run error")]
 
         default:

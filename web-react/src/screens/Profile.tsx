@@ -265,8 +265,13 @@ export const Profile: React.FC<Props> = ({
       method: 'DELETE',
       headers: { 'x-session-token': sessionToken },
     })
-    if (res.ok) onLogout()
-    else setError(t('That did not work. Try again in a moment.'))
+    if (res.ok) { onLogout(); return }
+    // The only owner of a workspace others are in has to hand it on first.
+    const data = await res.json().catch(() => ({}))
+    if (data.code === 'last-owner') {
+      const names = (data.workspaces || []).map((w: { name: string | null }) => w.name || t('Your workspace')).join(', ')
+      setError(t('You are the only owner of {names}. Make someone else an owner there first, from its team screen.', { names }))
+    } else setError(t('That did not work. Try again in a moment.'))
   }
 
   const handle = (me?.login || userId).replace(/^(u:|email:)/, '')

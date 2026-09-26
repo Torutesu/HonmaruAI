@@ -6,7 +6,9 @@ import { Icon } from './Icon'
 // admin to look back on, narrow down, and download. What was said is never
 // in it; only that something was done, by whom.
 
-interface Party { type: string; name: string | null; ref?: string | null; id?: string }
+/// `deleted` is someone whose account is gone: their key went with it, and
+/// only their pseudonym (`principal`, p_…) is left to follow them by.
+interface Party { type: string; name: string | null; ref?: string | null; id?: string; deleted?: boolean; principal?: string }
 export interface AuditEntry {
   id: string; seq: number; date_create: number; action: string; category: string
   severity: 'info' | 'notice' | 'warning' | 'critical'; outcome: 'success' | 'denied' | 'failure'
@@ -24,8 +26,9 @@ const CATEGORY_WORD: Record<string, string> = {
 
 /// An entry as a sentence: "Toru renamed the workspace".
 export function describeEntry(entry: AuditEntry, t: ReturnType<typeof useT>): string {
-  const actor = entry.actor?.name || (entry.actor?.type === 'system' ? t('Honmaru') : t('Someone'))
-  const entity = entry.entity?.name || entry.entity?.id || ''
+  const gone = (p: Party | null) => p?.deleted ? t('A deleted user ({id})', { id: (p.principal || '').slice(0, 8) }) : null
+  const actor = entry.actor?.name || gone(entry.actor) || (entry.actor?.type === 'system' ? t('Honmaru') : t('Someone'))
+  const entity = entry.entity?.name || gone(entry.entity) || entry.entity?.id || ''
   return t(entry.text, { actor, entity })
 }
 

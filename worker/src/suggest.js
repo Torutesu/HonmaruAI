@@ -218,6 +218,7 @@ export async function handleSuggestions(request, env, url) {
   const orgId = url.searchParams.get("orgId");
   if (!orgId) return json({ message: "orgId is required" }, 400);
   if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+  { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
   const user = await getUserByGithubId(env.DB, session.github_id);
   if (!user?.login) return json({ message: "Please sign in." }, 401);
   const locale = await loadCopy(env, user.locale || "en", { orgId });

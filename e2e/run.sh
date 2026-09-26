@@ -77,6 +77,8 @@ npx -y wrangler@4 dev --local --test-scheduled --port "$WORKER_PORT" \
   --var RESEND_API_KEY:re_e2e \
   --var RESEND_API_BASE:http://127.0.0.1:9099 \
   --var APP_WEB_URL:"http://127.0.0.1:$WEB_PORT" \
+  --var AUDIT_MASTER_KEY:"$(head -c 32 /dev/urandom | base64)" \
+  --var AUDIT_PSEUDONYM_KEY:"$(head -c 32 /dev/urandom | base64)" \
   >/tmp/e2e-worker.log 2>&1 & pids+=($!)
 cd ..
 

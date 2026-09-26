@@ -2329,6 +2329,8 @@ await step('the team screen shows who is here, and Kenji is', async () => {
   if (!names.some((n) => /Kenji/.test(n))) {
     throw new Error(`the person who joined by invite is not in the team: ${names.join(' | ')}`)
   }
+  // Whoever made the workspace owns it, and wears the crown.
+  if (!(await page.$('.screen .team-member .team-crown'))) throw new Error('nobody on the team is shown as its owner')
   // Nobody is listed by the id they sign in with.
   const raw = names.filter((n) => /u:|email:|@example\.com/.test(n))
   if (raw.length) throw new Error(`the team shows raw account ids: ${raw.join(' | ')}`)
@@ -3021,6 +3023,33 @@ await step('the audit log shows an admin what happened, narrows it, and download
     }, null, { timeout: 10000 }).catch(() => { throw new Error('the category filter did not narrow the log') })
     const [download] = await Promise.all([w.waitForEvent('download', { timeout: 15000 }), w.click('[data-audit-export="csv"]')])
     if (!/\.csv$/.test(download.suggestedFilename())) throw new Error(`the export is not a CSV: ${download.suggestedFilename()}`)
+  } finally {
+    await ctx.close()
+  }
+})
+
+await step('the owner sets how long a sign-in lasts here, and the rules are saved', async () => {
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/tools/security`, { waitUntil: 'load' })
+    await w.waitForSelector('[data-studio-page="security"] [data-rule="webMaxHours"]:not([disabled])', { timeout: 20000 })
+      .catch(async () => { throw new Error(`the owner cannot edit the login rules: ${await w.textContent('[data-studio-page="security"]').catch(() => '')}`) })
+    await w.fill('[data-rule="webMaxHours"]', '168')
+    await w.fill('[data-rule="mobileMaxHours"]', '2160')
+    await w.click('[data-rules-save]')
+    await w.waitForSelector('[data-studio-page="security"] [role="status"]', { timeout: 10000 })
+      .catch(async () => { throw new Error(`the rules did not save: ${await w.textContent('[data-studio-page="security"]').catch(() => '')}`) })
+    await w.screenshot({ path: `${SHOTS}/70-login-rules.png` })
+    const saved = await w.evaluate(async (host) => {
+      const r = await fetch(`${host}/orgs/session-policy?orgId=${encodeURIComponent(localStorage.getItem('orgId'))}`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') } })
+      return (await r.json()).policy
+    }, API)
+    if (saved?.webMaxHours !== 168 || saved?.mobileMaxHours !== 2160) throw new Error(`the rules read back as ${JSON.stringify(saved)}`)
+    // Back to none, so nothing after this runs under them.
+    await w.evaluate(async (host) => {
+      await fetch(`${host}/orgs/session-policy`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ orgId: localStorage.getItem('orgId') }) })
+    }, API)
   } finally {
     await ctx.close()
   }

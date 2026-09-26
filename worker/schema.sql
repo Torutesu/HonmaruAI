@@ -181,7 +181,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   client              TEXT,
   user_agent          TEXT,
   place               TEXT,
-  last_seen_at        TEXT
+  last_seen_at        TEXT,
+  /* When this person last proved it was them again, for an admin action a
+     workspace's login rules ask a recent sign-in for (policy.js). */
+  reauth_at           TEXT,
+  /* How it was signed in: email_code | password | github | sso. */
+  auth_method         TEXT,
+  /* The longest it has sat unused, for a workspace that ends idle sessions. */
+  longest_idle_ms     INTEGER
 );
 
 /* One row per authorization attempt, deleted the moment it is redeemed. The
@@ -830,6 +837,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
   body          TEXT NOT NULL,
   prev_hash     TEXT,
   hash          TEXT,
+  /* 1 when the people in `body` are encrypted, each under their own key
+     (audit_principal_keys), and actor_id / entity_id hold pseudonyms. */
+  enc           INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, seq)
 );
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(org_id, created_at);
@@ -889,4 +899,45 @@ CREATE TABLE IF NOT EXISTS channel_canvas_revisions (
   updated_by    TEXT,
   updated_at    TEXT NOT NULL,
   PRIMARY KEY (org_id, channel, version)
+);
+
+/* An owner's offer to hand the workspace on (docs/admin-controls.md §4.4).
+   One at a time per workspace; the person named accepts or declines. */
+CREATE TABLE IF NOT EXISTS owner_transfers (
+  org_id          TEXT PRIMARY KEY,
+  from_github_id  TEXT NOT NULL,
+  to_github_id    TEXT NOT NULL,
+  step_down       INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL,
+  expires_at      TEXT NOT NULL
+);
+
+/* The key each person's entries in a workspace's audit log are encrypted
+   under (docs/audit-log-phase2.md §2), wrapped by AUDIT_MASTER_KEY. Deleting
+   an account sets wrapped_key to NULL: the rows stay and still verify, and
+   nobody can read who they were about again. `principal` is the pseudonym
+   the log keeps for them; `subject` finds all of one person's keys. `hold`
+   keeps a key through deletion while a legal hold needs it. */
+CREATE TABLE IF NOT EXISTS audit_principal_keys (
+  org_id        TEXT NOT NULL,
+  principal     TEXT NOT NULL,
+  subject       TEXT,
+  wrapped_key   TEXT,
+  created_at    TEXT NOT NULL,
+  shredded_at   TEXT,
+  hold          INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, principal)
+);
+CREATE INDEX IF NOT EXISTS idx_audit_keys_subject ON audit_principal_keys(subject);
+
+/* A workspace's rules for how long a sign-in lasts in it
+   (docs/admin-controls.md §3). Owners set them; NULL is no rule. */
+CREATE TABLE IF NOT EXISTS org_session_policy (
+  org_id                   TEXT PRIMARY KEY,
+  web_max_hours            INTEGER,
+  mobile_max_hours         INTEGER,
+  idle_hours               INTEGER,
+  reauth_for_admin_minutes INTEGER,
+  updated_by               TEXT NOT NULL,
+  updated_at               TEXT NOT NULL
 );

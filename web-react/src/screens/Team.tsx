@@ -48,6 +48,16 @@ const ROLE_LABEL: Record<string, string> = {
   founder: 'Founder / operator', operator: 'Ops / business',
   engineer: 'Engineer', designer: 'Designer', member: 'Member',
   admin: 'Admin', maintainer: 'Maintainer', triager: 'Triager', guest: 'Guest',
+  owner: 'Owner',
+}
+
+/// An offer to hand the workspace on, as the server shows it to this viewer.
+interface OwnerTransfer {
+  from: { name: string; ref: string }
+  to: { name: string; ref: string }
+  stepDown: boolean
+  expiresAt: string
+  mine: 'from' | 'to' | null
 }
 
 /// Your team: who is here, what is still out, and one more way in.
@@ -80,6 +90,10 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
   const [managing, setManaging] = useState<{ ref: string; role: string; channels: string[] } | null>(null)
   const [allChannels, setAllChannels] = useState<Array<{ slug: string; name: string }>>([])
   const [manageNote, setManageNote] = useState<string | null>(null)
+  // Handing the workspace on: the standing offer, and the owner's draft of one.
+  const [transfer, setTransfer] = useState<OwnerTransfer | null>(null)
+  const [handTo, setHandTo] = useState('')
+  const [stepDown, setStepDown] = useState(false)
 
   const headers = { 'x-session-token': sessionToken }
   const org = encodeURIComponent(orgId)
@@ -97,6 +111,7 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
       setTeamName(typeof mine.name === 'string' ? mine.name : null)
       setCanRename(mine.canRename === true)
       setIcon(typeof mine.icon === 'string' ? mine.icon : null)
+      setTransfer(mine.ownerTransfer || null)
       // The codes are the smaller half of this screen: failing to read them is
       // not a reason to show nothing about the people.
       if (i.ok) setInvites((await i.json().catch(() => ({}))).invites || [])
@@ -158,6 +173,19 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
     } finally { setBusy(null) }
   }
 
+  const transferCall = async (path: string, method: string, body: Record<string, unknown>) => {
+    setBusy('transfer'); setError(null)
+    try {
+      const res = await fetch(`${httpBase}${path}`, {
+        method, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ orgId, ...body }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.message || t('That did not work.')); return }
+      setHandTo(''); setStepDown(false)
+      await load()
+    } finally { setBusy(null) }
+  }
+
   const revoke = async (invite: Invite) => {
     setBusy(invite.ref)
     setError(null)
@@ -191,6 +219,19 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
       setRenaming(false)
     } finally { setBusy(null) }
   }
+
+  const myRole = (members || []).find((m) => m.mine)?.role || 'member'
+  const isOwner = myRole === 'owner'
+  const owners = (members || []).filter((m) => m.role === 'owner').length
+  /// Whether this viewer may open someone's Manage panel: an admin for
+  /// those below admin, an owner for everyone — themselves too, to step
+  /// down, while another owner remains.
+  const mayManage = (m: Member) => editable && canRename && (
+    m.mine ? isOwner && owners > 1 : isOwner || !['admin', 'owner'].includes(m.role)
+  )
+  const rolesFor = (m: Member): string[] => m.mine
+    ? ['member', 'admin']
+    : isOwner ? ['guest', 'member', 'admin', 'owner'] : ['guest', 'member']
 
   const copy = (invite: Invite) => {
     if (!invite.link) return
@@ -295,6 +336,7 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
               <Avatar name={m.name || '?'} url={m.avatarUrl} size={34} round />
               <span className="row-main">
                 {m.name}
+                {m.role === 'owner' && <span className="team-crown" title={t('Owner')} aria-label={t('Owner')}><Icon name="crown" size={12} /></span>}
                 <span className="row-sub">
                   {t(ROLE_LABEL[m.role] || m.role)}
                   {m.mine && ` · ${t('you')}`}
@@ -315,17 +357,17 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
                   </button>
                 )
               )}
-              {editable && canRename && !m.mine && m.role !== 'admin' && (
+              {mayManage(m) && (
                 <button className="btn-text team-manage" aria-expanded={managing?.ref === m.ref} onClick={() => manage(m)}>{t('Manage')}</button>
               )}
               {managing?.ref === m.ref && (
                 <div className="team-manage-panel" data-manage={m.ref}>
                   <div className="dlg-seg" role="radiogroup" aria-label={t('Role')}>
-                    {(['guest', 'member', 'admin'] as const).map((r) => (
+                    {rolesFor(m).map((r) => (
                       <button key={r} type="button" role="radio" aria-checked={managing.role === r} data-role={r}
                         onClick={() => setManaging({ ...managing, role: r })}>
                         <b>{t(ROLE_LABEL[r])}</b>
-                        <span>{r === 'guest' ? t('Only the channels you choose') : r === 'member' ? t('Every public channel') : t('Manages the workspace')}</span>
+                        <span>{r === 'guest' ? t('Only the channels you choose') : r === 'member' ? t('Every public channel') : r === 'admin' ? t('Manages the workspace') : t('Holds the workspace: security, keys, owners')}</span>
                       </button>
                     ))}
                   </div>
@@ -345,9 +387,9 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
                     <button className="pill-btn team-role-save" disabled={busy === `role:${m.ref}` || (managing.role === 'guest' && !managing.channels.length)} onClick={() => void saveRole()}>{t('Save')}</button>
                     <button className="btn-text" onClick={() => setManaging(null)}>{t('Cancel')}</button>
                     <span style={{ flex: 1 }} />
-                    <button className="btn-text danger team-signout" disabled={busy === `out:${m.ref}`} onClick={() => void signOutEverywhere(m)}>
+                    {!m.mine && <button className="btn-text danger team-signout" disabled={busy === `out:${m.ref}`} onClick={() => void signOutEverywhere(m)}>
                       <Icon name="log-out" size={13} /> {t('Sign out of every device')}
-                    </button>
+                    </button>}
                   </div>
                   {manageNote && <p className="row-sub" role="status">{manageNote}</p>}
                 </div>
@@ -395,6 +437,26 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
           </>
         )}
 
+        {transfer && (
+          <div className="team-transfer-offer" data-owner-offer={transfer.mine || 'other'} role="status">
+            <Icon name="crown" size={16} />
+            <span className="row-main">
+              {transfer.mine === 'to'
+                ? t('{name} would like you to become an owner of this workspace.', { name: transfer.from.name })
+                : t('{from} offered this workspace to {to}. Waiting for them to accept.', { from: transfer.from.name, to: transfer.to.name })}
+              {transfer.stepDown && <span className="row-sub">{t('{name} becomes an admin once it is accepted.', { name: transfer.from.name })}</span>}
+            </span>
+            {transfer.mine === 'to' && (
+              <button className="pill-btn" data-accept-owner disabled={busy === 'transfer'} onClick={() => void transferCall('/members/owner-transfer/accept', 'POST', {})}>{t('Accept')}</button>
+            )}
+            {(transfer.mine || isOwner) && (
+              <button className="btn-text" disabled={busy === 'transfer'} onClick={() => void transferCall('/members/owner-transfer', 'DELETE', {})}>
+                {transfer.mine === 'to' ? t('Decline') : t('Call it off')}
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="rows-title">{t('Invite a teammate')}</div>
         <div className="team-invite-form">
           <InviteTeammate
@@ -402,8 +464,30 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
             orgId={orgId}
             sessionToken={sessionToken}
             onMinted={load}
+            canInviteAdmin={isOwner || orgId.includes('/')}
           />
         </div>
+
+        {/* Handing it on is an owner's, and the person named has to say yes. */}
+        {editable && isOwner && !transfer && (
+          <>
+            <div className="rows-title">{t('Hand the workspace on')}</div>
+            <div className="team-transfer">
+              <select className="dlg-input" value={handTo} onChange={(e) => setHandTo(e.target.value)} aria-label={t('Who should own it')} data-hand-to>
+                <option value="">{t('Choose someone…')}</option>
+                {(members || []).filter((m) => !m.mine && m.role !== 'owner' && m.role !== 'guest').map((m) => (
+                  <option key={m.ref} value={m.ref}>{m.name}</option>
+                ))}
+              </select>
+              <label className="dlg-check">
+                <input type="checkbox" checked={stepDown} onChange={(e) => setStepDown(e.target.checked)} />
+                {t('Become an admin once they accept')}
+              </label>
+              <button className="pill-btn" data-offer-owner disabled={!handTo || busy === 'transfer'} onClick={() => void transferCall('/members/owner-transfer', 'POST', { ref: handTo, stepDown })}>{t('Offer it')}</button>
+              <span className="row-sub">{t('They become an owner when they accept. Every owner is told by email.')}</span>
+            </div>
+          </>
+        )}
 
         <div className="rows-title">{t('Always on')}</div>
         <div className="rows">

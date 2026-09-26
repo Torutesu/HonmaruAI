@@ -279,6 +279,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       setError(message)
       addDebugLog(`Refused: ${code || 'no code'} — ${message}`)
       if (code === 'not-a-member' || code === 'sign-in-required') onLeft()
+      // This workspace's login rules have ended the sign-in: out, with why.
+      if (code === 'session-policy') window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId } }))
     }
     wsClient.onToolCallResult = (toolCallId) => { if (!ignore) addDebugLog(`Tool result: ${toolCallId}`) }
     wsClient.onConnectionChange = (connected) => {

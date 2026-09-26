@@ -73,7 +73,7 @@ test("a workspace made at sign-up can say who is in it", async () => {
   expect(res.status).toBe(200);
   const { members, editable } = await res.json();
   expect(members.map((m) => m.name).sort()).toEqual(["Aya", "Dana", "Kenji"]);
-  expect(members.find((m) => m.name === "Dana").role).toBe("admin");
+  expect(members.find((m) => m.name === "Dana").role).toBe("owner");
   expect(members.find((m) => m.name === "Kenji").mine).toBe(true);
   expect(editable).toBe(true);
 });

@@ -5,7 +5,7 @@ import { groupsIn, toClientGroup, saveGroup, deleteGroup, getSidebar, saveSideba
 import { allowanceFor } from "./gate.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
-import { canRename } from "./orgs.js";
+import { allowed } from "./permissions.js";
 import { resolveMentions } from "./threads.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards, announceEvents, announceTo } from "./announce.js";
@@ -67,6 +67,7 @@ async function caller(env, request, orgId) {
   if (!session) return { denied: json({ message: "Please sign in." }, 401) };
   if (!orgId || typeof orgId !== "string") return { denied: json({ message: "orgId is required" }, 400) };
   if (!(await isMember(env.DB, orgId, session.github_id))) return { denied: json({ message: "not a member of this org" }, 403) };
+  { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return { denied: json(held.body, held.status) }; }
   const user = await getUserByGithubId(env.DB, session.github_id);
   if (!user?.login) return { denied: json({ message: "Please sign in." }, 401) };
   return { session, user: { ...user, github_id: session.github_id } };
@@ -424,7 +425,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
     const members = await listMembers(env.DB, orgId, who.session.github_id);
-    const isAdmin = await canRename(env.DB, orgId, who.session.github_id);
+    const isAdmin = await allowed(env.DB, orgId, who.session.github_id, "agent.manage_others");
     const login = who.user.login;
     const list = async () => (await listAgents(env.DB, orgId, login)).map((a) => toClientAgent(a, members, login, { isAdmin }));
     if (request.method === "GET") return json({ agents: await list(), presets: presetsFor(who.user.locale || url.searchParams.get("locale") || "en") });
@@ -470,7 +471,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (request.method === "GET") return json({ groups: await list() });
     if (await isGuest(env.DB, orgId, who.session.github_id)) return json({ message: "A guest cannot change user groups." }, 403);
     if (request.method === "DELETE") {
-      const out = await deleteGroup(env.DB, orgId, { handle: body.handle, login: who.user.login, isAdmin: await canRename(env.DB, orgId, who.session.github_id) });
+      const out = await deleteGroup(env.DB, orgId, { handle: body.handle, login: who.user.login, isAdmin: await allowed(env.DB, orgId, who.session.github_id, "usergroup.delete_others") });
       if (out.error) return json({ message: out.error }, out.status || 400);
       return json({ groups: await list() });
     }
@@ -749,7 +750,11 @@ export async function handleChannels(request, env, url, { route, after }) {
       await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login });
       await announceTo(env, orgId, await Promise.all(adding.map((m) => listFor(m.login))));
       await note(serverText(locale, "channel.added", { who: nameOf(me.login), names: adding.map((m) => m.name).join(", ") }));
-      await audit(env, request, { orgId, action: "channel.member_added", actor: person(me), entity: { type: "channel", id: ctx.resolved.slug, name: `#${ctx.resolved.slug}` }, details: { people: adding.map((m) => m.name) } });
+      // One entry per person, who is the entity — so their name goes under
+      // their own key, never into the details in the clear.
+      for (const m of adding) {
+        await audit(env, request, { orgId, action: "channel.member_added", actor: person(me), entity: { type: "user", id: m.login, name: m.name }, details: { channel: `#${ctx.resolved.slug}` } });
+      }
       return json({ added: adding.length });
     }
     const target = body.ref ? ctx.members.find((m) => m.ref === String(body.ref)) : ctx.members.find((m) => m.login === me.login);
@@ -759,7 +764,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     await note(target.login === me.login
       ? serverText(locale, "channel.left", { who: nameOf(me.login) })
       : serverText(locale, "channel.removed", { who: nameOf(me.login), name: target.name }));
-    await audit(env, request, { orgId, action: "channel.member_removed", actor: person(me), entity: { type: "channel", id: ctx.resolved.slug, name: `#${ctx.resolved.slug}` }, details: { person: target.name, left: target.login === me.login } });
+    await audit(env, request, { orgId, action: "channel.member_removed", actor: person(me), entity: { type: "user", id: target.login, name: target.name }, details: { channel: `#${ctx.resolved.slug}`, left: target.login === me.login } });
     return json({ removed: target.ref });
   }
 
@@ -862,7 +867,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     let out;
     if (request.method === "POST") out = await addBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, title: body.title, url: body.url, login });
     else if (request.method === "PUT") out = await editBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, id: String(body.id || ""), title: body.title, url: body.url });
-    else out = await removeBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, id: String(body.id || ""), login, isAdmin: await canRename(env.DB, body.orgId, ctx.who.session.github_id) });
+    else out = await removeBookmark(env.DB, { orgId: body.orgId, key: ctx.resolved.key, id: String(body.id || ""), login, isAdmin: await allowed(env.DB, body.orgId, ctx.who.session.github_id, "bookmark.remove_others") });
     if (out.error) return json({ message: out.error }, out.status || 400);
     // Everyone in the conversation sees the bar change, each in their terms
     // — though a bookmark carries no one's login, only names.

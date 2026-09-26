@@ -155,7 +155,7 @@ export async function getSession(db, token) {
   if (!token) return null;
   const row = await db
     .prepare(
-      "SELECT token, github_id, github_access_token, expires_at, last_seen_at FROM sessions WHERE token = ?1"
+      "SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, reauth_at, auth_method, longest_idle_ms FROM sessions WHERE token = ?1"
     )
     .bind(token)
     .first();
@@ -172,9 +172,14 @@ export async function getSession(db, token) {
   // "Last used", for the list of places you are signed in: at most every
   // ten minutes, never a write per request.
   if (!row.last_seen_at || now.getTime() - Date.parse(row.last_seen_at) > SESSION_SEEN_EVERY_MS) {
+    // The longest it has ever sat unused, kept with it: a workspace that
+    // ends a session left idle (policy.js) must still see the gap on the
+    // next request, after "last used" has become now.
+    const gap = now.getTime() - (Date.parse(row.last_seen_at || row.created_at || "") || now.getTime());
     try {
-      await db.prepare("UPDATE sessions SET last_seen_at = ?1 WHERE token = ?2").bind(now.toISOString(), token).run();
+      await db.prepare("UPDATE sessions SET last_seen_at = ?1, longest_idle_ms = MAX(COALESCE(longest_idle_ms, 0), ?3) WHERE token = ?2").bind(now.toISOString(), token, gap).run();
       row.last_seen_at = now.toISOString();
+      row.longest_idle_ms = Math.max(Number(row.longest_idle_ms) || 0, gap);
     } catch {
       // Not knowing when it was last used is not a reason to refuse it.
     }

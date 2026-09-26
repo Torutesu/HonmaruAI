@@ -1,7 +1,7 @@
 import { audienceOf } from "./access.js";
 import { getSession, isMember, getUserByGithubId } from "./db.js";
 import { enforce } from "./ratelimit.js";
-import { canRename } from "./orgs.js";
+import { allowed } from "./permissions.js";
 import { safe } from "./log.js";
 
 // Webhooks: this workspace's events, posted to a service of the team's own.
@@ -293,6 +293,7 @@ async function caller(env, request, orgId) {
   if (!session) return { denied: json({ message: "Please sign in." }, 401) };
   if (!orgId) return { denied: json({ message: "orgId is required" }, 400) };
   if (!(await isMember(env.DB, orgId, session.github_id))) return { denied: json({ message: "not a member of this org" }, 403) };
+  { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return { denied: json(held.body, held.status) }; }
   const user = await getUserByGithubId(env.DB, session.github_id);
   if (!user?.login) return { denied: json({ message: "Please sign in." }, 401) };
   return { session, user };
@@ -373,7 +374,7 @@ export async function handleWebhooks(request, env, url) {
 
   const { audit, person } = await import("./audit.js");
   const entity = { type: "webhook", id: hook.id, name: hook.name || (() => { try { return new URL(hook.url).hostname; } catch { return null; } })() };
-  const mayManage = hook.created_by === who.user.login || await canRename(env.DB, orgId, who.session.github_id);
+  const mayManage = hook.created_by === who.user.login || await allowed(env.DB, orgId, who.session.github_id, "webhook.delete_others");
 
   if (!action && request.method === "DELETE") {
     if (!mayManage) return json({ message: "Only whoever made this webhook, or an admin, can delete it." }, 403);

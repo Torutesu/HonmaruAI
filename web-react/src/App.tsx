@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { ReauthDialog } from './components/ReauthDialog'
 import { Dashboard } from './components/Dashboard'
 import { Welcome } from './screens/Welcome'
 import { SignIn } from './screens/SignIn'
@@ -292,6 +293,8 @@ function App() {
     setStage('app')
   }
 
+  // Signed out by a workspace's login rules: said on the way out.
+  const [signedOutWhy, setSignedOutWhy] = useState<string | null>(null)
   const handleLogout = () => {
     // This browser stops receiving this account's decisions before the
     // session is dropped — the Worker needs the token to forget the subscription.
@@ -311,6 +314,17 @@ function App() {
     clearCardCache()
   }
 
+  // A workspace's login rules ended this sign-in (utils/authGuard): out,
+  // with the reason, to sign in again.
+  useEffect(() => {
+    const on = () => {
+      setSignedOutWhy(t("This workspace's login rules ask you to sign in again."))
+      handleLogout()
+    }
+    window.addEventListener('honmaru:session-policy', on)
+    return () => window.removeEventListener('honmaru:session-policy', on)
+  })
+
   if (restoring) return <div className="screen"><div className="screen-body">
     <p role={restoreError ? 'alert' : 'status'}>{t(restoreError ? 'Could not reach the relay.' : 'Loading…')}</p>
     {restoreError && <button className="btn btn-primary" onClick={() => setRestoreAttempt((value) => value + 1)}>{t('Try again')}</button>}
@@ -320,6 +334,7 @@ function App() {
     return (
       <>
         {githubError && <div className="toasts"><div className="toast error" role="alert" onClick={() => setGithubError(null)}>{githubError}</div></div>}
+        {signedOutWhy && <div className="toasts"><div className="toast" role="status" data-signed-out-why onClick={() => setSignedOutWhy(null)}>{signedOutWhy}</div></div>}
         <Welcome
           onStart={() => { setMode('signup'); setStage('auth') }}
           onSignIn={() => { setMode('login'); setStage('auth') }}
@@ -391,6 +406,7 @@ function App() {
 
   return (
     <div className="app">
+      <ReauthDialog />
       {notice && (
         <div className="toasts app-toasts">
           <div className={`toast${notice.error ? ' error' : ''}`} role={notice.error ? 'alert' : 'status'} onClick={() => setNotice(null)}>{notice.text}</div>

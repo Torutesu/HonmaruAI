@@ -44,7 +44,7 @@ test("a member can describe what they do", async () => {
   expect(profile.assignableRoles).not.toContain("admin");
 });
 
-test("the person who signed up can answer it too, and stays an admin", async () => {
+test("the person who signed up can answer it too, and stays its owner", async () => {
   // The commonest case in the product and the one that used to be refused:
   // signing up alone makes you admin of your own organization.
   const res = await put(admin.token, { orgId: admin.orgId, role: "founder" });
@@ -54,8 +54,8 @@ test("the person who signed up can answer it too, and stays an admin", async () 
   const row = await env.DB.prepare("SELECT role, title FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
     .bind(admin.orgId, admin.userId).first();
   expect(row.title).toBe("founder");
-  // Standing untouched: still able to invite, still the org's admin.
-  expect(String(row.role).toLowerCase()).toBe("admin");
+  // Standing untouched: still able to invite, still the org's owner.
+  expect(String(row.role).toLowerCase()).toBe("owner");
 });
 
 test("nobody can promote themselves", async () => {

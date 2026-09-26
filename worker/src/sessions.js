@@ -77,8 +77,8 @@ export function describeDevice(ua, client) {
 export async function signedIn(env, request, token, githubId, method) {
   if (!token) return;
   const meta = sessionMeta(request);
-  await env.DB.prepare("UPDATE sessions SET client = ?1, user_agent = ?2, place = ?3, last_seen_at = ?4 WHERE token = ?5")
-    .bind(meta.client || null, meta.userAgent || null, meta.place || null, new Date().toISOString(), token).run().catch(() => {});
+  await env.DB.prepare("UPDATE sessions SET client = ?1, user_agent = ?2, place = ?3, last_seen_at = ?4, auth_method = ?6 WHERE token = ?5")
+    .bind(meta.client || null, meta.userAgent || null, meta.place || null, new Date().toISOString(), token, method || null).run().catch(() => {});
   const user = await getUserByGithubId(env.DB, String(githubId)).catch(() => null);
   await auditEverywhere(env, request, githubId, { action: "auth.login", actor: person(user), details: { method } });
 }
@@ -165,6 +165,7 @@ export async function handleSessions(request, env, url) {
     const ref = request.method === "GET" ? url.searchParams.get("ref") : body.ref;
     if (!orgId || !ref) return json({ message: "orgId and ref are required" }, 400);
     if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+    { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
     const members = await listMembers(env.DB, orgId, session.github_id);
     const target = members.find((m) => m.ref === ref);
     if (!target) return json({ message: "That person is not in this workspace." }, 404);
@@ -179,6 +180,11 @@ export async function handleSessions(request, env, url) {
       return json({ sessions: list.map(({ ref: r, ...s }) => ({ ...s })) });
     }
     if (request.method === "DELETE") {
+      if (!self) {
+        const { reauthDenial } = await import("./policy.js");
+        const again = await reauthDenial(env, session, orgId, { owner: mine === "owner" });
+        if (again) return json(again.body, again.status);
+      }
       const ended = await endSessions(env.DB, target.userId, self ? { keep: token } : {});
       await audit(env, request, { orgId, action: "auth.session_revoked", actor: person(user), entity: { type: "user", id: target.login, name: target.name }, details: { count: ended, everywhere: true } });
       return json({ ended });
