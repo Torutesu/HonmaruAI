@@ -274,15 +274,17 @@ function App() {
     if (stage !== 'app' || !sessionToken) return
     const controller = new AbortController()
     const check = () => {
-      if (document.visibilityState === 'hidden') return
       fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken }, signal: controller.signal })
         .then((res) => (res.ok ? res.json() : null))
         .then((me) => { if (me) adoptAccountLocale(me.locale) })
         .catch(() => { /* offline: the language this browser last had */ })
     }
+    // On open, whatever the tab's state — a tab opened behind another is
+    // "hidden" and would otherwise never ask.
     check()
-    document.addEventListener('visibilitychange', check)
-    return () => { controller.abort(); document.removeEventListener('visibilitychange', check) }
+    const onVisible = () => { if (document.visibilityState === 'visible') check() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { controller.abort(); document.removeEventListener('visibilitychange', onVisible) }
   }, [stage, sessionToken, host])
 
   const finishOnboarding = () => {
