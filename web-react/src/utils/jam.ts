@@ -15,6 +15,12 @@
 //
 // Which incoming picture is a camera and which is a screen travels with the
 // negotiation as the ids of the streams they arrive in.
+//
+// When the deployment has an SFU, the server says so as the Jam starts, and
+// the whole Jam goes through it instead (utils/jamSfu): one connection per
+// browser, and room for many more people than a mesh holds.
+
+import { SfuLink, type SfuRemoteTrack } from './jamSfu'
 
 export type JamMode = 'full' | 'notes' | 'off'
 
@@ -27,6 +33,8 @@ export interface JamParticipant {
   video?: boolean
   screen?: boolean
   avatarUrl?: string | null
+  /// Through the SFU: what they have published.
+  tracks?: string[]
 }
 
 export interface JamState {
@@ -120,6 +128,15 @@ interface Peer {
   senders: { camera: RTCRtpSender[]; screen: RTCRtpSender[] }
 }
 
+/// Someone heard and seen through the SFU.
+interface Remote {
+  audio: HTMLAudioElement
+  voice: MediaStream | null
+  camera: MediaStream | null
+  screen: MediaStream | null
+  source?: MediaStreamAudioSourceNode
+}
+
 export interface JamCallOptions {
   /// The channel as this browser names it (`b:slug`, `dm:ref`).
   channel: string
@@ -162,6 +179,11 @@ export class JamCall {
   private local: MediaStream | null = null
   private iceServers: RTCIceServer[] = []
   private peers = new Map<string, Peer>()
+  /// Through the SFU instead: one link, and the people it brings.
+  transport: 'mesh' | 'sfu' = 'mesh'
+  private sfu: SfuLink | null = null
+  private remotes = new Map<string, Remote>()
+  private asks = new Map<string, (answer: Record<string, any>) => void>()
   private ctx: AudioContext | null = null
   private mix: MediaStreamAudioDestinationNode | null = null
   private recorder: MediaRecorder | null = null
@@ -206,6 +228,13 @@ export class JamCall {
 
   /// What each other person sends, for the stage.
   media(peerId: string): { camera: MediaStream | null; screen: MediaStream | null } {
+    const r = this.remotes.get(peerId)
+    if (r) {
+      // A track through the SFU stays when a camera goes off; what they say
+      // they send decides whether it is shown.
+      const who = this.participants.find((p) => p.peerId === peerId)
+      return { camera: who?.video ? r.camera : null, screen: who?.screen ? r.screen : null }
+    }
     const p = this.peers.get(peerId)
     return { camera: p?.camera || null, screen: p?.screen || null }
   }
@@ -221,6 +250,7 @@ export class JamCall {
   async setSpeaker(id: string): Promise<void> {
     this.speakerId = id
     for (const peer of this.peers.values()) await this.route(peer.audio)
+    for (const r of this.remotes.values()) await this.route(r.audio)
   }
 
   /// Another microphone, without leaving: the new track replaces the old in
@@ -233,6 +263,7 @@ export class JamCall {
     for (const peer of this.peers.values()) {
       for (const sender of peer.pc.getSenders()) if (sender.track?.kind === 'audio') await sender.replaceTrack(track).catch(() => {})
     }
+    if (this.sfu) await this.sfu.replaceAudio(track).catch(() => {})
     for (const old of this.local?.getAudioTracks() || []) { this.local?.removeTrack(old); old.stop() }
     this.local?.addTrack(track)
     if (this.local) this.meter('me', this.local)
@@ -244,12 +275,14 @@ export class JamCall {
       for (const t of this.camera?.getTracks() || []) t.stop()
       this.camera = null
       for (const peer of this.peers.values()) this.unsend(peer, 'camera')
+      if (this.sfu) await this.sfu.publish('camera', null).catch(() => {})
     } else {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), width: { ideal: 1280 }, height: { ideal: 720 } } })
       for (const t of this.camera?.getTracks() || []) t.stop()
       if (this.camera) for (const peer of this.peers.values()) this.unsend(peer, 'camera')
       this.camera = stream
       for (const peer of this.peers.values()) this.send(peer, 'camera', stream)
+      if (this.sfu && stream.getVideoTracks()[0]) await this.sfu.publish('camera', stream.getVideoTracks()[0], stream).catch(() => this.opts.onProblem('The camera could not be sent.'))
     }
     this.announceMedia()
   }
@@ -261,6 +294,7 @@ export class JamCall {
       for (const t of this.screen?.getTracks() || []) t.stop()
       this.screen = null
       for (const peer of this.peers.values()) this.unsend(peer, 'screen')
+      if (this.sfu) await this.sfu.publish('screen', null).catch(() => {})
     } else {
       const stream = await (navigator.mediaDevices as MediaDevices & { getDisplayMedia: (c?: MediaStreamConstraints) => Promise<MediaStream> })
         .getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: false })
@@ -268,6 +302,7 @@ export class JamCall {
       const [track] = stream.getVideoTracks()
       if (track) track.onended = () => { if (this.screen === stream) void this.setScreen(false) }
       for (const peer of this.peers.values()) this.send(peer, 'screen', stream)
+      if (this.sfu && track) await this.sfu.publish('screen', track, stream).catch(() => this.opts.onProblem('The screen could not be shared.'))
     }
     this.announceMedia()
   }
@@ -283,6 +318,7 @@ export class JamCall {
     this.stopTranscript()
     const recorded = await this.stopRecording()
     for (const id of [...this.peers.keys()]) this.hangUp(id)
+    this.closeSfu()
     for (const s of [this.local, this.camera, this.screen]) for (const track of s?.getTracks() || []) track.stop()
     this.local = null; this.camera = null; this.screen = null
     if (this.meterTimer) clearInterval(this.meterTimer)
@@ -292,6 +328,82 @@ export class JamCall {
     this.ctx = null
     this.opts.onChange()
     if (recorded) await this.opts.upload(recorded.blob, recorded.meta).catch(() => this.opts.onProblem('The recording did not upload.'))
+  }
+
+  // ---- Through the SFU ----
+
+  /// A request to the SFU, through the relay; its answer comes back as a
+  /// `jam_sfu` event with the same id.
+  private askSfu(op: string, payload: Record<string, unknown>): Promise<Record<string, any>> {
+    const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { this.asks.delete(requestId); resolve({ error: 'The call server did not answer.' }) }, 15_000)
+      this.asks.set(requestId, (answer) => { clearTimeout(timer); resolve(answer) })
+      sendJam('jam_sfu', { requestId, op, ...payload })
+    })
+  }
+
+  private openSfu(): void {
+    this.closeSfu()
+    const link = new SfuLink(this.iceServers, (op, payload) => this.askSfu(op, payload), (t) => this.fromSfu(t))
+    this.sfu = link
+    link.pc.onconnectionstatechange = () => {
+      if (link.pc.connectionState === 'failed') this.opts.onProblem('The call lost its connection.')
+      this.opts.onChange()
+    }
+    const voice = this.local?.getAudioTracks()[0]
+    if (voice) void link.publish('audio', voice, this.local!).catch(() => this.opts.onProblem('Your microphone could not be sent.'))
+    const pic = this.camera?.getVideoTracks()[0]
+    if (pic) void link.publish('camera', pic, this.camera!).catch(() => {})
+    const shared = this.screen?.getVideoTracks()[0]
+    if (shared) void link.publish('screen', shared, this.screen!).catch(() => {})
+  }
+
+  private closeSfu(): void {
+    this.sfu?.close()
+    this.sfu = null
+    for (const id of [...this.remotes.keys()]) this.dropRemote(id)
+    for (const resolve of this.asks.values()) resolve({ error: 'closed' })
+    this.asks.clear()
+  }
+
+  private remote(peerId: string): Remote {
+    let r = this.remotes.get(peerId)
+    if (!r) {
+      const audio = new Audio()
+      audio.autoplay = true
+      r = { audio, voice: null, camera: null, screen: null }
+      this.remotes.set(peerId, r)
+    }
+    return r
+  }
+
+  private fromSfu({ peerId, trackName, track }: SfuRemoteTrack): void {
+    const r = this.remote(peerId)
+    const stream = new MediaStream([track])
+    if (trackName === 'audio') {
+      r.voice = stream
+      r.audio.srcObject = stream
+      void this.route(r.audio)
+      void r.audio.play().catch(() => { /* played on the next gesture */ })
+      this.mixIn(r, stream)
+      this.meter(peerId, stream)
+    } else if (trackName === 'camera') r.camera = stream
+    else r.screen = stream
+    track.onunmute = () => this.opts.onChange()
+    this.opts.onChange()
+  }
+
+  private dropRemote(peerId: string): void {
+    const r = this.remotes.get(peerId)
+    if (!r) return
+    this.remotes.delete(peerId)
+    try { r.source?.disconnect() } catch { /* already */ }
+    r.audio.srcObject = null
+    const m = this.meters.get(peerId)
+    if (m) { try { m.source.disconnect() } catch { /* already */ } this.meters.delete(peerId) }
+    this.speaking.delete(peerId)
+    this.sfu?.forget(peerId)
   }
 
   private announceMedia(): void {
@@ -313,8 +425,10 @@ export class JamCall {
       this.startedAt = value.startedAt || new Date().toISOString()
       this.messageId = value.messageId || null
       this.transcript = Array.isArray(value.transcript) ? value.transcript.map((l: TranscriptLine) => ({ ...l })) : []
+      this.transport = value.transport === 'sfu' ? 'sfu' : 'mesh'
+      if (this.transport === 'sfu') this.openSfu()
       // The newcomer reaches out; perfect negotiation settles who offers.
-      for (const remote of value.peers || []) this.peer(remote)
+      else for (const remote of value.peers || []) this.peer(remote)
       this.startTranscript()
       this.opts.onChange()
       return
@@ -322,6 +436,11 @@ export class JamCall {
     if (name === 'jam_error' && (!value?.channel || value.channel === this.channel)) {
       this.opts.onProblem(value?.message || 'The Jam could not start.')
       void this.leave()
+      return
+    }
+    if (name === 'jam_sfu' && value?.requestId) {
+      const resolve = this.asks.get(value.requestId)
+      if (resolve) { this.asks.delete(value.requestId); resolve(value) }
       return
     }
     if (name === 'jam_signal' && this.peerId && value?.from) {
@@ -338,6 +457,12 @@ export class JamCall {
       const here = new Set(this.participants.map((p) => p.peerId))
       // Someone gone: their call goes too.
       for (const id of [...this.peers.keys()]) if (!here.has(id)) this.hangUp(id)
+      for (const id of [...this.remotes.keys()]) if (!here.has(id)) this.dropRemote(id)
+      // Through the SFU: whatever the others publish, pulled once.
+      if (this.sfu && this.peerId) {
+        void this.sfu.pull(this.participants.filter((p) => p.peerId !== this.peerId && p.tracks?.length))
+          .catch(() => this.opts.onProblem('Someone in the call could not be heard. Try leaving and joining again.'))
+      }
       if (this.peerId && before.size) {
         const came = [...here].some((id) => id !== this.peerId && !before.has(id))
         const went = [...before].some((id) => id !== this.peerId && !here.has(id))
@@ -369,6 +494,7 @@ export class JamCall {
     // A new socket: the relay has forgotten this browser was here.
     if (name === 'reset' && this.peerId) {
       for (const id of [...this.peers.keys()]) this.hangUp(id)
+      this.closeSfu()
       this.peerId = null
       sendJam('jam_join', { channel: this.channel, mode: this.mode, muted: this.muted })
     }
@@ -583,6 +709,7 @@ export class JamCall {
       this.mix = ctx.createMediaStreamDestination()
       ctx.createMediaStreamSource(this.local).connect(this.mix)
       for (const peer of this.peers.values()) if (peer.voice) this.mixIn(peer, peer.voice)
+      for (const r of this.remotes.values()) if (r.voice) this.mixIn(r, r.voice)
       this.recorder = new MediaRecorder(this.mix.stream, { mimeType: mime, audioBitsPerSecond: 24000 })
       this.chunks = []
       this.recorder.ondataavailable = (e) => { if (e.data.size) this.chunks.push(e.data) }
@@ -596,7 +723,7 @@ export class JamCall {
     }
   }
 
-  private mixIn(peer: Peer, stream: MediaStream): void {
+  private mixIn(peer: { source?: MediaStreamAudioSourceNode }, stream: MediaStream): void {
     if (!this.ctx || !this.mix || peer.source) return
     try {
       peer.source = this.ctx.createMediaStreamSource(stream)
