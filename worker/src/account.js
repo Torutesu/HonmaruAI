@@ -175,6 +175,8 @@ export async function deleteAccount(db, githubId, login) {
       // Out of every group and private channel; what they said there stays,
       // unsigned, like a public channel's.
       ["DELETE FROM conversation_members WHERE login = ?1", [login]],
+      ["DELETE FROM user_group_members WHERE login = ?1", [login]],
+      ["DELETE FROM sidebar_prefs WHERE login = ?1", [login]],
       ["DELETE FROM message_reactions WHERE login = ?1", [login]],
       ["DELETE FROM channel_reads WHERE login = ?1", [login]],
       ["DELETE FROM channel_prefs WHERE login = ?1", [login]],

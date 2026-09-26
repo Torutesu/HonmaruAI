@@ -138,6 +138,10 @@ interface Face { name: string; url?: string | null }
 /// to what you wrote.
 /// A thread you are in: its first message, the last replies, how many.
 interface ThreadItem { parent: ChannelMessage; replies: ChannelMessage[]; replyCount: number; lastReplyAt: string; unread: boolean }
+/// Your sidebar's own arrangement.
+interface SidebarLayout { starred: string[]; sections: Array<{ id: string; name: string; views: string[]; collapsed?: boolean }> }
+/// A user group: "@handle" names everyone in it.
+interface UserGroup { handle: string; name: string; refs: string[]; createdBy: string | null }
 interface ActivityItem { type: 'mention' | 'reply' | 'reaction'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null; byAvatar?: string | null }
 
 async function hash16(text: string): Promise<string> {
@@ -239,6 +243,46 @@ export const ClassicList: React.FC<Props> = ({
   // Your daily report's draft, waiting in the channel it is for.
   const dailyDrafts = useMemo(() => pending.filter((c) => c.dailyReport && awaitsPost(c) && c.dailyReport.status === 'draft'), [pending])
   const draftsFor = (view: string) => dailyDrafts.filter((c) => c.dailyReport!.channel === view)
+  // Your own sidebar: what you starred and the sections you made, kept on
+  // the server so the laptop and the phone arrange things alike.
+  const [layout, setLayout] = useState<SidebarLayout>({ starred: [], sections: [] })
+  useEffect(() => {
+    let ignore = false
+    fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => { if (!ignore && d?.sidebar) setLayout(d.sidebar) }).catch(() => {})
+    return () => { ignore = true }
+  }, [api.httpBase, api.orgId, authHeaders])
+  const saveLayout = (next: SidebarLayout) => {
+    setLayout(next)
+    void fetch(`${api.httpBase}/channels/sidebar`, {
+      method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, sidebar: next }),
+    }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.sidebar) setLayout(d.sidebar) }).catch(() => {})
+  }
+  const isStarred = (view: string) => layout.starred.includes(view)
+  /// Not starred and in none of your sections: where it always was.
+  const unplaced = (th: { view?: string }) => !th.view || (!layout.starred.includes(th.view) && !layout.sections.some((x) => x.views.includes(th.view!)))
+  const toggleStar = (view: string) => saveLayout({ ...layout, starred: isStarred(view) ? layout.starred.filter((v) => v !== view) : [...layout.starred, view] })
+  const sectionOf = (view: string) => layout.sections.find((x) => x.views.includes(view)) || null
+  /// Into one of your sections (or back where it came from, with null).
+  const moveTo = (view: string, sectionId: string | null) => saveLayout({
+    ...layout,
+    sections: layout.sections.map((x) => ({ ...x, views: x.id === sectionId ? [...x.views.filter((v) => v !== view), view] : x.views.filter((v) => v !== view) })),
+  })
+  const newSection = (name: string, view?: string) => {
+    const id = Math.random().toString(36).slice(2, 10)
+    const sections = layout.sections.map((x) => ({ ...x, views: view ? x.views.filter((v) => v !== view) : x.views }))
+    saveLayout({ ...layout, sections: [...sections, { id, name, views: view ? [view] : [] }] })
+  }
+  const [addingSection, setAddingSection] = useState<null | { view?: string }>(null)
+  const [sectionName, setSectionName] = useState('')
+  const [moveMenu, setMoveMenu] = useState(false)
+  const [moveSheet, setMoveSheet] = useState<string | null>(null)
+  // User groups: "@sales" in the composer, like a person.
+  const [userGroups, setUserGroups] = useState<UserGroup[]>([])
+  useEffect(() => {
+    fetch(`${api.httpBase}/channels/usergroups?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.groups) setUserGroups(d.groups) }).catch(() => {})
+  }, [api.httpBase, api.orgId, authHeaders])
   useEffect(() => {
     let ignore = false
     let tz = ''
@@ -1202,6 +1246,25 @@ export const ClassicList: React.FC<Props> = ({
     return () => window.removeEventListener('honmaru:open-message-id', on)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [everything.length])
+  // "Join this Jam", from a link (the phone app's web view opens one): the
+  // conversation, then the call. In the app, leaving says so, and the app
+  // closes the view.
+  useEffect(() => {
+    const go = (view: string) => {
+      const th = everything.find((x) => x.view === view)
+      if (!th) { setToast(t('That conversation is not somewhere you can read.')); return }
+      choose(th.key)
+      void startJam(view, { mode: jams[view]?.mode || 'off' })
+    }
+    const on = (e: Event) => { try { sessionStorage.removeItem('list.jamView') } catch {}; go(String((e as CustomEvent).detail || '')) }
+    window.addEventListener('honmaru:join-jam', on)
+    try {
+      const saved = sessionStorage.getItem('list.jamView')
+      if (saved && everything.length) { sessionStorage.removeItem('list.jamView'); setTimeout(() => go(saved), 300) }
+    } catch { /* nothing to join */ }
+    return () => window.removeEventListener('honmaru:join-jam', on)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [everything.length])
   const decideMessage = async (channel: string, m: ChannelMessage) => {
     setProblem(null)
     const res = await fetch(`${api.httpBase}/channels/decide`, {
@@ -1290,6 +1353,14 @@ export const ClassicList: React.FC<Props> = ({
   // Who is talking in which channel, and the call this tab is in.
   const [jams, setJams] = useState<Record<string, JamState>>({})
   const [call, setCall] = useState<JamCall | null>(null)
+  // In the phone app's web view: tell the app when the call is over.
+  const hadCall = useRef(false)
+  useEffect(() => {
+    if (call) { hadCall.current = true; return }
+    if (!hadCall.current) return
+    hadCall.current = false
+    try { (window as unknown as { webkit?: { messageHandlers?: { honmaruJam?: { postMessage: (m: unknown) => void } } } }).webkit?.messageHandlers?.honmaruJam?.postMessage({ type: 'left' }) } catch { /* not in the app */ }
+  }, [call])
   const [, setCallTick] = useState(0)
   // The call's own panel beside the conversation; tucked away, the bar.
   const [jamShown, setJamShown] = useState(true)
@@ -1417,7 +1488,11 @@ export const ClassicList: React.FC<Props> = ({
 
   // "@" in the composer offers the team — and the AI.
   const mentionable = useMembers(api.httpBase, api.orgId, api.sessionToken)
-  const withAI = useMemo(() => [{ ref: '__ai', name: 'AI' } as (typeof mentionable)[number], ...mentionable], [mentionable])
+  const withAI = useMemo(() => [
+    { ref: '__ai', name: 'AI' } as (typeof mentionable)[number],
+    ...mentionable,
+    ...userGroups.map((g) => ({ ref: `group:${g.handle}`, name: g.name, handle: g.handle, title: t('{n} people', { n: g.refs.length }) }) as (typeof mentionable)[number]),
+  ], [mentionable, userGroups, t])
   const mention = useMentionMenu(composer, draft, setDraft, withAI)
   const threadMention = useMentionMenu(threadComposer, threadDraft, setThreadDraft, withAI)
 
@@ -1979,6 +2054,38 @@ export const ClassicList: React.FC<Props> = ({
                   {(() => { const m = members.find((x) => thread.view === `dm:${x.ref}`); return m?.awayUntil ? <span className="slk-head-away"> · {t('Away until {when}', { when: new Date(m.awayUntil).toLocaleDateString(locale, { month: 'short', day: 'numeric' }) })}</span> : null })()}
                 </h1>
               : <h1>{thread.name}</h1>}
+            {thread.view && (
+              <span className="slk-head-tools" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  className={`slk-head-btn slk-star-button${isStarred(thread.view) ? ' on' : ''}`}
+                  onClick={() => toggleStar(thread.view!)}
+                  aria-pressed={isStarred(thread.view)}
+                  aria-label={isStarred(thread.view) ? t('Unstar') : t('Star')} title={isStarred(thread.view) ? t('Unstar') : t('Star')}
+                  data-star="1"
+                >
+                  <Icon name="star" size={15} />
+                </button>
+                <div className="slk-move-wrap">
+                  <button type="button" className={`slk-head-btn slk-move-button${moveMenu ? ' on' : ''}`} onClick={() => setMoveMenu((m) => !m)}
+                    aria-haspopup="menu" aria-expanded={moveMenu} aria-label={t('Move to a section')} title={t('Move to a section')} data-move="1">
+                    <Icon name="folder" size={15} />
+                  </button>
+                  {moveMenu && (
+                    <div className="slk-menu slk-move-menu" role="menu" onMouseLeave={() => setMoveMenu(false)}>
+                      {layout.sections.map((x) => (
+                        <button key={x.id} type="button" role="menuitemradio" aria-checked={sectionOf(thread.view!)?.id === x.id} onClick={() => { setMoveMenu(false); moveTo(thread.view!, x.id) }} data-move-to={x.name}>
+                          {x.name}{sectionOf(thread.view!)?.id === x.id && <Icon name="check" size={13} />}
+                        </button>
+                      ))}
+                      {sectionOf(thread.view) && <button type="button" role="menuitem" onClick={() => { setMoveMenu(false); moveTo(thread.view!, null) }}>{t('Back to where it was')}</button>}
+                      <div className="slk-menu-sep" />
+                      <button type="button" role="menuitem" onClick={() => { setMoveMenu(false); setSectionName(''); setAddingSection({ view: thread.view! }) }} data-new-section="1">{t('New section…')}</button>
+                    </div>
+                  )}
+                </div>
+              </span>
+            )}
             <p>
               {!wide && (thread.kind === 'channel' || thread.kind === 'group') && <>{t('{n} members', { n: headCount(thread) })} · </>}
               {thread.cards.length ? t('{n} decisions', { n: thread.cards.length }) : t('No decisions here yet.')}
@@ -2516,8 +2623,26 @@ export const ClassicList: React.FC<Props> = ({
               </button>
             </li>
           </ul>
-          {section('channels', t('Channels'), channels, t('No channels yet. Make one, or let your AI file decisions under a business as they arrive.'), addChannel, addChannelForm)}
-          {section('people', t('Direct messages'), people, t('Nobody has sent you a decision yet.'))}
+          {(() => {
+            // Starred first, then your sections; what they hold leaves the defaults.
+            const byView = (v: string) => everything.find((x) => x.view === v)
+            const starred = layout.starred.map(byView).filter((x): x is Thread => Boolean(x))
+            return (
+              <>
+                {starred.length > 0 && section('starred', t('Starred'), starred, '')}
+                {layout.sections.map((x) => section(`sec:${x.id}`, x.name, x.views.map(byView).filter((th): th is Thread => Boolean(th) && !isStarred(th!.view!)), t('Move a conversation here from its header.'), (
+                  <button type="button" className="cl-add cl-section-remove" onClick={() => { if (window.confirm(t('Remove the section “{name}”? Its conversations go back where they were.', { name: x.name }))) saveLayout({ ...layout, sections: layout.sections.filter((y) => y.id !== x.id) }) }} aria-label={t('Remove section')} title={t('Remove section')}>
+                    <Icon name="x" size={12} />
+                  </button>
+                )))}
+              </>
+            )
+          })()}
+          {section('channels', t('Channels'), channels.filter(unplaced), t('No channels yet. Make one, or let your AI file decisions under a business as they arrive.'), addChannel, addChannelForm)}
+          {section('people', t('Direct messages'), people.filter(unplaced), t('Nobody has sent you a decision yet.'))}
+          <button type="button" className="cl-add-section" onClick={() => { setSectionName(''); setAddingSection({}) }} data-add-section="1">
+            <Icon name="plus" size={13} /> {t('Add a section')}
+          </button>
           {section('apps', t('Apps'), apps, t('Connect Gmail or Slack under Tools and their decisions land here.'))}
         </nav>
         </>}
@@ -2630,6 +2755,8 @@ export const ClassicList: React.FC<Props> = ({
             <div className="msheet-rows">
               {(th.kind === 'channel' || th.kind === 'group') && <SheetRow icon="users" label={t('Members')} hint={String(headCount(th))} onClick={close(() => openSide({ kind: 'details', tab: 'members' }))} data="members" />}
               {th.kind === 'person' && <SheetRow icon="you" label={t('Profile')} onClick={close(() => void openProfile(th.view!.slice(3)))} data="profile" />}
+              <SheetRow icon="star" label={isStarred(th.view!) ? t('Unstar') : t('Star')} onClick={close(() => toggleStar(th.view!))} data="star" />
+              <SheetRow icon="folder" label={t('Move to a section')} hint={sectionOf(th.view!)?.name} onClick={close(() => setMoveSheet(th.view!))} data="move" />
               <SheetRow icon="book" label={t('Context')} onClick={close(() => openSide({ kind: 'journal' }))} data="context" />
               <SheetRow icon="pin" label={t('Pinned messages')} onClick={close(() => void loadPins(th.view!))} data="pins" />
               {th.kind === 'channel' && <SheetRow icon="repeat" label={t('Automations')} hint={String(automationCount[th.view!] ?? 0)} onClick={close(() => openSide({ kind: 'details', tab: 'automations' }))} data="automations" />}
@@ -2640,6 +2767,29 @@ export const ClassicList: React.FC<Props> = ({
           </Sheet>
         )
       })()}
+      {moveSheet && (
+        <Sheet label={t('Move to a section')} onClose={() => setMoveSheet(null)}>
+          <p className="msheet-title">{t('Move to a section')}</p>
+          <div className="msheet-rows">
+            {layout.sections.map((x) => (
+              <SheetRow key={x.id} icon="folder" label={x.name} hint={sectionOf(moveSheet)?.id === x.id ? '✓' : undefined} onClick={() => { moveTo(moveSheet, x.id); setMoveSheet(null) }} />
+            ))}
+            {sectionOf(moveSheet) && <SheetRow icon="x" label={t('Back to where it was')} onClick={() => { moveTo(moveSheet, null); setMoveSheet(null) }} />}
+            <SheetRow icon="plus" label={t('New section…')} onClick={() => { const v = moveSheet; setMoveSheet(null); setSectionName(''); setAddingSection({ view: v }) }} />
+          </div>
+        </Sheet>
+      )}
+      {addingSection && (
+        <Sheet label={t('New section')} onClose={() => setAddingSection(null)}>
+          <p className="msheet-title">{t('New section')}</p>
+          <form className="msheet-form" onSubmit={(e) => { e.preventDefault(); const n = sectionName.trim(); if (!n) return; newSection(n, addingSection.view); setAddingSection(null) }}>
+            <label className="msheet-search">
+              <input value={sectionName} onChange={(e) => setSectionName(e.target.value)} maxLength={40} placeholder={t('e.g. Clients, This week')} aria-label={t('Section name')} autoFocus data-section-name="1" />
+            </label>
+            <button type="submit" className="msheet-go" disabled={!sectionName.trim()} data-section-create="1">{t('Create')}</button>
+          </form>
+        </Sheet>
+      )}
       {toast && <div className="cl-toast" role="status">{toast}</div>}
       {ringing && createPortal(
         <div className="jam-ring" role="alertdialog" aria-label={t('{name} is calling you', { name: ringing.name })} data-jam-ring="1">

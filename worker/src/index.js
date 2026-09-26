@@ -580,6 +580,9 @@ async function handle(request, env, url, ctx) {
         connectors: Boolean(env.COMPOSIO_API_KEY),
         billing: Boolean(env.REVENUECAT_SECRET_KEY),
         githubOAuthNative: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+        // Where the web app is: the phone app opens a Jam there, in its own
+        // web view. Public already — every invite link carries it.
+        webUrl: env.APP_WEB_URL ? String(env.APP_WEB_URL).replace(/\/$/, "") : null,
       });
     }
     if (url.pathname === "/agui/tools" && request.method === "GET") {

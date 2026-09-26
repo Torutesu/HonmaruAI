@@ -39,3 +39,9 @@ it('a link to a message opens the list at it', () => {
   expect(parseRoute('#/m/msg_abc-123')).toMatchObject({ mode: 'classic', messageId: 'msg_abc-123' })
   expect(parseRoute('#/m/<script>').messageId).toBeNull()
 })
+
+it('a Jam link opens the list on the conversation and joins its call', () => {
+  expect(parseRoute('#/jam/b:kitchen')).toMatchObject({ mode: 'classic', jamView: 'b:kitchen' })
+  expect(parseRoute('#/jam/g%3A0123456789abcdef').jamView).toBe('g:0123456789abcdef')
+  expect(parseRoute('#/jam/javascript:alert(1)').jamView).toBeNull()
+})

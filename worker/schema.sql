@@ -739,3 +739,32 @@ CREATE TABLE IF NOT EXISTS org_emoji (
   created_at    TEXT NOT NULL,
   PRIMARY KEY (org_id, name)
 );
+
+/* User groups: `@sales` names everyone in it at once. The workspace's; any
+   member may make one or change who is in it, and whoever made it, or an
+   admin, may delete it. `handle` is stored folded, without the "@". */
+CREATE TABLE IF NOT EXISTS user_groups (
+  org_id        TEXT NOT NULL,
+  handle        TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  created_by    TEXT,
+  created_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, handle)
+);
+CREATE TABLE IF NOT EXISTS user_group_members (
+  org_id        TEXT NOT NULL,
+  handle        TEXT NOT NULL,
+  login         TEXT NOT NULL,
+  PRIMARY KEY (org_id, handle, login)
+);
+
+/* One person's sidebar in one workspace: the conversations they starred and
+   the sections they made, as JSON (people-groups.js cleans it). It only
+   arranges what they can already see. */
+CREATE TABLE IF NOT EXISTS sidebar_prefs (
+  org_id        TEXT NOT NULL,
+  login         TEXT NOT NULL,
+  data          TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, login)
+);

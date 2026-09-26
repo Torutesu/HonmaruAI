@@ -25,7 +25,7 @@ export type IconName =
   | 'smile' | 'message' | 'paperclip' | 'clock' | 'edit' | 'x' | 'check'
   | 'bell-off' | 'zap' | 'settings' | 'external' | 'list' | 'quote' | 'code' | 'sparkle' | 'refresh' | 'grid' | 'key' | 'link' | 'copy'
   | 'mic-off' | 'video' | 'video-off' | 'monitor' | 'phone-off' | 'maximize' | 'minimize'
-  | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at'
+  | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // Figma: Chrome/Tab Bar → icon/home
@@ -410,6 +410,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94" />
     </>
   ),
+  star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />,
+  folder: <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />,
 }
 
 interface Props {

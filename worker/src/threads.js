@@ -44,6 +44,8 @@ export function resolveMentions(text, members) {
         .map(fold);
       if (names.includes(want)) { found.set(m.login, m); break; }
     }
+    // A user group names everyone in it.
+    for (const m of members) if ((m.groups || []).map(fold).includes(want)) found.set(m.login, m);
   }
   return [...found.values()];
 }
