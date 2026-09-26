@@ -2727,6 +2727,69 @@ await step('threads you are in, a message marked unread, and one forwarded as a 
   }
 })
 
+await step('a star, a section of your own, and a user group one mention reaches', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    // A group with Kenji in it, from the Studio.
+    const handle = `crew${Date.now() % 100000}`
+    await desk.goto(`${WEB}#/tools/groups`, { waitUntil: 'load' })
+    await desk.waitForSelector('[data-studio-page="groups"]', { timeout: 20000 })
+    await desk.click('[data-group-new]')
+    await desk.fill('[data-group-handle]', handle)
+    await desk.click('[data-group-person="Kenji"]')
+    await desk.click('[data-group-save]')
+    await desk.waitForSelector(`.ug-row[data-group="${handle}"]`, { timeout: 10000 })
+    await desk.screenshot({ path: `${SHOTS}/61-user-groups.png` })
+
+    // Kitchen starred, and a section of the owner's own.
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.slk-side .cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view="b:kitchen"] .cl-open')
+    await desk.click('[data-star]')
+    await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Starred")) .cl-thread[data-view="b:kitchen"]', { timeout: 10000 })
+      .catch(() => { throw new Error('a starred channel is not under Starred') })
+    await desk.click('.slk-side .cl-thread[data-view="b:front-desk"] .cl-open')
+    await desk.click('[data-move]')
+    await desk.click('[data-new-section]')
+    await desk.fill('[data-section-name]', 'Shop floor')
+    await desk.click('[data-section-create]')
+    await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Shop floor")) .cl-thread[data-view="b:front-desk"]', { timeout: 10000 })
+      .catch(() => { throw new Error('the channel is not in the new section') })
+    // Kept on the server: a reload keeps it.
+    await desk.reload({ waitUntil: 'load' })
+    await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Shop floor")) .cl-thread[data-view="b:front-desk"]', { timeout: 20000 })
+
+    // "@crew" in the composer: offered, written, and it reaches Kenji.
+    await desk.click('.slk-composer .slk-input')
+    await desk.keyboard.type(`@${handle.slice(0, 4)}`)
+    await desk.waitForSelector(`.mention-option:has-text("@${handle}")`, { timeout: 5000 })
+    await desk.keyboard.press('Enter')
+    await desk.keyboard.type('the delivery is at 3')
+    await desk.keyboard.press('Enter')
+    await desk.screenshot({ path: `${SHOTS}/62-sections-and-group.png` })
+    const named = await kenji.evaluate(async (host) => {
+      const org = localStorage.getItem('orgId'); const token = localStorage.getItem('sessionToken')
+      for (let i = 0; i < 20; i++) {
+        const r = await fetch(`${host}/channels/activity?orgId=${encodeURIComponent(org)}`, { headers: { 'x-session-token': token } })
+        const d = await r.json()
+        if ((d.items || []).some((x) => x.type === 'mention' && /the delivery is at 3/.test(x.message.body))) return true
+        await new Promise((res) => setTimeout(res, 500))
+      }
+      return false
+    }, API)
+    if (!named) throw new Error('a mention of the group did not reach someone in it')
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-desk.png` }).catch(() => {})
+    throw err
+  } finally {
+    await desk.close()
+  }
+})
+
 await step('the mark at the top left lists every workspace, and adds one', async () => {
   // Its own browser with the same sign-in, so switching here moves nobody
   // else's page.

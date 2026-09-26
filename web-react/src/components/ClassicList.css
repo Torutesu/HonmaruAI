@@ -1190,3 +1190,19 @@
 .classic.slk.slk .slk-thread-text .slk-text { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
 .classic.slk.slk .slk-thread-more { grid-column: 2; justify-self: start; padding: 0; border: none; background: none; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--slk-accent); }
 .classic.slk.slk .slk-thread-card .slk-act-actions { display: flex; gap: 6px; }
+
+/* Your own sidebar: a star in the header, sections you make. */
+.classic.slk.slk .slk-star-button.on { color: #e8912d; }
+.classic.slk.slk .slk-star-button.on svg { fill: #e8912d; }
+.classic.slk.slk .slk-move-wrap { position: relative; display: inline-flex; }
+.classic.slk.slk .slk-move-menu { position: absolute; top: calc(100% + 6px); right: 0; left: auto; min-width: 220px; z-index: 40; }
+.classic.slk.slk .slk-move-menu button { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.classic.slk.slk .cl-add-section {
+  display: flex; align-items: center; gap: 6px; margin: 6px 12px 10px; padding: 4px 6px; border: none; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; color: inherit; opacity: .72; border-radius: 6px;
+}
+.classic.slk.slk .cl-add-section:hover { background: rgba(127,127,127,.14); opacity: 1; }
+.classic.slk.slk .cl-section h2 .cl-section-remove { opacity: 0; }
+.classic.slk.slk .cl-section h2:hover .cl-section-remove, .classic.slk.slk .cl-section-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .classic.slk.slk .cl-section h2 .cl-section-remove { opacity: 1; } }
+.msheet-form { display: flex; flex-direction: column; gap: 8px; }

@@ -212,3 +212,29 @@
   .emoji-drop { flex-wrap: wrap; }
   .emoji-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
 }
+
+/* User groups: the list, and the editor with its people to tick. */
+.ug-editor { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--st-line); border-radius: 12px; background: var(--st-bg); }
+.ug-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; }
+.ug-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--st-dim); }
+.ug-fields input { height: 36px; padding: 0 10px; border: 1px solid var(--st-line); border-radius: 8px; font: inherit; font-size: 14px; color: var(--st-ink); background: var(--st-bg); }
+.ug-handle { display: flex; align-items: center; gap: 4px; }
+.ug-handle b { color: var(--st-faint); }
+.ug-handle input { flex: 1; min-width: 0; }
+.ug-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px; max-height: 280px; overflow-y: auto; }
+.ug-person { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: none; cursor: pointer; font: inherit; font-size: 13.5px; color: var(--st-ink); text-align: left; }
+.ug-person:hover { background: var(--st-hover); }
+.ug-person.on { border-color: var(--st-accent); background: rgba(102, 71, 240, .06); }
+.ug-person > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ug-person small { color: var(--st-faint); }
+.ug-tick { width: 16px; color: var(--st-accent); }
+.ug-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.ug-count { margin-right: auto; font-size: 12.5px; color: var(--st-dim); }
+.ug-list { display: flex; flex-direction: column; border: 1px solid var(--st-line); border-radius: 10px; background: var(--st-bg); }
+.ug-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--st-line); }
+.ug-row:last-child { border-bottom: none; }
+.ug-mark { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; background: var(--st-chip); color: var(--st-dim); flex: none; }
+.ug-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 14px; color: var(--st-ink); }
+.ug-name { color: var(--st-dim); }
+.ug-text small { flex-basis: 100%; font-size: 12.5px; color: var(--st-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 719px) { .ug-fields { grid-template-columns: 1fr; } }

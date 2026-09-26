@@ -7,6 +7,7 @@
 // session to do it — so for everyone who signed in with an email address, in
 // the `personal:` workspace they were given, it answered nothing at all.
 
+import { groupHandlesByLogin } from "./people-groups.js";
 import { ROLE_RANK, sha256Hex, inviteLink } from "./auth.js";
 import { saveCard, removeCard, getUserByLogin, parseAliases } from "./db.js";
 import { appendCardEvent } from "./events.js";
@@ -85,6 +86,8 @@ export async function listMembers(db, orgId, viewerId) {
     )
     .bind(orgId)
     .all();
+  // The user groups each person is in: "@sales" reaches all of them.
+  const groups = await groupHandlesByLogin(db, orgId);
   return Promise.all(
     (results || []).map(async (r) => ({
       userId: String(r.userId),
@@ -110,6 +113,7 @@ export async function listMembers(db, orgId, viewerId) {
       awayUntil: r.awayUntil && r.awayUntil > new Date().toISOString() ? r.awayUntil : null,
       delegateLogin: r.awayUntil && r.awayUntil > new Date().toISOString() ? (r.delegateLogin || null) : null,
       joinedAt: r.joinedAt,
+      groups: groups.get(r.login) || [],
       mine: String(r.userId) === String(viewerId),
     }))
   );
@@ -169,6 +173,8 @@ export async function removeMember(env, { orgId, actorId, targetId, ref }) {
   // later is a new start, not the old doors reopening.
   if (target.login) {
     await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND login = ?2").bind(orgId, target.login).run().catch(() => {});
+    await env.DB.prepare("DELETE FROM user_group_members WHERE org_id = ?1 AND login = ?2").bind(orgId, target.login).run().catch(() => {});
+    await env.DB.prepare("DELETE FROM sidebar_prefs WHERE org_id = ?1 AND login = ?2").bind(orgId, target.login).run().catch(() => {});
   }
   // After the row is gone, never before: what comes next asks who is still
   // here, and the answer has to have stopped including them.

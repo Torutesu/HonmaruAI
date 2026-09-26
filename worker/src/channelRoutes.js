@@ -1,9 +1,11 @@
 import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText } from "./dailyReport.js";
 import { providerFor } from "./orgAI.js";
+import { groupsIn, toClientGroup, saveGroup, deleteGroup, getSidebar, saveSidebar } from "./people-groups.js";
 import { allowanceFor } from "./gate.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
+import { canRename } from "./orgs.js";
 import { resolveMentions } from "./threads.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards, announceEvents, announceTo } from "./announce.js";
@@ -307,6 +309,42 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!row || row.deleted_at || row.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
     const key = row.parent_id ? `t:${row.parent_id}` : ctx.resolved.key;
     return json({ lastReadAt: await markUnreadFrom(env.DB, body.orgId, ctx.who.user.login, key, row.created_at), thread: row.parent_id || null });
+  }
+
+  // User groups: `@sales` names everyone in it. Listed, made and changed by
+  // anyone in the workspace; deleted by whoever made it, or an admin.
+  if (path === "/channels/usergroups" && ["GET", "POST", "PUT", "DELETE"].includes(request.method)) {
+    if (request.method !== "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+    }
+    const body = request.method === "GET" ? null : await request.json().catch(() => null);
+    if (request.method !== "GET" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+    const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    const list = async () => (await groupsIn(env.DB, orgId)).map((g) => toClientGroup(g, members));
+    if (request.method === "GET") return json({ groups: await list() });
+    if (request.method === "DELETE") {
+      const out = await deleteGroup(env.DB, orgId, { handle: body.handle, login: who.user.login, isAdmin: await canRename(env.DB, orgId, who.session.github_id) });
+      if (out.error) return json({ message: out.error }, out.status || 400);
+      return json({ groups: await list() });
+    }
+    const out = await saveGroup(env.DB, orgId, { handle: body.handle, name: body.name, refs: body.refs, login: who.user.login, members, creating: request.method === "POST" });
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    return json({ group: toClientGroup(out.group, members), groups: await list() }, request.method === "POST" ? 201 : 200);
+  }
+
+  // Your sidebar: what you starred, and the sections you made.
+  if (path === "/channels/sidebar" && (request.method === "GET" || request.method === "PUT")) {
+    const body = request.method === "PUT" ? await request.json().catch(() => null) : null;
+    if (request.method === "PUT" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+    const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    if (request.method === "GET") return json({ sidebar: await getSidebar(env.DB, orgId, who.user.login) });
+    return json({ sidebar: await saveSidebar(env.DB, orgId, who.user.login, body.sidebar || body) });
   }
 
   // Threads: every thread you are in, the newest reply first.
