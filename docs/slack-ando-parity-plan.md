@@ -33,7 +33,7 @@
 | ワークスペースのカスタム絵文字 | ✓ | — | ✅ | — |
 | 検索修飾子（`in:` `from:` `to:` `has:` `is:` `on:` `during:`、完全一致、除外） | ✓ | ✓ | ✅ | P2 |
 | チャネルのブックマーク | ✓ | — | ✅ | P2 |
-| キャンバス | ✓ | Channel Context | 🟡 コンテキスト（journal） | P2 |
+| キャンバス（会話ごとの共有メモ、版の管理、AI で更新） | ✓ | Channel Context | ✅ | P2 |
 
 ### 通話（Slack のハドル / Ando の Jam）
 
@@ -85,7 +85,10 @@
 | 役割（Guest / Member / Admin） | ✓ | ✓ | ✅ Guest は選んだチャンネルだけ。Owner は未分離 | P1 |
 | セッション管理（端末一覧、個別・一括ログアウト、管理者による強制ログアウト） | ✓ | — | ✅ | P1 |
 | セッション寿命のポリシー | ✓ | — | ⬜ | P2 |
-| SSO / SCIM、保持期間、リーガルホールド、DLP | ✓ | — | ⬜ | P2 |
+| SSO / ドメイン参加 | ✓ | — | ⬜ 設計済み（[sso-and-domain-join.md](sso-and-domain-join.md)） | P1 |
+| 監査ログ Phase 2（匿名化、封印、SIEM、保持期間） | Enterprise | — | ⬜ 設計済み（[audit-log-phase2.md](audit-log-phase2.md)） | P1 |
+| Owner / Admin の分離、Provisioning キー、ログイン有効期限 | ✓ | ✓ | ⬜ 設計済み（[admin-controls.md](admin-controls.md)） | P1 |
+| SCIM、リーガルホールド（人単位）、DLP | ✓ | — | ⬜ | P2 |
 
 ---
 
@@ -192,12 +195,12 @@
 
 **残り**
 
-1. 監査ログ Phase 2: 封印 Cron、R2 アーカイブと Ed25519 署名、crypto-shredding、SIEM 配信、保持期間。
+1. 監査ログ Phase 2（設計: [audit-log-phase2.md](audit-log-phase2.md)）: 封印 Cron、R2 アーカイブと Ed25519 署名、crypto-shredding、SIEM 配信、保持期間。
    - アカウントを削除しても、今は監査ログの行が残る（ログインと名前を含む）。
    - crypto-shredding を入れるまでは、プライバシーポリシーにそう書いておく必要がある。
-2. Provisioning キー、セッション寿命のポリシー、Owner と Admin の分離。
-3. 8 人を超える通話（SFU）、キャンバス。
-4. SSO / SCIM、保持期間ポリシー、リーガルホールド、DLP（[enterprise-audit-log.md](enterprise-audit-log.md) §10）。
+2. Provisioning キー、セッション寿命のポリシー、Owner と Admin の分離（設計: [admin-controls.md](admin-controls.md)）。
+3. 8 人を超える通話（SFU）。キャンバスはこの後の PR で入った。
+4. SSO とドメイン参加（設計: [sso-and-domain-join.md](sso-and-domain-join.md)）。SCIM、リーガルホールド（人単位）、DLP（[enterprise-audit-log.md](enterprise-audit-log.md) §10）。
 
 ## 4. 確かめ方
 
