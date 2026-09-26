@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { displayName } from '../utils/names'
 import { getLocale } from '../utils/locale'
-import { splitMentions, useMembers } from '../utils/mentions'
+import { splitMentions, mentionSegments, useMembers, type Mentionable } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
 import { Icon } from './Icon'
 
@@ -91,11 +91,12 @@ function when(iso: string): string {
     : d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
 }
 
-/// A comment's text with every @Name drawn as one.
-export const MentionText: React.FC<{ text: string }> = ({ text }) => (
+/// A comment's text with every @Name that reaches somebody drawn as one;
+/// an @word that names nobody stays a word.
+export const MentionText: React.FC<{ text: string; members?: Mentionable[] }> = ({ text, members }) => (
   <>
-    {splitMentions(text).map((part, i) => part.mention
-      ? <span key={i} className="mention">{part.text}</span>
+    {(members ? mentionSegments(text, members) : splitMentions(text).map((p) => ({ ...p, kind: p.mention ? 'person' as const : null }))).map((part, i) => part.mention && part.kind
+      ? <span key={i} className={`mention m-${part.kind}`}>{part.text}</span>
       : <React.Fragment key={i}>{part.text}</React.Fragment>)}
   </>
 )
@@ -279,7 +280,7 @@ export const CardThread: React.FC<Props> = ({ httpBase, orgId, sessionToken, car
               <span className="thread-when">{when(row.c.createdAt)}</span>
               <span className="thread-body">
                 <span className="thread-head">{userId && row.c.author === userId ? t('You') : (row.c.authorName || displayName(row.c.author))}</span>
-                <span className="thread-comment"><MentionText text={row.c.body} /></span>
+                <span className="thread-comment"><MentionText text={row.c.body} members={[{ ref: '__ai', name: 'AI' }, ...members]} /></span>
               </span>
             </li>
           ))}

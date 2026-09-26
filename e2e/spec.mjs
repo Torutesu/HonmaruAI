@@ -2792,6 +2792,15 @@ await step('a star, a section of your own, and a user group one mention reaches'
     await desk.keyboard.type(`@${handle.slice(0, 4)}`)
     await desk.waitForSelector(`.mention-option:has-text("@${handle}")`, { timeout: 5000 })
     await desk.keyboard.press('Enter')
+    // A name that reaches somebody lights up as it is typed; one that
+    // names nobody stays plain.
+    await desk.waitForSelector(`.slk-composer .mention-layer .mention-hl.m-group:has-text("@${handle}")`, { timeout: 5000 })
+      .catch(() => { throw new Error('a mention that reaches a group is not marked in the composer') })
+    await desk.keyboard.type('@nobodyhere ')
+    const plain = await desk.$$eval('.slk-composer .mention-layer .mention-hl', (els) => els.map((e) => e.textContent))
+    if (plain.some((x) => /nobodyhere/.test(x || ''))) throw new Error('a mention of nobody is marked as if it reached someone')
+    await desk.screenshot({ path: `${SHOTS}/62a-mention-colour.png` })
+    for (let i = 0; i < '@nobodyhere '.length; i++) await desk.keyboard.press('Backspace')
     await desk.keyboard.type('the delivery is at 3')
     await desk.keyboard.press('Enter')
     await desk.screenshot({ path: `${SHOTS}/62-sections-and-group.png` })
@@ -2878,6 +2887,22 @@ await step('the team writes an agent: from a preset, as a .md file, and @called 
     await desk.waitForSelector('.slk-thread-pane .slk-msg:has(.slk-avatar.agent) .slk-author:has-text("Secretary")', { timeout: 15000 })
       .catch(() => { throw new Error('the reply in the thread is not the agent, by its name and face') })
     await desk.screenshot({ path: `${SHOTS}/64-agent-reply.png` })
+
+    // Your own agent, brought into #kitchen from its members panel: listed
+    // among them, said in the channel, and taken out again.
+    await desk.click('.slk-thread-pane .slk-pane-close')
+    await desk.click('.slk-members-button')
+    await desk.waitForSelector('.slk-details [data-tab="members"][aria-selected="true"]', { timeout: 10000 })
+    await desk.click('.slk-details .slk-details-add-agent')
+    await desk.click(`.slk-details [data-add-agent="${own}"]`)
+    await desk.waitForSelector(`.slk-details .slk-member-row[data-agent="${own}"]`, { timeout: 10000 })
+      .catch(() => { throw new Error('the agent added to the channel is not among its members') })
+    await desk.waitForSelector(`.slk-main .slk-log .slk-msg:has-text("(@${own})")`, { timeout: 15000 })
+      .catch(() => { throw new Error('the channel was not told an agent joined') })
+    await desk.screenshot({ path: `${SHOTS}/64a-agent-in-channel.png` })
+    await desk.click(`.slk-details .slk-member-row[data-agent="${own}"] .slk-member-remove`)
+    await desk.waitForSelector(`.slk-details .slk-member-row[data-agent="${own}"]`, { state: 'detached', timeout: 10000 })
+      .catch(() => { throw new Error('the agent taken out is still among the members') })
 
     // A conversation with it: "Message" on the Agents screen opens it in the
     // list, like a DM. Everything said there is said to it — no @ — and it

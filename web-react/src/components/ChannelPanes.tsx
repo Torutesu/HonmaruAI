@@ -23,8 +23,11 @@ interface Details {
   channel: { key: string; view: string; kind: 'channel' | 'dm' | 'group'; private?: boolean; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
   members: {
     people: Array<{ ref: string; name: string; handle: string | null; title: string | null; status: { emoji?: string; text?: string } | null; awayUntil: string | null; you: boolean; avatarUrl?: string | null }>
-    agents: Array<{ name: string; kind: 'ai' | 'agent'; owner: string | null; lastSeenAt?: string | null }>
+    agents: Array<{ name: string; kind: 'ai' | 'agent' | 'custom'; owner: string | null; lastSeenAt?: string | null; id?: string; handle?: string; emoji?: string | null; description?: string; canRemove?: boolean }>
   }
+  /// The agents you could add here — yours and the team's — or null where
+  /// agents are not added (a DM).
+  addableAgents?: Array<{ id: string; handle: string; name: string; emoji?: string | null; description?: string; scope?: 'team' | 'personal' }> | null
   attachments: Array<{ url: string; host: string; messageId: string; authorName: string | null; at: string }>
   automations: Array<{ id: string; kind: string; title: string; schedule: string; enabled: boolean; ownerName: string | null; mine: boolean; nextRunAt: string | null }>
   counts: { members: number; automations: number; attachments: number }
@@ -209,6 +212,21 @@ export function ChannelDetails({
   const [adding, setAdding] = useState(false)
   const [ask, setAsk] = useState('')
   const [busy, setBusy] = useState(false)
+  const [pickingAgent, setPickingAgent] = useState(false)
+
+  /// An agent brought in, or taken out: the panel, and the names "@"
+  /// offers, follow.
+  const placeAgent = async (agentId: string, add: boolean) => {
+    setProblem(null)
+    const res = await fetch(`${api.httpBase}/channels/channel-agents`, {
+      method: add ? 'POST' : 'DELETE', headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel: view, agentId }),
+    }).catch(() => null)
+    if (!res?.ok) setProblem(((await res?.json().catch(() => null))?.message) || t('That did not save.'))
+    if (add) setPickingAgent(false)
+    try { window.dispatchEvent(new Event('honmaru:agents-changed')) } catch { /* nothing listening */ }
+    void load()
+  }
 
   const load = useCallback(async () => {
     const q = new URLSearchParams({ orgId: api.orgId, channel: view })
@@ -316,6 +334,20 @@ export function ChannelDetails({
             <ul className="slk-details-list">
               {agents.map((a, i) => (
                 <li key={`${a.name}-${i}`}>
+                  {a.kind === 'custom' ? (
+                    <div className="slk-member-row static" data-agent={a.handle}>
+                      <span className="cl-lead cl-app sz-row slk-agent-face" aria-hidden="true">{a.emoji || '🤖'}</span>
+                      <span className="slk-member-main">
+                        <span className="slk-member-name">{a.name} <span className="slk-member-handle">@{a.handle}</span></span>
+                        <span className="slk-member-title">{a.description || (a.owner ? t('Added by {name}', { name: a.owner }) : t('Agent'))}</span>
+                      </span>
+                      {a.canRemove && a.id && (
+                        <button type="button" className="slk-member-remove" onClick={() => void placeAgent(a.id!, false)} aria-label={t('Remove {name} from here', { name: a.name })} title={t('Remove from here')}>
+                          <Icon name="x" size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
                   <div className="slk-member-row static">
                     {a.kind === 'ai'
                       ? <span className="cl-lead cl-app sz-row" aria-hidden="true"><img className="cl-own-mark" src="/icon.svg" alt="" width={18} height={18} /></span>
@@ -325,10 +357,35 @@ export function ChannelDetails({
                       <span className="slk-member-title">{a.kind === 'ai' ? t('Turns what is said here into decisions') : a.owner ? t('Connected by {name}', { name: a.owner }) : t('Connected tool')}</span>
                     </span>
                   </div>
+                  )}
                 </li>
               ))}
             </ul>
             {isChannel && <button type="button" className="slk-send slk-details-add" onClick={onInvite}>{t('Add members')}</button>}
+            {d.addableAgents && d.addableAgents.length > 0 && (
+              pickingAgent ? (
+                <div className="slk-agent-picker" role="group" aria-label={t('Add an agent')}>
+                  <p className="slk-agent-picker-hint">{t('Anyone here can call the agent you add, with @ and its name.')}</p>
+                  <ul className="slk-details-list">
+                    {d.addableAgents.map((a) => (
+                      <li key={a.id}>
+                        <button type="button" className="slk-member-row" onClick={() => void placeAgent(a.id, true)} data-add-agent={a.handle}>
+                          <span className="cl-lead cl-app sz-row slk-agent-face" aria-hidden="true">{a.emoji || '🤖'}</span>
+                          <span className="slk-member-main">
+                            <span className="slk-member-name">{a.name} <span className="slk-member-handle">@{a.handle}</span></span>
+                            <span className="slk-member-title">{a.scope === 'personal' ? t('Your own agent') : (a.description || t('Team agent'))}</span>
+                          </span>
+                          <span className="slk-agent-add" aria-hidden="true">{t('Add')}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" className="cl-nudge" onClick={() => setPickingAgent(false)}>{t('Cancel')}</button>
+                </div>
+              ) : (
+                <button type="button" className="cl-nudge slk-details-add-agent" onClick={() => setPickingAgent(true)}>{t('Add an agent')}</button>
+              )
+            )}
           </>
         )}
         {d && tab === 'attachments' && (

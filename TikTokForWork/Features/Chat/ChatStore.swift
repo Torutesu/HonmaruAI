@@ -171,6 +171,7 @@ final class ChatStore: ObservableObject {
         } catch { self.error = error.localizedDescription }
         if let list = try? await ChatService.emoji(orgId: orgId, base: base) { emoji = list } else { emoji = [] }
         if let list = try? await ChatService.userGroups(orgId: orgId, base: base) { userGroups = list } else { userGroups = [] }
+        ChatMentionDirectory.shared.update(members: members, groups: userGroups, agents: agents)
         if let layout = try? await ChatService.sidebar(orgId: orgId, base: base) { sidebar = layout } else { sidebar = ChatSidebar() }
         await loadThreads()
         async let i: Void = loadInbox()
@@ -181,11 +182,37 @@ final class ChatStore: ObservableObject {
 
     /// The agents as `/channels/agents` last returned them, after a change
     /// made on the Agents screen: the composer offers them at once.
-    func setAgents(_ list: [ChatAgent]) { agents = list }
+    func setAgents(_ list: [ChatAgent]) {
+        // `/channels/agents` lists only your own; the ones others added to
+        // your channels stay until the next overview says otherwise.
+        let ids = Set(list.map(\.id))
+        agents = list + agents.filter { $0.placed == true && !ids.contains($0.id) }
+        ChatMentionDirectory.shared.update(members: members, groups: userGroups, agents: agents)
+    }
 
-    /// "@" suggestions for agents: handle, then what the chip says.
-    var agentMentions: [(handle: String, label: String, emoji: String)] {
-        agents.map { (handle: $0.handle, label: $0.name, emoji: $0.glyph) }
+    /// "@" suggestions for agents in one conversation: handle, then what the
+    /// chip says. One somebody added to a channel is offered only there.
+    func agentMentions(in view: String) -> [(handle: String, label: String, emoji: String)] {
+        agents.filter { $0.placed != true || ($0.channels ?? []).contains(view) }
+            .map { (handle: $0.handle, label: $0.name, emoji: $0.glyph) }
+    }
+
+    /// The agents in a channel or a group, and the ones you could add.
+    func channelAgents(_ view: String) async -> ChatService.ChannelAgents? {
+        guard let orgId, let base else { return nil }
+        return try? await ChatService.channelAgents(orgId: orgId, channel: view, base: base)
+    }
+
+    /// Bring an agent in, or take it out. Nil when it worked, else why not.
+    func placeAgent(_ agentId: String, in view: String, add: Bool) async -> String? {
+        guard let orgId, let base else { return String(localized: "That did not save.") }
+        do {
+            try await ChatService.placeAgent(orgId: orgId, channel: view, agentId: agentId, add: add, base: base)
+            await refresh()
+            return nil
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? String(localized: "That did not save.")
+        }
     }
 
     func loadThreads() async {

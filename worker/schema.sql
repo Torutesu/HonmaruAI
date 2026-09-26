@@ -816,6 +816,18 @@ CREATE TABLE IF NOT EXISTS custom_agents (
 );
 CREATE INDEX IF NOT EXISTS idx_custom_agents_handle ON custom_agents(org_id, handle);
 
+/* An agent added to a channel or a group: shown among its members, and
+   called there by anyone in it — a personal agent too, once its owner
+   brings it in. */
+CREATE TABLE IF NOT EXISTS channel_agents (
+  org_id    TEXT NOT NULL,
+  channel   TEXT NOT NULL,
+  agent_id  TEXT NOT NULL,
+  added_by  TEXT NOT NULL,
+  added_at  TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel, agent_id)
+);
+
 /* One person's sidebar in one workspace: the conversations they starred and
    the sections they made, as JSON (people-groups.js cleans it). It only
    arranges what they can already see. */

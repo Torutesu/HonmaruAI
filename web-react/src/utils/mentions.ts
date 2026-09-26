@@ -31,6 +31,16 @@ export interface AgentFace {
   emoji?: string | null
   description?: string
   scope?: 'team' | 'personal'
+  /// The channels it was added to, as you see them.
+  channels?: string[]
+  /// Someone else's, callable only in those channels.
+  placed?: boolean
+}
+
+/// The agents "@" reaches in one conversation: your own everywhere, one
+/// somebody added to a channel only there.
+export function agentsIn(agents: AgentFace[], view: string | null | undefined): AgentFace[] {
+  return agents.filter((a) => !a.placed || Boolean(view && a.channels?.includes(view)))
 }
 
 /// The team's agents as names "@" offers: `@hayao` is written by its handle,
@@ -158,4 +168,43 @@ export function useMembers(httpBase: string, orgId: string, sessionToken: string
     return () => { ignore = true }
   }, [httpBase, orgId, sessionToken])
   return members
+}
+
+/// What an `@token` names, if anyone: the AI, a person, a user group or an
+/// agent — or null when it matches nobody, so it is left as plain text
+/// rather than dressed up as a mention that reaches no one. "@hayaoに" is
+/// "@hayao": the particle goes with the name.
+export type MentionKind = 'ai' | 'person' | 'group' | 'agent'
+export function mentionKind(token: string, list: Mentionable[]): MentionKind | null {
+  const raw = token.replace(/^[@＠]/, '')
+  for (const want of new Set([fold(raw), fold(raw.replace(/[にへ]$/, ''))])) {
+    if (!want) continue
+    if (want === 'ai') return 'ai'
+    const hit = list.find((mem) => [mem.handle || '', mem.name, mem.name.split(/\s+/)[0], ...(mem.aliases || [])]
+      .filter(Boolean).map(fold).includes(want))
+    if (hit) {
+      if (hit.ref === '__ai') return 'ai'
+      if (hit.ref.startsWith('group:')) return 'group'
+      if (hit.ref.startsWith('agent:')) return 'agent'
+      return 'person'
+    }
+  }
+  return null
+}
+
+/// A text cut into plain runs and `@mentions`, each mention with what it
+/// names (null: nobody). The pieces join back into the text exactly.
+export function mentionSegments(text: string, list: Mentionable[]): Array<{ text: string; kind: MentionKind | null; mention: boolean }> {
+  const out: Array<{ text: string; kind: MentionKind | null; mention: boolean }> = []
+  const re = /(^|[\s(（「])([@＠][^\s@＠,，。、!?！？:;)）」]+)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    const start = m.index + m[1].length
+    if (start > last) out.push({ text: text.slice(last, start), kind: null, mention: false })
+    out.push({ text: m[2], kind: mentionKind(m[2], list), mention: true })
+    last = start + m[2].length
+  }
+  if (last < text.length) out.push({ text: text.slice(last), kind: null, mention: false })
+  return out
 }

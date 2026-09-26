@@ -150,3 +150,49 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(revisions.first?.id, 2)
     }
 }
+
+/// Only an @name that reaches somebody is drawn as a mention.
+final class ChatMentionTests: XCTestCase {
+    func testTheDirectoryKnowsPeopleGroupsAgentsAndTheAI() throws {
+        let members = try JSONDecoder().decode([ChatMember].self, from: Data(#"[{"ref":"m1","name":"Mika Sato","mine":false,"handle":"mika"}]"#.utf8))
+        let directory = ChatMentionDirectory()
+        directory.update(members: members, groups: [ChatUserGroup(handle: "sales", name: "Sales", refs: [])], agents: [])
+        XCTAssertEqual(directory.kind(of: "@mika"), .person)
+        XCTAssertEqual(directory.kind(of: "@Mika"), .person)
+        XCTAssertEqual(directory.kind(of: "＠sales"), .group)
+        XCTAssertEqual(directory.kind(of: "@AI"), .ai)
+        XCTAssertNil(directory.kind(of: "@nobody"))
+    }
+
+    func testTheComposerChecksOnlyFinishedMentions() {
+        XCTAssertEqual(ConversationView.mentionTokens(in: "@mika ask @nobody about it"), ["@mika", "@nobody"])
+        XCTAssertEqual(ConversationView.mentionTokens(in: "hi @mik"), [])
+        XCTAssertEqual(ConversationView.mentionTokens(in: "mail a@b.com "), [])
+    }
+}
+
+final class ChannelAgentTests: XCTestCase {
+    func testTheAgentsInAChannelAndTheOnesToAddDecode() throws {
+        let json = """
+        {"members":{"people":[],"agents":[
+          {"name":"Your AI","kind":"ai","owner":null},
+          {"kind":"custom","id":"a1","handle":"menu","name":"Menu","emoji":"📋","description":"","owner":"Mika","canRemove":true},
+          {"name":"CI bot","kind":"agent","owner":"Toru"}]},
+         "addableAgents":[{"id":"a2","handle":"hayao","name":"Hayao","emoji":null,"scope":"team"}]}
+        """
+        let got = try JSONDecoder().decode(ChatService.ChannelAgents.self, from: Data(json.utf8))
+        XCTAssertEqual(got.placed.map(\.handle), ["menu"])
+        XCTAssertEqual(got.placed.first?.glyph, "📋")
+        XCTAssertEqual(got.addableAgents?.map(\.handle), ["hayao"])
+        XCTAssertEqual(got.addableAgents?.first?.glyph, "🤖")
+    }
+
+    func testAnAgentAddedToChannelsSaysWhere() throws {
+        let json = #"{"id":"a1","handle":"menu","name":"Menu","emoji":null,"description":"","scope":"personal","channels":["b:cafe"],"placed":true}"#
+        let agent = try JSONDecoder().decode(ChatAgent.self, from: Data(json.utf8))
+        XCTAssertEqual(agent.channels, ["b:cafe"])
+        XCTAssertEqual(agent.placed, true)
+        let older = try JSONDecoder().decode(ChatAgent.self, from: Data(#"{"id":"a2","handle":"x","name":"X"}"#.utf8))
+        XCTAssertNil(older.channels)
+    }
+}

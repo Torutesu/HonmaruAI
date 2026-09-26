@@ -1,5 +1,51 @@
 import SwiftUI
 
+/// What an @name reaches: the AI, a person, a user group or an agent.
+enum ChatMentionKind: Equatable { case ai, person, group, agent
+    var color: Color {
+        switch self {
+        case .ai: Theme.Colors.accent
+        case .person: Theme.Colors.interactive
+        case .group: Color.teal
+        case .agent: Color.purple
+        }
+    }
+}
+
+/// Every name an @ can reach in this workspace, kept current by the chat
+/// store. Only a name here is drawn as a mention; an @word that names
+/// nobody stays plain text, so a typo reads as one. Before the team has
+/// loaded it knows nothing, and every @word is drawn as before.
+final class ChatMentionDirectory {
+    static let shared = ChatMentionDirectory()
+    private(set) var names: [String: ChatMentionKind] = [:]
+
+    static func fold(_ s: String) -> String { s.precomposedStringWithCompatibilityMapping.lowercased() }
+
+    func update(members: [ChatMember], groups: [ChatUserGroup], agents: [ChatAgent]) {
+        var out: [String: ChatMentionKind] = ["ai": .ai]
+        for m in members {
+            let first = m.name.split(separator: " ").first.map(String.init)
+            for n in [m.handle, m.name, first].compactMap({ $0 }) where !n.isEmpty { out[Self.fold(n)] = .person }
+        }
+        for g in groups { out[Self.fold(g.handle)] = .group }
+        for a in agents { out[Self.fold(a.handle)] = .agent }
+        names = out
+    }
+
+    /// What "@token" (or "＠token", or "@tokenに") names, or nil for nobody.
+    func kind(of token: String) -> ChatMentionKind? {
+        var raw = token
+        if raw.hasPrefix("@") || raw.hasPrefix("＠") { raw.removeFirst() }
+        let want = Self.fold(raw)
+        if let k = names[want] { return k }
+        if want.hasSuffix("に") || want.hasSuffix("へ") { return names[String(want.dropLast())] }
+        return want == "ai" ? .ai : nil
+    }
+
+    var isLoaded: Bool { names.count > 1 }
+}
+
 /// Slack's formatting, read back natively: *bold*, _italic_, ~strike~ and
 /// `code` become Markdown for AttributedString; "> " quotes and "- " lists
 /// stay as lines, drawn with a bar or a bullet.
@@ -12,14 +58,19 @@ enum ChatText {
         md = md.replacingOccurrences(of: #"(?<![\w~])~([^~\n]+)~(?![\w~])"#, with: "~~$1~~", options: .regularExpression)
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         var out = (try? AttributedString(markdown: md, options: options)) ?? AttributedString(text)
-        // @names, and @AI in the AI's colour.
+        // @names that reach somebody, each in its kind's colour; an @word
+        // that names nobody is left as it was written.
         let plain = String(out.characters)
+        let directory = ChatMentionDirectory.shared
         if let regex = try? NSRegularExpression(pattern: #"[@＠][^\s@＠,，。、!?！？:;]+"#) {
             for match in regex.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
                 guard let r = Range<AttributedString.Index>(match.range, in: out) else { continue }
-                let word = String(out[r].characters).lowercased()
-                let isAI = word.hasPrefix("@ai") || word.hasPrefix("＠ai")
-                out[r].foregroundColor = isAI ? Theme.Colors.accent : Theme.Colors.interactive
+                let word = String(out[r].characters)
+                let kind: ChatMentionKind?
+                if directory.isLoaded { kind = directory.kind(of: word) }
+                else { kind = word.lowercased().hasPrefix("@ai") || word.lowercased().hasPrefix("＠ai") ? .ai : .person }
+                guard let kind else { continue }
+                out[r].foregroundColor = kind.color
                 out[r].font = .body.weight(.semibold)
             }
         }
