@@ -2981,6 +2981,41 @@ await step('a bookmark kept at the top of a channel, a keyword that reaches Acti
   }
 })
 
+await step('a channel keeps a canvas: written, a to-do ticked, and a stale edit told about the newer one', async () => {
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await w.waitForSelector('.slk-side .cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
+    await w.click('.slk-side .cl-thread[data-view="b:kitchen"] .cl-open')
+    await w.click('[data-open-canvas]')
+    await w.waitForSelector('[data-canvas="b:kitchen"]', { timeout: 10000 })
+    if (await w.$('[data-canvas-start]')) await w.click('[data-canvas-start]')
+    else await w.click('[data-canvas-edit]')
+    await w.fill('[data-canvas-text]', '## Closing\n- Lock the back door\n- [ ] Count the till\n- [ ] Switch off the fryer')
+    await w.click('[data-canvas-save]')
+    await w.waitForSelector('.slk-canvas-doc h2:has-text("Closing")', { timeout: 10000 })
+      .catch(() => { throw new Error('the saved canvas is not shown') })
+    await w.click('.slk-canvas-task:has-text("Count the till") input')
+    await w.waitForSelector('.slk-canvas-task.done:has-text("Count the till")', { timeout: 10000 })
+    await w.screenshot({ path: `${SHOTS}/69-canvas.png` })
+    // Someone else saves while this page is editing: the save is told.
+    await w.click('[data-canvas-edit]')
+    await w.evaluate(async (host) => {
+      const h = { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }
+      const q = `orgId=${encodeURIComponent(localStorage.getItem('orgId'))}&channel=b:kitchen`
+      const cur = await (await fetch(`${host}/channels/canvas?${q}`, { headers: h })).json()
+      await fetch(`${host}/channels/canvas`, { method: 'PUT', headers: h, body: JSON.stringify({ orgId: localStorage.getItem('orgId'), channel: 'b:kitchen', body: `${cur.canvas.body}\n- [ ] Take the bins out`, baseVersion: cur.canvas.version }) })
+    }, API)
+    await w.fill('[data-canvas-text]', '## Closing\n- Lock every door')
+    await w.click('[data-canvas-save]')
+    await w.waitForSelector('[data-conflict-mine]', { timeout: 10000 })
+      .catch(() => { throw new Error('a stale save wrote over a newer canvas without saying so') })
+  } finally {
+    await ctx.close()
+  }
+})
+
 await step('removing someone takes them out of the room, not just the table', async () => {
   // A socket is authorized once, at join, and never asked again — so before
   // this, taking somebody out of a workspace left them holding a live

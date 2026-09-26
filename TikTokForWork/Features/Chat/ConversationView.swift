@@ -42,6 +42,7 @@ struct ConversationView: View {
     @State private var forwarding: ChatMessage?
     @State private var newSectionName = ""
     @State private var askingSectionName = false
+    @State private var canvasOpen = false
 
     private var conversation: ChatConversation? { store.conversation(for: view) }
     private var title: String {
@@ -107,6 +108,7 @@ struct ConversationView: View {
         .sheet(item: $reactingTo) { m in ChatEmojiPicker { e in Task { await store.react(m, e) } } }
         .sheet(isPresented: $showThread) { ChatThreadSheet(store: store, onOpenCard: open(card:)) }
         .sheet(isPresented: $showPins) { pinsSheet }
+        .sheet(isPresented: $canvasOpen) { ChatCanvasSheet(view: view, title: title).environmentObject(appState) }
         .sheet(item: Binding(get: { profileRef.map { IdentifiedRef(ref: $0) } }, set: { profileRef = $0?.ref })) { r in
             ChatProfileSheet(store: store, ref: r.ref)
         }
@@ -501,6 +503,7 @@ struct ConversationView: View {
             Button { Task { pins = await store.pins(view); showPins = true } } label: { Image(systemName: "pin") }
                 .accessibilityLabel("Pinned messages")
             Menu {
+                Button { canvasOpen = true } label: { Label("Canvas", systemImage: "doc.richtext") }
                 Button { Task { await store.toggleStar(view) } } label: {
                     Label(store.isStarred(view) ? LocalizedStringKey("Unstar") : LocalizedStringKey("Star"), systemImage: store.isStarred(view) ? "star.slash" : "star")
                 }

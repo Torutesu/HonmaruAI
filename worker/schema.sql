@@ -841,3 +841,28 @@ CREATE TABLE IF NOT EXISTS channel_bookmarks (
   position      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_channel_bookmarks ON channel_bookmarks(org_id, channel, position);
+
+/* A conversation's canvas: one shared document — the procedure, what was
+   decided, who owns what — that anyone in the conversation reads and edits.
+   `version` counts every save, so two people editing at once are told
+   rather than one quietly overwriting the other. */
+CREATE TABLE IF NOT EXISTS channel_canvases (
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  body          TEXT NOT NULL,
+  version       INTEGER NOT NULL,
+  updated_by    TEXT,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel)
+);
+
+/* Earlier versions of a canvas, the last 30, so a save can be undone. */
+CREATE TABLE IF NOT EXISTS channel_canvas_revisions (
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  version       INTEGER NOT NULL,
+  body          TEXT NOT NULL,
+  updated_by    TEXT,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel, version)
+);

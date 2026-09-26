@@ -1,3 +1,4 @@
+import { ChannelCanvas } from './ChannelCanvas'
 import { BookmarksBar } from './BookmarksBar'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -1310,10 +1311,10 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
-  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'details'; tab: DetailsTab }>(null)
-  const openSide = (next: { kind: 'journal' } | { kind: 'details'; tab: DetailsTab }) => {
+  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'canvas' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const openSide = (next: { kind: 'journal' } | { kind: 'canvas' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
-    setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
+    setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
   useEffect(() => { setSide(null) }, [current?.key])
   // How many automations run into each channel, for the header's count.
@@ -2102,6 +2103,15 @@ export const ClassicList: React.FC<Props> = ({
             <div className="slk-head-actions">
               <button
                 type="button"
+                className={`slk-head-btn slk-canvas-button${side?.kind === 'canvas' ? ' on' : ''}`}
+                onClick={() => openSide({ kind: 'canvas' })}
+                aria-label={t('Canvas')} title={t('Canvas')} aria-expanded={side?.kind === 'canvas'}
+                data-open-canvas="1"
+              >
+                <Icon name="file" size={15} />
+              </button>
+              <button
+                type="button"
                 className={`slk-head-btn slk-context-button${side?.kind === 'journal' ? ' on' : ''}`}
                 onClick={() => openSide({ kind: 'journal' })}
                 aria-label={t('Context')} title={t('Context')} aria-expanded={side?.kind === 'journal'}
@@ -2764,6 +2774,7 @@ export const ClassicList: React.FC<Props> = ({
               {th.kind === 'person' && <SheetRow icon="you" label={t('Profile')} onClick={close(() => void openProfile(th.view!.slice(3)))} data="profile" />}
               <SheetRow icon="star" label={isStarred(th.view!) ? t('Unstar') : t('Star')} onClick={close(() => toggleStar(th.view!))} data="star" />
               <SheetRow icon="folder" label={t('Move to a section')} hint={sectionOf(th.view!)?.name} onClick={close(() => setMoveSheet(th.view!))} data="move" />
+              <SheetRow icon="file" label={t('Canvas')} onClick={close(() => openSide({ kind: 'canvas' }))} data="canvas" />
               <SheetRow icon="book" label={t('Context')} onClick={close(() => openSide({ kind: 'journal' }))} data="context" />
               <SheetRow icon="pin" label={t('Pinned messages')} onClick={close(() => void loadPins(th.view!))} data="pins" />
               {th.kind === 'channel' && <SheetRow icon="repeat" label={t('Automations')} hint={String(automationCount[th.view!] ?? 0)} onClick={close(() => openSide({ kind: 'details', tab: 'automations' }))} data="automations" />}
@@ -2867,7 +2878,15 @@ export const ClassicList: React.FC<Props> = ({
         </aside>
       )}
       {!detail && !thread && !profile && side && current?.view && (
-        side.kind === 'journal'
+        side.kind === 'canvas'
+          ? (
+            <ChannelCanvas
+              api={api} headers={authHeaders} view={current.view}
+              title={current.kind === 'channel' ? `#${current.name}` : current.name}
+              onClose={() => setSide(null)}
+            />
+          )
+          : side.kind === 'journal'
           ? (
             <ChannelJournal
               api={api} headers={authHeaders} view={current.view} locale={locale}
