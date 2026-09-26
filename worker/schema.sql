@@ -1164,3 +1164,22 @@ CREATE TABLE IF NOT EXISTS scim_groups (
   updated_at     TEXT NOT NULL,
   PRIMARY KEY (org_id, id)
 );
+
+/* Data loss prevention (docs/enterprise-audit-log.md §10): what a workspace
+   does not want said in it. `kind` is builtin (a detector by `detector`),
+   regex (`pattern`) or keywords (`pattern` is a JSON list). A rule warns or
+   blocks; what it matched is never stored. */
+CREATE TABLE IF NOT EXISTS dlp_rules (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  detector    TEXT,
+  pattern     TEXT,
+  action      TEXT NOT NULL DEFAULT 'warn',
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  created_by  TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dlp_rules_org ON dlp_rules(org_id);

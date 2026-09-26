@@ -41,6 +41,7 @@ import { handlePolicy, policyDenial, reauthDenial } from "./policy.js";
 import { handleOrgKeys, warnExpiringKeys } from "./orgKeys.js";
 import { handleAdminApi } from "./adminApi.js";
 import { handleScim } from "./scim.js";
+import { handleDlp } from "./dlp.js";
 import { handleDomains, recheckDomains } from "./domains.js";
 import { handleSso } from "./sso.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
@@ -277,6 +278,9 @@ async function handle(request, env, url, ctx) {
     // The company's identity provider keeping the member list.
     const scimmed = await handleScim(request, env, url);
     if (scimmed) return scimmed;
+    // What a workspace does not want said in it.
+    const dlp = await handleDlp(request, env, url);
+    if (dlp) return dlp;
     const orgKeys = await handleOrgKeys(request, env, url);
     if (orgKeys) return orgKeys;
     // A company's domains, and who joins by them.

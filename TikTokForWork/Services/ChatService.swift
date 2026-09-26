@@ -309,15 +309,20 @@ enum ChatService {
     enum Failure: LocalizedError {
         case notSignedIn
         case server(Int, String?)
+        /// One of the workspace's data rules: a warning the person may send
+        /// through (`blocked == false`), or a block.
+        case dataRule(blocked: Bool, rules: [String], message: String?)
         var errorDescription: String? {
             switch self {
             case .notSignedIn: String(localized: "Sign in to talk with your team.")
             case .server(_, let message): message ?? String(localized: "That did not work. Try again.")
+            case .dataRule(_, _, let message): message ?? String(localized: "That did not work. Try again.")
             }
         }
     }
 
     private struct Message: Decodable { let message: String? }
+    private struct DataRuleAnswer: Decodable { let code: String?; let rules: [String]?; let message: String? }
 
     /// One call to the Worker, with this device's session.
     static func call<T: Decodable>(_ method: String, _ path: String, base: URL, query: [String: String] = [:], body: [String: Any]? = nil, as type: T.Type) async throws -> T {
@@ -339,6 +344,10 @@ enum ChatService {
         guard (200...299).contains(http.statusCode) else {
             SessionPolicy.noticeIfEnded(status: http.statusCode, data: data)
             if http.statusCode == 401 { throw Failure.notSignedIn }
+            if http.statusCode == 409 || http.statusCode == 422, let said = try? JSONDecoder().decode(DataRuleAnswer.self, from: data),
+               said.code == "dlp-warning" || said.code == "dlp-blocked" {
+                throw Failure.dataRule(blocked: said.code == "dlp-blocked", rules: said.rules ?? [], message: said.message)
+            }
             throw Failure.server(http.statusCode, (try? JSONDecoder().decode(Message.self, from: data))?.message)
         }
         return try JSONDecoder().decode(type, from: data)
@@ -502,8 +511,10 @@ enum ChatService {
         let scheduled: ChatScheduled?
     }
 
-    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, sendAt: Date? = nil, files: [String] = [], base: URL) async throws -> Sent {
+    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, sendAt: Date? = nil, files: [String] = [], acknowledged: Bool = false, base: URL) async throws -> Sent {
         var b: [String: Any] = ["orgId": orgId, "channel": channel, "body": body, "decide": decide]
+        // Seen the data rule's warning, and sending anyway.
+        if acknowledged { b["dlpAck"] = true }
         if let parentId { b["parentId"] = parentId }
         if !files.isEmpty { b["files"] = files }
         if let sendAt { b["sendAt"] = ChatDates.string(sendAt) }

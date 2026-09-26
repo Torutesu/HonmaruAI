@@ -97,6 +97,11 @@ export const AUDIT_ACTIONS = {
   "scim.group_created": { category: "membership", severity: "notice", text: "{actor} made the group {entity}" },
   "scim.group_updated": { category: "membership", severity: "info", text: "{actor} changed the group {entity}" },
   "scim.group_deleted": { category: "membership", severity: "warning", text: "{actor} deleted the group {entity}" },
+  "dlp.blocked": { category: "security", severity: "warning", text: "A message by {actor} was stopped by a data rule" },
+  "dlp.warning_overridden": { category: "security", severity: "notice", text: "{actor} sent a message a data rule warned about" },
+  "dlp.rule_created": { category: "security", severity: "warning", text: "{actor} added the data rule {entity}" },
+  "dlp.rule_changed": { category: "security", severity: "warning", text: "{actor} changed the data rule {entity}" },
+  "dlp.rule_deleted": { category: "security", severity: "critical", text: "{actor} removed the data rule {entity}" },
   "security.anomaly": { category: "security", severity: "critical", text: "Something unusual was found: {entity}" },
   "security.permission_denied": { category: "security", severity: "warning", text: "{actor} was refused: {entity}" },
 };
