@@ -1,9 +1,9 @@
-import { env } from "cloudflare:test";
+import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { agentsCalled, requestFor, parseAgentMarkdown, agentMarkdown, cleanAgentHandle, PRESETS, presetsFor, readResponse, forChat } from "../src/customAgents.js";
+import { agentTalkFilter, agentsCalled, requestFor, parseAgentMarkdown, agentMarkdown, cleanAgentHandle, PRESETS, presetsFor, readResponse, forChat } from "../src/customAgents.js";
 
 // Agents a team writes for itself: "@hayao" answers in the thread under the
 // message that named it, as its Markdown instructions say. A team agent is
@@ -127,7 +127,7 @@ test("@hayao answers in the thread under the message, as itself, from its instru
   await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "Autumn menu launches on the 1st" });
   let prompt;
   // A model that cannot search: the ordinary answer.
-  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(400, { error: { message: "web_search not supported" } });
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(400, { error: { message: "web_search not supported" } }).times(2);
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
     prompt = JSON.parse(opts.body);
     return { choices: [{ message: { content: "Warm amber and chestnut brown, hand-drawn type." } }], usage: { prompt_tokens: 10, completion_tokens: 8 } };
@@ -232,30 +232,73 @@ test("in its own conversation an agent reads the team's past decisions; in a cha
   expect(prompts[1]).not.toContain("Switch roaster supplier");
 });
 
-test("an agent looks things up on the web and answers with what it found, and where", async () => {
+test("an agent researches with a reasoning model, web search and its own tools, and answers with what it found, and where", async () => {
   const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
-  let asked;
+  const asked = [];
+  // Round 1: it searched the web, and asks to read a page in full.
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
-    asked = JSON.parse(opts.body);
+    asked.push(JSON.parse(opts.body));
     return {
-      model: "gpt-4o-mini",
+      id: "resp_1", model: "gpt-5-mini",
       output: [
-        { type: "web_search_call", status: "completed" },
-        { type: "message", content: [{ type: "output_text", text: "## 結論\n**Blue Bottle** opened 3 Kyoto shops in 2025.", annotations: [
-          { type: "url_citation", url: "https://example.com/bb", title: "Blue Bottle Kyoto" },
-        ] }] },
+        { type: "reasoning", summary: [] },
+        { type: "web_search_call", status: "completed", action: { type: "search", query: "Blue Bottle Kyoto", sources: [{ type: "url", url: "https://example.com/news" }] } },
+        { type: "function_call", call_id: "call_1", name: "read_url", arguments: JSON.stringify({ url: "https://bluebottle.example/kyoto" }) },
       ],
-      usage: { input_tokens: 40, output_tokens: 20 },
+      usage: { input_tokens: 400, output_tokens: 90 },
+    };
+  });
+  fetchMock.get("https://r.jina.ai").intercept({ path: "/https://bluebottle.example/kyoto", method: "GET" })
+    .reply(200, "Title: Kyoto cafes\n\nMarkdown Content:\nThree Kyoto cafes: Nanzenji (2018), Rokkaku (2020), Kyoto Station (2025).");
+  // Round 2: it has read the page, and answers.
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    asked.push(JSON.parse(opts.body));
+    return {
+      id: "resp_2", model: "gpt-5-mini",
+      output: [{ type: "message", content: [{ type: "output_text", text: "## 結論\n**Blue Bottle** has 3 Kyoto cafes; the newest opened in 2025.", annotations: [
+        { type: "url_citation", url: "https://bluebottle.example/kyoto", title: "Kyoto cafes" },
+      ] }] }],
+      usage: { input_tokens: 900, output_tokens: 120 },
     };
   });
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Blue Bottleの京都出店を調べて" }, { OPENAI_API_KEY: "sk-test" });
-  expect(asked.tools).toEqual([{ type: "web_search" }]);
-  expect(asked.instructions).toContain("Deliver findings, never a plan");
-  expect(asked.input).toContain("Blue Bottleの京都出店を調べて");
+
+  const [first, second] = asked;
+  expect(first.model).toBe("gpt-5-mini");
+  expect(first.reasoning).toEqual({ effort: "medium" });
+  expect(first.tools[0]).toMatchObject({ type: "web_search", search_context_size: "high" });
+  expect(first.tools.slice(1).map((t) => t.name)).toEqual(["read_url", "search_team_decisions"]);
+  expect(first.tools[1]).toMatchObject({ type: "function", strict: true, parameters: { additionalProperties: false, required: ["url"] } });
+  expect(first.instructions).toContain("Deliver findings, never a plan");
+  expect(first.instructions).toContain("read them in full");
+  expect(first.input).toContain("Blue Bottleの京都出店を調べて");
+  // The page's text went back on the same thread of reasoning.
+  expect(second.previous_response_id).toBe("resp_1");
+  expect(second.input).toEqual([{ type: "function_call_output", call_id: "call_1", output: expect.stringContaining("Three Kyoto cafes") }]);
+
   const { messages } = await (await get(`/channels/messages?${q({ orgId: ORG, channel: `ag:${made.agent.id}` })}`, mika)).json();
-  expect(messages[1].body).toBe("*結論*\n*Blue Bottle* opened 3 Kyoto shops in 2025.\n\n*Sources*\n- Blue Bottle Kyoto: https://example.com/bb");
+  expect(messages[1].body).toBe("*結論*\n*Blue Bottle* has 3 Kyoto cafes; the newest opened in 2025.\n\n*Sources*\n- Kyoto cafes: https://bluebottle.example/kyoto");
   const calls = await env.DB.prepare("SELECT purpose FROM ai_calls WHERE org_id = ?1").bind(ORG).all();
-  expect(calls.results.map((r) => r.purpose)).toEqual(["agent"]);
+  expect(calls.results.map((r) => r.purpose)).toEqual(["agent", "agent"]);
+});
+
+test("in a channel an agent reads the web but not the team's decisions; a model that refuses the full call is tried bare", async () => {
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  const asked = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(400, (opts) => {
+    asked.push(JSON.parse(opts.body));
+    return { error: { message: "Unsupported model" } };
+  });
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    asked.push(JSON.parse(opts.body));
+    return { id: "r", output_text: "Chestnut and amber.", output: [] };
+  });
+  const sent = await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao autumn colours?" }, { OPENAI_API_KEY: "sk-test" })).json();
+  expect(asked[0].tools.map((t) => t.name || t.type)).toEqual(["web_search", "read_url"]);
+  expect(asked[1]).toMatchObject({ model: "gpt-4o-mini", tools: [{ type: "web_search" }] });
+  expect(asked[1].reasoning).toBeUndefined();
+  const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: sent.message.id })}`, mika)).json();
+  expect(thread.replies[0].body).toBe("Chestnut and amber.");
 });
 
 test("a Responses reply reads as text and sources; Markdown becomes the chat's own marks", () => {
@@ -324,4 +367,54 @@ test("an agent you have can be added to a channel: listed among its members, cal
   expect(none.replies).toEqual([]);
   const audit = await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1 AND action LIKE 'channel.agent_%' ORDER BY seq").bind(ORG).all();
   expect(audit.results.map((r) => r.action)).toEqual(["channel.agent_added", "channel.agent_removed"]);
+});
+
+test("in production an agent answers from AgentRunner's alarm, not the request that called it", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  const view = `ag:${made.agent.id}`;
+  // The request hands the job over and returns; the alarm answers — here,
+  // with no model, the agent says so — once.
+  expect((await send("POST", "/channels/messages", mika, { orgId: ORG, channel: view, body: "hello" }, { AGENT_INLINE: "" })).status).toBe(201);
+  const stub = env.AGENT_RUNNER.get(env.AGENT_RUNNER.idFromName(ORG));
+  let after;
+  for (let i = 0; i < 40; i += 1) {
+    await runDurableObjectAlarm(stub);
+    after = await (await get(`/channels/messages?${q({ orgId: ORG, channel: view })}`, mika)).json();
+    if (after.messages.length > 1) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  await runDurableObjectAlarm(stub);
+  after = await (await get(`/channels/messages?${q({ orgId: ORG, channel: view })}`, mika)).json();
+  expect(after.messages.map((m) => [m.kind, m.authorName])).toEqual([["message", "Mika"], ["agent", "Hayao"]]);
+  expect(after.messages[1].body).toContain("no AI model");
+});
+
+test("talk with the agents is left out of what a decision reads: calling one, and its answer", async () => {
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "Autumn menu launches on the 1st" });
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao poster ideas?" });
+  const { transcriptUpTo } = await import("../src/channels.js");
+  const skip = await agentTalkFilter(env.DB, ORG);
+  const now = new Date(Date.now() + 1000).toISOString();
+  const all = await transcriptUpTo(env.DB, ORG, "b:cafe", now);
+  const kept = await transcriptUpTo(env.DB, ORG, "b:cafe", now, { skip });
+  expect(all.some((l) => l.includes("@hayao poster ideas?"))).toBe(true);
+  expect(all.some((l) => l.includes("Hayao: "))).toBe(true);
+  expect(kept.some((l) => l.includes("Autumn menu launches on the 1st"))).toBe(true);
+  expect(kept.some((l) => l.includes("hayao") || l.includes("Hayao"))).toBe(false);
+  expect(skip({ kind: "message", channel: "b:cafe", body: "@hayaoに 調べて" })).toBe(true);
+  expect(skip({ kind: "message", channel: "ag:x|mika", body: "hi" })).toBe(true);
+  expect(skip({ kind: "message", channel: "b:cafe", body: "@AI ask Toru" })).toBe(false);
+});
+
+test("a message to an agent never becomes a card for a person, even with @AI or sent as a decision", async () => {
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  const routed = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: /.*/, method: "POST" }).reply(200, (opts) => { routed.push(opts.path); return { choices: [{ message: { content: "ok" } }], output_text: "ok", output: [] }; }).persist();
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao YCS26を徹底調査して @AI" }, { OPENAI_API_KEY: "sk-test" });
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao 調べて", decide: true }, { OPENAI_API_KEY: "sk-test" });
+  const cards = await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1").bind(ORG).first();
+  expect(cards.n).toBe(0);
+  expect(routed.every((p) => p === "/v1/responses")).toBe(true);
+  fetchMock.get("https://api.openai.com").interceptors = [];
 });

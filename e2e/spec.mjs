@@ -1593,6 +1593,18 @@ await step('the list is a chat client on a laptop: sidebar, conversation, and a 
   if (/\b1 replies\b/.test(listed)) throw new Error('“1 replies”')
   const apps = await d.$$eval('.slk-side .cl-thread .cl-title', (els) => els.map((el) => el.textContent))
   if (apps.filter((n) => n === 'Your AI').length > 1) throw new Error('Your AI is listed twice')
+  // A card in a conversation has the hover bar a message has: react, open,
+  // take it back.
+  const bare = await d.$$eval('.slk-main .slk-msg', (els) => els.filter((el) => el.querySelector('.slk-card') && !el.querySelector('.slk-app-badge')).map((el) => Boolean(el.querySelector('[data-card-more]'))))
+  if (bare.some((has) => !has)) throw new Error('a card in the conversation has no hover bar')
+  if (bare.length) {
+    const card = '.slk-main .slk-msg:has([data-card-more]) >> nth=0'
+    await d.hover(card)
+    await d.click('.slk-main .slk-msg:has([data-card-more]) [data-card-more] >> nth=0')
+    await d.waitForSelector('.slk-main .slk-menu [role="menuitem"]:has-text("Open")', { timeout: 5000 })
+      .catch(() => { throw new Error('a card’s hover bar has no Open') })
+    await d.keyboard.press('Escape')
+  }
   // A decision opens beside the conversation — the list is not left.
   await d.click('.slk-msg .slk-title >> nth=0')
   await d.waitForSelector('.slk-pane .card', { timeout: 10000 })

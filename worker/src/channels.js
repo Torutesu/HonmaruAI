@@ -357,7 +357,7 @@ export async function linkCard(db, orgId, messageId, cardId) {
 
 /// The conversation before (and including) a message, as the AI reads it:
 /// one line per message, names not logins, oldest first.
-export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24 } = {}) {
+export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24, skip = null } = {}) {
   const { results } = await db
     .prepare(
       `SELECT m.kind, m.body, m.created_at, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, m.author_login,
@@ -367,9 +367,11 @@ export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24 } =
         WHERE m.org_id = ?1 AND m.channel = ?2 AND m.created_at <= ?3 AND m.deleted_at IS NULL
         ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?4`
     )
-    .bind(orgId, key, createdAt, limit)
+    .bind(orgId, key, createdAt, skip ? limit * 3 : limit)
     .all();
-  return (results || []).reverse().map((r) => {
+  // `skip`: rows left out — talk with the agents, for a decision.
+  const kept = skip ? (results || []).filter((r) => !skip({ ...r, channel: key })).slice(0, limit) : (results || []);
+  return kept.reverse().map((r) => {
     const who = r.kind === "ai" ? "AI" : (r.author_name || "someone");
     const attached = r.file_names ? ` [attached: ${String(r.file_names).slice(0, 200)}]` : "";
     return `${String(r.created_at).slice(5, 16).replace("T", " ")} ${who}: ${String(r.body).replace(/\s+/g, " ").slice(0, 500)}${attached}`;
@@ -388,7 +390,7 @@ export async function recentBusinessTalk(db, orgId, slugs, { since, limit = 30 }
     .prepare(
       `SELECT m.channel, m.kind, m.body, m.created_at, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
-        WHERE m.org_id = ?1 AND m.created_at >= ?2 AND m.deleted_at IS NULL ${where}
+        WHERE m.kind != 'agent' AND m.org_id = ?1 AND m.created_at >= ?2 AND m.deleted_at IS NULL ${where}
         ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(100, limit))}`
     )
     .bind(orgId, since || "1970-01-01", ...keys)

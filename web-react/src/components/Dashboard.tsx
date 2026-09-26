@@ -751,6 +751,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
           onTellAI={(text) => { setComposeSeed({ id: String(Date.now()), text }); setPanel('compose') }}
+          onDeleteCard={handleDelete}
           onImmersive={setImmersive}
           // The whole card — its thread, Ask, the reply draft — drawn in the
           // list's own pane, so opening a decision never leaves the list.

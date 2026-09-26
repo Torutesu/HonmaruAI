@@ -182,6 +182,48 @@ export const MessageActions: React.FC<{
   )
 }
 
+/// A decision card in a conversation, on hover: react to it, open it, and
+/// — for whoever may — take it back, as a message has.
+export const CardActions: React.FC<{
+  onReact: (emoji: string) => void
+  onOpen: () => void
+  onDelete?: () => void
+  onOpenChange: (open: boolean) => void
+}> = ({ onReact, onOpen, onDelete, onOpenChange }) => {
+  const t = useT()
+  const [picker, setPicker] = useState(false)
+  const [menu, setMenu] = useState(false)
+  const menuBox = useRef<HTMLDivElement>(null)
+  useEffect(() => { onOpenChange(picker || menu) }, [picker, menu, onOpenChange])
+  useEffect(() => {
+    if (!menu) return
+    const down = (e: MouseEvent) => { if (menuBox.current && !menuBox.current.contains(e.target as Node)) setMenu(false) }
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(false) }
+    document.addEventListener('mousedown', down)
+    document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key) }
+  }, [menu])
+  return (
+    <>
+      {QUICK_REACTIONS.map((e) => (
+        <button key={e} type="button" className="slk-tool emoji" onClick={() => onReact(e)} title={t('React with {emoji}', { emoji: e })} aria-label={t('React with {emoji}', { emoji: e })}>{e}</button>
+      ))}
+      <button type="button" className="slk-tool" onClick={() => setPicker((p) => !p)} title={t('Add reaction')} aria-label={t('Add reaction')} aria-expanded={picker}><Icon name="smile" size={16} /></button>
+      <div className="slk-tool-menu-wrap" ref={menuBox}>
+        <button type="button" className="slk-tool" onClick={() => setMenu((m) => !m)} aria-label={t('More actions')} aria-expanded={menu} aria-haspopup="menu" data-card-more="1"><Icon name="more" size={16} /></button>
+        {menu && (
+          <div className="slk-menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => { setMenu(false); onOpen() }}>{t('Open')}</button>
+            {onDelete && <div className="slk-menu-sep" />}
+            {onDelete && <button type="button" role="menuitem" className="danger" data-menu="delete-card" onClick={() => { setMenu(false); onDelete() }}>{t('Delete this card')}</button>}
+          </div>
+        )}
+      </div>
+      {picker && <EmojiPicker onPick={(e) => { setPicker(false); onReact(e) }} onClose={() => setPicker(false)} />}
+    </>
+  )
+}
+
 /// Wrap what is selected in a textarea with a mark — the composer's B, I,
 /// S and code — or put the mark at the caret when nothing is.
 export function wrapSelection(el: HTMLTextAreaElement | null, value: string, set: (v: string) => void, before: string, after = before) {

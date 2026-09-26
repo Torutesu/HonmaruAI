@@ -19,6 +19,9 @@ export default defineConfig({
         // production does: each person under a key of their own.
         bindings: {
           COMPOSIO_API_KEY: "ak_test_relay",
+          // Agents answer inside the request here, so a test sees the answer
+          // when its request returns; production hands them to AgentRunner.
+          AGENT_INLINE: "1",
           AUDIT_MASTER_KEY: "Qk16NjpxdRgOAokyadLTYJpxp/SpANl9tBELtbnSi8M=",
           // Ed25519, PKCS8: signs the archive's hourly digests.
           AUDIT_SIGNING_KEY: "MC4CAQAwBQYDK2VwBCIEINST0f2O7kgtKc+d9ltsB0U/u4JmkzAFJ8aDR129gou7",

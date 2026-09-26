@@ -14,7 +14,7 @@ import type { AgentFace } from '../utils/mentions'
 import { useMentionMenu, useMentionHighlight } from './MentionMenu'
 import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/customEmoji'
 import { DailyReportDraft } from './DailyReport'
-import { MessageActions, Reactions, EmojiPicker, EmojiGlyph, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
+import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiGlyph, FormatBar, renderRich, SlashMenu, SchedulePicker, parseScheduleCommand } from './MessageParts'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
@@ -61,6 +61,8 @@ interface Props {
   onCompose: () => void
   /// Tell your AI something from the list, as you would write to anyone.
   onTellAI: (text: string) => void
+  /// Take a card back: the sender before it is decided, the recipient any time.
+  onDeleteCard?: (cardId: string) => void
   /// A conversation (or a decision) fills a phone's screen: the shell hides
   /// its own chrome while this is true.
   onImmersive: (on: boolean) => void
@@ -138,7 +140,7 @@ interface Member {
 }
 interface Activity { channel: string; lastAt: string; preview: string; lastBy: string | null }
 /// One of the team's agents answering somewhere.
-interface AgentWriting { id: string; name: string; emoji: string | null; parentId: string | null }
+interface AgentWriting { id: string; name: string; emoji: string | null; parentId: string | null; at?: number }
 /// Whose face goes beside something: a name, and their photo if they have one.
 /// `emoji`: an agent's face — a tile, not a person's photo.
 interface Face { name: string; url?: string | null; emoji?: string | null }
@@ -197,7 +199,7 @@ function when(iso?: string): string {
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
   userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onImmersive, renderCard, onWorkspace, workspaceMenu,
+  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onImmersive, renderCard, onWorkspace, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen,
 }) => {
   const t = useT()
@@ -478,6 +480,23 @@ export const ClassicList: React.FC<Props> = ({
     setAgentPicking(false)
     setStartedAgents((prev) => (prev.includes(id) ? prev : [...prev, id]))
     choose(`agent:${id}`)
+  }
+
+  /// What is told to your AI becomes a card for whoever decides — unless it
+  /// calls one of the agents: then it is the agent's to do, and goes to a
+  /// conversation with it, never to a person.
+  const tellAI = (text: string) => {
+    const called = agentsIn(agents, null).find((a) => {
+      const h = a.handle.normalize('NFKC').toLowerCase()
+      return (text.match(/[@＠][^\s@＠,，。、!?！？:;]+/g) || [])
+        .some((tok) => { const w = tok.slice(1).normalize('NFKC').toLowerCase(); return w === h || w.replace(/[にへ]$/, '') === h })
+    })
+    if (!called) { onTellAI(text); return }
+    openAgent(called.id)
+    void fetch(`${api.httpBase}/channels/messages`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel: `ag:${called.id}`, body: text }),
+    }).then((r) => { if (!r.ok) setToast(t('That did not send. Try again.')) }).catch(() => setToast(t('That did not send. Try again.')))
   }
 
   // Bringing people or an agent in, from the list itself.
@@ -941,10 +960,16 @@ export const ClassicList: React.FC<Props> = ({
         if (p.step === 'agent') {
           setAgentsWriting((prev) => ({
             ...prev,
-            [p.channel]: [...(prev[p.channel] || []).filter((x) => x.id !== a.id), { id: a.id, name: a.name, emoji: a.emoji || null, parentId: p.parentId || null }],
+            [p.channel]: [...(prev[p.channel] || []).filter((x) => x.id !== a.id), { id: a.id, name: a.name, emoji: a.emoji || null, parentId: p.parentId || null, at: Date.now() }],
           }))
-          // A "done" that never came does not leave it writing forever.
-          setTimeout(() => agentDone(p.channel, a.id), 120_000)
+          // A "done" that never came does not leave it writing forever. A
+          // long research says it is still at it every round; only silence
+          // for two minutes ends the line.
+          setTimeout(() => setAgentsWriting((prev) => {
+            const still = prev[p.channel]?.find((x) => x.id === a.id)
+            if (!still || Date.now() - (still.at || 0) < 119_000) return prev
+            return { ...prev, [p.channel]: prev[p.channel].filter((x) => x.id !== a.id) }
+          }), 120_000)
         } else agentDone(p.channel, a.id)
         return
       }
@@ -2129,6 +2154,47 @@ export const ClassicList: React.FC<Props> = ({
   /// How many people a conversation has: a public channel is everyone.
   const headCount = (th: Thread) => th.kind === 'group' ? (th.refs || []).length + 1
     : th.kind === 'channel' ? (th.private ? (th.memberCount || 1) : members.length) : 2
+  /// A card in a conversation: react to it, open it, take it back.
+  const [cardReacted, setCardReacted] = useState<Record<string, Array<{ emoji: string; count: number; mine?: boolean }>>>({})
+  const reactCard = async (c: DecisionCard, emoji: string) => {
+    const res = await fetch(`${api.httpBase}/cards/${encodeURIComponent(c.id)}/reactions`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, emoji }),
+    }).catch(() => null)
+    const data = res?.ok ? await res.json().catch(() => null) : null
+    if (Array.isArray(data?.reactions)) {
+      setCardReacted((prev) => ({ ...prev, [c.id]: data.reactions }))
+    } else if (!res?.ok) setToast(t('That did not save.'))
+  }
+  const canDeleteCard = (c: DecisionCard) => Boolean(onDeleteCard) && (c.recipientUserID === userId || (c.senderUserID === userId && c.status === 'pending'))
+  const deleteCard = (c: DecisionCard) => {
+    if (!onDeleteCard || !window.confirm(t('Delete this card? It is gone for everyone it was sent to.'))) return
+    onDeleteCard(c.id)
+  }
+  const cardTools = (c: DecisionCard) => (
+    <CardActions
+      onReact={(e) => void reactCard(c, e)}
+      onOpen={() => openCard(c.id)}
+      onDelete={canDeleteCard(c) ? () => deleteCard(c) : undefined}
+      onOpenChange={(open) => setToolsOpen((cur) => (open ? c.id : cur === c.id ? null : cur))}
+    />
+  )
+  const cardReactions = (c: DecisionCard) => {
+    const list = (cardReacted[c.id] || Object.entries(c.reactions || {}).map(([emoji, count]) => ({ emoji, count, mine: false })))
+      .filter((r) => r.count > 0)
+    if (!list.length) return null
+    return (
+      <div className="slk-reactions" data-card-reactions={c.id}>
+        {list.map((r) => (
+          <button key={r.emoji} type="button" className={`slk-reaction${r.mine ? ' mine' : ''}`} aria-pressed={Boolean(r.mine)} onClick={() => void reactCard(c, r.emoji)}>
+            <span className="slk-reaction-emoji"><EmojiGlyph emoji={r.emoji} /></span>
+            <span className="slk-reaction-count">{r.count}</span>
+          </button>
+        ))}
+      </div>
+    )
+  }
+
   const conversation = (thread: Thread) => {
     const said = thread.view ? (messages[thread.view] || []) : []
     // A card the AI announced sits under its announcement, not twice.
@@ -2162,7 +2228,12 @@ export const ClassicList: React.FC<Props> = ({
         const who = author(c)
         const joined = prevWho === `card:${who.name}` && at - prevAt < 5 * 60000
         const to = c.senderUserID === userId && c.recipientUserID !== userId ? nameOfRecipient(c) : ''
-        out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, face: who.face, to, unread: isUnread(c) }, attachment(c)))
+        out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, face: who.face, to, unread: isUnread(c), msgId: c.id, tools: cardTools(c) }, (
+          <>
+            {attachment(c)}
+            {cardReactions(c)}
+          </>
+        )))
         prevWho = `card:${who.name}`
       } else {
         const m = item.msg
@@ -2603,7 +2674,7 @@ export const ClassicList: React.FC<Props> = ({
         ) : thread.app === 'ai' ? (
           // Your AI is somebody you write to, like anyone else in the list:
           // what you write here is an instruction, routed as one.
-          <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) { onTellAI(draft.trim()); setDraft('') } else composer.current?.focus() }}>
+          <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) { tellAI(draft.trim()); setDraft('') } else composer.current?.focus() }}>
             <textarea
               ref={composer}
               className="slk-input"
@@ -2616,7 +2687,7 @@ export const ClassicList: React.FC<Props> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
-                  if (draft.trim()) { onTellAI(draft.trim()); setDraft('') }
+                  if (draft.trim()) { tellAI(draft.trim()); setDraft('') }
                 }
               }}
             />

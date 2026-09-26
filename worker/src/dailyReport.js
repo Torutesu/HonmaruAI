@@ -1,3 +1,4 @@
+import { agentTalkFilter } from "./customAgents.js";
 import { zonedParts, zonedTime, describeSchedule } from "./schedule.js";
 import { serverText } from "./serverCopy.js";
 import { actionLabel, displayName } from "./notifyCopy.js";
@@ -117,6 +118,10 @@ export async function gatherDay(db, orgId, routine, { now = new Date(), locale =
 
   // What was said in a private channel is that channel's, like a DM: it
   // informs the draft but is not written into what gets posted.
+  // Talk with the agents is not the day's work: calling one, and a
+  // conversation with one, stay out of the report.
+  const skip = await agentTalkFilter(db, orgId);
+  messageRows.results = (messageRows.results || []).filter((m) => !skip({ ...m, kind: "message" }));
   const { results: closedRows } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND private = 1").bind(orgId).all().catch(() => ({ results: [] }));
   const closedSlugs = new Set((closedRows || []).map((r) => r.slug));
   const tasks = (taskRows.results || []).map((r) => parse(r.data)).filter(Boolean);

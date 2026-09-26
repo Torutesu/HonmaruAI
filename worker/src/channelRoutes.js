@@ -1,6 +1,7 @@
 import { checkOutgoing } from "./dlp.js";
 import { attachedTexts } from "./dlpFiles.js";
 import { linksIn, readLinks, linksBlock } from "./links.js";
+import { agentTools } from "./agentTools.js";
 import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText } from "./dailyReport.js";
 import { providerFor } from "./orgAI.js";
@@ -39,7 +40,7 @@ import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
 import { listBookmarks, toClientBookmark, addBookmark, editBookmark, removeBookmark } from "./bookmarks.js";
 import {
-  listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, playbookFor,
+  listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, agentTalkFilter, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, playbookFor,
 } from "./customAgents.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { searchTermsFor } from "./ask.js";
@@ -151,7 +152,10 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
     if (clipped) {
       context = `Messages the requester clipped together as context (oldest first):\n${clipped.join("\n")}`;
     } else {
-      const transcript = await transcriptUpTo(env.DB, orgId, resolved.key, row.created_at);
+      // Talk with the agents is not part of it: calling @hayao, and what
+      // it answered, is research, not what the team is deciding.
+      const skip = await agentTalkFilter(env.DB, orgId);
+      const transcript = await transcriptUpTo(env.DB, orgId, resolved.key, row.created_at, { skip: (r) => r.created_at !== row.created_at && skip(r) });
       context = `Conversation in ${where} leading to this request (oldest first):\n${transcript.join("\n")}`;
     }
     if (context.length > 3800) context = `…${context.slice(context.length - 3800)}`;
@@ -291,6 +295,28 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
     return 0;
   }
   if (!agents.length) return 0;
+  // Research takes longer than the half minute a request may keep working
+  // after it answers: in production the agents answer from a Durable
+  // Object's alarm, which may run for minutes (agentRunner.js).
+  if (env.AGENT_RUNNER && env.AGENT_INLINE !== "1" && session?.token) {
+    try {
+      const stub = env.AGENT_RUNNER.get(env.AGENT_RUNNER.idFromName(orgId));
+      const res = await stub.fetch("https://agents/enqueue", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ orgId, token: session.token, rowId: row.id, locale: locale || "en" }),
+      });
+      if (res.ok) return 0;
+    } catch (err) {
+      console.error("agent enqueue failed", safe(err?.message));
+    }
+  }
+  return runAgents(env, { orgId, session, user, resolved, row, members, locale, agents });
+}
+
+/// The agents' answers, one after another: each reads the conversation,
+/// researches with its tools, and answers as itself.
+export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents }) {
   locale = await loadCopy(env, locale || "en", { orgId });
   const parentId = row.parent_id || (resolved.kind === "agent" ? null : row.id);
   const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null });
@@ -341,6 +367,11 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
     }
   }
   const where = resolved.kind === "business" ? `#${resolved.slug}` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
+  // What it may call while it researches: open any page; in its own
+  // conversation, the team's decisions and this person's tools too.
+  const tools = provider && allowance?.allowed
+    ? await agentTools(env, { orgId, session, language: locale, personal: resolved.kind === "agent" }).catch(() => ({}))
+    : {};
   let answered = 0;
   for (const agent of agents) {
     await progress(agent, "agent");
@@ -350,8 +381,10 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
       else if (!allowance.allowed) text = serverText(locale, "agent.quota");
       else {
         const result = await askAgent({
-          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links,
+          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
+          deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
+          onRound: () => progress(agent, "agent"),
         });
         if (result.called && allowance.metered) await allowance.consume();
         text = result.answer || serverText(locale, "agent.failed");
@@ -592,7 +625,11 @@ export async function handleChannels(request, env, url, { route, after }) {
     const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, withFiles });
     if (out.error) return json({ message: out.error }, 400);
     if (withFiles) await attachFiles(env.DB, { orgId, key: resolved.key, login: who.user.login, messageId: out.row.id, ids: fileIds });
-    const wantsDecision = body.decide === true || asksTheAI(out.row.body);
+    // A message to an agent is the agent's to do: it never becomes a card
+    // for a person, whatever else it says.
+    const toAgent = resolved.kind === "agent"
+      || agentsCalled(out.row.body, await agentsHere(env.DB, orgId, who.user.login, resolved.key).catch(() => [])).length > 0;
+    const wantsDecision = !toAgent && (body.decide === true || asksTheAI(out.row.body));
     const locale = who.user.locale || "en";
     after(async () => {
       await broadcastWithParent(env, orgId, resolved, out.row, members);
