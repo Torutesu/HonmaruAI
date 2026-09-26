@@ -15,8 +15,15 @@ const MAX_RULES = 50;
 const MAX_PATTERN = 200;
 const MAX_KEYWORDS = 100;
 
+// The Studio and the composer call this from the web app's own origin.
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
+  "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
+};
+
 function json(body, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "cache-control": "no-store", "content-type": "application/json" } });
+  return new Response(JSON.stringify(body), { status, headers: { "cache-control": "no-store", "content-type": "application/json", ...CORS } });
 }
 
 // ---- The built-in detectors ----
