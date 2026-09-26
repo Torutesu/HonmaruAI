@@ -85,7 +85,7 @@
 | 役割（Guest / Member / Admin / Owner） | ✓ | ✓ | ✅ Guest は選んだチャンネルだけ。Owner は Admin の上（権限表は permissions.js） | P1 |
 | セッション管理（端末一覧、個別・一括ログアウト、管理者による強制ログアウト） | ✓ | — | ✅ | P1 |
 | セッション寿命のポリシー | ✓ | — | ✅ ブラウザ・アプリの最長、無操作、管理操作の再認証（[admin-controls.md](admin-controls.md) §3） | P2 |
-| SSO / ドメイン参加 | ✓ | — | ✅ DNS で確認したドメイン、参加（招待のみ / リクエスト / 自動）、OIDC（Google・Okta・Entra・汎用）、強制、iOS（[sso-and-domain-join.md](sso-and-domain-join.md)） | P1 |
+| SSO / ドメイン参加 | ✓ | — | ✅ DNS で確認したドメイン、参加（招待のみ / リクエスト / 自動）、OIDC（Google・Okta・Entra・汎用）と SAML 2.0、1 ワークスペースに複数の IdP、強制、iOS（[sso-and-domain-join.md](sso-and-domain-join.md)） | P1 |
 | 監査ログ Phase 2（匿名化、封印、SIEM、保持期間） | Enterprise | — | ✅ 匿名化、毎時の封印（R2 と Ed25519 署名）、SIEM 配信（HTTPS・Splunk HEC・Datadog）、保持期間とリーガルホールド（[audit-log-phase2.md](audit-log-phase2.md)） | — |
 | Owner / Admin の分離、Provisioning キー、ログイン有効期限 | ✓ | ✓ | ✅（[admin-controls.md](admin-controls.md)） | P1 |
 | SCIM、リーガルホールド（人単位）、DLP | ✓ | — | ✅ SCIM 2.0（Users・Groups、停止で即時ログアウト）、リーガルホールド（ワークスペース・人単位）、データルール（マイナンバー・カード番号・秘密鍵・パターン・語句、警告かブロック） | — |
@@ -202,7 +202,7 @@
 3. 8 人を超える通話（SFU）: 一度入れたが、不要と判断して外した。キャンバスはこの後の PR で入った。
 4. ~~SSO とドメイン参加、SCIM、リーガルホールド（人単位）、DLP~~。
 
-まだ無いもの: SAML、1 ワークスペースに複数の IdP、DLP のファイル本文の検査。
+その後の PR で SAML 2.0、1 ワークスペースに複数の IdP、DLP の添付ファイル（テキストと Word・Excel・PowerPoint）の検査も入った。PDF の本文はまだ読まない。
 
 ## 4. 確かめ方
 
