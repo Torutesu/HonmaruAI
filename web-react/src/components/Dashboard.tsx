@@ -739,6 +739,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
 
       <header className="topbar">
+        {/* A phone has no rail: the workspace's mark, and the way to every
+            other workspace and to adding one, sits at the top of the cards. */}
+        {mode === 'cards' && <div className="topbar-ws">{workspaceSwitcher('header')}</div>}
         <div className="mode-switch" role="tablist" aria-label={t('View')}>
           <button
             role="tab"

@@ -53,6 +53,7 @@ struct ChatHomeView: View {
                 results = await store.search(q)
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { WorkspaceSwitcherButton(size: 30) }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { startingMessage = true } label: { Image(systemName: "square.and.pencil") }
                         .accessibilityLabel("New message")

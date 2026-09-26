@@ -982,3 +982,13 @@
 }
 :root[data-theme="dark"] .shortcuts-sheet { background: #1a1a1a; }
 :root[data-theme="dark"] .shortcuts-group dd { color: #f2f2f2; }
+
+/* The workspace's mark in a phone's top bar (the rail has it on a laptop). */
+.topbar-ws { display: none; }
+@media (max-width: 719px) {
+  .topbar-ws { display: block; flex: none; margin-right: 8px; }
+  .topbar-ws .ws-button { padding: 0; }
+  .topbar-ws .ws-name, .topbar-ws .ws-caret { display: none; }
+  .topbar-ws .ws-mark { width: 36px !important; height: 36px !important; border-radius: 10px; }
+  .topbar-ws .ws-menu { left: 0; }
+}

@@ -74,4 +74,12 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(ChatJamLink.jamURL(web: web, view: "b:kitchen")?.absoluteString, "https://app.example.com/#/jam/b:kitchen")
         XCTAssertEqual(ChatJamLink.jamURL(web: web, view: "g:0123456789abcdef")?.absoluteString, "https://app.example.com/#/jam/g:0123456789abcdef")
     }
+
+    func testAnInvitationLinkOrItsCodeJoinsTheSameWorkspace() {
+        XCTAssertEqual(WorkspaceDirectory.inviteCode(from: "https://app.example.com/#/join/0123abcd4567ef89"), "0123abcd4567ef89")
+        XCTAssertEqual(WorkspaceDirectory.inviteCode(from: "  0123abcd4567ef89 "), "0123abcd4567ef89")
+        let entry = try? JSONDecoder().decode(WorkspaceEntry.self, from: #"{"id":"personal:x","name":"ShogunAI","role":"admin","memberCount":7}"#.data(using: .utf8)!)
+        XCTAssertEqual(entry?.label, "ShogunAI")
+        XCTAssertEqual(entry?.memberCount, 7)
+    }
 }
