@@ -436,7 +436,7 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
   const refresh = grant.refresh ? await sealSecret(env, grant.refresh) : null;
   const mark = () => env.DB.prepare(
     "UPDATE sessions SET auth_method = 'sso', sso_org_id = ?2, sso_connection_id = ?3, sso_subject = ?4, sso_sid = ?5, sso_refresh = ?6, sso_checked_at = ?7 WHERE token = ?1"
-  ).bind(token, conn.org_id, conn.id, identity.subject, grant.sid || null, refresh, now).run();
+  ).bind(token, conn.org_id, conn.id, grant.sub || identity.subject, grant.sid || null, refresh, now).run();
   await mark();
   const { signedIn } = await import("./sessions.js");
   await signedIn(env, request, token, account.githubId, "sso");
@@ -469,7 +469,8 @@ export async function callback(env, request, url) {
     if (!res.ok || !tokens.id_token) throw new Error(`Your identity provider refused: ${tokens.error_description || tokens.error || res.status}`);
     const claims = await verifyIdToken(tokens.id_token, { discovery, clientId: conn.client_id, nonce: row.nonce });
     identity = identityOf(conn.provider, claims, conn);
-    grant = { sid: typeof claims.sid === "string" ? claims.sid : null, refresh: typeof tokens.refresh_token === "string" ? tokens.refresh_token : null };
+    // The token's own `sub` (Entra's is not its `oid`), as a logout token names it.
+    grant = { sub: claims.sub ? String(claims.sub) : null, sid: typeof claims.sid === "string" ? claims.sid : null, refresh: typeof tokens.refresh_token === "string" ? tokens.refresh_token : null };
   } catch (err) {
     return fail(err?.message || String(err));
   }
