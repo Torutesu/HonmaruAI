@@ -217,6 +217,12 @@
             "state": "translated",
             "value": "Titel"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titre"
+          }
         }
       }
     },
@@ -232,6 +238,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Neue Anfrage"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle demande"
           }
         }
       }
@@ -249,6 +261,12 @@
             "state": "translated",
             "value": "Anfrage diktieren"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dicter la demande"
+          }
         }
       }
     },
@@ -264,6 +282,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kameravorschau"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperçu de la caméra"
           }
         }
       }
@@ -281,6 +305,12 @@
             "state": "translated",
             "value": "Das Video ist stumm. Was du sagst, wird als bearbeitbares Transkript hinzugefügt."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La vidéo est muette. Vos paroles sont ajoutées sous forme de transcription modifiable."
+          }
         }
       }
     },
@@ -296,6 +326,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sprich deine Anfrage und prüfe das Transkript, bevor du es deinem Entwurf hinzufügst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Énoncez votre demande, puis relisez la transcription avant de l’ajouter à votre brouillon."
           }
         }
       }
@@ -314,6 +350,12 @@
             "state": "translated",
             "value": "Sprache wird nur auf diesem Gerät transkribiert. Wenn du einen KI-Entwurf erstellst, wird der Text an OpenAI gesendet, nicht die Mikrofonaufnahme. Ist die Erkennung auf dem Gerät nicht verfügbar, tippe deine Anfrage stattdessen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La parole est transcrite uniquement sur cet appareil. Si vous générez un brouillon avec l’IA, c’est le texte qui est envoyé à OpenAI, pas l’audio du micro. Si la reconnaissance sur l’appareil n’est pas disponible, saisissez plutôt votre demande."
+          }
         }
       }
     },
@@ -329,6 +371,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bereit, wenn du es bist"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prêt quand vous l’êtes"
           }
         }
       }
@@ -346,6 +394,12 @@
             "state": "translated",
             "value": "Aufnahme starten"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer l’enregistrement"
+          }
         }
       }
     },
@@ -361,6 +415,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Transkript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription"
           }
         }
       }
@@ -378,6 +438,12 @@
             "state": "translated",
             "value": "Du kannst diesen Bildschirm schließen und deine Anfrage stattdessen tippen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous pouvez fermer cet écran et saisir votre demande au clavier."
+          }
         }
       }
     },
@@ -393,6 +459,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Video aufnehmen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer une vidéo"
           }
         }
       }
@@ -410,6 +482,12 @@
             "state": "translated",
             "value": "Transkript verwenden"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser la transcription"
+          }
         }
       }
     },
@@ -425,6 +503,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Der Kamerazugriff ist aus. Aktiviere ihn in den Einstellungen oder nutze die Diktierfunktion."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accès à la caméra est désactivé. Activez-le dans Réglages ou utilisez la dictée."
           }
         }
       }
@@ -448,6 +532,12 @@
             "state": "translated",
             "value": "Dein Team"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe"
+          }
         }
       }
     },
@@ -464,6 +554,12 @@
             "state": "translated",
             "value": "Nutzungsbedingungen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conditions d’utilisation"
+          }
         }
       }
     },
@@ -479,6 +575,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Datenschutzerklärung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Politique de confidentialité"
           }
         }
       }
@@ -497,6 +599,12 @@
             "state": "translated",
             "value": "1 Tag"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 jour"
+          }
         }
       }
     },
@@ -513,6 +621,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 Woche"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 semaine"
           }
         }
       }
@@ -531,6 +645,12 @@
             "state": "translated",
             "value": "1 Monat"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 mois"
+          }
         }
       }
     },
@@ -547,6 +667,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 Jahr"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 an"
           }
         }
       }
@@ -594,6 +720,12 @@
             "state": "translated",
             "value": "%lld Wochen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld semaines"
+          }
         }
       }
     },
@@ -610,6 +742,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld Monate"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld mois"
           }
         }
       }
@@ -628,6 +766,12 @@
             "state": "translated",
             "value": "%lld Jahre"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ans"
+          }
         }
       }
     },
@@ -644,6 +788,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Preis"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prix"
           }
         }
       }
@@ -662,6 +812,12 @@
             "state": "translated",
             "value": "Upgrades sind in dieser Version nicht verfügbar."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La mise à niveau n’est pas disponible dans cette version."
+          }
         }
       }
     },
@@ -679,6 +835,12 @@
             "state": "translated",
             "value": "Das oben genannte kostenlose Routing-Limit gilt weiterhin."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La limite d’acheminement gratuit ci-dessus s’applique toujours."
+          }
         }
       }
     },
@@ -694,6 +856,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbinde dich vor dem Senden mit deinem Workspace. Dein Entwurf bleibt hier erhalten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à votre espace de travail avant d’envoyer. Votre brouillon est conservé ici."
           }
         }
       }
@@ -711,6 +879,12 @@
             "state": "translated",
             "value": "Zustimmen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "approbation"
+          }
         }
       }
     },
@@ -727,6 +901,12 @@
             "state": "translated",
             "value": "Ablehnen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refus"
+          }
         }
       }
     },
@@ -742,6 +922,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rückgängig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "annulation"
           }
         }
       }
@@ -12975,6 +13161,12 @@
             "state": "translated",
             "value": "Dein Team erhält die Karte erst, wenn du auf „Anfrage senden“ tippst."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe ne reçoit la carte qu’une fois que vous avez touché « Envoyer la demande »."
+          }
         }
       }
     },
@@ -12991,6 +13183,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Diesen Entwurf mit KI vorbereiten?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser l’IA pour préparer ce brouillon ?"
           }
         }
       }
@@ -13009,6 +13207,12 @@
             "state": "translated",
             "value": "KI nutzen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser l’IA"
+          }
         }
       }
     },
@@ -13025,6 +13229,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ohne KI vorbereiten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préparer sans IA"
           }
         }
       }
@@ -13043,6 +13253,12 @@
             "state": "translated",
             "value": "Manueller Entwurf · kein Text an die KI gesendet"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillon manuel · aucun texte envoyé à l’IA"
+          }
         }
       }
     },
@@ -13059,6 +13275,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dein Text, inklusive Transkript, und relevanter Teamkontext werden an unseren KI-Anbieter OpenAI gesendet. Mikrofonaudio wird nicht gesendet. Du kannst den Entwurf stattdessen auch ohne KI vorbereiten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre texte, transcription comprise, et le contexte d’équipe utile seront envoyés à notre fournisseur d’IA, OpenAI. L’audio du micro n’est pas envoyé. Vous pouvez aussi préparer un brouillon sans IA."
           }
         }
       }
@@ -13077,6 +13299,12 @@
             "state": "translated",
             "value": "Entscheidungen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décisions"
+          }
         }
       }
     },
@@ -13093,6 +13321,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Gast-Workspace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace invité"
           }
         }
       }
@@ -13111,6 +13345,12 @@
             "state": "translated",
             "value": "Aktuell"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À jour"
+          }
         }
       }
     },
@@ -13127,6 +13367,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Workspace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail"
           }
         }
       }
@@ -13145,6 +13391,12 @@
             "state": "translated",
             "value": "Deine nächste Entscheidung beginnt hier"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre prochaine décision commence ici"
+          }
         }
       }
     },
@@ -13161,6 +13413,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Workspace neu verbinden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecter votre espace de travail"
           }
         }
       }
@@ -13179,6 +13437,12 @@
             "state": "translated",
             "value": "Du bist offline"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes hors ligne"
+          }
         }
       }
     },
@@ -13195,6 +13459,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alles erledigt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes à jour"
           }
         }
       }
@@ -13213,6 +13483,12 @@
             "state": "translated",
             "value": "Verbinde ein Repository, um die Entscheidungen deines Teams an einem Ort zu sammeln. Du kannst dir zuerst die Einstellungen ansehen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez un dépôt pour réunir les décisions de votre équipe au même endroit. Vous pouvez d’abord explorer les réglages."
+          }
         }
       }
     },
@@ -13229,6 +13505,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deine gespeicherten Entscheidungen bleiben hier. Neue Updates kommen, sobald du wieder verbunden bist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos décisions enregistrées restent ici. Les nouvelles mises à jour arriveront à la reconnexion."
           }
         }
       }
@@ -13247,6 +13529,12 @@
             "state": "translated",
             "value": "Verbindung zu deinem Workspace wird hergestellt und nach Updates gesucht."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion à votre espace de travail et recherche de mises à jour."
+          }
         }
       }
     },
@@ -13263,6 +13551,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Keine Entscheidungen warten auf dich. Sag deiner KI, was als Nächstes passieren soll."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune décision ne vous attend. Dites à votre IA ce qui doit se passer ensuite."
           }
         }
       }
@@ -13281,6 +13575,12 @@
             "state": "translated",
             "value": "Entscheidungsvorschau"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperçu de la décision"
+          }
         }
       }
     },
@@ -13298,6 +13598,12 @@
             "state": "translated",
             "value": "Bereit für deine Entscheidung"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de votre décision"
+          }
         }
       }
     },
@@ -13311,6 +13617,12 @@
           }
         },
         "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· %lld / %lld"
+          }
+        },
+        "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "· %lld / %lld"
@@ -13331,6 +13643,12 @@
             "state": "translated",
             "value": "Konfiguriert"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuré"
+          }
         }
       }
     },
@@ -13344,6 +13662,12 @@
           }
         },
         "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI"
+          }
+        },
+        "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Honmaru AI"
@@ -13365,6 +13689,12 @@
             "state": "translated",
             "value": "Weniger Nachhaken.\nKlarere Entscheidungen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moins de relances.\nDes décisions plus claires."
+          }
         }
       }
     },
@@ -13381,6 +13711,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sieh, was dich braucht, sende eine klare Anfrage und behalte jede Entscheidung an einem Ort."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voyez ce qui vous attend, envoyez des demandes claires et gardez chaque décision au même endroit."
           }
         }
       }
@@ -13399,6 +13735,12 @@
             "state": "translated",
             "value": "Posteingang"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réception"
+          }
         }
       }
     },
@@ -13415,6 +13757,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Gesendet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyées"
           }
         }
       }
@@ -13433,6 +13781,12 @@
             "state": "translated",
             "value": "Erledigt"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminé"
+          }
         }
       }
     },
@@ -13449,6 +13803,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispiel-Workspace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace d’exemple"
           }
         }
       }
@@ -13467,6 +13827,12 @@
             "state": "translated",
             "value": "Demo-Workspace"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de démo"
+          }
         }
       }
     },
@@ -13483,6 +13849,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Probier Zustimmen, Antworten und das Erstellen einer Anfrage aus. Kein Konto nötig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essayez d’approuver, de répondre et de créer une demande. Aucun compte requis."
           }
         }
       }
@@ -13501,6 +13873,12 @@
             "state": "translated",
             "value": "Demo ausprobieren"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essayer la démo"
+          }
         }
       }
     },
@@ -13517,6 +13895,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zuerst die Demo ausprobieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essayer d’abord la démo"
           }
         }
       }
@@ -13535,6 +13919,12 @@
             "state": "translated",
             "value": "Dein Workspace"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre espace de travail"
+          }
         }
       }
     },
@@ -13551,6 +13941,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dein Team im Fokus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le travail de votre équipe, au même endroit."
           }
         }
       }
@@ -13569,6 +13965,12 @@
             "state": "translated",
             "value": "Verbinde ein GitHub-Repository, um seine Mitwirkenden zu sehen und echte Anfragen an dein Team zu senden."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez un dépôt GitHub pour voir ses collaborateurs et envoyer de vraies demandes à votre équipe."
+          }
         }
       }
     },
@@ -13585,6 +13987,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "1. Sicher mit GitHub anmelden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Connectez-vous en toute sécurité avec GitHub"
           }
         }
       }
@@ -13603,6 +14011,12 @@
             "state": "translated",
             "value": "2. Repository deines Teams auswählen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Choisissez le dépôt de votre équipe"
+          }
         }
       }
     },
@@ -13619,6 +14033,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "3. Anfragen gemeinsam prüfen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. Examinez les demandes ensemble"
           }
         }
       }
@@ -13637,6 +14057,12 @@
             "state": "translated",
             "value": "Workspace öffnen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir l’espace de travail"
+          }
         }
       }
     },
@@ -13653,6 +14079,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbinde…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion…"
           }
         }
       }
@@ -13671,6 +14103,12 @@
             "state": "translated",
             "value": "Ken · Freigabe"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ken · Approbation"
+          }
         }
       }
     },
@@ -13687,6 +14125,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aya · Aufgabe"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aya · Tâche"
           }
         }
       }
@@ -13705,6 +14149,12 @@
             "state": "translated",
             "value": "Mika · Frage"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mika · Question"
+          }
         }
       }
     },
@@ -13721,6 +14171,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispielanfragen zurücksetzen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser les demandes d’exemple ?"
           }
         }
       }
@@ -13739,6 +14195,12 @@
             "state": "translated",
             "value": "Demo zurücksetzen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser la démo"
+          }
         }
       }
     },
@@ -13755,6 +14217,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deine Demo-Änderungen werden durch die ursprünglichen Beispiele ersetzt. Dein echter Workspace bleibt unberührt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos modifications de démo seront remplacées par les exemples d’origine. Votre vrai espace de travail n’est pas affecté."
           }
         }
       }
@@ -13773,6 +14241,12 @@
             "state": "translated",
             "value": "Demo verlassen?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitter la démo ?"
+          }
         }
       }
     },
@@ -13789,6 +14263,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Demo beenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitter la démo"
           }
         }
       }
@@ -13807,6 +14287,12 @@
             "state": "translated",
             "value": "Von diesem Workspace abmelden?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se déconnecter de cet espace de travail ?"
+          }
         }
       }
     },
@@ -13823,6 +14309,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Du · Demo-Konto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous · Compte de démo"
           }
         }
       }
@@ -13841,6 +14333,12 @@
             "state": "translated",
             "value": "Deine Änderungen bleiben in dieser Demo"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos modifications restent dans cette démo"
+          }
         }
       }
     },
@@ -13857,6 +14355,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dein aktiver Workspace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre espace de travail actif"
           }
         }
       }
@@ -13875,6 +14379,12 @@
             "state": "translated",
             "value": "Bereit, mit deinem Team zu arbeiten?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prêt à travailler avec votre équipe ?"
+          }
         }
       }
     },
@@ -13891,6 +14401,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbinde GitHub, um die echten Mitglieder und Anfragen deines Repositorys zu nutzen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez GitHub pour utiliser les vrais membres et les vraies demandes de votre dépôt."
           }
         }
       }
@@ -13909,6 +14425,12 @@
             "state": "translated",
             "value": "Dein Team wird geladen…"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de votre équipe…"
+          }
         }
       }
     },
@@ -13925,6 +14447,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dein Team konnte nicht geladen werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger votre équipe"
           }
         }
       }
@@ -13943,6 +14471,12 @@
             "state": "translated",
             "value": "Verbinde einen Workspace, um dein Team hier zu sehen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez un espace de travail pour voir votre équipe ici."
+          }
         }
       }
     },
@@ -13959,6 +14493,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispiel-Teammitglieder zum Ausprobieren des Ablaufs."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des coéquipiers d’exemple pour essayer le fonctionnement."
           }
         }
       }
@@ -13977,6 +14517,12 @@
             "state": "translated",
             "value": "Personen, die zu diesem Workspace gehören."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les personnes qui font partie de cet espace de travail."
+          }
         }
       }
     },
@@ -13993,6 +14539,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbindungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexions"
           }
         }
       }
@@ -14011,6 +14563,12 @@
             "state": "translated",
             "value": "Repository verbinden"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter votre dépôt"
+          }
         }
       }
     },
@@ -14027,6 +14585,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbundene Tools"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils connectés"
           }
         }
       }
@@ -14045,6 +14609,12 @@
             "state": "translated",
             "value": "Quellen für die Arbeit deines Teams"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sources du travail de votre équipe"
+          }
         }
       }
     },
@@ -14061,6 +14631,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "KI-Unterstützung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistance IA"
           }
         }
       }
@@ -14079,6 +14655,12 @@
             "state": "translated",
             "value": "Demo-Vorschläge · keine externen KI-Aufrufe"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggestions de démo · aucun appel à une IA externe"
+          }
         }
       }
     },
@@ -14095,6 +14677,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Für Anfrageentwürfe verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disponible pour les brouillons de demande"
           }
         }
       }
@@ -14113,6 +14701,12 @@
             "state": "translated",
             "value": "Du kannst Anfragen weiterhin manuell erstellen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous pouvez toujours créer des demandes manuellement"
+          }
         }
       }
     },
@@ -14129,6 +14723,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Einstellungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préférences"
           }
         }
       }
@@ -14147,6 +14747,12 @@
             "state": "translated",
             "value": "In dieser Version nicht verfügbar"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non disponible dans cette version"
+          }
         }
       }
     },
@@ -14163,6 +14769,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mit den Beispielanfragen neu beginnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommencer avec les demandes d’exemple"
           }
         }
       }
@@ -14181,6 +14793,12 @@
             "state": "translated",
             "value": "Dein Arbeitskontext"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre contexte de travail"
+          }
         }
       }
     },
@@ -14197,6 +14815,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hilf der KI, deine Rolle zu verstehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aidez l’IA à comprendre votre rôle"
           }
         }
       }
@@ -14215,6 +14839,12 @@
             "state": "translated",
             "value": "Plan und Nutzung"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offre et utilisation"
+          }
         }
       }
     },
@@ -14231,6 +14861,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Abo verwalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gérer votre abonnement"
           }
         }
       }
@@ -14249,6 +14885,12 @@
             "state": "translated",
             "value": "KI-Anbieter"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fournisseur d’IA"
+          }
         }
       }
     },
@@ -14265,6 +14907,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Optionale Anbieter-Einstellungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages du fournisseur (facultatif)"
           }
         }
       }
@@ -14283,6 +14931,12 @@
             "state": "translated",
             "value": "Offline · gespeicherte Anfragen werden angezeigt"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne · demandes enregistrées affichées"
+          }
         }
       }
     },
@@ -14296,6 +14950,12 @@
           }
         },
         "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %@"
+          }
+        },
+        "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Version %@"
@@ -14317,6 +14977,12 @@
             "state": "translated",
             "value": "Produktleitung"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responsable produit"
+          }
         }
       }
     },
@@ -14330,6 +14996,12 @@
           }
         },
         "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Design"
+          }
+        },
+        "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Design"
@@ -14351,6 +15023,12 @@
             "state": "translated",
             "value": "Entwicklung"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingénierie"
+          }
         }
       }
     },
@@ -14367,6 +15045,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Betrieb"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opérations"
           }
         }
       }
@@ -14385,6 +15069,12 @@
             "state": "translated",
             "value": "Produkt"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Produit"
+          }
         }
       }
     },
@@ -14398,6 +15088,12 @@
           }
         },
         "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marketing"
+          }
+        },
+        "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Marketing"
@@ -14419,6 +15115,12 @@
             "state": "translated",
             "value": "Onboarding-Release freigeben"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approuver la mise en ligne de l’onboarding"
+          }
         }
       }
     },
@@ -14435,6 +15137,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Der neue Onboarding-Ablauf ist fertig. Bitte bestätige, dass wir ihn morgen um 10:00 ausrollen können."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nouveau parcours d’onboarding est prêt. Merci de confirmer que nous pouvons le déployer demain à 10 h."
           }
         }
       }
@@ -14453,6 +15161,12 @@
             "state": "translated",
             "value": "Die QA-Prüfungen sind abgeschlossen. Wir starten mit 10 % der Nutzer und beobachten Anmeldefehler, bevor wir ausweiten."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les tests QA sont terminés. Nous commencerons par 10 % des utilisateurs et surveillerons les erreurs de connexion avant d’élargir."
+          }
         }
       }
     },
@@ -14469,6 +15183,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die Release-Entscheidung liegt bei dir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La décision de mise en ligne vous revient."
           }
         }
       }
@@ -14487,6 +15207,12 @@
             "state": "translated",
             "value": "Richtung der Homepage bestätigen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valider l’orientation de la page d’accueil"
+          }
         }
       }
     },
@@ -14503,6 +15229,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Wir haben das Design auf zwei Richtungen eingegrenzt. Mit welcher Botschaft soll das Team aufmachen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nous avons réduit le design à deux pistes. Quel message l’équipe doit-elle mettre en avant ?"
           }
         }
       }
@@ -14521,6 +15253,12 @@
             "state": "translated",
             "value": "Option A setzt auf schnellere Entscheidungen, Option B auf weniger Meetings. Eine kurze Antwort macht den Weg zum finalen Layout frei."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’option A met en avant des décisions plus rapides, l’option B moins de réunions. Une réponse courte suffira à débloquer la mise en page finale."
+          }
         }
       }
     },
@@ -14537,6 +15275,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Checkliste für die Kundenübergabe prüfen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier la checklist de passation client"
           }
         }
       }
@@ -14555,6 +15299,12 @@
             "state": "translated",
             "value": "Prüfe Verantwortliche, Fälligkeitsdatum und Support-Kontakt vor der Kundenübergabe am Freitag."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez le responsable, l’échéance et le contact support avant la passation client de vendredi."
+          }
         }
       }
     },
@@ -14571,6 +15321,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Das Account-Team hat die Checkliste ausgefüllt. Markiere sie nach deiner Prüfung als erledigt oder delegiere sie an die richtige Person."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’équipe commerciale a rempli la checklist. Marquez-la comme terminée après vérification, ou déléguez-la à la bonne personne."
           }
         }
       }
@@ -14589,6 +15345,12 @@
             "state": "translated",
             "value": "Launch-Ankündigung prüfen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relire l’annonce de lancement"
+          }
         }
       }
     },
@@ -14605,6 +15367,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bitte prüfe den Ankündigungstext, bevor er an die Kunden geht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merci de relire le texte de l’annonce avant son envoi aux clients."
           }
         }
       }
@@ -14623,6 +15391,12 @@
             "state": "translated",
             "value": "Diese Beispielanfrage wartet auf Mika. Gesendete Anfragen bleiben hier, damit du das Ergebnis verfolgen kannst."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette demande d’exemple attend Mika. Les demandes envoyées restent ici pour que vous puissiez en suivre l’issue."
+          }
         }
       }
     },
@@ -14639,6 +15413,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Der Wochenbericht ist fertig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le rapport hebdomadaire est prêt"
           }
         }
       }
@@ -14657,6 +15437,12 @@
             "state": "translated",
             "value": "Dein Team hat das Kundenfeedback und die Produktkennzahlen dieser Woche veröffentlicht."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe a publié les retours clients et les indicateurs produit de la semaine."
+          }
         }
       }
     },
@@ -14674,6 +15460,12 @@
             "state": "translated",
             "value": "Dieses Beispiel zeigt, wie eine erledigte Anfrage samt Entscheidung verfügbar bleibt."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet exemple montre qu’une demande terminée reste consultable avec sa décision."
+          }
         }
       }
     },
@@ -14689,6 +15481,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispieldaten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données d’exemple"
           }
         }
       }
@@ -14706,6 +15504,12 @@
             "state": "translated",
             "value": "Anfragen oder Personen suchen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des demandes ou des personnes"
+          }
         }
       }
     },
@@ -14721,6 +15525,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Suche löschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer la recherche"
           }
         }
       }
@@ -14738,6 +15548,12 @@
             "state": "translated",
             "value": "Alle Typen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous les types"
+          }
         }
       }
     },
@@ -14753,6 +15569,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hohe Priorität"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorité haute"
           }
         }
       }
@@ -14770,6 +15592,12 @@
             "state": "translated",
             "value": "Neueste zuerst"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus récentes d’abord"
+          }
         }
       }
     },
@@ -14785,6 +15613,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Älteste zuerst"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus anciennes d’abord"
           }
         }
       }
@@ -14802,6 +15636,12 @@
             "state": "translated",
             "value": "Anfragen sortieren"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trier les demandes"
+          }
         }
       }
     },
@@ -14817,6 +15657,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Wartet auf dich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de votre action"
           }
         }
       }
@@ -14834,6 +15680,12 @@
             "state": "translated",
             "value": "Von dir erstellte Anfragen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandes que vous avez créées"
+          }
         }
       }
     },
@@ -14849,6 +15701,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deine Entscheidungen und Antworten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos décisions et réponses"
           }
         }
       }
@@ -14866,6 +15724,12 @@
             "state": "translated",
             "value": "Sende deine erste Anfrage"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyez votre première demande"
+          }
         }
       }
     },
@@ -14881,6 +15745,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Entscheidungen erscheinen hier"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les décisions apparaîtront ici"
           }
         }
       }
@@ -14898,6 +15768,12 @@
             "state": "translated",
             "value": "Keine passenden Anfragen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune demande correspondante"
+          }
         }
       }
     },
@@ -14913,6 +15789,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Neue Anfragen deiner Teammitglieder erscheinen hier."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouvelles demandes de vos coéquipiers apparaîtront ici."
           }
         }
       }
@@ -14930,6 +15812,12 @@
             "state": "translated",
             "value": "Erstelle eine Anfrage und verfolge hier das Ergebnis."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créez une demande et suivez son issue ici."
+          }
         }
       }
     },
@@ -14945,6 +15833,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stimme einer Anfrage zu, beantworte oder erledige sie, um sie hier festzuhalten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approuvez, répondez ou terminez une demande pour en garder une trace ici."
           }
         }
       }
@@ -14962,6 +15856,12 @@
             "state": "translated",
             "value": "An %@"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À %@"
+          }
         }
       }
     },
@@ -14977,6 +15877,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anfrage"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande"
           }
         }
       }
@@ -14994,6 +15900,12 @@
             "state": "translated",
             "value": "Quelle"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
         }
       }
     },
@@ -15009,6 +15921,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispielquelle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source d’exemple"
           }
         }
       }
@@ -15026,6 +15944,12 @@
             "state": "translated",
             "value": "Ursprüngliche Anfrage"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande d’origine"
+          }
         }
       }
     },
@@ -15041,6 +15965,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Warte auf Workspace-Sync"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de synchronisation de l’espace de travail"
           }
         }
       }
@@ -15058,6 +15988,12 @@
             "state": "translated",
             "value": "Nur in dieser Demo gespeichert"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré dans cette démo uniquement"
+          }
         }
       }
     },
@@ -15073,6 +16009,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub-Issue öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir l’issue GitHub"
           }
         }
       }
@@ -15090,6 +16032,12 @@
             "state": "translated",
             "value": "Wartet auf %@"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de %@"
+          }
         }
       }
     },
@@ -15105,6 +16053,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anfrage nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande indisponible"
           }
         }
       }
@@ -15122,6 +16076,12 @@
             "state": "translated",
             "value": "Anfrage konnte nicht aktualisiert werden"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de mettre à jour la demande"
+          }
         }
       }
     },
@@ -15137,6 +16097,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Diese Anfrage ablehnen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refuser cette demande ?"
           }
         }
       }
@@ -15154,6 +16120,12 @@
             "state": "translated",
             "value": "Diese Entscheidung rückgängig machen?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler cette décision ?"
+          }
         }
       }
     },
@@ -15169,6 +16141,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Entscheidung rückgängig machen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler la décision"
           }
         }
       }
@@ -15186,6 +16164,12 @@
             "state": "translated",
             "value": "Die Anfrage wird wieder geöffnet. Bereits in GitHub vorgenommene Änderungen bleiben bestehen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La demande sera rouverte. Les modifications déjà faites dans GitHub resteront."
+          }
         }
       }
     },
@@ -15201,6 +16185,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbinde dich neu, um zu antworten. Deine Anfrage bleibt hier."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous pour répondre. Votre demande reste ici."
           }
         }
       }
@@ -15218,6 +16208,12 @@
             "state": "translated",
             "value": "Beim Zustimmen wird ein GitHub-Issue in diesem Workspace erstellt."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’approbation crée une issue GitHub dans cet espace de travail."
+          }
         }
       }
     },
@@ -15233,6 +16229,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Weitere Aktionen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus d’actions"
           }
         }
       }
@@ -15250,6 +16252,12 @@
             "state": "translated",
             "value": "Als erledigt markieren"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marquer comme terminé"
+          }
         }
       }
     },
@@ -15265,6 +16273,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zur Kenntnis nehmen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accuser réception"
           }
         }
       }
@@ -15282,6 +16296,12 @@
             "state": "translated",
             "value": "Deine Antwort"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre réponse"
+          }
         }
       }
     },
@@ -15297,6 +16317,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Was muss sich ändern?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Que faut-il changer ?"
           }
         }
       }
@@ -15314,6 +16340,12 @@
             "state": "translated",
             "value": "Mit einer Antwort wird diese Anfrage erledigt und der Absender benachrichtigt."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer une réponse termine cette demande et prévient l’expéditeur."
+          }
         }
       }
     },
@@ -15329,6 +16361,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Der Absender erhält deine Überarbeitungsanfrage."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’expéditeur recevra votre demande de révision."
           }
         }
       }
@@ -15346,6 +16384,12 @@
             "state": "translated",
             "value": "Delegieren an"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déléguer à"
+          }
         }
       }
     },
@@ -15361,6 +16405,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Demo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démo"
           }
         }
       }
@@ -15378,6 +16428,12 @@
             "state": "translated",
             "value": "Demo-Workspace · nur Beispieldaten"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de démo · données d’exemple uniquement"
+          }
         }
       }
     },
@@ -15393,6 +16449,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anfragetyp"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type de demande"
           }
         }
       }
@@ -15410,6 +16472,12 @@
             "state": "translated",
             "value": "Video angehängt"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidéo jointe"
+          }
         }
       }
     },
@@ -15425,6 +16493,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Entfernen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirer"
           }
         }
       }
@@ -15442,6 +16516,12 @@
             "state": "translated",
             "value": "Dies erstellt eine lokale Beispielanfrage. Niemand wird benachrichtigt."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cela crée une demande d’exemple locale. Personne ne sera prévenu."
+          }
         }
       }
     },
@@ -15457,6 +16537,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die Anfrage landet im Posteingang des Empfängers. Du kannst sie unter „Gesendet“ verfolgen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le destinataire recevra cette demande dans sa boîte de réception. Vous pourrez la suivre dans « Envoyées »."
           }
         }
       }
@@ -15474,6 +16560,12 @@
             "state": "translated",
             "value": "Anfrage prüfen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier la demande"
+          }
         }
       }
     },
@@ -15489,6 +16581,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anfrage wird gesendet…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoi de la demande…"
           }
         }
       }
@@ -15506,6 +16604,12 @@
             "state": "translated",
             "value": "Dein Entwurf wird vorbereitet…"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préparation du brouillon…"
+          }
         }
       }
     },
@@ -15521,6 +16625,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anfrage senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer la demande"
           }
         }
       }
@@ -15538,6 +16648,12 @@
             "state": "translated",
             "value": "Nichts wird gesendet, bevor du bestätigst."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien n’est envoyé avant votre confirmation."
+          }
         }
       }
     },
@@ -15553,6 +16669,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Diesen Entwurf verwerfen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer ce brouillon ?"
           }
         }
       }
@@ -15570,6 +16692,12 @@
             "state": "translated",
             "value": "Entwurf verwerfen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le brouillon"
+          }
         }
       }
     },
@@ -15585,6 +16713,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Weiter bearbeiten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer à modifier"
           }
         }
       }
@@ -15602,6 +16736,12 @@
             "state": "translated",
             "value": "Was brauchst du von deinem Teammitglied?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qu’attendez-vous de votre coéquipier ?"
+          }
         }
       }
     },
@@ -15617,6 +16757,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beschreibe die Anfrage, den Kontext und bis wann du eine Antwort brauchst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décrivez la demande, le contexte et quand vous avez besoin d’une réponse."
           }
         }
       }
@@ -15634,6 +16780,12 @@
             "state": "translated",
             "value": "Beschreibung der Anfrage"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Description de la demande"
+          }
         }
       }
     },
@@ -15649,6 +16801,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zum Beispiel: Bitte prüfe den Launch-Text vor Freitag. Wir brauchen eine Freigabe für die Überschrift und das Kundenzitat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par exemple : Merci de relire le texte de lancement avant vendredi. Il nous faut une validation du titre et de la citation client."
           }
         }
       }
@@ -15666,6 +16824,12 @@
             "state": "translated",
             "value": "Diktieren"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dicter"
+          }
         }
       }
     },
@@ -15681,6 +16845,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Gib der Anfrage einen klaren Titel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Donnez un titre clair à la demande"
           }
         }
       }
@@ -15698,6 +16868,12 @@
             "state": "translated",
             "value": "Kontext · optional"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexte · facultatif"
+          }
         }
       }
     },
@@ -15713,6 +16889,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Details oder Links hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez des détails ou des liens"
           }
         }
       }
@@ -15730,6 +16912,12 @@
             "state": "translated",
             "value": "Teammitglied auswählen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un coéquipier"
+          }
         }
       }
     },
@@ -15745,6 +16933,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Teammitglieder werden geladen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement des coéquipiers…"
           }
         }
       }
@@ -15762,6 +16956,12 @@
             "state": "translated",
             "value": "Verbinde dich, um die Mitglieder deines Workspace zu laden."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour charger les membres de votre espace de travail."
+          }
         }
       }
     },
@@ -15777,6 +16977,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbinde dich neu, um zu senden. Dein Entwurf bleibt bearbeitbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous pour envoyer. Votre brouillon reste modifiable."
           }
         }
       }
@@ -15794,6 +17000,12 @@
             "state": "translated",
             "value": "Wähle jemanden aus diesem Workspace."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez quelqu’un dans cet espace de travail."
+          }
         }
       }
     },
@@ -15809,6 +17021,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Demo-Entwurf · deine Worte bleiben auf diesem Gerät"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillon de démo · votre texte reste sur cet appareil"
           }
         }
       }
@@ -15826,6 +17044,12 @@
             "state": "translated",
             "value": "Manueller Entwurf · vor dem Senden neu verbinden"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillon manuel · reconnectez-vous avant d’envoyer"
+          }
         }
       }
     },
@@ -15841,6 +17065,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "KI-Limit erreicht. Prüfe diesen manuellen Entwurf vor dem Senden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite d’IA atteinte. Relisez ce brouillon manuel avant de l’envoyer."
           }
         }
       }
@@ -15858,6 +17088,12 @@
             "state": "translated",
             "value": "KI-Entwurf · prüfe vor dem Senden jedes Detail"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillon IA · vérifiez chaque détail avant d’envoyer"
+          }
         }
       }
     },
@@ -15873,6 +17109,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die KI konnte diese Anfrage nicht vorbereiten. Dein Text bleibt unten erhalten; bearbeite ihn und sende ihn, wenn du so weit bist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’IA n’a pas pu préparer cette demande. Votre texte est conservé ci-dessous ; modifiez-le et envoyez-le quand vous êtes prêt."
           }
         }
       }
@@ -15890,6 +17132,12 @@
             "state": "translated",
             "value": "Von dir ausgewählt"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisi par vous"
+          }
         }
       }
     },
@@ -15905,6 +17153,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "In der Demo erstellt. Öffne „Gesendet“, um die Anfrage zu verfolgen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créée dans la démo. Ouvrez « Envoyées » pour suivre la demande."
           }
         }
       }
@@ -15922,6 +17176,12 @@
             "state": "translated",
             "value": "Anfrage in der Warteschlange. Unter „Gesendet“ siehst du, wann dein Workspace sie erhält."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande en file d’attente. « Envoyées » indique quand votre espace de travail la reçoit."
+          }
         }
       }
     },
@@ -15937,6 +17197,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zustellung braucht Aufmerksamkeit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoi à vérifier"
           }
         }
       }
@@ -15954,6 +17220,12 @@
             "state": "translated",
             "value": "Demo-Anfrage erstellt"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande de démo créée"
+          }
         }
       }
     },
@@ -15969,6 +17241,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anfrage in der Warteschlange"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande en file d’attente"
           }
         }
       }
@@ -15986,6 +17264,12 @@
             "state": "translated",
             "value": "Diese Aktion bleibt in der Demo. Niemand wird benachrichtigt."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette action reste dans la démo. Personne ne sera prévenu."
+          }
         }
       }
     },
@@ -16001,6 +17285,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Prüfe vor dem Senden jedes Detail."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez chaque détail avant d’envoyer."
           }
         }
       }
@@ -16018,6 +17308,12 @@
             "state": "translated",
             "value": "Das Video konnte nicht aufgenommen werden. Du kannst das Transkript trotzdem nutzen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La vidéo n’a pas pu être enregistrée. Vous pouvez quand même utiliser la transcription."
+          }
         }
       }
     },
@@ -16033,6 +17329,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Willkommen bei\nHonmaru AI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bienvenue dans\nHonmaru AI"
           }
         }
       }
@@ -16050,6 +17352,12 @@
             "state": "translated",
             "value": "Dein KI-Teammitglied, das dir hilft, jedes Mal die richtigen Entscheidungen zu treffen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre coéquipier IA qui vous aide à prendre les bonnes décisions, à chaque fois."
+          }
         }
       }
     },
@@ -16066,6 +17374,12 @@
             "state": "translated",
             "value": "Ich habe schon ein Konto"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "J’ai déjà un compte"
+          }
         }
       }
     },
@@ -16081,6 +17395,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Weiter mit GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer avec GitHub"
           }
         }
       }
@@ -16126,6 +17446,12 @@
             "state": "translated",
             "value": "Dein KI-Assistent"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre assistant IA"
+          }
         }
       }
     },
@@ -16141,6 +17467,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nur Beispieldaten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données d’exemple uniquement"
           }
         }
       }
@@ -16158,6 +17490,12 @@
             "state": "translated",
             "value": "Bereit zu helfen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prêt à vous aider"
+          }
         }
       }
     },
@@ -16173,6 +17511,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Manuelle Anfragen sind verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les demandes manuelles sont disponibles"
           }
         }
       }
@@ -16190,6 +17534,12 @@
             "state": "translated",
             "value": "Aktiv"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actif"
+          }
         }
       }
     },
@@ -16206,6 +17556,12 @@
             "state": "translated",
             "value": "Einrichten"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurer"
+          }
         }
       }
     },
@@ -16218,6 +17574,12 @@
           }
         },
         "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru Pro"
+          }
+        },
+        "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Honmaru Pro"
@@ -16238,6 +17600,12 @@
             "state": "translated",
             "value": "Abrechnung ist in diesem Build nicht verfügbar"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La facturation n’est pas disponible dans cette version"
+          }
         }
       }
     },
@@ -16253,6 +17621,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponible"
           }
         }
       }
@@ -16270,6 +17644,12 @@
             "state": "translated",
             "value": "Aus"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
         }
       }
     },
@@ -16285,6 +17665,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Der Titel darf höchstens 300 Zeichen lang sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le titre doit faire 300 caractères au maximum."
           }
         }
       }
@@ -16302,6 +17688,12 @@
             "state": "translated",
             "value": "Die Zusammenfassung darf höchstens 2.000 Zeichen lang sein."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le résumé doit faire 2 000 caractères au maximum."
+          }
         }
       }
     },
@@ -16317,6 +17709,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Der Kontext darf höchstens 8.000 Zeichen lang sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le contexte doit faire 8 000 caractères au maximum."
           }
         }
       }
@@ -16334,6 +17732,12 @@
             "state": "translated",
             "value": "Dein Workspace konnte diese Anfrage nicht annehmen. Dein Entwurf wurde zur Prüfung wiederhergestellt."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre espace de travail n’a pas pu accepter cette demande. Votre brouillon a été restauré pour que vous puissiez le vérifier."
+          }
         }
       }
     },
@@ -16349,6 +17753,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Angefragt von"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandé par"
           }
         }
       }
@@ -16366,6 +17776,12 @@
             "state": "translated",
             "value": "Empfohlen: "
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommandé : "
+          }
         }
       }
     },
@@ -16381,6 +17797,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Original ansehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voir l’original"
           }
         }
       }
@@ -16398,6 +17820,12 @@
             "state": "translated",
             "value": "Entscheidungen · Demo"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décisions · Démo"
+          }
         }
       }
     },
@@ -16413,6 +17841,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "(optional)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(facultatif)"
           }
         }
       }
@@ -16430,6 +17864,12 @@
             "state": "translated",
             "value": "Ein Empfänger konnte nicht bestätigt werden."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un destinataire n’a pas pu être confirmé."
+          }
         }
       }
     },
@@ -16445,6 +17885,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "KI-gestützter Entwurf. Prüfe die Details vor dem Senden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillon assisté par IA. Vérifiez les détails avant d’envoyer."
           }
         }
       }
@@ -16462,6 +17908,12 @@
             "state": "translated",
             "value": "Übergabe annehmen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prendre en charge"
+          }
         }
       }
     },
@@ -16477,6 +17929,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Link hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un lien"
           }
         }
       }
@@ -16494,6 +17952,12 @@
             "state": "translated",
             "value": "Zur Anfrage hinzufügen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter à la demande"
+          }
         }
       }
     },
@@ -16509,6 +17973,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Video anhängen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joindre une vidéo"
           }
         }
       }
@@ -16526,6 +17996,12 @@
             "state": "translated",
             "value": "Hintergrund"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexte"
+          }
         }
       }
     },
@@ -16541,6 +18017,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Änderungen bleiben in diesem Browser. Es werden keine Nachrichten oder Benachrichtigungen gesendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les modifications restent dans ce navigateur. Aucun message ni notification n’est envoyé."
           }
         }
       }
@@ -16558,6 +18040,12 @@
             "state": "translated",
             "value": "Wähle ein Video unter 12 MB."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une vidéo de moins de 12 Mo."
+          }
         }
       }
     },
@@ -16573,6 +18061,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Überarbeitung abschließen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer la révision"
           }
         }
       }
@@ -16590,6 +18084,12 @@
             "state": "translated",
             "value": "Aufgabe abschließen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer la tâche"
+          }
         }
       }
     },
@@ -16605,6 +18105,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zustellung wird bestätigt…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmation de l’envoi…"
           }
         }
       }
@@ -16622,6 +18128,12 @@
             "state": "translated",
             "value": "Zustellung konnte nicht bestätigt werden. Prüfe „Gesendet“, bevor du es erneut versuchst."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de confirmer l’envoi. Vérifiez « Envoyées » avant de réessayer."
+          }
         }
       }
     },
@@ -16637,6 +18149,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beitritt zum Workspace fehlgeschlagen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de rejoindre l’espace de travail."
           }
         }
       }
@@ -16654,6 +18172,12 @@
             "state": "translated",
             "value": "Konto erstellen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer un compte"
+          }
         }
       }
     },
@@ -16669,6 +18193,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Konto erstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer un compte"
           }
         }
       }
@@ -16686,6 +18216,12 @@
             "state": "translated",
             "value": "Beispielanfrage erstellen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer une demande d’exemple"
+          }
         }
       }
     },
@@ -16701,6 +18237,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Entscheidungs-Feed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fil de décisions"
           }
         }
       }
@@ -16718,6 +18260,12 @@
             "state": "translated",
             "value": "Direkte Anfrage"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande directe"
+          }
         }
       }
     },
@@ -16733,6 +18281,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Schließen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer"
           }
         }
       }
@@ -16750,6 +18304,12 @@
             "state": "translated",
             "value": "E-Mail und Passwort."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "E-mail et mot de passe."
+          }
         }
       }
     },
@@ -16765,6 +18325,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stattdessen Code per E-Mail senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M’envoyer plutôt un code par e-mail"
           }
         }
       }
@@ -16782,6 +18348,12 @@
             "state": "translated",
             "value": "Workspace beitreten"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejoindre l’espace de travail"
+          }
         }
       }
     },
@@ -16797,6 +18369,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deinem Workspace beitreten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejoindre votre espace de travail"
           }
         }
       }
@@ -16814,6 +18392,12 @@
             "state": "translated",
             "value": "Trete bei…"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès à l’espace…"
+          }
         }
       }
     },
@@ -16829,6 +18413,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kein Code? Du bekommst einen eigenen Workspace und kannst andere einladen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas de code ? Vous obtenez un espace à vous et pouvez y inviter d’autres personnes."
           }
         }
       }
@@ -16846,6 +18436,12 @@
             "state": "translated",
             "value": "Noch nichts entschieden."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien de réglé pour l’instant."
+          }
         }
       }
     },
@@ -16861,6 +18457,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Einen Moment…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un instant…"
           }
         }
       }
@@ -16878,6 +18480,12 @@
             "state": "translated",
             "value": "Dein Workspace wird geöffnet…"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouverture de votre espace de travail…"
+          }
         }
       }
     },
@@ -16893,6 +18501,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ursprüngliche Quelle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source d’origine"
           }
         }
       }
@@ -16910,6 +18524,12 @@
             "state": "translated",
             "value": "Ohne KI vorbereitet. Vor dem Senden prüfen und bearbeiten."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préparé sans IA. Relisez et modifiez avant d’envoyer."
+          }
         }
       }
     },
@@ -16925,6 +18545,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Wird vorbereitet…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préparation…"
           }
         }
       }
@@ -16942,6 +18568,12 @@
             "state": "translated",
             "value": "Ganze Anfrage lesen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire toute la demande"
+          }
         }
       }
     },
@@ -16957,6 +18589,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Empfänger"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinataire"
           }
         }
       }
@@ -16974,6 +18612,12 @@
             "state": "translated",
             "value": "Empfohlen:"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommandé :"
+          }
         }
       }
     },
@@ -16989,6 +18633,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbinde dich neu, bevor du eine Antwort speicherst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous avant d’enregistrer une réponse."
           }
         }
       }
@@ -17006,6 +18656,12 @@
             "state": "translated",
             "value": "Verbinde dich neu, bevor du eine Erinnerung sendest."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous avant d’envoyer une relance."
+          }
         }
       }
     },
@@ -17021,6 +18677,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verbinde dich neu, bevor du eine Antwort zurücknimmst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous avant d’annuler une réponse."
           }
         }
       }
@@ -17038,6 +18700,12 @@
             "state": "translated",
             "value": "Verbinde dich neu, um zu senden. Dein Entwurf bleibt hier."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous pour envoyer. Votre brouillon reste ici."
+          }
         }
       }
     },
@@ -17053,6 +18721,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anfragedetails"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détails de la demande"
           }
         }
       }
@@ -17070,6 +18744,12 @@
             "state": "translated",
             "value": "Anfrage gesendet. Du findest sie in „Klassisch“ unter „Von dir gesendet“."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande envoyée. Vous la trouverez dans « Liste », sous « Envoyé par vous »."
+          }
         }
       }
     },
@@ -17085,6 +18765,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dem Absender antworten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre à l’expéditeur"
           }
         }
       }
@@ -17102,6 +18788,12 @@
             "state": "translated",
             "value": "Antwort gespeichert."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réponse enregistrée."
+          }
         }
       }
     },
@@ -17117,6 +18809,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Antwort zurückgenommen. Die Anfrage wartet wieder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réponse annulée. La demande est de nouveau en attente."
           }
         }
       }
@@ -17134,6 +18832,12 @@
             "state": "translated",
             "value": "Prüfe und bearbeite die Anfrage vor dem Senden."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relisez et modifiez la demande avant de l’envoyer."
+          }
         }
       }
     },
@@ -17149,6 +18853,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Manuell prüfen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier manuellement"
           }
         }
       }
@@ -17166,6 +18876,12 @@
             "state": "translated",
             "value": "Beispielentwurf. Nichts verlässt diesen Browser."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillon d’exemple. Rien n’est envoyé hors de ce navigateur."
+          }
         }
       }
     },
@@ -17181,6 +18897,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispielempfehlung:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommandation d’exemple :"
           }
         }
       }
@@ -17198,6 +18920,12 @@
             "state": "translated",
             "value": "Beispielerinnerung lokal gespeichert. Es wurde keine Benachrichtigung gesendet."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relance d’exemple enregistrée localement. Aucune notification n’a été envoyée."
+          }
         }
       }
     },
@@ -17213,6 +18941,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispielanfrage lokal erstellt. Du findest sie in „Klassisch“ unter „Von dir gesendet“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande d’exemple créée localement. Retrouvez-la dans « Liste », sous « Envoyé par vous »."
           }
         }
       }
@@ -17230,6 +18964,12 @@
             "state": "translated",
             "value": "Beispielantwort lokal gespeichert."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réponse d’exemple enregistrée localement."
+          }
         }
       }
     },
@@ -17245,6 +18985,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispielantwort lokal zurückgenommen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réponse d’exemple annulée localement."
           }
         }
       }
@@ -17262,6 +19008,12 @@
             "state": "translated",
             "value": "Beispiel-Workspace · nur lokal"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace d’exemple · local uniquement"
+          }
         }
       }
     },
@@ -17277,6 +19029,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Antwort wird gespeichert…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrement de la réponse…"
           }
         }
       }
@@ -17294,6 +19052,12 @@
             "state": "translated",
             "value": "Weniger anzeigen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher moins"
+          }
         }
       }
     },
@@ -17309,6 +19073,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spracheingabe beenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter la saisie vocale"
           }
         }
       }
@@ -17326,6 +19096,12 @@
             "state": "translated",
             "value": "Sag es deiner KI – z. B. bitte Yuki, das Frühlingsmenü bis Freitag freizugeben"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dites à votre IA — p. ex. demandez à Yuki d’approuver le menu de printemps d’ici vendredi"
+          }
         }
       }
     },
@@ -17341,6 +19117,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die vollständige ursprüngliche Anfrage bleibt mit dieser Zusammenfassung erhalten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La demande d’origine complète est conservée avec ce résumé."
           }
         }
       }
@@ -17358,6 +19140,12 @@
             "state": "translated",
             "value": "Die Anfrage wartet dann wieder. Bereits in verbundenen Tools vorgenommene Änderungen werden nicht rückgängig gemacht."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La demande repassera en attente. Les modifications déjà faites dans les outils connectés ne sont pas annulées."
+          }
         }
       }
     },
@@ -17373,6 +19161,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die Antwort ist noch nicht bestätigt. Prüfe die Anfrage, bevor du es erneut versuchst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La réponse n’est pas encore confirmée. Vérifiez la demande avant de réessayer."
           }
         }
       }
@@ -17390,6 +19184,12 @@
             "state": "translated",
             "value": "Die Beispielanfrage wartet dann wieder. Es werden keine Benachrichtigungen gesendet."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La demande d’exemple repassera en attente. Aucune notification n’est envoyée."
+          }
         }
       }
     },
@@ -17405,6 +19205,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Das Video konnte nicht angehängt werden. Versuch es noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La vidéo n’a pas pu être jointe. Réessayez."
           }
         }
       }
@@ -17422,6 +19228,12 @@
             "state": "translated",
             "value": "Dieser Workspace kann noch keine E-Mails senden – nutze vorerst ein Passwort."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet espace de travail ne peut pas encore envoyer d’e-mails — utilisez un mot de passe pour l’instant."
+          }
         }
       }
     },
@@ -17437,6 +19249,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Lokalen Beispiel-Workspace ausprobieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essayer un espace d’exemple local"
           }
         }
       }
@@ -17454,6 +19272,12 @@
             "state": "translated",
             "value": "Antwort zurücknehmen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler la réponse"
+          }
         }
       }
     },
@@ -17469,6 +19293,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Antwort zurücknehmen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler la réponse ?"
           }
         }
       }
@@ -17486,6 +19316,12 @@
             "state": "translated",
             "value": "Spracheingabe"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie vocale"
+          }
         }
       }
     },
@@ -17501,6 +19337,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spracheingabe konnte nicht starten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La saisie vocale n’a pas pu démarrer."
           }
         }
       }
@@ -17518,6 +19360,12 @@
             "state": "translated",
             "value": "Spracheingabe ist in diesem Browser nicht verfügbar. Du kannst die Diktierfunktion deiner Tastatur nutzen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La saisie vocale n’est pas disponible dans ce navigateur. Vous pouvez utiliser la dictée de votre clavier."
+          }
         }
       }
     },
@@ -17533,6 +19381,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spracheingabe beendet. Du kannst weitertippen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie vocale arrêtée. Vous pouvez continuer à écrire."
           }
         }
       }
@@ -17550,6 +19404,12 @@
             "state": "translated",
             "value": "Wir konnten keinen Code senden."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’envoyer un code."
+          }
         }
       }
     },
@@ -17565,6 +19425,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Willkommen zurück."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Content de vous revoir."
           }
         }
       }
@@ -17582,6 +19448,12 @@
             "state": "translated",
             "value": "Was braucht deine Aufmerksamkeit?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qu’est-ce qui demande votre attention ?"
+          }
         }
       }
     },
@@ -17597,6 +19469,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Schreib deine Antwort…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrivez votre réponse…"
           }
         }
       }
@@ -17614,6 +19492,12 @@
             "state": "translated",
             "value": "Du bist angemeldet. Gib den Einladungscode eines Teammitglieds ein, um wieder Zugriff auf den Workspace zu bekommen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes connecté. Saisissez le code d’invitation d’un coéquipier pour retrouver l’accès à l’espace de travail."
+          }
         }
       }
     },
@@ -17629,6 +19513,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Du kannst mit einer manuellen Prüfung fortfahren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous pouvez continuer en vérifiant manuellement."
           }
         }
       }
@@ -17646,6 +19536,12 @@
             "state": "translated",
             "value": "Deine KI braucht eine Adresse."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre IA a besoin d’une adresse."
+          }
         }
       }
     },
@@ -17661,6 +19557,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deine Anfragen erscheinen, sobald die Verbindung steht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos demandes apparaîtront une fois la connexion établie."
           }
         }
       }
@@ -17678,6 +19580,12 @@
             "state": "translated",
             "value": "Deine Antwort schließt diese Anfrage ab."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre réponse termine cette demande."
+          }
         }
       }
     },
@@ -17693,6 +19601,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dein Team wird geladen. Versuch es gleich noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe est en cours de chargement. Réessayez dans un instant."
           }
         }
       }
@@ -17710,6 +19624,12 @@
             "state": "translated",
             "value": "Manuell"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "création manuelle"
+          }
         }
       }
     },
@@ -17725,6 +19645,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hoch"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "haute"
           }
         }
       }
@@ -17742,6 +19668,12 @@
             "state": "translated",
             "value": "Eingang"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reçue"
+          }
         }
       }
     },
@@ -17757,6 +19689,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Überarbeitung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "révision"
           }
         }
       }
@@ -17774,6 +19712,12 @@
             "state": "translated",
             "value": "Registrierung"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inscription"
+          }
         }
       }
     },
@@ -17789,6 +19733,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aufgabe"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tâche"
           }
         }
       }
@@ -17806,6 +19756,12 @@
             "state": "translated",
             "value": "Dringend"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "urgente"
+          }
         }
       }
     },
@@ -17821,6 +19777,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Karten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartes"
           }
         }
       }
@@ -17838,6 +19800,12 @@
             "state": "translated",
             "value": "Klassisch"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste"
+          }
         }
       }
     },
@@ -17853,6 +19821,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Frag irgendwas…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandez ce que vous voulez…"
           }
         }
       }
@@ -17870,6 +19844,12 @@
             "state": "translated",
             "value": "Verlauf ansehen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voir l’historique"
+          }
         }
       }
     },
@@ -17885,6 +19865,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "In der Demo erstellt. Du kannst die Anfrage im Verlauf verfolgen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créée dans la démo. Vous pouvez suivre la demande dans l’historique."
           }
         }
       }
@@ -17902,6 +19888,12 @@
             "state": "translated",
             "value": "Anfrage in der Warteschlange. Zustellung und Ergebnis kannst du im Verlauf verfolgen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande en file d’attente. Suivez l’envoi et l’issue dans l’historique."
+          }
         }
       }
     },
@@ -17917,6 +19909,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Marketingleitung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responsable marketing"
           }
         }
       }
@@ -17934,6 +19932,12 @@
             "state": "translated",
             "value": "1.840 $ für den Neudreh des Onboarding-Videos freigeben"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approuver 1 840 $ pour refaire la vidéo d’onboarding"
+          }
         }
       }
     },
@@ -17949,6 +19953,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Der Neudreh deckt den neuen Registrierungsablauf ab. Dieselbe Crew wie im Juni, und er liegt 15 % unter dem Videobudget dieses Quartals."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nouveau tournage couvre le nouveau parcours d’inscription. Même équipe qu’en juin, et 15 % sous le budget vidéo du trimestre."
           }
         }
       }
@@ -17966,6 +19976,12 @@
             "state": "translated",
             "value": "Das sind Beispieldaten aus dem Produktdesign. In der Demo werden keine Budgets freigegeben und keine externen Arbeiten ausgeführt."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce sont des données d’exemple issues de la conception du produit. Aucune approbation budgétaire ni action externe n’est effectuée dans la démo."
+          }
         }
       }
     },
@@ -17981,6 +19997,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Diese Anfrage liegt 15 % unter dem Videobudget dieses Quartals und passt zu ähnlichen Anfragen, denen du früher zugestimmt hast."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette demande est 15 % sous le budget vidéo du trimestre et cohérente avec des demandes similaires que vous avez déjà approuvées."
           }
         }
       }
@@ -17998,6 +20020,12 @@
             "state": "translated",
             "value": "Wir müssen das Onboarding-Video neu drehen, damit es den neuen Registrierungsablauf zeigt. Das aktuelle Video sorgt für Verwirrung und Abbrüche."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nous devons refaire la vidéo d’onboarding pour refléter le nouveau parcours d’inscription. La vidéo actuelle crée de la confusion et des abandons."
+          }
         }
       }
     },
@@ -18013,6 +20041,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die ursprüngliche Nachricht ist in dieser Anfrage nicht enthalten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le message d’origine n’a pas été inclus avec cette demande."
           }
         }
       }
@@ -18030,6 +20064,12 @@
             "state": "translated",
             "value": "Ursprüngliche Quelle öffnen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir la source d’origine"
+          }
         }
       }
     },
@@ -18045,6 +20085,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dieses Konto hat keinen Workspace. Tritt einem Team bei, um Anfragen zu senden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce compte n’a pas d’espace de travail. Rejoignez une équipe pour envoyer des demandes."
           }
         }
       }
@@ -18062,6 +20108,12 @@
             "state": "translated",
             "value": "Antworten"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre"
+          }
         }
       }
     },
@@ -18077,6 +20129,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zustimmen und ein GitHub-Issue erstellen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approuver et créer une issue GitHub ?"
           }
         }
       }
@@ -18094,6 +20152,12 @@
             "state": "translated",
             "value": "Teammitglieder konnten nicht geladen werden. Versuch es noch einmal."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger les coéquipiers. Réessayez."
+          }
         }
       }
     },
@@ -18109,6 +20173,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Demo-Mitglied"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Membre de démo"
           }
         }
       }
@@ -18126,6 +20196,12 @@
             "state": "translated",
             "value": "Anfragen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandes"
+          }
         }
       }
     },
@@ -18141,6 +20217,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Beispielanfragen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandes d’exemple"
           }
         }
       }
@@ -18158,6 +20240,12 @@
             "state": "translated",
             "value": "Teammitglieder"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coéquipiers"
+          }
         }
       }
     },
@@ -18173,6 +20261,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Schreib vor dem Senden eine Antwort."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrivez une réponse avant d’envoyer."
           }
         }
       }
@@ -18196,6 +20290,12 @@
             "state": "translated",
             "value": "Worum geht’s?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À quoi pensez-vous ?"
+          }
         }
       }
     },
@@ -18217,6 +20317,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sprechen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parler"
           }
         }
       }
@@ -18240,6 +20346,12 @@
             "state": "translated",
             "value": "Schreiben"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrire"
+          }
         }
       }
     },
@@ -18261,6 +20373,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die KI macht aus deinen Worten eine Karte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’IA transformera vos mots en carte."
           }
         }
       }
@@ -18284,6 +20402,12 @@
             "state": "translated",
             "value": "Details bearbeiten"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier les détails"
+          }
         }
       }
     },
@@ -18305,6 +20429,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Team einrichten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurer l’équipe"
           }
         }
       }
@@ -18328,6 +20458,12 @@
             "state": "translated",
             "value": "Lade ein Teammitglied ein oder tritt einem Team bei. Dein Entwurf bleibt hier."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitez un coéquipier ou rejoignez une équipe. Votre brouillon reste ici."
+          }
         }
       }
     },
@@ -18349,6 +20485,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Team"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Équipe"
           }
         }
       }
@@ -18372,6 +20514,12 @@
             "state": "translated",
             "value": "Einladungscode erstellen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer un code d’invitation"
+          }
         }
       }
     },
@@ -18393,6 +20541,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Einladungscode teilen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager le code d’invitation"
           }
         }
       }
@@ -18416,6 +20570,12 @@
             "state": "translated",
             "value": "Wer diesen Code hat, kann deinem Team beitreten und auf die geteilte Arbeit zugreifen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les personnes disposant de ce code peuvent rejoindre votre équipe et accéder à son travail partagé."
+          }
         }
       }
     },
@@ -18437,6 +20597,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Teammitglied einladen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviter un coéquipier"
           }
         }
       }
@@ -18460,6 +20626,12 @@
             "state": "translated",
             "value": "Einladungscode"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code d’invitation"
+          }
         }
       }
     },
@@ -18481,6 +20653,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Team beitreten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejoindre"
           }
         }
       }
@@ -18504,6 +20682,12 @@
             "state": "translated",
             "value": "Einem Team beitreten"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejoindre une équipe"
+          }
         }
       }
     },
@@ -18525,6 +20709,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Team beigetreten. Dein Entwurf ist noch da."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Équipe rejointe. Votre brouillon est toujours disponible."
           }
         }
       }
@@ -18548,6 +20738,12 @@
             "state": "translated",
             "value": "Gib den Code deines Teammitglieds ein, um zu dessen Team zu wechseln."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez le code d’un coéquipier pour passer à son équipe."
+          }
         }
       }
     },
@@ -18570,6 +20766,12 @@
             "state": "translated",
             "value": "Zurück zum Entwurf"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retour au brouillon"
+          }
         }
       }
     },
@@ -18585,6 +20787,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Support"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistance"
           }
         }
       }
@@ -18603,6 +20811,12 @@
             "state": "translated",
             "value": "Rolle der Person"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son rôle"
+          }
         }
       }
     },
@@ -18619,6 +20833,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Von dir gesendet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé par vous"
           }
         }
       }
@@ -18637,6 +20857,12 @@
             "state": "translated",
             "value": "Erinnern"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relancer"
+          }
         }
       }
     },
@@ -18653,6 +20879,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mehr"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus"
           }
         }
       }
@@ -18671,6 +20903,12 @@
             "state": "translated",
             "value": "In dieser Version gibt es noch keine Pläne zu kaufen. Vorerst ist hier alles kostenlos."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les offres ne sont pas encore en vente dans cette version. Tout est gratuit pour l’instant."
+          }
         }
       }
     },
@@ -18687,6 +20925,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Einblicke"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyses"
           }
         }
       }
@@ -18705,6 +20949,12 @@
             "state": "translated",
             "value": "Stimmt diese Karte nicht?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un problème avec cette carte ?"
+          }
         }
       }
     },
@@ -18721,6 +20971,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Falsche Person"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mauvaise personne"
           }
         }
       }
@@ -18739,6 +20995,12 @@
             "state": "translated",
             "value": "Keine Entscheidung"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas une décision"
+          }
         }
       }
     },
@@ -18755,6 +21017,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Falsche Priorität"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mauvaise priorité"
           }
         }
       }
@@ -18773,6 +21041,12 @@
             "state": "translated",
             "value": "Schlecht formuliert"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mal rédigée"
+          }
         }
       }
     },
@@ -18789,6 +21063,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Doch nicht"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laisser tomber"
           }
         }
       }
@@ -18807,6 +21087,12 @@
             "state": "translated",
             "value": "Notiert. Deine KI macht es künftig besser."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C’est noté. Votre IA fera mieux."
+          }
         }
       }
     },
@@ -18823,6 +21109,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Melde dich an, um zu sehen, wie es um deinen Feed steht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour voir l’état de votre fil."
           }
         }
       }
@@ -18841,6 +21133,12 @@
             "state": "translated",
             "value": "Du bist kein Mitglied dieses Workspace."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous n’êtes pas membre de cet espace de travail."
+          }
         }
       }
     },
@@ -18857,6 +21155,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Abruf der Einblicke fehlgeschlagen (%lld)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La requête d’analyses a échoué (%lld)."
           }
         }
       }
@@ -18875,6 +21179,12 @@
             "state": "translated",
             "value": "Zeitraum"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Période"
+          }
         }
       }
     },
@@ -18891,6 +21201,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Karten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cartes"
           }
         }
       }
@@ -18909,6 +21225,12 @@
             "state": "translated",
             "value": "Wartezeit (Median)"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "attente médiane"
+          }
         }
       }
     },
@@ -18925,6 +21247,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "abgelehnt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refusées"
           }
         }
       }
@@ -18943,6 +21271,12 @@
             "state": "translated",
             "value": "%lld Min."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min"
+          }
         }
       }
     },
@@ -18959,6 +21293,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld Std."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h"
           }
         }
       }
@@ -18977,6 +21317,12 @@
             "state": "translated",
             "value": "%lld T."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld j"
+          }
         }
       }
     },
@@ -18993,6 +21339,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Karten pro Tag"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartes par jour"
           }
         }
       }
@@ -19011,6 +21363,12 @@
             "state": "translated",
             "value": "Gerade jetzt"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ce moment"
+          }
         }
       }
     },
@@ -19027,6 +21385,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Wartet auf jemanden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de quelqu’un"
           }
         }
       }
@@ -19045,6 +21409,12 @@
             "state": "translated",
             "value": "In diesem Zeitraum entschieden"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décidées sur la période"
+          }
         }
       }
     },
@@ -19061,6 +21431,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Erinnert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relancées"
           }
         }
       }
@@ -19079,6 +21455,12 @@
             "state": "translated",
             "value": "Notizen an dich selbst"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes pour vous-même"
+          }
         }
       }
     },
@@ -19095,6 +21477,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Woher Karten kommen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "D’où viennent les cartes"
           }
         }
       }
@@ -19113,6 +21501,12 @@
             "state": "translated",
             "value": "Was entschieden wurde"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce qui a été décidé"
+          }
         }
       }
     },
@@ -19129,6 +21523,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Was deine KI falsch gemacht hat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les erreurs de votre IA"
           }
         }
       }
@@ -19147,6 +21547,12 @@
             "state": "translated",
             "value": "In diesem Zeitraum hat niemand eine Karte gemeldet. „Stimmt diese Karte nicht?“ steht unter jeder Karte."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personne n’a signalé de carte sur cette période. « Un problème avec cette carte ? » figure sous chaque carte."
+          }
         }
       }
     },
@@ -19163,6 +21569,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Überarbeitung angefragt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Révision demandée"
           }
         }
       }
@@ -19181,6 +21593,12 @@
             "state": "translated",
             "value": "Anderes"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autre"
+          }
         }
       }
     },
@@ -19197,6 +21615,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Frag deine KI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander à votre IA"
           }
         }
       }
@@ -19215,6 +21639,12 @@
             "state": "translated",
             "value": "Frag deine KI zu dieser Entscheidung"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrogez votre IA sur cette décision"
+          }
         }
       }
     },
@@ -19231,6 +21661,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deine KI sieht nach…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre IA cherche…"
           }
         }
       }
@@ -19249,6 +21685,12 @@
             "state": "translated",
             "value": "Offen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente"
+          }
         }
       }
     },
@@ -19265,6 +21707,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Früher entschieden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déjà décidé"
           }
         }
       }
@@ -19283,6 +21731,12 @@
             "state": "translated",
             "value": "Melde dich an, um deine KI zu fragen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour interroger votre IA."
+          }
         }
       }
     },
@@ -19299,6 +21753,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deine KI konnte das gerade nicht beantworten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre IA n’a pas pu répondre pour l’instant."
           }
         }
       }
@@ -19317,6 +21777,12 @@
             "state": "translated",
             "value": "Der fragenden Person antworten"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre à qui a demandé"
+          }
         }
       }
     },
@@ -19333,6 +21799,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Antwort entwerfen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rédiger la réponse"
           }
         }
       }
@@ -19351,6 +21823,12 @@
             "state": "translated",
             "value": "Deine KI schreibt…"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre IA rédige…"
+          }
         }
       }
     },
@@ -19367,6 +21845,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ein Entwurf in der Sprache der Anfrage. Lies ihn, ändere ihn und sende ihn selbst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un brouillon, dans la langue de la demande. Relisez-le, modifiez-le, envoyez-le vous-même."
           }
         }
       }
@@ -19385,6 +21869,12 @@
             "state": "translated",
             "value": "Kopiert"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié"
+          }
         }
       }
     },
@@ -19401,6 +21891,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Melde dich an, um die Antwort zu entwerfen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour rédiger la réponse."
           }
         }
       }
@@ -19419,6 +21915,12 @@
             "state": "translated",
             "value": "Deine KI konnte das gerade nicht entwerfen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre IA n’a pas pu rédiger ce brouillon pour l’instant."
+          }
         }
       }
     },
@@ -19435,6 +21937,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Öffnet die Karte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvre la carte"
           }
         }
       }
@@ -19453,6 +21961,12 @@
             "state": "translated",
             "value": "Der Entwurf"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le brouillon"
+          }
         }
       }
     },
@@ -19469,6 +21983,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Über %@ gesendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé via %@."
           }
         }
       }
@@ -19487,6 +22007,12 @@
             "state": "translated",
             "value": "Über %@ senden"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer via %@"
+          }
         }
       }
     },
@@ -19503,6 +22029,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Wird gesendet…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoi…"
           }
         }
       }
@@ -19521,6 +22053,12 @@
             "state": "translated",
             "value": "Senden fehlgeschlagen."
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de l’envoi."
+          }
         }
       }
     },
@@ -19537,6 +22075,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deine KI gefragt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question à votre IA"
           }
         }
       }
@@ -19555,6 +22099,12 @@
             "state": "translated",
             "value": "Antwort entworfen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réponse rédigée"
+          }
         }
       }
     },
@@ -19571,6 +22121,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Antwort gesendet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réponse envoyée"
           }
         }
       }
@@ -19589,6 +22145,12 @@
             "state": "translated",
             "value": "Zugeordnet"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classée"
+          }
         }
       }
     },
@@ -19605,6 +22167,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld Ereignisse"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld événements"
           }
         }
       }
@@ -19623,6 +22191,12 @@
             "state": "translated",
             "value": "Einladungslink teilen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager le lien d’invitation"
+          }
         }
       }
     },
@@ -19639,6 +22213,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tritt meinem Team bei Honmaru AI bei"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejoignez mon équipe sur Honmaru AI"
           }
         }
       }
@@ -19657,6 +22237,12 @@
             "state": "translated",
             "value": "Team erstellen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer une équipe"
+          }
         }
       }
     },
@@ -19673,6 +22259,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Team erstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer l’équipe"
           }
         }
       }
@@ -19691,6 +22283,12 @@
             "state": "translated",
             "value": "Teamname"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom de l’équipe"
+          }
         }
       }
     },
@@ -19707,6 +22305,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ein eigener Workspace mit Namen, in den du Leute einlädst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un espace de travail à part, avec un nom, où vous invitez des personnes."
           }
         }
       }
@@ -19725,6 +22329,12 @@
             "state": "translated",
             "value": "Benennen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Donner un nom"
+          }
         }
       }
     },
@@ -19741,6 +22351,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Umbenennen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer"
           }
         }
       }
@@ -19759,6 +22375,12 @@
             "state": "translated",
             "value": "Was stimmt nicht?"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qu’est-ce qui ne va pas ?"
+          }
         }
       }
     },
@@ -19775,6 +22397,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Was deine KI gekostet hat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce que votre IA a coûté"
           }
         }
       }
@@ -19793,6 +22421,12 @@
             "state": "translated",
             "value": "Dieser Zeitraum, zum Listenpreis"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur la période, au prix catalogue"
+          }
         }
       }
     },
@@ -19810,6 +22444,12 @@
             "state": "translated",
             "value": "Mit deinen eigenen Schlüsseln"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur vos propres clés"
+          }
         }
       }
     },
@@ -19826,6 +22466,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Von Jev ohne Sprachmodell entschieden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décidé par Jev sans modèle de langage"
           }
         }
       }
@@ -19873,6 +22519,12 @@
             "state": "translated",
             "value": "Antwortentwürfe"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillons de réponse"
+          }
         }
       }
     },
@@ -19889,6 +22541,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Übersetzung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduction"
           }
         }
       }
@@ -19907,6 +22565,12 @@
             "state": "translated",
             "value": "Posteingangs-Triage"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tri de la boîte de réception"
+          }
         }
       }
     },
@@ -19923,6 +22587,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zuordnung nach Geschäft"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classement par activité"
           }
         }
       }
@@ -27374,6 +30044,12 @@
             "state": "translated",
             "value": "Karte löschen"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer la carte"
+          }
         }
       }
     },
@@ -27389,6 +30065,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Diese Karte löschen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer cette carte ?"
           }
         }
       }
@@ -27407,6 +30089,12 @@
             "state": "translated",
             "value": "Priorität: %@"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorité : %@"
+          }
         }
       }
     },
@@ -27422,6 +30110,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nur die Person, für die sie bestimmt ist, kann diese Karte löschen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seul son destinataire peut supprimer cette carte."
           }
         }
       }
@@ -27440,6 +30134,12 @@
             "state": "translated",
             "value": "Weitergeleitet an: %@"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acheminé vers le rôle %@"
+          }
         }
       }
     },
@@ -27455,6 +30155,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mitglieder und Einladungen verwalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gérer les membres et les invitations"
           }
         }
       }
