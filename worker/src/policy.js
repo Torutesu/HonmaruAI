@@ -97,6 +97,11 @@ export async function policyDenial(env, session, orgId) {
   const { ssoDenial } = await import("./sso.js");
   const sso = await ssoDenial(env, session, orgId);
   if (sso) return sso;
+  // The networks the workspace may be used from.
+  const { currentIp } = await import("./requestContext.js");
+  const { ipDenial } = await import("./governance.js");
+  const offNetwork = await ipDenial(env, orgId, currentIp());
+  if (offNetwork) return offNetwork;
   const policy = await sessionPolicy(env.DB, orgId);
   const rule = brokenRule(policy, session);
   if (!rule) return null;

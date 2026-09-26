@@ -124,7 +124,8 @@ export class OrgRelay {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server); // hibernation API
-    server.serializeAttachment({ orgId, userId: null, agui: false });
+    // Where the socket came from, for the workspace's allowed networks.
+    server.serializeAttachment({ orgId, userId: null, agui: false, ip: request.headers.get("cf-connecting-ip") || null });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -303,6 +304,9 @@ export class OrgRelay {
       const { ssoDenial } = await import("./sso.js");
       const sso = await ssoDenial(this.env, session, orgId);
       if (sso) return this.refuse(ws, agui, sso.body.message, sso.body.code);
+      const { ipDenial } = await import("./governance.js");
+      const offNetwork = await ipDenial(this.env, orgId, att.ip);
+      if (offNetwork) return this.refuse(ws, agui, offNetwork.body.message, offNetwork.body.code);
       const deadline = sessionDeadline(policy, session);
       if (deadline) {
         const current = await this.state.storage.getAlarm().catch(() => null);

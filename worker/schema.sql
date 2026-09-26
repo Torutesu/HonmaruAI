@@ -1035,6 +1035,8 @@ CREATE TABLE IF NOT EXISTS join_requests (
   decided_by      TEXT,
   decided_at      TEXT,
   outcome         TEXT,
+  role            TEXT,
+  via             TEXT,
   PRIMARY KEY (org_id, user_github_id)
 );
 
@@ -1230,3 +1232,63 @@ CREATE TABLE IF NOT EXISTS org_sso_policy (
   enforce_since   TEXT,
   updated_at      TEXT NOT NULL
 );
+
+/* What a company decides about its workspace (docs/enterprise-audit-log.md
+   §10): how long messages and files are kept (days; NULL is for ever), the
+   networks it may be used from, and who may be invited. */
+CREATE TABLE IF NOT EXISTS org_governance (
+  org_id                  TEXT PRIMARY KEY,
+  retention_public_days   INTEGER,
+  retention_private_days  INTEGER,
+  retention_dm_days       INTEGER,
+  retention_files_days    INTEGER,
+  ip_enforce              INTEGER NOT NULL DEFAULT 0,
+  ip_allowlist            TEXT,
+  invite_policy           TEXT NOT NULL DEFAULT 'open',
+  invite_guests_exempt    INTEGER,
+  updated_by              TEXT NOT NULL,
+  updated_at              TEXT NOT NULL
+);
+
+/* Legal holds on messages: a person (by login) or a channel (by key). What
+   they cover is never deleted by retention, and an edit or an unsend keeps
+   the earlier words in message_history, for exports only. */
+CREATE TABLE IF NOT EXISTS message_holds (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  target      TEXT NOT NULL,
+  reason      TEXT NOT NULL,
+  created_by  TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  released_at TEXT,
+  released_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_message_holds_org ON message_holds(org_id, released_at);
+CREATE TABLE IF NOT EXISTS message_history (
+  org_id              TEXT NOT NULL,
+  message_id          TEXT NOT NULL,
+  channel             TEXT NOT NULL,
+  author_login        TEXT,
+  body                TEXT NOT NULL,
+  message_created_at  TEXT NOT NULL,
+  reason              TEXT NOT NULL,
+  recorded_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_message_history ON message_history(org_id, message_created_at);
+
+/* Compliance exports: JSON Lines in storage for a week, owners only. */
+CREATE TABLE IF NOT EXISTS compliance_exports (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  requested_by  TEXT NOT NULL,
+  range_from    TEXT NOT NULL,
+  range_to      TEXT NOT NULL,
+  filters       TEXT,
+  status        TEXT NOT NULL,
+  object_key    TEXT,
+  counts        TEXT,
+  created_at    TEXT NOT NULL,
+  expires_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_compliance_exports_org ON compliance_exports(org_id, created_at);
