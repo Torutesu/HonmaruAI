@@ -20,7 +20,7 @@ import { safe } from "./log.js";
 // the end: the server transcribes it, writes notes, posts them in the
 // channel, and — for a full recording — keeps the audio for the channel.
 
-export const JAM_TYPES = new Set(["jam_join", "jam_leave", "jam_signal", "jam_mute", "jam_media", "jam_react", "jam_transcript", "jam_sfu"]);
+export const JAM_TYPES = new Set(["jam_join", "jam_leave", "jam_signal", "jam_mute", "jam_media", "jam_react", "jam_transcript"]);
 /// The live transcript a Jam keeps for whoever joins late, in lines.
 export const MAX_TRANSCRIPT_LINES = 400;
 /// The reactions a Jam passes around: one emoji, short.
@@ -29,11 +29,6 @@ const REACTION = /^[\p{Extended_Pictographic}\u200d\ufe0f\u{1F3FB}-\u{1F3FF}]{1,
 export const JAM_MODES = ["full", "notes", "off"];
 /// A mesh sends every voice to every other browser: past this it breaks up.
 export const MAX_JAM_PEERS = 8;
-/// Through the SFU each browser sends once and receives what it pulls, so a
-/// Jam can hold far more — this many, for now.
-export const MAX_SFU_PEERS = 50;
-/// What a browser may publish to the SFU, by track name.
-const SFU_TRACKS = ["audio", "camera", "screen"];
 /// A recording's upload, at the 24 kbps the browser records at, is about an
 /// hour and a half — and the most the transcription takes in one piece.
 export const MAX_RECORDING_BYTES = 24 * 1024 * 1024;
@@ -75,77 +70,6 @@ export async function iceServers(env) {
   return servers;
 }
 
-// ---- The SFU (Cloudflare Realtime) ----
-//
-// With an app configured (CF_CALLS_APP_ID, CF_CALLS_APP_SECRET), a Jam goes
-// through Cloudflare's SFU instead of a mesh: each browser keeps one
-// connection, pushes its own tracks once, and pulls the others'. The secret
-// stays here; a browser asks through its socket, and only for the Jam it is
-// in. Without an app, Jams stay a mesh of at most MAX_JAM_PEERS.
-
-export const sfuReady = (env) => Boolean(env?.CF_CALLS_APP_ID && env?.CF_CALLS_APP_SECRET);
-
-async function callsApi(env, method, path, body) {
-  const res = await fetch(`https://rtc.live.cloudflare.com/v1/apps/${env.CF_CALLS_APP_ID}${path}`, {
-    method,
-    signal: AbortSignal.timeout(10_000),
-    headers: { Authorization: `Bearer ${env.CF_CALLS_APP_SECRET}`, "content-type": "application/json" },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.errorCode) throw new Error(data.errorDescription || data.errorCode || `SFU ${res.status}`);
-  return data;
-}
-
-/// One SFU request from a browser in a Jam: push its own tracks, pull
-/// others', or answer a renegotiation. `jam` is its socket's Jam; `peers`
-/// the others in it. Returns what to reply and what the socket's Jam now is.
-export async function sfuRequest(env, jam, peers, payload) {
-  let session = jam.sfuSession || null;
-  if (!session) session = (await callsApi(env, "POST", "/sessions/new")).sessionId;
-  if (!session) throw new Error("The SFU gave no session.");
-  const next = { ...jam, sfuSession: session };
-  const sdp = typeof payload.sdp === "string" ? payload.sdp.slice(0, 200_000) : "";
-
-  if (payload.op === "push") {
-    const tracks = (Array.isArray(payload.tracks) ? payload.tracks : [])
-      .filter((t) => t && typeof t.mid === "string" && SFU_TRACKS.includes(t.trackName)).slice(0, SFU_TRACKS.length);
-    if (!sdp || !tracks.length) throw new Error("Nothing to send.");
-    const out = await callsApi(env, "POST", `/sessions/${session}/tracks/new`, {
-      sessionDescription: { type: "offer", sdp },
-      tracks: tracks.map((t) => ({ location: "local", mid: t.mid, trackName: t.trackName })),
-    });
-    next.tracks = [...new Set([...(jam.tracks || []), ...tracks.map((t) => t.trackName)])];
-    return { reply: { sdp: out.sessionDescription?.sdp || null, type: out.sessionDescription?.type || "answer" }, jam: next, announce: true };
-  }
-  if (payload.op === "pull") {
-    // Only what someone in this Jam has published.
-    const wanted = [];
-    for (const t of Array.isArray(payload.tracks) ? payload.tracks.slice(0, 60) : []) {
-      const peer = peers.find((p) => p.peerId === t?.peerId);
-      if (peer?.sfuSession && (peer.tracks || []).includes(t.trackName)) wanted.push({ peerId: peer.peerId, sessionId: peer.sfuSession, trackName: t.trackName });
-    }
-    if (!wanted.length) return { reply: { tracks: [], renegotiate: false }, jam: next };
-    const out = await callsApi(env, "POST", `/sessions/${session}/tracks/new`, {
-      tracks: wanted.map((w) => ({ location: "remote", sessionId: w.sessionId, trackName: w.trackName })),
-    });
-    const tracks = (out.tracks || []).map((t) => {
-      const w = wanted.find((x) => x.sessionId === t.sessionId && x.trackName === t.trackName);
-      return { mid: t.mid || null, peerId: w?.peerId || null, trackName: t.trackName, error: t.errorCode || null };
-    });
-    return {
-      reply: { tracks, renegotiate: Boolean(out.requiresImmediateRenegotiation), sdp: out.sessionDescription?.sdp || null, type: out.sessionDescription?.type || "offer" },
-      jam: next,
-    };
-  }
-  if (payload.op === "renegotiate") {
-    if (!sdp) throw new Error("No answer to give.");
-    await callsApi(env, "PUT", `/sessions/${session}/renegotiate`, { sessionDescription: { type: "answer", sdp } });
-    return { reply: { ok: true }, jam: next };
-  }
-  throw new Error("No such request.");
-}
-
 /// The sockets in one Jam, earliest first.
 export function jamPeers(sockets, orgId, key, exclude) {
   const out = [];
@@ -168,14 +92,11 @@ export function jamState(peers, members, meta) {
       // lay out a camera or a shared screen before the picture arrives.
       video: Boolean(att.jam.video), screen: Boolean(att.jam.screen),
       avatarUrl: m?.avatarUrl || null,
-      // Through the SFU: the tracks they have published, for the others to pull.
-      ...(att.jam.transport === "sfu" ? { tracks: att.jam.tracks || [] } : {}),
     };
   });
   const mode = meta?.mode || peers[0]?.att.jam.mode || "off";
   return {
     active: participants.length > 0,
-    transport: meta?.transport || peers[0]?.att.jam.transport || "mesh",
     participants,
     startedAt: participants.length ? (meta?.startedAt || participants[0].since) : null,
     mode,
@@ -326,28 +247,6 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     return;
   }
 
-  // Through the SFU: push, pull, renegotiate — the browser never holds the
-  // app's secret, and asks only for its own Jam.
-  if (type === "jam_sfu") {
-    const requestId = typeof payload.requestId === "string" ? payload.requestId.slice(0, 64) : "";
-    if (!att.jam || att.jam.transport !== "sfu" || !requestId) return;
-    const peers = jamPeers(relay.state.getWebSockets(), orgId, att.jam.key, ws).map((p) => p.att.jam);
-    try {
-      const out = await sfuRequest(relay.env, att.jam, peers, payload);
-      const current = ws.deserializeAttachment?.() || att;
-      if (current.jam?.peerId === att.jam.peerId) ws.serializeAttachment({ ...current, jam: { ...current.jam, sfuSession: out.jam.sfuSession, tracks: out.jam.tracks || current.jam.tracks } });
-      reply(ws, customEvent("jam_sfu", { requestId, ...out.reply }));
-      if (out.announce) {
-        const members = await listMembers(relay.db, orgId, att.githubId);
-        await announceState(relay, orgId, att.jam.key, members);
-      }
-    } catch (err) {
-      console.warn("sfu request failed", safe(err?.message));
-      reply(ws, customEvent("jam_sfu", { requestId, error: "The call server did not answer. Try again." }));
-    }
-    return;
-  }
-
   if (type === "jam_mute") {
     if (!att.jam) return;
     ws.serializeAttachment({ ...att, jam: { ...att.jam, muted: Boolean(payload.muted) } });
@@ -415,25 +314,21 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
       att = ws.deserializeAttachment() || att;
     }
     const peers = jamPeers(relay.state.getWebSockets(), orgId, resolved.key, ws);
+    if (peers.length >= MAX_JAM_PEERS) return refuse(`A Jam holds ${MAX_JAM_PEERS} people.`);
     const now = new Date().toISOString();
     const storeKey = STORE(orgId, resolved.key);
     let meta = peers.length ? await relay.state.storage.get(storeKey) : null;
-    // A Jam keeps the way it began: everyone in it talks the same way.
-    const transport = meta?.transport || peers[0]?.att.jam.transport || (sfuReady(relay.env) ? "sfu" : "mesh");
-    const cap = transport === "sfu" ? MAX_SFU_PEERS : MAX_JAM_PEERS;
-    if (peers.length >= cap) return refuse(`A Jam holds ${cap} people.`);
     const starting = !meta;
     if (!meta) {
-      meta = { startedAt: now, startedBy: att.userId, mode: JAM_MODES.includes(payload.mode) ? payload.mode : "notes", people: [], transport };
+      meta = { startedAt: now, startedBy: att.userId, mode: JAM_MODES.includes(payload.mode) ? payload.mode : "notes", people: [] };
     }
     if (!meta.people.includes(att.userId)) meta.people.push(att.userId);
     await relay.state.storage.put(storeKey, meta);
     const peerId = crypto.randomUUID();
-    ws.serializeAttachment({ ...att, jam: { key: resolved.key, peerId, muted: Boolean(payload.muted), since: now, mode: meta.mode, transport } });
+    ws.serializeAttachment({ ...att, jam: { key: resolved.key, peerId, muted: Boolean(payload.muted), since: now, mode: meta.mode } });
     reply(ws, customEvent("jam_joined", {
       channel: payload.channel,
       peerId,
-      transport,
       peers: peers.map((p) => p.att.jam.peerId),
       iceServers: await iceServers(relay.env),
       mode: meta.mode,

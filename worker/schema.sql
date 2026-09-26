@@ -197,7 +197,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   /* The longest it has sat unused, for a workspace that ends idle sessions. */
   longest_idle_ms     INTEGER,
   /* For an SSO sign-in: which workspace's identity provider it came through. */
-  sso_org_id          TEXT
+  sso_org_id          TEXT,
+  sso_connection_id   TEXT
 );
 
 /* One row per authorization attempt, deleted the moment it is redeemed. The
@@ -1067,7 +1068,8 @@ CREATE TABLE IF NOT EXISTS sso_states (
   return_to       TEXT,
   tester_id       TEXT,
   created_at      TEXT NOT NULL,
-  expires_at      TEXT NOT NULL
+  expires_at      TEXT NOT NULL,
+  connection_id   TEXT
 );
 
 /* The one-time code a finished SSO sign-in is handed back with, in place
@@ -1183,3 +1185,36 @@ CREATE TABLE IF NOT EXISTS dlp_rules (
   updated_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_dlp_rules_org ON dlp_rules(org_id);
+
+/* A workspace's identity providers (docs/sso-and-domain-join.md §11): one
+   per company or subsidiary, each for its own domains, OIDC or SAML. The
+   first workspace setup lived in `org_sso`; it moves here the first time it
+   is read. Whether SSO is required is the workspace's (`org_sso_policy`). */
+CREATE TABLE IF NOT EXISTS sso_connections (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL,
+  name            TEXT,
+  provider        TEXT NOT NULL,
+  issuer          TEXT NOT NULL,
+  client_id       TEXT,
+  client_secret   TEXT,
+  sso_url         TEXT,
+  idp_cert        TEXT,
+  allowed_domains TEXT NOT NULL,
+  hosted_domain   TEXT,
+  tenant_id       TEXT,
+  session_hours   INTEGER,
+  status          TEXT NOT NULL DEFAULT 'draft',
+  tested_at       TEXT,
+  test_result     TEXT,
+  created_by      TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sso_connections_org ON sso_connections(org_id);
+CREATE TABLE IF NOT EXISTS org_sso_policy (
+  org_id          TEXT PRIMARY KEY,
+  enforce         INTEGER NOT NULL DEFAULT 0,
+  enforce_since   TEXT,
+  updated_at      TEXT NOT NULL
+);

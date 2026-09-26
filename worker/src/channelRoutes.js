@@ -1,4 +1,5 @@
 import { checkOutgoing } from "./dlp.js";
+import { attachedTexts } from "./dlpFiles.js";
 import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText } from "./dailyReport.js";
 import { providerFor } from "./orgAI.js";
@@ -540,7 +541,10 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
     // The workspace's data rules read it before it is kept, sent now or later.
-    const stopped = await checkOutgoing(env, request, { orgId, login: who.user.login, text: typeof body.body === "string" ? body.body : "", ack: body.dlpAck === true, where: body.sendAt ? "scheduled" : parentId ? "reply" : "message" });
+    const attached = Array.isArray(body.files) && body.files.length
+      ? await attachedTexts(env, { orgId, key: resolved.key, login: who.user.login, ids: body.files }).catch(() => [])
+      : [];
+    const stopped = await checkOutgoing(env, request, { orgId, login: who.user.login, text: typeof body.body === "string" ? body.body : "", files: attached, ack: body.dlpAck === true, where: body.sendAt ? "scheduled" : parentId ? "reply" : "message" });
     if (stopped) return stopped;
     // Written now, sent later.
     if (body.sendAt) {

@@ -112,6 +112,9 @@ final class ChatTests: XCTestCase {
         let offer = SSOService.decodeOffer(Data(#"{"sso":{"orgId":"team:acme","provider":"okta","providerName":"Okta","name":"Acme","enforced":true}}"#.utf8))
         XCTAssertEqual(offer, SSOService.Offer(orgId: "team:acme", providerName: "Okta", workspaceName: "Acme", enforced: true))
         XCTAssertNil(SSOService.decodeOffer(Data("{}".utf8)))
+        // A workspace with several providers says which one covers the address.
+        let many = SSOService.decodeOffer(Data(#"{"sso":{"orgId":"team:acme","connectionId":"c-kobe","provider":"saml","providerName":"Kobe","name":"Acme","enforced":false}}"#.utf8))
+        XCTAssertEqual(many?.connectionId, "c-kobe")
         XCTAssertEqual(try SSOService.handoff(from: URL(string: "tiktokforwork://sso?code=abc123")!), "abc123")
         XCTAssertThrowsError(try SSOService.handoff(from: URL(string: "tiktokforwork://sso?error=Nope")!))
     }

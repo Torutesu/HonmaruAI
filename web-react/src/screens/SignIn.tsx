@@ -34,7 +34,7 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, inv
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   // The company's single sign-on, when this address's domain has one.
-  const [sso, setSso] = useState<{ orgId: string; providerName: string; name: string; enforced: boolean } | null>(null)
+  const [sso, setSso] = useState<{ orgId: string; connectionId?: string; providerName: string; name: string; enforced: boolean } | null>(null)
 
   const post = async (path: string, body: unknown) => {
     const res = await fetch(`${httpBase}${path}`, {
@@ -102,7 +102,7 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, inv
   }, [email, emailLooksReal])
   const continueWithSso = () => {
     if (!sso) return
-    const q = new URLSearchParams({ orgId: sso.orgId, client: 'web', email: email.trim() })
+    const q = new URLSearchParams({ orgId: sso.orgId, client: 'web', email: email.trim(), ...(sso.connectionId ? { connection: sso.connectionId } : {}) })
     window.location.href = `${httpBase}/sso/start?${q.toString()}`
   }
 

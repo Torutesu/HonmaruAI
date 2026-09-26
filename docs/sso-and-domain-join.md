@@ -1,6 +1,6 @@
 # SSO（Google Workspace / Okta / Entra ID）とドメイン参加 — 詳細設計
 
-作成日: 2026-09-26。状態: **段階 A〜E と SCIM を実装済み**（SAML・複数 IdP は §11 のまま）。
+作成日: 2026-09-26。状態: **段階 A〜E、SCIM、SAML 2.0、複数 IdP を実装済み**（§11）。
 
 実装での決めごと:
 - iOS のコールバックは既存のスキーム `tiktokforwork://sso?code=…`（GitHub 連携と同じ）。
@@ -396,10 +396,12 @@ POST /orgs/join-requests       {orgId, ref, approve: bool}
 
 ## 11. 次の段階
 
-- **SAML 2.0**:
-  - `samlify` 相当の検証を Worker に入れる必要がある（XML 署名の検証は自前で書かない）。
-  - Cloudflare Access を前段の SAML/OIDC 変換として使う案もある。
-  - `org_sso.provider = 'saml'` と `idp_metadata_xml` を足す。
+- **SAML 2.0**（実装済み、`worker/src/saml.js`）:
+  - 署名の検証は自前で書かず、`xml-crypto`（と `@xmldom/xmldom`）に任せる。鍵は Owner が登録した IdP の証明書だけで、応答に入っている KeyInfo の証明書は使わない。
+  - 読むのは署名が覆っている部分だけ（`getSignedReferences()`）。署名を持つ要素と署名された要素が同じであることも確かめ、署名ラッピングを防ぐ。
+  - 確かめること: 発行者、Audience（こちらの Entity ID）、Recipient（ACS）、InResponseTo（こちらが送った要求の ID）、有効期間（±2 分）、Response の Destination。
+  - 受け付けない: DOCTYPE を含む文書、暗号化されたアサーション、RSA-SHA256/512 以外の署名、アサーションが 1 つでない応答、こちらから始めていないサインイン（IdP 起点）。
+  - 設定は IdP のメタデータ XML を貼るか、Entity ID・サインイン URL（HTTP-Redirect）・証明書を入れる。こちらの Entity ID・ACS・メタデータ URL は画面に出す（`/sso/saml/<接続 ID>/metadata`）。
 - **SCIM 2.0**（実装済み、`worker/src/scim.js`）:
   - `/scim/v2/Users`、`/scim/v2/Groups` を Bearer トークン（ワークスペースキー、[admin-controls.md](admin-controls.md) §2 の `scim:write` スコープ）で受ける。`ServiceProviderConfig`・`ResourceTypes` もある。
   - 受け付けるのは確認済みドメインのアドレスだけ。同じアドレスのアカウントがあればそれにつなぎ、無ければ作る（`joined_via = 'scim'`）。
@@ -407,7 +409,12 @@ POST /orgs/join-requests       {orgId, ref, approve: bool}
   - Owner はこの方法では止めない（403）。
   - Groups はユーザーグループ（`user_groups`）に写す。ハンドルは作った時の名前から作り、名前が変わっても変えない（`@sales` と書かれてきたため）。
   - フィルタは `属性 eq "値"` だけ。
-- **複数 IdP**: 1 ワークスペースに複数の `org_sso` を持たせる。子会社ごとに IdP が違う場合に使う。主キーを `(org_id, id)` にする。
+- **複数 IdP**（実装済み）: 接続は `sso_connections` に置き、1 ワークスペースに最大 10 個。
+  - 各接続は自分のドメインを受け持つ。同じドメインを 2 つの接続が受け持つことはできない（409）。
+  - `/auth/discover` はアドレスのドメインから接続を選び、`/sso/start` は `connection` か `email` で選ぶ。
+  - 「必須にする」はワークスペース単位（`org_sso_policy`）。有効な接続のどれかが受け持つアドレスの人が対象で、ブレークグラスの Owner は、どの接続のドメインにも入らないアドレスの Owner。
+  - SSO のサインインの寿命は、その接続の `session_hours`（セッションに `sso_connection_id` を持つ）。
+  - 以前の `org_sso` の 1 行は、最初に読まれた時に `primary-…` の ID の接続へ移す。`/orgs/sso` の PUT・test・activate・DELETE はその最初の接続に効く。
 
 ---
 

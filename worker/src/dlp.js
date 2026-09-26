@@ -143,28 +143,41 @@ export function scan(rules, text) {
 /// Before a person's words are kept: null to go ahead, or the answer to
 /// give instead. `ack` is the person having seen the warning and sending
 /// anyway; a block is never passed that way.
-export async function checkOutgoing(env, request, { orgId, login, text, ack = false, where = "message" }) {
-  if (!text) return null;
+export async function checkOutgoing(env, request, { orgId, login, text, files = [], ack = false, where = "message" }) {
+  if (!text && !files.length) return null;
   const rules = await rulesOf(env.DB, orgId, { enabledOnly: true });
   if (!rules.length) return null;
-  const hits = scan(rules, text);
+  // The words, and each attached file's own words: a rule met in either
+  // counts, and which files met one is said (never what they held).
+  const byRule = new Map();
+  const inFiles = new Set();
+  for (const h of text ? scan(rules, text) : []) byRule.set(h.id, h);
+  for (const f of files) {
+    const found = scan(rules, f.text);
+    if (found.length) inFiles.add(f.name);
+    for (const h of found) byRule.set(h.id, h);
+  }
+  const hits = [...byRule.values()];
   if (!hits.length) return null;
   const actor = { type: "user", id: login };
+  const named = [...inFiles];
+  const inWhat = named.length ? ` (in ${named.join(", ")})` : "";
+  const place = named.length ? (text && hits.length ? where : "file") : where;
   const blocking = hits.filter((h) => h.action === "block");
   if (blocking.length) {
-    await audit(env, request, { orgId, action: "dlp.blocked", actor, details: { rules: blocking.map((h) => h.name), where }, outcome: "denied" });
+    await audit(env, request, { orgId, action: "dlp.blocked", actor, details: { rules: blocking.map((h) => h.name), where: place, files: named.length }, outcome: "denied" });
     return json({
-      code: "dlp-blocked", rules: blocking.map((h) => h.name),
-      message: `This can't be sent here: it looks like it contains ${blocking.map((h) => h.name).join(", ")}. Take it out and try again.`,
+      code: "dlp-blocked", rules: blocking.map((h) => h.name), files: named,
+      message: `This can't be sent here: it looks like it contains ${blocking.map((h) => h.name).join(", ")}${inWhat}. Take it out and try again.`,
     }, 422);
   }
   if (!ack) {
     return json({
-      code: "dlp-warning", rules: hits.map((h) => h.name),
-      message: `This looks like it contains ${hits.map((h) => h.name).join(", ")}. Send it anyway?`,
+      code: "dlp-warning", rules: hits.map((h) => h.name), files: named,
+      message: `This looks like it contains ${hits.map((h) => h.name).join(", ")}${inWhat}. Send it anyway?`,
     }, 409);
   }
-  await audit(env, request, { orgId, action: "dlp.warning_overridden", actor, details: { rules: hits.map((h) => h.name), where } });
+  await audit(env, request, { orgId, action: "dlp.warning_overridden", actor, details: { rules: hits.map((h) => h.name), where: place, files: named.length } });
   return null;
 }
 

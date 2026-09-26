@@ -3058,7 +3058,7 @@ await step('the owner sets how long a sign-in lasts here, and the rules are save
   }
 })
 
-await step('an owner makes a workspace key; the admin API reads the team with it; Domains & SSO opens', async () => {
+await step('an owner makes a workspace key; the admin API reads the team with it; Domains & SSO opens, SAML included', async () => {
   const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
@@ -3083,6 +3083,12 @@ await step('an owner makes a workspace key; the admin API reads the team with it
     await w.waitForSelector('[data-studio-page="sso"] [data-add-domain]', { timeout: 20000 })
       .catch(async () => { throw new Error(`Domains & SSO did not open for the owner: ${await w.textContent('[data-studio-page="sso"]').catch(() => '')}`) })
     await w.screenshot({ path: `${SHOTS}/72-domains-sso.png` })
+    // Connections: several can be added, SAML among them.
+    await w.click('[data-sso-add]')
+    await w.selectOption('[data-sso-provider]', 'saml')
+    await w.waitForSelector('[data-sso-form] [data-sso-metadata]', { timeout: 5000 })
+      .catch(() => { throw new Error('choosing SAML did not ask for the IdP metadata') })
+    await w.screenshot({ path: `${SHOTS}/72b-sso-saml.png` })
   } finally {
     await ctx.close()
   }
@@ -3268,6 +3274,9 @@ await step('removing someone takes them out of the room, not just the table', as
   // retrying, which nothing on this side had ever read.
   if (!joiner) throw new Error('no teammate to remove')
   const was = await joiner.evaluate(() => localStorage.getItem('orgId'))
+  // The Studio steps before this read the team list many times for this
+  // owner; the list read here must not find that window already spent.
+  try { d1('DELETE FROM rate_limits') } catch { /* the wait below says so if it matters */ }
 
   await closeEverything()
   await page.click('nav [data-tab="you"]')

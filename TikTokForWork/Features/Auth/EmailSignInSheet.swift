@@ -308,7 +308,7 @@ struct EmailSignInSheet: View {
         errorMessage = nil
         defer { if requestGeneration == generation { busy = false } }
         do {
-            let session = try await SSOService.signIn(orgId: offer.orgId, email: email)
+            let session = try await SSOService.signIn(orgId: offer.orgId, email: email, connectionId: offer.connectionId)
             guard requestGeneration == generation, !Task.isCancelled else { return }
             onSignedIn(session, name.trimmingCharacters(in: .whitespaces))
             dismiss()

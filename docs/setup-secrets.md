@@ -318,23 +318,6 @@ npx wrangler secret put ALERT_WEBHOOK_URL    # https://hooks.slack.com/services/
 Slack ならワークスペースの App 管理 → Incoming Webhooks で URL を発行するだけ。
 リクエストを遅らせないよう `waitUntil` で送るので、応答速度への影響はない。
 
-## 4.5b. 9 人以上の通話（任意・5 分）
-
-Jam は既定でメッシュ（ブラウザ同士が全員とつながる）で、8 人までです。
-Cloudflare Realtime（SFU）のアプリを作って Worker に入れると、そのあと
-始まる Jam は SFU 経由になり、50 人まで入れます。iOS の通話は Web の通話画面を
-使うので、同じように SFU 経由になります。
-
-```bash
-# Cloudflare ダッシュボード → Realtime → SFU → Create application
-npx wrangler secret put CF_CALLS_APP_ID       # App ID
-npx wrangler secret put CF_CALLS_APP_SECRET   # App Token
-```
-
-- アプリの秘密は Worker（relay）だけが持ち、ブラウザには渡しません。ブラウザは
-  自分が入っている Jam についてだけ、ソケット越しに送信・受信を頼みます。
-- 途中で設定しても、すでに進んでいる Jam はメッシュのまま終わります。
-
 ## 4.5c. 監査ログのアーカイブと運用の窓口
 
 - `AUDIT_SIGNING_KEY`（Ed25519、PKCS8）はデプロイのワークフローが無ければ一度だけ作ります。
