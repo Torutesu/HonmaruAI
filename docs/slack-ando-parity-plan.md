@@ -89,6 +89,7 @@
 | 監査ログ Phase 2（匿名化、封印、SIEM、保持期間） | Enterprise | — | ✅ 匿名化、毎時の封印（R2 と Ed25519 署名）、SIEM 配信（HTTPS・Splunk HEC・Datadog）、保持期間とリーガルホールド（[audit-log-phase2.md](audit-log-phase2.md)） | — |
 | Owner / Admin の分離、Provisioning キー、ログイン有効期限 | ✓ | ✓ | ✅（[admin-controls.md](admin-controls.md)） | P1 |
 | SCIM、リーガルホールド（人単位）、DLP | ✓ | — | ✅ SCIM 2.0（Users・Groups、停止で即時ログアウト）、リーガルホールド（ワークスペース・人単位）、データルール（マイナンバー・カード番号・秘密鍵・パターン・語句、警告かブロック） | — |
+| メッセージの保持期間、メッセージのリーガルホールド、コンプライアンス書き出し、IP 許可リスト、招待制限 | ✓ | — | ✅ Studio の「コンプライアンス」（[enterprise-audit-log.md](enterprise-audit-log.md) §10） | — |
 
 ---
 

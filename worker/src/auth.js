@@ -397,6 +397,20 @@ export async function acceptInvite(env, { code, userId }) {
   // inviter testing their own link — or anyone already in the org — burned the
   // single use, and the person it was actually for was then told the code was
   // not valid. Only a redemption that adds someone, or raises them, takes one.
+  // Someone new, under the workspace's rule for who may be invited: in; not
+  // at all; or once an admin says yes (the invitation is kept for them).
+  if (!existing) {
+    const { inviteGate } = await import("./governance.js");
+    const gate = await inviteGate(env, row.org_id, userId, offered);
+    if (gate.error) return { error: gate.error, orgId: row.org_id };
+    if (gate.pending) {
+      await env.DB.prepare(
+        `INSERT INTO join_requests (org_id, user_github_id, email, requested_at, role, via) VALUES (?1, ?2, ?3, ?4, ?5, 'invite')
+         ON CONFLICT(org_id, user_github_id) DO UPDATE SET requested_at = excluded.requested_at, role = excluded.role, via = 'invite', decided_by = NULL, decided_at = NULL, outcome = NULL`
+      ).bind(row.org_id, String(userId), gate.email || "", new Date().toISOString(), offered).run();
+      return { orgId: row.org_id, pending: true, role: offered };
+    }
+  }
   if (!existing || keep !== held) {
     if (!(await spendInvite(env.DB, code.trim()))) {
       return { error: "That invitation is not valid, or it has expired." };

@@ -71,6 +71,11 @@ export function installAuthGuard() {
     const token = headerOf(init, 'x-session-token')
     if (!token) return res
     const said = await res.clone().json().catch(() => null) as { code?: string; orgId?: string; start?: string } | null
+    // The workspace can only be used from its company's network.
+    if (said?.code === 'ip-not-allowed') {
+      window.dispatchEvent(new CustomEvent('honmaru:ip-not-allowed', { detail: { orgId: said.orgId || null } }))
+      return res
+    }
     // The workspace wants its single sign-on: off to the provider.
     if (said?.code === 'sso-required' || said?.code === 'sso-reauth') {
       window.dispatchEvent(new CustomEvent('honmaru:sso-required', { detail: { orgId: said.orgId || null, start: said.start || null } }))
