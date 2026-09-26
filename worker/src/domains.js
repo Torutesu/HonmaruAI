@@ -234,18 +234,22 @@ export async function handleDomains(request, env, url) {
       return json({ requests: out });
     }
     if (request.method === "POST") {
-      const { results } = await env.DB.prepare("SELECT user_github_id FROM join_requests WHERE org_id = ?1 AND outcome IS NULL").bind(orgId).all();
-      let target = null;
-      for (const r of results || []) if ((await memberRef(orgId, String(r.user_github_id))) === body.ref) target = String(r.user_github_id);
+      const { results } = await env.DB.prepare("SELECT user_github_id, role, via FROM join_requests WHERE org_id = ?1 AND outcome IS NULL").bind(orgId).all();
+      let target = null; let asked = null;
+      for (const r of results || []) if ((await memberRef(orgId, String(r.user_github_id))) === body.ref) { target = String(r.user_github_id); asked = r; }
       if (!target) return json({ message: "No such request." }, 404);
       const approve = body.approve === true;
       await env.DB.prepare("UPDATE join_requests SET outcome = ?3, decided_by = ?4, decided_at = ?5 WHERE org_id = ?1 AND user_github_id = ?2")
         .bind(orgId, target, approve ? "approved" : "declined", String(session.github_id), new Date().toISOString()).run();
       const joiner = await getUserByGithubId(env.DB, target);
       if (approve) {
-        const domain = await verifiedDomainFor(env.DB, joiner?.email);
-        await upsertMembership(env.DB, orgId, target, domain?.join_role === "guest" ? "guest" : "member", "domain");
-        await audit(env, request, { orgId, action: "member.joined", actor: person(joiner), details: { via: "domain", approved: true } });
+        // By an invitation held for approval: the role it offered (never
+        // above member); otherwise the domain's.
+        const domain = asked?.via === "invite" ? null : await verifiedDomainFor(env.DB, joiner?.email);
+        const role = asked?.via === "invite" ? (asked.role === "guest" ? "guest" : "member") : (domain?.join_role === "guest" ? "guest" : "member");
+        const via = asked?.via === "invite" ? "invite" : "domain";
+        await upsertMembership(env.DB, orgId, target, role, via);
+        await audit(env, request, { orgId, action: "member.joined", actor: person(joiner), details: { via, approved: true, role } });
       }
       await audit(env, request, { orgId, action: approve ? "member.join_approved" : "member.join_declined", actor: person(user), entity: person(joiner) });
       return json({ ok: true, approved: approve });

@@ -3173,6 +3173,43 @@ await step('a data rule warns before a message goes, and it goes when the person
   }
 })
 
+await step('compliance: retention chosen, a legal hold placed, and an export made and downloaded', async () => {
+  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 }, acceptDownloads: true })
+  const w = await ctx.newPage()
+  try {
+    await w.goto(`${WEB}#/tools/compliance`, { waitUntil: 'load' })
+    await w.reload({ waitUntil: 'load' })
+    await w.waitForSelector('[data-studio-page="compliance"] [data-retention="dmDays"]', { timeout: 20000 })
+      .catch(async () => { throw new Error(`Compliance did not open for the owner: ${await w.textContent('[data-studio-page="compliance"]').catch(() => '')}`) })
+    await w.selectOption('[data-retention="dmDays"]', '365')
+    await w.waitForSelector('[data-studio-page="compliance"] [role="status"]', { timeout: 10000 })
+    const people = await w.$$eval('[data-hold-person] option', (os) => os.map((o) => o.value).filter(Boolean))
+    if (!people.length) throw new Error('no one to place a hold on')
+    await w.selectOption('[data-hold-person]', people[0])
+    await w.fill('[data-hold-reason]', 'Matter E2E-1')
+    await w.click('[data-hold-add] button[type="submit"]')
+    await w.waitForSelector('[data-hold] .sso-badge.ok', { timeout: 10000 })
+      .catch(async () => { throw new Error(`the hold did not appear: ${await w.textContent('[data-studio-page="compliance"]').catch(() => '')}`) })
+    await w.fill('[data-export-reason]', 'Matter E2E-1')
+    await w.click('[data-export-form] button[type="submit"]')
+    await w.waitForSelector('[data-export] .sso-badge.ok', { timeout: 20000 })
+      .catch(async () => { throw new Error(`the export was not made: ${await w.textContent('[data-studio-page="compliance"]').catch(() => '')}`) })
+    const [download] = await Promise.all([w.waitForEvent('download', { timeout: 15000 }), w.click('[data-export] button')])
+    if (!download.suggestedFilename().endsWith('.jsonl.gz')) throw new Error(`the export downloaded as ${download.suggestedFilename()}`)
+    await w.screenshot({ path: `${SHOTS}/75-compliance.png` })
+    // Back as it was, so nothing after this runs under a hold or a retention.
+    await w.evaluate(async (host) => {
+      const q = `orgId=${encodeURIComponent(localStorage.getItem('orgId'))}`
+      const headers = { 'x-session-token': localStorage.getItem('sessionToken'), 'content-type': 'application/json' }
+      const { holds } = await (await fetch(`${host}/orgs/holds?${q}`, { headers })).json()
+      for (const h of holds) if (!h.releasedAt) await fetch(`${host}/orgs/holds/${h.id}?${q}`, { method: 'DELETE', headers })
+      await fetch(`${host}/orgs/governance`, { method: 'PUT', headers, body: JSON.stringify({ orgId: localStorage.getItem('orgId'), retention: { dmDays: null } }) })
+    }, API)
+  } finally {
+    await ctx.close()
+  }
+})
+
 await step('a guest invited to one channel sees that channel and nothing else', async () => {
   const link = await page.evaluate(async (host) => {
     const r = await fetch(`${host}/invites/create`, {
@@ -3197,6 +3234,9 @@ await step('a guest invited to one channel sees that channel and nothing else', 
 
 await step('a bookmark kept at the top of a channel, a keyword that reaches Activity, and a key that only reads', async () => {
   if (!mate) throw new Error('the teammate this step needs is not here')
+  // The admin steps before this one spend the minute's allowance; this one
+  // mints a key, which is counted too.
+  try { d1('DELETE FROM rate_limits') } catch { /* the key wait below says so if it matters */ }
   const kenji = mate.pages()[0] || await mate.newPage()
   await kenji.evaluate(async (host) => {
     await fetch(`${host}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ notifyKeywords: ['invoice'] }) })

@@ -44,6 +44,8 @@ import { handleScim } from "./scim.js";
 import { handleDlp } from "./dlp.js";
 import { handleDomains, recheckDomains } from "./domains.js";
 import { handleSso } from "./sso.js";
+import { requestContext } from "./requestContext.js";
+import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
 import { pruneAudit, handleOps } from "./auditRetention.js";
 import { deliverStreams, handleStreams } from "./auditStreams.js";
@@ -198,6 +200,12 @@ export default {
     if (at.getUTCMinutes() < 15) {
       ctx.waitUntil(sealPending(env, { now: at.getTime() }).catch((err) => console.error("audit sealing failed", err?.message || err)));
     }
+    // Once a day: messages and files past a workspace's retention go, and
+    // compliance exports past their week.
+    if (at.getUTCHours() === 5 && at.getUTCMinutes() < 15) {
+      ctx.waitUntil(pruneMessages(env, { now: at.getTime() }).catch((err) => console.error("message retention failed", err?.message || err)));
+      ctx.waitUntil(expireExports(env, { now: at.getTime() }).catch((err) => console.error("export expiry failed", err?.message || err)));
+    }
     // Once a day: sealed rows past their retention leave D1.
     if (at.getUTCHours() === 4 && at.getUTCMinutes() < 15) {
       ctx.waitUntil(pruneAudit(env, { now: at.getTime() }).catch((err) => console.error("audit pruning failed", err?.message || err)));
@@ -220,7 +228,7 @@ export default {
     const url = new URL(request.url);
     const route = routeLabel(request.method, url.pathname);
     try {
-      const response = await handle(request, env, url, ctx);
+      const response = await requestContext.run({ ip: request.headers.get("cf-connecting-ip") || null }, () => handle(request, env, url, ctx));
       logJSON({ requestId, route, status: response.status, ms: Date.now() - startedAt });
       // A 101 carries the client end of the socket pair on a property, not in
       // the body. Rebuilding it to add a header would hand back a response with
@@ -259,6 +267,9 @@ async function handle(request, env, url, ctx) {
     // Single sign-on: discovery, the round trip, and its settings.
     const sso = await handleSso(request, env, url);
     if (sso) return sso;
+    // Retention, legal holds, compliance exports, networks, invitations.
+    const governed = await handleGovernance(request, env, url);
+    if (governed) return governed;
     // Where you are signed in, and the audit log.
     const sessions = await handleSessions(request, env, url);
     if (sessions) return sessions;
@@ -475,7 +486,13 @@ async function handle(request, env, url, ctx) {
       if (!session) return json({ message: "Please sign in." }, 401);
       const body = await request.json().catch(() => ({}));
       const result = await acceptInvite(env, { code: body.code || body.link, userId: session.github_id });
-      if (result.error) return json({ message: result.error }, 400);
+      if (result.error) return json({ message: result.error }, result.orgId ? 403 : 400);
+      if (result.pending) {
+        await audit(env, request, { orgId: result.orgId, action: "member.invite_held", actor: await actorOf(env, session), details: { role: result.role } });
+        const { mailOwners } = await import("./owners.js");
+        await mailOwners(env, result.orgId, { subject: "Someone is waiting to join", text: "Someone from outside your company used an invitation. Approve or decline them on the team screen." }).catch(() => {});
+        return json({ ...result, message: "An admin of this workspace needs to approve you. You will be let in once they do." }, 202);
+      }
       if (result.joined) await audit(env, request, { orgId: result.orgId, action: "member.joined", actor: await actorOf(env, session), details: { role: result.role, via: "invite" } });
       return json(result);
     }

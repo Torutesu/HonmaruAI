@@ -7,6 +7,7 @@ import { AuditLog } from '../components/AuditLog'
 import { LoginRules } from '../components/LoginRules'
 import { WorkspaceKeys } from '../components/WorkspaceKeys'
 import { DataRules } from '../components/DataRules'
+import { Governance } from '../components/Governance'
 import { DomainsSso } from '../components/DomainsSso'
 import { BrandLogo, isBrand } from '../components/BrandLogo'
 import { getAIKey } from '../utils/aiKey'
@@ -17,7 +18,7 @@ import './Studio.css'
 
 interface Connector { id: string; label: string; status: string }
 
-type StudioPage = 'apps' | 'ai' | 'api' | 'emoji' | 'groups' | 'audit' | 'security' | 'sso' | 'dlp'
+type StudioPage = 'apps' | 'ai' | 'api' | 'emoji' | 'groups' | 'audit' | 'security' | 'sso' | 'dlp' | 'compliance'
 
 /// One tile in the catalogue: a connector of your own, the workspace's
 /// GitHub, or the address that turns mail into cards.
@@ -442,7 +443,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
 
   const [page, setPage] = useState<StudioPage>(() => {
     const asked = (typeof window !== 'undefined' ? window.location.hash : '').split('?')[0].split('/')[2]
-    return asked === 'ai' || asked === 'api' || asked === 'emoji' || asked === 'groups' || asked === 'audit' || asked === 'security' || asked === 'sso' || asked === 'dlp' ? asked : 'apps'
+    return asked === 'ai' || asked === 'api' || asked === 'emoji' || asked === 'groups' || asked === 'audit' || asked === 'security' || asked === 'sso' || asked === 'dlp' || asked === 'compliance' ? asked : 'apps'
   })
   const go = (next: StudioPage) => {
     setPage(next)
@@ -1095,6 +1096,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     { id: 'security', label: t('Login rules'), icon: 'lock' },
     { id: 'sso', label: t('Domains & SSO'), icon: 'key' },
     { id: 'dlp', label: t('Data rules'), icon: 'eye' },
+    { id: 'compliance', label: t('Compliance'), icon: 'folder' },
   ]
 
   return (
@@ -1125,6 +1127,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             {page === 'security' && <LoginRules httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
             {page === 'sso' && <DomainsSso httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
             {page === 'dlp' && <DataRules httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
+            {page === 'compliance' && <Governance httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
           </main>
         </div>
       </div>

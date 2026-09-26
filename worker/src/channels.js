@@ -263,6 +263,9 @@ export async function editMessage(db, { orgId, id, authorLogin, body }) {
   if (!text) return { error: "Write something first.", status: 400 };
   if (text.length > MAX_MESSAGE_CHARS) return { error: `That is longer than ${MAX_MESSAGE_CHARS} characters.`, status: 400 };
   if (text === row.body) return { row };
+  // Under a legal hold, the words as they were are kept for the export.
+  const { keepIfHeld } = await import("./governance.js");
+  await keepIfHeld(db, orgId, row, "edit");
   await db.prepare("UPDATE channel_messages SET body = ?3, edited_at = ?4 WHERE org_id = ?1 AND id = ?2")
     .bind(orgId, id, text, new Date().toISOString()).run();
   return { row: await getMessage(db, orgId, id) };
@@ -274,6 +277,8 @@ export async function deleteMessage(db, { orgId, id, authorLogin }) {
   const row = await getMessage(db, orgId, id);
   if (!row || row.deleted_at) return { error: "No such message.", status: 404 };
   if (row.kind !== "message" || row.author_login !== authorLogin) return { error: "Only the person who wrote it can delete it.", status: 403 };
+  const { keepIfHeld } = await import("./governance.js");
+  await keepIfHeld(db, orgId, row, "delete");
   await db.batch([
     db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL WHERE org_id = ?1 AND id = ?2")
       .bind(orgId, id, new Date().toISOString()),
