@@ -1202,7 +1202,14 @@ await step('the workbench reads in Japanese', async () => {
   await d.reload({ waitUntil: 'load' })
   await d.waitForSelector('.inbox', { timeout: 20000 })
   await d.waitForFunction(() => /あなた待ち/.test(document.querySelector('.inbox')?.textContent || ''), null, { timeout: 10000 })
-    .catch(() => { throw new Error('the inbox heading is not in Japanese') })
+    .catch(async () => {
+      const seen = await d.evaluate(async (api) => ({
+        lang: document.documentElement.lang,
+        stored: localStorage.getItem('locale'),
+        account: await fetch(`${api}/me`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') || '' } }).then((r) => r.json()).then((m) => m.locale).catch((e) => String(e)),
+      }), API)
+      throw new Error(`the inbox heading is not in Japanese: ${JSON.stringify(seen)}`)
+    })
   await d.keyboard.press('Control+k')
   await d.waitForSelector('.palette-input', { timeout: 5000 })
   const placeholder = await d.$eval('.palette-input', (el) => el.placeholder)
