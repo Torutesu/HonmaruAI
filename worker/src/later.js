@@ -72,7 +72,7 @@ export async function saveForLater(db, { orgId, login, messageId, key, remindAt 
 
 export async function listSaved(db, orgId, login) {
   const { results } = await db.prepare(
-    `SELECT s.id, s.message_id, s.channel, s.remind_at, s.reminded_at, s.created_at, m.*, u.name AS author_name,
+    `SELECT s.id, s.message_id, s.channel, s.remind_at, s.reminded_at, s.created_at, m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name,
             s.id AS saved_id, s.created_at AS saved_at
        FROM saved_items s JOIN channel_messages m ON m.id = s.message_id AND m.org_id = s.org_id
        LEFT JOIN users u ON u.login = m.author_login
@@ -119,7 +119,7 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
   // Messages that waited a minute to see whether they were read.
   await sendDuePushes(env, now.getTime()).catch((err) => console.error("message pushes failed", err?.message || err));
   const { results: remind } = await db.prepare(
-    `SELECT s.*, m.body, m.author_login, u.name AS author_name, me.locale AS reader_locale FROM saved_items s
+    `SELECT s.*, m.body, m.author_login, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, me.locale AS reader_locale FROM saved_items s
        JOIN channel_messages m ON m.id = s.message_id AND m.org_id = s.org_id
        LEFT JOIN users u ON u.login = m.author_login
        LEFT JOIN users me ON me.login = s.login
