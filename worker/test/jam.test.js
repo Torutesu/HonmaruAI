@@ -31,7 +31,7 @@ test("two people in a Jam are introduced, pass signals, and the channel hears it
 
   toru.ws.send(JSON.stringify({ type: "jam_join", payload: { channel: "b:general", mode: "full" } }));
   const first = await message(toru.messages, custom("jam_joined"));
-  expect(first.value).toMatchObject({ channel: "b:general", peers: [], mode: "full", transport: "mesh" });
+  expect(first.value).toMatchObject({ channel: "b:general", peers: [], mode: "full" });
   expect(first.value.iceServers[0].urls).toContain("stun:stun.cloudflare.com:3478");
 
   // Everyone who can see the channel is told, and the channel hears it.
@@ -106,7 +106,6 @@ test("a Jam as it is told: earliest first, recorded by the earliest unless it is
   const state = jamState([peer("a", "1"), peer("b", "2", { muted: true })], members, { startedAt: "0", mode: "notes" });
   expect(state).toEqual({
     active: true,
-    transport: "mesh",
     participants: [
       { peerId: "p-a", ref: "r-a", name: "A", muted: false, since: "1", video: false, screen: false, avatarUrl: null },
       { peerId: "p-b", ref: "r-b", name: "B", muted: true, since: "2", video: false, screen: false, avatarUrl: null },
