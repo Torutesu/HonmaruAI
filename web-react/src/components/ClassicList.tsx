@@ -985,7 +985,7 @@ export const ClassicList: React.FC<Props> = ({
       }
       const msg = data.message as ChannelMessage
       // Sent: a small confirmation, in a direct conversation — as Slack does.
-      if (channel.startsWith('dm:')) playSound('sent')
+      if (channel.startsWith('dm:') || channel.startsWith('ag:')) playSound('sent')
       up.clear()
       if (parentId) {
         setThreadDraft('')
