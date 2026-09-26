@@ -158,6 +158,7 @@ final class ChatStore: ObservableObject {
         } catch { self.error = error.localizedDescription }
         if let list = try? await ChatService.emoji(orgId: orgId, base: base) { emoji = list } else { emoji = [] }
         if let list = try? await ChatService.userGroups(orgId: orgId, base: base) { userGroups = list } else { userGroups = [] }
+        ChatMentionDirectory.shared.update(members: members, groups: userGroups, agents: agents)
         if let layout = try? await ChatService.sidebar(orgId: orgId, base: base) { sidebar = layout } else { sidebar = ChatSidebar() }
         await loadThreads()
         async let i: Void = loadInbox()
@@ -168,7 +169,10 @@ final class ChatStore: ObservableObject {
 
     /// The agents as `/channels/agents` last returned them, after a change
     /// made on the Agents screen: the composer offers them at once.
-    func setAgents(_ list: [ChatAgent]) { agents = list }
+    func setAgents(_ list: [ChatAgent]) {
+        agents = list
+        ChatMentionDirectory.shared.update(members: members, groups: userGroups, agents: list)
+    }
 
     /// "@" suggestions for agents: handle, then what the chip says.
     var agentMentions: [(handle: String, label: String, emoji: String)] {

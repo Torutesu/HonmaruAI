@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { insertMention, matchMembers, mentionQuery } from '../utils/mentions'
+import { insertMention, matchMembers, mentionQuery, mentionSegments } from '../utils/mentions'
 import type { Mentionable } from '../utils/mentions'
 import { useCustomEmoji, type CustomEmoji } from '../utils/customEmoji'
 import { t } from '../utils/i18n'
@@ -130,4 +130,48 @@ export function useMentionMenu(
   ) : null
 
   return { menu, onKeyDown, track, open }
+}
+
+
+/// Colour for the @names in a box as they are typed: a layer under the
+/// textarea draws the same text, with every @name that reaches somebody
+/// marked, and the textarea's own letters go transparent over it. An @word
+/// that names nobody stays plain — the difference is the point. The layer
+/// copies the box's place and size, and scrolls with it; it changes no
+/// metrics (no weight, no padding), so the letters line up.
+export function useMentionHighlight(
+  box: React.RefObject<HTMLTextAreaElement | null>,
+  text: string,
+  members: Mentionable[],
+): { layer: React.ReactNode; active: boolean } {
+  const parts = useMemo(() => mentionSegments(text, members), [text, members])
+  const active = parts.some((p) => p.mention && p.kind)
+  const layerRef = useRef<HTMLDivElement>(null)
+  const [place, setPlace] = useState<React.CSSProperties | null>(null)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el || !active) return
+    const sync = () => {
+      setPlace((prev) => {
+        const next = { top: el.offsetTop, left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight }
+        return prev && prev.top === next.top && prev.left === next.left && prev.width === next.width && prev.height === next.height ? prev : next
+      })
+      if (layerRef.current) layerRef.current.scrollTop = el.scrollTop
+    }
+    sync()
+    el.addEventListener('scroll', sync)
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null
+    ro?.observe(el)
+    return () => { el.removeEventListener('scroll', sync); ro?.disconnect() }
+  }, [box, active, text])
+  const layer = active && place ? (
+    <div ref={layerRef} className={`${box.current?.className.replace(/\bhas-mentions\b/, '') || ''} mention-layer`} style={place} aria-hidden="true">
+      {parts.map((p, i) => (p.mention && p.kind
+        ? <mark key={i} className={`mention-hl m-${p.kind}`}>{p.text}</mark>
+        : <React.Fragment key={i}>{p.text}</React.Fragment>))}
+      {/* A trailing newline needs a line to sit on, as it has in the box. */}
+      {text.endsWith('\n') ? ' ' : null}
+    </div>
+  ) : null
+  return { layer, active }
 }

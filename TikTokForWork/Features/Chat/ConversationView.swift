@@ -288,6 +288,7 @@ struct ConversationView: View {
             }
             slashSuggestions
             mentionSuggestions
+            mentionCheck
             composer
         }
         .padding(.horizontal, 12)
@@ -450,6 +451,49 @@ struct ConversationView: View {
                 }
             }
         }
+    }
+
+    /// The @names in what is being written, each saying whether it reaches
+    /// somebody: coloured when it does, grey when it names nobody. The one
+    /// still being typed is left to the suggestions above.
+    @ViewBuilder
+    private var mentionCheck: some View {
+        let tokens = ConversationView.mentionTokens(in: draft)
+        if !tokens.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
+                        if let kind = ChatMentionDirectory.shared.kind(of: token) {
+                            Label(token, systemImage: "checkmark.circle.fill")
+                                .font(.caption.weight(.semibold)).foregroundStyle(kind.color)
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(kind.color.opacity(0.14), in: Capsule())
+                        } else {
+                            Label(String(localized: "\(token) · nobody by that name"), systemImage: "questionmark.circle")
+                                .font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(Theme.Colors.surfaceRaised, in: Capsule())
+                        }
+                    }
+                }.padding(.horizontal, 4)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    /// Finished @tokens in a draft: followed by a space or by more words.
+    static func mentionTokens(in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #"(?:^|[\s(（「])([@＠][^\s@＠,，。、!?！？:;)）」]+)(?=[\s,，。、!?！？:;)）」]|$)"#) else { return [] }
+        let ns = text as NSString
+        var out: [String] = []
+        for m in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let r = m.range(at: 1)
+            // The token at the very end is still being typed.
+            if r.location + r.length == ns.length { continue }
+            let token = ns.substring(with: r)
+            if !out.contains(token) { out.append(token) }
+        }
+        return out
     }
 
     // MARK: Sending

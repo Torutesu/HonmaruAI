@@ -578,3 +578,6 @@
 }
 .daily-in-channel .report-meta { text-transform: none; font-family: inherit; letter-spacing: 0; font-size: 13px; color: inherit; margin-bottom: 8px; }
 .daily-in-channel .report-meta b { font-weight: 700; }
+.mention.m-ai { color: #7c3aed; background: rgba(124, 58, 237, 0.12); }
+.mention.m-agent { color: #b45309; background: rgba(180, 83, 9, 0.12); }
+.mention.m-group { color: #0f7b6c; background: rgba(15, 123, 108, 0.12); }
