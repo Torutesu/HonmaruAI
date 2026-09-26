@@ -35,6 +35,12 @@ import { queueMessagePushes } from "./pushes.js";
 import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
 import { listBookmarks, toClientBookmark, addBookmark, editBookmark, removeBookmark } from "./bookmarks.js";
+import {
+  listAgents, saveAgent, deleteAgent, toClientAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, playbookFor,
+} from "./customAgents.js";
+import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
+import { searchTermsFor } from "./ask.js";
+import { searchDecisions } from "./insights.js";
 import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP, isPrivate, isGuest } from "./access.js";
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
@@ -239,6 +245,95 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
 
 /// `route(body)` is `/ai/route`, called in-process with this request's
 /// session. `after(work)` runs work past the response.
+/// The team's agents a message names, each answering in the thread under
+/// it as itself. Only a person's message calls one — an agent's answer
+/// naming another does not, so two agents never talk each other in
+/// circles. Never throws; what goes wrong is said in the thread.
+export async function answerAsAgents(env, { orgId, session, user, resolved, row, members, locale }) {
+  let agents;
+  try {
+    agents = agentsCalled(row.body, await listAgents(env.DB, orgId, user.login));
+    // In a conversation with an agent, everything said is said to it: it
+    // answers without being named, in the conversation, not a thread.
+    if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
+      const own = (await listAgents(env.DB, orgId, user.login)).find((a) => a.id === resolved.agent.id);
+      if (own) agents = [own, ...agents].slice(0, 3);
+    }
+  } catch (err) {
+    console.error("agents lookup failed", safe(err?.message));
+    return 0;
+  }
+  if (!agents.length) return 0;
+  locale = await loadCopy(env, locale || "en", { orgId });
+  const parentId = row.parent_id || (resolved.kind === "agent" ? null : row.id);
+  const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null });
+  const progress = async (agent, step) => {
+    try {
+      const payload = (view) => customEvent("channel_ai_progress", { channel: view, parentId, messageId: row.id, step, agent: face(agent) });
+      if (resolved.kind === "business" && !resolved.logins) await announceEvents(env, orgId, [payload(resolved.key)]);
+      else await announceTo(env, orgId, resolved.logins.map((login) => ({ to: login, event: payload(viewOf(resolved.key, login, members)) })));
+    } catch (err) {
+      console.error("agent progress failed", safe(err?.message));
+    }
+  };
+  const provider = await providerFor(env, orgId);
+  const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
+  const [transcript, playbook] = provider && allowance?.allowed
+    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row), playbookFor(env.DB, orgId, row.body)])
+    : [[], []];
+  // Research, in a conversation with the agent only: past decisions and
+  // what this person's connected tools hold are theirs to read, and would
+  // be somebody else's to read if the answer went into a shared channel.
+  let research = "";
+  if (resolved.kind === "agent" && provider && allowance?.allowed) {
+    try {
+      const terms = searchTermsFor(row.body, null);
+      const available = await connectedSources(env, session, orgId);
+      const [decisions, notion, github] = await Promise.all([
+        terms ? searchDecisions(env.DB, orgId, terms).catch(() => []) : [],
+        available.notion && terms ? searchNotion(env, session.github_id, terms).catch(() => []) : [],
+        available.github && terms ? searchGithubIssues(session, orgId, terms, env).catch(() => []) : [],
+      ]);
+      const lines = decisions.slice(0, 8).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 140)}`);
+      const tools = [...notion, ...github].slice(0, 8);
+      if (lines.length) research += `Past decisions that match:\n${lines.join("\n")}\n`;
+      if (tools.length) research += `From the person's connected tools:\n${formatSourcesForModel(tools)}\n`;
+    } catch (err) {
+      console.error("agent research failed", safe(err?.message));
+    }
+  }
+  const where = resolved.kind === "business" ? `#${resolved.slug}` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
+  let answered = 0;
+  for (const agent of agents) {
+    await progress(agent, "agent");
+    let text;
+    try {
+      if (!provider) text = serverText(locale, "agent.noModel");
+      else if (!allowance.allowed) text = serverText(locale, "agent.quota");
+      else {
+        const result = await askAgent({
+          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research,
+          askedBy: user.name || "a teammate", readerLanguage: locale,
+        });
+        if (result.called && allowance.metered) await allowance.consume();
+        text = result.answer || serverText(locale, "agent.failed");
+        if (result.answer) answered += 1;
+      }
+      const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId });
+      if (out.row) {
+        await broadcastWithParent(env, orgId, resolved, out.row, members);
+        await emitMessage(env, orgId, out.row);
+        await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));
+      }
+    } catch (err) {
+      console.error("agent answer failed", safe(err?.message));
+    }
+    await progress(agent, "done");
+  }
+  if (provider) await settleUsage(env.DB, provider, { orgId, githubId: session.github_id });
+  return answered;
+}
+
 export async function handleChannels(request, env, url, { route, after }) {
   const path = url.pathname;
 
@@ -274,6 +369,10 @@ export async function handleChannels(request, env, url, { route, after }) {
         loginHash: (await sha256Hex(m.login)).slice(0, 16),
       }))),
       maxChars: MAX_MESSAGE_CHARS,
+      // The agents you can call here: the team's and your own.
+      agents: (await listAgents(env.DB, orgId, who.user.login)).map((a) => ({
+        id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, description: a.description, scope: a.scope,
+      })),
       // Where you are up to in each conversation, from whichever device.
       reads: await readsFor(env.DB, orgId, who.user.login, members),
     });
@@ -313,6 +412,46 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!row || row.deleted_at || row.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
     const key = row.parent_id ? `t:${row.parent_id}` : ctx.resolved.key;
     return json({ lastReadAt: await markUnreadFrom(env.DB, body.orgId, ctx.who.user.login, key, row.created_at), thread: row.parent_id || null });
+  }
+
+  // Agents the team writes: "@hayao" answers as its Markdown instructions
+  // say. The list, the presets to start from, and making, changing and
+  // deleting one. A team agent is anyone's to improve; deleting it is its
+  // maker's or an admin's.
+  if (path === "/channels/agents" && ["GET", "POST", "PUT", "DELETE"].includes(request.method)) {
+    const body = request.method === "GET" ? { orgId: url.searchParams.get("orgId") } : await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const orgId = body.orgId;
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    const isAdmin = await allowed(env.DB, orgId, who.session.github_id, "agent.manage_others");
+    const login = who.user.login;
+    const list = async () => (await listAgents(env.DB, orgId, login)).map((a) => toClientAgent(a, members, login, { isAdmin }));
+    if (request.method === "GET") return json({ agents: await list(), presets: presetsFor(who.user.locale || url.searchParams.get("locale") || "en") });
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const guest = await isGuest(env.DB, orgId, who.session.github_id);
+    if (request.method === "DELETE") {
+      if (guest) return json({ message: "A guest cannot make or change agents." }, 403);
+      const out = await deleteAgent(env.DB, orgId, { id: body.id, login, isAdmin });
+      if (out.error) return json({ message: out.error }, out.status || 400);
+      if (out.agent.scope === "team") {
+        await audit(env, request, { orgId, action: "agent.deleted", actor: person(who.user), entity: { type: "agent", id: out.agent.id, name: `@${out.agent.handle}` } });
+      }
+      return json({ agents: await list() });
+    }
+    const out = await saveAgent(env.DB, orgId, {
+      id: request.method === "PUT" ? body.id : null, input: body, login, members, isGuest: guest,
+    });
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    if (out.agent.scope === "team") {
+      await audit(env, request, {
+        orgId, action: out.created ? "agent.created" : "agent.updated", actor: person(who.user),
+        entity: { type: "agent", id: out.agent.id, name: `@${out.agent.handle}` },
+      });
+    }
+    return json({ agent: toClientAgent(out.agent, members, login, { isAdmin }), agents: await list() }, out.created ? 201 : 200);
   }
 
   // User groups: `@sales` names everyone in it. Listed, made and changed by
@@ -422,6 +561,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (wantsDecision) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
+      await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale });
     });
     // What you said, you have read.
     if (!parentId) await markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at);
@@ -1072,6 +1212,7 @@ export async function broadcastStored(env, orgId, key, row) {
   if (key.startsWith("b:")) resolved = logins ? { key, kind: "business", slug: key.slice(2), private: await isPrivate(env.DB, orgId, key.slice(2)), logins } : { key, kind: "business", slug: key.slice(2) };
   else if (key.startsWith("dm:")) resolved = { key, kind: "dm", logins };
   else if (key.startsWith("g:")) resolved = { key, kind: "group", logins };
+  else if (key.startsWith("ag:")) resolved = { key, kind: "agent", logins };
   else return;
   await broadcastWithParent(env, orgId, resolved, row, members);
   await emitMessage(env, orgId, row);

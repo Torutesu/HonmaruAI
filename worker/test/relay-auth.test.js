@@ -153,10 +153,17 @@ test("only the recipient may decide, delete or undo a card", async () => {
   expect(await message(messages, (m) => m.type === "RUN_ERROR")).toBeTruthy();
   expect((await getCard(env.DB, ORG, "c-bobs")).status).toBe("pending");
 
-  // ...and deletes it.
-  ws.send(JSON.stringify({ type: "card_deleted", payload: { cardId: "c-bobs" } }));
+  // ...and deletes one she did not send either.
+  await saveCard(env.DB, ORG, {
+    id: "c-carols", recipientUserID: "bob", senderUserID: "carol",
+    status: "pending", title: "Order the chairs", priority: "low",
+    createdAt: "2026-08-11T00:00:00Z",
+  });
+  messages.length = 0;
+  ws.send(JSON.stringify({ type: "card_deleted", payload: { cardId: "c-carols" } }));
   expect(await message(messages, (m) => m.type === "RUN_ERROR")).toBeTruthy();
-  expect(await getCard(env.DB, ORG, "c-bobs")).toBeTruthy();
+  expect(await getCard(env.DB, ORG, "c-carols")).toBeTruthy();
+  messages.length = 0;
 
   // ...and submits a decision through the AG-UI tool path.
   ws.send(JSON.stringify({ type: "tool_result", payload: {
@@ -164,6 +171,25 @@ test("only the recipient may decide, delete or undo a card", async () => {
   } }));
   expect(await message(messages, (m) => m.type === "RUN_ERROR")).toBeTruthy();
   expect((await getCard(env.DB, ORG, "c-bobs")).status).toBe("pending");
+});
+
+test("a sender may take back a request while it waits, and not once it is answered", async () => {
+  const { saveCard, getCard } = await import("../src/db.js");
+  await saveCard(env.DB, ORG, {
+    id: "c-ask", recipientUserID: "bob", senderUserID: "alice",
+    status: "pending", title: "Book the venue", priority: "medium", createdAt: "2026-08-11T00:00:00Z",
+  });
+  await saveCard(env.DB, ORG, {
+    id: "c-done", recipientUserID: "bob", senderUserID: "alice",
+    status: "approved", title: "Print the flyers", priority: "medium", createdAt: "2026-08-11T00:00:00Z",
+    decision: { action: "approve", actorUserID: "bob", decidedAt: "2026-08-11T01:00:00Z" },
+  });
+  const { ws, messages } = await asAlice();
+  ws.send(JSON.stringify({ type: "card_deleted", payload: { cardId: "c-ask" } }));
+  expect(await until(async () => (await getCard(env.DB, ORG, "c-ask")) === null)).toBe(true);
+  ws.send(JSON.stringify({ type: "card_deleted", payload: { cardId: "c-done" } }));
+  expect(await message(messages, (m) => m.type === "RUN_ERROR")).toBeTruthy();
+  expect(await getCard(env.DB, ORG, "c-done")).toBeTruthy();
 });
 
 test("a decision is attributed to the session that made it", async () => {

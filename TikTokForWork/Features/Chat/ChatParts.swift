@@ -54,14 +54,22 @@ struct ChatRichText: View {
     }
 }
 
-/// Initials in a rounded square, as a chat client draws a person.
+/// Initials in a rounded square, as a chat client draws a person. An agent
+/// the team wrote is its emoji on a tile.
 struct ChatAvatar: View {
     let name: String
     var isAI = false
     var size: CGFloat = 36
+    /// Set for one of the team's agents: the face it was given.
+    var agentEmoji: String? = nil
     var body: some View {
         Group {
-            if isAI {
+            if let agentEmoji {
+                Text(agentEmoji).font(.system(size: size * 0.55))
+                    .frame(width: size, height: size)
+                    .background(Theme.Colors.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).stroke(Theme.Colors.accent.opacity(0.35), lineWidth: 1))
+            } else if isAI {
                 Image(systemName: "sparkles").font(.system(size: size * 0.42, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: size, height: size)
@@ -270,6 +278,24 @@ struct ChatAISteps: View {
     }
 }
 
+/// One of the team's agents writing its answer in a thread.
+struct ChatAgentTypingRow: View {
+    let agent: ChatAgentFace
+    var body: some View {
+        HStack(spacing: 10) {
+            ChatAvatar(name: agent.name, size: 28, agentEmoji: agent.glyph)
+            Text("\(agent.name) is writing…").font(.footnote.weight(.semibold)).foregroundStyle(Theme.Colors.textPrimary)
+            ProgressView().controlSize(.mini)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .glassPanel(cornerRadius: 16)
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .combine)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+}
+
 /// One message: who, when, the words (or a tombstone), what is under them.
 struct ChatMessageRow: View {
     let message: ChatMessage
@@ -293,6 +319,7 @@ struct ChatMessageRow: View {
 
     private var author: String {
         if message.isAI { return String(localized: "Your AI") }
+        if message.isAgent { return message.agent?.name ?? message.authorName ?? String(localized: "Agent") }
         if message.mine { return String(localized: "You") }
         return message.authorName ?? String(localized: "a teammate")
     }
@@ -303,7 +330,7 @@ struct ChatMessageRow: View {
                 Color.clear.frame(width: 36, height: 1)
             } else {
                 Button { if let ref = message.authorRef, !message.mine { onProfile(ref) } } label: {
-                    ChatAvatar(name: author, isAI: message.isAI)
+                    ChatAvatar(name: author, isAI: message.isAI, agentEmoji: message.isAgent ? (message.agent?.glyph ?? "🤖") : nil)
                 }.buttonStyle(.plain).disabled(message.authorRef == nil || message.mine)
             }
             VStack(alignment: .leading, spacing: 4) {
@@ -316,6 +343,13 @@ struct ChatMessageRow: View {
                         if message.isAI {
                             Text("AI").font(.caption2.weight(.heavy)).padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 4)).foregroundStyle(Theme.Colors.textSecondary)
+                        }
+                        if message.isAgent {
+                            Text("Agent").font(.caption2.weight(.heavy)).padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Theme.Colors.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 4)).foregroundStyle(Theme.Colors.accent)
+                            if let handle = message.agent?.handle, !handle.isEmpty {
+                                Text(verbatim: "@\(handle)").font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)
+                            }
                         }
                         Text(message.date, style: .time).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
                     }

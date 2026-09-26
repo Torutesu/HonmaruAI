@@ -741,7 +741,7 @@ await step('choosing a language changes the interface, and changing back returns
   // role under a name — was still English behind a Japanese card.
   const feedChrome = await page.evaluate(() =>
     [...document.querySelectorAll(
-      '.mode-switch button, .card-kind, .priority-legend, .rb-label, .rb-meta, .ask-bar input'
+      '.mode-switch button, .card-kind, .card-top-end .legend, .rb-label, .rb-meta, .ask-bar input'
     )].map((el) => (el.placeholder || el.innerText || '').trim()).filter(Boolean)
   )
   const feedEnglish = feedChrome.filter(
@@ -766,8 +766,12 @@ await step('choosing a language changes the interface, and changing back returns
   await page.waitForTimeout(300)
 }, {
   after: async () => {
-    // Whatever happened above, the app goes back to English and to the feed.
-    await page.evaluate(() => localStorage.setItem('locale', 'en'))
+    // Whatever happened above, the app goes back to English and to the feed
+    // — the account's language too, which every open of the app now follows.
+    await page.evaluate(async (api) => {
+      await fetch(`${api}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') || '' }, body: JSON.stringify({ locale: 'en' }) })
+      localStorage.setItem('locale', 'en')
+    }, API)
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('.tabbar', { timeout: 20000 })
   },
@@ -1187,17 +1191,32 @@ await step('a decided card opens in the workbench with its decision, Undo and th
 
 await step('the workbench reads in Japanese', async () => {
   const d = desk.pages()[0]
-  await d.evaluate(() => { localStorage.setItem('locale', 'ja') })
+  // The language is the account's: chosen anywhere — here, as another
+  // device would, straight through the Worker — it is what this browser
+  // shows when it opens, whatever it had stored.
+  const setAccountLocale = (locale) => d.evaluate(async ({ api, locale }) => {
+    await fetch(`${api}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') || '' }, body: JSON.stringify({ locale }) })
+  }, { api: API, locale })
+  await setAccountLocale('ja')
+  await d.evaluate(() => { localStorage.setItem('locale', 'en') })
   await d.reload({ waitUntil: 'load' })
   await d.waitForSelector('.inbox', { timeout: 20000 })
   await d.waitForFunction(() => /あなた待ち/.test(document.querySelector('.inbox')?.textContent || ''), null, { timeout: 10000 })
-    .catch(() => { throw new Error('the inbox heading is not in Japanese') })
+    .catch(async () => {
+      const seen = await d.evaluate(async (api) => ({
+        lang: document.documentElement.lang,
+        stored: localStorage.getItem('locale'),
+        account: await fetch(`${api}/me`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') || '' } }).then((r) => r.json()).then((m) => m.locale).catch((e) => String(e)),
+      }), API)
+      throw new Error(`the inbox heading is not in Japanese: ${JSON.stringify(seen)}`)
+    })
   await d.keyboard.press('Control+k')
   await d.waitForSelector('.palette-input', { timeout: 5000 })
   const placeholder = await d.$eval('.palette-input', (el) => el.placeholder)
   if (!/決定/.test(placeholder)) throw new Error(`the palette placeholder is not in Japanese: ${placeholder}`)
   await d.keyboard.press('Escape')
   await d.screenshot({ path: `${SHOTS}/20f-desktop-ja.png` })
+  await setAccountLocale('en')
   await d.evaluate(() => { localStorage.removeItem('locale') })
 })
 
@@ -2786,6 +2805,114 @@ await step('a star, a section of your own, and a user group one mention reaches'
     if (!named) throw new Error('a mention of the group did not reach someone in it')
   } catch (err) {
     await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-desk.png` }).catch(() => {})
+    throw err
+  } finally {
+    await desk.close()
+  }
+})
+
+await step('the team writes an agent: from a preset, as a .md file, and @called it answers in the thread', async () => {
+  await closeEverything()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 390, height: 844 })
+  const stamp = Date.now() % 100000
+  const handle = `sec${stamp}`
+  const own = `mine${stamp}`
+  try {
+    await desk.goto(`${WEB}#/agents`, { waitUntil: 'load' })
+    await desk.waitForSelector('.ca-preset[data-preset="secretary"]', { timeout: 20000 })
+      .catch(() => { throw new Error('the Agents screen shows no presets') })
+    await noSpill(desk, '.screen', 'Agents on a phone')
+    await desk.setViewportSize({ width: 1280, height: 820 })
+
+    // A preset, added as the team's, under an @name of its own.
+    await desk.click('.ca-preset[data-preset="secretary"] .pill-btn')
+    await desk.waitForSelector('.ca-dialog .ca-handle-input', { timeout: 5000 })
+    if (!/secretary/i.test(await desk.inputValue('.ca-dialog .ca-handle-input'))) throw new Error('the preset did not fill the editor')
+    await desk.fill('.ca-dialog .ca-handle-input', handle)
+    await desk.click('.ca-dialog .ca-tabs [role="tab"]:has-text("Preview")')
+    await desk.waitForSelector('.ca-dialog .ca-preview .ca-md h2', { timeout: 5000 })
+      .catch(() => { throw new Error('the preview does not draw the Markdown') })
+    await desk.click('.ca-dialog .ca-save')
+    const row = `.ca-list[data-scope="team"] .ca-row[data-agent-handle="${handle}"]`
+    await desk.waitForSelector(row, { timeout: 10000 }).catch(() => { throw new Error('the agent added from a preset is not listed') })
+    await desk.screenshot({ path: `${SHOTS}/63-agents.png` })
+
+    // Its editor holds its instructions; its file is itself.
+    await desk.click(`${row} .btn-text:has-text("Edit")`)
+    await desk.waitForSelector('.ca-dialog .ca-instructions', { timeout: 5000 })
+    if (!/^# /m.test(await desk.inputValue('.ca-dialog .ca-instructions'))) throw new Error('the editor does not hold the instructions')
+    await desk.click('.ca-dialog .dlg-btn:has-text("Cancel")')
+    const [file] = await Promise.all([desk.waitForEvent('download', { timeout: 10000 }), desk.click(`${row} .btn-text:has-text("Download .md")`)])
+    if (file.suggestedFilename() !== `${handle}.md`) throw new Error(`the download is named ${file.suggestedFilename()}`)
+    const md = readFileSync(await file.path(), 'utf8')
+    if (!md.includes(`handle: ${handle}`) || !/^---\n/.test(md)) throw new Error(`the .md is not the agent: ${md.slice(0, 120)}`)
+
+    // A file brought in, as your own.
+    await desk.setInputFiles('.ca-file', {
+      name: `${own}.md`, mimeType: 'text/markdown',
+      buffer: Buffer.from(`---\nname: My helper\nhandle: ${own}\nemoji: 🧪\nscope: personal\n---\n\n# My helper\n\nAnswer in one line.\n`),
+    })
+    const mineRow = `.ca-list[data-scope="personal"] .ca-row[data-agent-handle="${own}"]`
+    await desk.waitForSelector(mineRow, { timeout: 10000 }).catch(() => { throw new Error('the imported agent is not under Only you') })
+
+    // "@sec…" in a channel offers it; called, it answers in the thread under
+    // the message, as itself (no model here: it says so, as the agent).
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.slk-side .cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view="b:kitchen"] .cl-open')
+    await desk.click('.slk-composer .slk-input')
+    await desk.keyboard.type(`@${handle.slice(0, -1)}`)
+    await desk.waitForSelector(`.mention-option[data-mention-option="agent:${handle}"]`, { timeout: 5000 })
+      .catch(() => { throw new Error('"@" does not offer the agent') })
+    await desk.keyboard.press('Enter')
+    await desk.keyboard.type(`sum up the stock count ${stamp}`)
+    await desk.keyboard.press('Enter')
+    const said = `.slk-msg:has-text("sum up the stock count ${stamp}")`
+    await desk.waitForSelector(`${said} .slk-thread-link`, { timeout: 20000 })
+      .catch(() => { throw new Error('the agent did not answer in a thread') })
+    await desk.click(`${said} .slk-thread-link`)
+    await desk.waitForSelector('.slk-thread-pane .slk-msg:has(.slk-avatar.agent) .slk-author:has-text("Secretary")', { timeout: 15000 })
+      .catch(() => { throw new Error('the reply in the thread is not the agent, by its name and face') })
+    await desk.screenshot({ path: `${SHOTS}/64-agent-reply.png` })
+
+    // A conversation with it: "Message" on the Agents screen opens it in the
+    // list, like a DM. Everything said there is said to it — no @ — and it
+    // answers in the conversation itself, not a thread.
+    await desk.goto(`${WEB}#/agents`, { waitUntil: 'load' })
+    await desk.waitForSelector(`${row} .ca-message`, { timeout: 20000 })
+      .catch(() => { throw new Error('an agent has no Message button') })
+    const agentId = await desk.getAttribute(row, 'data-agent')
+    await desk.click(`${row} .ca-message`)
+    const convo = `.slk-side .cl-thread[data-view="ag:${agentId}"]`
+    await desk.waitForSelector(`${convo}.on`, { timeout: 20000 })
+      .catch(() => { throw new Error('Message did not open a conversation with the agent') })
+    await desk.waitForSelector(`.slk-head .slk-head-handle:has-text("@${handle}")`, { timeout: 5000 })
+      .catch(() => { throw new Error('the conversation’s header does not name the agent') })
+    const head = await desk.$eval('.slk-head h1', (el) => el.textContent)
+    const listed = await desk.$eval(`${convo} .cl-title`, (el) => el.textContent)
+    if (head !== listed || !/Secretary/.test(head || '')) throw new Error(`the agent's conversation is "${head}", listed as "${listed}"`)
+    const placeholder = await desk.getAttribute('.slk-composer .slk-input', 'placeholder')
+    if (placeholder !== `Message ${head}`) throw new Error(`the composer says "${placeholder}"`)
+    await desk.click('.slk-composer .slk-input')
+    await desk.keyboard.type(`what is on today ${stamp}`)
+    await desk.keyboard.press('Enter')
+    await desk.waitForSelector(`.slk-main .slk-msg:has-text("what is on today ${stamp}")`, { timeout: 15000 })
+    const answer = '.slk-main .slk-log .slk-msg:has(.slk-avatar.agent):has-text("no AI model")'
+    await desk.waitForSelector(answer, { timeout: 20000 })
+      .catch(() => { throw new Error('the agent did not answer in the conversation') })
+    if (!/Secretary/.test(await desk.$eval(`${answer} .slk-author`, (el) => el.textContent) || '')) throw new Error('the answer is not under the agent’s name')
+    if (await desk.$(`.slk-msg:has-text("what is on today ${stamp}") .slk-thread-link`)) throw new Error('the agent answered in a thread, not the conversation')
+    await desk.screenshot({ path: `${SHOTS}/64b-agent-conversation.png` })
+
+    // Yours to delete.
+    await desk.goto(`${WEB}#/agents`, { waitUntil: 'load' })
+    await desk.waitForSelector(mineRow, { timeout: 20000 })
+    await desk.click(`${mineRow} .btn-text.danger`)
+    await desk.click(`${mineRow} .pill-btn:has-text("Delete")`)
+    await desk.waitForSelector(mineRow, { state: 'detached', timeout: 10000 }).catch(() => { throw new Error('the deleted agent is still listed') })
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-agents.png` }).catch(() => {})
     throw err
   } finally {
     await desk.close()

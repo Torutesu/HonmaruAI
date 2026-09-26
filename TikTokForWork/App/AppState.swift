@@ -129,6 +129,18 @@ final class AppState: ObservableObject {
         await ProfileService.setLocale(readerLanguageCode, backendBaseURL: base)
     }
 
+    /// Take the account's language when another device changed it. The
+    /// screens can be in five languages; a reader language beyond them still
+    /// reaches cards and notifications, and the screens stay as they are.
+    func adoptAccountLanguage() async {
+        guard isAuthenticated, !isGuest, let base = backendBaseURL,
+              let code = await ProfileService.locale(backendBaseURL: base) else { return }
+        let primary = String(code.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" }).first ?? "")
+        guard primary != language.readerLanguageCode,
+              let chosen = AppLanguage(rawValue: primary), chosen != .system else { return }
+        language = chosen
+    }
+
     /// The reader language to send to the AI for card generation.
     var readerLanguageCode: String { language.readerLanguageCode }
 
@@ -326,7 +338,7 @@ final class AppState: ObservableObject {
         guard generation == sessionGeneration else { return }
         PushService.shared.registerExistingToken(sessionToken: token)
         Task { await refreshWorkspaceMembers() }
-        Task { await syncLanguageToBackend() }
+        Task { await adoptAccountLanguage() }
     }
 
     func activateGitHubSession(connection: GitHubConnection) async {
@@ -375,10 +387,11 @@ final class AppState: ObservableObject {
         // Load the org in the background so entry never blocks on reachability.
         Task { await loadOrganization(owner: orgOwner(orgId), repo: orgRepo(orgId)) }
         Task { await refreshWorkspaceMembers() }
-        // And the language this person reads, so the first notification is
-        // already in it — the server seeded one from the device on sign-in,
-        // but the in-app toggle is the choice that counts.
-        Task { await syncLanguageToBackend() }
+        // And the account's language: chosen here, on the web or on another
+        // phone, it is one choice. Pushing this phone's language on every
+        // start used to overwrite a choice made anywhere else, and the web
+        // stayed in English beside cards written in Japanese.
+        Task { await adoptAccountLanguage() }
     }
 
     private func orgOwner(_ full: String) -> String { full.split(separator: "/").first.map(String.init) ?? "" }

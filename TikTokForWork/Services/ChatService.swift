@@ -60,8 +60,12 @@ struct ChatMessage: Codable, Identifiable, Hashable {
     var pinned: Bool?
     var reactions: [ChatReaction]?
     var files: [ChatFile]?
+    /// Set when one of the team's agents wrote it: its name and face.
+    var agent: ChatAgentFace?
 
     var isAI: Bool { kind == "ai" }
+    /// Written by an agent the team made ("@hayao"), not by a person.
+    var isAgent: Bool { kind == "agent" }
     var isDeleted: Bool { deleted == true }
     var date: Date { ChatDates.parse(createdAt) ?? .distantPast }
 }
@@ -114,6 +118,59 @@ struct ChatOverview: Codable {
     let prefs: [String: String]?
     let mine: ChatMine?
     let groups: [ChatGroup]?
+    /// The agents you can call here. Absent from an older Worker.
+    let agents: [ChatAgent]?
+}
+
+/// An agent as a message carries it: who wrote the reply.
+struct ChatAgentFace: Codable, Hashable {
+    let id: String
+    let handle: String
+    let name: String
+    let emoji: String?
+
+    var glyph: String { ChatAgent.glyph(emoji) }
+}
+
+/// An agent the team wrote: "@hayao" answers as its Markdown instructions
+/// say. The overview sends only who it is; `/channels/agents` sends the
+/// rest — its instructions, who made it, what you may do to it, the file.
+struct ChatAgent: Codable, Identifiable, Hashable {
+    let id: String
+    let handle: String
+    let name: String
+    let emoji: String?
+    let description: String?
+    /// "team" (anyone may call and improve it) or "personal" (only yours).
+    let scope: String?
+    let instructions: String?
+    let preset: String?
+    let createdBy: String?
+    let createdByName: String?
+    let mine: Bool?
+    let updatedByName: String?
+    let updatedAt: String?
+    let canEdit: Bool?
+    let canDelete: Bool?
+    /// The agent as a .md file: front matter, then its instructions.
+    let markdown: String?
+
+    var isPersonal: Bool { scope == "personal" }
+    var glyph: String { Self.glyph(emoji) }
+    static func glyph(_ emoji: String?) -> String {
+        guard let e = emoji?.trimmingCharacters(in: .whitespaces), !e.isEmpty else { return "🤖" }
+        return e
+    }
+}
+
+/// An agent most teams want, to add and then change.
+struct ChatAgentPreset: Codable, Identifiable, Hashable {
+    let id: String
+    let handle: String
+    let emoji: String?
+    let name: String
+    let description: String
+    let instructions: String
 }
 
 struct ChatActivityItem: Codable, Identifiable, Hashable {
@@ -590,6 +647,54 @@ enum ChatService {
         if let d = parsed.monthday { b["monthday"] = d }
         _ = try await call("POST", "/routines", base: base, body: b, as: R.self)
         return parsed.schedule ?? ""
+    }
+
+    // MARK: Agents
+
+    struct Agents: Decodable {
+        let agents: [ChatAgent]
+        let presets: [ChatAgentPreset]?
+    }
+    struct AgentSaved: Decodable {
+        let agent: ChatAgent?
+        let agents: [ChatAgent]
+    }
+
+    /// The agents you may call here, and the presets to start one from.
+    static func agents(orgId: String, locale: String? = nil, base: URL) async throws -> Agents {
+        var q = ["orgId": orgId]
+        if let locale { q["locale"] = locale }
+        return try await call("GET", "/channels/agents", base: base, query: q, as: Agents.self)
+    }
+
+    /// A new agent, from the form.
+    static func createAgent(orgId: String, name: String, handle: String, emoji: String, description: String, instructions: String, scope: String, preset: String? = nil, base: URL) async throws -> AgentSaved {
+        var b: [String: Any] = [
+            "orgId": orgId, "name": name, "handle": handle, "emoji": emoji,
+            "description": description, "instructions": instructions, "scope": scope,
+        ]
+        if let preset { b["preset"] = preset }
+        return try await call("POST", "/channels/agents", base: base, body: b, as: AgentSaved.self)
+    }
+
+    /// A new agent, from a .md file; the file says who it is.
+    static func createAgent(fromMarkdown markdown: String, scope: String? = nil, orgId: String, base: URL) async throws -> AgentSaved {
+        var b: [String: Any] = ["orgId": orgId, "markdown": markdown]
+        if let scope { b["scope"] = scope }
+        return try await call("POST", "/channels/agents", base: base, body: b, as: AgentSaved.self)
+    }
+
+    static func updateAgent(orgId: String, id: String, name: String, handle: String, emoji: String, description: String, instructions: String, scope: String, base: URL) async throws -> AgentSaved {
+        let b: [String: Any] = [
+            "orgId": orgId, "id": id, "name": name, "handle": handle, "emoji": emoji,
+            "description": description, "instructions": instructions, "scope": scope,
+        ]
+        return try await call("PUT", "/channels/agents", base: base, body: b, as: AgentSaved.self)
+    }
+
+    static func deleteAgent(orgId: String, id: String, base: URL) async throws -> [ChatAgent] {
+        struct R: Decodable { let agents: [ChatAgent] }
+        return try await call("DELETE", "/channels/agents", base: base, body: ["orgId": orgId, "id": id], as: R.self).agents
     }
 
     // MARK: You

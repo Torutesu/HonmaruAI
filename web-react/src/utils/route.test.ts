@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRoute, hashForJoin, hashForCard, hashForScreen } from './route'
+import { parseRoute, hashForJoin, hashForCard, hashForScreen, hashForView } from './route'
 
 // The URL says where you are, and what a link you were sent opens.
 describe('parseRoute', () => {
@@ -26,6 +26,8 @@ describe('parseRoute', () => {
     expect(hashForScreen('automations')).toBe('#/automations')
     expect(hashForScreen('playbook')).toBe('#/playbook')
     expect(parseRoute(hashForScreen('playbook')).screen).toBe('playbook')
+    expect(parseRoute('#/agents').screen).toBe('agents')
+    expect(hashForScreen('agents')).toBe('#/agents')
   })
 
   it('names no screen for a path that is not one', () => {
@@ -44,4 +46,10 @@ it('a Jam link opens the list on the conversation and joins its call', () => {
   expect(parseRoute('#/jam/b:kitchen')).toMatchObject({ mode: 'classic', jamView: 'b:kitchen' })
   expect(parseRoute('#/jam/g%3A0123456789abcdef').jamView).toBe('g:0123456789abcdef')
   expect(parseRoute('#/jam/javascript:alert(1)').jamView).toBeNull()
+})
+
+it('a conversation link opens the list on it — an agent’s too', () => {
+  expect(parseRoute(hashForView('ag:agent_1'))).toMatchObject({ mode: 'classic', openView: 'ag:agent_1' })
+  expect(parseRoute('#/c/b:kitchen').openView).toBe('b:kitchen')
+  expect(parseRoute('#/c/javascript:alert(1)').openView).toBeNull()
 })

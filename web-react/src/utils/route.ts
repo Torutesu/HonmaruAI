@@ -12,12 +12,14 @@ import { useCallback, useEffect, useState } from 'react'
 //   #/list            the same cards as a list
 //   #/m/<messageId>   one message in the list, for whoever can read it
 //   #/jam/<view>      a conversation's Jam, joined — what the phone app opens
+//   #/c/<view>        a conversation, opened in the list — `ag:<id>` is one with an agent
 //   #/history … #/tools … #/you … #/team … #/insights … #/plans … #/notifications
 //   #/automations     what your AI does on a schedule
 //   #/playbook        the rules it follows
+//   #/agents          the team's own agents: @hayao and the rest
 //   #/join/<code>     an invitation: sign up into the team, or join it
 
-export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights' | 'automations' | 'playbook'
+export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights' | 'automations' | 'playbook' | 'agents'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
@@ -32,17 +34,19 @@ export interface Route {
   messageId?: string | null
   /// A conversation (as this person names it) whose Jam to join.
   jamView?: string | null
+  /// A conversation (as this person names it) to open in the list.
+  openView?: string | null
 }
 
 const SCREEN_BY_PATH: Record<string, Screen> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', you: 'profile', team: 'team', insights: 'insights',
-  automations: 'automations', playbook: 'playbook',
+  automations: 'automations', playbook: 'playbook', agents: 'agents',
 }
 const PATH_BY_SCREEN: Record<Screen, string> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', profile: 'you', team: 'team', insights: 'insights',
-  automations: 'automations', playbook: 'playbook',
+  automations: 'automations', playbook: 'playbook', agents: 'agents',
 }
 
 export function parseRoute(hash: string): Route {
@@ -65,6 +69,11 @@ export function parseRoute(hash: string): Route {
     try { view = decodeURIComponent(view) } catch { /* as written */ }
     return { screen: null, mode: 'classic', cardId: null, join: null, jamView: /^(b|dm|g):[^\s]{1,200}$/.test(view) ? view : null }
   }
+  if (head === 'c') {
+    let view = rest.join('/')
+    try { view = decodeURIComponent(view) } catch { /* as written */ }
+    return { screen: null, mode: 'classic', cardId: null, join: null, openView: /^(b|dm|g|ag):[^\s]{1,200}$/.test(view) ? view : null }
+  }
   if (head === 'join') {
     const code = (rest[0] || '').trim()
     return { screen: null, mode: null, cardId: null, join: /^[0-9a-f]{16,64}$/i.test(code) ? code.toLowerCase() : null }
@@ -77,6 +86,8 @@ export function parseRoute(hash: string): Route {
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
 export function hashForCard(cardId: string): string { return `#/feed/${encodeURIComponent(cardId)}` }
 export function hashForMode(mode: Mode): string { return mode === 'classic' ? '#/list' : '#/feed' }
+/// A conversation, opened in the list: `#/c/ag%3A<id>` for one with an agent.
+export function hashForView(view: string): string { return `#/c/${encodeURIComponent(view)}` }
 export function hashForJoin(code: string): string { return `#/join/${encodeURIComponent(code)}` }
 
 function currentHash(): string {

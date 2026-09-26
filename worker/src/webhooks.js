@@ -96,7 +96,7 @@ async function scopeOf(db, orgId, key) {
   const participants = await audienceOf(db, orgId, key);
   if (!participants) return {};
   const k = String(key || "");
-  return { participants, direct: k.startsWith("dm:") || k.startsWith("g:") };
+  return { participants, direct: k.startsWith("dm:") || k.startsWith("g:") || k.startsWith("ag:") };
 }
 
 /// Whether the member who made a webhook could see this event.
@@ -211,6 +211,12 @@ async function nameOf(db, login) {
   return row?.name || null;
 }
 
+async function agentNameOf(db, orgId, login) {
+  const id = String(login || "").replace(/^agent:/, "");
+  const row = await db.prepare("SELECT name FROM custom_agents WHERE org_id = ?1 AND id = ?2").bind(orgId, id).first().catch(() => null);
+  return row?.name || null;
+}
+
 /// A channel message, created or changed.
 /// Whether any webhook in the workspace wants this event at all — asked
 /// first, so a workspace with none (most) pays one query per event, not the
@@ -233,7 +239,8 @@ export async function emitMessage(env, orgId, row, { updated = false } = {}) {
       id: row.id,
       channel: await channelLabel(env.DB, orgId, row.channel),
       text: row.deleted_at ? "" : String(row.body || ""),
-      author: row.author_login ? { name: await nameOf(env.DB, row.author_login) } : { name: "AI", ai: true },
+      author: row.kind === "agent" ? { name: await agentNameOf(env.DB, orgId, row.author_login), agent: true }
+        : row.author_login ? { name: await nameOf(env.DB, row.author_login) } : { name: "AI", ai: true },
       parentId: row.parent_id || null,
       createdAt: row.created_at,
       editedAt: row.edited_at || null,

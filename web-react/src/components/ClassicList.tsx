@@ -9,7 +9,8 @@ import { displayName, properName } from '../utils/names'
 import { Icon } from './Icon'
 import { BrandLogo, isBrand } from './BrandLogo'
 import { useT } from '../utils/i18n'
-import { useMembers } from '../utils/mentions'
+import { useMembers, agentMentionables } from '../utils/mentions'
+import type { AgentFace } from '../utils/mentions'
 import { useMentionMenu } from './MentionMenu'
 import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/customEmoji'
 import { DailyReportDraft } from './DailyReport'
@@ -75,14 +76,16 @@ interface Props {
   onRenameChannel: (slug: string, name: string) => Promise<string | null>
   onDeleteChannel: (slug: string) => Promise<string | null>
   /// Another screen: the team to invite, tools to connect, you.
-  onOpenScreen?: (screen: 'team' | 'tools' | 'profile') => void
+  onOpenScreen?: (screen: 'team' | 'tools' | 'profile' | 'agents') => void
 }
 
 /// One conversation in the sidebar: a channel (a business), a person, or an app.
 interface Thread {
   key: string
   /// A group is a DM with several people (`g:<id>`).
-  kind: 'channel' | 'person' | 'group' | 'app'
+  kind: 'channel' | 'person' | 'group' | 'app' | 'agent'
+  /// The agent, for a conversation with one (`ag:<id>`).
+  agent?: AgentFace
   /// A group's people besides you, by ref.
   refs?: string[]
   /// A channel only its members see.
@@ -134,8 +137,11 @@ interface Member {
   awayUntil?: string | null
 }
 interface Activity { channel: string; lastAt: string; preview: string; lastBy: string | null }
+/// One of the team's agents answering somewhere.
+interface AgentWriting { id: string; name: string; emoji: string | null; parentId: string | null }
 /// Whose face goes beside something: a name, and their photo if they have one.
-interface Face { name: string; url?: string | null }
+/// `emoji`: an agent's face — a tile, not a person's photo.
+interface Face { name: string; url?: string | null; emoji?: string | null }
 /// One notification: somebody named you, replied in your thread, or reacted
 /// to what you wrote.
 /// A thread you are in: its first message, the last replies, how many.
@@ -281,6 +287,20 @@ export const ClassicList: React.FC<Props> = ({
   const [moveSheet, setMoveSheet] = useState<string | null>(null)
   // User groups: "@sales" in the composer, like a person.
   const [userGroups, setUserGroups] = useState<UserGroup[]>([])
+  // The team's agents, and your own: "@hayao" answers in the thread.
+  const [agents, setAgents] = useState<AgentFace[]>([])
+  // Agents you started a conversation with here, before either of you said
+  // anything: listed like the ones with something said.
+  const [startedAgents, setStartedAgents] = useState<string[]>([])
+  useEffect(() => {
+    // Made, changed or deleted on the Agents screen: the names "@" offers follow.
+    const on = () => {
+      fetch(`${api.httpBase}/channels/agents?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+        .then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.agents) setAgents(d.agents) }).catch(() => {})
+    }
+    window.addEventListener('honmaru:agents-changed', on)
+    return () => window.removeEventListener('honmaru:agents-changed', on)
+  }, [api.httpBase, api.orgId, authHeaders])
   useEffect(() => {
     fetch(`${api.httpBase}/channels/usergroups?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.groups) setUserGroups(d.groups) }).catch(() => {})
@@ -298,6 +318,7 @@ export const ClassicList: React.FC<Props> = ({
         setActivity(Object.fromEntries((data.activity || []).map((a: Activity) => [a.channel, a])))
         setServerReads(data.reads || {})
         setPrefs(data.prefs || {})
+        if (Array.isArray(data.agents)) setAgents(data.agents)
       })
       .catch(() => { /* the list still shows every decision */ })
     return () => { ignore = true }
@@ -329,7 +350,7 @@ export const ClassicList: React.FC<Props> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, sent, decided, presence])
 
-  const { channels, people, apps } = useMemo(() => {
+  const { channels, people, apps, agentConvos } = useMemo(() => {
     const all = new Map<string, DecisionCard>()
     for (const c of [...pending, ...sent, ...decided]) all.set(c.id, c)
     const cards = [...all.values()].sort(newestFirst)
@@ -408,11 +429,18 @@ export const ClassicList: React.FC<Props> = ({
         { icon: app === 'ai' ? 'plus' : (APP_ICON[app] || 'box'), app }, own, app === 'ai'))
       .filter((x): x is Thread => x !== null)
 
-    return { channels, people, apps }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads, prefs, groups])
+    // Conversations with the team's agents: each one you have talked to,
+    // the one you just started, newest first.
+    const agentConvos = agents
+      .filter((a) => activity[`ag:${a.id}`] || startedAgents.includes(a.id))
+      .map((a) => withTalk(build('agent', `agent:${a.id}`, a.name, { view: `ag:${a.id}`, agent: a }, [], true)!))
+      .sort((a, b) => latestOf(b).localeCompare(latestOf(a)) || a.name.localeCompare(b.name))
 
-  const everything = useMemo(() => [...channels, ...people, ...apps], [channels, people, apps])
+    return { channels, people, apps, agentConvos }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads, prefs, groups, agents, startedAgents])
+
+  const everything = useMemo(() => [...channels, ...people, ...agentConvos, ...apps], [channels, people, agentConvos, apps])
 
   // Which conversation is open. On a laptop one always is — the first with
   // something waiting on you, else the first there is — the way a chat
@@ -440,6 +468,14 @@ export const ClassicList: React.FC<Props> = ({
     setRenaming(null)
     setSettings(false)
     try { if (key) sessionStorage.setItem('list.open', key); else sessionStorage.removeItem('list.open') } catch {}
+  }
+
+  /// A conversation with one of the team's agents: listed, and open.
+  const [agentPicking, setAgentPicking] = useState(false)
+  const openAgent = (id: string) => {
+    setAgentPicking(false)
+    setStartedAgents((prev) => (prev.includes(id) ? prev : [...prev, id]))
+    choose(`agent:${id}`)
   }
 
   // Bringing people or an agent in, from the list itself.
@@ -595,7 +631,7 @@ export const ClassicList: React.FC<Props> = ({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-        const list = [...channels, ...people, ...apps]
+        const list = [...channels, ...people, ...agentConvos, ...apps]
         if (!list.length) return
         e.preventDefault()
         const i = list.findIndex((x) => x.key === current?.key)
@@ -628,6 +664,9 @@ export const ClassicList: React.FC<Props> = ({
           <b>{(thread.refs || []).length + 1}</b>
         </span>
       )
+    }
+    if (thread.kind === 'agent') {
+      return <span className={`cl-lead cl-agent sz-${size}`} aria-hidden="true">{thread.agent?.emoji || '🤖'}</span>
     }
     if (thread.kind === 'person') {
       return (
@@ -694,6 +733,31 @@ export const ClassicList: React.FC<Props> = ({
       <Icon name="plus" size={14} />
     </button>
   )
+  // A conversation with an agent: "+" lists every agent you can call.
+  const addAgent = (
+    <button type="button" className="cl-add" onClick={() => setAgentPicking((v) => !v)} aria-label={t('Talk to an agent')} title={t('Talk to an agent')} aria-expanded={agentPicking} data-add-agent="1">
+      <Icon name="plus" size={14} />
+    </button>
+  )
+  const agentPicker = agentPicking ? (
+    <ul className="cl-agent-pick" role="menu" aria-label={t('Talk to an agent')}>
+      {agents.map((a) => (
+        <li key={a.id}>
+          <button type="button" role="menuitem" className="cl-agent-option" onClick={() => openAgent(a.id)} data-pick-agent={a.id}>
+            <span className="cl-lead cl-agent sz-row" aria-hidden="true">{a.emoji || '🤖'}</span>
+            <span className="cl-agent-option-name">{a.name}</span>
+            <span className="cl-agent-option-handle">@{a.handle}</span>
+          </button>
+        </li>
+      ))}
+      <li>
+        <button type="button" role="menuitem" className="cl-agent-option cl-agent-manage" onClick={() => { setAgentPicking(false); onOpenScreen?.('agents') }} data-manage-agents="1">
+          <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="settings" size={13} /></span>
+          <span className="cl-agent-option-name">{t('Make or change agents')}</span>
+        </button>
+      </li>
+    </ul>
+  ) : null
   const addChannelForm = adding ? (
     <form className="cl-inline-form cl-add-form" onSubmit={(e) => { e.preventDefault(); void createChannel() }}>
       <span className="cl-hash-small" aria-hidden="true">#</span>
@@ -735,6 +799,13 @@ export const ClassicList: React.FC<Props> = ({
   // Conversations where the AI is writing a card right now.
   // …and which step it is on: reading, routing, writing.
   const [thinking, setThinking] = useState<Record<string, string | false>>({})
+  // The team's agents writing, per conversation: "🎨 Hayao is writing…"
+  // in the thread it answers in.
+  const [agentsWriting, setAgentsWriting] = useState<Record<string, AgentWriting[]>>({})
+  const agentDone = useCallback((channel: string, id?: string | null) => {
+    if (!id) return
+    setAgentsWriting((prev) => (prev[channel]?.some((a) => a.id === id) ? { ...prev, [channel]: prev[channel].filter((a) => a.id !== id) } : prev))
+  }, [])
   const composer = useRef<HTMLTextAreaElement>(null)
   const view = current?.view
   // Whether there is more above what is loaded, per conversation.
@@ -831,6 +902,7 @@ export const ClassicList: React.FC<Props> = ({
           return { ...prev, replies }
         })
         if (m.kind === 'ai') setThinking((prev) => ({ ...prev, [m.channel]: false }))
+        if (m.kind === 'agent') agentDone(m.channel, m.agent?.id)
         return
       }
       if (m.channel.startsWith('g:') && !groupsRef.current.some((g) => g.view === m.channel)) setChannelsTick((n) => n + 1)
@@ -851,20 +923,34 @@ export const ClassicList: React.FC<Props> = ({
         setThinking((prev) => ({ ...prev, [m.channel]: false }))
         void loadMessages(m.channel)
       }
+      if (m.kind === 'agent') agentDone(m.channel, m.agent?.id)
     }
     window.addEventListener('honmaru:channel-message', on)
     return () => window.removeEventListener('honmaru:channel-message', on)
-  }, [members, loadMessages, maybeNewEmoji])
+  }, [members, loadMessages, maybeNewEmoji, agentDone])
   // The AI's steps, as it takes them.
   useEffect(() => {
     const on = (e: Event) => {
-      const p = (e as CustomEvent<{ channel: string; step: string }>).detail
+      const p = (e as CustomEvent<{ channel: string; step: string; parentId?: string | null; agent?: { id: string; name: string; emoji?: string | null } }>).detail
       if (!p?.channel) return
+      // One of the team's agents: its own line, not the AI's steps.
+      if (p.agent?.id) {
+        const a = p.agent
+        if (p.step === 'agent') {
+          setAgentsWriting((prev) => ({
+            ...prev,
+            [p.channel]: [...(prev[p.channel] || []).filter((x) => x.id !== a.id), { id: a.id, name: a.name, emoji: a.emoji || null, parentId: p.parentId || null }],
+          }))
+          // A "done" that never came does not leave it writing forever.
+          setTimeout(() => agentDone(p.channel, a.id), 120_000)
+        } else agentDone(p.channel, a.id)
+        return
+      }
       setThinking((prev) => ({ ...prev, [p.channel]: p.step === 'done' || p.step === 'failed' ? false : p.step }))
     }
     window.addEventListener('honmaru:channel-progress', on)
     return () => window.removeEventListener('honmaru:channel-progress', on)
-  }, [])
+  }, [agentDone])
 
   const send = async (channel: string, decide: boolean, parentId?: string, sendAt?: string) => {
     let body = (parentId ? threadDraft : draft).trim()
@@ -899,7 +985,7 @@ export const ClassicList: React.FC<Props> = ({
       }
       const msg = data.message as ChannelMessage
       // Sent: a small confirmation, in a direct conversation — as Slack does.
-      if (channel.startsWith('dm:')) playSound('sent')
+      if (channel.startsWith('dm:') || channel.startsWith('ag:')) playSound('sent')
       up.clear()
       if (parentId) {
         setThreadDraft('')
@@ -1065,6 +1151,8 @@ export const ClassicList: React.FC<Props> = ({
   const [toolsOpen, setToolsOpen] = useState<string | null>(null)
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const [thread, setThread] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[] } | null>(null)
+  /// The thread open beside the conversation, whose agents write there.
+  const threadOpenParent = thread?.parent.id || null
   const [threadDraft, setThreadDraft] = useState('')
   const threadComposer = useRef<HTMLTextAreaElement>(null)
   const [pins, setPins] = useState<ChannelMessage[] | null>(null)
@@ -1091,7 +1179,7 @@ export const ClassicList: React.FC<Props> = ({
     if (!wide) choose(null)
   }
   /// Forward into another conversation. From a closed one only a link goes.
-  const isClosed = (view: string) => view.startsWith('dm:') || view.startsWith('g:') || Boolean(everything.find((x) => x.view === view)?.private)
+  const isClosed = (view: string) => view.startsWith('dm:') || view.startsWith('g:') || view.startsWith('ag:') || Boolean(everything.find((x) => x.view === view)?.private)
   const forwardTo = async (from: string, m: ChannelMessage, to: string, comment: string) => {
     const link = `${location.origin}${location.pathname}#/m/${encodeURIComponent(m.id)}`
     const src = everything.find((x) => x.view === from)
@@ -1270,6 +1358,23 @@ export const ClassicList: React.FC<Props> = ({
       if (saved && everything.length) { sessionStorage.removeItem('list.jamView'); setTimeout(() => go(saved), 300) }
     } catch { /* nothing to join */ }
     return () => window.removeEventListener('honmaru:join-jam', on)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [everything.length])
+  // A conversation to open, from a link or another screen ("Message" on an
+  // agent): one with an agent opens even before anything is said in it.
+  useEffect(() => {
+    const go = (view: string) => {
+      if (view.startsWith('ag:')) { setPhoneTab('home'); openAgent(view.slice(3)); return }
+      const th = everything.find((x) => x.view === view)
+      if (th) choose(th.key)
+    }
+    const on = (e: Event) => { try { sessionStorage.removeItem('list.openView') } catch {}; go(String((e as CustomEvent).detail || '')) }
+    window.addEventListener('honmaru:open-view', on)
+    try {
+      const saved = sessionStorage.getItem('list.openView')
+      if (saved && (saved.startsWith('ag:') || everything.length)) { sessionStorage.removeItem('list.openView'); go(saved) }
+    } catch { /* nothing to open */ }
+    return () => window.removeEventListener('honmaru:open-view', on)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [everything.length])
   const decideMessage = async (channel: string, m: ChannelMessage) => {
@@ -1499,7 +1604,8 @@ export const ClassicList: React.FC<Props> = ({
     { ref: '__ai', name: 'AI' } as (typeof mentionable)[number],
     ...mentionable,
     ...userGroups.map((g) => ({ ref: `group:${g.handle}`, name: g.name, handle: g.handle, title: t('{n} people', { n: g.refs.length }) }) as (typeof mentionable)[number]),
-  ], [mentionable, userGroups, t])
+    ...agentMentionables(agents, mentionable),
+  ], [mentionable, userGroups, agents, t])
   const mention = useMentionMenu(composer, draft, setDraft, withAI)
   const threadMention = useMentionMenu(threadComposer, threadDraft, setThreadDraft, withAI)
 
@@ -1534,8 +1640,15 @@ export const ClassicList: React.FC<Props> = ({
     const h = login ? hashes.get(login) : undefined
     return h ? members.find((x) => x.loginHash === h) : undefined
   }
+  /// Who wrote a message, as its line says: your AI, one of the team's
+  /// agents by its own name, you, or a teammate.
+  const whoSaid = (m: ChannelMessage) => (m.kind === 'ai' ? t('Your AI')
+    : m.kind === 'agent' ? (m.agent?.name || m.authorName || t('Agent'))
+    : m.mine ? t('You') : (m.authorName || t('a teammate')))
   /// The face beside a message: yours, or whoever wrote it.
-  const faceOfMessage = (m: ChannelMessage): Face => (m.mine
+  const faceOfMessage = (m: ChannelMessage): Face => (m.kind === 'agent'
+    ? { name: whoSaid(m), emoji: m.agent?.emoji || '🤖' }
+    : m.mine
     ? { name: myName || t('You'), url: myAvatar }
     : { name: m.authorName || t('a teammate'), url: m.authorAvatar || memberByRef(m.authorRef)?.avatarUrl || null })
 
@@ -1618,6 +1731,7 @@ export const ClassicList: React.FC<Props> = ({
     ? <span className="slk-avatar app">{app === 'ai'
         ? <img src="/icon.svg" alt="" width={36} height={36} />
         : isBrand(app) ? <BrandLogo brand={app} size={20} /> : <Icon name={APP_ICON[app] || 'box'} size={18} />}</span>
+    : face?.emoji ? <span className="slk-avatar agent">{face.emoji}</span>
     : <span className="slk-avatar face"><Avatar name={face?.name || '?'} url={face?.url} size={36} /></span>
 
   /// One block of a conversation: a gutter, a name and a time — or, joined
@@ -1636,7 +1750,7 @@ export const ClassicList: React.FC<Props> = ({
             {opts.authorRef
               ? <button type="button" className="slk-author link" onClick={() => void openProfile(opts.authorRef!)}>{opts.name}</button>
               : <span className="slk-author">{opts.name}</span>}
-            {opts.badge && <span className="slk-app-badge">{opts.badge}</span>}
+            {opts.badge && <span className={`slk-app-badge${opts.face?.emoji ? ' agent' : ''}`}>{opts.badge}</span>}
             {opts.to && <span className="slk-to">→ {opts.to}</span>}
             <time className="slk-time" dateTime={opts.at}>{clock(opts.at)}</time>
           </div>
@@ -1649,7 +1763,12 @@ export const ClassicList: React.FC<Props> = ({
 
   /// Words as written, with Slack's formatting read back: lines kept,
   /// links clickable, @names marked.
-  const rich = (text: string) => renderRich(text, (part) => `slk-mention${/^[@＠]ai$/i.test(part.replace(/[にへ]$/, '')) ? ' ai' : ''}`)
+  const agentHandles = new Set(agents.map((a) => a.handle.normalize('NFKC').toLowerCase()))
+  const rich = (text: string) => renderRich(text, (part) => {
+    const said = part.replace(/[にへ]$/, '')
+    if (/^[@＠]ai$/i.test(said)) return 'slk-mention ai'
+    return `slk-mention${agentHandles.has(said.replace(/^[@＠]/, '').normalize('NFKC').toLowerCase()) ? ' agent' : ''}`
+  })
 
   /// What sits under a message's words: its reactions and its thread.
   const underneath = (channel: string, m: ChannelMessage, inThread = false) => (
@@ -1760,6 +1879,23 @@ export const ClassicList: React.FC<Props> = ({
     )
   }
 
+  /// "🎨 Hayao is writing…": the team's agents answering, in the thread
+  /// they answer in — or, from the conversation, whichever are not open.
+  const agentLines = (channel: string, only?: { parentId?: string; except?: string | null }) => {
+    const list = (agentsWriting[channel] || []).filter((a) => (only?.parentId ? a.parentId === only.parentId : !only?.except || a.parentId !== only.except))
+    if (!list.length) return null
+    return (
+      <div className="slk-typing slk-agent-typing" role="status" aria-live="polite">
+        {list.map((a) => (
+          <span key={a.id} className="slk-agent-writing" data-agent-writing={a.id}>
+            <span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>
+            <span aria-hidden="true">{a.emoji || '🤖'}</span> {t('{name} is writing…', { name: a.name })}
+          </span>
+        ))}
+      </div>
+    )
+  }
+
   type Item = { at: string; kind: 'card'; card: DecisionCard } | { at: string; kind: 'msg'; msg: ChannelMessage }
 
   /// The Activity inbox, as a conversation of its own: each item says where
@@ -1790,7 +1926,7 @@ export const ClassicList: React.FC<Props> = ({
                 {th ? (th.kind === 'channel' ? `#${th.name}` : th.name) : ''}
                 {remindAt && ` · ${remindedAt ? t('Reminded') : t('Reminder {when}', { when: new Date(remindAt).toLocaleString(locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) })}`}
               </span>
-              <span className="slk-act-line"><b>{m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate'))}</b><span className="slk-act-when">{when(m.createdAt)}</span></span>
+              <span className="slk-act-line"><b>{whoSaid(m)}</b><span className="slk-act-when">{when(m.createdAt)}</span></span>
               <span className="slk-act-body">{m.body.slice(0, 280)}</span>
               <span className="slk-act-actions">
                 <button type="button" className="cl-nudge" onClick={() => openAt({ view: m.channel, id: m.id, parentId: m.parentId })}>{t('Open')}</button>
@@ -1826,7 +1962,7 @@ export const ClassicList: React.FC<Props> = ({
         )}
         {(threadItems || []).map((x) => {
           const th = everything.find((y) => y.view === x.parent.channel)
-          const who = (m: ChannelMessage) => (m.kind === 'ai' ? t('Your AI') : m.mine ? t('You') : (m.authorName || t('a teammate')))
+          const who = whoSaid
           const open = () => { markThreadRead(x.parent.channel, x.parent.id); openAt({ view: x.parent.channel, id: x.parent.id, parentId: x.parent.id }) }
           return (
             <article key={x.parent.id} className={`slk-thread-card${x.unread ? ' unread' : ''}`} data-thread={x.parent.id}>
@@ -1910,6 +2046,8 @@ export const ClassicList: React.FC<Props> = ({
                 <button key={keyOf(i)} type="button" className={`slk-act slk-note${i.unread ? ' unread' : ''}${activityPick === keyOf(i) ? ' on' : ''}`} onClick={() => open(i)} data-kind={i.type}>
                   <span className="slk-note-avatar" aria-hidden="true">{m.kind === 'ai' && i.type !== 'reaction'
                     ? <img src="/icon.svg" alt="" width={32} height={32} />
+                    : m.kind === 'agent' && i.type !== 'reaction'
+                    ? <span className="slk-agent-tile">{m.agent?.emoji || '🤖'}</span>
                     : <Avatar name={who} url={i.type === 'reaction' ? i.byAvatar : (m.authorAvatar || memberByRef(m.authorRef)?.avatarUrl)} size={32} />}</span>
                   <span className="slk-note-main">
                     <span className="slk-note-line">
@@ -1953,7 +2091,8 @@ export const ClassicList: React.FC<Props> = ({
                   </div>
                   <div className="slk-body">
                     <div className="slk-meta">
-                      <span className="slk-author">{picked.message.kind === 'ai' ? t('Your AI') : picked.message.mine ? t('You') : (picked.message.authorName || t('a teammate'))}</span>
+                      <span className="slk-author">{whoSaid(picked.message)}</span>
+                      {picked.message.kind === 'agent' && <span className="slk-app-badge agent">{t('Agent')}</span>}
                       <time className="slk-time" dateTime={picked.message.createdAt}>{when(picked.message.createdAt)}</time>
                     </div>
                     <div className="slk-text">{rich(picked.message.body)}</div>
@@ -2027,9 +2166,9 @@ export const ClassicList: React.FC<Props> = ({
         } else {
           const whoKey = `msg:${m.authorRef || m.authorName}`
           const joined = prevWho === whoKey && at - prevAt < 5 * 60000
-          const name = m.mine ? t('You') : (m.authorName || t('a teammate'))
+          const name = whoSaid(m)
           out.push(block(m.id, {
-            joined: joined && !m.pinned, at: m.createdAt, app: '', name, face: faceOfMessage(m), msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
+            joined: joined && !m.pinned, at: m.createdAt, app: '', name, face: faceOfMessage(m), badge: m.kind === 'agent' ? t('Agent') : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
             tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m),
           }, (
             <>
@@ -2046,7 +2185,9 @@ export const ClassicList: React.FC<Props> = ({
     const waitingHere = thread.cards.filter(isUnread).length
     const placeholder = thread.kind === 'channel'
       ? t('Message #{name} — @AI makes it a decision', { name: thread.name })
-      : t('Message {name} — @AI makes it a decision', { name: thread.name })
+      : thread.kind === 'agent'
+        ? t('Message {name}', { name: thread.name })
+        : t('Message {name} — @AI makes it a decision', { name: thread.name })
     return (
       <>
         <header className="slk-head">
@@ -2093,11 +2234,16 @@ export const ClassicList: React.FC<Props> = ({
                 </div>
               </span>
             )}
-            <p>
+            {thread.kind === 'agent' && thread.agent ? (
+              <p className="slk-head-agent">
+                <span className="slk-head-handle">@{thread.agent.handle}</span>
+                {thread.agent.description && <> · <span className="slk-head-desc">{thread.agent.description}</span></>}
+              </p>
+            ) : <p>
               {!wide && (thread.kind === 'channel' || thread.kind === 'group') && <>{t('{n} members', { n: headCount(thread) })} · </>}
               {thread.cards.length ? t('{n} decisions', { n: thread.cards.length }) : t('No decisions here yet.')}
               {waitingHere > 0 && <> · <b>{t('{n} waiting on you', { n: waitingHere })}</b></>}
-            </p>
+            </p>}
           </div>
           {thread.view && (
             <div className="slk-head-actions">
@@ -2119,15 +2265,15 @@ export const ClassicList: React.FC<Props> = ({
                   <Icon name="repeat" size={14} /><span>{automationCount[thread.view] ?? 0}</span>
                 </button>
               )}
-              <button
+              {thread.kind !== 'agent' && <button
                 type="button"
                 className={`slk-head-btn slk-members-button${side?.kind === 'details' && side.tab === 'members' ? ' on' : ''}`}
                 onClick={() => openSide({ kind: 'details', tab: 'members' })}
                 aria-label={t('Members ({n})', { n: headCount(thread) })} title={t('Members')}
               >
                 <Icon name="you" size={14} /><span>{headCount(thread)}</span>
-              </button>
-              {thread.kind !== 'app' && (
+              </button>}
+              {thread.kind !== 'app' && thread.kind !== 'agent' && (
                 <JamButton
                   state={jams[thread.view]}
                   inThis={Boolean(call && call.channel === thread.view)}
@@ -2185,7 +2331,7 @@ export const ClassicList: React.FC<Props> = ({
               {pins.map((m) => (
                 <li key={m.id}>
                   <button type="button" className="slk-pin-row" onClick={() => jumpTo(m.id)}>
-                    <span className="slk-pin-who">{m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate'))} · {when(m.createdAt)}</span>
+                    <span className="slk-pin-who">{whoSaid(m)} · {when(m.createdAt)}</span>
                     <span className="slk-pin-body">{m.body.slice(0, 200)}</span>
                   </button>
                 </li>
@@ -2304,7 +2450,9 @@ export const ClassicList: React.FC<Props> = ({
               ? t('Talk about {name} here. Write @AI — or pick “Make it a decision” on any message — and your AI turns it into a decision card, written from what was said.', { name: thread.name })
               : thread.kind === 'person'
                 ? t('Just the two of you. Write @AI and your AI makes what you said a decision for {name}.', { name: thread.name })
-                : t('What {name} brought in. Each opens as a card.', { name: thread.name })}</p>
+                : thread.kind === 'agent'
+                  ? <>{thread.agent?.description ? `${thread.agent.description} ` : ''}{t('Only you see this conversation. {name} answers everything you write here, with your past decisions and connected tools at hand.', { name: thread.name })}</>
+                  : t('What {name} brought in. Each opens as a card.', { name: thread.name })}</p>
           </div>}
           {thread.app === 'ai' && out.length === 0 && (
             block('ai-intro', { joined: false, at: new Date().toISOString(), app: 'ai', name: t('Your AI'), badge: t('AI') }, (
@@ -2334,6 +2482,7 @@ export const ClassicList: React.FC<Props> = ({
             </div>
           ))}
           {thread.view && aiSteps(thinking[thread.view])}
+          {thread.view && agentLines(thread.view, { except: threadOpenParent })}
         </div>
         )}
         {thread.view && (() => {
@@ -2513,7 +2662,9 @@ export const ClassicList: React.FC<Props> = ({
   /// when — your AI first, as Slack puts Slackbot.
   const dmsView = () => {
     const ai = apps.find((a) => a.app === 'ai')
-    const rows = [...(ai ? [ai] : []), ...people]
+    // Conversations with agents sit among the people's, by when last said.
+    const lastOf = (th: Thread) => [th.lastAt || '', th.latest ? stamp(th.latest) : ''].sort().pop() || ''
+    const rows = [...(ai ? [ai] : []), ...[...people, ...agentConvos].sort((a, b) => ((b.unread || b.fresh) ? 1 : 0) - ((a.unread || a.fresh) ? 1 : 0) || lastOf(b).localeCompare(lastOf(a)))]
     return (
       <div className="cl-dms" data-dms="1">
         <header className="cl-dms-head"><h1>{t('Direct messages')}</h1></header>
@@ -2526,12 +2677,14 @@ export const ClassicList: React.FC<Props> = ({
             const a = th.view ? activity[th.view] : undefined
             const face = th.kind === 'person' ? members.find((m) => th.view === `dm:${m.ref}`) : undefined
             const at = a?.lastAt || (th.latest ? stamp(th.latest) : '')
-            const said = a ? `${a.lastBy === 'me' ? `${t('You')}: ` : ''}${a.preview}` : th.latest ? titleOf(th.latest) : (th.app === 'ai' ? t('Tell your AI…') : t('Say hello'))
+            const said = a ? `${a.lastBy === 'me' ? `${t('You')}: ` : ''}${a.preview}` : th.latest ? titleOf(th.latest) : (th.app === 'ai' ? t('Tell your AI…') : th.kind === 'agent' ? `@${th.agent?.handle || ''}` : t('Say hello'))
             return (
               <li key={th.key}>
                 <button type="button" className={`cl-dm${th.unread || th.fresh ? ' unread' : ''}`} onClick={() => choose(th.key)}>
                   {th.app === 'ai'
                     ? <span className="cl-dm-face app" aria-hidden="true"><img src="/icon.svg" alt="" width={40} height={40} /></span>
+                    : th.kind === 'agent'
+                    ? <span className="cl-dm-face agent" aria-hidden="true">{th.agent?.emoji || '🤖'}</span>
                     : th.kind === 'group'
                       ? <span className="cl-dm-face group" aria-hidden="true">{lead(th, 'head')}</span>
                       : <span className="cl-dm-face" aria-hidden="true"><Avatar name={th.name} url={face?.avatarUrl} size={40} /></span>}
@@ -2548,7 +2701,7 @@ export const ClassicList: React.FC<Props> = ({
       </div>
     )
   }
-  const dmUnread = people.filter((th) => th.unread > 0 || th.fresh).length
+  const dmUnread = [...people, ...agentConvos].filter((th) => th.unread > 0 || th.fresh).length
   const phoneRoot = !wide && !current && !detail && !thread && !profile
   const tabOn = (which: 'home' | 'dms' | 'activity' | 'later') => (activityOpen ? 'activity' : laterOpen ? 'later' : phoneTab) === which
   const openLater = () => { setOpenKey(null); setActivityOpen(false); setThreadsOpen(false); setLaterOpen(true); void loadLater() }
@@ -2657,6 +2810,7 @@ export const ClassicList: React.FC<Props> = ({
           })()}
           {section('channels', t('Channels'), channels.filter(unplaced), t('No channels yet. Make one, or let your AI file decisions under a business as they arrive.'), addChannel, addChannelForm)}
           {section('people', t('Direct messages'), people.filter(unplaced), t('Nobody has sent you a decision yet.'))}
+          {agents.length > 0 && section('agents', t('Agents'), agentConvos.filter(unplaced), t('Talk to one of your team’s agents: it answers you here.'), addAgent, agentPicker)}
           <button type="button" className="cl-add-section" onClick={() => { setSectionName(''); setAddingSection({}) }} data-add-section="1">
             <Icon name="plus" size={13} /> {t('Add a section')}
           </button>
@@ -2731,7 +2885,7 @@ export const ClassicList: React.FC<Props> = ({
         <ForwardSheet
           message={forwarding.m}
           closed={isClosed(forwarding.channel)}
-          places={everything.filter((x) => x.view && x.kind !== 'app' && x.view !== forwarding.channel).map((x) => ({ view: x.view!, name: x.name, kind: x.kind as 'channel' | 'person' | 'group', private: x.private }))}
+          places={everything.filter((x) => x.view && x.kind !== 'app' && x.kind !== 'agent' && x.view !== forwarding.channel).map((x) => ({ view: x.view!, name: x.name, kind: x.kind as 'channel' | 'person' | 'group', private: x.private }))}
           onClose={() => setForwarding(null)}
           onSend={(to, comment) => forwardTo(forwarding.channel, forwarding.m, to, comment)}
         />
@@ -2742,6 +2896,7 @@ export const ClassicList: React.FC<Props> = ({
             <SheetRow icon="message" label={t('New message')} onClick={() => setStarting('people')} data="new-message" />
             <SheetRow icon="sparkle" label={t('Tell your AI')} hint={t('It becomes a card')} onClick={() => { setStarting(null); onCompose() }} data="tell-ai" />
             <SheetRow icon="hash" label={t('New channel')} onClick={() => { setStarting(null); setPhoneTab('home'); setAdding(true) }} data="new-channel" />
+            {agents.length > 0 && <SheetRow icon="terminal" label={t('Talk to an agent')} onClick={() => { setStarting(null); setPhoneTab('home'); setFolded((p) => ({ ...p, agents: false })); setAgentPicking(true) }} data="talk-to-agent" />}
             <SheetRow icon="invite" label={t('Invite people')} onClick={() => { setStarting(null); setInviting('people') }} data="invite" />
           </div>
         </Sheet>
@@ -2923,8 +3078,8 @@ export const ClassicList: React.FC<Props> = ({
             {[thread.parent, ...thread.replies].map((m, i) => (
               <React.Fragment key={m.id}>
                 {block(m.id, {
-                  joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : undefined,
-                  name: m.kind === 'ai' ? t('Your AI') : (m.mine ? t('You') : m.authorName || t('a teammate')),
+                  joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : m.kind === 'agent' ? t('Agent') : undefined,
+                  name: whoSaid(m),
                   face: m.kind !== 'ai' ? faceOfMessage(m) : null,
                   msgId: i === 0 ? `thread-${m.id}` : m.id,
                   tools: toolsFor(thread.channel, m, true), onHold: holdFor(thread.channel, m, true),
@@ -2943,6 +3098,7 @@ export const ClassicList: React.FC<Props> = ({
               </React.Fragment>
             ))}
             {aiSteps(thinking[thread.channel])}
+            {agentLines(thread.channel, { parentId: thread.parent.id })}
           </div>
           <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
             <PendingUploads items={threadUploads.items} onRemove={threadUploads.remove} />

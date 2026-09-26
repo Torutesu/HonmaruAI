@@ -2,11 +2,12 @@ import Combine
 import Foundation
 import SwiftUI
 
-/// One conversation in the list: a channel, a teammate, or your AI.
+/// One conversation in the list: a channel, a teammate, a group, or one of
+/// the team's agents.
 struct ChatConversation: Identifiable, Hashable {
-    enum Kind: Hashable { case channel, person, group }
+    enum Kind: Hashable { case channel, person, group, agent }
     let kind: Kind
-    /// `b:<slug>`, `dm:<ref>` or `g:<id>` — what the Worker calls it for this person.
+    /// `b:<slug>`, `dm:<ref>`, `g:<id>` or `ag:<agentId>` — what the Worker calls it for this person.
     let view: String
     let name: String
     var member: ChatMember?
@@ -14,7 +15,31 @@ struct ChatConversation: Identifiable, Hashable {
     var isPrivate: Bool = false
     /// A group's people besides you.
     var refs: [String] = []
+    /// Set for a conversation with one of the team's agents.
+    var agent: ChatAgent? = nil
     var id: String { view }
+
+    /// What the Worker calls your conversation with this agent.
+    static func agentView(_ agentId: String) -> String { "ag:\(agentId)" }
+
+    /// Your own conversation with an agent: only you see it, and whatever
+    /// you write there the agent answers.
+    static func forAgent(_ a: ChatAgent) -> ChatConversation {
+        ChatConversation(kind: .agent, view: agentView(a.id), name: a.name, member: nil, agent: a)
+    }
+
+    /// The agents you have talked with, the newest talk first.
+    static func agentConversations(agents: [ChatAgent], activity: [String: ChatActivity]) -> [ChatConversation] {
+        agents.filter { activity[agentView($0.id)] != nil }
+            .map { forAgent($0) }
+            .sorted { (activity[$0.view]?.lastAt ?? "") > (activity[$1.view]?.lastAt ?? "") }
+    }
+}
+
+/// One of the team's agents writing its answer, and the thread it goes in.
+struct ChatAgentTyping: Hashable {
+    let agent: ChatAgentFace
+    let parentId: String?
 }
 
 /// Everything the chat tab knows, kept current by the relay's channel events.
@@ -41,6 +66,10 @@ final class ChatStore: ObservableObject {
     @Published private(set) var saved: [ChatSaved] = []
     @Published private(set) var scheduled: [ChatScheduled] = []
     @Published var thinking: [String: String] = [:]
+    /// "@hayao": the agents you can call here, the team's and your own.
+    @Published private(set) var agents: [ChatAgent] = []
+    /// An agent writing its answer, by conversation, until it has.
+    @Published var agentTyping: [String: ChatAgentTyping] = [:]
     @Published var thread: ChatThread?
     @Published var error: String?
 
@@ -88,7 +117,17 @@ final class ChatStore: ObservableObject {
         members.filter { !$0.mine }.map { ChatConversation(kind: .person, view: "dm:\($0.ref)", name: $0.name, member: $0) }
             .sorted { (activity[$0.view]?.lastAt ?? "") > (activity[$1.view]?.lastAt ?? "") }
     }
-    func conversation(for view: String) -> ChatConversation? { (channels + people + groupConversations).first { $0.view == view } }
+    /// Conversations with agents that have something in them, newest first.
+    var agentConversations: [ChatConversation] {
+        ChatConversation.agentConversations(agents: agents, activity: activity)
+    }
+    func conversation(for view: String) -> ChatConversation? {
+        if view.hasPrefix("ag:") {
+            let id = String(view.dropFirst(3))
+            return agents.first { $0.id == id }.map { ChatConversation.forAgent($0) }
+        }
+        return (channels + people + groupConversations).first { $0.view == view }
+    }
 
     /// Said since you last read, and not muted.
     func isFresh(_ view: String) -> Bool {
@@ -114,6 +153,7 @@ final class ChatStore: ObservableObject {
             prefs = overview.prefs ?? [:]
             mine = overview.mine
             groups = overview.groups ?? []
+            agents = overview.agents ?? []
             businesses = list
         } catch { self.error = error.localizedDescription }
         if let list = try? await ChatService.emoji(orgId: orgId, base: base) { emoji = list } else { emoji = [] }
@@ -124,6 +164,15 @@ final class ChatStore: ObservableObject {
         async let l: Void = loadLater()
         async let s: Void = loadScheduled()
         _ = await (i, l, s)
+    }
+
+    /// The agents as `/channels/agents` last returned them, after a change
+    /// made on the Agents screen: the composer offers them at once.
+    func setAgents(_ list: [ChatAgent]) { agents = list }
+
+    /// "@" suggestions for agents: handle, then what the chip says.
+    var agentMentions: [(handle: String, label: String, emoji: String)] {
+        agents.map { (handle: $0.handle, label: $0.name, emoji: $0.glyph) }
     }
 
     func loadThreads() async {
@@ -189,7 +238,7 @@ final class ChatStore: ObservableObject {
     /// Forward into another conversation. From a DM, a group or a private
     /// channel only a link goes; whoever can read the original opens it.
     func isClosed(_ view: String) -> Bool {
-        view.hasPrefix("dm:") || view.hasPrefix("g:") || (conversation(for: view)?.isPrivate ?? false)
+        view.hasPrefix("dm:") || view.hasPrefix("g:") || view.hasPrefix("ag:") || (conversation(for: view)?.isPrivate ?? false)
     }
     func forward(_ m: ChatMessage, to target: String, comment: String, webLink: String?) async -> Bool {
         let link = webLink ?? ""
@@ -412,6 +461,7 @@ final class ChatStore: ObservableObject {
         guard let data, let m = try? JSONDecoder().decode(Envelope.self, from: data).message else { return }
         upsert(m)
         if m.isAI { thinking[m.channel] = nil }
+        if m.isAgent { agentTyping[m.channel] = nil }
         // Somebody started a group with you: it joins the list.
         if m.channel.hasPrefix("g:"), !groups.contains(where: { $0.view == m.channel }) { Task { await refresh() } }
         if !m.mine && (m.parentId != nil || m.body.contains("@") || m.body.contains("＠")) {
@@ -422,6 +472,16 @@ final class ChatStore: ObservableObject {
     private func receiveProgress(_ data: Data?) {
         guard let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let channel = json["channel"] as? String, let step = json["step"] as? String else { return }
+        // One of the team's agents, not @AI: its own line, not the card steps.
+        if let a = json["agent"] as? [String: Any], let id = a["id"] as? String {
+            if step == "done" || step == "failed" {
+                agentTyping[channel] = nil
+            } else {
+                let face = ChatAgentFace(id: id, handle: a["handle"] as? String ?? "", name: a["name"] as? String ?? "", emoji: a["emoji"] as? String)
+                agentTyping[channel] = ChatAgentTyping(agent: face, parentId: json["parentId"] as? String)
+            }
+            return
+        }
         thinking[channel] = (step == "done" || step == "failed") ? nil : step
     }
 

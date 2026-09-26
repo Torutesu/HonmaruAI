@@ -14,6 +14,8 @@ interface Props {
   /// relay knows whether it still stands — so this sends, and the row
   /// updates when the relay answers.
   onUndo: (cardId: string) => void
+  /// Delete a card you received — decided or not — for good.
+  onDelete?: (cardId: string) => void
   onClose: () => void
   /// For the reply draft: the Worker, the org, and who is asking.
   httpBase: string
@@ -68,8 +70,9 @@ function dayLabel(iso: string) {
 /// later. A row opens to show the whole card — a settled decision is not in
 /// the feed any more, so this is the only place to read it back — and, for a
 /// decision you made, to take it back.
-export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onUndo, onClose, httpBase, orgId, sessionToken }) => {
+export const History: React.FC<Props> = ({ decided, sent, businesses, userId, onUndo, onDelete, onClose, httpBase, orgId, sessionToken }) => {
   const t = useT()
+  const [deleting, setDeleting] = useState<string | null>(null)
   const locale = getLocale()
   const [filter, setFilter] = useState<Filter>('all')
   const [open, setOpen] = useState<string | null>(null)
@@ -122,6 +125,17 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
       )}
       {card.decision && (byYou || card.senderUserID === userId) && (
         <ReplyDraft httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} card={card} />
+      )}
+      {onDelete && card.recipientUserID === userId && (
+        deleting === card.id ? (
+          <span className="hist-delete-ask" role="group" aria-label={t('Delete this card?')}>
+            {t('Delete this card?')}
+            <button className="pill-btn hist-delete-yes" onClick={() => { onDelete(card.id); setDeleting(null); setOpen(null) }}>{t('Delete')}</button>
+            <button className="pill-btn" onClick={() => setDeleting(null)}>{t('Cancel')}</button>
+          </span>
+        ) : (
+          <button className="pill-btn hist-delete" onClick={() => setDeleting(card.id)}>{t('Delete card')}</button>
+        )
       )}
     </div>
   )

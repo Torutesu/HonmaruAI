@@ -19,16 +19,16 @@ import { Profile } from '../screens/Profile'
 import { Insights } from '../screens/Insights'
 import { Automations } from '../screens/Automations'
 import { Playbook } from '../screens/Playbook'
+import { Agents } from '../screens/Agents'
 import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setNotificationCopy, setTabBadge } from '../utils/notifications'
-import { syncLocale } from '../utils/push'
 import type { AppState, Business, DecisionCard } from '../types/card'
 import './Dashboard.css'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
-import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen } from '../utils/route'
+import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen, hashForView } from '../utils/route'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { needsLocalizing } from '../utils/language'
 import { aiHeaders } from '../utils/aiKey'
@@ -117,6 +117,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
   // Bumped when the language changes, so cards re-read their localized text.
   const [localeVersion, setLocaleVersion] = useState(0)
+  // The language changed from elsewhere — another device, adopted on focus.
+  useEffect(() => {
+    const on = () => setLocaleVersion((v) => v + 1)
+    window.addEventListener('honmaru:locale', on)
+    return () => window.removeEventListener('honmaru:locale', on)
+  }, [])
   // Cards is one decision per screen; Classic is the same decisions as a list
   // you can scan. Remembered, because it is a way of working, not a detour.
   const storedMode: Mode = (() => {
@@ -166,6 +172,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     window.dispatchEvent(new CustomEvent('honmaru:join-jam', { detail: view }))
     navigate(hashForMode('classic'), true)
   }, [route.jamView, navigate])
+  // A conversation to open — "Message" on an agent: the list opens on it.
+  useEffect(() => {
+    const view = route.openView
+    if (!view) return
+    try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.openView', view) } catch {}
+    window.dispatchEvent(new CustomEvent('honmaru:open-view', { detail: view }))
+    navigate(hashForMode('classic'), true)
+  }, [route.openView, navigate])
   // A `?card=` link from before the hash routes: turned into one, once.
   useEffect(() => {
     try {
@@ -328,8 +342,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [navigate])
 
-  // What language this browser reads, so every notification arrives in it.
-  useEffect(() => { syncLocale(relayHttpUrl, sessionToken) }, [relayHttpUrl, sessionToken])
+  // The language is the account's, not this browser's: it is read from the
+  // Worker when the app opens (App.tsx) and written only when the person
+  // chooses one. Pushing the browser's language on every load overwrote a
+  // choice made on the phone, and the screens stayed in English.
 
   // The org's businesses, for turning a slug on a card into its name. Nobody
   // picks one; the AI files every card in the background.
@@ -527,6 +543,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     setSuggestRule(null)
     if (!res?.ok) setError(t('That did not save.'))
   }, [suggestRule, relayHttpUrl, sessionToken, orgId, t])
+  const handleDelete = useCallback((cardId: string) => {
+    wsClientRef.current?.sendDeleteCard(cardId)
+    addDebugLog(`Deleted: ${cardId}`)
+    // Open on screen, it goes back to the feed rather than a card that is gone.
+    if (route.cardId === cardId) navigate(hashForMode('cards'), true)
+  }, [addDebugLog, route.cardId, navigate])
   const handleRollback = useCallback((cardId: string) => {
     wsClientRef.current!.sendRollback(cardId)
     addDebugLog(`Rolled back: ${cardId}`)
@@ -689,6 +711,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             onFlag={handleFlag}
             answers={answers}
             onUndo={handleRollback}
+            onDelete={handleDelete}
             api={api}
             layout="desk"
           />
@@ -707,6 +730,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onFlag={handleFlag}
           answers={answers}
           onUndo={handleRollback}
+          onDelete={handleDelete}
           api={api}
           layout="phone"
         />
@@ -744,6 +768,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               onFlag={handleFlag}
               answers={answers}
               onUndo={handleRollback}
+              onDelete={handleDelete}
               api={api}
               layout="desk"
             />
@@ -936,6 +961,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           businesses={businesses}
           userId={userId}
           onUndo={handleRollback}
+          onDelete={handleDelete}
           onClose={closeScreen}
           httpBase={relayHttpUrl}
           orgId={orgId}
@@ -961,6 +987,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
       {screen === 'playbook' && (
         <Playbook httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
+      )}
+      {screen === 'agents' && (
+        <Agents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onMessage={(id) => navigate(hashForView(`ag:${id}`))} />
       )}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />

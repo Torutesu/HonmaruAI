@@ -12,6 +12,7 @@ struct ChatHomeView: View {
     @State private var newChannel = ""
     @State private var editingStatus = false
     @State private var startingMessage = false
+    @State private var pickingAgent = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -55,6 +56,21 @@ struct ChatHomeView: View {
                             ForEach(store.people.filter { store.isUnplaced($0.view) }) { row($0) }
                         } header: { Text("Direct messages") }
                     }
+                    // Your own conversations with the team's agents: write
+                    // there and the agent answers.
+                    Section {
+                        ForEach(store.agentConversations.filter { store.isUnplaced($0.view) }) { row($0) }
+                        if !store.agents.isEmpty {
+                            Button { pickingAgent = true } label: {
+                                Label("Talk to an agent", systemImage: "bubble.left.and.text.bubble.right")
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+                            }
+                        }
+                        NavigationLink(value: ChatRoute.agents) {
+                            Label(store.agents.isEmpty ? LocalizedStringKey("Make an agent") : LocalizedStringKey("All agents"), systemImage: "wand.and.stars")
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                        }
+                    } header: { Text("Custom agents") }
                 }
             }
             .listStyle(.insetGrouped)
@@ -72,6 +88,10 @@ struct ChatHomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { WorkspaceSwitcherButton(size: 30) }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button { path.append(.agents) } label: { Image(systemName: "wand.and.stars") }
+                        .accessibilityLabel("Custom agents")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { startingMessage = true } label: { Image(systemName: "square.and.pencil") }
                         .accessibilityLabel("New message")
                 }
@@ -88,6 +108,7 @@ struct ChatHomeView: View {
                 case .activity: ChatActivityView(store: store)
                 case .later: ChatLaterView(store: store)
                 case .threads: ChatThreadsView(store: store)
+                case .agents: AgentsView(store: store).environmentObject(appState)
                 }
             }
             .alert("New channel", isPresented: $creating) {
@@ -101,6 +122,12 @@ struct ChatHomeView: View {
                 Button("Cancel", role: .cancel) { newChannel = "" }
             } message: { Text("A channel for one business or project. Everyone on the team can see it.") }
             .sheet(isPresented: $editingStatus) { ChatStatusEditor(store: store).environmentObject(appState) }
+            .sheet(isPresented: $pickingAgent) {
+                ChatAgentPickerSheet(agents: store.agents) { a in
+                    pickingAgent = false
+                    path.append(.conversation(view: ChatConversation.agentView(a.id), jump: nil))
+                }
+            }
             .sheet(isPresented: $startingMessage) {
                 ChatNewMessageSheet(store: store) { view in
                     startingMessage = false
@@ -170,6 +197,8 @@ struct ChatHomeView: View {
                     Image(systemName: c.isPrivate ? "lock.fill" : "number").font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.Colors.textSecondary).frame(width: 28)
                         .accessibilityLabel(c.isPrivate ? Text("Private channel") : Text("Channel"))
+                } else if c.kind == .agent {
+                    ChatAvatar(name: c.name, size: 28, agentEmoji: c.agent?.glyph ?? ChatAgent.glyph(nil))
                 } else if c.kind == .group {
                     Image(systemName: "person.2.fill").font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Theme.Colors.textSecondary).frame(width: 28, height: 28)
@@ -220,6 +249,50 @@ struct ChatHomeView: View {
 
     private func place(_ view: String) -> String {
         guard let c = store.conversation(for: view) else { return "" }
+        if c.kind == .agent { return "\(c.agent?.glyph ?? ChatAgent.glyph(nil)) \(c.name)" }
         return c.kind == .channel ? (c.isPrivate ? "🔒 \(c.name)" : "#\(c.name)") : c.name
+    }
+}
+
+/// "Talk to an agent": every agent you can call, to open your own
+/// conversation with it.
+struct ChatAgentPickerSheet: View {
+    let agents: [ChatAgent]
+    let onPick: (ChatAgent) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(agents) { a in
+                        Button { onPick(a) } label: {
+                            HStack(spacing: 12) {
+                                ChatAvatar(name: a.name, size: 36, agentEmoji: a.glyph)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(verbatim: a.name).font(.body.weight(.semibold)).foregroundStyle(Theme.Colors.textPrimary).lineLimit(1)
+                                        Text(verbatim: "@\(a.handle)").font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)
+                                    }
+                                    if let d = a.description, !d.isEmpty {
+                                        Text(verbatim: d).font(.footnote).foregroundStyle(Theme.Colors.textSecondary).lineLimit(2)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } footer: {
+                    Text("Only you see this conversation. Write anything and the agent answers there.")
+                }
+            }
+            .navigationTitle("Talk to an agent")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }

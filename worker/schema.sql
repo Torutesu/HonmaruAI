@@ -791,6 +791,30 @@ CREATE TABLE IF NOT EXISTS user_group_members (
   PRIMARY KEY (org_id, handle, login)
 );
 
+/* Agents a team writes for itself: "@hayao" answers in a channel the way
+   its instructions (Markdown) say. A team agent is the workspace's: anyone
+   in it may call it and change it. A personal one answers only its owner.
+   Deleted agents keep their row (deleted_at) so what they wrote keeps its
+   name. Messages they write have author_login 'agent:<id>'. */
+CREATE TABLE IF NOT EXISTS custom_agents (
+  org_id        TEXT NOT NULL,
+  id            TEXT NOT NULL,
+  handle        TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  emoji         TEXT,
+  description   TEXT,
+  instructions  TEXT NOT NULL,
+  scope         TEXT NOT NULL DEFAULT 'team',
+  owner_login   TEXT NOT NULL,
+  preset        TEXT,
+  created_at    TEXT NOT NULL,
+  updated_by    TEXT,
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT,
+  PRIMARY KEY (org_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_custom_agents_handle ON custom_agents(org_id, handle);
+
 /* One person's sidebar in one workspace: the conversations they starred and
    the sections they made, as JSON (people-groups.js cleans it). It only
    arranges what they can already see. */
