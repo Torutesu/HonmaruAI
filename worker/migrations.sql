@@ -68,3 +68,6 @@ ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;
 ALTER TABLE api_tokens ADD COLUMN scopes TEXT;
 ALTER TABLE users ADD COLUMN notify_keywords TEXT;
 ALTER TABLE audit_events ADD COLUMN enc INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN reauth_at TEXT;
+ALTER TABLE sessions ADD COLUMN auth_method TEXT;
+ALTER TABLE sessions ADD COLUMN longest_idle_ms INTEGER;

@@ -39,6 +39,8 @@ export const AUDIT_ACTIONS = {
   "workspace.created": { category: "workspace", severity: "warning", text: "{actor} created the workspace" },
   "workspace.renamed": { category: "workspace", severity: "warning", text: "{actor} renamed the workspace" },
   "workspace.icon_changed": { category: "workspace", severity: "info", text: "{actor} changed the workspace icon" },
+  "workspace.session_policy_changed": { category: "workspace", severity: "critical", text: "{actor} changed the login rules" },
+  "workspace.session_policy_applied": { category: "workspace", severity: "warning", text: "{actor} signed out everyone the login rules no longer allow" },
   "workspace.ai_settings_changed": { category: "workspace", severity: "warning", text: "{actor} changed the workspace AI settings" },
   "channel.created": { category: "channel", severity: "notice", text: "{actor} created {entity}" },
   "channel.member_added": { category: "channel", severity: "notice", text: "{actor} added {entity} to a channel" },
@@ -325,6 +327,7 @@ async function reader(env, request, orgId) {
   const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return { denied: json({ message: "Please sign in." }, 401) };
   if (!(await isMember(env.DB, orgId, session.github_id))) return { denied: json({ message: "not a member of this org" }, 403) };
+  { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return { denied: json(held.body, held.status) }; }
   const user = await getUserByGithubId(env.DB, session.github_id);
   if (!(await isAdmin(env.DB, orgId, session.github_id))) {
     await audit(env, request, { orgId, action: "security.permission_denied", actor: person(user), entity: { type: "resource", id: "audit_log", name: "the audit log" }, outcome: "denied" });

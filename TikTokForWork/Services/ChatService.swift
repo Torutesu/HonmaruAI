@@ -280,6 +280,7 @@ enum ChatService {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw Failure.server(0, nil) }
         guard (200...299).contains(http.statusCode) else {
+            SessionPolicy.noticeIfEnded(status: http.statusCode, data: data)
             if http.statusCode == 401 { throw Failure.notSignedIn }
             throw Failure.server(http.statusCode, (try? JSONDecoder().decode(Message.self, from: data))?.message)
         }

@@ -40,6 +40,7 @@ export async function handleAgentInvites(request, env, url) {
     const body = await request.json().catch(() => ({}));
     if (!body.orgId) return json({ message: "orgId is required" }, 400);
     if (!(await isMember(env.DB, body.orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+    { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, body.orgId); if (held) return json(held.body, held.status); }
     const code = newCode();
     const now = new Date();
     const expires = new Date(now.getTime() + AGENT_LINK_MINUTES * 60_000);

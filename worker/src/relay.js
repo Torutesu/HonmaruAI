@@ -239,6 +239,10 @@ export class OrgRelay {
     const att = ws.deserializeAttachment() || {};
     const orgId = att.orgId;
     if (!orgId) { ws.close(1008, "no workspace"); return; }
+    // Past what the workspace's login rules allow: nothing more on this socket.
+    if (att.deadline && Date.now() >= att.deadline) {
+      return this.refuse(ws, att.agui, "This workspace asks you to sign in again.", "session-policy");
+    }
 
     // Checked on the raw frame, before parsing: a 5 MB string is expensive to
     // JSON.parse and there is no message this product sends that is anywhere
@@ -289,6 +293,18 @@ export class OrgRelay {
       if (!access.ok) {
         return this.refuse(ws, agui, "You are not a member of this organization.", "not-a-member");
       }
+      // The workspace's login rules: refused if outgrown, and closed when the
+      // longest a sign-in may last here runs out, however busy the socket.
+      const { sessionPolicy, brokenRule, sessionDeadline } = await import("./policy.js");
+      const policy = await sessionPolicy(this.db, orgId);
+      if (brokenRule(policy, session)) {
+        return this.refuse(ws, agui, "This workspace asks you to sign in again.", "session-policy");
+      }
+      const deadline = sessionDeadline(policy, session);
+      if (deadline) {
+        const current = await this.state.storage.getAlarm().catch(() => null);
+        if (!current || deadline < current) await this.state.storage.setAlarm(deadline).catch(() => {});
+      }
       // The legacy dialect is refused rather than half-served. A client that
       // joined without `agui/1` used to get a snapshot and then silence: every
       // broadcast below this line is an AG-UI event, so its feed froze at the
@@ -300,7 +316,7 @@ export class OrgRelay {
 
       const userId = access.login;
       const guest = await isGuest(this.db, orgId, session.github_id);
-      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true, guest });
+      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true, guest, deadline: deadline || null });
       const store = await loadStore(this.db, orgId);
       // A guest's feed is the decisions they are on, nobody else's.
       if (guest) {
@@ -878,6 +894,20 @@ export class OrgRelay {
       for (const ev of forEveryone) this.broadcast(orgId, ev);
     }
     if (toolCallId) this.broadcast(orgId, toolCallResult(toolCallId, out.card));
+  }
+
+  /// A workspace's login rules end sockets at their deadline: each one past
+  /// it is told why and closed, and the next deadline is set.
+  async alarm() {
+    const now = Date.now();
+    let next = null;
+    for (const ws of this.state.getWebSockets()) {
+      const att = ws.deserializeAttachment() || {};
+      if (!att.deadline) continue;
+      if (att.deadline <= now) this.refuse(ws, att.agui, "This workspace asks you to sign in again.", "session-policy");
+      else if (!next || att.deadline < next) next = att.deadline;
+    }
+    if (next) await this.state.storage.setAlarm(next).catch(() => {});
   }
 
   async webSocketClose(ws) {

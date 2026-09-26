@@ -22,7 +22,7 @@ import { triageMessage } from "./triage.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount, exportAccount } from "./account.js";
-import { listMembers, listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards, changeRole } from "./team.js";
+import { listMembers, listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards, changeRole, memberRef } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured, isDeviceToken } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
@@ -37,6 +37,7 @@ import { handleChannels, broadcastStored } from "./channelRoutes.js";
 import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from "./audit.js";
 import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
+import { handlePolicy, policyDenial, reauthDenial } from "./policy.js";
 import { handleOwners, transferFor, mailOwners } from "./owners.js";
 import { handleSessions, signedIn } from "./sessions.js";
 import { handleSuggestions } from "./suggest.js";
@@ -138,13 +139,25 @@ async function actorOf(env, session) {
   return person(await getUserByGithubId(env.DB, session.github_id));
 }
 
+/// An admin action asks for a recent sign-in where the workspace says so,
+/// and an owner's always does (policy.js). A Response, or null to go on.
+async function requireRecentAuth(env, request, orgId) {
+  const session = await getSession(env.DB, request.headers.get("x-session-token"));
+  if (!session) return json({ message: "invalid session" }, 401);
+  const role = (await env.DB.prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, String(session.github_id)).first())?.role;
+  const again = await reauthDenial(env, session, orgId, { owner: role === "owner" });
+  return again ? json(again.body, again.status) : null;
+}
+
 async function requireMember(env, request, orgId) {
   const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return json({ message: "invalid session" }, 401);
   if (!(await isMember(env.DB, orgId, session.github_id))) {
     return json({ message: "not a member of this org" }, 403);
   }
-  return null;
+  // This workspace's login rules: a session it has outgrown signs in again.
+  const held = await policyDenial(env, session, orgId);
+  return held ? json(held.body, held.status) : null;
 }
 
 export default {
@@ -221,6 +234,9 @@ async function handle(request, env, url, ctx) {
     // Handing the workspace on.
     const owned = await handleOwners(request, env, url);
     if (owned) return owned;
+    // A workspace's login rules, and proving it is you again.
+    const ruled = await handlePolicy(request, env, url);
+    if (ruled) return ruled;
 
     // The workspace's webhooks.
     const hooked = await handleWebhooks(request, env, url);
@@ -339,6 +355,7 @@ async function handle(request, env, url, ctx) {
       if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
         return json({ message: "You are not a member of this organization." }, 403);
       }
+      { const held = await policyDenial(env, session, body.orgId); if (held) return json(held.body, held.status); }
       const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: body.uses, channels: body.channels });
       if (result.error) return json({ message: result.error }, 400);
       await audit(env, request, { orgId: body.orgId, action: "invite.created", actor: await actorOf(env, session), entity: { type: "invite", id: result.ref, name: result.role }, details: { role: result.role, maxUses: result.maxUses, expiresAt: result.expiresAt, channels: result.channels } });
@@ -375,6 +392,7 @@ async function handle(request, env, url, ctx) {
       if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
         return json({ message: "You are not a member of this organization." }, 403);
       }
+      { const held = await policyDenial(env, session, body.orgId); if (held) return json(held.body, held.status); }
       const minted = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: 1, channels: body.channels });
       if (minted.error) return json({ message: minted.error }, 400);
       const sender = await getUserByGithubId(env.DB, session.github_id);
@@ -438,6 +456,7 @@ async function handle(request, env, url, ctx) {
       const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
       if (!orgId || typeof orgId !== "string") return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
       const canEdit = membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.ai_settings");
       if (request.method === "PUT") {
         if (!canEdit) return json({ message: "Only an admin of this workspace can change what its AI runs on." }, 403);
@@ -468,6 +487,7 @@ async function handle(request, env, url, ctx) {
       const orgId = url.searchParams.get("orgId") || "";
       if (!orgId) return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
       if (!membershipIsOurs(orgId) || !(await allowed(env.DB, orgId, session.github_id, "workspace.icon"))) return json({ message: "Only an admin of this workspace can change its logo." }, 403);
       if (request.method === "DELETE") {
         await removeOrgIcon(env, orgId);
@@ -493,6 +513,7 @@ async function handle(request, env, url, ctx) {
       const orgId = url.searchParams.get("orgId") || "";
       if (!orgId) return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
       if (request.method === "GET") return json({ orgId, emoji: await listEmoji(env.DB, orgId, url.origin) });
       const user = await getUserByGithubId(env.DB, session.github_id);
       if (request.method === "POST") {
@@ -565,6 +586,12 @@ async function handle(request, env, url, ctx) {
       if (!body.orgId) return json({ message: "orgId is required" }, 400);
       const denied = await requireMember(env, request, body.orgId);
       if (denied) return denied;
+      // Removing someone else is an admin action; leaving is not.
+      const leaving = !body.userId && body.ref && body.ref === await memberRef(body.orgId, String(session.github_id));
+      if (!leaving && !(body.userId && String(body.userId) === String(session.github_id))) {
+        const again = await requireRecentAuth(env, request, body.orgId);
+        if (again) return again;
+      }
       const result = await removeMember(env, {
         orgId: body.orgId,
         actorId: session.github_id,
@@ -596,6 +623,8 @@ async function handle(request, env, url, ctx) {
       if (!body.orgId) return json({ message: "orgId is required" }, 400);
       const denied = await requireMember(env, request, body.orgId);
       if (denied) return denied;
+      const again = await requireRecentAuth(env, request, body.orgId);
+      if (again) return again;
       const result = await changeRole(env, { orgId: body.orgId, actorId: session.github_id, ref: body.ref, role: body.role, channels: body.channels });
       if (result.error) {
         if (result.status === 403) await audit(env, request, { orgId: body.orgId, action: "security.permission_denied", actor: await actorOf(env, session), entity: { type: "resource", id: "member_role", name: "a member's role" }, outcome: "denied" });
@@ -1101,6 +1130,7 @@ async function handle(request, env, url, ctx) {
       if (!session) return json({ message: "invalid session" }, 401);
       const orgId = url.searchParams.get("orgId") || "";
       if (orgId && !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      if (orgId) { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
       return json(await billingStatus(env, session.github_id, orgId || undefined), 200, { "cache-control": "no-store" });
     }
 
@@ -1174,6 +1204,7 @@ async function handle(request, env, url, ctx) {
       if (!(await isMember(env.DB, orgId, session.github_id))) {
         return json({ message: "not a member of this org" }, 403);
       }
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
       const user = await getUserByGithubId(env.DB, session.github_id);
       if (!user) return json({ message: "unknown user" }, 409);
       if (request.method === "PUT") {
@@ -1517,6 +1548,7 @@ async function handle(request, env, url, ctx) {
       const orgId = request.method === "GET" ? (url.searchParams.get("orgId") || "") : String(body?.orgId || "");
       if (!orgId) return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
       const isAdmin = (membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.integrations")) || orgId.includes("/");
       // Connecting with your own GitHub is yours to do as a member — it is
       // your credential, and the issues are written as you. A pasted token

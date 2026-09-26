@@ -1,6 +1,12 @@
 # 管理機能 — Owner と Admin の分離、Provisioning キー、ログイン有効期限 — 詳細設計
 
-作成日: 2026-09-26。状態: **設計のみ（未実装）**。
+作成日: 2026-09-26。状態: **§4（Owner）と §3（ログイン有効期限）は実装済み**。§2（Provisioning キー）は次の PR。
+
+実装での決めごと:
+- 権限表は `worker/src/permissions.js` の `PERMISSIONS`（操作 → 最低の役割）。ルートは `allowed()` だけを呼ぶ。
+- 既存のワークスペースの Owner は、Worker が最初にメンバー一覧を読んだとき（または管理者が操作したとき）に決まる。まとめて決めるなら `worker/scripts/assign-owners.mjs --apply`。GitHub のリポジトリのワークスペースは、GitHub の admin をそのまま Owner として扱う（行は書き換えない）。
+- 無操作の判定は、セッションに「今までで一番長く使われなかった時間」（`sessions.longest_idle_ms`）を持たせて行う。一度でも上限を超えたセッションは、そのワークスペースでは使えない。
+- 方針のないワークスペースでも、Owner の操作は 60 分以内のログインを求める。本人確認はメールのコードかパスワード。どちらも無いアカウントはログインし直す。
 
 関連文書:
 - [sso-and-domain-join.md](sso-and-domain-join.md)

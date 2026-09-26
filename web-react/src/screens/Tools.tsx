@@ -4,6 +4,7 @@ import { Icon, type IconName } from '../components/Icon'
 import { EmojiManager } from '../components/EmojiManager'
 import { UserGroupsManager } from '../components/UserGroupsManager'
 import { AuditLog } from '../components/AuditLog'
+import { LoginRules } from '../components/LoginRules'
 import { BrandLogo, isBrand } from '../components/BrandLogo'
 import { getAIKey } from '../utils/aiKey'
 import { ago } from '../utils/ago'
@@ -13,7 +14,7 @@ import './Studio.css'
 
 interface Connector { id: string; label: string; status: string }
 
-type StudioPage = 'apps' | 'ai' | 'api' | 'emoji' | 'groups' | 'audit'
+type StudioPage = 'apps' | 'ai' | 'api' | 'emoji' | 'groups' | 'audit' | 'security'
 
 /// One tile in the catalogue: a connector of your own, the workspace's
 /// GitHub, or the address that turns mail into cards.
@@ -438,7 +439,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
 
   const [page, setPage] = useState<StudioPage>(() => {
     const asked = (typeof window !== 'undefined' ? window.location.hash : '').split('/')[2]
-    return asked === 'ai' || asked === 'api' || asked === 'emoji' || asked === 'groups' || asked === 'audit' ? asked : 'apps'
+    return asked === 'ai' || asked === 'api' || asked === 'emoji' || asked === 'groups' || asked === 'audit' || asked === 'security' ? asked : 'apps'
   })
   const go = (next: StudioPage) => {
     setPage(next)
@@ -1087,6 +1088,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     { id: 'emoji', label: t('Emoji'), icon: 'smile' },
     { id: 'groups', label: t('User groups'), icon: 'users' },
     { id: 'audit', label: t('Audit log'), icon: 'shield' },
+    { id: 'security', label: t('Login rules'), icon: 'lock' },
   ]
 
   return (
@@ -1114,6 +1116,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             {page === 'emoji' && <EmojiManager httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
             {page === 'groups' && <UserGroupsManager httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
             {page === 'audit' && <AuditLog httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
+            {page === 'security' && <LoginRules httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
           </main>
         </div>
       </div>

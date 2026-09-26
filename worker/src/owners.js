@@ -139,6 +139,7 @@ export async function handleOwners(request, env, url) {
   const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body?.orgId;
   if (!orgId) return json({ message: "orgId is required" }, 400);
   if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+  { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
   const actorUser = await getUserByGithubId(env.DB, session.github_id);
   const actor = person(actorUser);
   const name = await workspaceName(env.DB, orgId);
@@ -147,6 +148,9 @@ export async function handleOwners(request, env, url) {
     return json({ transfer: await transferFor(env.DB, orgId, session.github_id) });
   }
   if (url.pathname === "/members/owner-transfer" && request.method === "POST") {
+    const { reauthDenial } = await import("./policy.js");
+    const again = await reauthDenial(env, session, orgId, { owner: true });
+    if (again) return json(again.body, again.status);
     const out = await offerTransfer(env, { orgId, actorId: session.github_id, ref: body.ref, stepDown: Boolean(body.stepDown) });
     if (out.error) {
       if (out.status === 403) await audit(env, request, { orgId, action: "security.permission_denied", actor, entity: { type: "resource", id: "owner_transfer", name: "handing the workspace on" }, outcome: "denied" });

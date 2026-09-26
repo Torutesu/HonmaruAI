@@ -181,7 +181,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   client              TEXT,
   user_agent          TEXT,
   place               TEXT,
-  last_seen_at        TEXT
+  last_seen_at        TEXT,
+  /* When this person last proved it was them again, for an admin action a
+     workspace's login rules ask a recent sign-in for (policy.js). */
+  reauth_at           TEXT,
+  /* How it was signed in: email_code | password | github | sso. */
+  auth_method         TEXT,
+  /* The longest it has sat unused, for a workspace that ends idle sessions. */
+  longest_idle_ms     INTEGER
 );
 
 /* One row per authorization attempt, deleted the moment it is redeemed. The
@@ -898,3 +905,15 @@ CREATE TABLE IF NOT EXISTS audit_principal_keys (
   PRIMARY KEY (org_id, principal)
 );
 CREATE INDEX IF NOT EXISTS idx_audit_keys_subject ON audit_principal_keys(subject);
+
+/* A workspace's rules for how long a sign-in lasts in it
+   (docs/admin-controls.md §3). Owners set them; NULL is no rule. */
+CREATE TABLE IF NOT EXISTS org_session_policy (
+  org_id                   TEXT PRIMARY KEY,
+  web_max_hours            INTEGER,
+  mobile_max_hours         INTEGER,
+  idle_hours               INTEGER,
+  reauth_for_admin_minutes INTEGER,
+  updated_by               TEXT NOT NULL,
+  updated_at               TEXT NOT NULL
+);
