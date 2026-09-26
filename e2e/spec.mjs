@@ -2888,6 +2888,22 @@ await step('the team writes an agent: from a preset, as a .md file, and @called 
       .catch(() => { throw new Error('the reply in the thread is not the agent, by its name and face') })
     await desk.screenshot({ path: `${SHOTS}/64-agent-reply.png` })
 
+    // Your own agent, brought into #kitchen from its members panel: listed
+    // among them, said in the channel, and taken out again.
+    await desk.click('.slk-thread-pane .slk-pane-close')
+    await desk.click('.slk-members-button')
+    await desk.waitForSelector('.slk-details [data-tab="members"][aria-selected="true"]', { timeout: 10000 })
+    await desk.click('.slk-details .slk-details-add-agent')
+    await desk.click(`.slk-details [data-add-agent="${own}"]`)
+    await desk.waitForSelector(`.slk-details .slk-member-row[data-agent="${own}"]`, { timeout: 10000 })
+      .catch(() => { throw new Error('the agent added to the channel is not among its members') })
+    await desk.waitForSelector(`.slk-main .slk-log .slk-msg:has-text("(@${own})")`, { timeout: 15000 })
+      .catch(() => { throw new Error('the channel was not told an agent joined') })
+    await desk.screenshot({ path: `${SHOTS}/64a-agent-in-channel.png` })
+    await desk.click(`.slk-details .slk-member-row[data-agent="${own}"] .slk-member-remove`)
+    await desk.waitForSelector(`.slk-details .slk-member-row[data-agent="${own}"]`, { state: 'detached', timeout: 10000 })
+      .catch(() => { throw new Error('the agent taken out is still among the members') })
+
     // A conversation with it: "Message" on the Agents screen opens it in the
     // list, like a DM. Everything said there is said to it — no @ — and it
     // answers in the conversation itself, not a thread.

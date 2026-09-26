@@ -1,5 +1,6 @@
 import { checkOutgoing } from "./dlp.js";
 import { attachedTexts } from "./dlpFiles.js";
+import { linksIn, readLinks, linksBlock } from "./links.js";
 import { getSession, isMember, getUserByGithubId, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText } from "./dailyReport.js";
 import { providerFor } from "./orgAI.js";
@@ -38,7 +39,7 @@ import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
 import { listBookmarks, toClientBookmark, addBookmark, editBookmark, removeBookmark } from "./bookmarks.js";
 import {
-  listAgents, saveAgent, deleteAgent, toClientAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, playbookFor,
+  listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, playbookFor,
 } from "./customAgents.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { searchTermsFor } from "./ask.js";
@@ -251,10 +252,34 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
 /// it as itself. Only a person's message calls one — an agent's answer
 /// naming another does not, so two agents never talk each other in
 /// circles. Never throws; what goes wrong is said in the thread.
+/// The agents a person can call, for the @ menu and for colouring a
+/// mention: the team's, their own, and any added to a channel they can
+/// read — with those channels, as they see them.
+async function callableAgents(db, orgId, login, members) {
+  const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, description: a.description, scope: a.scope });
+  const own = await listAgents(db, orgId, login);
+  const placed = await agentChannels(db, orgId);
+  const access = placed.length ? await accessFor(db, orgId, login) : null;
+  const channelsOf = new Map();
+  for (const { agent, keys } of placed) {
+    const views = keys.map((k) => viewOf(k, login, members, access)).filter(Boolean);
+    if (views.length) channelsOf.set(agent.id, { agent, views });
+  }
+  const out = own.map((a) => ({ ...face(a), channels: channelsOf.get(a.id)?.views || [] }));
+  const handles = new Set(own.map((a) => a.handle));
+  for (const { agent, views } of channelsOf.values()) {
+    if (out.some((a) => a.id === agent.id) || handles.has(agent.handle)) continue;
+    // Callable only where it was added.
+    out.push({ ...face(agent), channels: views, placed: true });
+  }
+  return out;
+}
+
 export async function answerAsAgents(env, { orgId, session, user, resolved, row, members, locale }) {
   let agents;
   try {
-    agents = agentsCalled(row.body, await listAgents(env.DB, orgId, user.login));
+    // Their own agents, and the ones added to this channel.
+    agents = agentsCalled(row.body, await agentsHere(env.DB, orgId, user.login, resolved.key));
     // In a conversation with an agent, everything said is said to it: it
     // answers without being named, in the conversation, not a thread.
     if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
@@ -304,6 +329,17 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
       console.error("agent research failed", safe(err?.message));
     }
   }
+  // Links in the message, or else in what was said just before it: a
+  // video, a post or a page the agent is asked about is opened and read.
+  let links = "";
+  if (provider && allowance?.allowed) {
+    try {
+      const urls = linksIn(row.body).length ? linksIn(row.body) : linksIn(transcript.slice(-6).join("\n"));
+      if (urls.length) links = linksBlock(await readLinks(urls, { language: locale }));
+    } catch (err) {
+      console.error("agent links failed", safe(err?.message));
+    }
+  }
   const where = resolved.kind === "business" ? `#${resolved.slug}` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
   let answered = 0;
   for (const agent of agents) {
@@ -314,7 +350,7 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
       else if (!allowance.allowed) text = serverText(locale, "agent.quota");
       else {
         const result = await askAgent({
-          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research,
+          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links,
           askedBy: user.name || "a teammate", readerLanguage: locale,
         });
         if (result.called && allowance.metered) await allowance.consume();
@@ -372,9 +408,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       }))),
       maxChars: MAX_MESSAGE_CHARS,
       // The agents you can call here: the team's and your own.
-      agents: (await listAgents(env.DB, orgId, who.user.login)).map((a) => ({
-        id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, description: a.description, scope: a.scope,
-      })),
+      agents: await callableAgents(env.DB, orgId, who.user.login, members),
       // Where you are up to in each conversation, from whichever device.
       reads: await readsFor(env.DB, orgId, who.user.login, members),
     });
@@ -738,6 +772,46 @@ export async function handleChannels(request, env, url, { route, after }) {
 
   // A private channel's members: anyone inside may bring somebody in, or
   // take somebody out; anyone may leave.
+  // An agent brought into a channel or a group, or taken out of it. Anyone
+  // in it but a guest may do either; only an agent you can call yourself
+  // can be brought in — your own personal one included.
+  if (path === "/channels/channel-agents" && (request.method === "POST" || request.method === "DELETE")) {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || typeof body.agentId !== "string") return json({ message: "Invalid JSON body." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    if (ctx.resolved.kind !== "business" && ctx.resolved.kind !== "group") return json({ message: "Agents are added to a channel or a group." }, 400);
+    const orgId = body.orgId;
+    const me = ctx.who.user;
+    if (await isGuest(env.DB, orgId, ctx.who.session.github_id)) return json({ message: "A guest cannot add or remove agents." }, 403);
+    const key = ctx.resolved.key;
+    const locale = await loadCopy(env, me.locale || "en", { orgId });
+    const note = async (text) => {
+      const out = await postMessage(env.DB, { orgId, key, authorLogin: null, body: text, kind: "ai" });
+      if (out.row) await broadcast(env, orgId, ctx.resolved, out.row, ctx.members);
+    };
+    const who = ctx.members.find((m) => m.login === me.login)?.name || me.name || me.login;
+    const label = (a) => `${a.emoji ? `${a.emoji} ` : ""}${a.name} (@${a.handle})`;
+    if (request.method === "POST") {
+      const agent = (await listAgents(env.DB, orgId, me.login)).find((a) => a.id === body.agentId);
+      if (!agent) return json({ message: "No such agent." }, 404);
+      if ((await channelAgents(env.DB, orgId, key)).some((a) => a.handle === agent.handle && a.id !== agent.id)) {
+        return json({ message: `An agent called @${agent.handle} is already here.` }, 409);
+      }
+      if (!(await addChannelAgent(env.DB, { orgId, key, agentId: agent.id, login: me.login }))) return json({ added: false });
+      await note(serverText(locale, "channel.agentAdded", { who, name: label(agent) }));
+      await audit(env, request, { orgId, action: "channel.agent_added", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
+      return json({ added: true });
+    }
+    const agent = (await channelAgents(env.DB, orgId, key)).find((a) => a.id === body.agentId);
+    if (!agent || !(await removeChannelAgent(env.DB, { orgId, key, agentId: agent.id }))) return json({ message: "That agent is not here." }, 404);
+    await note(serverText(locale, "channel.agentRemoved", { who, name: label(agent) }));
+    await audit(env, request, { orgId, action: "channel.agent_removed", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
+    return json({ removed: true });
+  }
+
   if (path === "/channels/members" && (request.method === "POST" || request.method === "DELETE")) {
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
@@ -964,7 +1038,28 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (ctx.denied) return ctx.denied;
     const locale = await loadCopy(env, ctx.who.user.locale || "en", { orgId });
     const details = await channelDetails(env.DB, orgId, { resolved: ctx.resolved, viewer: ctx.who.user, members: ctx.members, locale });
-    return json({ ...details, channel: { ...details.channel, view: ctx.view } });
+    // The agents added here, and the ones this person could add.
+    const placesAgents = ctx.resolved.kind === "business" || ctx.resolved.kind === "group";
+    const guest = placesAgents ? await isGuest(env.DB, orgId, ctx.who.session.github_id) : true;
+    const here = placesAgents ? await channelAgents(env.DB, orgId, ctx.resolved.key) : [];
+    const nameOf = (login) => ctx.members.find((m) => m.login === login)?.name || null;
+    const custom = here.map((a) => ({
+      kind: "custom", id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, description: a.description, scope: a.scope,
+      owner: nameOf(a.addedBy), canRemove: !guest,
+    }));
+    const hereIds = new Set(here.map((a) => a.id));
+    const hereHandles = new Set(here.map((a) => a.handle));
+    const addable = guest ? [] : (await listAgents(env.DB, orgId, ctx.who.user.login))
+      .filter((a) => !hereIds.has(a.id) && !hereHandles.has(a.handle))
+      .map((a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, description: a.description, scope: a.scope }));
+    const agents = [...details.members.agents.slice(0, 1), ...custom, ...details.members.agents.slice(1)];
+    return json({
+      ...details,
+      channel: { ...details.channel, view: ctx.view },
+      members: { ...details.members, agents },
+      counts: { ...details.counts, members: details.counts.members + custom.length },
+      addableAgents: placesAgents ? addable : null,
+    });
   }
 
   // What a channel is for, in a sentence anyone in it may write.

@@ -154,6 +154,10 @@ struct ChatAgent: Codable, Identifiable, Hashable {
     let canDelete: Bool?
     /// The agent as a .md file: front matter, then its instructions.
     let markdown: String?
+    /// The channels it was added to, as you see them.
+    var channels: [String]? = nil
+    /// Someone else's agent, callable only in those channels.
+    var placed: Bool? = nil
 
     var isPersonal: Bool { scope == "personal" }
     var glyph: String { Self.glyph(emoji) }
@@ -701,6 +705,44 @@ enum ChatService {
             "description": description, "instructions": instructions, "scope": scope,
         ]
         return try await call("PUT", "/channels/agents", base: base, body: b, as: AgentSaved.self)
+    }
+
+    /// The agents added to a channel or a group, and the ones you could add.
+    struct ChannelAgents: Decodable {
+        struct Placed: Decodable, Identifiable, Hashable {
+            let kind: String
+            let id: String?
+            let handle: String?
+            let name: String
+            let emoji: String?
+            let description: String?
+            let owner: String?
+            let canRemove: Bool?
+            var glyph: String { ChatAgent.glyph(emoji) }
+        }
+        struct Addable: Decodable, Identifiable, Hashable {
+            let id: String
+            let handle: String
+            let name: String
+            let emoji: String?
+            let description: String?
+            let scope: String?
+            var glyph: String { ChatAgent.glyph(emoji) }
+        }
+        struct Members: Decodable { let agents: [Placed] }
+        let members: Members
+        let addableAgents: [Addable]?
+        var placed: [Placed] { members.agents.filter { $0.kind == "custom" && $0.id != nil } }
+    }
+
+    static func channelAgents(orgId: String, channel: String, base: URL) async throws -> ChannelAgents {
+        try await call("GET", "/channels/details", base: base, query: ["orgId": orgId, "channel": channel], as: ChannelAgents.self)
+    }
+
+    /// An agent brought into a channel (`add`), or taken out of it.
+    static func placeAgent(orgId: String, channel: String, agentId: String, add: Bool, base: URL) async throws {
+        struct R: Decodable {}
+        _ = try await call(add ? "POST" : "DELETE", "/channels/channel-agents", base: base, body: ["orgId": orgId, "channel": channel, "agentId": agentId], as: R.self)
     }
 
     static func deleteAgent(orgId: String, id: String, base: URL) async throws -> [ChatAgent] {

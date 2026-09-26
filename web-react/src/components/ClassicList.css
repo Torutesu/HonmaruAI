@@ -896,6 +896,17 @@
 .classic.slk.slk .slk-member-title { font-size: 12px; color: var(--slk-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .classic.slk.slk .slk-member-title .slk-link-button { font-size: 12px; }
 .classic.slk.slk .slk-details-add { margin-top: 14px; height: 34px; }
+.classic.slk.slk .slk-details-add-agent { display: block; margin-top: 8px; }
+.classic.slk.slk .slk-agent-face { display: inline-grid; place-items: center; font-size: 16px; line-height: 1; }
+.classic.slk.slk .slk-member-handle { font-weight: 500; color: var(--slk-dim); }
+.classic.slk.slk .slk-member-remove {
+  flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; border: none; border-radius: 6px;
+  background: none; color: var(--slk-dim); cursor: pointer;
+}
+.classic.slk.slk .slk-member-remove:hover, .classic.slk.slk .slk-member-remove:focus-visible { background: var(--slk-hover); color: var(--slk-ink); }
+.classic.slk.slk .slk-agent-picker { margin-top: 12px; padding: 10px; border: 1px solid var(--slk-line, rgba(0,0,0,.12)); border-radius: 10px; }
+.classic.slk.slk .slk-agent-picker-hint { margin: 0 0 6px; font-size: 12px; color: var(--slk-dim); }
+.classic.slk.slk .slk-agent-add { flex: none; font-size: 12px; font-weight: 700; color: var(--slk-accent); }
 .classic.slk.slk .slk-attachment, .classic.slk.slk .slk-automation { display: flex; align-items: center; gap: 10px; padding: 8px 6px; }
 .classic.slk.slk .slk-attachment-mark {
   flex: none; width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center;

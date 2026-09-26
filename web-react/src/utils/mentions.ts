@@ -31,6 +31,16 @@ export interface AgentFace {
   emoji?: string | null
   description?: string
   scope?: 'team' | 'personal'
+  /// The channels it was added to, as you see them.
+  channels?: string[]
+  /// Someone else's, callable only in those channels.
+  placed?: boolean
+}
+
+/// The agents "@" reaches in one conversation: your own everywhere, one
+/// somebody added to a channel only there.
+export function agentsIn(agents: AgentFace[], view: string | null | undefined): AgentFace[] {
+  return agents.filter((a) => !a.placed || Boolean(view && a.channels?.includes(view)))
 }
 
 /// The team's agents as names "@" offers: `@hayao` is written by its handle,
