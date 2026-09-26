@@ -20,6 +20,10 @@ for host in "$@"; do
   if jq -e .success <<<"$out" >/dev/null; then echo "attached $host"; else echo "::warning::Could not attach $host to $project: $(jq -c .errors <<<"$out")"; fi
 done
 
+# Where each domain stands with Pages, and why when it is not active yet.
+curl -s "${auth[@]}" "$api/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$project/domains" \
+  | jq -r '.result[]? | "  \(.name): \(.status); certificate \(.validation_data.status // "-") \(.validation_data.error_message // ""); ownership \(.verification_data.status // "-") \(.verification_data.error_message // "")"'
+
 zone=$(curl -s "${auth[@]}" "$api/zones?name=$zone_name" | jq -r '.result[0].id // empty')
 for host in "$@"; do
   rec=""
