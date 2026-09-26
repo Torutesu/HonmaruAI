@@ -560,3 +560,5 @@
   .daily-in-channel { background: #1e1b12; border-color: #4a4430; }
   .daily-fold-open { color: #6cb4ee; }
 }
+.daily-in-channel .report-meta { text-transform: none; font-family: inherit; letter-spacing: 0; font-size: 13px; color: inherit; margin-bottom: 8px; }
+.daily-in-channel .report-meta b { font-weight: 700; }
