@@ -96,7 +96,7 @@ async function scopeOf(db, orgId, key) {
   const participants = await audienceOf(db, orgId, key);
   if (!participants) return {};
   const k = String(key || "");
-  return { participants, direct: k.startsWith("dm:") || k.startsWith("g:") };
+  return { participants, direct: k.startsWith("dm:") || k.startsWith("g:") || k.startsWith("ag:") };
 }
 
 /// Whether the member who made a webhook could see this event.

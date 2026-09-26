@@ -2876,6 +2876,35 @@ await step('the team writes an agent: from a preset, as a .md file, and @called 
       .catch(() => { throw new Error('the reply in the thread is not the agent, by its name and face') })
     await desk.screenshot({ path: `${SHOTS}/64-agent-reply.png` })
 
+    // A conversation with it: "Message" on the Agents screen opens it in the
+    // list, like a DM. Everything said there is said to it — no @ — and it
+    // answers in the conversation itself, not a thread.
+    await desk.goto(`${WEB}#/agents`, { waitUntil: 'load' })
+    await desk.waitForSelector(`${row} .ca-message`, { timeout: 20000 })
+      .catch(() => { throw new Error('an agent has no Message button') })
+    const agentId = await desk.getAttribute(row, 'data-agent')
+    await desk.click(`${row} .ca-message`)
+    const convo = `.slk-side .cl-thread[data-view="ag:${agentId}"]`
+    await desk.waitForSelector(`${convo}.on`, { timeout: 20000 })
+      .catch(() => { throw new Error('Message did not open a conversation with the agent') })
+    await desk.waitForSelector(`.slk-head .slk-head-handle:has-text("@${handle}")`, { timeout: 5000 })
+      .catch(() => { throw new Error('the conversation’s header does not name the agent') })
+    const head = await desk.$eval('.slk-head h1', (el) => el.textContent)
+    const listed = await desk.$eval(`${convo} .cl-title`, (el) => el.textContent)
+    if (head !== listed || !/Secretary/.test(head || '')) throw new Error(`the agent's conversation is "${head}", listed as "${listed}"`)
+    const placeholder = await desk.getAttribute('.slk-composer .slk-input', 'placeholder')
+    if (placeholder !== `Message ${head}`) throw new Error(`the composer says "${placeholder}"`)
+    await desk.click('.slk-composer .slk-input')
+    await desk.keyboard.type(`what is on today ${stamp}`)
+    await desk.keyboard.press('Enter')
+    await desk.waitForSelector(`.slk-main .slk-msg:has-text("what is on today ${stamp}")`, { timeout: 15000 })
+    const answer = '.slk-main .slk-log .slk-msg:has(.slk-avatar.agent):has-text("no AI model")'
+    await desk.waitForSelector(answer, { timeout: 20000 })
+      .catch(() => { throw new Error('the agent did not answer in the conversation') })
+    if (!/Secretary/.test(await desk.$eval(`${answer} .slk-author`, (el) => el.textContent) || '')) throw new Error('the answer is not under the agent’s name')
+    if (await desk.$(`.slk-msg:has-text("what is on today ${stamp}") .slk-thread-link`)) throw new Error('the agent answered in a thread, not the conversation')
+    await desk.screenshot({ path: `${SHOTS}/64b-agent-conversation.png` })
+
     // Yours to delete.
     await desk.goto(`${WEB}#/agents`, { waitUntil: 'load' })
     await desk.waitForSelector(mineRow, { timeout: 20000 })

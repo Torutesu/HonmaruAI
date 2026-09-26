@@ -28,7 +28,7 @@ import './Dashboard.css'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
-import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen } from '../utils/route'
+import { useRoute, useDesktop, hashForCard, hashForMode, hashForScreen, hashForView } from '../utils/route'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { needsLocalizing } from '../utils/language'
 import { aiHeaders } from '../utils/aiKey'
@@ -172,6 +172,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     window.dispatchEvent(new CustomEvent('honmaru:join-jam', { detail: view }))
     navigate(hashForMode('classic'), true)
   }, [route.jamView, navigate])
+  // A conversation to open — "Message" on an agent: the list opens on it.
+  useEffect(() => {
+    const view = route.openView
+    if (!view) return
+    try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.openView', view) } catch {}
+    window.dispatchEvent(new CustomEvent('honmaru:open-view', { detail: view }))
+    navigate(hashForMode('classic'), true)
+  }, [route.openView, navigate])
   // A `?card=` link from before the hash routes: turned into one, once.
   useEffect(() => {
     try {
@@ -980,7 +988,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         <Playbook httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
       )}
       {screen === 'agents' && (
-        <Agents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />
+        <Agents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onMessage={(id) => navigate(hashForView(`ag:${id}`))} />
       )}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />

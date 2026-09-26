@@ -520,7 +520,7 @@ Always:
 
 /// Ask one agent. Returns { called, answer } like the other one-call
 /// helpers: `called` is whether a model was paid for.
-export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage }) {
+export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "" }) {
   if (!provider) return { called: false, answer: null };
   const system = `${RULES}\n\nYou are ${agent.emoji ? `${agent.emoji} ` : ""}${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${String(agent.instructions).slice(0, MAX_INSTRUCTIONS)}\n</agent_instructions>`;
   const user = `Reader language: ${readerLanguage || "en"}
@@ -530,7 +530,7 @@ Asked by: ${askedBy}
 <conversation>
 ${transcript.length ? transcript.join("\n") : "(nothing said before)"}
 </conversation>
-${playbookBlock(playbook)}
+${playbookBlock(playbook)}${research ? `\n<team_knowledge>\n${research.slice(0, 5000)}</team_knowledge>\nUse this where it answers the request; name the decision or page you drew on.\n` : ""}
 Request to you (@${agent.handle}): ${request || "(no words beyond your name — help with the conversation above)"}`;
   let data;
   try {

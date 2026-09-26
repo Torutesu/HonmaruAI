@@ -80,6 +80,8 @@ export function mayRead(key, access) {
   if (k.startsWith("b:")) return access.guest ? access.in.has(k) : (!access.closed.has(k) || access.in.has(k));
   if (k.startsWith("g:")) return access.in.has(k);
   if (k.startsWith("dm:")) return k.slice(3).split("|").includes(access.login);
+  // A conversation with an agent is its one person's.
+  if (k.startsWith("ag:")) return k.split("|")[1] === access.login;
   return false;
 }
 
@@ -90,6 +92,7 @@ export function mayRead(key, access) {
 export async function audienceOf(db, orgId, key) {
   const k = String(key || "");
   if (k.startsWith("dm:")) return k.slice(3).split("|");
+  if (k.startsWith("ag:")) return [k.split("|")[1]].filter(Boolean);
   if (k.startsWith("g:") || (k.startsWith("b:") && await isPrivate(db, orgId, k.slice(2)))) {
     const { results } = await db.prepare("SELECT login FROM conversation_members WHERE org_id = ?1 AND channel = ?2 ORDER BY added_at, login").bind(orgId, k).all();
     return (results || []).map((r) => r.login);

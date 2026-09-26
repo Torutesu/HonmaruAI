@@ -13,6 +13,8 @@ interface Props {
   orgId: string
   sessionToken: string
   onClose: () => void
+  /// Open a conversation with this agent, as with a teammate.
+  onMessage?: (agentId: string) => void
 }
 
 /// Tell the conversations the list changed: "@" offers the new names.
@@ -23,7 +25,7 @@ const announce = () => { try { window.dispatchEvent(new Event('honmaru:agents-ch
 /// Markdown says. A team agent is everyone's to call and improve; a
 /// personal one answers only whoever made it. Each is a .md file, to
 /// download and bring back here or into another workspace.
-export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose }) => {
+export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose, onMessage }) => {
   const t = useT()
   const [agents, setAgents] = useState<ClientAgent[] | null>(null)
   const [presets, setPresets] = useState<AgentPreset[]>([])
@@ -153,6 +155,7 @@ export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose
             </span>
           ) : (
             <>
+              {onMessage && <button className="btn-text ca-message" data-message-agent={a.id} onClick={() => onMessage(a.id)}>{t('Message')}</button>}
               {a.canEdit && <button className="btn-text" onClick={() => open(draftFromAgent(a))}>{t('Edit')}</button>}
               <button className="btn-text" onClick={() => download(a)}>{t('Download .md')}</button>
               {a.canDelete && <button className="btn-text danger" onClick={() => { setConfirm(a.id); setNote(null) }}>{t('Delete')}</button>}
@@ -172,6 +175,7 @@ export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose
       <div className="screen-body">
         <p className="lede" style={{ marginTop: 8 }}>
           {t('Teammates your team writes in Markdown. Write @handle in any conversation and the agent answers in the thread under your message.')}
+          {' '}{t('Or message one directly: it answers you there, with your past decisions and connected tools at hand.')}
         </p>
 
         <div className="ca-actions">

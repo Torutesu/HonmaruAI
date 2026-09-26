@@ -2,11 +2,12 @@ import Combine
 import Foundation
 import SwiftUI
 
-/// One conversation in the list: a channel, a teammate, or your AI.
+/// One conversation in the list: a channel, a teammate, a group, or one of
+/// the team's agents.
 struct ChatConversation: Identifiable, Hashable {
-    enum Kind: Hashable { case channel, person, group }
+    enum Kind: Hashable { case channel, person, group, agent }
     let kind: Kind
-    /// `b:<slug>`, `dm:<ref>` or `g:<id>` — what the Worker calls it for this person.
+    /// `b:<slug>`, `dm:<ref>`, `g:<id>` or `ag:<agentId>` — what the Worker calls it for this person.
     let view: String
     let name: String
     var member: ChatMember?
@@ -14,7 +15,25 @@ struct ChatConversation: Identifiable, Hashable {
     var isPrivate: Bool = false
     /// A group's people besides you.
     var refs: [String] = []
+    /// Set for a conversation with one of the team's agents.
+    var agent: ChatAgent? = nil
     var id: String { view }
+
+    /// What the Worker calls your conversation with this agent.
+    static func agentView(_ agentId: String) -> String { "ag:\(agentId)" }
+
+    /// Your own conversation with an agent: only you see it, and whatever
+    /// you write there the agent answers.
+    static func forAgent(_ a: ChatAgent) -> ChatConversation {
+        ChatConversation(kind: .agent, view: agentView(a.id), name: a.name, member: nil, agent: a)
+    }
+
+    /// The agents you have talked with, the newest talk first.
+    static func agentConversations(agents: [ChatAgent], activity: [String: ChatActivity]) -> [ChatConversation] {
+        agents.filter { activity[agentView($0.id)] != nil }
+            .map { forAgent($0) }
+            .sorted { (activity[$0.view]?.lastAt ?? "") > (activity[$1.view]?.lastAt ?? "") }
+    }
 }
 
 /// One of the team's agents writing its answer, and the thread it goes in.
@@ -98,7 +117,17 @@ final class ChatStore: ObservableObject {
         members.filter { !$0.mine }.map { ChatConversation(kind: .person, view: "dm:\($0.ref)", name: $0.name, member: $0) }
             .sorted { (activity[$0.view]?.lastAt ?? "") > (activity[$1.view]?.lastAt ?? "") }
     }
-    func conversation(for view: String) -> ChatConversation? { (channels + people + groupConversations).first { $0.view == view } }
+    /// Conversations with agents that have something in them, newest first.
+    var agentConversations: [ChatConversation] {
+        ChatConversation.agentConversations(agents: agents, activity: activity)
+    }
+    func conversation(for view: String) -> ChatConversation? {
+        if view.hasPrefix("ag:") {
+            let id = String(view.dropFirst(3))
+            return agents.first { $0.id == id }.map { ChatConversation.forAgent($0) }
+        }
+        return (channels + people + groupConversations).first { $0.view == view }
+    }
 
     /// Said since you last read, and not muted.
     func isFresh(_ view: String) -> Bool {
@@ -209,7 +238,7 @@ final class ChatStore: ObservableObject {
     /// Forward into another conversation. From a DM, a group or a private
     /// channel only a link goes; whoever can read the original opens it.
     func isClosed(_ view: String) -> Bool {
-        view.hasPrefix("dm:") || view.hasPrefix("g:") || (conversation(for: view)?.isPrivate ?? false)
+        view.hasPrefix("dm:") || view.hasPrefix("g:") || view.hasPrefix("ag:") || (conversation(for: view)?.isPrivate ?? false)
     }
     func forward(_ m: ChatMessage, to target: String, comment: String, webLink: String?) async -> Bool {
         let link = webLink ?? ""
