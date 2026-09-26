@@ -349,8 +349,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       setNotificationCopy(me.notificationCopy)
       setMyFace({ name: me.name || '', url: me.avatarUrl || null })
     } catch { /* the switcher shows what it last knew */ }
-    // Read again when the language changes, for the notification words.
-  }, [relayHttpUrl, sessionToken, localeVersion])
+    // Read again when the language changes, for the notification words, and
+    // on every switch: a workspace just made or joined is in the list at once.
+  }, [relayHttpUrl, sessionToken, localeVersion, orgId])
   useEffect(() => { void loadWorkspaces() }, [loadWorkspaces])
   useEffect(() => {
     const onChange = () => { void loadWorkspaces() }

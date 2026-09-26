@@ -1881,8 +1881,12 @@ await step('the daily report: morning and evening at the person’s own times, d
       .catch(() => { throw new Error('the posted report does not show in the channel') })
     await d.screenshot({ path: `${SHOTS}/42-daily-posted.png` })
 
-    // The morning's draft waits in #kitchen itself, above the box you write
-    // in — only its owner sees it — and is edited, talked over and posted there.
+    // The morning's draft waits in its own channel, #daily-reports, marked
+    // in the sidebar, above the box you write in — only its owner sees it —
+    // and is edited, talked over and posted there.
+    await d.waitForSelector('.slk-side .cl-thread[data-view="b:daily-reports"] [data-has-daily]', { timeout: 15000 })
+      .catch(() => { throw new Error('the channel with the morning draft is not marked in the sidebar') })
+    await d.click('.slk-side .cl-thread[data-view="b:daily-reports"] .cl-open')
     await d.waitForSelector('.slk-daily-draft .daily-fold', { timeout: 15000 })
       .catch(() => { throw new Error('the morning draft is not waiting in its channel') })
     await d.click('.slk-daily-draft .daily-fold')
@@ -2611,8 +2615,8 @@ await step('a workspace adds its own emoji, and uses them in a message and a rea
 
     // In a message: a colon and two letters offer it, Enter takes it.
     await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
-    await desk.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
-    await desk.click('.cl-thread[data-view^="g:"] .cl-open')
+    await desk.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
     await desk.click('.slk-composer .slk-input')
     await desk.keyboard.type('shipped it :shogun_pa')
     await desk.waitForSelector('[data-emoji-option="shogun_party"]', { timeout: 5000 })
@@ -2624,8 +2628,8 @@ await step('a workspace adds its own emoji, and uses them in a message and a rea
 
     // Kenji, in the same workspace, sees the picture, and answers with one.
     await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
-    await kenji.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
-    await kenji.click('.cl-thread[data-view^="g:"] .cl-open')
+    await kenji.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await kenji.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
     await kenji.waitForFunction(() => { const i = document.querySelector('.slk-text img.slk-custom-emoji[alt=":shogun_party:"]'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
     const last = kenji.locator('.slk-msg[id^="msg-"]').last()
     await last.click({ button: 'right', position: { x: 200, y: 20 } })
@@ -2636,6 +2640,10 @@ await step('a workspace adds its own emoji, and uses them in a message and a rea
     await desk.screenshot({ path: `${SHOTS}/55-emoji-message.png` })
     await kenji.screenshot({ path: `${SHOTS}/56-emoji-phone.png` })
     await kenji.click('.slk-back').catch(() => {})
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-desk.png` }).catch(() => {})
+    await kenji.screenshot({ path: `${SHOTS}/fail-${Date.now()}-kenji.png` }).catch(() => {})
+    throw err
   } finally {
     await desk.close()
   }
@@ -2650,16 +2658,16 @@ await step('threads you are in, a message marked unread, and one forwarded as a 
   try {
     // The owner asks in the group; Kenji answers in a thread, on his phone.
     await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
-    await desk.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
-    await desk.click('.cl-thread[data-view^="g:"] .cl-open')
+    await desk.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
     const ask = `which supplier? ${Date.now()}`
     await desk.fill('.slk-composer .slk-input', ask)
     await desk.keyboard.press('Enter')
     await desk.waitForSelector(`.slk-text:has-text("${ask}")`, { timeout: 10000 })
 
     await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
-    await kenji.waitForSelector('.cl-thread[data-view^="g:"]', { timeout: 20000 })
-    await kenji.click('.cl-thread[data-view^="g:"] .cl-open')
+    await kenji.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await kenji.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
     const asked = kenji.locator('.slk-msg[id^="msg-"]', { hasText: ask }).last()
     await asked.waitFor({ timeout: 15000 })
     await asked.click({ button: 'right', position: { x: 200, y: 20 } })
@@ -2702,8 +2710,12 @@ await step('threads you are in, a message marked unread, and one forwarded as a 
     const again = kenji.locator('.slk-msg[id^="msg-"]', { hasText: ask }).last()
     await again.click({ button: 'right', position: { x: 200, y: 20 } })
     await kenji.click('[data-sheet="unread"]')
-    await kenji.waitForSelector('.cl-thread.unread[data-view^="g:"]', { timeout: 10000 })
+    await kenji.waitForSelector('.slk-side .cl-thread.unread[data-view^="g:"]', { timeout: 10000 })
     await kenji.screenshot({ path: `${SHOTS}/58-marked-unread.png` })
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-desk.png` }).catch(() => {})
+    await kenji.screenshot({ path: `${SHOTS}/fail-${Date.now()}-kenji.png` }).catch(() => {})
+    throw err
   } finally {
     await desk.close()
   }
