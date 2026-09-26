@@ -105,13 +105,21 @@ jobs:
           node lp/build.mjs dist "$SITE_URL" "$WEB_URL"
           ls -la dist dist/ja
 
+      # The deployment's own address (<hash>.<project>.pages.dev) serves the
+      # files exactly as uploaded; the domain goes through the zone, whose
+      # email obfuscation rewrites mailto: links.
       - name: Deploy to Pages
-        run: npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
+        run: |
+          npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true | tee deploy.log
+          url=$(grep -o "https://[a-z0-9]*\.$PROJECT\.pages\.dev" deploy.log | tail -1)
+          [ -n "$url" ] || { echo "::error::wrangler did not print the deployment's address"; exit 1; }
+          echo "DEPLOYMENT_URL=$url" >> "$GITHUB_ENV"
 
-      # The copy on the live page is this commit's copy.
-      # This commit is live: each language page is the one just built, and
-      # the root redirects (a runner is outside Japan, so /en/; the cookie a
-      # language choice sets, to that language).
+      # This commit is live: its deployment serves every language page and
+      # the script byte for byte, and the public address answers with it —
+      # its canonical link, the same script, the root redirects (a runner is
+      # outside Japan, so /en/; the cookie a language choice sets, to that
+      # language) and, on a domain, pages.dev sending people there.
       - name: Verify
         run: |
           base="$SITE_URL"
@@ -119,16 +127,17 @@ jobs:
           for attempt in 1 2 3 4 5 6 7 8; do
             ok=1
             for l in en ja es fr de; do
-              curl -fsS "$base/$l/" | cmp -s - "dist/$l/index.html" || ok=0
+              curl -fsS "$DEPLOYMENT_URL/$l/" -o served.html && cmp -s served.html "dist/$l/index.html" || { ok=0; echo "deployment /$l/ differs"; }
+              curl -fsS "$base/$l/" | grep -qF "<link rel=\"canonical\" href=\"$base/$l/\">" || { ok=0; echo "$base/$l/ is not this build"; }
             done
-            curl -fsS "$base/main.js" | cmp -s - dist/main.js || ok=0
+            curl -fsS "$base/main.js" -o served.js && cmp -s served.js dist/main.js || { ok=0; echo "$base/main.js differs"; }
             root=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$base/")
             [ "$root" = "302 $base/en/" ] || ok=0
             chosen=$(curl -sS -o /dev/null -w '%{redirect_url}' -H 'Cookie: hm_lang=ja' "$base/")
             [ "$chosen" = "$base/ja/" ] || ok=0
             if [ "$base" != "$pages" ]; then
               moved=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$pages/ja/")
-              [ "$moved" = "301 $base/ja/" ] || ok=0
+              [ "$moved" = "301 $base/ja/" ] || { ok=0; echo "pages.dev: $moved"; }
             fi
             if [ $ok = 1 ]; then
               echo "$base serves this commit; / -> /en/ from here, /ja/ for a Japanese choice"
