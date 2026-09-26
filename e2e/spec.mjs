@@ -2809,6 +2809,85 @@ await step('a star, a section of your own, and a user group one mention reaches'
   }
 })
 
+await step('the team writes an agent: from a preset, as a .md file, and @called it answers in the thread', async () => {
+  await closeEverything()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 390, height: 844 })
+  const stamp = Date.now() % 100000
+  const handle = `sec${stamp}`
+  const own = `mine${stamp}`
+  try {
+    await desk.goto(`${WEB}#/agents`, { waitUntil: 'load' })
+    await desk.waitForSelector('.ca-preset[data-preset="secretary"]', { timeout: 20000 })
+      .catch(() => { throw new Error('the Agents screen shows no presets') })
+    await noSpill(desk, '.screen', 'Agents on a phone')
+    await desk.setViewportSize({ width: 1280, height: 820 })
+
+    // A preset, added as the team's, under an @name of its own.
+    await desk.click('.ca-preset[data-preset="secretary"] .pill-btn')
+    await desk.waitForSelector('.ca-dialog .ca-handle-input', { timeout: 5000 })
+    if (!/secretary/i.test(await desk.inputValue('.ca-dialog .ca-handle-input'))) throw new Error('the preset did not fill the editor')
+    await desk.fill('.ca-dialog .ca-handle-input', handle)
+    await desk.click('.ca-dialog .ca-tabs [role="tab"]:has-text("Preview")')
+    await desk.waitForSelector('.ca-dialog .ca-preview .ca-md h2', { timeout: 5000 })
+      .catch(() => { throw new Error('the preview does not draw the Markdown') })
+    await desk.click('.ca-dialog .ca-save')
+    const row = `.ca-list[data-scope="team"] .ca-row[data-agent-handle="${handle}"]`
+    await desk.waitForSelector(row, { timeout: 10000 }).catch(() => { throw new Error('the agent added from a preset is not listed') })
+    await desk.screenshot({ path: `${SHOTS}/63-agents.png` })
+
+    // Its editor holds its instructions; its file is itself.
+    await desk.click(`${row} .btn-text:has-text("Edit")`)
+    await desk.waitForSelector('.ca-dialog .ca-instructions', { timeout: 5000 })
+    if (!/^# /m.test(await desk.inputValue('.ca-dialog .ca-instructions'))) throw new Error('the editor does not hold the instructions')
+    await desk.click('.ca-dialog .dlg-btn:has-text("Cancel")')
+    const [file] = await Promise.all([desk.waitForEvent('download', { timeout: 10000 }), desk.click(`${row} .btn-text:has-text("Download .md")`)])
+    if (file.suggestedFilename() !== `${handle}.md`) throw new Error(`the download is named ${file.suggestedFilename()}`)
+    const md = readFileSync(await file.path(), 'utf8')
+    if (!md.includes(`handle: ${handle}`) || !/^---\n/.test(md)) throw new Error(`the .md is not the agent: ${md.slice(0, 120)}`)
+
+    // A file brought in, as your own.
+    await desk.setInputFiles('.ca-file', {
+      name: `${own}.md`, mimeType: 'text/markdown',
+      buffer: Buffer.from(`---\nname: My helper\nhandle: ${own}\nemoji: 🧪\nscope: personal\n---\n\n# My helper\n\nAnswer in one line.\n`),
+    })
+    const mineRow = `.ca-list[data-scope="personal"] .ca-row[data-agent-handle="${own}"]`
+    await desk.waitForSelector(mineRow, { timeout: 10000 }).catch(() => { throw new Error('the imported agent is not under Only you') })
+
+    // "@sec…" in a channel offers it; called, it answers in the thread under
+    // the message, as itself (no model here: it says so, as the agent).
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.slk-side .cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view="b:kitchen"] .cl-open')
+    await desk.click('.slk-composer .slk-input')
+    await desk.keyboard.type(`@${handle.slice(0, -1)}`)
+    await desk.waitForSelector(`.mention-option[data-mention-option="agent:${handle}"]`, { timeout: 5000 })
+      .catch(() => { throw new Error('"@" does not offer the agent') })
+    await desk.keyboard.press('Enter')
+    await desk.keyboard.type(`sum up the stock count ${stamp}`)
+    await desk.keyboard.press('Enter')
+    const said = `.slk-msg:has-text("sum up the stock count ${stamp}")`
+    await desk.waitForSelector(`${said} .slk-thread-link`, { timeout: 20000 })
+      .catch(() => { throw new Error('the agent did not answer in a thread') })
+    await desk.click(`${said} .slk-thread-link`)
+    await desk.waitForSelector('.slk-thread-pane .slk-msg:has(.slk-avatar.agent) .slk-author:has-text("Secretary")', { timeout: 15000 })
+      .catch(() => { throw new Error('the reply in the thread is not the agent, by its name and face') })
+    await desk.screenshot({ path: `${SHOTS}/64-agent-reply.png` })
+
+    // Yours to delete.
+    await desk.goto(`${WEB}#/agents`, { waitUntil: 'load' })
+    await desk.waitForSelector(mineRow, { timeout: 20000 })
+    await desk.click(`${mineRow} .btn-text.danger`)
+    await desk.click(`${mineRow} .pill-btn:has-text("Delete")`)
+    await desk.waitForSelector(mineRow, { state: 'detached', timeout: 10000 }).catch(() => { throw new Error('the deleted agent is still listed') })
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-agents.png` }).catch(() => {})
+    throw err
+  } finally {
+    await desk.close()
+  }
+})
+
 await step('notifications paused for an hour, said at the top, and resumed', async () => {
   const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()

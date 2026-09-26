@@ -139,7 +139,9 @@ export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose
         <span className="ca-name">{a.name} <span className="ca-handle">@{a.handle}</span></span>
         {a.description && <span className="ca-desc">{a.description}</span>}
         <span className="row-sub">
-          {a.updatedByName ? t('Edited by {name}', { name: a.updatedByName }) : a.mine ? t('Made by you') : t('Made by {name}', { name: a.createdByName || t('a teammate') })}
+          {a.updatedByName && a.updatedByName !== a.createdByName
+            ? t('Edited by {name}', { name: a.updatedByName })
+            : a.mine ? t('Made by you') : t('Made by {name}', { name: a.createdByName || t('a teammate') })}
           {a.updatedAt ? ` · ${date(a.updatedAt)}` : ''}
         </span>
         <span className="routine-actions">

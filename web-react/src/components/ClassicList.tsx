@@ -135,11 +135,10 @@ interface Member {
   awayUntil?: string | null
 }
 interface Activity { channel: string; lastAt: string; preview: string; lastBy: string | null }
-/// Whose face goes beside something: a name, and their photo if they have one.
-/// `emoji`: an agent's face — a tile, not a person's photo.
 /// One of the team's agents answering somewhere.
 interface AgentWriting { id: string; name: string; emoji: string | null; parentId: string | null }
-
+/// Whose face goes beside something: a name, and their photo if they have one.
+/// `emoji`: an agent's face — a tile, not a person's photo.
 interface Face { name: string; url?: string | null; emoji?: string | null }
 /// One notification: somebody named you, replied in your thread, or reacted
 /// to what you wrote.
@@ -894,6 +893,8 @@ export const ClassicList: React.FC<Props> = ({
             ...prev,
             [p.channel]: [...(prev[p.channel] || []).filter((x) => x.id !== a.id), { id: a.id, name: a.name, emoji: a.emoji || null, parentId: p.parentId || null }],
           }))
+          // A "done" that never came does not leave it writing forever.
+          setTimeout(() => agentDone(p.channel, a.id), 120_000)
         } else agentDone(p.channel, a.id)
         return
       }
