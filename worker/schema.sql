@@ -1135,3 +1135,32 @@ CREATE TABLE IF NOT EXISTS audit_streams (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_streams_org ON audit_streams(org_id);
+
+/* People and groups a workspace's identity provider keeps here over SCIM
+   2.0 (docs/sso-and-domain-join.md §11). `id` is the SCIM id the provider
+   addresses them by; `active = 0` is someone it has stopped, who is no
+   longer a member. A group is a user group (`user_groups.handle`). */
+CREATE TABLE IF NOT EXISTS scim_users (
+  org_id         TEXT NOT NULL,
+  id             TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  user_name      TEXT NOT NULL,
+  external_id    TEXT,
+  display_name   TEXT,
+  active         INTEGER NOT NULL DEFAULT 1,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  PRIMARY KEY (org_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scim_users_name ON scim_users(org_id, user_name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scim_users_user ON scim_users(org_id, user_github_id);
+CREATE TABLE IF NOT EXISTS scim_groups (
+  org_id         TEXT NOT NULL,
+  id             TEXT NOT NULL,
+  handle         TEXT NOT NULL,
+  display_name   TEXT NOT NULL,
+  external_id    TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  PRIMARY KEY (org_id, id)
+);

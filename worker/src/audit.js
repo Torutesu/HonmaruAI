@@ -90,6 +90,13 @@ export const AUDIT_ACTIONS = {
   "audit.stream_failing": { category: "audit", severity: "warning", text: "Streaming the audit log to {entity} has failed for a day" },
   "audit.stream_replayed": { category: "audit", severity: "notice", text: "{actor} sent the audit log to {entity} again" },
   "workspace.audit_stream_changed": { category: "audit", severity: "critical", text: "{actor} changed where the audit log is streamed" },
+  "scim.user_provisioned": { category: "membership", severity: "notice", text: "{actor} provisioned {entity}" },
+  "scim.user_activated": { category: "membership", severity: "notice", text: "{actor} let {entity} in" },
+  "scim.user_deactivated": { category: "membership", severity: "warning", text: "{actor} deactivated {entity}" },
+  "scim.user_deleted": { category: "membership", severity: "warning", text: "{actor} deprovisioned {entity}" },
+  "scim.group_created": { category: "membership", severity: "notice", text: "{actor} made the group {entity}" },
+  "scim.group_updated": { category: "membership", severity: "info", text: "{actor} changed the group {entity}" },
+  "scim.group_deleted": { category: "membership", severity: "warning", text: "{actor} deleted the group {entity}" },
   "security.anomaly": { category: "security", severity: "critical", text: "Something unusual was found: {entity}" },
   "security.permission_denied": { category: "security", severity: "warning", text: "{actor} was refused: {entity}" },
 };

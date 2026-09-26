@@ -1710,6 +1710,9 @@ const ja: Dict = {
   'Streaming from now on.': 'これから送信を始めます。',
   'Streams': '外部送信',
   'Up to date': '最新',
+  'Provisioning (SCIM)': 'プロビジョニング（SCIM）',
+  'Let your identity provider add people, stop them, and keep groups in step. Make a workspace key with the scim:write scope under API & Webhooks, and give the provider this address and that key.': 'IDプロバイダーから、メンバーの追加・停止とグループの同期ができます。「API とWebhook」で scim:write スコープのワークスペースキーを作り、このアドレスとそのキーをプロバイダーに設定してください。',
+  'Only addresses at your verified domains are taken. Someone the provider stops leaves the workspace and is signed out everywhere at once. An owner is never stopped this way.': '確認済みドメインのアドレスだけを受け付けます。プロバイダーで停止された人はワークスペースから外れ、すべての端末から即座にサインアウトされます。オーナーはこの方法では停止されません。',
 }
 
 // Most keys are their own English text. A few sentences are too long to read
@@ -3394,6 +3397,9 @@ const es: Dict = {
   'Streaming from now on.': 'Se enviará a partir de ahora.',
   'Streams': 'Envíos',
   'Up to date': 'Al día',
+  'Provisioning (SCIM)': 'Aprovisionamiento (SCIM)',
+  'Let your identity provider add people, stop them, and keep groups in step. Make a workspace key with the scim:write scope under API & Webhooks, and give the provider this address and that key.': 'Permite que tu proveedor de identidad añada personas, las desactive y mantenga los grupos al día. Crea una clave del espacio de trabajo con el alcance scim:write en API y webhooks, y da al proveedor esta dirección y esa clave.',
+  'Only addresses at your verified domains are taken. Someone the provider stops leaves the workspace and is signed out everywhere at once. An owner is never stopped this way.': 'Solo se aceptan direcciones de tus dominios verificados. Quien el proveedor desactive sale del espacio de trabajo y se cierra su sesión en todas partes al instante. Un propietario nunca se desactiva así.',
 }
 
 const fr: Dict = {
@@ -5028,6 +5034,9 @@ const fr: Dict = {
   'Streaming from now on.': 'L\'envoi commence maintenant.',
   'Streams': 'Flux',
   'Up to date': 'À jour',
+  'Provisioning (SCIM)': 'Provisionnement (SCIM)',
+  'Let your identity provider add people, stop them, and keep groups in step. Make a workspace key with the scim:write scope under API & Webhooks, and give the provider this address and that key.': 'Laissez votre fournisseur d\'identité ajouter des personnes, les désactiver et synchroniser les groupes. Créez une clé d\'espace de travail avec la portée scim:write dans API et webhooks, puis donnez au fournisseur cette adresse et cette clé.',
+  'Only addresses at your verified domains are taken. Someone the provider stops leaves the workspace and is signed out everywhere at once. An owner is never stopped this way.': 'Seules les adresses de vos domaines vérifiés sont acceptées. Une personne désactivée par le fournisseur quitte l\'espace de travail et est déconnectée partout immédiatement. Un propriétaire n\'est jamais désactivé ainsi.',
 }
 
 const de: Dict = {
@@ -6662,6 +6671,9 @@ const de: Dict = {
   'Streaming from now on.': 'Ab jetzt wird gesendet.',
   'Streams': 'Streams',
   'Up to date': 'Aktuell',
+  'Provisioning (SCIM)': 'Bereitstellung (SCIM)',
+  'Let your identity provider add people, stop them, and keep groups in step. Make a workspace key with the scim:write scope under API & Webhooks, and give the provider this address and that key.': 'Lassen Sie Ihren Identitätsanbieter Personen hinzufügen, deaktivieren und Gruppen abgleichen. Erstellen Sie unter API & Webhooks einen Workspace-Schlüssel mit dem Scope scim:write und geben Sie dem Anbieter diese Adresse und diesen Schlüssel.',
+  'Only addresses at your verified domains are taken. Someone the provider stops leaves the workspace and is signed out everywhere at once. An owner is never stopped this way.': 'Nur Adressen Ihrer bestätigten Domains werden angenommen. Wen der Anbieter deaktiviert, verlässt den Workspace und wird sofort überall abgemeldet. Ein Inhaber wird so nie deaktiviert.',
 }
 
 const TABLES: Record<string, Dict> = { en, ja, es, fr, de }
