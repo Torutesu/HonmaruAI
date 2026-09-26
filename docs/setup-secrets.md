@@ -318,6 +318,39 @@ npx wrangler secret put ALERT_WEBHOOK_URL    # https://hooks.slack.com/services/
 Slack ならワークスペースの App 管理 → Incoming Webhooks で URL を発行するだけ。
 リクエストを遅らせないよう `waitUntil` で送るので、応答速度への影響はない。
 
+## 4.5b. 9 人以上の通話（任意・5 分）
+
+Jam は既定でメッシュ（ブラウザ同士が全員とつながる）で、8 人までです。
+Cloudflare Realtime（SFU）のアプリを作って Worker に入れると、そのあと
+始まる Jam は SFU 経由になり、50 人まで入れます。iOS の通話は Web の通話画面を
+使うので、同じように SFU 経由になります。
+
+```bash
+# Cloudflare ダッシュボード → Realtime → SFU → Create application
+npx wrangler secret put CF_CALLS_APP_ID       # App ID
+npx wrangler secret put CF_CALLS_APP_SECRET   # App Token
+```
+
+- アプリの秘密は Worker（relay）だけが持ち、ブラウザには渡しません。ブラウザは
+  自分が入っている Jam についてだけ、ソケット越しに送信・受信を頼みます。
+- 途中で設定しても、すでに進んでいる Jam はメッシュのまま終わります。
+
+## 4.5c. 監査ログのアーカイブと運用の窓口
+
+- `AUDIT_SIGNING_KEY`（Ed25519、PKCS8）はデプロイのワークフローが無ければ一度だけ作ります。
+  R2 バケット `tiktokforwork-audit` と `audit/` の 400 日ロックも同じワークフローが作ります。
+- 保持期間とリーガルホールドは運用者が顧客の依頼で設定します。窓口 `/ops/audit/*` を
+  使うには `OPS_TOKEN` を入れてください（未設定なら窓口は 404 です）。
+
+```bash
+npx wrangler secret put OPS_TOKEN   # 長いランダム文字列。運用者だけが持つ
+curl -X POST "$WORKER/ops/audit/settings" -H "x-ops-token: $OPS_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"orgId":"team:acme","retentionDays":365,"reason":"契約で 1 年保持"}'
+```
+
+- アーカイブの検証はオフラインでもできます: `node worker/scripts/verify-audit-archive.mjs <ダウンロードしたフォルダ>`。
+
 ---
 
 ## 4.6 ステージング（任意・15 分）
