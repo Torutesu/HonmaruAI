@@ -52,12 +52,12 @@ final class DecisionCardTests: XCTestCase {
         XCTAssertFalse(card(daysAgo: 30, status: .approved).isStale)
     }
 
-    func testOnlyDeclinedCardsCanBeDeleted() {
-        // Deleting a pending card would silently drop work someone is waiting
-        // on; deleting an approved one would erase a decision.
-        XCTAssertTrue(card(daysAgo: 0, status: .rejected).canDelete)
-        XCTAssertFalse(card(daysAgo: 0, status: .pending).canDelete)
-        XCTAssertFalse(card(daysAgo: 0, status: .approved).canDelete)
+    func testTheRecipientMayDeleteAnyCardAndTheSenderOnlyWhileItWaits() {
+        XCTAssertTrue(card(daysAgo: 0, status: .pending).canBeDeleted(by: "alice"))
+        XCTAssertTrue(card(daysAgo: 0, status: .approved).canBeDeleted(by: "alice"))
+        XCTAssertTrue(card(daysAgo: 0, status: .pending).canBeDeleted(by: "bob"))
+        XCTAssertFalse(card(daysAgo: 0, status: .approved).canBeDeleted(by: "bob"))
+        XCTAssertFalse(card(daysAgo: 0, status: .pending).canBeDeleted(by: "carol"))
     }
 
     func testAGitHubLinkIsOnlyShownForTheRepositoryItBelongsTo() {

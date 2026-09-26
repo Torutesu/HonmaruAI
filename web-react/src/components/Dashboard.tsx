@@ -22,7 +22,6 @@ import { Playbook } from '../screens/Playbook'
 import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { notifyNewDecision, setNotificationCopy, setTabBadge } from '../utils/notifications'
-import { syncLocale } from '../utils/push'
 import type { AppState, Business, DecisionCard } from '../types/card'
 import './Dashboard.css'
 import { useT } from '../utils/i18n'
@@ -117,6 +116,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const showDebug = import.meta.env.VITE_DEBUG === 'true' || (typeof location !== 'undefined' && location.search.includes('debug'))
   // Bumped when the language changes, so cards re-read their localized text.
   const [localeVersion, setLocaleVersion] = useState(0)
+  // The language changed from elsewhere — another device, adopted on focus.
+  useEffect(() => {
+    const on = () => setLocaleVersion((v) => v + 1)
+    window.addEventListener('honmaru:locale', on)
+    return () => window.removeEventListener('honmaru:locale', on)
+  }, [])
   // Cards is one decision per screen; Classic is the same decisions as a list
   // you can scan. Remembered, because it is a way of working, not a detour.
   const storedMode: Mode = (() => {
@@ -325,8 +330,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [navigate])
 
-  // What language this browser reads, so every notification arrives in it.
-  useEffect(() => { syncLocale(relayHttpUrl, sessionToken) }, [relayHttpUrl, sessionToken])
+  // The language is the account's, not this browser's: it is read from the
+  // Worker when the app opens (App.tsx) and written only when the person
+  // chooses one. Pushing the browser's language on every load overwrote a
+  // choice made on the phone, and the screens stayed in English.
 
   // The org's businesses, for turning a slug on a card into its name. Nobody
   // picks one; the AI files every card in the background.
@@ -524,6 +531,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     setSuggestRule(null)
     if (!res?.ok) setError(t('That did not save.'))
   }, [suggestRule, relayHttpUrl, sessionToken, orgId, t])
+  const handleDelete = useCallback((cardId: string) => {
+    wsClientRef.current?.sendDeleteCard(cardId)
+    addDebugLog(`Deleted: ${cardId}`)
+    // Open on screen, it goes back to the feed rather than a card that is gone.
+    if (route.cardId === cardId) navigate(hashForMode('cards'), true)
+  }, [addDebugLog, route.cardId, navigate])
   const handleRollback = useCallback((cardId: string) => {
     wsClientRef.current!.sendRollback(cardId)
     addDebugLog(`Rolled back: ${cardId}`)
@@ -686,6 +699,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             onFlag={handleFlag}
             answers={answers}
             onUndo={handleRollback}
+            onDelete={handleDelete}
             api={api}
             layout="desk"
           />
@@ -704,6 +718,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onFlag={handleFlag}
           answers={answers}
           onUndo={handleRollback}
+          onDelete={handleDelete}
           api={api}
           layout="phone"
         />
@@ -741,6 +756,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               onFlag={handleFlag}
               answers={answers}
               onUndo={handleRollback}
+              onDelete={handleDelete}
               api={api}
               layout="desk"
             />
@@ -933,6 +949,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           businesses={businesses}
           userId={userId}
           onUndo={handleRollback}
+          onDelete={handleDelete}
           onClose={closeScreen}
           httpBase={relayHttpUrl}
           orgId={orgId}

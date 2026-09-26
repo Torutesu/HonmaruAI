@@ -25,6 +25,20 @@ enum ProfileService {
         _ = try? await URLSession.shared.data(for: request)
     }
 
+    /// The account's language as the Worker has it — the one every device
+    /// follows. Nil when it cannot be read; the app keeps what it has.
+    static func locale(backendBaseURL: URL) async -> String? {
+        guard let token = SessionStore.sessionToken, !token.isEmpty else { return nil }
+        var request = URLRequest(url: backendBaseURL.appending(path: "me"))
+        request.timeoutInterval = 15
+        request.setValue(token, forHTTPHeaderField: "x-session-token")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = json["locale"] as? String, !code.isEmpty else { return nil }
+        return code
+    }
+
     enum Failure: LocalizedError { case refused(String)
         var errorDescription: String? { if case .refused(let m) = self { return m }; return nil }
     }

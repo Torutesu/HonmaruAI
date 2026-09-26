@@ -3,6 +3,9 @@ import UIKit
 
 struct CardDetailSheet: View {
     let card: DecisionCard
+    /// Delete the card, when the person looking may. Nil hides the button.
+    var onDelete: (() -> Void)? = nil
+    @State private var confirmDelete = false
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appState: AppState
 
@@ -138,11 +141,22 @@ struct CardDetailSheet: View {
             .navigationTitle(card.displayTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if onDelete != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(role: .destructive) { confirmDelete = true } label: { Image(systemName: "trash") }
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .accessibilityLabel(Text("Delete card"))
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }
             }
+            .confirmationDialog("Delete this card?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete card", role: .destructive) { onDelete?(); dismiss() }
+                Button("Cancel", role: .cancel) {}
+            } message: { Text(card.displayTitle) }
         }
         .presentationBackground(Theme.Colors.surface)
         .presentationDragIndicator(.visible)

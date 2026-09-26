@@ -46,6 +46,8 @@ struct TikTokForWorkApp: App {
             guard phase == .active else { return }
             appState.webSocketService.reconnectIfNeeded()
             Task { await push.refreshAuthorization() }
+            // The language may have been changed on the web meanwhile.
+            Task { await appState.adoptAccountLanguage() }
         }
     }
 }

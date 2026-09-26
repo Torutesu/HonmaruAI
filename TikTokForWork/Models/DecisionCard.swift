@@ -225,7 +225,11 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     /// Waiting long enough that the delay is now the story, not the decision.
     var isStale: Bool { (waitingDays ?? 0) >= 5 }
 
-    var canDelete: Bool { status == .rejected }
+    /// Whoever it was for may clear it away; whoever asked may take the ask
+    /// back while nobody has answered it.
+    func canBeDeleted(by userID: String) -> Bool {
+        recipientUserID == userID || (senderUserID == userID && isPending)
+    }
 
     var priorityLabel: String {
         switch priority {

@@ -741,7 +741,7 @@ await step('choosing a language changes the interface, and changing back returns
   // role under a name — was still English behind a Japanese card.
   const feedChrome = await page.evaluate(() =>
     [...document.querySelectorAll(
-      '.mode-switch button, .card-kind, .priority-legend, .rb-label, .rb-meta, .ask-bar input'
+      '.mode-switch button, .card-kind, .card-top-end .legend, .rb-label, .rb-meta, .ask-bar input'
     )].map((el) => (el.placeholder || el.innerText || '').trim()).filter(Boolean)
   )
   const feedEnglish = feedChrome.filter(
@@ -766,8 +766,12 @@ await step('choosing a language changes the interface, and changing back returns
   await page.waitForTimeout(300)
 }, {
   after: async () => {
-    // Whatever happened above, the app goes back to English and to the feed.
-    await page.evaluate(() => localStorage.setItem('locale', 'en'))
+    // Whatever happened above, the app goes back to English and to the feed
+    // — the account's language too, which every open of the app now follows.
+    await page.evaluate(async (api) => {
+      await fetch(`${api}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') || '' }, body: JSON.stringify({ locale: 'en' }) })
+      localStorage.setItem('locale', 'en')
+    }, API)
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('.tabbar', { timeout: 20000 })
   },
@@ -1187,17 +1191,32 @@ await step('a decided card opens in the workbench with its decision, Undo and th
 
 await step('the workbench reads in Japanese', async () => {
   const d = desk.pages()[0]
-  await d.evaluate(() => { localStorage.setItem('locale', 'ja') })
+  // The language is the account's: chosen anywhere — here, as another
+  // device would, straight through the Worker — it is what this browser
+  // shows when it opens, whatever it had stored.
+  const setAccountLocale = (locale) => d.evaluate(async ({ api, locale }) => {
+    await fetch(`${api}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') || '' }, body: JSON.stringify({ locale }) })
+  }, { api: API, locale })
+  await setAccountLocale('ja')
+  await d.evaluate(() => { localStorage.setItem('locale', 'en') })
   await d.reload({ waitUntil: 'load' })
   await d.waitForSelector('.inbox', { timeout: 20000 })
   await d.waitForFunction(() => /あなた待ち/.test(document.querySelector('.inbox')?.textContent || ''), null, { timeout: 10000 })
-    .catch(() => { throw new Error('the inbox heading is not in Japanese') })
+    .catch(async () => {
+      const seen = await d.evaluate(async (api) => ({
+        lang: document.documentElement.lang,
+        stored: localStorage.getItem('locale'),
+        account: await fetch(`${api}/me`, { headers: { 'x-session-token': localStorage.getItem('sessionToken') || '' } }).then((r) => r.json()).then((m) => m.locale).catch((e) => String(e)),
+      }), API)
+      throw new Error(`the inbox heading is not in Japanese: ${JSON.stringify(seen)}`)
+    })
   await d.keyboard.press('Control+k')
   await d.waitForSelector('.palette-input', { timeout: 5000 })
   const placeholder = await d.$eval('.palette-input', (el) => el.placeholder)
   if (!/決定/.test(placeholder)) throw new Error(`the palette placeholder is not in Japanese: ${placeholder}`)
   await d.keyboard.press('Escape')
   await d.screenshot({ path: `${SHOTS}/20f-desktop-ja.png` })
+  await setAccountLocale('en')
   await d.evaluate(() => { localStorage.removeItem('locale') })
 })
 

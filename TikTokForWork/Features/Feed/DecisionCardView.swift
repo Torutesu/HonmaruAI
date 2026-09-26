@@ -87,6 +87,8 @@ struct DecisionCardView: View {
                     Button("Request revision", systemImage: "pencil") { onAction(.requestRevision) }
                     Button("Delegate", systemImage: "person.badge.plus") { onAction(.delegate) }
                 }
+                Divider()
+                Button("Delete card", systemImage: "trash", role: .destructive) { onAction(.delete) }
             }
             if showsActions, card.isPending, !card.awaitsPost { DecisionCardActions(card: card, onAction: onAction) }
         }
@@ -112,11 +114,16 @@ struct DecisionCardView: View {
         Text(appState.isGuest ? String(localized: "Decisions · Demo") : String(localized: "Decisions"))
             .font(.system(size: captionSize, design: .monospaced)).fixedSize(horizontal: false, vertical: true)
     }
+    /// This card's priority, and only it: three levels with two of them
+    /// idle said less than one word.
     private var priorities: some View {
-        HStack(spacing: 6) {
-            priorityLegend("Low", color: Theme.Colors.approve)
-            priorityLegend("Medium", color: .orange)
-            priorityLegend("High", color: Theme.Colors.reject)
+        priorityLegend(card.priorityLabel, color: priorityColor)
+    }
+    private var priorityColor: Color {
+        switch card.priority {
+        case .low: Theme.Colors.approve
+        case .medium: .orange
+        case .high, .urgent: Theme.Colors.reject
         }
     }
     private var requesterMeta: some View {
@@ -128,8 +135,10 @@ struct DecisionCardView: View {
         let minutes = max(1, Int(Date().timeIntervalSince(card.createdAt) / 60))
         return formatter.localizedString(from: minutes < 60 ? DateComponents(minute: -minutes) : minutes < 1440 ? DateComponents(hour: -(minutes / 60)) : DateComponents(day: -(minutes / 1440)))
     }
-    private func priorityLegend(_ text: LocalizedStringKey, color: Color) -> some View {
-        HStack(spacing: 3) { Circle().fill(color).frame(width: 5, height: 5); Text(text).font(.system(size: captionSize, design: .monospaced)).fixedSize() }
+    private func priorityLegend(_ text: String, color: Color) -> some View {
+        HStack(spacing: 3) { Circle().fill(color).frame(width: 6, height: 6); Text(text).font(.system(size: captionSize, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.Colors.textPrimary).fixedSize() }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text("Priority: \(text)"))
     }
     private func recommendationLabel(_ action: String) -> String? {
         switch action { case "approve": String(localized: "Approve"); case "decline": String(localized: "Decline"); case "revise": String(localized: "Request revision"); default: nil }

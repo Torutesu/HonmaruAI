@@ -625,8 +625,11 @@ export class OrgRelay {
     if (type === "card_deleted") {
       if (!payload.cardId) return;
       const doomed = await getCard(this.db, orgId, payload.cardId);
-      if (doomed && doomed.recipientUserID !== att.userId) {
-        ws.send(JSON.stringify(runError("Only the recipient can delete this decision.")));
+      // Whoever it was for may clear it away; whoever asked may take the ask
+      // back while nobody has answered it.
+      const pending = doomed && (doomed.status || "pending") === "pending" && !doomed.decision;
+      if (doomed && doomed.recipientUserID !== att.userId && !(pending && doomed.senderUserID === att.userId)) {
+        ws.send(JSON.stringify(runError("Only the recipient, or its sender while it waits, can delete this decision.")));
         return;
       }
       await removeCard(this.db, orgId, payload.cardId);

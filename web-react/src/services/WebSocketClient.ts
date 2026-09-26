@@ -431,6 +431,11 @@ export class WebSocketClient {
 
   // File a card under a business (a slug, or a new name), or null to clear.
   // The relay accepts this from the sender or the recipient.
+  /// Delete a card: the relay takes it out of everyone's feed.
+  sendDeleteCard(cardId: string): void {
+    this.post({ type: 'card_deleted', payload: { cardId } })
+  }
+
   sendSetBusiness(cardId: string, business: string | null): void {
     this.post({ type: 'set_business', payload: { cardId, business } })
   }

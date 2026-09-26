@@ -30,6 +30,7 @@ private struct CardHomeContent: View {
     @State private var lastDecision: DecisionCard?
     @State private var confirmUndo = false
     @State private var isRecoveringSession = false
+    @State private var deleteCard: DecisionCard?
     @State private var suggestRule: (cardID: String, sender: String, business: String?)?
     private var cards: [DecisionCard] { service.cards(for: appState.currentUser?.id ?? "").filter(\.isPending) }
     private var selectedCard: DecisionCard? { cards.first { $0.id == selectedID } ?? cards.first }
@@ -84,7 +85,16 @@ private struct CardHomeContent: View {
         .sheet(item: $detailCard) { card in
             NavigationStack {
                 RequestDetailView(cardID: card.id, service: service)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { detailCard = nil } } }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Close") { detailCard = nil } }
+                        if let me = appState.currentUser?.id, card.canBeDeleted(by: me) {
+                            ToolbarItem(placement: .primaryAction) {
+                                // The question is asked on the feed, once the sheet is down.
+                                Button { detailCard = nil; DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { deleteCard = card } } label: { Image(systemName: "trash") }
+                                    .accessibilityLabel(Text("Delete card"))
+                            }
+                        }
+                    }
             }
         }
         .sheet(item: $noteCard) { card in noteSheet(card) }
@@ -96,9 +106,19 @@ private struct CardHomeContent: View {
         } message: {
             if pendingAction == .createIssue { Text(appState.githubService.linkedRepository) }
         }
+        .confirmationDialog("Delete this card?", isPresented: Binding(get: { deleteCard != nil }, set: { if !$0 { deleteCard = nil } }), titleVisibility: .visible, presenting: deleteCard) { card in
+            Button("Delete card", role: .destructive) { delete(card); deleteCard = nil }
+            Button("Cancel", role: .cancel) { deleteCard = nil }
+        } message: { card in Text(card.displayTitle) }
         .confirmationDialog("Undo this decision?", isPresented: $confirmUndo, titleVisibility: .visible) {
             if let card = lastDecision { Button("Undo decision") { undo(card) } }
         } message: { Text("This reopens the request. Changes already made in GitHub will remain.") }
+        // Waiting cards in the language this person reads, when it changes
+        // or a card arrives in another.
+        .task(id: "\(appState.language.readerLanguageCode)|\(cards.map(\.id).joined(separator: ","))") {
+            guard !appState.isGuest, let base = appState.backendBaseURL, let orgId = appState.currentUser?.teamID else { return }
+            await CardLocalizer.request(for: cards, language: appState.language.readerLanguageCode, orgId: orgId, base: base)
+        }
         .alert("Could not update request", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
@@ -257,6 +277,7 @@ private struct CardHomeContent: View {
         if action == .reply || action == .requestRevision { noteAction = action; note = ""; noteCard = card }
         else if action == .delegate { delegateCard = card }
         else if action == .viewDetails { detailCard = card }
+        else if action == .delete { deleteCard = card }
         else if action == .reject || (action == .createIssue && !appState.isGuest && appState.githubService.isConnected) {
             pendingAction = action; confirmationCard = card; showConfirmation = true
         } else { resolve(card, action: action) }
@@ -270,6 +291,15 @@ private struct CardHomeContent: View {
                 Haptics.success()
                 noteStreak(card, action: action)
             } catch { self.error = error.localizedDescription }
+            isWorking = false
+        }
+    }
+    private func delete(_ card: DecisionCard) {
+        guard let userID = appState.currentUser?.id else { return }
+        isWorking = true
+        Task {
+            do { try await service.delete(cardID: card.id, actorUserID: userID); Haptics.success() }
+            catch { self.error = error.localizedDescription }
             isWorking = false
         }
     }

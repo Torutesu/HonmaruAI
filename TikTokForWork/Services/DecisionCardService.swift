@@ -466,8 +466,8 @@ final class DecisionCardService: ObservableObject {
         }
 
         let card = userCards[index]
-        guard card.canDelete else {
-            throw CardServiceError.githubSyncFailed(String(localized: "Only declined cards can be deleted."))
+        guard card.canBeDeleted(by: actorUserID) else {
+            throw CardServiceError.githubSyncFailed(String(localized: "Only the person it is for can delete this card."))
         }
 
         userCards.remove(at: index)
