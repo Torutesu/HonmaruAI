@@ -48,7 +48,23 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
   const q = query.trim().toLowerCase()
   // Slack's filters (from:@x in:#y before: after: is:pinned has:thread) go
   // to message search as they are; the rest of the box searches the text.
-  const filtered = /(^|\s)(from|in|before|after|is|has):\S/i.test(query)
+  const filtered = /(^|\s)(from|in|to|before|after|on|during|is|has):\S/i.test(query) || /(^|\s)(-\S{2,}|"[^"]+")/.test(query)
+  // The filters, as chips that write themselves into the box.
+  const month = new Date().toISOString().slice(0, 7)
+  const FILTERS: Array<{ token: string; label: string }> = [
+    { token: 'from:me', label: t('From me') },
+    { token: 'has:file', label: t('Has a file') },
+    { token: 'has:link', label: t('Has a link') },
+    { token: 'has:reaction', label: t('Has reactions') },
+    { token: 'is:thread', label: t('In a thread') },
+    { token: 'is:saved', label: t('Saved') },
+    { token: 'is:dm', label: t('In DMs') },
+    { token: `during:${month}`, label: t('This month') },
+  ]
+  const addFilter = (token: string) => {
+    setQuery((cur) => (cur.includes(token) ? cur : `${cur.trim()} ${token} `.trimStart()))
+    input.current?.focus()
+  }
   const actions: Item[] = useMemo(() => {
     const all: Item[] = [
       { key: 'a:compose', group: 'actions', label: t('Tell your AI'), meta: 'n', action: { kind: 'compose' } },
@@ -163,6 +179,14 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
           aria-activedescendant={items[cursor] ? `palette-${items[cursor].key}` : undefined}
           autoComplete="off"
         />
+        <div className="palette-filters" role="group" aria-label={t('Filters')}>
+          {FILTERS.map((f) => (
+            <button key={f.token} type="button" className={`palette-filter${query.includes(f.token) ? ' on' : ''}`} onClick={() => addFilter(f.token)} data-filter={f.token} title={f.token}>
+              {f.label}
+            </button>
+          ))}
+          <span className="palette-filter-hint" title={t('search.syntax')}>{t('"exact words" · -without · on:2026-09-01 · in:@name')}</span>
+        </div>
         <ul className="palette-list" id="palette-list" role="listbox">
           {items.length === 0 && <li className="palette-empty">{t('Nothing matches that.')}</li>}
           {items.map((it, i) => {

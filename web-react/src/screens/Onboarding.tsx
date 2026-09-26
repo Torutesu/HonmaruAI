@@ -77,8 +77,16 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
     if (channel === NEW_CHANNEL) {
       const res = await fetch(`${httpBase}/businesses`, { method: 'POST', signal, headers, body: JSON.stringify({ orgId, name: daily.newName.trim() }) })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok || !data.business?.slug) throw new Error(data.message || t('We could not save that.'))
-      channel = `b:${data.business.slug}`
+      // A guest may not make channels: their report goes to one they were
+      // let into, or is left for later — never a wall at the last step.
+      if (res.status === 403) {
+        const first = (businesses || [])[0]
+        if (!first) return
+        channel = `b:${first.slug}`
+      } else {
+        if (!res.ok || !data.business?.slug) throw new Error(data.message || t('We could not save that.'))
+        channel = `b:${data.business.slug}`
+      }
     }
     const list = await fetch(`${httpBase}/routines?orgId=${encodeURIComponent(orgId)}`, { signal, headers })
     const have = new Set<string>(((await list.json().catch(() => ({}))).routines || []).map((r: { kind: string }) => r.kind))

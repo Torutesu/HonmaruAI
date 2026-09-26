@@ -2,7 +2,8 @@ import { listMembers } from "./team.js";
 import { businessSlug } from "./db.js";
 import { resolveMentions } from "./threads.js";
 import { filesFor, toFile } from "./files.js";
-import { accessFor, mayRead, membersOf, isGroupKey } from "./access.js";
+import { accessFor, mayRead, membersOf, isGroupKey, hasGuests, publicAudience } from "./access.js";
+import { parseKeywords, keywordHit } from "./quiet.js";
 
 // Channels you can talk in.
 //
@@ -46,7 +47,14 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     const slug = channel.slice(2);
     if (!slug || businessSlug(slug) !== slug) return null;
     const row = await db.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first().catch(() => null);
-    if (!row?.private) return { key: channel, kind: "business", slug };
+    if (!row?.private) {
+      // With guests in the workspace, a public channel has a list of who
+      // reads it too — and a guest who is not on it is not told it exists.
+      if (!(await hasGuests(db, orgId))) return { key: channel, kind: "business", slug };
+      const logins = await publicAudience(db, orgId, channel);
+      if (!logins.includes(viewer.login)) return null;
+      return { key: channel, kind: "business", slug, logins };
+    }
     // A private channel: its members, and for anybody else nothing — not
     // even that it is there.
     const logins = await membersOf(db, orgId, channel);
@@ -439,11 +447,12 @@ const VISIBLE = `(
   OR m.channel LIKE 'dm:' || ?2 || '|%' OR m.channel LIKE 'dm:%|' || ?2
   OR (m.channel LIKE 'g:%' AND EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)))`;
 
-/// The Activity inbox: messages that name you, and replies in threads you
-/// started or answered in — the last 30 days, newest first.
+/// The Activity inbox: messages that name you, replies in threads you
+/// started or answered in, and your keywords said anywhere you can read —
+/// the last 30 days, newest first.
 export async function activityFeed(db, orgId, login, members, { days = 30, limit = 60 } = {}) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
-  const [recent, mine, read] = await Promise.all([
+  const [recent, mine, read, kw] = await Promise.all([
     db.prepare(
       `SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND ${VISIBLE} AND m.deleted_at IS NULL AND m.created_at >= ?3
@@ -455,24 +464,27 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
         WHERE org_id = ?1 AND author_login = ?2 AND deleted_at IS NULL AND created_at >= ?3`
     ).bind(orgId, login, new Date(Date.now() - 90 * 86400000).toISOString()).all(),
     db.prepare("SELECT last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2 AND channel = 'activity'").bind(orgId, login).first(),
+    db.prepare("SELECT notify_keywords FROM users WHERE login = ?1").bind(login).first().catch(() => null),
   ]);
   const threads = new Set((mine.results || []).map((r) => r.thread));
+  const keywords = parseKeywords(kw?.notify_keywords);
   const picked = [];
   for (const r of recent.results || []) {
     const mention = r.body && resolveMentions(r.body, members).some((m) => m.login === login);
     const reply = r.parent_id && threads.has(r.parent_id);
-    if (!mention && !reply) continue;
-    picked.push({ row: r, type: mention ? "mention" : "reply" });
+    const keyword = !mention && !reply ? keywordHit(r.body, keywords) : null;
+    if (!mention && !reply && !keyword) continue;
+    picked.push({ row: r, type: mention ? "mention" : reply ? "reply" : "keyword", keyword });
     if (picked.length >= limit) break;
   }
   const lastRead = read?.last_read_at || "";
   const access = await accessFor(db, orgId, login);
   const out = [];
-  for (const { row, type } of picked) {
+  for (const { row, type, keyword } of picked) {
     const view = viewOf(row.channel, login, members, access);
     if (!view) continue;
     const [message] = await present(db, orgId, [row], login, view, members);
-    out.push({ type, message, unread: row.created_at > lastRead, at: row.created_at });
+    out.push({ type, message, unread: row.created_at > lastRead, at: row.created_at, ...(keyword ? { keyword } : {}) });
   }
   // What others said with a reaction to what you wrote: one entry each, as
   // a notification — who, which, on what.
@@ -549,36 +561,106 @@ export async function threadsFor(db, orgId, login, members, { days = 30, limit =
   return out;
 }
 
-/// Search what was said. `q` may carry Slack's filters: from:@name,
-/// in:#channel, before:YYYY-MM-DD, after:YYYY-MM-DD, has:thread, is:pinned.
+/// Search what was said. `q` may carry Slack's filters:
+///   from:@name  from:me        who wrote it
+///   in:#channel in:@name       where: a channel, or your DM with someone
+///   to:@name                   a DM or group they are in
+///   before: after: on: during: a date (YYYY-MM-DD), or a month for during:
+///   has:file has:link has:reaction has:thread has:pin
+///   is:thread (a reply) is:pinned is:saved is:dm
+///   "exact words"   -word (without it)
+/// `has` and `is` may repeat; each narrows further.
 export function parseQuery(raw) {
-  const out = { text: [], from: null, in: null, before: null, after: null, has: null, is: null };
-  for (const token of String(raw || "").trim().split(/\s+/).filter(Boolean)) {
-    const m = /^(from|in|before|after|has|is):(.+)$/i.exec(token);
-    if (m) out[m[1].toLowerCase()] = m[2].replace(/^[@#]/, "");
+  const out = { text: [], phrases: [], not: [], from: null, in: null, to: null, before: null, after: null, on: null, during: null, has: null, is: null, hasList: [], isList: [] };
+  const tokens = String(raw || "").trim().match(/-?"[^"]*"|\S+/g) || [];
+  for (const token of tokens) {
+    const quoted = /^(-?)"([^"]*)"$/.exec(token);
+    if (quoted) {
+      if (quoted[2].trim()) (quoted[1] ? out.not : out.phrases).push(quoted[2].trim());
+      continue;
+    }
+    const m = /^(from|in|to|before|after|on|during|has|is):(.+)$/i.exec(token);
+    if (m) {
+      const key = m[1].toLowerCase();
+      const value = m[2].replace(/^[@#]/, "");
+      if (key === "has" || key === "is") {
+        const v = value.toLowerCase();
+        out[`${key}List`].push(v);
+        if (!out[key]) out[key] = v;
+      } else {
+        out[key] = value;
+        if (key === "in" && m[2].startsWith("@")) out.inPerson = true;
+      }
+    } else if (/^-\S{2,}$/.test(token)) out.not.push(token.slice(1));
     else out.text.push(token);
   }
   out.text = out.text.join(" ").slice(0, 200);
   return out;
 }
 
+const likeOf = (text) => `%${String(text).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+/// A day or a month as [start, end) ISO strings, or null.
+function span(value, unit) {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  const month = /^(\d{4})-(\d{2})$/.exec(String(value || ""));
+  if (day) {
+    const start = new Date(Date.UTC(+day[1], +day[2] - 1, +day[3]));
+    return [start.toISOString(), new Date(start.getTime() + 86400000).toISOString()];
+  }
+  if (month && unit === "during") {
+    return [new Date(Date.UTC(+month[1], +month[2] - 1, 1)).toISOString(), new Date(Date.UTC(+month[1], +month[2], 1)).toISOString()];
+  }
+  return null;
+}
+
 export async function searchMessages(db, orgId, login, members, raw, { limit = 30 } = {}) {
   const q = parseQuery(raw);
-  const where = [`m.org_id = ?1`, VISIBLE, `m.deleted_at IS NULL`, `m.body != ''`];
+  const where = [`m.org_id = ?1`, VISIBLE, `m.deleted_at IS NULL`];
   const binds = [orgId, login];
   const add = (sql, value) => { binds.push(value); where.push(sql.replace("?", `?${binds.length}`)); };
-  if (q.text) add("m.body LIKE ? ESCAPE '\\'", `%${q.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+  const person = (name) => name === "me" ? members.find((m) => m.login === login) : resolveMentions(`@${name}`, members)[0];
+  if (q.text) add("m.body LIKE ? ESCAPE '\\'", likeOf(q.text));
+  for (const phrase of q.phrases) add("m.body LIKE ? ESCAPE '\\'", likeOf(phrase));
+  for (const word of q.not) add("m.body NOT LIKE ? ESCAPE '\\'", likeOf(word));
   if (q.from) {
-    const who = resolveMentions(`@${q.from}`, members)[0];
+    const who = person(q.from);
     if (!who) return { messages: [], query: q };
     add("m.author_login = ?", who.login);
   }
-  if (q.in) add("m.channel = ?", `b:${businessSlug(q.in)}`);
+  if (q.in && q.inPerson) {
+    const who = person(q.in);
+    if (!who) return { messages: [], query: q };
+    add("m.channel = ?", `dm:${[login, who.login].sort().join("|")}`);
+  } else if (q.in) add("m.channel = ?", `b:${businessSlug(q.in)}`);
+  if (q.to) {
+    const who = person(q.to);
+    if (!who) return { messages: [], query: q };
+    add("(m.channel LIKE 'dm:%' AND ('|' || substr(m.channel, 4) || '|') LIKE ?)", `%|${who.login}|%`);
+  }
   if (q.before && !Number.isNaN(Date.parse(q.before))) add("m.created_at < ?", new Date(q.before).toISOString());
   if (q.after && !Number.isNaN(Date.parse(q.after))) add("m.created_at >= ?", new Date(q.after).toISOString());
-  if (q.is === "pinned") where.push("m.pinned_at IS NOT NULL");
-  if (q.has === "thread") where.push("EXISTS (SELECT 1 FROM channel_messages r WHERE r.org_id = m.org_id AND r.parent_id = m.id AND r.deleted_at IS NULL)");
-  if (!q.text && !q.from && !q.in && !q.is && !q.has) return { messages: [], query: q };
+  for (const [value, unit] of [[q.on, "on"], [q.during, "during"]]) {
+    const range = value ? span(value, unit) : null;
+    if (range) { add("m.created_at >= ?", range[0]); add("m.created_at < ?", range[1]); }
+  }
+  for (const has of q.hasList) {
+    if (has === "thread") where.push("EXISTS (SELECT 1 FROM channel_messages r WHERE r.org_id = m.org_id AND r.parent_id = m.id AND r.deleted_at IS NULL)");
+    else if (has === "file" || has === "files") where.push("EXISTS (SELECT 1 FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id)");
+    else if (has === "link" || has === "links") where.push("(m.body LIKE '%http://%' OR m.body LIKE '%https://%')");
+    else if (has === "reaction" || has === "reactions") where.push("EXISTS (SELECT 1 FROM message_reactions x WHERE x.org_id = m.org_id AND x.message_id = m.id)");
+    else if (has === "pin" || has === "pins") where.push("m.pinned_at IS NOT NULL");
+  }
+  for (const is of q.isList) {
+    if (is === "pinned") where.push("m.pinned_at IS NOT NULL");
+    else if (is === "thread") where.push("m.parent_id IS NOT NULL");
+    else if (is === "dm") where.push("(m.channel LIKE 'dm:%' OR m.channel LIKE 'g:%')");
+    else if (is === "saved") add("EXISTS (SELECT 1 FROM saved_items s WHERE s.org_id = m.org_id AND s.message_id = m.id AND s.login = ?)", login);
+  }
+  // A message that is only a file has no words; `has:file` may still find it.
+  if (!q.hasList.some((h) => h.startsWith("file"))) where.push("m.body != ''");
+  const narrowed = q.text || q.phrases.length || q.from || q.in || q.to || q.on || q.during || q.before || q.after || q.hasList.length || q.isList.length;
+  if (!narrowed) return { messages: [], query: q };
   const { results } = await db.prepare(
     `SELECT m.*, u.name AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
       WHERE ${where.join(" AND ")} ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(50, limit))}`

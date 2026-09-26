@@ -127,19 +127,24 @@ export async function saveContext(db, orgId, userId, context) {
 
 const SESSION_DAYS = 30;
 
-export async function createSession(db, githubId, accessToken) {
+/// `meta` is what "Where you're signed in" shows: the client, its user
+/// agent and the place (sessions.js's sessionMeta, from the request).
+export async function createSession(db, githubId, accessToken, meta = {}) {
   const token = crypto.randomUUID();
   const now = new Date();
   const expires = new Date(now.getTime() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   await db
     .prepare(
-      `INSERT INTO sessions (token, github_id, github_access_token, created_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, ?5)`
+      `INSERT INTO sessions (token, github_id, github_access_token, created_at, expires_at, client, user_agent, place, last_seen_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?4)`
     )
-    .bind(token, githubId, accessToken, now.toISOString(), expires.toISOString())
+    .bind(token, githubId, accessToken, now.toISOString(), expires.toISOString(), meta.client || null, meta.userAgent || null, meta.place || null)
     .run();
   return token;
 }
+
+// How stale "last used" may get before a request writes it again.
+const SESSION_SEEN_EVERY_MS = 10 * 60 * 1000;
 
 // Half the window. Past this point an active session is extended; before it,
 // nothing is written — the alternative is an UPDATE on every request for a
@@ -150,7 +155,7 @@ export async function getSession(db, token) {
   if (!token) return null;
   const row = await db
     .prepare(
-      "SELECT token, github_id, github_access_token, expires_at FROM sessions WHERE token = ?1"
+      "SELECT token, github_id, github_access_token, expires_at, last_seen_at FROM sessions WHERE token = ?1"
     )
     .bind(token)
     .first();
@@ -164,6 +169,16 @@ export async function getSession(db, token) {
   // every morning was still signed out on day 31, with no warning and no way to
   // tell it from a bug. Absence is what should expire a session, not time.
   const remainingMs = row.expires_at ? Date.parse(row.expires_at) - now.getTime() : 0;
+  // "Last used", for the list of places you are signed in: at most every
+  // ten minutes, never a write per request.
+  if (!row.last_seen_at || now.getTime() - Date.parse(row.last_seen_at) > SESSION_SEEN_EVERY_MS) {
+    try {
+      await db.prepare("UPDATE sessions SET last_seen_at = ?1 WHERE token = ?2").bind(now.toISOString(), token).run();
+      row.last_seen_at = now.toISOString();
+    } catch {
+      // Not knowing when it was last used is not a reason to refuse it.
+    }
+  }
   if (!row.expires_at || remainingMs < SESSION_SLIDE_AFTER_DAYS * 24 * 60 * 60 * 1000) {
     const extended = new Date(now.getTime() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     try {
@@ -283,7 +298,7 @@ export async function getUserByGithubId(db, githubId) {
   return (
     (await db
       .prepare(
-        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, push_while_active, notify_paused_until, notify_schedule, aliases, handle FROM users WHERE github_id = ?1"
+        "SELECT github_id, login, name, avatar_url, locale, email, notify_email, push_while_active, notify_paused_until, notify_schedule, notify_keywords, aliases, handle FROM users WHERE github_id = ?1"
       )
       .bind(String(githubId))
       .first()) || null
@@ -787,7 +802,9 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
       `SELECT b.slug, b.name, b.created_by, b.created_at, b.private,
               CASE WHEN b.private = 1 THEN (SELECT COUNT(*) FROM conversation_members c2 WHERE c2.org_id = ?1 AND c2.channel = 'b:' || b.slug) END AS member_count
          FROM businesses b
-        WHERE b.org_id = ?1 AND (b.private = 0 OR (?2 IS NOT NULL AND EXISTS (
+        WHERE b.org_id = ?1 AND ((b.private = 0 AND (?2 IS NULL OR NOT EXISTS (
+          SELECT 1 FROM memberships gm JOIN users gu ON gu.github_id = gm.user_github_id
+           WHERE gm.org_id = ?1 AND gu.login = ?2 AND gm.role = 'guest'))) OR (?2 IS NOT NULL AND EXISTS (
           SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = 'b:' || b.slug AND c.login = ?2)))
         ORDER BY b.created_at`
     )

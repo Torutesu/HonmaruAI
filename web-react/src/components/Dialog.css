@@ -112,3 +112,28 @@
 .invite-art .spark.a { left: -8px; bottom: -4px; width: 12px; height: 12px; }
 .invite-art .spark.b { right: -6px; top: -2px; }
 .invite-agent { display: flex; flex-direction: column; gap: 10px; }
+
+/* A choice of two or three, as cards: "Invite as Member / Guest". */
+.dlg-seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.dlg-seg > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border: 1px solid var(--bone); border-radius: 10px; background: transparent; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.dlg-seg > button b { font-size: 13px; }
+.dlg-seg > button span { font-size: 12px; color: var(--slate); }
+.dlg-seg > button[aria-checked="true"] { border-color: var(--brand-violet); box-shadow: 0 0 0 1px var(--brand-violet) inset; background: rgba(102, 71, 240, 0.05); }
+.key-scope-label { margin-top: 14px; }
+.hook-log { display: flex; flex-direction: column; gap: 6px; max-height: 56vh; overflow-y: auto; }
+.hook-log-row { border: 1px solid var(--bone); border-radius: 10px; overflow: hidden; }
+.hook-log-head { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; width: 100%; padding: 9px 12px; border: 0; background: transparent; font: inherit; font-size: 13px; text-align: left; cursor: pointer; color: inherit; }
+.hook-log-status { font-family: var(--font-mono); font-weight: 600; }
+.hook-log-row.ok .hook-log-status { color: var(--emerald); }
+.hook-log-row.bad .hook-log-status { color: #c0264b; }
+.hook-log-event i { margin-left: 8px; font-style: normal; font-size: 11px; color: var(--slate); background: var(--mercury); border-radius: 6px; padding: 1px 6px; }
+.hook-log-when { font-size: 12px; color: var(--ash); white-space: nowrap; }
+.hook-log-body { padding: 0 12px 12px; }
+.hook-log-body pre { margin: 0 0 10px; padding: 10px; max-height: 240px; overflow: auto; font-family: var(--font-mono); font-size: 11.5px; background: var(--mist); border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
+@media (prefers-color-scheme: dark) {
+  .dlg-seg > button { border-color: #333; }
+  .dlg-seg > button span { color: #9a9a9a; }
+  .hook-log-row { border-color: #333; }
+  .hook-log-event i { background: #2a2a2a; color: #b3b3b3; }
+  .hook-log-body pre { background: #141414; }
+}

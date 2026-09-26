@@ -15,7 +15,10 @@ import { safe } from "./log.js";
 //
 // Deliveries are sent after the request that caused them has answered, and
 // a receiver that is down or slow never holds anything up. The last answer
-// is kept on the webhook, so the screen can say whether it is working.
+// is kept on the webhook, so the screen can say whether it is working, and
+// the last 50 attempts are kept in full — what was sent, what came back — so
+// a failed one can be read and sent again. The secret can be replaced; the
+// new one is shown once, like the first.
 
 export const WEBHOOK_EVENTS = [
   "message.created",
@@ -27,6 +30,7 @@ export const WEBHOOK_EVENTS = [
   "webhook.test",
 ];
 const MAX_PER_ORG = 20;
+const KEEP_DELIVERIES = 50;
 const TIMEOUT_MS = 10_000;
 
 const CORS_HEADERS = {
@@ -105,9 +109,10 @@ function reaches(hook, scope) {
   return true;
 }
 
-async function deliver(env, hook, event) {
+async function deliver(env, hook, event, { redelivery = false } = {}) {
   const body = JSON.stringify(event);
   const timestamp = Math.floor(Date.now() / 1000);
+  const started = Date.now();
   let status = null;
   let error = null;
   try {
@@ -129,10 +134,36 @@ async function deliver(env, hook, event) {
   } catch (err) {
     error = safe(err?.message || String(err)).slice(0, 200);
   }
-  await env.DB.prepare(
-    "UPDATE org_webhooks SET last_status = ?1, last_delivery_at = ?2, last_error = ?3 WHERE id = ?4"
-  ).bind(status, new Date().toISOString(), error, hook.id).run().catch(() => {});
-  return { status, error };
+  const at = new Date().toISOString();
+  const deliveryId = `dlv_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+  await env.DB.batch([
+    env.DB.prepare("UPDATE org_webhooks SET last_status = ?1, last_delivery_at = ?2, last_error = ?3 WHERE id = ?4").bind(status, at, error, hook.id),
+    env.DB.prepare(
+      `INSERT INTO webhook_deliveries (id, webhook_id, org_id, event_id, event_type, body, status, error, duration_ms, redelivery, attempted_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+    ).bind(deliveryId, hook.id, hook.org_id, event.id, event.type, body, status, error, Date.now() - started, redelivery ? 1 : 0, at),
+    env.DB.prepare(
+      `DELETE FROM webhook_deliveries WHERE webhook_id = ?1 AND id NOT IN (
+         SELECT id FROM webhook_deliveries WHERE webhook_id = ?1 ORDER BY attempted_at DESC LIMIT ${KEEP_DELIVERIES})`
+    ).bind(hook.id),
+  ]).catch((err) => console.error("webhook delivery record failed", safe(err?.message)));
+  return { status, error, deliveryId };
+}
+
+/// A delivery as the screen shows it.
+function shownDelivery(row, withBody = false) {
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    event: row.event_type,
+    status: row.status ?? null,
+    ok: row.status !== null && row.status >= 200 && row.status < 300,
+    error: row.error || null,
+    durationMs: row.duration_ms ?? null,
+    redelivery: Boolean(row.redelivery),
+    at: row.attempted_at,
+    ...(withBody ? { body: parse(row.body, null) } : {}),
+  };
 }
 
 function eventOf(type, orgId, data) {
@@ -273,7 +304,7 @@ export async function handleWebhooks(request, env, url) {
   const path = url.pathname;
   // Only these: "/webhooks/email" and the like are other people's inbound
   // hooks, handled elsewhere, and must never land here.
-  const one = path.match(/^\/webhooks\/(wh_[0-9a-f]{20})(\/test)?$/);
+  const one = path.match(/^\/webhooks\/(wh_[0-9a-f]{20})(?:\/(test|rotate|deliveries)(?:\/(dlv_[0-9a-f]{20})\/redeliver)?)?$/);
   if (path !== "/webhooks" && !one) return null;
   const limited = await enforce(env, request, "webhooks");
   if (limited) return limited;
@@ -293,6 +324,8 @@ export async function handleWebhooks(request, env, url) {
     if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
     const who = await caller(env, request, body.orgId);
     if (who.denied) return who.denied;
+    const { isGuest } = await import("./access.js");
+    if (await isGuest(env.DB, body.orgId, who.session.github_id)) return json({ message: "A guest cannot add webhooks." }, 403);
     const endpoint = validEndpoint(body.url);
     if (!endpoint) return json({ message: "Use a public https:// address." }, 400);
     const events = Array.isArray(body.events) ? [...new Set(body.events.filter((e) => WEBHOOK_EVENTS.includes(e)))] : [];
@@ -315,27 +348,68 @@ export async function handleWebhooks(request, env, url) {
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
     ).bind(row.id, row.org_id, row.created_by, row.name, row.url, row.events, row.include_dms, row.secret, row.created_at).run();
     const names = new Map([[who.user.login, who.user.name || null]]);
+    const { audit, person } = await import("./audit.js");
+    await audit(env, request, { orgId: body.orgId, action: "webhook.created", actor: person(who.user), entity: { type: "webhook", id: row.id, name: row.name || new URL(endpoint).hostname }, details: { host: new URL(endpoint).hostname, events, includeDms: Boolean(row.include_dms) } });
     // The secret, this once. It is never sent again.
     return json({ webhook: shown(row, who.user.login, names), secret: row.secret }, 201);
   }
 
   if (!one) return json({ message: "not found" }, 404);
   const id = one[1];
-  const orgId = request.method === "DELETE" ? url.searchParams.get("orgId") : (await request.clone().json().catch(() => ({}))).orgId;
+  const action = one[2] || null;
+  const deliveryId = one[3] || null;
+  const orgId = request.method === "DELETE" || request.method === "GET" ? url.searchParams.get("orgId") : (await request.clone().json().catch(() => ({}))).orgId;
   const who = await caller(env, request, orgId);
   if (who.denied) return who.denied;
   const hook = await env.DB.prepare("SELECT * FROM org_webhooks WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first();
   if (!hook) return json({ message: "No such webhook." }, 404);
 
-  if (!one[2] && request.method === "DELETE") {
-    if (hook.created_by !== who.user.login && !(await canRename(env.DB, orgId, who.session.github_id))) {
-      return json({ message: "Only whoever made this webhook, or an admin, can delete it." }, 403);
-    }
-    await env.DB.prepare("DELETE FROM org_webhooks WHERE id = ?1").bind(id).run();
+  const { audit, person } = await import("./audit.js");
+  const entity = { type: "webhook", id: hook.id, name: hook.name || (() => { try { return new URL(hook.url).hostname; } catch { return null; } })() };
+  const mayManage = hook.created_by === who.user.login || await canRename(env.DB, orgId, who.session.github_id);
+
+  if (!action && request.method === "DELETE") {
+    if (!mayManage) return json({ message: "Only whoever made this webhook, or an admin, can delete it." }, 403);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM org_webhooks WHERE id = ?1").bind(id),
+      env.DB.prepare("DELETE FROM webhook_deliveries WHERE webhook_id = ?1").bind(id),
+    ]);
+    await audit(env, request, { orgId, action: "webhook.deleted", actor: person(who.user), entity });
     return json({ ok: true });
   }
 
-  if (one[2] && request.method === "POST") {
+  // What was sent, and what came back: its maker's, or an admin's to read.
+  if (action === "deliveries" && !deliveryId && request.method === "GET") {
+    if (!mayManage) return json({ message: "Only whoever made this webhook, or an admin, can read its deliveries." }, 403);
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM webhook_deliveries WHERE webhook_id = ?1 ORDER BY attempted_at DESC LIMIT ?2"
+    ).bind(id, KEEP_DELIVERIES).all();
+    return json({ deliveries: (results || []).map((r) => shownDelivery(r, true)) });
+  }
+
+  // Send one again, as it was — same event id, so a receiver can tell.
+  if (action === "deliveries" && deliveryId && request.method === "POST") {
+    if (!mayManage) return json({ message: "Only whoever made this webhook, or an admin, can send a delivery again." }, 403);
+    const row = await env.DB.prepare("SELECT * FROM webhook_deliveries WHERE id = ?1 AND webhook_id = ?2").bind(deliveryId, id).first();
+    if (!row) return json({ message: "No such delivery." }, 404);
+    const event = parse(row.body, null);
+    if (!event) return json({ message: "That delivery cannot be read." }, 400);
+    const out = await deliver(env, hook, event, { redelivery: true });
+    await audit(env, request, { orgId, action: "webhook.redelivered", actor: person(who.user), entity, details: { event: event.type, eventId: event.id, status: out.status } });
+    const fresh = await env.DB.prepare("SELECT * FROM webhook_deliveries WHERE id = ?1").bind(out.deliveryId).first();
+    return json({ ok: !out.error, status: out.status, error: out.error, delivery: fresh ? shownDelivery(fresh, true) : null });
+  }
+
+  // A new secret, shown this once; the old one stops working now.
+  if (action === "rotate" && request.method === "POST") {
+    if (!mayManage) return json({ message: "Only whoever made this webhook, or an admin, can replace its secret." }, 403);
+    const secret = newSecret();
+    await env.DB.prepare("UPDATE org_webhooks SET secret = ?1 WHERE id = ?2").bind(secret, id).run();
+    await audit(env, request, { orgId, action: "webhook.secret_rotated", actor: person(who.user), entity });
+    return json({ secret });
+  }
+
+  if (action === "test" && request.method === "POST") {
     if (hook.created_by !== who.user.login) return json({ message: "Only whoever made this webhook can test it." }, 403);
     const out = await deliver(env, hook, eventOf("webhook.test", orgId, { message: "A test from Honmaru." }));
     return json({ ok: !out.error, status: out.status, error: out.error });

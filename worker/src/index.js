@@ -5,7 +5,7 @@ import { requestCode, verifyCode } from "./otp.js";
 import {
   createSession, getSession, upsertUser, upsertMembership, upsertAgent, isMember, listOrgNodes,
   getConnectorConfig, setConnectorConfig, rememberPullWorkspace, pullWorkspaceOf, createOAuthState, consumeOAuthState,
-  getUserByGithubId, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
+  getUserByGithubId, getUserByLogin, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
   saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
   registerSubscription, removeSubscription, listBusinesses, hasPrivateBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness, unfileBusiness,
@@ -22,7 +22,7 @@ import { triageMessage } from "./triage.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount, exportAccount } from "./account.js";
-import { listMembers, listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards } from "./team.js";
+import { listMembers, listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards, changeRole } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured, isDeviceToken } from "./apns.js";
 import { isWebPushConfigured, parseSubscription } from "./webpush.js";
@@ -34,12 +34,14 @@ import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
 import { handleChannels, broadcastStored } from "./channelRoutes.js";
+import { handleAudit, audit, auditEverywhere, person } from "./audit.js";
+import { handleSessions, signedIn } from "./sessions.js";
 import { handleSuggestions } from "./suggest.js";
 import { handleWebhooks } from "./webhooks.js";
 import { handleAgentInvites } from "./agentInvites.js";
 import { handleUserAvatar } from "./userAvatar.js";
 import { serveFile } from "./files.js";
-import { addMembers, membersOf, isPrivate, mayRead, accessFor } from "./access.js";
+import { addMembers, membersOf, isPrivate, mayRead, accessFor, isGuest } from "./access.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
@@ -65,12 +67,13 @@ import { buildOrgGraph, roleName } from "./org.js";
 import { uploadMedia, serveMedia } from "./media.js";
 import { uploadOrgIcon, removeOrgIcon, serveOrgIcon, getOrgIcon, iconsFor, iconUrl } from "./orgIcon.js";
 import { listEmoji, addEmoji, removeEmoji, serveEmoji } from "./emoji.js";
-import { cleanSchedule, parseSchedule, pauseUntil } from "./quiet.js";
+import { cleanSchedule, parseSchedule, pauseUntil, cleanKeywords, parseKeywords } from "./quiet.js";
 
 /// Quiet time as a client shows it: paused until when, and the hours.
 const quietFields = (user) => ({
   notifyPausedUntil: user?.notify_paused_until && Date.parse(user.notify_paused_until) > Date.now() ? user.notify_paused_until : null,
   notifySchedule: parseSchedule(user?.notify_schedule),
+  notifyKeywords: parseKeywords(user?.notify_keywords),
 });
 import { CONNECTORS, connectorById, authConfigFor, availableConnectors } from "./connectors/index.js";
 import { createConnectLink, listConnectedAccounts, executeTool } from "./composio.js";
@@ -125,6 +128,11 @@ async function tellMembers(env, orgId, logins) {
   await announceTo(env, orgId, await Promise.all([...new Set(logins)].map(async (login) => ({
     to: login, event: customEvent("businesses", { businesses: await listBusinesses(env.DB, orgId, { viewer: login }) }),
   }))));
+}
+
+/// The person behind a session, as the audit log names them.
+async function actorOf(env, session) {
+  return person(await getUserByGithubId(env.DB, session.github_id));
 }
 
 async function requireMember(env, request, orgId) {
@@ -199,6 +207,12 @@ async function handle(request, env, url, ctx) {
       });
     }
 
+    // Where you are signed in, and the audit log.
+    const sessions = await handleSessions(request, env, url);
+    if (sessions) return sessions;
+    const audited = await handleAudit(request, env, url);
+    if (audited) return audited;
+
     // The workspace's webhooks.
     const hooked = await handleWebhooks(request, env, url);
     if (hooked) return hooked;
@@ -249,6 +263,7 @@ async function handle(request, env, url, ctx) {
       const body = await request.json().catch(() => ({}));
       const result = await signup(env, { ...body, locale: body.locale || localeFromRequest(request) });
       if (result.error) return json({ message: result.error }, 400);
+      await signedIn(env, request, result.token, result.userId, "password");
       return json(result);
     }
 
@@ -287,6 +302,7 @@ async function handle(request, env, url, ctx) {
         locale: body.locale || localeFromRequest(request),
       });
       if (result.error) return json({ message: result.error }, result.status || 400);
+      await signedIn(env, request, result.token, result.userId, "email_code");
       return json(result);
     }
 
@@ -296,6 +312,7 @@ async function handle(request, env, url, ctx) {
       const body = await request.json().catch(() => ({}));
       const result = await login(env, { email: body.email, password: body.password, inviteCode: body.inviteCode });
       if (result.error) return json({ message: result.error }, 401);
+      await signedIn(env, request, result.token, result.userId, "password");
       return json(result);
     }
 
@@ -315,6 +332,7 @@ async function handle(request, env, url, ctx) {
       }
       const result = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, uses: body.uses, channels: body.channels });
       if (result.error) return json({ message: result.error }, 400);
+      await audit(env, request, { orgId: body.orgId, action: "invite.created", actor: await actorOf(env, session), entity: { type: "invite", id: result.ref, name: result.role }, details: { role: result.role, maxUses: result.maxUses, expiresAt: result.expiresAt, channels: result.channels } });
       return json(result);
     }
 
@@ -365,6 +383,7 @@ async function handle(request, env, url, ctx) {
         await env.DB.prepare("DELETE FROM invites WHERE code = ?1").bind(minted.code).run();
         return json({ message: "We could not send the invitation. Try again in a moment." }, 502);
       }
+      await audit(env, request, { orgId: body.orgId, action: "invite.email_sent", actor: await actorOf(env, session), entity: { type: "invite", id: minted.ref, name: minted.role }, details: { role: minted.role, domain: to.split("@")[1] } });
       return json({ ok: true, ref: minted.ref, role: minted.role, to });
     }
 
@@ -378,6 +397,7 @@ async function handle(request, env, url, ctx) {
       const body = await request.json().catch(() => ({}));
       const result = await acceptInvite(env, { code: body.code || body.link, userId: session.github_id });
       if (result.error) return json({ message: result.error }, 400);
+      if (result.joined) await audit(env, request, { orgId: result.orgId, action: "member.joined", actor: await actorOf(env, session), details: { role: result.role, via: "invite" } });
       return json(result);
     }
 
@@ -392,6 +412,7 @@ async function handle(request, env, url, ctx) {
       const body = await request.json().catch(() => ({}));
       const result = await createTeam(env.DB, { name: body.name, createdBy: session.github_id });
       if (result.error) return json({ message: result.error }, 400);
+      await audit(env, request, { orgId: result.orgId, action: "workspace.created", actor: await actorOf(env, session), entity: { type: "workspace", id: result.orgId, name: result.name || null } });
       return json(result);
     }
 
@@ -415,6 +436,12 @@ async function handle(request, env, url, ctx) {
           model: body.model, openaiKey: body.openaiKey, typesafeKey: body.typesafeKey,
         }, session.github_id);
         if (result.error) return json({ message: result.error }, 400);
+        // What changed, never the key itself.
+        await audit(env, request, { orgId, action: "workspace.ai_settings_changed", actor: await actorOf(env, session), details: {
+          model: body.model ?? undefined,
+          openaiKey: body.openaiKey === undefined ? undefined : (body.openaiKey ? "set" : "removed"),
+          typesafeKey: body.typesafeKey === undefined ? undefined : (body.typesafeKey ? "set" : "removed"),
+        } });
       }
       return json({ orgId, canEdit, ...(await aiStatus(env, orgId)) });
     }
@@ -435,10 +462,12 @@ async function handle(request, env, url, ctx) {
       if (!(await canRename(env.DB, orgId, session.github_id))) return json({ message: "Only an admin of this workspace can change its logo." }, 403);
       if (request.method === "DELETE") {
         await removeOrgIcon(env, orgId);
+        await audit(env, request, { orgId, action: "workspace.icon_changed", actor: await actorOf(env, session), details: { removed: true } });
         return json({ orgId, icon: null });
       }
       const result = await uploadOrgIcon(request, env, orgId);
       if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId, action: "workspace.icon_changed", actor: await actorOf(env, session) });
       return json({ orgId, icon: iconUrl(url.origin, result.mediaId) });
     }
     // The workspace's own emoji. Its members list, add and use them; the
@@ -458,13 +487,16 @@ async function handle(request, env, url, ctx) {
       if (request.method === "GET") return json({ orgId, emoji: await listEmoji(env.DB, orgId, url.origin) });
       const user = await getUserByGithubId(env.DB, session.github_id);
       if (request.method === "POST") {
+        if (await isGuest(env.DB, orgId, session.github_id)) return json({ message: "A guest cannot add emoji." }, 403);
         const result = await addEmoji(request, env, { orgId, login: user?.login || null, name: url.searchParams.get("name"), origin: url.origin });
         if (result.error) return json({ message: result.error }, result.status || 400);
+        await audit(env, request, { orgId, action: "emoji.added", actor: person(user), entity: { type: "emoji", id: result.emoji?.name, name: `:${result.emoji?.name}:` } });
         return json({ orgId, emoji: result.emoji }, 201);
       }
       const name = url.searchParams.get("name") || "";
       const result = await removeEmoji(env, { orgId, name, login: user?.login || null, isAdmin: await canRename(env.DB, orgId, session.github_id) });
       if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId, action: "emoji.removed", actor: person(user), entity: { type: "emoji", id: name, name: `:${name}:` } });
       return json({ orgId, ...result });
     }
     if (url.pathname === "/orgs/name" && request.method === "PUT") {
@@ -475,6 +507,7 @@ async function handle(request, env, url, ctx) {
       const body = await request.json().catch(() => ({}));
       const result = await renameTeam(env.DB, { orgId: body.orgId, actorId: session.github_id, name: body.name });
       if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId: body.orgId, action: "workspace.renamed", actor: await actorOf(env, session), entity: { type: "workspace", id: body.orgId, name: result.name || null } });
       return json(result);
     }
 
@@ -527,7 +560,35 @@ async function handle(request, env, url, ctx) {
       // at join, so the one they are already holding keeps receiving this
       // org's cards until something else drops it.
       await evictMember(env, body.orgId, result.login);
+      const removedName = (await getUserByLogin(env.DB, result.login).catch(() => null))?.name || null;
+      await audit(env, request, result.left
+        ? { orgId: body.orgId, action: "member.left", actor: await actorOf(env, session) }
+        : { orgId: body.orgId, action: "member.removed", actor: await actorOf(env, session), entity: { type: "user", id: result.login, name: removedName } });
       return json(result);
+    }
+
+    // An admin changes someone's role — a guest made a member, a member an
+    // admin — or which channels a guest is in.
+    if (url.pathname === "/members/role" && request.method === "PUT") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      const result = await changeRole(env, { orgId: body.orgId, actorId: session.github_id, ref: body.ref, role: body.role, channels: body.channels });
+      if (result.error) {
+        if (result.status === 403) await audit(env, request, { orgId: body.orgId, action: "security.permission_denied", actor: await actorOf(env, session), entity: { type: "resource", id: "member_role", name: "a member's role" }, outcome: "denied" });
+        return json({ message: result.error }, result.status || 400);
+      }
+      const actor = await actorOf(env, session);
+      const entity = { type: "user", id: result.login, name: result.name };
+      if (result.from !== result.to) await audit(env, request, { orgId: body.orgId, action: "member.role_changed", actor, entity, details: { from: result.from, to: result.to } });
+      if (result.channels) await audit(env, request, { orgId: body.orgId, action: "member.channels_changed", actor, entity, details: { channels: result.channels } });
+      if (result.from !== result.to) await evictMember(env, body.orgId, result.login);
+      return json({ ok: true, role: result.to, channels: result.channels || null });
     }
 
     if (url.pathname === "/invites" && request.method === "GET") {
@@ -558,6 +619,7 @@ async function handle(request, env, url, ctx) {
         ref: body.ref,
       });
       if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId: body.orgId, action: "invite.revoked", actor: await actorOf(env, session), entity: { type: "invite", id: body.ref || null, name: null } });
       return json(result);
     }
 
@@ -852,6 +914,7 @@ async function handle(request, env, url, ctx) {
         avatarUrl: ghUser.avatar_url, locale: existing ? undefined : localeFromRequest(request),
       });
       const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
+      await signedIn(env, request, sessionToken, String(ghUser.id), "github");
       // The GitHub token is not handed back. It carries `repo` scope — every
       // repository this person can reach, code included — and the app does six
       // things with it, all of which now go through /github. A session cannot
@@ -902,6 +965,7 @@ async function handle(request, env, url, ctx) {
       if (denied) return denied;
       if (!businessSlug(body.name)) return json({ message: "A business needs a name." }, 400);
       const me = await getUserByGithubId(env.DB, session.github_id);
+      if (await isGuest(env.DB, body.orgId, session.github_id)) return json({ message: "A guest cannot create channels." }, 403);
       if (body.private === true) {
         // A private channel is made, never found: a name already taken —
         // public or private, seen or not — is somebody else's channel.
@@ -917,9 +981,12 @@ async function handle(request, env, url, ctx) {
         await addMembers(env.DB, { orgId: body.orgId, key: `b:${business.slug}`, logins, addedBy: me.login });
         await tellMembers(env, body.orgId, logins);
         await tellRoom(body.orgId);
+        await audit(env, request, { orgId: body.orgId, action: "channel.created", actor: person(me), entity: { type: "channel", id: business.slug, name: `#${business.name}` }, details: { private: true } });
         return json({ business: { ...business, private: true }, businesses: await listBusinesses(env.DB, body.orgId, { viewer: me.login }) });
       }
+      const existed = await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, businessSlug(body.name)).first();
       const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
+      if (!existed && business) await audit(env, request, { orgId: body.orgId, action: "channel.created", actor: person(me), entity: { type: "channel", id: business.slug, name: `#${business.name}` } });
       // Everyone with the workspace open sees the new channel now.
       await tellRoom(body.orgId);
       return json({ business, businesses: await listBusinesses(env.DB, body.orgId, { viewer: me?.login || null }) });
@@ -1116,6 +1183,10 @@ async function handle(request, env, url, ctx) {
       if (body.notifySchedule !== undefined) {
         await env.DB.prepare("UPDATE users SET notify_schedule = ?2 WHERE github_id = ?1").bind(String(session.github_id), JSON.stringify(cleanSchedule(body.notifySchedule))).run();
       }
+      // Words that notify you wherever they are said.
+      if (body.notifyKeywords !== undefined) {
+        await env.DB.prepare("UPDATE users SET notify_keywords = ?2 WHERE github_id = ?1").bind(String(session.github_id), JSON.stringify(cleanKeywords(body.notifyKeywords))).run();
+      }
       // Push the phone even while at the app on another device.
       if (body.pushWhileActive !== undefined) {
         await env.DB.prepare("UPDATE users SET push_while_active = ?2 WHERE github_id = ?1").bind(String(session.github_id), body.pushWhileActive ? 1 : 0).run();
@@ -1237,6 +1308,7 @@ async function handle(request, env, url, ctx) {
       if (!session) return json({ message: "invalid session" }, 401);
       const user = await getUserByGithubId(env.DB, session.github_id);
       const data = await exportAccount(env.DB, session.github_id, user?.login || null);
+      await auditEverywhere(env, request, session.github_id, { action: "data.account_exported", actor: person(user) });
       return new Response(JSON.stringify(data, null, 2), {
         status: 200,
         headers: {

@@ -120,7 +120,35 @@ struct ChatActivityItem: Codable, Identifiable, Hashable {
     let type: String
     let message: ChatMessage
     var unread: Bool
+    /// For a keyword: which of yours was said.
+    var keyword: String?
     var id: String { "\(type)-\(message.id)" }
+}
+
+/// A link kept at the top of a conversation.
+struct ChatBookmark: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let url: String
+    let addedBy: String?
+    let mine: Bool
+}
+
+/// One place this account is signed in.
+struct SignedInSession: Codable, Identifiable, Hashable {
+    let ref: String
+    let client: String?
+    let device: String
+    /// "iphone" / "ipad" for the app; otherwise the browser and the system,
+    /// each a proper name, for a sentence in the reader's language.
+    var app: String?
+    var browser: String?
+    var os: String?
+    let place: String?
+    let createdAt: String
+    let lastSeenAt: String
+    let current: Bool
+    var id: String { ref }
 }
 
 /// A thread you are in, for Threads: its first message, the last replies.
@@ -290,6 +318,35 @@ enum ChatService {
     static func later(orgId: String, base: URL) async throws -> [ChatSaved] {
         struct R: Decodable { let items: [ChatSaved] }
         return try await call("GET", "/channels/later", base: base, query: ["orgId": orgId], as: R.self).items
+    }
+
+    /// Links kept at the top of a conversation.
+    static func bookmarks(orgId: String, channel: String, base: URL) async throws -> [ChatBookmark] {
+        struct R: Decodable { let bookmarks: [ChatBookmark] }
+        return try await call("GET", "/channels/bookmarks", base: base, query: ["orgId": orgId, "channel": channel], as: R.self).bookmarks
+    }
+
+    static func addBookmark(orgId: String, channel: String, url: String, title: String, base: URL) async throws -> [ChatBookmark] {
+        struct R: Decodable { let bookmarks: [ChatBookmark] }
+        return try await call("POST", "/channels/bookmarks", base: base, body: ["orgId": orgId, "channel": channel, "url": url, "title": title], as: R.self).bookmarks
+    }
+
+    static func removeBookmark(orgId: String, channel: String, id: String, base: URL) async throws -> [ChatBookmark] {
+        struct R: Decodable { let bookmarks: [ChatBookmark] }
+        return try await call("DELETE", "/channels/bookmarks", base: base, body: ["orgId": orgId, "channel": channel, "id": id], as: R.self).bookmarks
+    }
+
+    /// Where this account is signed in, this device first.
+    static func sessions(base: URL) async throws -> [SignedInSession] {
+        struct R: Decodable { let sessions: [SignedInSession] }
+        return try await call("GET", "/sessions", base: base, as: R.self).sessions
+    }
+
+    /// Sign out one other session (`ref`), or every other one.
+    static func endSessions(ref: String?, base: URL) async throws -> [SignedInSession] {
+        struct R: Decodable { let sessions: [SignedInSession] }
+        let body: [String: Any] = ref.map { ["ref": $0] } ?? ["others": true]
+        return try await call("DELETE", "/sessions", base: base, body: body, as: R.self).sessions
     }
 
     /// This workspace's own emoji. Another workspace's are not in it.

@@ -1215,3 +1215,26 @@
 .classic.slk.slk .slk-head-tools .slk-head-btn:hover { color: var(--slk-ink); background: var(--slk-hover); }
 @media (max-width: 719px) { .classic.slk.slk .slk-head-tools { display: none !important; } }
 .classic.slk.slk .slk-head-tools .slk-move-menu { left: 0; right: auto; }
+
+/* Bookmarks: a row of links under the conversation's header. */
+.slk-bookmarks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 16px; border-bottom: 1px solid var(--bone); font-size: 12.5px; }
+.slk-bookmarks:empty { display: none; }
+.slk-bookmark { position: relative; display: inline-flex; align-items: center; border-radius: 7px; }
+.slk-bookmark:hover { background: var(--mist); }
+.slk-bookmark a { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 3px 4px 3px 8px; color: inherit; text-decoration: none; }
+.slk-bookmark a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slk-bookmark a svg { flex: none; color: var(--slate); }
+.slk-bookmark-more { display: grid; place-items: center; width: 18px; height: 20px; border: 0; background: transparent; color: var(--ash); cursor: pointer; border-radius: 5px; opacity: 0; }
+.slk-bookmark:hover .slk-bookmark-more, .slk-bookmark-more[aria-expanded="true"], .slk-bookmark-more:focus-visible { opacity: 1; }
+.classic.slk.slk .slk-bookmark-menu { left: 0; right: auto; min-width: 160px; }
+.slk-bookmark-add { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--slate); font: inherit; font-size: 12.5px; cursor: pointer; }
+.slk-bookmark-add:hover { background: var(--mist); color: inherit; }
+.slk-bookmark-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.slk-bookmark-form input { height: 28px; padding: 0 8px; border: 1px solid var(--bone); border-radius: 7px; font: inherit; font-size: 12.5px; background: transparent; color: inherit; min-width: 0; width: 200px; }
+.slk-bookmark-error { color: #c0264b; font-size: 12px; }
+@media (hover: none) { .slk-bookmark-more { opacity: 1; } }
+@media (max-width: 600px) { .slk-bookmarks { padding: 6px 12px; flex-wrap: nowrap; overflow-x: auto; } .slk-bookmark-form input { width: 140px; } }
+@media (prefers-color-scheme: dark) {
+  .slk-bookmarks, .slk-bookmark-form input { border-color: #2a2a2a; }
+  .slk-bookmark:hover, .slk-bookmark-add:hover { background: #1f1f1f; }
+}

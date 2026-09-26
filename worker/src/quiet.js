@@ -67,3 +67,53 @@ export function pauseUntil(input, now = new Date()) {
   if (Number.isNaN(at) || at <= now.getTime()) return null;
   return new Date(Math.min(at, now.getTime() + 30 * 86400000)).toISOString();
 }
+
+// ---- Keywords ----
+//
+// Words that reach a person wherever they are said, as a mention would:
+// "invoice", "見積", a client's name. Matched without regard to case or
+// width; a word of Latin letters only as a whole word ("art" is not in
+// "start"), anything else wherever it appears — Japanese has no spaces.
+
+const MAX_KEYWORDS = 30;
+
+export function cleanKeywords(input) {
+  const list = Array.isArray(input) ? input : String(input || "").split(/[,、\n]/);
+  const out = [];
+  for (const raw of list) {
+    const word = String(raw || "").normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, 40);
+    if (!word || [...word].length < 2 && !/[^\x00-\x7F]/.test(word)) continue;
+    if (!out.some((w) => w.toLowerCase() === word.toLowerCase())) out.push(word);
+    if (out.length >= MAX_KEYWORDS) break;
+  }
+  return out;
+}
+
+export function parseKeywords(raw) {
+  if (!raw) return [];
+  try { return cleanKeywords(JSON.parse(raw)); } catch { return []; }
+}
+
+const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/// The first of `keywords` that `text` says, or null.
+export function keywordHit(text, keywords) {
+  if (!text || !keywords?.length) return null;
+  const hay = String(text).normalize("NFKC").toLowerCase();
+  for (const word of keywords) {
+    const w = word.toLowerCase();
+    if (/^[a-z0-9][a-z0-9 _.-]*$/.test(w)) {
+      if (new RegExp(`(^|[^a-z0-9_])${escape(w)}($|[^a-z0-9_])`).test(hay)) return word;
+    } else if (hay.includes(w)) return word;
+  }
+  return null;
+}
+
+/// Everyone in a workspace with keywords, and theirs.
+export async function keywordsIn(db, orgId) {
+  const { results } = await db.prepare(
+    `SELECT u.login, u.notify_keywords FROM memberships m JOIN users u ON u.github_id = m.user_github_id
+      WHERE m.org_id = ?1 AND u.notify_keywords IS NOT NULL AND u.notify_keywords != '[]'`
+  ).bind(orgId).all().catch(() => ({ results: [] }));
+  return (results || []).map((r) => ({ login: r.login, keywords: parseKeywords(r.notify_keywords) })).filter((r) => r.keywords.length);
+}

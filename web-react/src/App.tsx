@@ -276,7 +276,13 @@ function App() {
   const handleLogout = () => {
     // This browser stops receiving this account's decisions before the
     // session is dropped — the Worker needs the token to forget the subscription.
-    disableWebPush(httpBase(host), sessionToken).catch(() => {})
+    // Then the session itself ends on the server, so the token left in this
+    // browser's history opens nothing.
+    const base = httpBase(host)
+    const token = sessionToken
+    disableWebPush(base, token).catch(() => {}).finally(() => {
+      if (token) fetch(`${base}/auth/logout`, { method: 'POST', headers: { 'x-session-token': token } }).catch(() => {})
+    })
     setUserId(null)
     setSessionToken('')
     setStage('welcome')

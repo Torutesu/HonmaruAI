@@ -97,6 +97,7 @@ struct ConversationView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+            .safeAreaInset(edge: .top, spacing: 0) { ChatBookmarksStrip(view: view).environmentObject(appState) }
         }
         .background(Theme.Colors.background)
         .navigationTitle(title)

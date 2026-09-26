@@ -1,3 +1,4 @@
+import { SignedInSessions } from '../components/SignedInSessions'
 import { forgetMembers } from '../utils/mentions'
 import React, { useEffect, useRef, useState } from 'react'
 import { getLocale, primary } from '../utils/locale'
@@ -602,6 +603,7 @@ export const Profile: React.FC<Props> = ({
 
           </section>
           <section className="pf-sec pf-acct">
+          <SignedInSessions httpBase={httpBase} sessionToken={sessionToken} />
           <div className="rows">
             <button className="row" onClick={onLogout}>
               <span className="row-main" style={{ color: 'var(--slate)' }}>{t('Sign out')}</span>

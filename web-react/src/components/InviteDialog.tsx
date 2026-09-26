@@ -33,6 +33,8 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [agentLink, setAgentLink] = useState<{ url: string; expiresAt: string } | null>(null)
+  // A member sees every public channel; a guest only the ones ticked.
+  const [role, setRole] = useState<'member' | 'guest'>('member')
 
   useEffect(() => {
     let ignore = false
@@ -69,7 +71,7 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
     for (const email of addresses.slice(0, 20)) {
       try {
         const res = await fetch(`${httpBase}/invites/email`, {
-          method: 'POST', headers, body: JSON.stringify({ orgId, role: 'member', email, channels: chosen() }),
+          method: 'POST', headers, body: JSON.stringify({ orgId, role, email, channels: chosen() }),
         })
         if (res.ok) sent += 1
         else failed.push(`${email}: ${(await res.json().catch(() => ({}))).message || res.status}`)
@@ -83,7 +85,7 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
   const copyInviteUrl = async () => {
     setBusy('link'); setError(null); setNote(null)
     try {
-      const res = await fetch(`${httpBase}/invites/create`, { method: 'POST', headers, body: JSON.stringify({ orgId, role: 'member', channels: chosen() }) })
+      const res = await fetch(`${httpBase}/invites/create`, { method: 'POST', headers, body: JSON.stringify({ orgId, role, channels: chosen() }) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok || !data.link) { setError(data.message || t('Could not create invite.')); return }
       setNote((await copy(data.link)) ? t('Invite link copied. Anyone who opens it within three days joins.') : data.link)
@@ -126,9 +128,11 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
           ))}
         </ul>
       </div>
-      <p className="dlg-hint">{tab === 'people'
-        ? t('Every channel is open to the whole workspace; the ones ticked say hello when they join.')
-        : t('The ones ticked say hello when the agent joins.')}</p>
+      <p className="dlg-hint">{tab === 'agent'
+        ? t('The ones ticked say hello when the agent joins.')
+        : role === 'guest'
+          ? t('A guest sees only the channels ticked here — nothing else in the workspace.')
+          : t('Every channel is open to the whole workspace; the ones ticked say hello when they join.')}</p>
     </div>
   )
 
@@ -148,12 +152,12 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
       onClose={onClose}
       footer={tab === 'people' ? (
         <>
-          <button type="button" className="dlg-btn link invite-copy-url" onClick={() => void copyInviteUrl()} disabled={busy !== null}>
+          <button type="button" className="dlg-btn link invite-copy-url" onClick={() => void copyInviteUrl()} disabled={busy !== null || (role === 'guest' && picked.size === 0)}>
             <Icon name="link" size={14} /> {busy === 'link' ? t('Creating…') : t('Copy invite URL')}
           </button>
           <span style={{ flex: 1 }} />
           <button type="button" className="dlg-btn" onClick={onClose}>{t('Cancel')}</button>
-          <button type="button" className="dlg-btn primary invite-send" onClick={() => void sendInvites()} disabled={busy !== null || !addresses.length}>
+          <button type="button" className="dlg-btn primary invite-send" onClick={() => void sendInvites()} disabled={busy !== null || !addresses.length || (role === 'guest' && picked.size === 0)}>
             {busy === 'send' ? t('Sending…') : t('Send invites')}
           </button>
         </>
@@ -166,6 +170,16 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
 
       {tab === 'people' && (
         <div>
+          <div className="dlg-label">{t('Invite as')}</div>
+          <div className="dlg-seg invite-role" role="radiogroup" aria-label={t('Invite as')}>
+            <button type="button" role="radio" aria-checked={role === 'member'} data-invite-role="member" onClick={() => setRole('member')}>
+              <b>{t('Member')}</b><span>{t('Every public channel')}</span>
+            </button>
+            <button type="button" role="radio" aria-checked={role === 'guest'} data-invite-role="guest"
+              onClick={() => { if (role !== 'guest') { setRole('guest'); setPicked(new Set()) } }}>
+              <b>{t('Guest')}</b><span>{t('Only the channels you choose')}</span>
+            </button>
+          </div>
           <label className="dlg-label" htmlFor="invite-emails">{t('Invite by email')}</label>
           <input
             id="invite-emails"
