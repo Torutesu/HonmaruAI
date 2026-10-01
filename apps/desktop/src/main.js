@@ -299,11 +299,12 @@ function createWindow() {
 
 /// Updates to the shell, in an installed app built by the signed release
 /// scripts only (src/updates.js). They mark the packaged package.json.
+let updateService
 function checkForUpdates() {
   let metadata = {}
   try { metadata = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')) } catch { /* no marker, no updates */ }
   if (!updatesEnabled({ packaged: PACKAGED, metadata })) return
-  startUpdates({ appName: APP_NAME, getWindow: () => win, beforeRestart: () => { quitting = true } })
+  return startUpdates({ appName: APP_NAME, getWindow: () => win, beforeRestart: () => { quitting = true }, version: app.getVersion(), japanese: app.getLocale().startsWith('ja') })
     .catch((error) => console.warn('Updates are off:', error?.message || error))
 }
 
@@ -334,7 +335,18 @@ function createMenu() {
     { role: 'togglefullscreen' },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(isMac ? [{ role: 'appMenu' }] : [{ label: 'File', submenu: [{ label: 'Quit', accelerator: 'Ctrl+Q', click: () => { quitting = true; app.quit() } }] }]),
+    ...(isMac ? [{ label: APP_NAME, submenu: [
+      { role: 'about' },
+      { label: `${app.getLocale().startsWith('ja') ? 'バージョン' : 'Version'} ${app.getVersion()}`, enabled: false },
+      { label: app.getLocale().startsWith('ja') ? 'アップデートを確認…' : 'Check for Updates…', click: async () => {
+        const service = await updateService
+        if (service) await service.check(true)
+        else await dialog.showMessageBox({ type: 'info', message: app.getLocale().startsWith('ja') ? 'このビルドでは自動更新を利用できません' : 'Updates are unavailable in this build' })
+      } },
+      { type: 'separator' }, { role: 'services' }, { type: 'separator' },
+      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
+      { type: 'separator' }, { role: 'quit' },
+    ] }] : [{ label: 'File', submenu: [{ label: 'Quit', accelerator: 'Ctrl+Q', click: () => { quitting = true; app.quit() } }] }]),
     { role: 'editMenu' },
     { label: 'View', submenu: view },
     { role: 'windowMenu' },
@@ -389,6 +401,6 @@ if (!app.requestSingleInstanceLock()) {
     createMenu()
     createWindow()
     createTray()
-    checkForUpdates()
+    updateService = checkForUpdates()
   })
 }
