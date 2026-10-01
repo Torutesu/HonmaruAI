@@ -48,7 +48,7 @@ jobs:
       - name: Build signed and notarized universal Mac release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_NAME: "Developer ID Application: toru tano (BAF4U6PT5S)"
+          CSC_NAME: "toru tano (BAF4U6PT5S)"
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: npm run release -- --mac --universal -c.forceCodeSigning=true
