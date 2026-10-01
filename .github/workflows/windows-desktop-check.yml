@@ -15,6 +15,7 @@ jobs:
         working-directory: apps/desktop
     steps:
       - name: Preserve committed line endings for CSP hashes
+        working-directory: ${{ runner.temp }}
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
