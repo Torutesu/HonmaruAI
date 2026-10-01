@@ -99,10 +99,12 @@ update.
 
 **From CI.** Bump `version` in `package.json`, then run *Actions → Desktop
 release → Run workflow* (`.github/workflows/desktop-release.yml`). It checks
-that every signing secret is set (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`,
-`APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `WIN_CSC_LINK`,
-`WIN_CSC_KEY_PASSWORD`) before building anything, makes the draft release
-`v<version>` once, and builds on macOS, Windows and Linux runners into it.
+the selected platform signing secrets before building. The default `mac`
+option needs `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY_P8`,
+`APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`, and produces a universal Mac app
+for Apple silicon and Intel. The `all` option also requires `WIN_CSC_LINK`
+and `WIN_CSC_KEY_PASSWORD` and builds Windows and Linux. Both create the
+`v<version>` draft once; verify signing, notarization and launch before publishing.
 
 **Microphone and camera (Jam) on a Mac.** The hardened runtime needs the app
 to claim them: `resources/entitlements.mac.plist`, with the usage descriptions
