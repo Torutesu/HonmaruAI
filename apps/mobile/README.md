@@ -27,8 +27,29 @@ npx tsc --noEmit          # typecheck
 CI=1 npx expo export --platform ios --platform android   # what CI bundles
 ```
 
-The PoC bundle id is `com.honmaru.ai.poc`, so it installs beside the App Store
-app. It takes over `com.honmaru.ai` only when it reaches parity (plan §11.3).
+The iOS PoC bundle id is `com.honmaru.ai.poc`, so it installs beside the App Store
+app. Android uses `com.honmaru.ai`, matching the registered Play Console app.
+This package identity does not imply production readiness: the client still
+requires a workspace enabled for `/v2` and device testing before public release.
+
+## Android internal release
+
+The EAS project is `@selectdev/honmaru` (configured in `app.json`). From
+`apps/mobile`, run `npx eas-cli@latest build --platform android --profile internal`
+for a signed AAB. The
+`preview` profile produces a directly installable APK. EAS manages version codes
+remotely; the internal build increments them. Upload the AAB to Google Play
+**Internal testing** first. Confirm the upload signing certificate against Play
+Console before generating or replacing credentials. Firebase configuration must
+use the Android package `com.honmaru.ai`.
+
+The root npm overrides keep React and the animation native modules on the SDK 57
+versions: broad optional peer dependencies must not install a second native copy.
+Run `npx expo-doctor` after changing dependencies.
+
+A successful JavaScript export is not an AAB or evidence of a Play upload.
+Before public release, verify login, channel access, account deletion, privacy
+disclosures, notifications, and the intended billing behavior on an Android device.
 
 Links and Sign in with Apple need native capabilities, so they work in a
 development build (`npx expo run:ios|android` or `eas build --profile
@@ -61,7 +82,7 @@ Try one on a device or simulator:
 ```sh
 xcrun simctl openurl booted "https://app.honmaruai.com/c/b%3Ageneral"
 adb shell am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE \
-  -d "https://app.honmaruai.com/c/b%3Ageneral" com.honmaru.ai.poc
+  -d "https://app.honmaruai.com/c/b%3Ageneral" com.honmaru.ai
 ```
 
 ## Sign in with Apple

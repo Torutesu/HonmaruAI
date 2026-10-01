@@ -10,7 +10,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.honmaru.ai.poc",
       "usesAppleSignIn": true,
-      "associatedDomains": ["applinks:app.honmaruai.com"]
+      "associatedDomains": [
+        "applinks:app.honmaruai.com"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -20,16 +22,27 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.honmaru.ai.poc",
+      "package": "com.honmaru.ai",
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "https", "host": "app.honmaruai.com", "pathPrefix": "/c/" },
-            { "scheme": "https", "host": "app.honmaruai.com", "pathPrefix": "/join/" }
+            {
+              "scheme": "https",
+              "host": "app.honmaruai.com",
+              "pathPrefix": "/c/"
+            },
+            {
+              "scheme": "https",
+              "host": "app.honmaruai.com",
+              "pathPrefix": "/join/"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -54,7 +67,12 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBase": "https://tiktokforwork.torubj0904.workers.dev"
-    }
+      "apiBase": "https://tiktokforwork.torubj0904.workers.dev",
+      "router": {},
+      "eas": {
+        "projectId": "dd88a396-b635-4c93-9958-b27afa42a59c"
+      }
+    },
+    "owner": "selectdev"
   }
 }

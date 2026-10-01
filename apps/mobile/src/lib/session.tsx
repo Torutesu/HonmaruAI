@@ -4,7 +4,7 @@
 
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Api } from '@honmaru/core'
 import type { Me } from '@honmaru/protocol'
 import { registerForPush, unregisterPush, watchPushToken } from './push'
@@ -29,16 +29,24 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null)
 
+// The API reads credentials only when making a request, independently of React render.
+function createSessionClient() {
+  let credential: string | null = null
+  return {
+    api: new Api({ base: API_BASE, token: () => credential }),
+    setCredential: (next: string | null) => { credential = next },
+  }
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const tokenRef = useRef<string | null>(null)
-  const api = useMemo(() => new Api({ base: API_BASE, token: () => tokenRef.current }), [])
+  const [{ api, setCredential }] = useState(createSessionClient)
   const [ready, setReady] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [me, setMe] = useState<Me | null>(null)
   const [orgId, setOrgId] = useState<string | null>(null)
 
   const load = useCallback(async (next: string | null) => {
-    tokenRef.current = next
+    setCredential(next)
     setToken(next)
     if (!next) { setMe(null); return }
     try {
@@ -52,17 +60,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       void registerForPush(api)
     } catch {
       // A session the server no longer knows: signed out.
-      tokenRef.current = null
+      setCredential(null)
       setToken(null)
       await SecureStore.deleteItemAsync(TOKEN_KEY)
     }
-  }, [api])
+  }, [api, setCredential])
 
   useEffect(() => {
     void SecureStore.getItemAsync(TOKEN_KEY).then(load).finally(() => setReady(true))
   }, [load])
 
   useEffect(() => (token ? watchPushToken(api) : undefined), [api, token])
+
+  const chooseOrg = useCallback(async (next: string) => {
+    await SecureStore.setItemAsync(ORG_KEY, next)
+    setOrgId(next)
+  }, [])
 
   const value: SessionValue = {
     ready, api, token, me, orgId,
@@ -76,10 +89,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await unregisterPush(api)
       await SecureStore.deleteItemAsync(TOKEN_KEY)
       await SecureStore.deleteItemAsync(ORG_KEY)
-      tokenRef.current = null
+      setCredential(null)
       setToken(null); setMe(null); setOrgId(null)
     },
-    chooseOrg: async (next) => { await SecureStore.setItemAsync(ORG_KEY, next); setOrgId(next) },
+    chooseOrg,
   }
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }

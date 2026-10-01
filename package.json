@@ -2,9 +2,18 @@
   "name": "honmaru",
   "private": true,
   "description": "Shared client code and the apps built on it (docs/architecture/discord-model-platform-plan.md §11). worker/, web-react/ and apps/desktop (Electron, whose binary nobody else needs to download) keep their own installs.",
-  "workspaces": ["apps/mobile", "packages/*"],
+  "workspaces": [
+    "apps/mobile",
+    "packages/*"
+  ],
   "scripts": {
     "test:core": "npm test --workspace @honmaru/core",
     "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native-reanimated": "4.5.1",
+    "react-native-worklets": "0.10.1"
   }
 }
