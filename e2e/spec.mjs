@@ -1976,6 +1976,13 @@ await step('right-clicking a channel in the sidebar offers what a desktop chat a
       await d.waitForSelector('.row-menu', { timeout: 5000 }).catch(() => { throw new Error(`right-clicking #${name} opened no menu`) })
     }
     await menu('Front desk')
+    // A late history response scrolls the conversation while a person uses
+    // the sidebar menu. It must stay open; scrolling its own sidebar closes it.
+    await d.locator('.slk-log').first().evaluate((el) => el.dispatchEvent(new Event('scroll')))
+    await d.waitForSelector('.row-menu [data-row-menu="details"]', { timeout: 1000 })
+    await d.locator('.slk-side').evaluate((el) => el.dispatchEvent(new Event('scroll')))
+    await d.waitForSelector('.row-menu', { state: 'detached', timeout: 1000 })
+    await menu('Front desk')
     await d.screenshot({ path: `${SHOTS}/39c-row-menu.png` })
     for (const item of ['details', 'copy', 'star', 'move', 'notify-all', 'notify-mentions', 'notify-mute', 'rename']) {
       if (!(await d.$(`.row-menu [data-row-menu="${item}"]`))) throw new Error(`the right-click menu has no "${item}"`)

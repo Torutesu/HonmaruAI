@@ -945,7 +945,7 @@ export const ClassicList: React.FC<Props> = ({
   // offers there — its details, copying its name or link, a star, a
   // section, how much it notifies you, and for a channel renaming it or
   // leaving. The same things as its settings and the phone's long press.
-  const [rowMenu, setRowMenu] = useState<null | { thread: Thread; x: number; y: number }>(null)
+  const [rowMenu, setRowMenu] = useState<null | { thread: Thread; x: number; y: number; anchor: HTMLElement }>(null)
   const closeRowMenu = useCallback(() => setRowMenu(null), [])
   const [renameDialog, setRenameDialog] = useState<null | { slug: string; name: string; error?: string | null; busy?: boolean }>(null)
   // Archiving asks first, and says where to bring the channel back from.
@@ -1211,7 +1211,7 @@ export const ClassicList: React.FC<Props> = ({
       onDragEnd: () => { setDragging(null); setDropAt(null) },
     } : {}
     return (
-      <li key={thread.key} data-view={thread.view} {...drag} onContextMenu={wide && view ? (e) => { e.preventDefault(); setRowMenu({ thread, x: e.clientX, y: e.clientY }) } : undefined} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}${dragging === view ? ' dragging' : ''}${drop}`}>
+      <li key={thread.key} data-view={thread.view} {...drag} onContextMenu={wide && view ? (e) => { e.preventDefault(); setRowMenu({ thread, x: e.clientX, y: e.clientY, anchor: e.currentTarget }) } : undefined} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}${dragging === view ? ' dragging' : ''}${drop}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
           {lead(thread, 'row')}
           <span className="cl-title">{thread.name}</span>
@@ -4962,7 +4962,7 @@ export const ClassicList: React.FC<Props> = ({
         )
       })()}
       {rowMenu && rowMenu.thread.view && (
-        <RowMenu at={{ x: rowMenu.x, y: rowMenu.y }} label={rowMenu.thread.name} entries={rowMenuEntries(rowMenu.thread)} onClose={closeRowMenu} />
+        <RowMenu anchor={rowMenu.anchor} at={{ x: rowMenu.x, y: rowMenu.y }} label={rowMenu.thread.name} entries={rowMenuEntries(rowMenu.thread)} onClose={closeRowMenu} />
       )}
       {msgMenu && (() => {
         const { channel, m, inThread, x, y, anchor } = msgMenu
