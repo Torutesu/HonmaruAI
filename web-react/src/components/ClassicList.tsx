@@ -1,3 +1,4 @@
+import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
 import { ChannelCanvas } from './ChannelCanvas'
 import { AgentAvatar } from './AgentAvatar'
 import { BookmarksBar } from './BookmarksBar'
@@ -1337,7 +1338,10 @@ export const ClassicList: React.FC<Props> = ({
     for (const c of [...pending, ...sent, ...decided]) map.set(c.id, c)
     return map
   }, [pending, sent, decided])
-  const [messages, setMessages] = useState<Record<string, ChannelMessage[]>>({})
+  const messageCache = useMemo(() => channelMessageCache(api), [api.httpBase, api.orgId, api.sessionToken])
+  const cacheScope = useRef<typeof messageCache | null>(messageCache)
+  cacheScope.current = messageCache
+  const [messages, setMessages] = useState<Record<string, ChannelMessage[]>>(() => ({ ...messageCache.messages }))
   /// A message sent from here stays drawn under its temporary id's key once
   /// the server's copy has taken its place (server id → temp id): the same
   /// element carries on, so nothing is redrawn and a picture in it is not
@@ -1375,29 +1379,43 @@ export const ClassicList: React.FC<Props> = ({
   }, [current?.view, current?.name, openKey, onViewChange])
   // Whether there is more above what is loaded, per conversation: the
   // Worker's `more`, or, from one that does not say, a full page of PAGE.
-  const [more, setMore] = useState<Record<string, boolean>>({})
+  const [more, setMore] = useState<Record<string, boolean>>(() => ({ ...messageCache.more }))
+  useEffect(() => {
+    cacheScope.current = messageCache
+    // Events are not received by this component while it is unmounted.
+    return () => { cacheScope.current = null; messageCache.invalidate() }
+  }, [messageCache])
+  useEffect(() => { messageCache.remember(messages, more) }, [messageCache, messages, more])
   const PAGE = 150
   /// The newest page, laid over what is loaded rather than in place of it:
   /// it is read again on every answer from the AI and after a reconnect, and
   /// replacing took away the older pages somebody had scrolled up to read.
   /// Whether there is more above stays loadOlder's to say once those are
   /// loaded; only a hole too big to join starts again from the page.
-  const loadMessages = useCallback((channel: string) => {
+  const loadMessages = useCallback((channel: string, force = true) => messageCache.load(channel, async (isCurrent) => {
+    const before = messagesRef.current[channel] || []
     return fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if ([401, 403, 404].includes(r.status) && isCurrent() && cacheScope.current === messageCache) {
+          messageCache.forget(channel)
+          setMessages((prev) => { const next = { ...prev }; delete next[channel]; return next })
+        }
+        return r.ok ? r.json() : null
+      })
       .then((data) => {
-        if (!data) return
+        if (!data || !isCurrent() || cacheScope.current !== messageCache) return false
         // What is still on its way, or did not go, is only here: kept —
         // and what did not go before this page loaded, back where it was.
         const page = (data.messages || []) as ChannelMessage[]
         const had = messagesRef.current[channel]
         const back = heldFor(channel, undefined, page)
-        setMessages((prev) => ({ ...prev, [channel]: withHeld(keepTemps(leavesGap(prev[channel], page, PAGE) ? page : mergeById(prev[channel], page), prev[channel]), back) }))
-        if (leavesGap(had, page, PAGE) || !reachesPast(had, page)) setMore((prev) => ({ ...prev, [channel]: hasOlder(data, PAGE) }))
+        setMessages((prev) => ({ ...prev, [channel]: withHeld(mergeLatestMessages(prev[channel] || [], page, before, leavesGap(prev[channel], page, PAGE), !hasOlder(data, PAGE)), back) }))
+        if (!hasOlder(data, PAGE) || leavesGap(had, page, PAGE) || !reachesPast(had, page)) setMore((prev) => ({ ...prev, [channel]: hasOlder(data, PAGE) }))
         maybeNewEmoji(page.map((m) => `${m.body || ''} ${(m.reactions || []).map((r) => r.emoji).join(' ')}`).join(' '))
+        return true
       })
-      .catch(() => { /* the decisions still show */ })
-  }, [api.httpBase, api.orgId, authHeaders, maybeNewEmoji])
+      .catch(() => false) // Keep cached messages visible offline; failed loads may retry.
+  }, force), [api.httpBase, api.orgId, authHeaders, maybeNewEmoji, messageCache])
   // Scrolled to the top: the page before, kept in place as it arrives.
   const loadingOlder = useRef(false)
   const keepScroll = useRef<number | null>(null)
@@ -1426,7 +1444,7 @@ export const ClassicList: React.FC<Props> = ({
       loadingOlder.current = false
     }
   }, [api.httpBase, api.orgId, authHeaders, more])
-  useEffect(() => { if (view) void loadMessages(view) }, [view, loadMessages])
+  useEffect(() => { if (view) void loadMessages(view, false) }, [view, loadMessages])
   // Where you were up to when you opened it: the red "New" line goes there.
   const [newSince, setNewSince] = useState<{ view: string; at: string } | null>(null)
   useEffect(() => {
@@ -2655,6 +2673,7 @@ export const ClassicList: React.FC<Props> = ({
   // signals at once; a moment's wait makes them one.
   const resyncNow = useRef<() => void>(() => {})
   resyncNow.current = () => {
+    messageCache.invalidate()
     setChannelsTick((n) => n + 1)
     if (view) void loadMessages(view)
     if (thread) {

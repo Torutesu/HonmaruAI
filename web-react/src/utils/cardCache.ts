@@ -1,3 +1,4 @@
+import { clearMessageCaches } from './channelMessageCache'
 import type { DecisionCard } from '../types/card'
 
 // The last snapshot, kept in this browser, so the inbox has something to
@@ -44,6 +45,7 @@ export function clearCardCache(): void {
 const ACCOUNT_KEYS = ['senderContext', 'aiKey', 'orgId', 'draft:', 'daily-draft:', 'onboard.tools:', 'sidebar.folded:', 'outbox:', 'emoji.recent']
 export function clearAccountData(storage: Storage = localStorage): void {
   clearCardCache()
+  clearMessageCaches()
   try {
     const gone: string[] = []
     for (let i = 0; i < storage.length; i++) {

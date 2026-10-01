@@ -1,3 +1,4 @@
+import { channelMessageCache } from '../utils/channelMessageCache'
 import { setQuietState, getQuietState, onQuietChange, type QuietState } from '../utils/quiet'
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { WebSocketClient } from '../services/WebSocketClient'
@@ -970,7 +971,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         />
       ) : (
         <ClassicList
-          key={localeVersion}
+          key={`${localeVersion}:${channelMessageCache(api).identity}`}
           userId={userId}
           orgName={orgName}
           pending={pendingCards}
