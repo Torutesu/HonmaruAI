@@ -348,6 +348,13 @@ ipcMain.on('honmaru:show', (event) => {
   if (win && event.sender === win.webContents && new URL(event.senderFrame?.url || win.webContents.getURL()).origin === APP_ORIGIN) showWindow()
 })
 
+ipcMain.on('honmaru:notification-settings', (event) => {
+  if (!win || event.sender !== win.webContents) return
+  try { if (new URL(event.senderFrame?.url || '').origin !== APP_ORIGIN) return } catch { return }
+  if (process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension')
+  else if (process.platform === 'win32') void shell.openExternal('ms-settings:notifications')
+})
+
 // ---- One app, however many times it is started ----
 
 if (!app.requestSingleInstanceLock()) {

@@ -1,3 +1,5 @@
+import { drainCardNotifications } from './notificationJobs.js';
+import { notifyCardNow } from './notify.js';
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import { signup, login, createInvite, acceptInvite, isGitHubSession, inviteLink, peekInvite } from "./auth.js";
@@ -200,6 +202,7 @@ export default {
     // Every minute: scheduled messages and Later reminders, which a person
     // set to a minute and would notice fifteen late.
     if (event?.cron === "* * * * *") {
+      ctx.waitUntil(drainCardNotifications(env, notifyCardNow).catch(() => console.error("notification retry drain failed")));
       ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
         .catch((err) => console.error("minute jobs failed", err?.message || err)));
       // AI teammates at work: whatever they have finished, posted back.

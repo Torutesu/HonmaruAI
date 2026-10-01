@@ -13,7 +13,7 @@ import { RecordSheet } from './RecordSheet'
 import type { FlagReason, Answer } from './Feed'
 import { NotificationsButton } from './NotificationsBanner'
 import { StatusPopover } from './StatusPopover'
-import { notifyNewDecision, notifyMessage, closeCardNotifications, closeMessageNotifications, watchWorkspace, setNotificationCopy, setTabBadge } from '../utils/notifications'
+import { notifyDecisionReply, notifyNewDecision, notifyMessage, closeCardNotifications, closeMessageNotifications, watchWorkspace, setNotificationCopy, setTabBadge } from '../utils/notifications'
 import type { AppState, Business, DecisionCard } from '../types/card'
 import './Dashboard.css'
 import { useT } from '../utils/i18n'
@@ -275,7 +275,23 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     const wsClient = wsClientRef.current!
     let ignore = false
-    wsClient.onStateChange = (newState) => { if (!ignore) setState(newState) }
+    let previousCards: AppState['cardsById'] | null = null
+    wsClient.onStateChange = (newState) => {
+      if (ignore) return
+      // The first snapshot is a baseline; subsequent snapshots also catch
+      // requests and replies received while this socket was reconnecting.
+      if (previousCards) for (const card of Object.values(newState.cardsById || {})) {
+        const prior = previousCards[card.id]
+        const title = card.localized?.[getLocale()]?.title || card.title
+        if (!prior && card.recipientUserID === userId && card.senderUserID !== userId && card.status === 'pending') {
+          notifyNewDecision(title, card.requestedBy?.name || displayName(card.senderUserID), card.id, orgId)
+        }
+        if (card.senderUserID === userId && card.decision && card.decision.actorUserID !== userId &&
+          card.decision.decidedAt !== prior?.decision?.decidedAt) notifyDecisionReply(title, card.id, orgId)
+      }
+      previousCards = newState.cardsById
+      setState(newState)
+    }
     wsClient.onSynced = () => {
       if (ignore) return
       setSynced(true)
@@ -292,7 +308,6 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (card.recipientUserID === userId && card.status === 'pending') {
         // Your own note to yourself does not need announcing to you.
         if (card.senderUserID !== userId) playSound('decision')
-        if (card.senderUserID !== userId) notifyNewDecision(card.localized?.[getLocale()]?.title || card.title || t('A decision is waiting'), card.requestedBy?.name || displayName(card.senderUserID) || t('a teammate'), card.id, orgId)
       }
     }
     wsClient.onCardUpdated = (card) => { if (!ignore) addDebugLog(`Card updated: ${card.id}`) }

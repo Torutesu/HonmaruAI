@@ -1,3 +1,4 @@
+import { enqueueCardNotification, runCardNotification, deliverOnce, retryable } from './notificationJobs.js';
 // Tell the person a card is waiting on, wherever they are.
 //
 // One entry point, three channels. The relay, the cron and the email webhook
@@ -68,7 +69,17 @@ function deepLink(env, card) {
 /// always the one it was translated for when it was made. `payerGithubId` is
 /// whose allowance that spends; `announce: false` is for the relay, which
 /// broadcasts its own changes rather than calling itself.
-export async function notifyCard(env, { card, kind = "created", excludeLogin, badge, count, toLogin, comment, orgId, payerGithubId, announce = true }) {
+export async function notifyCard(env, input) {
+  const recipient = input.toLogin || recipientFor(input.card, input.kind);
+  if (!recipient || recipient === input.excludeLogin || recipient === 'deleted-user' || !anyChannelConfigured(env)) return notifyCardNow(env, input);
+  const id = await enqueueCardNotification(env, input);
+  const result = await runCardNotification(env, id, notifyCardNow);
+  const {retry, ...publicResult} = result;
+  return publicResult;
+}
+
+export async function notifyCardNow(env, { card, kind = "created", excludeLogin, badge, count, toLogin, comment, orgId, payerGithubId, announce = true, deliveryJobId }) {
+  let retry = false;
   const channels = { apns: 0, fcm: 0, webpush: 0, email: 0 };
   // A comment or a mention names its reader; everything else is read off
   // the card.
@@ -115,7 +126,8 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
       ...(orgId ? { orgId } : {}),
     };
     for (const device of devices.filter(isIPhone)) {
-      const result = await sendPush(env, { deviceToken: device.device_token, device, payload, collapseId });
+      const result = await deliverOnce(env.DB, deliveryJobId, 'apns', device.device_token, () => sendPush(env, { deviceToken: device.device_token, device, payload, collapseId }));
+      retry ||= retryable(result);
       if (result.ok) {
         channels.apns += 1;
       } else if (isDeadToken(result)) {
@@ -128,7 +140,7 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
 
   if (isFcmConfigured(env)) {
     for (const device of devices.filter(isAndroid)) {
-      const result = await sendFcm(env, {
+      const result = await deliverOnce(env.DB, deliveryJobId, 'fcm', device.device_token, () => sendFcm(env, {
         token: device.device_token,
         title: alert.title,
         text: alert.subtitle,
@@ -136,7 +148,8 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
         tag: card.id,
         priority: card.priority === "urgent" || card.priority === "high" ? "high" : "normal",
         data: { kind, cardId: card.id, orgId: orgId || null },
-      });
+      }));
+      retry ||= retryable(result);
       if (result.ok) channels.fcm += 1;
       else if (isDeadFcmToken(result)) await removeDevice(env.DB, device.device_token);
     }
@@ -156,10 +169,11 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
       ...(link ? { url: link } : {}),
     };
     for (const subscription of subscriptions) {
-      const result = await sendWebPush(env, {
+      const result = await deliverOnce(env.DB, deliveryJobId, 'webpush', subscription.endpoint, () => sendWebPush(env, {
         subscription, payload, topic: collapseId,
         urgency: card.priority === "urgent" || card.priority === "high" ? "high" : "normal",
-      });
+      }));
+      retry ||= retryable(result);
       if (result.ok) {
         channels.webpush += 1;
       } else if (isDeadSubscription(result)) {
@@ -173,10 +187,11 @@ export async function notifyCard(env, { card, kind = "created", excludeLogin, ba
   const reached = channels.apns + channels.fcm + channels.webpush > 0;
   if (!reached && isMailConfigured(env) && user?.email && Number(user.notify_email ?? 1) !== 0) {
     const mail = composeEmail({ card, kind, locale, count, url: deepLink(env, card), comment });
-    const result = await sendMail(env, { to: user.email, ...mail });
+    const result = await deliverOnce(env.DB, deliveryJobId, 'email', user.email, () => sendMail(env, { to: user.email, ...mail, idempotencyKey: deliveryJobId }));
+    retry ||= retryable(result);
     if (result.ok) channels.email += 1;
   }
 
   const sent = channels.apns + channels.fcm + channels.webpush + channels.email;
-  return { sent, channels, locale };
+  return { sent, channels, locale, retry: retry && channels.email === 0 };
 }

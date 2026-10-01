@@ -1,3 +1,4 @@
+import { DesktopNotificationSettings } from '../components/DesktopNotificationSettings'
 import React, { useEffect, useState } from 'react'
 import { enableWebPush, disableWebPush, pushSupport, currentSubscription, prefetchVapidKey } from '../utils/push'
 import { useT } from '../utils/i18n'
@@ -89,6 +90,7 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
         {error && <div className="form-error">{error}</div>}
 
         <div className="rows-title">{t('On this device')}</div>
+        {support === 'desktop' ? <DesktopNotificationSettings /> : <>
         <div className="rows">
           <div className="row static">
             <span className="row-icon"><Icon name="bell" size={18} /></span>
@@ -97,8 +99,6 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
               <span className="row-sub">
                 {support === 'needs-install'
                   ? t('On iPhone, add this to your home screen first — Safari only allows notifications for an installed web app.')
-                  : support === 'desktop'
-                    ? t('The desktop app tells you while it runs, even from the tray.')
                   : support === 'unsupported'
                     ? t('This browser cannot receive them.')
                     : support === 'denied'
@@ -116,6 +116,8 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
             />
           </div>
         </div>
+
+        </>}
 
         <div className="rows">
           <div className="row static">

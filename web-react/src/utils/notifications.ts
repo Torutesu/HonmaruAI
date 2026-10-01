@@ -1,6 +1,7 @@
 import { t } from './i18n'
 import { getLocale, primary } from './locale'
-import { bringForward } from './desktop'
+import { desktopNotificationsEnabled } from './desktopNotifications'
+import { desktopApp, bringForward } from './desktop'
 import { isQuiet } from './quiet'
 
 // The tab's own notifications, for while the app is open but not in front:
@@ -41,7 +42,7 @@ const ICON = '/icon-192.png'
 const BADGE = '/badge-96.png'
 
 function permitted(): boolean {
-  return typeof Notification !== 'undefined' && Notification.permission === 'granted'
+  return typeof Notification !== 'undefined' && Notification.permission === 'granted' && (!desktopApp() || desktopNotificationsEnabled())
 }
 
 /// The person is looking at this tab, in a window that has focus.
@@ -188,6 +189,8 @@ export function watchWorkspace(orgId: string): () => void {
   }
 }
 
+const directNotifications = new Map<string, { notification: Notification; data: Record<string, unknown> }>()
+
 interface Shown { tag: string; body: string; data: Record<string, unknown>; renotify?: boolean; timestamp?: number }
 
 /// Show one, through the service worker when there is one, else directly —
@@ -196,7 +199,10 @@ function show(title: string, { tag, body, data, renotify = false, timestamp = Da
   const options = { body, tag, data, icon: ICON, badge: BADGE, renotify, timestamp } as NotificationOptions
   const direct = () => {
     try {
+      directNotifications.get(tag)?.notification.close()
       const n = new Notification(title, options)
+      directNotifications.set(tag, { notification: n, data })
+      n.onclose = () => { if (directNotifications.get(tag)?.notification === n) directNotifications.delete(tag) }
       n.onclick = () => {
         bringForward()
         n.close()
@@ -207,6 +213,7 @@ function show(title: string, { tag, body, data, renotify = false, timestamp = Da
       // Chrome on Android throws: a phone without the worker gets the push.
     }
   }
+  if (desktopApp()) { direct(); return }
   const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined
   if (!sw) { direct(); return }
   sw.getRegistration('/')
@@ -223,6 +230,15 @@ export function notifyNewDecision(title: string, from: string, cardId?: string, 
     tag: cardId || 'honmaru-decision',
     body: `${title}\n${byline}`,
     data: { cardId: cardId || null, orgId: orgId || null, kind: 'created', hash: cardId ? `#/feed/${encodeURIComponent(cardId)}${orgId ? `/${encodeURIComponent(orgId)}` : ''}` : '' },
+  })
+}
+
+/// The sender also needs to hear that somebody answered their request.
+export function notifyDecisionReply(title: string, cardId: string, orgId: string): void {
+  if (!permitted() || !mayNotify(orgId) || isQuiet()) return
+  show(t('A reply to your request'), {
+    tag: cardId, body: title,
+    data: { cardId, orgId, kind: 'decided', hash: `#/feed/${encodeURIComponent(cardId)}/${encodeURIComponent(orgId)}` },
   })
 }
 
@@ -285,6 +301,7 @@ export function notifyMessage(m: { id: string; orgId: string; channel: string; a
 /// (here or on another device), or unsent — a message taken back must not
 /// stay on the lock screen.
 export function closeMessageNotifications(ids: string[]): void {
+  for (const [tag, item] of directNotifications) if (ids.includes(String(item.data.messageId || ''))) { item.notification.close(); directNotifications.delete(tag) }
   const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined
   if (!sw || !ids.length) return
   const wanted = new Set(ids)
@@ -297,6 +314,7 @@ export function closeMessageNotifications(ids: string[]): void {
 /// Cards that stopped waiting on you (decided here or anywhere): their
 /// notifications are no longer true, so they come off the screen.
 export function closeCardNotifications(cardIds: string[]): void {
+  for (const tag of cardIds) { directNotifications.get(tag)?.notification.close(); directNotifications.delete(tag) }
   const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined
   if (!sw || !cardIds.length) return
   sw.getRegistration('/')

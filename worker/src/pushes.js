@@ -1,3 +1,4 @@
+import { deliverOnce, retryable, retryDelay, MAX_ATTEMPTS } from './notificationJobs.js';
 // A message that needs somebody, pushed to their phone — but only when they
 // are not already looking.
 //
@@ -169,13 +170,16 @@ export async function sendDuePushes(env, now = Date.now()) {
   const db = env.DB;
   const at = new Date(now).toISOString();
   const { results: due } = await db.prepare(
-    "SELECT * FROM push_queue WHERE sent_at IS NULL AND due_at <= ?1 ORDER BY due_at LIMIT 100"
+    "SELECT * FROM push_queue WHERE sent_at IS NULL AND due_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1) AND attempts < 5 ORDER BY due_at LIMIT 25"
   ).bind(at).all();
   let sent = 0; let skipped = 0;
   const membersOf = new Map();
   for (const job of due || []) {
-    const claim = await db.prepare("UPDATE push_queue SET sent_at = ?2 WHERE id = ?1 AND sent_at IS NULL").bind(job.id, at).run().catch(() => null);
+    const lease = new Date(now + 5 * 60_000).toISOString();
+    const claim = await db.prepare("UPDATE push_queue SET lease_until = ?2, attempts = attempts + 1 WHERE id = ?1 AND sent_at IS NULL AND (lease_until IS NULL OR lease_until <= ?3) AND attempts < 5").bind(job.id, lease, at).run();
     if (!(claim?.meta?.changes > 0)) continue;
+    let retry = false;
+    let error = null;
     try {
       const msg = await db.prepare(
         "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
@@ -209,10 +213,16 @@ export async function sendDuePushes(env, now = Date.now()) {
       const translated = msg.body ? await textFor(env, job.org_id, msg, job.login).catch(() => msg.body) : "";
       const said = pushWords(msg.body, translated);
       const body = said ? pushPreview(said) : files;
-      const delivered = await pushMessage(env, job.login, { title, body, orgId: job.org_id, channel: view, messageId: msg.id, parentId: msg.parent_id || null, at: msg.created_at });
-      if (delivered) sent += 1; else skipped += 1;
+      const result = await pushMessage(env, job.login, { deliveryJobId: `message:${job.id}`, title, body, orgId: job.org_id, channel: view, messageId: msg.id, parentId: msg.parent_id || null, at: msg.created_at });
+      retry = result.retry;
+      if (result.delivered) sent += 1; else skipped += 1;
+      error = retry ? "transient delivery failure" : result.delivered ? null : "no accepted delivery";
     } catch (err) {
-      console.error("message push failed", err?.message || err);
+      retry = true; error = 'delivery exception';
+    } finally {
+      const again = retry && job.attempts + 1 < MAX_ATTEMPTS;
+      await db.prepare('UPDATE push_queue SET sent_at = ?2, due_at = ?3, lease_until = NULL, last_error = ?4 WHERE id = ?1 AND lease_until = ?5')
+        .bind(job.id, again ? null : at, new Date(now + retryDelay(job.attempts + 1)).toISOString(), error, lease).run();
     }
   }
   // Kept a day for looking into, then gone; what Activity was looked at,
@@ -299,31 +309,33 @@ export async function clearDeliveredMessages(env, orgId, login, messageIds) {
 
 /// One message to every phone and browser this person has: iPhones through
 /// APNs, Android phones through FCM, each only when its key is set.
-async function pushMessage(env, login, { title, body, orgId, channel, messageId, parentId, at = null }) {
-  let delivered = 0;
+async function pushMessage(env, login, { title, body, orgId, channel, messageId, parentId, at = null, deliveryJobId }) {
+  let delivered = 0; let retry = false;
   const devices = (apnsConfigured(env) || isFcmConfigured(env)) ? await devicesForLogin(env.DB, login) : [];
   if (isFcmConfigured(env)) {
     for (const device of devices.filter(isAndroid)) {
-      const result = await sendFcm(env, {
+      const result = await deliverOnce(env.DB, deliveryJobId, 'fcm', device.device_token, () => sendFcm(env, {
         token: device.device_token,
         title, text: body,
         // One notification per workspace and conversation in the tray, as the
         // iPhone groups them by thread-id; the newest replaces the last.
         tag: `${orgId}|${channel}`,
         data: { kind: "message", orgId, channel, messageId, parentId },
-      });
+      }));
+      retry ||= retryable(result);
       if (result.ok) delivered += 1;
       else if (isDeadFcmToken(result)) await removeDevice(env.DB, device.device_token);
     }
   }
   if (apnsConfigured(env)) {
     for (const device of devices.filter(isIPhone)) {
-      const result = await sendPush(env, {
+      const result = await deliverOnce(env.DB, deliveryJobId, 'apns', device.device_token, () => sendPush(env, {
         deviceToken: device.device_token, device,
         collapseId: messageId,
         // Grouped by workspace and conversation: two teams' #general are not one thread.
         payload: { aps: { alert: { title, body }, sound: "default", "thread-id": `${orgId}|${channel}` }, kind: "message", orgId, channel, messageId, parentId },
-      });
+      }));
+      retry ||= retryable(result);
       if (result.ok) delivered += 1;
       else if (isDeadToken(result)) await removeDevice(env.DB, device.device_token);
     }
@@ -331,15 +343,16 @@ async function pushMessage(env, login, { title, body, orgId, channel, messageId,
   if (isWebPushConfigured(env)) {
     const base = env.APP_WEB_URL ? String(env.APP_WEB_URL).replace(/\/$/, "") : "";
     for (const subscription of await subscriptionsForLogin(env.DB, login)) {
-      const result = await sendWebPush(env, {
+      const result = await deliverOnce(env.DB, deliveryJobId, 'webpush', subscription.endpoint, () => sendWebPush(env, {
         subscription, topic: messageId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32),
         // `at`: when it was written, so a browser that already shows a later
         // message in this conversation keeps that one (web-react/public/sw.js).
         payload: { title, body, kind: "message", tag: `${orgId}|${channel}`, orgId, channel, messageId, ...(at ? { at } : {}), ...(base ? { url: `${base}/#/m/${encodeURIComponent(messageId)}/${encodeURIComponent(orgId)}` } : {}) },
-      });
+      }));
+      retry ||= retryable(result);
       if (result.ok) delivered += 1;
       else if (isDeadSubscription(result)) await removeSubscription(env.DB, subscription.endpoint);
     }
   }
-  return delivered;
+  return {delivered, retry};
 }
