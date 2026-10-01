@@ -300,6 +300,7 @@ function createWindow() {
 /// Updates to the shell, in an installed app built by the signed release
 /// scripts only (src/updates.js). They mark the packaged package.json.
 function checkForUpdates() {
+  if (process.mas) return // Mac App Store owns updates for sandboxed builds.
   let metadata = {}
   try { metadata = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')) } catch { /* no marker, no updates */ }
   if (!updatesEnabled({ packaged: PACKAGED, metadata })) return
@@ -350,7 +351,8 @@ ipcMain.on('honmaru:show', (event) => {
 
 // ---- One app, however many times it is started ----
 
-if (!app.requestSingleInstanceLock()) {
+// MAS does not support Electron's single-instance lock; macOS handles Finder launches.
+if (!process.mas && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_event, argv) => {

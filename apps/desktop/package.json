@@ -12,7 +12,8 @@
     "test": "vitest run",
     "dist": "node scripts/signing.mjs && electron-builder --publish never -c.extraMetadata.honmaruUpdates=true",
     "dist:dir": "electron-builder --dir",
-    "release": "node scripts/signing.mjs && electron-builder --publish always -c.extraMetadata.honmaruUpdates=true"
+    "release": "node scripts/signing.mjs && electron-builder --publish always -c.extraMetadata.honmaruUpdates=true",
+    "dist:mas": "electron-builder --config electron-builder.mas.yml --mac mas --universal --publish never"
   },
   "devDependencies": {
     "electron": "^44.5.1",

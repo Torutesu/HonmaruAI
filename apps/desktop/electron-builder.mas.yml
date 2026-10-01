@@ -1,0 +1,12 @@
+extends: ./electron-builder.yml
+directories:
+  output: dist-mas
+mac:
+  target: [mas]
+mas:
+  hardenedRuntime: false
+  entitlements: resources/entitlements.mas.plist
+  entitlementsInherit: resources/entitlements.mas.inherit.plist
+  provisioningProfile: resources/HonmaruMacAppStore.provisionprofile
+extraMetadata:
+  honmaruUpdates: false

@@ -126,3 +126,16 @@ there, or move to a repository of their own.
 
 - Azure Trusted Signing for Windows (`win.azureSignOptions`) instead of a
   .pfx certificate.
+
+## Mac App Store preparation
+
+`npm run dist:mas` uses `electron-builder.mas.yml`, the MAS Electron runtime,
+App Sandbox entitlements, and `resources/HonmaruMacAppStore.provisionprofile`
+(ignored by Git). Install the Mac App Distribution and Mac Installer Distribution
+identities in the signing keychain first. The MAS app does not run the desktop
+updater or request Electron's unsupported single-instance lock.
+
+The resulting universal PKG is a submission artifact, not proof of store
+readiness. Test the sandboxed build via TestFlight/mas-dev, verify purchase and
+restore behavior against the shared iOS subscription, prepare screenshots and
+review access, and resolve App Store Connect validation before submitting.
