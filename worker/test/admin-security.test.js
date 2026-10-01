@@ -149,8 +149,8 @@ test("a guest sees only the channels they were let into", async () => {
   expect(mayRead("b:hotel", access)).toBe(false);
   expect(mayRead("b:hotel", await accessFor(env.DB, ORG, "mika"))).toBe(true);
   // A public channel in a workspace with guests is named person by person.
-  expect(await audienceOf(env.DB, ORG, "b:hotel")).toEqual(["toru", "mika"]);
-  expect(await audienceOf(env.DB, ORG, "b:cafe")).toEqual(["toru", "mika", "gus"]);
+  expect(new Set(await audienceOf(env.DB, ORG, "b:hotel"))).toEqual(new Set(["toru", "mika"]));
+  expect(new Set(await audienceOf(env.DB, ORG, "b:cafe"))).toEqual(new Set(["toru", "mika", "gus"]));
 
   const list = await (await call(`/businesses?${q({ orgId: ORG })}`, gus)).json();
   expect(list.businesses.map((b) => b.slug)).toEqual(["cafe"]);

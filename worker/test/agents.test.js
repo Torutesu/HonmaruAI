@@ -546,3 +546,44 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   const { results } = await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1 ORDER BY seq").bind(ORG).all();
   expect(results.map((r) => r.action).filter((a) => a === "agent.updated").length).toBe(3);
 });
+
+test("thread context keeps its old root and only replies through the invocation", async () => {
+  const { contextFor } = await import("../src/customAgents.js");
+  const insert = async (id, body, parent = null, at = "2026-10-01T10:00:00.000Z", replyTo = null, channel = "b:cafe", deleted = null) => {
+    await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at, parent_id, reply_to_id, deleted_at) VALUES (?1, ?2, ?3, 'toru', 'message', ?4, ?5, ?6, ?7, ?8)")
+      .bind(id, ORG, channel, body, at, parent, replyTo, deleted).run();
+  };
+  await insert("root", "ROOT REQUIREMENT", null, "2026-09-01T00:00:00.000Z");
+  await insert("outside", "UNRELATED https://unrelated.example.com");
+  await insert("sibling", "SIBLING SECRET", "outside");
+  for (let i = 0; i < 40; i++) await insert(`reply-${i}`, `OUR REPLY ${i} ` + "x".repeat(490), "root");
+  await insert("deleted", "DELETED SECRET", "root", undefined, null, undefined, "2026-10-01");
+  await insert("other-channel", "OTHER CHANNEL SECRET", "root", undefined, null, "b:other");
+  await insert("call", "CURRENT REQUEST", "root", undefined, "outside");
+  await insert("future", "FUTURE SECRET SAME TIMESTAMP", "root");
+  const result = (await contextFor(env.DB, ORG, "b:cafe", { id: "call", parent_id: "root", created_at: "2026-10-01T10:00:00.000Z" })).join("\n");
+  expect(result).toContain("ROOT REQUIREMENT");
+  expect(result).toContain("OUR REPLY 39");
+  expect(result).toContain("CURRENT REQUEST");
+  expect(result).not.toMatch(/UNRELATED|SIBLING|DELETED|OTHER CHANNEL|FUTURE/);
+  expect(result.length).toBeLessThanOrEqual(6000);
+});
+
+test("a thread invocation sends only that thread to the model", async () => {
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  const root = (await (await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "THREAD ROOT: autumn poster" })).json()).message;
+  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "UNRELATED: hotel budget" });
+  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "THREAD REPLY: use amber", parentId: root.id });
+  let prompt;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(400, { error: { message: "web_search not supported" } }).times(2);
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
+    prompt = JSON.parse(opts.body);
+    return { choices: [{ message: { content: "Use amber for the autumn poster." } }] };
+  });
+  const result = await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: root.id, body: "@hayao summarise this thread" }, { OPENAI_API_KEY: "sk-test" });
+  expect(result.status).toBe(201);
+  const content = prompt.messages.find((m) => m.role === "user").content;
+  expect(content).toContain("THREAD ROOT");
+  expect(content).toContain("THREAD REPLY");
+  expect(content).not.toContain("UNRELATED");
+});

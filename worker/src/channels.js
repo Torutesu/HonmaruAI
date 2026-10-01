@@ -242,7 +242,7 @@ async function originalsOf(db, orgId, rows) {
   for (let i = 0; i < ids.length; i += 90) {
     const chunk = ids.slice(i, i + 90);
     const { results } = await db.prepare(
-      `SELECT m.id, m.channel, m.kind, m.body, m.author_login, m.deleted_at,
+      `SELECT m.id, m.channel, m.parent_id, m.created_at, m.kind, m.body, m.author_login, m.deleted_at,
               COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name,
               (SELECT f.name FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id ORDER BY f.created_at LIMIT 1) AS file_name
          FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
@@ -540,17 +540,19 @@ export async function linkCard(db, orgId, messageId, cardId) {
 /// one line per message, names not logins, oldest first. An inline reply
 /// says what it answers, as its reader sees over it — so the AI knows which
 /// message "this" is, and is shown one too old to be among these lines.
-export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24, skip = null } = {}) {
+export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24, skip = null, threadId = null, throughId = null } = {}) {
   const { results } = await db
     .prepare(
-      `SELECT m.kind, m.body, m.created_at, m.reply_to_id, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, m.author_login,
+      `SELECT m.id, m.parent_id, m.kind, m.body, m.created_at, m.reply_to_id, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, m.author_login,
               (SELECT group_concat(f.name, ', ') FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id) AS file_names
          FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.channel = ?2 AND m.created_at <= ?3 AND m.deleted_at IS NULL AND m.kind != 'joined'
-        ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?4`
+          AND (?5 IS NULL OR m.id = ?5 OR m.parent_id = ?5)
+          AND (?6 IS NULL OR m.created_at < ?3 OR m.rowid <= (SELECT rowid FROM channel_messages WHERE org_id = ?1 AND channel = ?2 AND id = ?6))
+        ORDER BY CASE WHEN m.id = ?5 THEN 0 ELSE 1 END, m.created_at DESC, m.rowid DESC LIMIT ?4`
     )
-    .bind(orgId, key, createdAt, skip ? limit * 3 : limit)
+    .bind(orgId, key, createdAt, skip ? limit * 3 : limit, threadId, throughId)
     .all();
   // `skip`: rows left out — talk with the agents, for a decision.
   const kept = skip ? (results || []).filter((r) => !skip({ ...r, channel: key })).slice(0, limit) : (results || []);
@@ -560,10 +562,12 @@ export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24, sk
     // Never one from another conversation, one unsent, or one `skip`
     // leaves out of these lines.
     if (!o || o.deleted_at || o.channel !== key || (skip && skip(o))) return "";
+    if (threadId && o.id !== threadId && o.parent_id !== threadId) return "";
+    if (o.created_at > createdAt || (throughId && o.created_at === createdAt && !kept.some((r) => r.id === o.id))) return "";
     const said = String(o.body || "").replace(/\s+/g, " ").trim() || (o.file_name ? `[attached: ${o.file_name}]` : "");
     return ` (replying to ${o.kind === "ai" ? "AI" : (o.author_name || "someone")}: "${said.length > max ? `${said.slice(0, max)}…` : said}")`;
   };
-  return kept.reverse().map((r, i, all) => {
+  return kept.reverse().sort((a, b) => a.id === threadId ? -1 : b.id === threadId ? 1 : 0).map((r, i, all) => {
     const who = r.kind === "ai" ? "AI" : (r.author_name || "someone");
     const attached = r.file_names ? ` [attached: ${String(r.file_names).slice(0, 200)}]` : "";
     // The newest line is the one that asks: what it answers comes as long

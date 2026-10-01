@@ -341,6 +341,7 @@ export function requestFor(text, agent) {
 const RULES = `You are an agent in a team's chat, called by name by a teammate. The team wrote your instructions; follow them.
 
 Always:
+- The supplied conversation is your conversation scope. A thread contains only its parent and replies; never infer unrelated channel history or import other conversations as context.
 - Answer the request addressed to you, in the language it is written in unless your instructions say otherwise.
 - Write for a chat: short paragraphs, bullets with "-", *bold* with single asterisks for what matters, \`code\` for code. No Markdown headings (#) and no **double** asterisks. No preamble like "Sure!".
 - You cannot act outside this chat — you do not send email, change files or spend money. Write the draft and say who should act.
@@ -440,11 +441,14 @@ export function forChat(text) {
 }
 
 /// The conversation an agent reads: what was said up to the message that
-/// called it, the thread it was called in included.
+/// called it. Inside a thread, only its root and replies belong to it.
 export async function contextFor(db, orgId, key, row) {
-  const transcript = await transcriptUpTo(db, orgId, key, row.created_at, { limit: 30 });
+  const transcript = await transcriptUpTo(db, orgId, key, row.created_at, { limit: 30, threadId: row.parent_id || null, throughId: row.id });
   let joined = transcript.join("\n");
-  if (joined.length > 6000) joined = `…${joined.slice(joined.length - 6000)}`;
+  if (joined.length > 6000) {
+    const root = row.parent_id ? transcript[0] + "\n" : "";
+    joined = `${root}…${joined.slice(joined.length - (5999 - root.length))}`;
+  }
   return joined.split("\n");
 }
 

@@ -172,10 +172,13 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       // Talk with the agents is not part of it: calling @hayao, and what
       // it answered, is research, not what the team is deciding.
       const skip = await agentTalkFilter(env.DB, orgId);
-      const transcript = await transcriptUpTo(env.DB, orgId, resolved.key, row.created_at, { skip: (r) => r.created_at !== row.created_at && skip(r) });
+      const transcript = await transcriptUpTo(env.DB, orgId, resolved.key, row.created_at, { threadId: row.parent_id || null, throughId: row.id, skip: (r) => r.id !== row.id && r.id !== row.parent_id && skip(r) });
       context = `Conversation in ${where} leading to this request (oldest first):\n${transcript.join("\n")}`;
     }
-    if (context.length > 3800) context = `…${context.slice(context.length - 3800)}`;
+    if (context.length > 3800) {
+      const root = row.parent_id && !clipped ? context.split("\n").slice(0, 2).join("\n") + "\n" : "";
+      context = `${root}…${context.slice(context.length - (3799 - root.length))}`;
+    }
 
     // Whoever the message names decides; in a direct conversation with
     // nobody named, the other person does.
@@ -301,7 +304,7 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
     const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
     if (!provider) { await say(serverText(locale, "agent.noModel")); return false; }
     if (!allowance.allowed) { await say(serverText(locale, "agent.quota")); return false; }
-    const [transcript, playbook] = await Promise.all([contextFor(env.DB, orgId, resolved.key, row), playbookFor(env.DB, orgId, row.body)]);
+    const [transcript, playbook] = await Promise.all([contextFor(env.DB, orgId, resolved.key, row), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)]);
     let links = "";
     try {
       const urls = linksIn(row.body).length ? linksIn(row.body) : linksIn(transcript.slice(-6).join("\n"));
@@ -410,13 +413,13 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const provider = await providerFor(env, orgId);
   const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
   const [transcript, playbook] = provider && allowance?.allowed
-    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row), playbookFor(env.DB, orgId, row.body)])
+    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)])
     : [[], []];
   // Research, in a conversation with the agent only: past decisions and
   // what this person's connected tools hold are theirs to read, and would
   // be somebody else's to read if the answer went into a shared channel.
   let research = "";
-  if (resolved.kind === "agent" && provider && allowance?.allowed) {
+  if (!row.parent_id && resolved.kind === "agent" && provider && allowance?.allowed) {
     try {
       const terms = searchTermsFor(row.body, null);
       const available = await connectedSources(env, session, orgId);
