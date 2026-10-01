@@ -1,4 +1,4 @@
-// Sign in with a code sent by email (the same /auth/otp routes the web and
+// Sign in with a password or a code sent by email (the same /auth/otp routes the web and
 // the iPhone app use), or with Apple on iOS (/auth/apple). An invitation
 // link opened while signed out lands here with its code, spent on the way in.
 
@@ -21,6 +21,8 @@ export default function SignIn() {
   const finish = (r: SignedIn) => signIn(r.token, inviteCode && !r.inviteError ? r.orgId : null)
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [passwordMode, setPasswordMode] = useState(false)
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -42,9 +44,28 @@ export default function SignIn() {
               style={styles.input} placeholder="you@company.com" autoCapitalize="none" autoComplete="email"
               keyboardType="email-address" textContentType="emailAddress" value={email} onChangeText={setEmail}
             />
-            <Pressable style={styles.button} disabled={busy || !email.includes('@')}
-              onPress={() => run(async () => { await api.requestCode({ email: email.trim() }); setSent(true) })}>
-              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Send code</Text>}
+            {passwordMode ? (
+              <TextInput
+                style={styles.input} placeholder="Password" accessibilityLabel="Password"
+                secureTextEntry autoCapitalize="none" autoCorrect={false}
+                autoComplete="current-password" textContentType="password"
+                value={password} onChangeText={setPassword} editable={!busy}
+              />
+            ) : null}
+            <Pressable style={styles.button} disabled={busy || !email.includes('@') || (passwordMode && !password)}
+              onPress={() => run(async () => {
+                if (passwordMode) {
+                  const result = await api.signInWithPassword({ email: email.trim(), password, inviteCode })
+                  setPassword('')
+                  await finish(result)
+                } else {
+                  await api.requestCode({ email: email.trim() }); setSent(true)
+                }
+              })}>
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{passwordMode ? 'Sign in' : 'Send code'}</Text>}
+            </Pressable>
+            <Pressable disabled={busy} onPress={() => { setPasswordMode(!passwordMode); setPassword(''); setError(null) }}>
+              <Text style={styles.link}>{passwordMode ? 'Use an email code instead' : 'Sign in with a password'}</Text>
             </Pressable>
           </>
         ) : (
