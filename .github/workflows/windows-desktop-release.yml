@@ -1,0 +1,75 @@
+name: Windows signed release candidate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - name: Preserve source line endings
+        working-directory: ${{ runner.temp }}
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require distribution credentials
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) { throw 'WIN_CSC_LINK is required for a signed release.' }
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) { throw 'WIN_CSC_KEY_PASSWORD is required for a signed release.' }
+      - run: npm ci
+      - run: npm test
+      - name: Build signed NSIS installer and update metadata
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npm run dist -- --win nsis --x64 -c.forceCodeSigning=true
+      - name: Verify installer and app signatures
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem dist -Filter '*.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one installer.' }
+          foreach ($file in @($installers[0].FullName, (Resolve-Path 'dist/win-unpacked/Honmaru AI.exe').Path)) {
+            $signature = Get-AuthenticodeSignature $file
+            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature: $file" }
+            Write-Output "$file : $($signature.Status)"
+          }
+      - name: Verify install, launch and uninstall
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem dist -Filter '*.exe')[0]
+          $installed = Join-Path $env:LOCALAPPDATA 'HonmaruReleaseCheck'
+          $setup = Start-Process $installer.FullName -ArgumentList '/S', "/D=$installed" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Install failed: $($setup.ExitCode)" }
+          $appPath = Join-Path $installed 'Honmaru AI.exe'
+          if (!(Test-Path $appPath)) { throw 'Installed executable missing.' }
+          $app = Start-Process $appPath -PassThru
+          try {
+            if ($app.WaitForExit(20000)) { throw 'Installed app exited before startup check completed.' }
+          } finally {
+            taskkill /PID $app.Id /T /F 2>$null
+          }
+          $uninstaller = @(Get-ChildItem $installed -Filter '*Uninstall*.exe')
+          if ($uninstaller.Count -ne 1) { throw 'Expected an uninstaller.' }
+          $remove = Start-Process $uninstaller[0].FullName -ArgumentList '/S' -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw 'Uninstall failed.' }
+          for ($i = 0; $i -lt 15 -and (Test-Path $appPath); $i++) { Start-Sleep -Seconds 2 }
+          if (Test-Path $appPath) { throw 'App remains after uninstall.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Honmaru-AI-Windows-signed-release-candidate
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/latest.yml
+          if-no-files-found: error
+          retention-days: 14
