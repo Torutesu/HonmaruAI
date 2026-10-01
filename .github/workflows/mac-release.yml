@@ -27,11 +27,28 @@ jobs:
           umask 077
           printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
           echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Prepare signing keychain
+        env:
+          CERTIFICATE: ${{ secrets.MAC_CSC_LINK }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: |
+          umask 077
+          keychain="$RUNNER_TEMP/honmaru-signing.keychain-db"
+          keypass=$(openssl rand -hex 24)
+          echo "::add-mask::$keypass"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keypass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keypass" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keypass" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/certificate.p12"
       - name: Build signed and notarized universal Mac release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_NAME: "Developer ID Application: toru tano (BAF4U6PT5S)"
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: npm run release -- --mac --universal -c.forceCodeSigning=true
