@@ -48,6 +48,8 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: Honmaru AI uses the microphone when you join a Jam call.
     NSCameraUsageDescription: Honmaru AI uses the camera when you turn on video in a Jam call.
+dmg:
+  sign: true
 linux:
   target: AppImage
   category: Office

@@ -9,12 +9,17 @@
 #   APPLE_API_KEY_P8                     App Store Connect API key (.p8 contents), to notarize
 #   APPLE_API_KEY_ID, APPLE_API_ISSUER   that key's id and issuer id
 #   WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD   Windows code-signing .pfx (base64) and its password
-# Nothing is built unless all of them are set: half a release would offer an
-# update to one platform and not the others.
+# Only the selected platforms require certificates; Mac can ship independently.
 name: Desktop release
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platforms to release
+        type: choice
+        default: mac
+        options: [mac, all]
 
 permissions:
   contents: write
@@ -29,10 +34,22 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
+      matrix: ${{ steps.platforms.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
-      - name: Every certificate is here
+      - name: Select platforms
+        id: platforms
         env:
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          if [ "$PLATFORM" = "mac" ]; then
+            echo 'matrix={"os":["macos-latest"]}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"os":["macos-latest","windows-latest","ubuntu-latest"]}' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Required certificates are here
+        env:
+          PLATFORM: ${{ inputs.platform }}
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -42,7 +59,11 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
           missing=()
-          for name in MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+          required=(MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER)
+          if [ "$PLATFORM" = "all" ]; then
+            required+=(WIN_CSC_LINK WIN_CSC_KEY_PASSWORD)
+          fi
+          for name in "${required[@]}"; do
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -73,8 +94,7 @@ jobs:
     needs: draft
     strategy:
       fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+      matrix: ${{ fromJSON(needs.draft.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -106,7 +126,12 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           APPLE_API_KEY_ID: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY_ID || '' }}
           APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
-        run: npm run release
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            npm run release -- --mac --universal
+          else
+            npm run release
+          fi
       - name: The key file goes
         if: always() && runner.os == 'macOS'
         run: rm -f "$RUNNER_TEMP/AuthKey.p8"
