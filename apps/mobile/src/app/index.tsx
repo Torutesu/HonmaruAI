@@ -2,7 +2,7 @@
 
 import { Link, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
+import { Alert, Linking, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import type { Business } from '@honmaru/protocol'
 import { useSession } from '../lib/session'
 
@@ -12,6 +12,17 @@ export default function Channels() {
   const [unread, setUnread] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const deleteAccount = () => Alert.alert('Delete account?', 'This permanently deletes your account. This cannot be undone.', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete account', style: 'destructive', onPress: () => {
+      setDeleting(true)
+      void api.request('/account', { method: 'DELETE' }).then(signOut).catch((err) => {
+        setError(err instanceof Error ? err.message : 'Account deletion failed. Please try again.')
+      }).finally(() => setDeleting(false))
+    } },
+  ])
 
   const load = useCallback(async () => {
     if (!orgId) return
@@ -37,7 +48,11 @@ export default function Channels() {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
       ListHeaderComponent={error ? <Text style={styles.error}>{error}</Text> : null}
       ListFooterComponent={
-        <Pressable onPress={signOut} style={styles.footer}><Text style={styles.link}>Sign out {me?.name || ''}</Text></Pressable>
+        <View style={styles.footer}>
+          <Pressable disabled={deleting} onPress={signOut}><Text style={styles.link}>Sign out {me?.name || ''}</Text></Pressable>
+          <Pressable onPress={() => { void Linking.openURL('https://app.honmaruai.com/privacy.html').catch(() => setError('Could not open the privacy policy.')) }}><Text style={styles.link}>Privacy policy</Text></Pressable>
+          <Pressable disabled={deleting} onPress={deleteAccount}><Text style={styles.error}>{deleting ? 'Deleting account…' : 'Delete account'}</Text></Pressable>
+        </View>
       }
       renderItem={({ item }) => {
         const key = `b:${item.slug}`
@@ -61,7 +76,7 @@ const styles = StyleSheet.create({
   unread: { fontWeight: '700' },
   badge: { backgroundColor: '#d1242f', borderRadius: 10, minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, alignItems: 'center' },
   badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  footer: { padding: 24 },
+  footer: { padding: 24, gap: 20 },
   link: { color: '#1f6feb', textAlign: 'center' },
   error: { color: '#d1242f', padding: 16 },
 })

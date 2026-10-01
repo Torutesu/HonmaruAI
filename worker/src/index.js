@@ -1742,6 +1742,18 @@ async function handle(request, env, url, ctx) {
         return json({ message: "Account deletion could not finish. Please try again shortly." }, 503,
           { "cache-control": "no-store" });
       }
+      // Finish workspace storage cleanup while membership and login still
+      // exist, so a failed RPC can be retried without orphaning personal data.
+      if (env.WORKSPACE && user?.login) {
+        try {
+          for (const org of wasIn) {
+            await env.WORKSPACE.get(env.WORKSPACE.idFromName(org.id)).forgetAccount({ login: user.login });
+          }
+        } catch {
+          return json({ message: "Account deletion could not finish. Please try again shortly." }, 503,
+            { "cache-control": "no-store" });
+        }
+      }
       // Their app connections, here and at Smithery, before the rows that
       // say whose they were are gone.
       await forgetAppConnections(env, { githubId: session.github_id }).catch((err) => console.error("app connections not ended", err?.message || err));

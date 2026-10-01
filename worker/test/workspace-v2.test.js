@@ -161,3 +161,37 @@ test("ids are time-ordered UUIDv7", () => {
   expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   expect(a < b).toBe(true);
 });
+
+test("account deletion anonymizes shared posts and removes private conversations and pending reads", async () => {
+  const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ORG));
+  await stub.post({ channel: "b:cafe", author: "ben", body: "shared team work" });
+  await stub.post({ channel: "dm:aya|ben", author: "aya", body: "private conversation" });
+  await stub.post({ channel: "dm:aya|benny", author: "aya", body: "another conversation" });
+  await stub.markRead({ login: "ben", channel: "b:cafe", seq: 1 });
+  await runInDurableObject(stub, async (instance) => instance.flushReads());
+  await stub.markRead({ login: "ben", channel: "b:cafe", seq: 2 });
+  await stub.markRead({ login: "aya", channel: "dm:aya|ben", seq: 1 });
+  await stub.markRead({ login: "aya", channel: "b:cafe", seq: 1 });
+
+  expect((await call("/account", { method: "DELETE", token: member })).status).toBe(200);
+  expect((await call(`${chan("b:cafe")}/messages`, { token: member })).status).toBe(401);
+  expect((await stub.history({ channel: "b:cafe" })).messages[0]).toMatchObject({ author: null, body: "shared team work" });
+  expect((await stub.history({ channel: "dm:aya|ben" })).messages).toEqual([]);
+  expect((await stub.search({ q: "private", channels: ["dm:aya|ben"] })).hits).toEqual([]);
+  expect((await stub.history({ channel: "dm:aya|benny" })).messages).toHaveLength(1);
+  await runInDurableObject(stub, async (instance, state) => {
+    await instance.alarm();
+    expect(state.storage.sql.exec("SELECT login, channel_id FROM reads").toArray()).toEqual([{ login: "aya", channel_id: "b:cafe" }]);
+  });
+  // Cleanup is safe to retry after a failure in another workspace.
+  expect(await stub.forgetAccount({ login: "ben" })).toEqual({ ok: true });
+});
+
+test("a failed workspace cleanup does not delete the account or its retry credentials", async () => {
+  const res = await call("/account", { method: "DELETE", token: member, over: {
+    WORKSPACE: { idFromName: (id) => id, get: () => ({ forgetAccount: async () => { throw new Error("unavailable"); } }) },
+  } });
+  expect(res.status).toBe(503);
+  expect(await env.DB.prepare("SELECT github_id FROM users WHERE github_id = '8802'").first()).not.toBeNull();
+  expect((await call(`${chan("b:cafe")}/messages`, { token: member })).status).toBe(200);
+});
