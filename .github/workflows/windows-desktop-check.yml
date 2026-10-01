@@ -43,6 +43,14 @@ jobs:
           } finally {
             taskkill /PID $process.Id /T /F 2>$null
           }
+      - name: Save the unsigned validation build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Honmaru-AI-Windows-x64-unsigned-validation
+          path: apps/desktop/dist/win-unpacked/
+          retention-days: 14
+          compression-level: 6
+          if-no-files-found: error
       - name: Save validation evidence
         if: always()
         uses: actions/upload-artifact@v4
