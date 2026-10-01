@@ -1,0 +1,51 @@
+name: Windows desktop readiness
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-release-readiness]
+    paths: ['apps/desktop/**', '.github/workflows/windows-desktop-check.yml']
+permissions:
+  contents: read
+jobs:
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Package an unpacked app for validation
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:dir -- --win --x64 --publish never
+      - name: Check packaged process startup
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'dist/win-unpacked/Honmaru AI.exe'
+          if (!(Test-Path $exe)) { throw 'Packaged executable missing' }
+          $stdout = Join-Path $PWD 'dist/startup.stdout.log'
+          $stderr = Join-Path $PWD 'dist/startup.stderr.log'
+          $process = Start-Process -FilePath $exe -ArgumentList '--enable-logging=stderr' -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          try {
+            if ($process.WaitForExit(20000)) { throw "App exited during startup: $($process.ExitCode)" }
+            "Packaged Windows x64 process remained running for 20 seconds. UI and signed-in workflows are not verified." | Tee-Object -FilePath dist/startup-result.txt
+          } finally {
+            taskkill /PID $process.Id /T /F 2>$null
+          }
+      - name: Save validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-desktop-startup-evidence
+          path: |
+            apps/desktop/dist/startup*.log
+            apps/desktop/dist/startup-result.txt
+          if-no-files-found: ignore
