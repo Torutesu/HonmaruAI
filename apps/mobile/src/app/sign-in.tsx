@@ -5,7 +5,7 @@
 import * as AppleAuthentication from 'expo-apple-authentication'
 import { useLocalSearchParams } from 'expo-router'
 import { useEffect, useState } from 'react'
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Linking, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { ApiError } from '@honmaru/core'
 import type { SignedIn } from '@honmaru/protocol'
 import { appleSignInAvailable, signInWithApple } from '../lib/apple'
@@ -91,6 +91,9 @@ export default function SignIn() {
             onPress={() => { if (!busy) void run(async () => { const r = await signInWithApple(api, inviteCode); if (r) await finish(r) }) }}
           />
         ) : null}
+        <Pressable onPress={() => { void Linking.openURL('https://app.honmaruai.com/privacy.html').catch(() => setError('Could not open the privacy policy.')) }}>
+          <Text style={styles.link}>Privacy policy</Text>
+        </Pressable>
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
     </KeyboardAvoidingView>
