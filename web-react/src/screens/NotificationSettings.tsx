@@ -1,3 +1,4 @@
+import { SoundChoice } from '../components/SoundChoice'
 import { DesktopNotificationSettings } from '../components/DesktopNotificationSettings'
 import React, { useEffect, useState } from 'react'
 import { enableWebPush, disableWebPush, pushSupport, currentSubscription, prefetchVapidKey } from '../utils/push'
@@ -201,13 +202,16 @@ const SoundRows: React.FC = () => {
   const kinds: Array<{ key: keyof SoundSettings; label: string; sub: string; sample: SoundKind }> = [
     { key: 'mentions', label: t('Direct messages and mentions'), sub: t('Two soft keys when someone writes to you or @names you.'), sample: 'mention' },
     { key: 'decisions', label: t('A decision for you'), sub: t('A rising chord when a decision lands in your feed.'), sample: 'decision' },
+    { key: 'replies', label: t('Replies to your requests'), sub: t('Two falling notes when someone answers your request.'), sample: 'reply' },
+    { key: 'calls', label: t('Incoming calls'), sub: t('A repeating ring, quiet while notifications are paused.'), sample: 'ring' },
     { key: 'channels', label: t('Every channel message'), sub: t('One low key for channels you have not muted. Off unless you want it.'), sample: 'message' },
     { key: 'inConversation', label: t('In the conversation you are in'), sub: t('A touch of a key, barely there, when you are already looking.'), sample: 'inConversation' },
     { key: 'sent', label: t('Sending a direct message'), sub: t('The lightest tap when yours goes.'), sample: 'sent' },
-    { key: 'jam', label: t('Jams'), sub: t('Someone joining or leaving, and the ring when you are called.'), sample: 'ring' },
+    { key: 'jam', label: t('Jams'), sub: t('A short sound when someone joins or leaves.'), sample: 'jamJoin' },
   ]
   return (
     <>
+      <SoundChoice value={s} onChange={setS} />
       <div className="rows-title">{t('Sounds')}</div>
       <div className="rows sound-rows">
         <div className="row static">

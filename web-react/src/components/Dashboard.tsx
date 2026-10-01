@@ -287,7 +287,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           notifyNewDecision(title, card.requestedBy?.name || displayName(card.senderUserID), card.id, orgId)
         }
         if (card.senderUserID === userId && card.decision && card.decision.actorUserID !== userId &&
-          card.decision.decidedAt !== prior?.decision?.decidedAt) notifyDecisionReply(title, card.id, orgId)
+          card.decision.decidedAt !== prior?.decision?.decidedAt) {
+          notifyDecisionReply(title, card.id, orgId)
+          if (Date.now() - Date.parse(card.decision.decidedAt) < 60_000) playSound('reply')
+        }
       }
       previousCards = newState.cardsById
       setState(newState)

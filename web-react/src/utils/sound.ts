@@ -23,8 +23,9 @@
 // knock), in localStorage.
 
 import { isQuiet } from './quiet'
+import { desktopApp } from './desktop'
 
-export type SoundKind = 'mention' | 'message' | 'inConversation' | 'sent' | 'decision' | 'jamJoin' | 'jamLeave' | 'ring'
+export type SoundKind = 'mention' | 'message' | 'inConversation' | 'sent' | 'decision' | 'reply' | 'jamJoin' | 'jamLeave' | 'ring'
 
 export interface SoundSettings {
   enabled: boolean
@@ -34,12 +35,14 @@ export interface SoundSettings {
   inConversation: boolean
   sent: boolean
   decisions: boolean
-  jam: boolean // join, leave, ring
+  replies: boolean
+  calls: boolean
+  jam: boolean // join and leave
 }
 
 export const DEFAULT_SOUNDS: SoundSettings = {
-  enabled: true, volume: 0.6,
-  mentions: true, channels: false, inConversation: true, sent: true, decisions: true, jam: true,
+  enabled: true, volume: 0.4,
+  mentions: true, channels: false, inConversation: false, sent: false, decisions: true, replies: true, calls: true, jam: false,
 }
 
 const KEY = 'sounds.v1'
@@ -47,7 +50,15 @@ const KEY = 'sounds.v1'
 export function loadSoundSettings(): SoundSettings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || 'null')
-    return raw && typeof raw === 'object' ? { ...DEFAULT_SOUNDS, ...raw } : { ...DEFAULT_SOUNDS }
+    const next = { ...DEFAULT_SOUNDS }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return next
+    for (const key of Object.keys(next) as Array<keyof SoundSettings>) {
+      if (key === 'volume') { if (typeof raw.volume === 'number' && Number.isFinite(raw.volume)) next.volume = Math.max(0, Math.min(1, raw.volume)) }
+      else if (typeof raw[key] === 'boolean') next[key] = raw[key]
+    }
+    // Preserve the old combined call switch for existing users.
+    if (typeof raw.calls !== 'boolean' && typeof raw.jam === 'boolean') next.calls = raw.jam
+    return next
   } catch { return { ...DEFAULT_SOUNDS } }
 }
 
@@ -56,7 +67,7 @@ export function saveSoundSettings(next: SoundSettings): void {
 }
 
 /// Which setting lets a kind of sound play.
-function allowedBy(s: SoundSettings, kind: SoundKind): boolean {
+export function allowedBy(s: SoundSettings, kind: SoundKind): boolean {
   if (!s.enabled) return false
   switch (kind) {
     case 'mention': return s.mentions
@@ -64,7 +75,9 @@ function allowedBy(s: SoundSettings, kind: SoundKind): boolean {
     case 'inConversation': return s.inConversation
     case 'sent': return s.sent
     case 'decision': return s.decisions
-    case 'jamJoin': case 'jamLeave': case 'ring': return s.jam
+    case 'reply': return s.replies
+    case 'ring': return s.calls
+    case 'jamJoin': case 'jamLeave': return s.jam
   }
 }
 
@@ -179,6 +192,10 @@ function render(kind: SoundKind, ac: AudioContext, out: AudioNode) {
       key(ac, out, room, { freq: FS5, at: t + 0.14, dur: 0.6, gain: 0.48, lp: 1700, partials: two })
       key(ac, out, room, { freq: A5, at: t + 0.28, dur: 0.9, gain: 0.48, partials: two })
       break
+    case 'reply': // falling pair: a request has an answer
+      key(ac, out, room, { freq: A5, at: t, dur: 0.45, gain: 0.4, partials: two })
+      key(ac, out, room, { freq: D5, at: t + 0.16, dur: 0.65, gain: 0.4, partials: two })
+      break
     case 'jamJoin': // up
       key(ac, out, room, { freq: D5, at: t, dur: 0.4, gain: 0.44, partials: two })
       key(ac, out, room, { freq: A5, at: t + 0.12, dur: 0.55, gain: 0.4, partials: two })
@@ -196,32 +213,50 @@ function render(kind: SoundKind, ac: AudioContext, out: AudioNode) {
   }
 }
 
+let nativeLastAt = -Infinity
+let nativePriority = 0
+// Visual notifications still arrive during a burst; only their sound is coalesced.
+export function nativeNotificationSilent(kind: SoundKind): boolean {
+  const settings = loadSoundSettings()
+  if (!allowedBy(settings, kind) || settings.volume === 0 || isQuiet()) return true
+  const now = Date.now()
+  if (now - nativeLastAt < QUIET_MS && priority(kind) <= nativePriority) return true
+  nativeLastAt = now; nativePriority = priority(kind)
+  return false
+}
+
 let lastAt = 0
 const QUIET_MS = 1500
 // Sounds that are answers to what you just did are never swallowed by the
 // burst rule — you pressed send, you hear it.
-const PERSONAL: SoundKind[] = ['sent', 'jamJoin', 'jamLeave', 'ring']
+const PERSONAL: SoundKind[] = ['sent', 'jamJoin', 'jamLeave']
+let lastPriority = 0
+const priority = (kind: SoundKind) => kind === 'ring' ? 3 : ['mention', 'decision', 'reply'].includes(kind) ? 2 : 1
 
 /// Play a sound, if the settings, the tab and the moment allow it.
 /// `preview` plays regardless — for the settings screen's ▶ buttons.
 export function playSound(kind: SoundKind, { preview = false }: { preview?: boolean } = {}): boolean {
   const settings = loadSoundSettings()
   if (!preview) {
-    if (!allowedBy(settings, kind)) return false
+    if (!allowedBy(settings, kind) || settings.volume === 0) return false
+    // Background desktop alerts use the OS sound, respecting Focus and
+    // system volume. Never play Web Audio on top of that notification.
+    if (desktopApp() && ['mention', 'decision', 'reply', 'message'].includes(kind) &&
+      (document.visibilityState !== 'visible' || !document.hasFocus())) return false
     // Notifications paused, or outside the person's hours: no sound either,
     // except for what they did themselves (sent, joined, left).
     if (isQuiet() && !PERSONAL.includes(kind)) return false
     if (!leader && !PERSONAL.includes(kind)) return false
     const now = Date.now()
     if (!PERSONAL.includes(kind)) {
-      if (now - lastAt < QUIET_MS) return false
-      lastAt = now
+      if (now - lastAt < QUIET_MS && priority(kind) <= lastPriority) return false
     }
   }
   const ac = audio()
   if (!ac || ac.state !== 'running') return false
+  if (!preview && !PERSONAL.includes(kind)) { lastAt = Date.now(); lastPriority = priority(kind) }
   const master = ac.createGain()
-  master.gain.value = Math.max(0, Math.min(1, settings.volume)) * 0.5
+  master.gain.value = Math.max(0, Math.min(1, preview && settings.volume === 0 ? DEFAULT_SOUNDS.volume : settings.volume)) * 0.5
   master.connect(ac.destination)
   render(kind, ac, master)
   setTimeout(() => { try { master.disconnect() } catch { /* already gone */ } }, 2400)

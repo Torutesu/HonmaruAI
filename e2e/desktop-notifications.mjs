@@ -278,7 +278,9 @@ await step('onboarding runs to the end and saves', async () => {
   const name = await page.$eval('.ob-daily input[aria-label="New channel name"]', (el) => el.value)
   if (name !== 'daily-reports') throw new Error(`onboarding does not propose a channel for it: ${name}`)
   await shot('06b-onboarding-daily')
-  await page.click('text=Open my feed')
+  await page.click('text=Keep these times and continue')
+  await page.waitForSelector('[data-onboarding="notifications"]')
+  await page.click('.screen-foot .btn-primary')
   await page.waitForSelector('.tabbar', { timeout: 20000 })
   await shot('07-feed-empty')
 })
@@ -312,7 +314,9 @@ await step('a second person joins by invite and the card reaches them', async ()
   // channel is offered, not a second one beside it.
   const offered = await b.$eval('.ob-daily select[aria-label="Post to"]', (el) => el.value)
   if (offered !== 'b:daily-reports') throw new Error(`a teammate is not offered the team's daily-report channel: ${offered}`)
-  await b.click('text=Open my feed')
+  await b.click('text=Keep these times and continue')
+  await b.waitForSelector('[data-onboarding="notifications"]')
+  await b.click('.screen-foot .btn-primary')
   await b.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // A tells their AI something meant for the engineer.

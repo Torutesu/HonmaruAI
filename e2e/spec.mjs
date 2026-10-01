@@ -273,7 +273,9 @@ await step('onboarding runs to the end and saves', async () => {
   const name = await page.$eval('.ob-daily input[aria-label="New channel name"]', (el) => el.value)
   if (name !== 'daily-reports') throw new Error(`onboarding does not propose a channel for it: ${name}`)
   await shot('06b-onboarding-daily')
-  await page.click('text=Open my feed')
+  await page.click('text=Keep these times and continue')
+  await page.waitForSelector('[data-onboarding="notifications"]')
+  await page.click('.screen-foot .btn-primary')
   await page.waitForSelector('.tabbar', { timeout: 20000 })
   await shot('07-feed-empty')
 })
@@ -2530,7 +2532,9 @@ await step('a second person joins by invite and the card reaches them', async ()
   // channel is offered, not a second one beside it.
   const offered = await b.$eval('.ob-daily select[aria-label="Post to"]', (el) => el.value)
   if (offered !== 'b:daily-reports') throw new Error(`a teammate is not offered the team's daily-report channel: ${offered}`)
-  await b.click('text=Open my feed')
+  await b.click('text=Keep these times and continue')
+  await b.waitForSelector('[data-onboarding="notifications"]')
+  await b.click('.screen-foot .btn-primary')
   await b.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // A tells their AI something meant for the engineer.
@@ -2609,7 +2613,9 @@ await step('an invite reaches someone who already has an account', async () => {
   await c.click('text=Next'); await c.waitForSelector('.ob-demo')
   await c.click('text=Set me up'); await c.waitForSelector('.radio')
   await c.click('.screen-foot .btn-primary:has-text("Next")'); await c.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
-  await c.click('text=Open my feed')
+  await c.click('text=Keep these times and continue')
+  await c.waitForSelector('[data-onboarding="notifications"]')
+  await c.click('.screen-foot .btn-primary')
   await c.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // Now they are handed a code. They are already signed in, so the place to
@@ -2767,7 +2773,9 @@ async function freshAccount(name, email, { start } = {}) {
   await p.click('text=Next'); await p.waitForSelector('.ob-demo')
   await p.click('text=Set me up'); await p.waitForSelector('.radio')
   await p.click('.screen-foot .btn-primary:has-text("Next")'); await p.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
-  await p.click('text=Open my feed')
+  await p.click('text=Keep these times and continue')
+  await p.waitForSelector('[data-onboarding="notifications"]')
+  await p.click('.screen-foot .btn-primary')
   await p.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   return p
 }

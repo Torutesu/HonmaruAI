@@ -1,4 +1,5 @@
 import { desktopApp } from './desktop'
+import { loadSoundSettings } from './sound'
 import { t } from './i18n'
 
 const KEY = 'honmaru.desktop-notifications'
@@ -19,8 +20,9 @@ export async function enableDesktopNotifications(): Promise<boolean> {
 }
 export function testDesktopNotification(): void {
   if (!desktopNotificationsEnabled() || Notification.permission !== 'granted') throw new Error('Notifications are not enabled')
+  const sounds = loadSoundSettings()
   const notification = new Notification(t('Honmaru notification test'), {
-    body: t('If you can see this, notifications can reach this Mac.'), tag: 'honmaru-notification-test',
+    body: t('If you can see this, notifications can reach this Mac.'), tag: 'honmaru-notification-test', silent: !sounds.enabled || sounds.volume === 0,
   })
   notification.onclick = () => { desktopApp()?.show(); notification.close() }
 }
