@@ -122,6 +122,7 @@ struct WorkspaceSwitcherSheet: View {
     var onLoaded: ([WorkspaceEntry]) -> Void = { _ in }
     @State private var entries: [WorkspaceEntry] = []
     @State private var loading = true
+    @State private var adding = false
     @State private var mode: Mode?
     @State private var text = ""
     @State private var busy = false
@@ -131,10 +132,10 @@ struct WorkspaceSwitcherSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
+            ScrollView {
+                VStack(spacing: 0) {
                     if loading && entries.isEmpty { ProgressView() }
-                    ForEach(entries) { w in
+                    ForEach(entries.sorted { ($0.id == appState.currentUser?.teamID ? 0 : 1) < ($1.id == appState.currentUser?.teamID ? 0 : 1) }) { w in
                         Button { Task { await switchTo(w.id) } } label: {
                             HStack(spacing: 12) {
                                 WorkspaceMark(entry: w, label: w.label, size: 40)
@@ -147,20 +148,40 @@ struct WorkspaceSwitcherSheet: View {
                                     Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(Theme.Colors.accent)
                                 }
                             }
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 16)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                         .accessibilityAddTraits(w.id == appState.currentUser?.teamID ? .isSelected : [])
                     }
-                } header: { Text("Workspaces") }
-                Section {
-                    Button { text = ""; error = nil; mode = .create } label: { Label("Create a new workspace", systemImage: "plus.square") }
-                    Button { text = ""; error = nil; mode = .join } label: { Label("Join with an invitation", systemImage: "person.badge.plus") }
-                } header: { Text("Add a workspace") }
-                if let error { Section { Text(error).foregroundStyle(Theme.Colors.reject) } }
+                    Divider().padding(.vertical, 8)
+                    NavigationLink { TeamSettingsView().environmentObject(appState) } label: {
+                        menuLabel("Workspace settings")
+                    }
+                    .buttonStyle(.plain)
+                    Divider().padding(.vertical, 8)
+                    Button { adding = true } label: { menuLabel("Add a workspace") }
+                        .buttonStyle(.plain)
+                    Button { dismiss(); appState.signOut() } label: { menuLabel("Sign out") }
+                        .buttonStyle(.plain)
+                    if let error { Text(error).foregroundStyle(Theme.Colors.reject).padding(24) }
+                }
+                .padding(.vertical, 8)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(.separator), lineWidth: 0.5))
+                .padding(16)
             }
             .disabled(busy)
             .overlay { if busy { ProgressView() } }
             .navigationTitle("Workspaces").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .confirmationDialog("Add a workspace", isPresented: $adding, titleVisibility: .visible) {
+                Button("Create a new workspace") { text = ""; error = nil; mode = .create }
+                Button("Join with an invitation") { text = ""; error = nil; mode = .join }
+                Button("Cancel", role: .cancel) {}
+            }
             .alert(mode == .create ? String(localized: "Create a workspace") : String(localized: "Join a workspace"), isPresented: Binding(get: { mode != nil }, set: { if !$0 { mode = nil } })) {
                 TextField(mode == .create ? String(localized: "Workspace name") : String(localized: "Invitation link or code"), text: $text)
                     .textInputAutocapitalization(mode == .create ? .sentences : .never)
@@ -177,6 +198,12 @@ struct WorkspaceSwitcherSheet: View {
             }
         }
         .task { await load() }
+    }
+
+    private func menuLabel(_ title: LocalizedStringKey) -> some View {
+        Text(title).font(.body).foregroundStyle(Theme.Colors.textPrimary)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 24).contentShape(Rectangle())
     }
 
     private func members(_ w: WorkspaceEntry) -> String {
