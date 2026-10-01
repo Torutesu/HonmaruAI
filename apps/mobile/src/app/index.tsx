@@ -1,7 +1,7 @@
 // The workspace's channels, with unread counts from its Durable Object.
 
 import { Link, useFocusEffect } from 'expo-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Alert, Linking, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import type { Business } from '@honmaru/protocol'
 import { useSession } from '../lib/session'
@@ -9,6 +9,7 @@ import { WorkspaceMenu } from '../components/WorkspaceMenu'
 
 export default function Channels() {
   const { api, orgId, signOut } = useSession()
+  const requestId = useRef(0)
   const [channels, setChannels] = useState<Business[]>([])
   const [unread, setUnread] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(false)
@@ -27,20 +28,25 @@ export default function Channels() {
 
   const load = useCallback(async () => {
     if (!orgId) return
+    const request = ++requestId.current
+    setChannels([]); setUnread({})
     setLoading(true); setError(null)
     try {
       const { businesses } = await api.businesses(orgId)
+      if (request !== requestId.current) return
       setChannels(businesses)
       const counts = await api.unread(orgId, businesses.map((b) => `b:${b.slug}`)).catch(() => ({ channels: [] }))
+      if (request !== requestId.current) return
       setUnread(Object.fromEntries(counts.channels.map((c) => [c.channel, c.unread])))
     } catch (err) {
+      if (request !== requestId.current) return
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (request === requestId.current) setLoading(false)
     }
   }, [api, orgId])
 
-  useFocusEffect(useCallback(() => { void load() }, [load]))
+  useFocusEffect(useCallback(() => { void load(); return () => { requestId.current += 1 } }, [load]))
 
   return (
     <FlatList
