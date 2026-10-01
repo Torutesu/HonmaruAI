@@ -1,6 +1,18 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'A reply to your request': '依頼に回答が届きました',
+  "Honmaru notification test": "Honmaruの通知テスト",
+  "If you can see this, notifications can reach this Mac.": "この通知が見えれば、Macで通知を受け取れています。",
+  "Allow Honmaru AI in your Mac notification settings, then try again.": "Macのシステム設定 → 通知でHonmaru AIを許可して、もう一度お試しください。",
+  "Desktop notifications": "デスクトップ通知",
+  "On in Honmaru. Your operating system must also allow notifications.": "アプリ内の通知はオンです。OS側でも通知の許可が必要です。",
+  "Off. Turn on notifications for new requests and replies.": "通知はオフです。新しい依頼や回答を受け取るにはオンにしてください。",
+  "Notifications arrive while Honmaru is running, including with its window closed. Quitting the app stops them.": "ウインドウを閉じても、Honmaruが起動している間は通知を受け取れます。アプリを終了すると通知は届きません。",
+  "Test requested. If nothing appears, allow Honmaru AI in system notification settings and check Focus mode.": "テスト通知を要求しました。表示されない場合は、OSの通知許可と集中モードを確認してください。",
+  "Send a test notification": "テスト通知を送る",
+  "Open system notification settings": "OSの通知設定を開く",
+
   'Delete card': 'カードを削除',
   'Delete this card?': 'このカードを削除しますか？',
   'Claude Code': 'Claude Code',

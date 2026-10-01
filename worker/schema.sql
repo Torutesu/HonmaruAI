@@ -795,6 +795,9 @@ CREATE TABLE IF NOT EXISTS push_queue (
   created_at  TEXT NOT NULL,
   due_at      TEXT NOT NULL,
   sent_at     TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  lease_until TEXT,
+  last_error TEXT,
   UNIQUE (login, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_push_queue_due ON push_queue(sent_at, due_at);
@@ -1511,3 +1514,16 @@ CREATE TABLE IF NOT EXISTS workspace_activity (
   PRIMARY KEY (org_id, login)
 );
 CREATE INDEX IF NOT EXISTS idx_workspace_activity_seen ON workspace_activity(org_id, last_active_at);
+CREATE TABLE IF NOT EXISTS notification_jobs (
+  id TEXT PRIMARY KEY, org_id TEXT, login TEXT NOT NULL, card_id TEXT NOT NULL,
+  kind TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0, due_at TEXT NOT NULL, lease_until TEXT,
+  last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notification_jobs_due ON notification_jobs(state, due_at);
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+  id TEXT PRIMARY KEY, job_id TEXT NOT NULL, channel TEXT NOT NULL,
+  accepted INTEGER NOT NULL DEFAULT 0, status_code INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_job ON notification_deliveries(job_id);

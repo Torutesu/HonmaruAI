@@ -9,4 +9,5 @@ contextBridge.exposeInMainWorld('honmaruDesktop', Object.freeze({
   isDesktop: true,
   platform: process.platform,
   show: () => ipcRenderer.send('honmaru:show'),
+  openNotificationSettings: () => ipcRenderer.send('honmaru:notification-settings'),
 }))
