@@ -1,6 +1,111 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Share": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen"
+          }
+        }
+      }
+    },
+    "The file may have expired or its format may not be supported. Reopen the conversation and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file may have expired or its format may not be supported. Reopen the conversation and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルのリンクが期限切れか、未対応の形式です。会話を開き直して、もう一度お試しください。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace puede haber caducado o el formato no ser compatible. Vuelve a abrir la conversación e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien a peut-être expiré ou le format n’est pas pris en charge. Rouvrez la conversation et réessayez."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link ist möglicherweise abgelaufen oder das Format wird nicht unterstützt. Öffne die Unterhaltung erneut und versuche es noch einmal."
+          }
+        }
+      }
+    },
+    "Unable to preview this file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to preview this file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルをプレビューできません"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede previsualizar este archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’afficher un aperçu de ce fichier"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei kann nicht angezeigt werden"
+          }
+        }
+      }
+    },
     "Workspace settings": {
       "extractionState": "manual",
       "localizations": {

@@ -285,15 +285,16 @@ struct ChatEmojiGlyph: View {
 }
 
 /// The files on a message: pictures at their own shape, the rest as a row
-/// with its name and size. Either opens where the phone shows it.
+/// with its name and size. Preview stays inside the app.
 struct ChatAttachments: View {
     let files: [ChatFile]
+    @State private var preview: ChatFile?
     @Environment(\.chatAssets) private var assets
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(files) { f in
                 if let url = assets.base.flatMap({ f.address(base: $0) }) {
-                    Link(destination: url) {
+                    Button { preview = f } label: {
                         if f.isPicture {
                             AsyncImage(url: url) { image in
                                 image.resizable().scaledToFit()
@@ -312,7 +313,7 @@ struct ChatAttachments: View {
                                     Text(ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
                                 }
                                 Spacer(minLength: 0)
-                                Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Colors.textSecondary)
+                                Image(systemName: "eye").foregroundStyle(Theme.Colors.textSecondary)
                             }
                             .padding(10)
                             .frame(maxWidth: 280)
@@ -320,7 +321,13 @@ struct ChatAttachments: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: f.name))
                 }
+            }
+        }
+        .sheet(item: $preview) { file in
+            if let url = assets.base.flatMap({ file.address(base: $0) }) {
+                ChatFilePreview(file: file, url: url)
             }
         }
     }
