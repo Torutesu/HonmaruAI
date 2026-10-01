@@ -54,7 +54,9 @@ and Sometype Mono; #202020 pill buttons; brand violet for AI moments only.
 |--------|-------------|
 | iPhone | App Store: `apps.apple.com/jp/app/honmaruai/id6799302006` from the Japanese page, `apps.apple.com/app/id6799302006` from the others (Apple opens the visitor's own storefront) |
 | Web | `honmaru-web.pages.dev/?lang=<page language>`; the web app reads `?lang=` until someone picks a language in the app |
-| Mac, Windows, Android | Disabled buttons marked *Coming soon*, in the hero and in the last section |
+| Mac | Signed and notarized v0.1.1 download |
+| Windows | Unsigned x64 preview release with usage notes |
+| Android | Coming soon; not publicly released |
 
 The App Store and Google Play buttons are the stores' own badges, kept unaltered in `badges/`:
 Apple's from developer.apple.com (Japanese on the Japanese page, English elsewhere) and Google's
