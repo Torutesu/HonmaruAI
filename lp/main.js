@@ -15,6 +15,13 @@
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
 
+  // Suppress decorative transitions for keyboard input without losing focus styles.
+  document.addEventListener('keydown', function () { doc.dataset.input = 'keyboard'; }, true);
+  document.addEventListener('pointerdown', function () { doc.dataset.input = 'pointer'; }, true);
+  document.addEventListener('pointermove', function () {
+    if (doc.dataset.input === 'keyboard') doc.dataset.input = 'pointer';
+  }, { passive: true });
+
   /* ============ language ============ */
   var LANGS = ['en', 'ja', 'es', 'fr', 'de'];
   // The published site has a page per language (/ja/, /en/ …); the root sends
@@ -621,9 +628,9 @@
     }
     $('.rows').classList.add('explorer');
     rows.forEach(function(row, index) {
-      $('.feature-toggle', row).addEventListener('click', function() {
+      $('.feature-toggle', row).addEventListener('click', function(event) {
         select(index);
-        if (innerWidth <= 700) requestAnimationFrame(function() { row.scrollIntoView({block:'start', behavior:reduce ? 'instant' : 'smooth'}); });
+        if (innerWidth <= 700) requestAnimationFrame(function() { row.scrollIntoView({block:'start', behavior:reduce || event.detail === 0 ? 'instant' : 'smooth'}); });
       });
     });
     select(0);
