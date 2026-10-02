@@ -1,11 +1,14 @@
 # 添付ファイル・動画配信の設計
 
 作成日: 2026-10-02 / 調査対象: main `5ba06e3`。
+改訂: コスト優先・段階導入版（Slack/Discordの公開資料を参照）。
 状態: 実装に進める設計。以下の新API・基盤・上限・SLOは提案値であり、導入済み・負荷検証済みではない。
 
 ## 決定
 
-**原本は非公開R2、権限とメタデータはD1、画像派生物はImages binding、動画の再生用データはStream。アプリは共通のasset IDで参照する。**
+**原本と通常の動画は非公開R2、権限とメタデータはD1。画像は要求された固定サイズだけ生成してR2へ保存する。Streamは変換・可変画質が必要な動画だけに限定する。アプリは共通のasset IDで参照する。**
+
+基本構成はR2＋既存Worker/D1＋必要な画像変換＋非同期ジョブ。全動画Stream、全画像3サイズの先行生成、全ファイル分割転送は採用しない。削減するのは不要な変換・操作・保存・運用工数であり、認可と隔離検証は維持する。
 
 最適化する対象は「会話内で迷わず開ける」「回線が弱くても再開できる」「他のワークスペースに漏れない」「投稿量に応じて費用を制御できる」の4点。利用実績が不明なため、無制限アップロードや先行したDB分割は採用しない。既存の25 MiB/件・10件/メッセージを当面維持する。
 
@@ -21,15 +24,15 @@ flowchart LR
   O --> Q[Queue: 検証・変換・削除]
   Q --> I[Images binding]
   I --> R
-  Q --> S[Stream: 動画変換]
+  Q -.->|条件と予算を満たす動画のみ| S[Stream: 必要時の変換]
   C -->|閲覧権限確認・短期URL取得| A
   C -->|短期トークン| G[配信 Worker: 検証後にキャッシュ参照]
   G --> E[非公開の内部キャッシュ]
   G --> R
-  C -->|短期の再生トークン| S
+  C -.->|変換済み動画だけ短期トークン| S
 ```
 
-Stream/Images/Queueは契約・binding・費用を確認して実装段階で有効化する。この設計書を保存しただけで課金サービスや本番設定は変更しない。
+Imagesは必要な画像生成に使い、Streamは初期導入の必須サービスにしない。非同期ジョブはoutbox＋Queueを維持する。Queueの料金だけを削るために独自の配信・再試行基盤を作らず、運用工数も原価に含める。既存Cronはoutbox送信失敗と孤立データの回収に使う。Stream/Images/Queueは契約・binding・費用を確認して実装段階で有効化する。この設計書を保存しただけで課金サービスや本番設定は変更しない。
 
 ## 1. 現状と不足
 
@@ -56,7 +59,7 @@ Stream/Images/Queueは契約・binding・費用を確認して実装段階で有
 | `media_refs` | `org_id, asset_id, parent_kind(message/card), parent_id, channel`。参照先とassetのorg一致必須。参照追加時に毎回認可 |
 | `media_variants` | `asset_id, content_version, variant, provider, object_key/provider_id, state, byte_size`。組をUNIQUEにする |
 | `media_uploads` | `id, asset_id, org_id, uploader, scope, expected_bytes, reserved_bytes, expires_at, state, multipart_id, idempotency_key` |
-| `media_upload_parts` | `upload_id, part_number, expected_bytes, etag, state`。同一partの再送を冪等にする |
+| `media_upload_parts`（分割転送導入時のみ） | `upload_id, part_number, expected_bytes, etag, state`。同一partの再送を冪等にする |
 | `media_usage` | org単位の`used_bytes, reserved_bytes, video_minutes, period`。容量予約は条件付き更新で競合防止 |
 | `media_outbox` | `event_id, asset_id, version, job_kind, dispatched_at, attempts`。状態更新と同一DB batchで書く |
 
@@ -74,10 +77,10 @@ Stream/Images/Queueは契約・binding・費用を確認して実装段階で有
 
 1. `POST /v2/media/uploads` に親の種類・scope・ファイル名・申告MIME・サイズ・冪等キーを渡す。
 2. サーバーがログイン、組織所属、対象会話への投稿権限、個数、サイズ、容量残枠を確認。orgは認証コンテキストから決める。容量の条件付き予約とupload作成を原子的に行う。org/ユーザー/IP単位の予約・転送レート制限を設け、同じ冪等キーを別のサイズやscopeで再利用した場合は409で拒否する。
-3. 5 MiB以下はsingle、超える場合は5 MiBのpart（最後だけ小さくてよい）を推奨。part数・各サイズ・R2キーはサーバーが固定する。クライアントの同時転送は最大2、同時予約はユーザーあたり4を初期値とする。
+3. 現行上限25 MiBまではsingle PUTのストリーミングを標準にする。クライアントの同時転送は最大2、同時予約はユーザーあたり4を初期値とする。single失敗時は同じ予約に新しいattemptキーで再送し、完了済み原本への上書きを許可しない。partは回線切断率・再送バイト量で必要性が確認された場合だけ導入する。導入時は5 MiB以上のpart（最後だけ例外）と固定part数/サイズをサーバーで決める。25 MiBを5分割するとR2の作成・5part・完了で7回のClass A操作となり、singleの1回より増えるため、単にサイズが5 MiBを超えたという理由では分割しない。
 4. 各PUTは認証済みuploadセッションを確認し、期待サイズの`FixedLengthStream`でR2へ渡す。過不足・切断で両側をabortし、成功扱いにしない。producer/consumerを並行開始してbackpressureを保つ。片側失敗時は両側のPromiseを回収する。
-5. completeでサーバーが記録したpart一覧から組み立て、R2 HEADの実サイズを照合。MIMEはContent-Typeだけを信用せず、署名・実形式・寸法・展開量を検証する。
-6. 検証・派生処理をoutboxからQueueへ送り、完了結果を通知する。completeの再送は同じasset IDを返す。ETagをファイル全体のSHA-256とはみなさない。
+5. completeでsingleの成功attemptを確定し、分割時のみサーバー記録のpart一覧から組み立てる。R2 HEADの実サイズを照合。MIMEはContent-Typeだけを信用せず、署名・実形式・寸法・展開量を検証する。
+6. 検証・派生処理をoutboxへ記録し、Queueで実行して完了結果を通知する。completeの再送は同じasset IDを返す。ETagをファイル全体のSHA-256とはみなさない。
 7. 予約の期限切れ、途中離脱、未投稿を回収。multipart abortと容量解放を再試行する。R2成功/D1失敗を照合ジョブで回復する。
 
 リクエストヘッダーのContent-Lengthは早期拒否に使えるが、実際の転送サイズ検証を省略しない。ブラウザがContent-Lengthを設定できることを前提にせず、予約した期待バイト数を使う。旧APIの長さ不明bodyは固定上限のpartバッファで取り込み、全量結合はしない。移行中も既存上限を維持する。
@@ -88,15 +91,17 @@ Workersのメモリ制限はリクエスト単位ではなくisolate単位の128
 
 ## 4. 検証・派生物
 
-- **画像:** 最長辺320/960/1920pxの固定variant。縦横比を保持し、原本以上には拡大しない。表示用はEXIF位置情報等を除去。JPEG/WebPを基本とし、アルファ保持が必要な画像は対応形式にする。派生キーに変換仕様versionとformatを含める。任意のwidthパラメーターで無制限に変換させない。
+- **画像:** 最長辺320/960/1920pxの固定variantを許可するが、3種類を先に全生成しない。320は最初の一覧表示、960は拡大表示、1920は高精細表示が実際に要求されたときにだけ生成し、R2へ保存する。同じasset/version/variantの生成はDBのUNIQUEと期限付きleaseでまとめ、同時アクセスで変換を重複させない。原本より大きいサイズは生成せず既存variantを使う。縦横比を保持し、原本以上には拡大しない。表示用はEXIF位置情報等を除去。JPEG/WebPを基本とし、アルファ保持が必要な画像は対応形式にする。派生キーに変換仕様versionとformatを含める。任意のwidthパラメーターで無制限に変換させない。
 - **HEIC/アニメーション:** bindingの対応を実ファイルで検証。変換不能な原本をWebで表示できると扱わず、未対応表示＋明示的保存にする。アニメーションは静止サムネイルと原本表示を分ける。
-- **動画:** 新規動画の再生variantはStreamで作成し、HLS＋ポスターをmanifestに載せる。変換は投稿API内で待たない。Stream側は常に署名必須にし、サムネイル・ダウンロード・埋め込みも未認証公開にしない。R2原本は元ファイル保存用に保持するため二重保存費を計上する。
+- **動画の標準:** 検証済みMP4/H.264（音声はAACまたは無し）をRange付きでR2から直接再生する。拡張子だけで判定せず、実codec/profile・pixel format・moov位置を確認して対応端末で試験する。アプリ内撮影は対応codecとfast-startで書き出す。ファイル選択した原本を無断で劣化・削除しない。ポスターはアプリが作れる場合は別の検証対象画像として送信し、サーバー生成は初回表示時だけ行う。
+- **Streamを使う条件:** 検証で対象端末との非互換が判明した動画、または再生開始/再バッファのSLOを満たさず可変画質が必要な動画。初期の追加候補は「2分超または平均4Mbps超」とするが、これは計測用の提案値で、単独では自動課金トリガーにしない。権限・orgの変換枠・月次予算・同一assetの重複防止を満たしてから処理する。ネットワークエラーや未認証の要求だけで変換を開始しない。
+- **変換時:** HLS＋ポスターをmanifestに載せる。Streamは常に署名必須。変換は投稿API内で待たない。R2原本は明示的保存用に保持するが、通常動画にはStream側のコピーを作らない。予算上限時は対応原本の再生を維持し、非互換動画はアプリ内で変換待ち/保存を示す。全形式を追加費用なしで再生できるとは約束しない。
 - **Stream取り込み:** 検証済みR2原本を、処理用の専用短期URLで取得させる。ユーザーのセッショントークンは渡さない。期限・asset・用途を固定し、ログから署名を除去する。期限不足のジョブは新URLで有限回再試行する。
 - **音声:** 対応codecならRange再生。変換が必要な音声をStream動画処理へ暗黙に流用しない。初期は対応形式を明示し、非対応時は画面内表示と保存を提供。必要が実測された時点で音声変換workerを追加する。
 - **文書:** iOSはQuick Look、Webは対応PDFなどを隔離したビューアで表示。HTML/SVG/アーカイブは実行しない。未対応形式は説明と保存操作。原本配信は別メディアorigin、`nosniff`、適切なContent-Dispositionを使用する。
 - 原本を軽量な検査だけで「ウイルス検査済み」と表示しない。危険形式はダウンロードのみ。完全な文書スキャンが必要な組織では検査完了まで隔離するポリシーを追加する。
 
-Images bindingはR2のstreamから変換できるため、変換のために原本を公開する必要はない。Streamの署名付き再生を採用する。[Images binding](https://developers.cloudflare.com/images/optimization/binding/)、[Streamの保護](https://developers.cloudflare.com/stream/viewing-videos/securing-your-stream/)
+Images bindingはR2のstreamから変換できるため、変換のために原本を公開する必要はない。必要時のStream利用でも署名付き再生を必須とする。[Images binding](https://developers.cloudflare.com/images/optimization/binding/)、[Streamの保護](https://developers.cloudflare.com/stream/viewing-videos/securing-your-stream/)
 
 ## 5. 閲覧権限・キャッシュ
 
@@ -110,7 +115,7 @@ Images bindingはR2のstreamから変換できるため、変換のために原�
 
 内部キャッシュキーは`org/asset/content_version/variant/format`。署名の違いで原本を複製しない。内部保存レスポンスのTTLと、外へ返す`Cache-Control: private`を分ける。クライアントTTLは残りトークン寿命以下。Service Workerにも永続保存させない。内部キャッシュURLは外部ルートとして配信しない。
 
-初期のedgeキャッシュ対象は小さな画像派生物だけ。原本RangeはR2からstream、動画のセグメントはStreamに任せる。206レスポンスをそのままCache APIにputしない。Cache APIはデータセンター単位であり、グローバル共有・全拠点一括削除を仮定しない。[Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)
+初期のedgeキャッシュ対象は小さな画像派生物だけ。原本と通常動画のRangeはR2からstreamし、変換対象だけStreamのセグメント配信を使う。206レスポンスをそのままCache APIにputしない。Cache APIはデータセンター単位であり、グローバル共有・全拠点一括削除を仮定しない。[Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)
 
 `HEAD, GET, Range, If-Range, ETag, 200/206/304/416`の契約を統一する。期限切れと権限不足はクライアントが判別できる内部エラーコードを返し、外部向けには存在を推測させない。署名をqueryに載せる経路ではアクセスログ・分析・クラッシュレポートから除去し、Referrer-Policyを設定する。
 
@@ -134,24 +139,24 @@ manifest例（`urls`はaccess APIで都度取得）:
   "state": "ready", "width": 1920, "height": 1080,
   "variants": {
     "poster": {"state": "ready", "format": "jpeg"},
-    "playback": {"state": "processing", "format": "hls"},
+    "playback": {"state": "ready", "format": "mp4", "provider": "r2"},
     "original": {"state": "ready", "downloadOnly": true}
   }
 }
 ```
 
 - 全プラットフォームでタップはビューアを開く。外部ブラウザへのフォールバックは禁止。保存・共有は別の明示操作。
-- 一覧は320/960pxと遅延読み込み。ビューアで1920px、原本は明示的に要求する。動画一覧はポスターのみ、再生開始時にmanifestを読む。自動再生はしない。
+- 一覧は320pxと遅延読み込み。拡大時960px、高精細要求時1920px、原本は明示的に要求する。動画一覧はポスターのみ、再生開始時にmanifestを読む。自動再生はしない。
 - 再生URLは期限60秒前に、前面で再生中の場合だけ更新する。時刻・音量・一時停止を保持し、更新時の再バッファを実機試験する。401/期限切れは再認可を1回だけ試し、403を無限リトライしない。
-- アップロードはキャンセル・進捗・再送を表示し、送信済みpartを再利用する。iOS/Androidはローカルファイルから転送し、巨大なData/base64を保持しない。
+- アップロードはキャンセル・進捗・再送を表示し、標準single転送は失敗時に再送し、分割転送を有効化した場合だけ送信済みpartを再利用する。iOS/Androidはローカルファイルから転送し、巨大なData/base64を保持しない。
 - 画面離脱時は再生停止。ログアウト/組織切り替えでmanifestと一時ファイルを破棄。アプリ終了で残った一時ファイルも次回起動時に清掃する。
 - Androidにも同じAPI契約を使う。既存モバイルのデータモデルと本番チャットが一致するかを確認してから組み込み、別ストアへ添付だけ二重書き込みしない。
 
 ## 7. ジョブ・削除・障害
 
-Queueは重複配信を前提に、`asset_id + content_version + job_kind`で冪等化。DBの状態変更とoutbox保存を同一batchに含め、送信失敗はdispatcherが回収する。webhookは署名を検証し、古いversionや削除済みassetを復活させない。重い独自動画変換を通常Worker内で行わない。
+D1 outboxのdispatcherは期限付きlease、上限付きbatch、失敗回数とnext_attempt_atを使い、永久ロックと全件走査を防ぐ。画像の初回生成要求は認証済みAPIでジョブを一意に作成して直ちにdispatchする。生成中のmanifestは202/pendingを返し、UIはプレースホルダーを表示する。未生成variantのURLをreadyとして発行しない。Cronは送信失敗したoutboxを回収する。Queueは重複配信を前提に、`asset_id + content_version + job_kind`で冪等化。DBの状態変更とoutbox保存を同一batchに含め、送信失敗はdispatcherが回収する。webhookは署名を検証し、古いversionや削除済みassetを復活させない。重い独自動画変換を通常Worker内で行わない。
 
-削除は参照/権限を即座に無効化し、以後access APIで発行しない。R2原本・派生物・Stream・関連ジョブを非同期で削除し、完了までtombstoneを残す。失敗は有限回の自動再試行→DLQとアラートへ。古いtokenの最大5分、既に取得済みデータの限界を区別する。
+削除は参照/権限を即座に無効化し、以後access APIで発行しない。R2原本・派生物・Stream・関連ジョブを非同期で削除し、完了までtombstoneを残す。失敗は有限回の自動再試行→failed状態・DLQとアラートへ。古いtokenの最大5分、既に取得済みデータの限界を区別する。
 
 初期運用値: upload予約1時間、未投稿asset24時間、未完multipart24時間で回収。法的保持/組織の保存ポリシー対象は通常清掃から除外する。削除・失敗・課金枠解放はat-least-onceでも二重減算しない。R2とDBの孤立オブジェクトを定期照合する。
 
@@ -163,7 +168,7 @@ Queueは重複配信を前提に、`asset_id + content_version + job_kind`で冪
 
 org別に保存容量、予約容量、アップロード量、再生分数、変換数を集計。プラン上限は設定テーブルから取得し、UI・API・予約処理で共有する。課金額の不明な無制限枠をコードに埋め込まない。80%で通知、100%で新規アップロードを止め、既存閲覧・削除は可能にする。動画は実時間判明後に予約を精算する。
 
-画像variantは必要な3種類に限定し、何度アクセスしても再変換しない。原本の重複アップロード防止は同じorg/同じupload再送を優先し、全社横断のハッシュ照合は導入しない。
+画像variantは要求されたものだけR2へ永続化し、翌月や別拠点でも変換済みならImagesを呼ばない。変換仕様versionの更新時だけ再生成する。無閲覧variantの清掃を導入する際は、節約した保存費が再生成費を上回ることを確認する。原本の重複アップロード防止は同じorg/同じupload再送を優先し、全社横断のハッシュ照合は導入しない。
 
 予算未指定なので「月額いくらで済む」「何万人まで保証」とは断定しない。容量枠とStreamの予算アラートを設定し、変換を有効にする組織を段階的に増やす。
 
@@ -174,7 +179,7 @@ org別に保存容量、予約容量、アップロード量、再生分数、�
 | 1 | 共通asset/refs/予約/outboxとアップロードのバッファ廃止。旧APIアダプター | 現行Web/iOSの投稿が成功し、サイズ超過・切断で公開されない |
 | 2 | access API・クライアント更新・旧カード動画の配信統合 | 全参照のorg/親が確定、未認証GET停止、Range互換と権限テスト合格 |
 | 3 | 画像variant・共通manifest | 一覧が原本を読まず、全OSで画面内表示 |
-| 4 | Stream変換・署名再生・モバイルの更新/再開 | 対応端末のcodec/回線試験と費用計測合格 |
+| 4（条件付き） | 必要な動画だけStream変換・署名再生 | R2原本で満たせない互換性/回線品質と費用を確認 |
 | 5 | 負荷試験後に上限/対象組織を拡張 | 下記SLOを満たす。必要時のみDBのorg単位分割を判断 |
 
 旧カード動画の調査・所有権対応表作成は段階1から開始する。チャットの`file-*`と`org/.../files/...`は読み取り互換を残し、原本を一括コピーしない。新しい派生物だけ新namespaceへ書く。
@@ -197,4 +202,43 @@ org別に保存容量、予約容量、アップロード量、再生分数、�
 - Queue重複/遅延、Stream webhook重複・順序逆転、R2成功後のDB失敗、削除失敗、ジョブDLQを注入し、孤立オブジェクトが照合で回収されることを確認。
 - 監視指標: upload成功率、p95時間、予約残留、キュー最古ジョブ、変換失敗率、cache hit率、R2/D1呼び出し数、再生開始時間、org別原価。閾値超過時は新規展開を止める。
 
-最初の実装単位は段階1。ステージングの結果と実トラフィックから次の範囲を決める。設計書の完成と、基盤の実装・本番移行・性能保証は別の完了条件とする。
+Stream導入の有無にかかわらず通常のR2動画で実機の再生品質を検証する。最初の実装単位は段階1。ステージングの結果と実トラフィックから次の範囲を決める。設計書の完成と、基盤の実装・本番移行・性能保証は別の完了条件とする。
+
+
+## 11. Slack・Discordから採用すること
+
+公開資料が示す時点の情報であり、2026年の全内部構成・契約単価を推測しない。特に通話/ライブ配信の構成と、チャット添付動画の構成を混同しない。
+
+| サービス | 公式資料で確認できた事実 | 今回採用する原則 |
+|---|---|---|
+| Slack | CDNで画像・ファイルをedge配信。公開APIはアップロードURL取得→バイト転送→完了確定、後処理は非同期 | 制御APIと転送の分離、CDN、投稿処理を変換で止めない |
+| Discord | Media Proxyで画像を検査・縮小・変換。2025年の記事では速度と端末互換性からWebPを優先。署名付き添付URLに期限がある | 必要サイズへの縮小、形式の選別、短期URL、実機での確認 |
+
+資料: [Slackの配信構成（2023年）](https://slack.engineering/traffic-101-packets-mostly-flow/)、[Slack upload API](https://docs.slack.dev/reference/methods/files.getUploadURLExternal/)、[Discordの画像形式（2025年）](https://discord.com/blog/modern-image-formats-at-discord-supporting-webp-and-avif)、[Discord署名URL](https://docs.discord.com/developers/reference#signed-attachment-cdn-urls)。
+
+両社が全添付動画をどの条件で変換するか、1件いくらの原価かはこれらの資料からは分からない。専任チーム前提の独自Go/C++基盤をそのまま再現せず、まず管理サービスと既存基盤で運用工数を抑える。
+
+## 12. コスト比較と導入ゲート
+
+2026-10-02の公開単価での仮定計算。税・為替・個別契約は除外。無料枠は項目ごとに適用の有無を明示する。これは実請求の見積もりでも削減実績でもない。
+
+仮定: 1分動画10,000本（平均8MB、原本合計80GB）を1か月保持し、月100,000分を配信する。選択変換の対象比率は保存分数/配信分数の両方に同じ比率を仮定。実際の人気分布では両比率が異なるため別々に計測する。
+
+| 構成 | Stream保存 | Stream配信 | Stream小計/月 | 別途必要なもの |
+|---|---:|---:|---:|---|
+| 旧案: 全件Stream | $50 | $100 | $150 | R2原本保存・操作、Worker/D1等 |
+| 改訂案: 10%のみStream | $5 | $10 | $15 | R2原本保存・通常動画のRange取得、Worker/D1等 |
+| 改訂案: 30%のみStream | $15 | $30 | $45 | 同上 |
+| 全件R2で品質を満たせる場合 | $0 | $0 | $0 | R2原本保存・Range取得、Worker/D1等 |
+
+この仮定でStream部分は月$135（90%）または$105（70%）減る。全システム費用の90%削減ではない。通常動画のR2/Workerリクエストが増える分を差し引く。R2原本保存80GBは無料枠を無視すると月$1.20（$0.015/GB-month）。原本を残す条件は旧案・新案で同じ。[Stream料金](https://developers.cloudflare.com/stream/pricing/)、[R2料金](https://developers.cloudflare.com/r2/pricing/)
+
+画像例: 新規100,000枚がすべて一覧で見られ、20,000枚だけ960px、5,000枚だけ1920pxを要求された月。全件3サイズなら300,000変換、要求時生成なら125,000変換。月5,000変換の付帯枠と$0.50/1,000変換では、それぞれ$147.50と$60.00で、変換料金は$87.50低減する。この比較は原本/派生物のR2費・Worker/D1・プラン付帯条件を含まない。派生物保存により次月の同一画像の再変換を避ける。[Images料金](https://developers.cloudflare.com/images/pricing/)
+
+月次の比較式:
+
+`総額 = R2原本と派生物のGB-month × 保存単価 + Class A/B操作料金 + Workers/D1/ジョブ料金 + 画像生成料金 + 選択動画のStream保存/配信料金 + 運用工数`
+
+R2/Workersの操作料金は無料枠と課金単位の丸めを適用して算出し、単価×少数リクエストを実請求として扱わない。Streamは保存1,000分単位の購入枠を考慮する。配信分数には先読みも入り得るため、動画を一覧に出しただけで全件先読みしない。
+
+実装後はorg別・経路別の「アップロード1,000件」「閲覧1,000回」「再生1,000分」当たり原価を出す。変換率・再生品質・R2操作数を比較し、費用または品質が悪化した経路だけ見直す。初期はR2標準経路を完成させ、Streamやmultipartは必要性の計測を通してから有効化する。
