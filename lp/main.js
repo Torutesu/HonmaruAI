@@ -214,6 +214,9 @@
       var so = p >= .1 ? 1 : 0;
       story.style.opacity = so;
       story.style.visibility = so <= 0 ? 'hidden' : 'visible';
+      story.inert = so <= 0;
+      story.style.pointerEvents = so <= 0 ? 'none' : '';
+      story.setAttribute('aria-hidden', so <= 0 ? 'true' : 'false');
 
       var x = lerp(m.x0, m.x1, h), y = lerp(m.y0, m.y1, h), s = lerp(m.s0, m.s1, h);
       device.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0) scale(' + s.toFixed(4) + ') rotate(' + (reduce ? 0 : -7 * (1 - h)).toFixed(2) + 'deg)';
@@ -233,7 +236,7 @@
         // Keep one complete, opaque caption visible throughout each chapter.
         c.style.opacity = i === active ? '1' : '0';
         c.style.transform = 'none';
-        c.style.visibility = i === active ? 'visible' : 'hidden';
+        c.style.visibility = so > 0 && i === active ? 'visible' : 'hidden';
       });
 
       var g = 1 - clamp((p - .29) / .06, 0, 1);
