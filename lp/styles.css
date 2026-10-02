@@ -986,3 +986,47 @@ a.plat:active { transform:translateY(0) scale(.99); transition-duration:100ms; }
   .lab-actions button:hover, .send:hover { transform:none; }
   .btn .arr, .plat .arr, .plat-ico, .chips button::after, .scroll-cue svg { transform:none!important; }
 }
+
+/* The castle hero is always light, even when the rest of the page is dark.
+   Keep both foreground and background local to it in every interaction state. */
+.hero-text .ctas > a {
+  position:relative;
+  transform-origin:center;
+  transition:transform 180ms var(--ease-touch), box-shadow 180ms ease,
+    background-color 180ms ease, border-color 180ms ease;
+}
+.hero-text .ctas .btn-ghost {
+  color:#202820;
+  background:#fffffff0;
+  border-color:#ffffff;
+  box-shadow:0 2px 4px #14201812;
+}
+.hero-text .ctas .store-badge {
+  align-self:center;
+  box-shadow:0 0 0 1px #ffffff80,0 2px 4px #14201812;
+}
+.hero-text .ctas > a:focus-visible {
+  outline:3px solid #374b36;
+  outline-offset:5px;
+}
+@media (hover:hover) and (pointer:fine) {
+  .hero-text .ctas > a:hover {
+    transform:translateY(-4px);
+    box-shadow:0 0 0 2px #374b36,0 9px 16px -5px #14201855;
+  }
+  .hero-text .ctas .btn-ghost:hover {
+    color:#202820;
+    background:#ffffff;
+    border-color:#ffffff;
+  }
+  .hero-text .ctas .store-badge:hover {
+    box-shadow:0 0 0 2px #ffffff,0 0 0 4px #374b36,0 9px 16px -5px #14201855;
+  }
+}
+.hero-text .ctas > a:active {
+  transform:translateY(0) scale(.97);
+  transition-duration:100ms;
+}
+@media (prefers-reduced-motion:reduce) {
+  .hero-text .ctas > a:hover, .hero-text .ctas > a:active { transform:none; }
+}
