@@ -80,8 +80,10 @@ export class Api {
   history(orgId: string, channel: string, query: HistoryQuery = {}) {
     return this.request<HistoryResponse>(v2Paths.messages(orgId, channel), { query: { ...query } })
   }
-  post(orgId: string, channel: string, body: string, parentId?: string) {
-    return this.request<PostResponse>(v2Paths.messages(orgId, channel), { method: 'POST', body: { body, ...(parentId ? { parentId } : {}) } })
+  post(orgId: string, channel: string, body: string, parentId?: string, alsoChannel = false) {
+    return this.request<PostResponse>(v2Paths.messages(orgId, channel), {
+      method: 'POST', body: { body, ...(parentId ? { parentId, ...(alsoChannel ? { alsoChannel: true } : {}) } : {}) },
+    })
   }
   markRead(orgId: string, channel: string, seq: number) {
     return this.request<{ ok: true }>(v2Paths.read(orgId, channel), { method: 'POST', body: { seq } })
