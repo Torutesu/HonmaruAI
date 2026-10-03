@@ -48,6 +48,7 @@ import { ProfileCard } from './ProfileCard'
 import { isOnline, statusShown, awayShown, nextExpiry, localTime } from '../utils/people'
 import { Sheet, SheetRow, MessageSheet, PeoplePicker, ForwardSheet, longPress } from './Sheet'
 import { useUploads, PendingUploads, MessageFiles } from './Attachments'
+import { configureMediaUrls } from '../utils/mediaUrls'
 import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopRing } from '../utils/sound'
 import { closeMessageNotifications } from '../utils/notifications'
 import { hasOlder } from '../utils/historyPage'
@@ -289,6 +290,8 @@ export const ClassicList: React.FC<Props> = ({
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
 }) => {
+  // Files' addresses are renewed for the workspace open now (mediaUrls).
+  useEffect(() => { configureMediaUrls(api) }, [api.httpBase, api.orgId, api.sessionToken])
   const t = useT()
   // Cozy or compact, as chosen on You: the stylesheet does the rest.
   const { density } = useAppearance()

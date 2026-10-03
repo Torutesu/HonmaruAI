@@ -396,6 +396,14 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
   return runAgents(env, { orgId, session, user, resolved, row, members, locale, agents });
 }
 
+/// Whether every agent called is one the person wrote themselves. Agents
+/// come from listAgents as `ownerLogin`; this read `owner_login`, which they
+/// never carry, so no agent was ever anyone's own and an app's writing
+/// tools were never offered — not even to your own agent.
+export function allOwnAgents(agents, login) {
+  return Boolean(login) && agents.length > 0 && agents.every((a) => (a.ownerLogin ?? a.owner_login) === login);
+}
+
 /// The agents' answers, side by side: each reads the conversation,
 /// researches with its tools, and answers as itself when it is ready.
 export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents }) {
@@ -456,7 +464,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       orgId, session, language: locale, personal: resolved.kind === "agent" && !row.parent_id,
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
-      ownAgentsOnly: agents.every((a) => a.owner_login === user.login),
+      ownAgentsOnly: allOwnAgents(agents, user.login),
     }).catch(() => ({}))
     : {};
   let answered = 0;

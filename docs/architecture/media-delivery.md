@@ -292,6 +292,20 @@ exp = (floor(now / 600) + 2) * 600        // 10分窓。窓の中では同じURL
 
 段階0は新しいモデルに依存しないので、段階1と並行して進められる。
 
+**段階1の実装状況**（フラグで既定オフ。本番で有効にするまで挙動は変わらない）:
+
+- 済:
+  - 配信 Worker（`worker/src/mediaWorker.js`、`wrangler.media.toml`、DB を読まない）。
+  - 10分窓の署名URL（`mediaToken.js`。kid 付きで鍵を入れ替えられる）。
+  - 一覧と同時の URL 発行（`toFile` が `expiresAt` を返す）と `POST /media/urls`。
+  - クライアント側で、ファイルを id をキーに保持し、期限の1分前に URL を更新する（Web `utils/mediaUrls.ts`、iOS `ChatMediaURLs`）。
+  - デスクトップの CSP（`media-src`）。
+  - 手動の配信ワークフロー（`.github/workflows/deploy-media.yml`）。署名鍵の生成と投入、有効化（`MEDIA_ORIGIN`）、無効化（`MEDIA_ORIGIN_V2=off`）を行う。
+- 残り:
+  - カード動画の `videoURL` を読み出し時に署名URLへ置き換えること。
+  - 匿名の `GET /media/:uuid` を410にすること（新経路の展開から30日後）。
+  - §10 の配信試験。
+
 ---
 
 ## 10. リリースの判定（staging の目標）

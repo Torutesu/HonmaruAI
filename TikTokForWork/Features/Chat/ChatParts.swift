@@ -284,16 +284,62 @@ struct ChatEmojiGlyph: View {
     }
 }
 
+/// Files' addresses kept fresh: each file is kept by its id, and a minute
+/// before its address runs out a new one is asked for (POST /media/urls),
+/// with the others due about then.
+@MainActor
+final class ChatMediaURLs: ObservableObject {
+    static let shared = ChatMediaURLs()
+    @Published private(set) var fresh: [String: ChatService.FreshFile] = [:]
+    private var asked: [String: Date] = [:]
+    private var orgId: String?
+
+    /// The best address known for a file.
+    func address(_ f: ChatFile, base: URL) -> URL? {
+        if let got = fresh[f.id], got.expiresAt > (f.expiresAt ?? 0) { return URL(string: got.url, relativeTo: base)?.absoluteURL }
+        return f.address(base: base)
+    }
+
+    private func expiry(_ f: ChatFile) -> Double? {
+        max(fresh[f.id]?.expiresAt ?? 0, f.expiresAt ?? 0).nonZero
+    }
+
+    /// Renews the ones due within a minute; returns how long until the next
+    /// one is, in seconds.
+    func renewDue(_ files: [ChatFile], base: URL) async -> TimeInterval? {
+        let now = Date().timeIntervalSince1970 * 1000
+        let org = SessionStore.orgId
+        if org != orgId { fresh = [:]; orgId = org }
+        let due = files.filter { f in
+            guard let at = expiry(f) else { return false }
+            return at - 60_000 <= now && Date().timeIntervalSince(asked[f.id] ?? .distantPast) > 10
+        }
+        if let org, !due.isEmpty {
+            for f in due { asked[f.id] = Date() }
+            if let got = try? await ChatService.freshFileURLs(orgId: org, ids: due.map(\.id), base: base) {
+                for (id, f) in got { fresh[id] = f }
+            }
+        }
+        let next = files.compactMap { expiry($0) }.map { ($0 - 60_000 - Date().timeIntervalSince1970 * 1000) / 1000 }.filter { $0 > 0 }.min()
+        return next
+    }
+}
+
+private extension Double {
+    var nonZero: Double? { self > 0 ? self : nil }
+}
+
 /// The files on a message: pictures at their own shape, the rest as a row
 /// with its name and size. Preview stays inside the app.
 struct ChatAttachments: View {
     let files: [ChatFile]
     @State private var preview: ChatFile?
     @Environment(\.chatAssets) private var assets
+    @ObservedObject private var media = ChatMediaURLs.shared
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(files) { f in
-                if let url = assets.base.flatMap({ f.address(base: $0) }) {
+                if let url = assets.base.flatMap({ media.address(f, base: $0) }) {
                     Button { preview = f } label: {
                         if f.isPicture {
                             AsyncImage(url: url) { image in
@@ -325,8 +371,16 @@ struct ChatAttachments: View {
                 }
             }
         }
+        // Renewed while it is on screen, a minute before each runs out.
+        .task(id: files.map(\.id)) {
+            guard let base = assets.base else { return }
+            while !Task.isCancelled {
+                guard let wait = await media.renewDue(files, base: base) else { return }
+                try? await Task.sleep(for: .seconds(max(wait, 5)))
+            }
+        }
         .sheet(item: $preview) { file in
-            if let url = assets.base.flatMap({ file.address(base: $0) }) {
+            if let url = assets.base.flatMap({ media.address(file, base: $0) }) {
                 ChatFilePreview(file: file, url: url)
             }
         }
