@@ -550,7 +550,7 @@ struct ChatMessageRow: View {
                                 .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 4)).foregroundStyle(Theme.Colors.textSecondary)
                         }
                         if message.isAgent {
-                            Text("Agent").font(.caption2.weight(.heavy)).padding(.horizontal, 5).padding(.vertical, 1)
+                            Text(message.onBehalfOf?.name.map { String(localized: "\($0)'s agent") } ?? String(localized: "Agent")).font(.caption2.weight(.heavy)).padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Theme.Colors.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 4)).foregroundStyle(Theme.Colors.accent)
                             if let handle = message.agent?.handle, !handle.isEmpty {
                                 Text(verbatim: "@\(handle)").font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)

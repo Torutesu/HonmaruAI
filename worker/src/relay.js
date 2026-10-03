@@ -28,6 +28,7 @@ import { listMembers } from "./team.js";
 import { isGuest, isPersonal } from "./access.js";
 import { learnFromDecision } from "./memory.js";
 import { settleProposal } from "./proposals.js";
+import { settleProxyAction } from "./proxy.js";
 import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
 import { TYPING_TYPES, TYPING_BUDGET, handleTyping } from "./typing.js";
 import { useSecretKey } from "./secrets.js";
@@ -582,7 +583,7 @@ export class OrgRelay {
             ws.send(JSON.stringify(runError(DRAFT_MUST_POST)));
             return;
           }
-          for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "reminder", "autoApproved", "coveringFor"]) {
+          for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "proxyAction", "reminder", "autoApproved", "coveringFor"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
         }
@@ -872,6 +873,8 @@ export class OrgRelay {
   async afterDecision(orgId, card, actorLogin, actorGithubId) {
     try {
       if (card?.proposal) await settleProposal(this.env, orgId, card);
+      // An agent's proposal to act outside the chat for its person.
+      else if (card?.proxyAction) await settleProxyAction(this.env, orgId, card);
       // A personal card's reasons are its person's, not the team's rules.
       else if (!isPersonal(card)) await learnFromDecision(this.env, { orgId, card, actorLogin, actorGithubId });
     } catch (err) {

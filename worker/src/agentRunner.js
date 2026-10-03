@@ -11,6 +11,7 @@ import { getMessage, resolveChannel, viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
 import { agentsHere, agentsCalled, listAgents, MAX_CALLED } from "./customAgents.js";
 import { runAgents } from "./channelRoutes.js";
+import { runProxy } from "./proxy.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
 
@@ -28,10 +29,12 @@ export class AgentRunner {
     const url = new URL(request.url);
     if (request.method !== "POST" || url.pathname !== "/enqueue") return new Response("Not found", { status: 404 });
     const job = await request.json().catch(() => null);
-    if (!job?.orgId || !job?.token || !job?.rowId) return new Response("Bad job", { status: 400 });
+    // A proxy's job carries whose agent it is, not a session: it works for
+    // the person mentioned, not the person who wrote.
+    if (!job?.orgId || !job?.rowId || (job.kind === "proxy" ? !job.owner : !job.token)) return new Response("Bad job", { status: 400 });
     const waiting = await this.state.storage.list({ prefix: "job:", limit: MAX_JOBS + 1 });
     if (waiting.size >= MAX_JOBS) return new Response("Busy", { status: 503 });
-    await this.state.storage.put(`job:${Date.now()}:${job.rowId}`, { ...job, queuedAt: Date.now() });
+    await this.state.storage.put(`job:${Date.now()}:${job.rowId}${job.kind === "proxy" ? `:${job.owner}` : ""}`, { ...job, queuedAt: Date.now() });
     if (!(await this.state.storage.getAlarm())) await this.state.storage.setAlarm(Date.now());
     return new Response("Queued", { status: 202 });
   }
@@ -41,7 +44,7 @@ export class AgentRunner {
     // Off the list first: an alarm that fails is retried, and an answer
     // posted twice is worse than one that never came.
     await this.state.storage.delete([...jobs.keys()]);
-    await Promise.allSettled([...jobs.values()].map((job) => runQueuedAgents(this.env, job).catch((err) => {
+    await Promise.allSettled([...jobs.values()].map((job) => (job.kind === "proxy" ? runProxy(this.env, job) : runQueuedAgents(this.env, job)).catch((err) => {
       console.error("queued agent failed", err?.message || err);
     })));
     const more = await this.state.storage.list({ prefix: "job:", limit: 1 });

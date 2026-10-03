@@ -126,3 +126,6 @@ ALTER TABLE push_queue ADD COLUMN last_error TEXT;
 /* A thread reply sent to the conversation as well (schema.sql says why). */
 ALTER TABLE channel_messages ADD COLUMN also_channel INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE scheduled_messages ADD COLUMN also_channel INTEGER NOT NULL DEFAULT 0;
+/* Proxies: an agent's words for a person who was mentioned (schema.sql). */
+ALTER TABLE channel_messages ADD COLUMN on_behalf_of TEXT;
+ALTER TABLE ai_teammate_runs ADD COLUMN on_behalf_of TEXT;

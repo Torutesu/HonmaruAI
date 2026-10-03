@@ -216,6 +216,8 @@ export interface ChannelMessage {
   /// With `alsoChannel`, in the conversation: the message the thread hangs
   /// off, as it is now.
   threadParent?: ReplyQuote | null
+  /// Said by an agent for a person who was mentioned: whose agent it is.
+  onBehalfOf?: { name: string | null; ref: string | null } | null
 }
 
 /// What a reply shows of the message it answers: who, and how it began —

@@ -183,6 +183,8 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     // A thread reply sent to the conversation too: it says so, and what the
     // thread it answers starts with.
     ...(row.parent_id && row.also_channel ? { alsoChannel: true, ...(!deleted ? { threadParent: quoteOf({ ...row, reply_to_id: row.parent_id }, extra.threadParent || null, members) } : {}) } : {}),
+    // An agent answering for a person who was mentioned: whose it is.
+    ...(row.on_behalf_of ? { onBehalfOf: (() => { const p = members.find((m) => m.login === row.on_behalf_of); return { name: p?.name || null, ref: p?.ref || null }; })() } : {}),
     ...(agent ? { agent: { id: agent.id, handle: agent.handle, name: agent.name, emoji: agent.emoji || null, avatarUrl: agent.avatar_url || agent.avatarUrl || null } } : {}),
   };
 }
@@ -482,7 +484,7 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
   return hit ? getMessage(db, orgId, hit.id) : null;
 }
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, clientId = null, alsoChannel = false }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, clientId = null, alsoChannel = false, onBehalfOf = null }) {
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
   // A picture on its own is something said.
   if (!text && !withFiles) return { error: "Write something first." };
@@ -519,10 +521,10 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   try {
     await db
       .prepare(
-        `INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
+        `INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`
       )
-      .bind(id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0)
+      .bind(id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null)
       .run();
   } catch (err) {
     if (remembered && authorLogin) {

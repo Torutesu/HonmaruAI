@@ -41045,6 +41045,118 @@
           }
         }
       }
+    },
+    "%@'s agent": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のエージェント"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent von %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent de %@"
+          }
+        }
+      }
+    },
+    "My agent answers when I am mentioned": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンションされたらエージェントが代わりに対応"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mein Agent antwortet, wenn ich erwähnt werde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mi agente responde cuando me mencionan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mon agent répond quand on me mentionne"
+          }
+        }
+      }
+    },
+    "Code work goes to the AI teammate (Claude)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードの作業はAIチームメイト（Claude）に任せる"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code-Arbeit übernimmt der KI-Teamkollege (Claude)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El trabajo de código va al compañero de IA (Claude)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le travail sur le code va au coéquipier IA (Claude)"
+          }
+        }
+      }
+    },
+    "When someone mentions you and asks for something, your agent does it and answers in the thread as your agent. Anything it would post outside the chat, such as a comment on GitHub, waits for your approval.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "誰かにメンションされて何か頼まれたら、あなたのエージェントが作業してスレッドに返信します（あなたのエージェントとして）。GitHubへのコメントなどチャットの外に投稿するものは、あなたの承認を待ちます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn dich jemand erwähnt und um etwas bittet, erledigt es dein Agent und antwortet im Thread als dein Agent. Alles, was er außerhalb des Chats posten würde, etwa einen Kommentar auf GitHub, wartet auf deine Freigabe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando alguien te menciona y te pide algo, tu agente lo hace y responde en el hilo como tu agente. Lo que publicaría fuera del chat, como un comentario en GitHub, espera tu aprobación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand quelqu’un vous mentionne et vous demande quelque chose, votre agent s’en charge et répond dans le fil en tant que votre agent. Ce qu’il publierait hors du chat, comme un commentaire sur GitHub, attend votre approbation."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

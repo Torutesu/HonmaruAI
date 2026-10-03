@@ -4036,7 +4036,7 @@ export const ClassicList: React.FC<Props> = ({
             {[thread.parent, ...thread.replies].map((m, i) => (
               <React.Fragment key={keyOf(m)}>
                 {block(keyOf(m), {
-                  joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : m.kind === 'agent' ? t('Agent') : undefined,
+                  joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined,
                   name: whoSaid(m),
                   face: m.kind !== 'ai' ? faceOfMessage(m) : null,
                   authorRef: m.mine ? null : m.authorRef,
@@ -4223,7 +4223,7 @@ export const ClassicList: React.FC<Props> = ({
           // A thread reply sent here too says which thread it answers.
           const fromThread = !quote && m.parentId && m.alsoChannel && m.threadParent && !m.deleted ? m.threadParent : null
           out.push(block(keyOf(m), {
-            joined: joined && !m.pinned && !quote && !fromThread, at: m.createdAt, app: '', name, face: faceOfMessage(m), badge: m.kind === 'agent' ? t('Agent') : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
+            joined: joined && !m.pinned && !quote && !fromThread, at: m.createdAt, app: '', name, face: faceOfMessage(m), badge: m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
             mentionsMe: callsMe(m), tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m), onMenu: menuFor(thread.view!, m), state: tempState(m),
             quote: quote ? <ReplyQuoteLine quote={quote} name={quoteName(quote)} onJump={() => void goToQuoted(thread.view!, quote.id)} />
               : fromThread ? <ThreadReplyLine quote={fromThread} onOpen={() => void openThread(thread.view!, m)} /> : undefined,

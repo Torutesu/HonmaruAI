@@ -13,6 +13,7 @@ import { listMembers } from "./team.js";
 import { allowed } from "./permissions.js";
 import { resolveMentions } from "./threads.js";
 import { teammateForAgent, startTeammateRun, loadTeammate, readRun, settleRun, openRuns, canSignIn } from "./teammates.js";
+import { answerAsProxies, proxyTeammateAnswer, getProxy, saveProxy } from "./proxy.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards, announceEvents, announceTo } from "./announce.js";
 import { localizeForRecipient } from "./localize.js";
@@ -591,9 +592,15 @@ async function postTeammateResult(env, run, t, read, status) {
   else body = words || (read.error ? serverText(locale, "teammate.stopped") : serverText(locale, "teammate.done"));
   const agentId = t?.agentId;
   if (!agentId) return;
+  // Working for a person who was mentioned: what it would post outside the
+  // chat waits on that person (proxy.js), and the answer reads as theirs.
+  if (run.on_behalf_of) {
+    body = await proxyTeammateAnswer(env, { orgId: run.org_id, run, body, agentLogin: `agent:${agentId}` })
+      .catch((err) => { console.error("proxy answer failed", safe(err?.message)); return body; });
+  }
   const out = await postMessage(env.DB, {
     orgId: run.org_id, key: run.channel, authorLogin: `agent:${agentId}`, body: body.length > MAX_MESSAGE_CHARS ? `${body.slice(0, MAX_MESSAGE_CHARS - 1)}…` : body, kind: "agent",
-    parentId: run.thread_id === "-" ? null : run.thread_id,
+    parentId: run.thread_id === "-" ? null : run.thread_id, onBehalfOf: run.on_behalf_of || null,
   });
   if (out.row) await broadcastStored(env, run.org_id, run.channel, out.row);
 }
@@ -986,6 +993,9 @@ export async function handleChannels(request, env, url, { route, after }) {
       }
       if (wantsAnswer) await answerAsAI(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale });
       await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale });
+      // The people it names who let their agent answer for them.
+      await answerAsProxies(env, { orgId, resolved, row: out.row, members, locale })
+        .catch((err) => console.error("proxies failed", safe(err?.message)));
     });
     // What you said, you have read.
     if (!parentId || alsoChannel) await markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at);
@@ -1471,6 +1481,19 @@ export async function handleChannels(request, env, url, { route, after }) {
     const locale = who.user.locale || "en";
     after(() => decideFromMessage(env, { orgId: body.orgId, session: who.session, user: who.user, resolved, row, members, route, locale }));
     return json({ deciding: true }, 202);
+  }
+  // Your agent, answering for you when you are mentioned (proxy.js).
+  if (path === "/channels/proxy" && (request.method === "GET" || request.method === "PUT")) {
+    const body = request.method === "GET" ? { orgId: url.searchParams.get("orgId") } : await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    if (request.method === "GET") return json({ proxy: await getProxy(env.DB, body.orgId, who.user.login) });
+    if (await isGuest(env.DB, body.orgId, who.session.github_id)) return json({ message: "A guest cannot have an agent answer for them." }, 403);
+    const members = await listMembers(env.DB, body.orgId, who.session.github_id);
+    const out = await saveProxy(env.DB, body.orgId, who.user, body, members);
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    return json(out);
   }
   // Your status, and being away with somebody deciding for you.
   if (path === "/channels/status" && request.method === "PUT") {
