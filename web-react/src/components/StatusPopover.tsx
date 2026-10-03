@@ -314,12 +314,89 @@ export const StatusPopover: React.FC<Props> = ({ httpBase, orgId, sessionToken, 
         </form>
       )}
 
+      {phase === 'ready' && <ProxySettings httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
+
       <div className="status-pop-foot">
         <button type="button" className="status-pop-profile" onClick={onProfile} data-view-profile="1">
           <Icon name="you" size={16} />
           {t('View profile')}
         </button>
       </div>
+    </div>
+  )
+}
+
+interface Proxy { enabled: boolean; agentId: string | null; useTeammate: boolean }
+
+/// Your agent answering for you: when somebody mentions you and asks for
+/// something, it does it and answers in the thread, as your agent. Saved as
+/// it is changed, apart from the status above.
+const ProxySettings: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
+  const t = useT()
+  const id = useId()
+  const [proxy, setProxy] = useState<Proxy | null>(null)
+  const [agents, setAgents] = useState<Array<{ id: string; name: string; handle: string }>>([])
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const headers = { 'x-session-token': sessionToken }
+  const loadAgents = async () => {
+    const res = await fetch(`${httpBase}/channels/agents?orgId=${encodeURIComponent(orgId)}`, { headers }).catch(() => null)
+    const data = res?.ok ? await res.json().catch(() => null) : null
+    // Yours only: a teammate's agent never answers for you.
+    if (Array.isArray(data?.agents)) setAgents(data.agents.filter((a: { scope?: string; mine?: boolean; provider?: string | null }) => a.scope === 'personal' && a.mine && !a.provider))
+  }
+  useEffect(() => {
+    let ignore = false
+    void fetch(`${httpBase}/channels/proxy?orgId=${encodeURIComponent(orgId)}`, { headers }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (!ignore && d?.proxy) setProxy(d.proxy) }).catch(() => {})
+    void loadAgents()
+    return () => { ignore = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [httpBase, orgId, sessionToken])
+  // Never disabled while it saves: a control that is disabled under the
+  // keyboard drops its focus out of the popover, and Escape with it.
+  const save = async (patch: Partial<Proxy>) => {
+    if (busy) return
+    const before = proxy
+    // Shown at once; put back if the server says no.
+    setProxy((p) => (p ? { ...p, ...patch } : p))
+    setBusy(true)
+    setProblem(null)
+    const res = await fetch(`${httpBase}/channels/proxy`, {
+      method: 'PUT', headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId, ...patch }),
+    }).catch(() => null)
+    const data = res ? await res.json().catch(() => ({})) : {}
+    setBusy(false)
+    if (!res?.ok || !data.proxy) { setProxy(before); setProblem((typeof data.message === 'string' && data.message) || t('That did not save.')); return }
+    setProxy(data.proxy)
+    // Turned on, an agent may have been made for you.
+    if (patch.enabled) void loadAgents()
+  }
+  if (!proxy) return null
+  return (
+    <div className="status-pop-body status-pop-proxy" data-proxy-settings="1">
+      <label className="dlg-check">
+        <input type="checkbox" checked={proxy.enabled} onChange={(e) => void save({ enabled: e.target.checked })} data-proxy-toggle="1" />
+        {t('My agent answers when I am mentioned')}
+      </label>
+      <p className="dlg-hint">{t('When someone mentions you and asks for something, your agent does it and answers in the thread as your agent. Anything it would post outside the chat, such as a comment on GitHub, waits for your approval.')}</p>
+      {proxy.enabled && (
+        <div className="status-pop-proxy-fields">
+          {agents.length > 0 && (
+            <div>
+              <label className="dlg-label" htmlFor={`${id}-agent`}>{t('Which agent')}</label>
+              <select id={`${id}-agent`} className="dlg-input" value={proxy.agentId || ''} onChange={(e) => void save({ agentId: e.target.value })} data-proxy-agent="1">
+                {agents.map((a) => <option key={a.id} value={a.id}>{a.name} (@{a.handle})</option>)}
+              </select>
+            </div>
+          )}
+          <label className="dlg-check">
+            <input type="checkbox" checked={proxy.useTeammate} onChange={(e) => void save({ useTeammate: e.target.checked })} data-proxy-teammate="1" />
+            {t('Code work goes to the AI teammate (Claude)')}
+          </label>
+        </div>
+      )}
+      {problem && <p className="dlg-error" role="alert">{problem}</p>}
     </div>
   )
 }

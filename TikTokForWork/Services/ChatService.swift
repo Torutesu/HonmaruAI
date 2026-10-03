@@ -75,12 +75,20 @@ struct ChatMessage: Codable, Identifiable, Hashable {
     /// With `alsoChannel`, in the conversation: how the thread it answers
     /// begins, as that message is now.
     var threadParent: ChatQuote?
+    /// Said by an agent for a person who was mentioned: whose agent it is.
+    var onBehalfOf: ChatOnBehalfOf?
 
     var isAI: Bool { kind == "ai" }
     /// Written by an agent the team made ("@hayao"), not by a person.
     var isAgent: Bool { kind == "agent" }
     var isDeleted: Bool { deleted == true }
     var date: Date { ChatDates.parse(createdAt) ?? .distantPast }
+}
+
+/// The person an agent's message was said for.
+struct ChatOnBehalfOf: Codable, Hashable {
+    let name: String?
+    let ref: String?
 }
 
 /// What a message shows of another one it points at: who said it and how
@@ -745,6 +753,23 @@ enum ChatService {
     static func setPref(orgId: String, channel: String, level: String, base: URL) async throws {
         struct R: Decodable { let ok: Bool? }
         _ = try await call("PUT", "/channels/prefs", base: base, body: ["orgId": orgId, "channel": channel, "level": level], as: R.self)
+    }
+
+    /// Your agent answering for you when you are mentioned.
+    struct ChatProxy: Codable, Hashable {
+        var enabled: Bool
+        var agentId: String?
+        var useTeammate: Bool
+    }
+
+    static func proxy(orgId: String, base: URL) async throws -> ChatProxy {
+        struct R: Decodable { let proxy: ChatProxy }
+        return try await call("GET", "/channels/proxy", base: base, query: ["orgId": orgId], as: R.self).proxy
+    }
+
+    static func setProxy(orgId: String, enabled: Bool, useTeammate: Bool, base: URL) async throws -> ChatProxy {
+        struct R: Decodable { let proxy: ChatProxy }
+        return try await call("PUT", "/channels/proxy", base: base, body: ["orgId": orgId, "enabled": enabled, "useTeammate": useTeammate], as: R.self).proxy
     }
 
     static func setStatus(orgId: String, emoji: String?, text: String?, until: Date?, awayUntil: Date?, delegateRef: String?, base: URL) async throws {

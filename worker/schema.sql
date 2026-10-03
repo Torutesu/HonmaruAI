@@ -578,7 +578,10 @@ CREATE TABLE IF NOT EXISTS channel_messages (
   client_id     TEXT,
   /* A thread reply sent to the conversation as well ("Also send to
      #channel"): one message, read in its thread and in the conversation. */
-  also_channel  INTEGER NOT NULL DEFAULT 0
+  also_channel  INTEGER NOT NULL DEFAULT 0,
+  /* Said by an agent for a person who was mentioned (proxy.js): whose
+     agent it is, so it reads as theirs and never as them. */
+  on_behalf_of  TEXT
 );
 /* The index for `client_id` is in migrations.sql, after the ALTER that adds
    it, for the same reason as `ref` above. */
@@ -922,7 +925,9 @@ CREATE TABLE IF NOT EXISTS ai_teammate_runs (
   last_event_at  TEXT,
   started_by     TEXT,
   created_at     TEXT NOT NULL,
-  updated_at     TEXT NOT NULL
+  updated_at     TEXT NOT NULL,
+  /* Working for a person who was mentioned (proxy.js): its answer is theirs. */
+  on_behalf_of   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_status ON ai_teammate_runs(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_thread ON ai_teammate_runs(org_id, channel, thread_id);
@@ -1544,3 +1549,36 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
   attempts INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_job ON notification_deliveries(job_id);
+
+/* A person's agent, answering for them when they are mentioned (proxy.js).
+   Off until they turn it on. `agent_id` is one of their own personal
+   agents; `use_teammate` lets work on code go to the workspace's AI
+   teammate instead. */
+CREATE TABLE IF NOT EXISTS proxies (
+  org_id        TEXT NOT NULL,
+  login         TEXT NOT NULL,
+  enabled       INTEGER NOT NULL DEFAULT 0,
+  agent_id      TEXT,
+  use_teammate  INTEGER NOT NULL DEFAULT 1,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, login)
+);
+
+/* Something a person's agent would do outside the chat — a comment on a
+   pull request — waiting on that person's approval, as a card to them. */
+CREATE TABLE IF NOT EXISTS proxy_actions (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  login         TEXT NOT NULL,
+  card_id       TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  payload       TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  thread_id     TEXT,
+  agent_login   TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending',
+  result        TEXT,
+  created_at    TEXT NOT NULL,
+  settled_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_proxy_actions_card ON proxy_actions(org_id, card_id);

@@ -311,6 +311,10 @@ struct ChatStatusEditor: View {
     @State private var away = false
     @State private var awayUntil = Date().addingTimeInterval(86400 * 3)
     @State private var delegate = ""
+    /// Your agent answering for you when you are mentioned.
+    @State private var proxyOn = false
+    @State private var proxyTeammate = true
+    @State private var proxyLoaded: ChatService.ChatProxy?
     @State private var saving = false
     @State private var problem: String?
 
@@ -349,6 +353,17 @@ struct ChatStatusEditor: View {
                         }
                     }
                 } footer: { Text("While you are away, new decisions for you go to the person you pick, and say they are covering for you.") }
+                if proxyLoaded != nil {
+                    Section {
+                        Toggle("My agent answers when I am mentioned", isOn: $proxyOn.animation())
+                            .accessibilityIdentifier("proxyToggle")
+                        if proxyOn {
+                            Toggle("Code work goes to the AI teammate (Claude)", isOn: $proxyTeammate)
+                        }
+                    } footer: {
+                        Text("When someone mentions you and asks for something, your agent does it and answers in the thread as your agent. Anything it would post outside the chat, such as a comment on GitHub, waits for your approval.")
+                    }
+                }
                 if let problem { Section { Text(problem).foregroundStyle(.red) } }
             }
             .navigationTitle("You").navigationBarTitleDisplayMode(.inline)
@@ -365,6 +380,9 @@ struct ChatStatusEditor: View {
         if let me = try? await ChatService.me(base: base) { name = me.name ?? ""; handle = me.handle ?? "" }
         if let s = store.mine?.status { emoji = s.emoji ?? ""; text = s.text ?? "" }
         if let a = ChatDates.parse(store.mine?.awayUntil) { away = true; awayUntil = a; delegate = store.mine?.delegateRef ?? "" }
+        if let orgId = appState.currentUser?.teamID, let p = try? await ChatService.proxy(orgId: orgId, base: base) {
+            proxyLoaded = p; proxyOn = p.enabled; proxyTeammate = p.useTeammate
+        }
     }
 
     private func save() async {
@@ -384,6 +402,9 @@ struct ChatStatusEditor: View {
             let end = away ? Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: awayUntil) : nil
             try await ChatService.setStatus(orgId: orgId, emoji: hasStatus ? emoji : nil, text: hasStatus ? text : nil, until: hasStatus ? until : nil,
                                             awayUntil: end, delegateRef: away && !delegate.isEmpty ? delegate : nil, base: base)
+            if let p = proxyLoaded, p.enabled != proxyOn || p.useTeammate != proxyTeammate {
+                proxyLoaded = try await ChatService.setProxy(orgId: orgId, enabled: proxyOn, useTeammate: proxyTeammate, base: base)
+            }
             Haptics.success()
             await store.refresh()
             dismiss()
