@@ -155,7 +155,10 @@ export interface FileRef {
   size: number
   width?: number | null
   height?: number | null
+  /// Where to fetch it, signed for a while: renewed by id (utils/mediaUrls).
   url: string
+  /// Until when `url` opens (ms); absent from older servers.
+  expiresAt?: number
 }
 
 export interface ChannelMessage {

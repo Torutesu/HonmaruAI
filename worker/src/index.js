@@ -37,7 +37,7 @@ import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
-import { handleChannels, broadcastStored, watchTeammateRuns } from "./channelRoutes.js";
+import { handleChannels, broadcastStored, watchTeammateRuns, caller } from "./channelRoutes.js";
 import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from "./audit.js";
 import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
@@ -61,7 +61,8 @@ import { handleSuggestions } from "./suggest.js";
 import { handleWebhooks } from "./webhooks.js";
 import { handleAgentInvites } from "./agentInvites.js";
 import { handleUserAvatar } from "./userAvatar.js";
-import { serveFile } from "./files.js";
+import { serveFile, freshFileUrls } from "./files.js";
+import { useMediaEnv } from "./mediaToken.js";
 import { addMembers, membersOf, isPrivate, mayRead, mayReadCard, accessFor, isGuest, hasGuests } from "./access.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
@@ -199,6 +200,7 @@ export default {
   async scheduled(event, env, ctx) {
     useSecretKey(env);
     useMirrorEnv(env);
+    useMediaEnv(env);
     // Every minute: scheduled messages and Later reminders, which a person
     // set to a minute and would notice fifteen late.
     if (event?.cron === "* * * * *") {
@@ -265,6 +267,7 @@ export default {
   async fetch(request, env, ctx) {
     useSecretKey(env);
     useMirrorEnv(env);
+    useMediaEnv(env);
     // Every response carries the id its log line was written under, so a user
     // reporting "it failed" hands over something that finds the line.
     const requestId = crypto.randomUUID();
@@ -1202,6 +1205,14 @@ async function handle(request, env, url, ctx) {
       const orgId = url.searchParams.get("orgId") || null;
       if (orgId && !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
       return uploadMedia(request, env, url, { orgId });
+    }
+    // New addresses for files whose addresses ran out (mediaToken.js).
+    if (url.pathname === "/media/urls" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const who = await caller(env, request, body.orgId);
+      if (who.denied) return who.denied;
+      return json({ files: await freshFileUrls(env, { orgId: body.orgId, login: who.user.login, ids: body.ids }) });
     }
     const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
     if (mediaMatch && (request.method === "GET" || request.method === "HEAD")) {

@@ -19,6 +19,8 @@
 // somebody uploaded must never run as a page on it.
 
 import { promisedLength, peek, putExactly, looksLike, sniffing, HEAD_BYTES } from "./upload.js";
+import { mediaEnv, mediaOriginOn, signFileUrl } from "./mediaToken.js";
+import { accessFor, mayRead } from "./access.js";
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
@@ -33,6 +35,9 @@ const SHOWN = new Set([
   "audio/x-m4a", "audio/aac", "audio/flac", "audio/x-wav",
   "text/plain",
 ]);
+/// Whether a file of this type is shown where it is opened, rather than
+/// saved: the media origin's Worker asks the same question.
+export const isShown = (type) => SHOWN.has(type);
 export const isPicture = (type) => /^image\/(png|jpeg|gif|webp|avif)$/.test(type);
 const isVideo = (type) => /^video\/(mp4|webm|quicktime)$/.test(type);
 
@@ -92,8 +97,21 @@ function sameText(a, b) {
 
 // ---- Rows ----
 
-/// A file as a browser sees it.
+/// Where a reader fetches a file, and until when (ms): on the media
+/// origin when it is on (mediaToken.js), else this API's own /files.
+export async function fileAddress(db, row, now = Date.now(), env = mediaEnv()) {
+  if (mediaOriginOn(env)) {
+    const signed = await signFileUrl(env, { orgId: row.org_id, id: row.id, type: row.type, name: row.name }, now);
+    if (signed) return signed;
+  }
+  return { url: await signedPath(db, row.id, now), expiresAt: validUntil(now) * 1000 };
+}
+
+/// A file as a browser sees it. `url` changes as it is renewed; `id` does
+/// not, and is what a client keeps it by. `expiresAt` says when to ask for
+/// a new address (POST /media/urls).
 export async function toFile(db, row, now = Date.now()) {
+  const { url, expiresAt } = await fileAddress(db, row, now);
   return {
     id: row.id,
     name: row.name,
@@ -101,8 +119,28 @@ export async function toFile(db, row, now = Date.now()) {
     size: row.size,
     width: row.width || null,
     height: row.height || null,
-    url: await signedPath(db, row.id, now),
+    url,
+    expiresAt,
   };
+}
+
+/// POST /media/urls — new addresses for files a client already shows, for
+/// one whose address ran out. Only for files the caller could read now: in
+/// a conversation they are in, sent, or theirs not yet sent.
+export async function freshFileUrls(env, { orgId, login, ids }, now = Date.now()) {
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && ID.test(id)))].slice(0, 100);
+  const out = {};
+  if (!wanted.length) return out;
+  const { results = [] } = await env.DB.prepare(
+    `SELECT * FROM message_files WHERE org_id = ?1 AND id IN (${wanted.map((_, i) => `?${i + 2}`).join(", ")})`
+  ).bind(orgId, ...wanted).all();
+  const access = await accessFor(env.DB, orgId, login);
+  for (const row of results) {
+    if (!mayRead(row.channel, access)) continue;
+    if (!row.message_id && row.uploader !== login) continue;
+    out[row.id] = await fileAddress(env.DB, row, now, env);
+  }
+  return out;
 }
 
 /// The files on a page of messages, by message id.

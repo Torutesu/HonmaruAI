@@ -33,6 +33,7 @@ import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor 
 import { TYPING_TYPES, TYPING_BUDGET, handleTyping } from "./typing.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
+import { useMediaEnv } from "./mediaToken.js";
 
 /// Said to a client that tries to put an unposted daily report away.
 const DRAFT_MUST_POST = "This daily report is a draft: check it and post it to finish it.";
@@ -55,6 +56,7 @@ export class OrgRelay {
   constructor(state, env) {
     useSecretKey(env);
     useMirrorEnv(env);
+    useMediaEnv(env);
     this.state = state;
     this.env = env;
     this.db = env.DB;
