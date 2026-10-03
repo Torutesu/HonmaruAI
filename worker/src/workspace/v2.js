@@ -66,7 +66,9 @@ export async function handleV2(request, env, url) {
       const text = String(body.body || "").trim();
       if (!text) return json({ message: "Say something first." }, 400);
       if (text.length > MAX_MESSAGE_CHARS) return json({ message: "That message is too long." }, 413);
-      const out = await stub.post({ channel: key, author: got.who.user.login, body: text, parentId: typeof body.parentId === "string" ? body.parentId : null });
+      const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
+      // A thread reply can go to the conversation as well.
+      const out = await stub.post({ channel: key, author: got.who.user.login, body: text, parentId, alsoChannel: Boolean(parentId) && body.alsoChannel === true });
       return json({ message: out.message }, 201, usageHeaders(out.usage));
     }
     if (ch[2] === "messages" && request.method === "GET") {
@@ -105,7 +107,7 @@ export async function handleV2(request, env, url) {
   if (rest === "/backfill" && request.method === "POST") {
     const after = typeof body.after === "string" ? body.after : "";
     const { results = [] } = await env.DB.prepare(
-      `SELECT id, channel, author_login, kind, body, parent_id, created_at, edited_at, deleted_at FROM channel_messages
+      `SELECT id, channel, author_login, kind, body, parent_id, created_at, edited_at, deleted_at, also_channel FROM channel_messages
         WHERE org_id = ?1 AND (created_at, id) > (?2, ?3) ORDER BY created_at, id LIMIT ?4`
     ).bind(orgId, body.afterAt || "", after, BACKFILL_PAGE).all();
     const out = await stub.backfill({ rows: results });

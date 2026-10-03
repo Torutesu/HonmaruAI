@@ -24,7 +24,9 @@ function server(start = 0) {
     }
     if (url.pathname.endsWith('/messages') && init?.method === 'POST') {
       const body = JSON.parse(String(init.body))
-      return new Response(JSON.stringify({ message: add(body.body) }), { status: 201 })
+      const m = add(body.body)
+      if (body.parentId) { m.parentId = body.parentId; if (body.alsoChannel) m.alsoChannel = true }
+      return new Response(JSON.stringify({ message: m }), { status: 201 })
     }
     if (url.pathname.endsWith('/messages')) {
       const after = url.searchParams.get('after'); const before = url.searchParams.get('before')
@@ -103,5 +105,21 @@ describe('Api', () => {
     const err = await api.me().catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err).toMatchObject({ status: 429, message: 'Slow down.', retryAfter: 30 })
+  })
+
+  test('a thread reply is sent under its parent, to the conversation too when asked, and threads are read from the channel', async () => {
+    const { inConversation, replyStats, threadOf } = await import('../src/threads')
+    const s = server(1)
+    const sync = new ChannelSync(new Api({ base: 'https://api.test', token: () => 'tok', fetch: s.fetchFn }), 'team:a', 'b:cafe')
+    await sync.open()
+    const parent = sync.snapshot.messages[0]
+    await sync.send('in the thread', 'aya', { parentId: parent.id })
+    await sync.send('in both', 'aya', { parentId: parent.id, alsoChannel: true })
+    await sync.send('top level', 'aya')
+    const all = sync.snapshot.messages
+    expect(inConversation(all).map((m) => m.body)).toEqual(['m1', 'in both', 'top level'])
+    expect(replyStats(all).get(parent.id)?.count).toBe(2)
+    expect(threadOf(all, parent.id)?.replies.map((m) => m.body)).toEqual(['in the thread', 'in both'])
+    expect(threadOf(all, 'nope')).toBeNull()
   })
 })

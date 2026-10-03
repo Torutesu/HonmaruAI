@@ -73,6 +73,20 @@ test("posting and reading follow the same rules as the D1 routes", async () => {
   expect(page.lastSeq).toBe(1);
 });
 
+test("a thread reply can go to the conversation too; only a thread reply can", async () => {
+  const { message: parent } = await (await say(owner, "b:cafe", "menu for Monday?")).json();
+  const both = await (await call(`${chan("b:cafe")}/messages`, { method: "POST", token: member, body: { body: "soup", parentId: parent.id, alsoChannel: true } })).json();
+  expect(both.message).toMatchObject({ parentId: parent.id, alsoChannel: true });
+  const only = await (await call(`${chan("b:cafe")}/messages`, { method: "POST", token: member, body: { body: "bread", parentId: parent.id } })).json();
+  expect(only.message.alsoChannel).toBeUndefined();
+  const plain = await (await call(`${chan("b:cafe")}/messages`, { method: "POST", token: member, body: { body: "hi", alsoChannel: true } })).json();
+  expect(plain.message.alsoChannel).toBeUndefined();
+  // Read back as it was sent: the client decides where each one shows.
+  const page = await (await call(`${chan("b:cafe")}/messages`, { token: owner })).json();
+  expect(page.messages.map((m) => [m.body, m.parentId ? "reply" : "top", Boolean(m.alsoChannel)]))
+    .toEqual([["menu for Monday?", "top", false], ["soup", "reply", true], ["bread", "reply", false], ["hi", "top", false]]);
+});
+
 test("a client catching up asks for what came after the last seq it saw", async () => {
   for (const t of ["one", "two", "three", "four"]) await say(owner, "b:cafe", t);
   const after = await (await call(`${chan("b:cafe")}/messages?after=2`, { token: member })).json();

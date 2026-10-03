@@ -98,17 +98,19 @@ export class ChannelSync {
     })
   }
 
-  /// A message sent: shown at once, replaced by the server's copy.
-  async send(body: string, author: string): Promise<Message> {
+  /// A message sent: shown at once, replaced by the server's copy. With
+  /// `parentId`, a reply in that thread; `alsoChannel` sends it to the
+  /// conversation too.
+  async send(body: string, author: string, { parentId = null, alsoChannel = false }: { parentId?: string | null; alsoChannel?: boolean } = {}): Promise<Message> {
     const clientId = `pending:${Date.now()}:${Math.random().toString(36).slice(2)}`
     const optimistic: Message = {
       id: clientId, channel: this.channel, seq: Number.MAX_SAFE_INTEGER, author, kind: 'message', body,
-      parentId: null, createdAt: new Date().toISOString(), editedAt: null, deletedAt: null,
+      parentId, ...(parentId && alsoChannel ? { alsoChannel: true } : {}), createdAt: new Date().toISOString(), editedAt: null, deletedAt: null,
     }
     this.pending.set(clientId, optimistic)
     this.emit()
     try {
-      const { message } = await this.api.post(this.orgId, this.channel, body)
+      const { message } = await this.api.post(this.orgId, this.channel, body, parentId || undefined, alsoChannel)
       this.pending.delete(clientId)
       this.apply([message])
       return message

@@ -11,6 +11,9 @@ export interface Message {
   kind: string
   body: string
   parentId: string | null
+  /// A thread reply sent to the conversation as well ("Also send to
+  /// #channel"): shown in its thread and in the conversation.
+  alsoChannel?: boolean
   createdAt: string
   editedAt: string | null
   deletedAt: string | null
