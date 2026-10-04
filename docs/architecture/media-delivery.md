@@ -301,10 +301,9 @@ exp = (floor(now / 600) + 2) * 600        // 10分窓。窓の中では同じURL
   - クライアント側で、ファイルを id をキーに保持し、期限の1分前に URL を更新する（Web `utils/mediaUrls.ts`、iOS `ChatMediaURLs`）。
   - デスクトップの CSP（`media-src`）。
   - 手動の配信ワークフロー（`.github/workflows/deploy-media.yml`）。署名鍵の生成と投入、有効化（`MEDIA_ORIGIN`）、無効化（`MEDIA_ORIGIN_V2=off`）を行う。
-- 残り:
-  - カード動画の `videoURL` を読み出し時に署名URLへ置き換えること。
-  - 匿名の `GET /media/:uuid` を410にすること（新経路の展開から30日後）。
-  - §10 の配信試験。
+- カード動画: 再生するときに `POST /media/video` で、カードを読める人にだけ配信 origin の署名URLを発行する。アプリは再生の直前に取得する。カードの経路は多いので、読み出し時の置き換えではなくこの方式にした。
+  - 匿名の `GET /media/:uuid` は、`MEDIA_LEGACY_VIDEO=off` で410にできる。新経路を有効にしてから30日後に切り替える。
+- 残り: §10 の配信試験。
 
 ---
 

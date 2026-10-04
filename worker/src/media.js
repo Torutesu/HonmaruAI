@@ -140,6 +140,12 @@ export async function uploadMedia(request, env, url, { orgId = null } = {}) {
 /// which is phase 1 of docs/architecture/media-delivery.md. Until then it is
 /// at least never cached by anything shared, and only for an hour.
 export async function serveMedia(id, env, request = null, url = null) {
+  // Thirty days after card videos moved to signed addresses on the media
+  // origin (POST /media/video), the bare address is retired: set
+  // MEDIA_LEGACY_VIDEO = "off" (docs/architecture/media-delivery.md §9).
+  if (String(env.MEDIA_LEGACY_VIDEO || "").toLowerCase() === "off") {
+    return new Response("This address has been retired. Open the card again to play its video.", { status: 410, headers: { "cache-control": "no-store" } });
+  }
   // Only what this route stored: a video's bare UUID. The same bucket holds
   // message files, compliance exports, avatars and Jam recordings, each
   // served by its own route with its own checks — never by guessing a key

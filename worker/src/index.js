@@ -62,7 +62,7 @@ import { handleWebhooks } from "./webhooks.js";
 import { handleAgentInvites } from "./agentInvites.js";
 import { handleUserAvatar } from "./userAvatar.js";
 import { serveFile, freshFileUrls } from "./files.js";
-import { useMediaEnv } from "./mediaToken.js";
+import { useMediaEnv, mediaOriginOn, signVideoUrl } from "./mediaToken.js";
 import { addMembers, membersOf, isPrivate, mayRead, mayReadCard, accessFor, isGuest, hasGuests } from "./access.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
@@ -1205,6 +1205,15 @@ async function handle(request, env, url, ctx) {
       const orgId = url.searchParams.get("orgId") || null;
       if (orgId && !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
       return uploadMedia(request, env, url, { orgId });
+    }
+    // A card's video, by a signed address for someone who may read the card.
+    if (url.pathname === "/media/video" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object" || typeof body.cardId !== "string") return json({ message: "Invalid JSON body." }, 400);
+      const who = await caller(env, request, body.orgId);
+      if (who.denied) return who.denied;
+      const out = await cardVideoUrl(env, { orgId: body.orgId, login: who.user.login, cardId: body.cardId });
+      return out ? json(out) : json({ message: "No such video." }, 404);
     }
     // New addresses for files whose addresses ran out (mediaToken.js).
     if (url.pathname === "/media/urls" && request.method === "POST") {
@@ -2650,6 +2659,20 @@ export const CORS_HEADERS = Object.freeze({
   "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
   "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
 });
+
+/// Where to play a card's video from, for someone who may read the card:
+/// a signed address on the media origin when it is on, else the address
+/// the card was saved with. Only the video the card itself names.
+async function cardVideoUrl(env, { orgId, login, cardId }) {
+  const card = await getCard(env.DB, orgId, cardId);
+  if (!card?.videoURL || !mayReadCard(card, await accessFor(env.DB, orgId, login))) return null;
+  const m = /\/media\/([0-9a-fA-F-]{36})(?:\?o=([^&#]+))?/.exec(String(card.videoURL));
+  if (!m) return { url: card.videoURL, expiresAt: null };
+  const stored = m[2] ? decodeURIComponent(m[2]) : null;
+  if (stored && stored !== orgId) return null;
+  if (!mediaOriginOn(env)) return { url: card.videoURL, expiresAt: null };
+  return (await signVideoUrl(env, { orgId: stored, id: m[1] })) || { url: card.videoURL, expiresAt: null };
+}
 
 export function json(body, status = 200, extraHeaders) {
   return new Response(JSON.stringify(body), {

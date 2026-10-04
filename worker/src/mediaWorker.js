@@ -11,7 +11,7 @@
 // Deployed with wrangler.media.toml; needs the MEDIA bucket and the
 // MEDIA_SIGNING_KEYS secret the API signs with.
 
-import { verifyFileUrl } from "./mediaToken.js";
+import { verifyFileUrl, verifyVideoUrl } from "./mediaToken.js";
 import { fileKey, byteRange, UNSATISFIABLE, isShown } from "./files.js";
 
 const legacyKey = (id) => `file-${id}`;
@@ -24,6 +24,7 @@ export async function serveMedia(request, env, now = Date.now()) {
     return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, HEAD", "access-control-allow-headers": "range" } });
   }
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
+  if (url.pathname.startsWith("/v/")) return serveVideo(request, env, url, now);
   const file = await verifyFileUrl(env, url, now);
   if (!file || !env.MEDIA) return notFound();
   const head = await env.MEDIA.head(fileKey(file.orgId, file.id)) || await env.MEDIA.head(legacyKey(file.id));
@@ -56,6 +57,41 @@ export async function serveMedia(request, env, now = Date.now()) {
   };
   if (request.method === "HEAD") return new Response(null, { status: range ? 206 : 200, headers: out });
   const obj = await env.MEDIA.get(head.key, range ? { range } : undefined);
+  if (!obj) return notFound();
+  return new Response(obj.body, { status: range ? 206 : 200, headers: out });
+}
+
+const VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+
+/// A card's video (POST /media's), by its signed address: played where it
+/// is, whole or a span at a time.
+async function serveVideo(request, env, url, now) {
+  const video = await verifyVideoUrl(env, url, now);
+  if (!video || !env.MEDIA) return notFound();
+  const key = video.orgId ? `org/${encodeURIComponent(video.orgId)}/media/${video.id}` : video.id;
+  const head = await env.MEDIA.head(key);
+  if (!head) return notFound();
+  const stored = String(head.httpMetadata?.contentType || "").split(";")[0].trim().toLowerCase();
+  const headers = {
+    "content-type": VIDEO_TYPES.has(stored) ? stored : "application/octet-stream",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; media-src 'self'; sandbox",
+    "cross-origin-resource-policy": "cross-origin",
+    "access-control-allow-origin": "*",
+    "accept-ranges": "bytes",
+    etag: head.httpEtag,
+    "cache-control": `private, max-age=${Math.max(0, Math.floor((video.expiresAt - now) / 1000))}`,
+  };
+  const ifRange = request.headers.get("if-range");
+  const range = ifRange && ifRange !== head.httpEtag ? null : byteRange(request.headers.get("range"), head.size);
+  if (range === UNSATISFIABLE) return new Response(null, { status: 416, headers: { ...headers, "content-range": `bytes */${head.size}` } });
+  const out = {
+    ...headers,
+    "content-length": String(range ? range.length : head.size),
+    ...(range ? { "content-range": `bytes ${range.offset}-${range.offset + range.length - 1}/${head.size}` } : {}),
+  };
+  if (request.method === "HEAD") return new Response(null, { status: range ? 206 : 200, headers: out });
+  const obj = await env.MEDIA.get(key, range ? { range } : undefined);
   if (!obj) return notFound();
   return new Response(obj.body, { status: range ? 206 : 200, headers: out });
 }
