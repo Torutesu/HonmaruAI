@@ -263,3 +263,13 @@ test("not set up on this deployment: the list says so and nothing connects", asy
   const tools = await appTools({ ...env }, { orgId: ORG, session: await sessionOf(mika), taint: { value: false } });
   expect(tools).toEqual({});
 });
+
+test("an app may write only when every agent called is the caller's own", async () => {
+  const { allOwnAgents } = await import("../src/channelRoutes.js");
+  // As listAgents returns them.
+  expect(allOwnAgents([{ ownerLogin: "toru" }], "toru")).toBe(true);
+  expect(allOwnAgents([{ ownerLogin: "toru" }, { ownerLogin: "mika" }], "toru")).toBe(false);
+  expect(allOwnAgents([], "toru")).toBe(false);
+  expect(allOwnAgents([{ ownerLogin: "toru" }], null)).toBe(false);
+});
+

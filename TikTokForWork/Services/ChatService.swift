@@ -12,8 +12,10 @@ struct ChatReaction: Codable, Hashable {
     var mine: Bool
 }
 
-/// A file or a picture on a message. `url` is a signed path on the Worker,
-/// good for a day or two; it is resolved against the API's base.
+/// A file or a picture on a message. `url` is a signed address — on the
+/// media origin, or a path on the API resolved against its base — good
+/// until `expiresAt` (ms). A file is kept by `id`; ChatMediaURLs renews its
+/// address before it runs out.
 struct ChatFile: Codable, Identifiable, Hashable {
     let id: String
     let name: String
@@ -22,6 +24,7 @@ struct ChatFile: Codable, Identifiable, Hashable {
     let width: Int?
     let height: Int?
     let url: String
+    var expiresAt: Double? = nil
 
     var isPicture: Bool { ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"].contains(type) }
     func address(base: URL) -> URL? { URL(string: url, relativeTo: base)?.absoluteURL }
@@ -415,6 +418,13 @@ enum ChatService {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { throw Failure.server((response as? HTTPURLResponse)?.statusCode ?? 0, nil) }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// New addresses for files whose addresses are running out, by id.
+    struct FreshFile: Decodable { let url: String; let expiresAt: Double }
+    static func freshFileURLs(orgId: String, ids: [String], base: URL) async throws -> [String: FreshFile] {
+        struct R: Decodable { let files: [String: FreshFile] }
+        return try await call("POST", "/media/urls", base: base, body: ["orgId": orgId, "ids": ids], as: R.self).files
     }
 
     static func call<T: Decodable>(_ method: String, _ path: String, base: URL, query: [String: String] = [:], body: [String: Any]? = nil, timeout: TimeInterval = 20, as type: T.Type) async throws -> T {
