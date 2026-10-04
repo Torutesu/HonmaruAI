@@ -160,3 +160,34 @@ test("with the media origin off, the API's own addresses come with when to renew
   expect(file.url).toMatch(/^\/files\/f_[0-9a-f]{24}\?e=\d+&s=/);
   expect(file.expiresAt).toBeGreaterThan(Date.now() + 86400000);
 });
+
+test("a card's video plays from the media origin only for someone who may read the card", async () => {
+  const { saveCard } = await import("../src/db.js");
+  const id = "0b9a1d6e-3c2f-4a51-9e7d-2f6b8c1a4d00";
+  await env.MEDIA.put(`org/${encodeURIComponent(ORG)}/media/${id}`, MP4, { httpMetadata: { contentType: "video/mp4" } });
+  await saveCard(env.DB, ORG, {
+    id: "card-v1", recipientUserID: "kenji", senderUserID: "mika", type: "approval", title: "New menu video", summary: "", status: "pending",
+    createdAt: new Date().toISOString(), videoURL: `https://api.example.com/media/${id}?o=${encodeURIComponent(ORG)}`, visibility: "personal",
+  });
+  const ask = (token, cardId = "card-v1") => call("/media/video", { method: "POST", headers: auth(token, { "content-type": "application/json" }), body: JSON.stringify({ orgId: ORG, cardId }) });
+  const got = await (await ask(kenji)).json();
+  expect(got.url).toMatch(/^https:\/\/media\.example\.com\/v\/k1\//);
+  const played = await fetchMedia(got.url, { headers: { range: "bytes=0-7" } });
+  expect(played.status).toBe(206);
+  expect(played.headers.get("content-type")).toBe("video/mp4");
+  // Toru is on neither end of a personal card; and a card that is not there.
+  expect((await ask(toru)).status).toBe(404);
+  expect((await ask(kenji, "card-nope")).status).toBe(404);
+  // Altered or stale, nothing.
+  expect((await fetchMedia(got.url.replace(/s=[^&]+/, "s=AAAA"))).status).toBe(404);
+  expect((await fetchMedia(got.url, {}, Date.now() + 2 * WINDOW_SECONDS * 1000)).status).toBe(404);
+});
+
+test("the bare video address can be retired", async () => {
+  const id = "0b9a1d6e-3c2f-4a51-9e7d-2f6b8c1a4d01";
+  await env.MEDIA.put(id, MP4, { httpMetadata: { contentType: "video/mp4" } });
+  const open = await worker.fetch(new Request(`https://example.com/media/${id}`), env, ctx);
+  expect(open.status).toBe(200);
+  const retired = await worker.fetch(new Request(`https://example.com/media/${id}`), { ...env, MEDIA_LEGACY_VIDEO: "off" }, ctx);
+  expect(retired.status).toBe(410);
+});

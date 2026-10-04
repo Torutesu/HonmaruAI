@@ -420,6 +420,13 @@ enum ChatService {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// Where to play a card's video from, signed for the person asking.
+    static func cardVideoURL(orgId: String, cardId: String, base: URL) async throws -> URL? {
+        struct R: Decodable { let url: String }
+        let got = try await call("POST", "/media/video", base: base, body: ["orgId": orgId, "cardId": cardId], as: R.self)
+        return URL(string: got.url, relativeTo: base)?.absoluteURL
+    }
+
     /// New addresses for files whose addresses are running out, by id.
     struct FreshFile: Decodable { let url: String; let expiresAt: Double }
     static func freshFileURLs(orgId: String, ids: [String], base: URL) async throws -> [String: FreshFile] {

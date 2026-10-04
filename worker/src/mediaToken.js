@@ -112,3 +112,43 @@ export async function verifyFileUrl(env, url, now = Date.now()) {
   if (!sameText(s, await hmac(secret, payload({ kid: m[1], orgId, id: m[3], type, name, w })))) return null;
   return { orgId, id: m[3], type, name, expiresAt: (w + 2) * WINDOW_SECONDS * 1000 };
 }
+
+// ---- Card videos ----
+//
+// A card's video was uploaded to POST /media and is read at its bare UUID
+// (GET /media/:uuid), which anyone with the address could fetch for ever.
+// On the media origin it is fetched by an address made only for someone who
+// may read the card (POST /media/video), good for ten to twenty minutes like
+// a file's. Videos stored without a workspace are signed with "-" for it.
+
+const videoPayload = ({ kid, orgId, id, w }) => ["v1", kid, orgId, id, String(w)].join("\n");
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/// A signed address for a card's video, and until when it is good (ms).
+export async function signVideoUrl(env, { orgId, id }, now = Date.now()) {
+  const keys = signingKeys(env);
+  const base = origin(env);
+  if (!keys || !base || !UUID.test(String(id || ""))) return null;
+  const org = orgId || "-";
+  const w = windowOf(now);
+  const kid = keys.kid;
+  const s = await hmac(keys.keys.get(kid), videoPayload({ kid, orgId: org, id, w }));
+  return { url: `${base}/v/${kid}/${org === "-" ? "-" : enc(org)}/${id}?w=${w}&s=${s}`, expiresAt: (w + 2) * WINDOW_SECONDS * 1000 };
+}
+
+/// What a signed video address says, when genuine and still good; null
+/// otherwise. `orgId` is null for a video stored without a workspace.
+export async function verifyVideoUrl(env, url, now = Date.now()) {
+  const m = url.pathname.match(/^\/v\/([A-Za-z0-9_-]{1,16})\/(-|[A-Za-z0-9_-]+)\/([0-9a-fA-F-]{36})$/);
+  if (!m || !UUID.test(m[3])) return null;
+  const secret = signingKeys(env)?.keys.get(m[1]);
+  if (!secret) return null;
+  let org;
+  try { org = m[2] === "-" ? "-" : dec(m[2]); } catch { return null; }
+  const w = Number(url.searchParams.get("w"));
+  const s = url.searchParams.get("s") || "";
+  const current = windowOf(now);
+  if (!Number.isInteger(w) || w > current || w < current - 1) return null;
+  if (!sameText(s, await hmac(secret, videoPayload({ kid: m[1], orgId: org, id: m[3], w })))) return null;
+  return { orgId: org === "-" ? null : org, id: m[3], expiresAt: (w + 2) * WINDOW_SECONDS * 1000 };
+}
