@@ -784,6 +784,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // Open on screen, it goes back to the feed rather than a card that is gone.
     if (route.cardId === cardId) navigate(hashForMode('cards'), true)
   }, [addDebugLog, route.cardId, navigate])
+  /// A card's importance, changed by hand: the relay keeps it and tells
+  /// everyone on the card, here included, with the card as it now is.
+  const handleSetPriority = useCallback((cardId: string, priority: string) => {
+    wsClientRef.current?.sendSetPriority(cardId, priority)
+    addDebugLog(`Priority of ${cardId}: ${priority}`)
+  }, [addDebugLog])
   const handleRollback = useCallback((cardId: string) => {
     wsClientRef.current!.sendRollback(cardId)
     addDebugLog(`Rolled back: ${cardId}`)
@@ -947,6 +953,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             answers={answers}
             onUndo={handleRollback}
             onDelete={handleDelete}
+            onSetPriority={handleSetPriority}
             api={api}
             layout="desk"
           />
@@ -966,6 +973,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           answers={answers}
           onUndo={handleRollback}
           onDelete={handleDelete}
+          onSetPriority={handleSetPriority}
           api={api}
           layout="phone"
         />
@@ -1007,6 +1015,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
               answers={answers}
               onUndo={handleRollback}
               onDelete={handleDelete}
+              onSetPriority={handleSetPriority}
               api={api}
               layout="desk"
             />

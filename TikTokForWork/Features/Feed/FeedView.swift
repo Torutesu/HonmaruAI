@@ -116,7 +116,8 @@ private struct CardHomeContent: View {
                     ForEach(cards) { card in
                         VStack(spacing: 0) {
                             ScrollView {
-                                DecisionCardView(card: card, linkedRepository: appState.githubService.linkedRepository, isGitHubConnected: !appState.isGuest && appState.githubService.isConnected, showsActions: false, onAction: { handle($0, card: card) }, onShowDetails: { detailCard = card })
+                                DecisionCardView(card: card, linkedRepository: appState.githubService.linkedRepository, isGitHubConnected: !appState.isGuest && appState.githubService.isConnected, showsActions: false, onAction: { handle($0, card: card) }, onShowDetails: { detailCard = card },
+                                                 onSetPriority: appState.isGuest || !card.isPending ? nil : { level in Task { await appState.webSocketService.setPriority(cardID: card.id, priority: level) } })
                                     .disabled(isWorking).padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 8)
                             }
                             if card.awaitsPost {

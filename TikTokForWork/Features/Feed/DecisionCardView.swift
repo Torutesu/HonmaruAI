@@ -9,6 +9,8 @@ struct DecisionCardView: View {
     var showsActions = true
     let onAction: (CardActionKind) -> Void
     let onShowDetails: () -> Void
+    /// Change the card's importance; nil where it is shown and not offered.
+    var onSetPriority: ((CardPriority) -> Void)? = nil
     @EnvironmentObject private var appState: AppState
     @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -116,8 +118,44 @@ struct DecisionCardView: View {
     }
     /// This card's priority, and only it: three levels with two of them
     /// idle said less than one word.
-    private var priorities: some View {
-        priorityLegend(card.priorityLabel, color: priorityColor)
+    @ViewBuilder private var priorities: some View {
+        if let onSetPriority {
+            // The AI's guess is a first guess: the word is a menu, and says
+            // "AI" until somebody has changed it.
+            Menu {
+                Picker("Priority", selection: Binding(get: { card.priority }, set: { if $0 != card.priority { onSetPriority($0) } })) {
+                    ForEach(CardPriority.allCases, id: \.self) { level in Text(Self.word(level)).tag(level) }
+                }
+                Text(priorityWho)
+            } label: {
+                HStack(spacing: 3) {
+                    priorityLegend(card.priorityLabel, color: priorityColor)
+                    if card.prioritySetBy == nil {
+                        Text("AI").font(.system(size: captionSize - 1, weight: .bold)).foregroundStyle(Theme.Colors.accent)
+                    }
+                    Image(systemName: "chevron.down").font(.system(size: captionSize - 2, weight: .semibold)).foregroundStyle(Theme.Colors.textTertiary)
+                }
+            }
+            .accessibilityLabel(Text("Priority: \(card.priorityLabel)"))
+            .accessibilityHint(Text("Change priority"))
+        } else {
+            priorityLegend(card.priorityLabel, color: priorityColor)
+        }
+    }
+    private var priorityWho: String {
+        guard let who = card.prioritySetBy else { return String(localized: "Suggested by AI") }
+        let name = who == appState.currentUser?.id ? String(localized: "you") : DisplayName.of(who, in: appState.organization)
+        var out = String(localized: "Set by \(name)")
+        if let ai = card.aiPriority, ai != card.priority { out += " · " + String(localized: "AI suggested \(Self.word(ai))") }
+        return out
+    }
+    private static func word(_ level: CardPriority) -> String {
+        switch level {
+        case .low: String(localized: "Low")
+        case .medium: String(localized: "Medium")
+        case .high: String(localized: "High")
+        case .urgent: String(localized: "Urgent")
+        }
     }
     private var priorityColor: Color {
         switch card.priority {

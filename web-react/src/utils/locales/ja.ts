@@ -228,6 +228,8 @@ const table: Record<string, string> = {
   'Connected by {name}': '{name}さんが接続',
   'Connected tool': '接続されたツール',
   'Translated · Show original': '翻訳 · 原文を表示',
+  'Translating…': '翻訳中…',
+  "Couldn't translate · Try again": '翻訳できませんでした · 再試行',
   'Show translation': '翻訳を表示',
   'Translate messages': 'メッセージを翻訳',
   'Messages in another language are shown in yours. Show original is one tap away.': 'ほかの言語のメッセージを、あなたの言語で表示します。原文もワンタップで見られます。',
@@ -2111,6 +2113,10 @@ const table: Record<string, string> = {
   "The repository Codex works in (the first one listed), and a GitHub token that can push to it and open pull requests.": "Codexが作業するリポジトリ（リストの最初のもの）と、そこにプッシュしてプルリクエストを作れるGitHubトークン。",
   "Codex runs on your ChatGPT plan, so its limit here is a number of tasks: each request and follow-up is one.": "CodexはChatGPTプランで動くため、ここでの上限はタスク数で決めます。依頼1件、追加の依頼1件がそれぞれ1タスクです。",
   "Spoiler, press to reveal": "ネタバレ。押すと表示します",
+  'Suggested by AI': 'AI の提案',
+  'Set by {name}': '{name} が設定',
+  'AI suggested {level}': 'AI の提案は{level}',
+  "Couldn't load this profile.": 'このプロフィールを読み込めませんでした。',
 }
 
 export default table

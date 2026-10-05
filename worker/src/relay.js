@@ -21,7 +21,7 @@ import { syncCardToGitHub, getWorkspaceGitHub } from "./githubWorkspace.js";
 import { allowanceFor } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
 import { emitCard } from "./webhooks.js";
-import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
+import { validateIncomingCard, MAX_CONTEXT_BYTES, PRIORITIES } from "./agui/validate.js";
 import { applyAutoRule } from "./autorules.js";
 import { redirectIfAway } from "./people.js";
 import { listMembers } from "./team.js";
@@ -467,6 +467,10 @@ export class OrgRelay {
           }
           return;
         }
+        // Importance set by hand is set afterwards, through set_priority —
+        // not claimed by whoever made the card.
+        delete card.prioritySetBy;
+        delete card.aiPriority;
         // And a new card arrives undecided. A decision is the recipient's to
         // make, over `tool_result` or `card_updated`, after the card exists.
         if (card.decision !== undefined || (card.status !== undefined && card.status !== "pending")) {
@@ -585,6 +589,16 @@ export class OrgRelay {
             ws.send(JSON.stringify(runError(DRAFT_MUST_POST)));
             return;
           }
+          // Importance someone set by hand stays theirs: a client's older
+          // copy, or anything else republishing the card, does not undo it.
+          if (existing.prioritySetBy) {
+            card.priority = existing.priority;
+            card.prioritySetBy = existing.prioritySetBy;
+            if (existing.aiPriority !== undefined) card.aiPriority = existing.aiPriority;
+          } else {
+            delete card.prioritySetBy;
+            delete card.aiPriority;
+          }
           for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "proxyAction", "reminder", "autoApproved", "coveringFor"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
@@ -670,6 +684,35 @@ export class OrgRelay {
       await saveCard(this.db, orgId, updated);
       await this.log(orgId, {
         cardId: card.id, type: "filed", action: business || null, actorUserId: att.userId, snapshot: updated,
+      });
+      const { forEveryone } = upsertEvents(updated, { isNew: false });
+      for (const ev of forEveryone) this.broadcastCard(orgId, updated, ev);
+      return;
+    }
+
+    if (type === "set_priority") {
+      // The AI's importance is a first guess. Either party to the card may
+      // put it right — the recipient who has to weigh it, the sender who
+      // knows how much it matters — and the choice is theirs from then on:
+      // `prioritySetBy` keeps it through every later update (below), until
+      // somebody sets it again.
+      const card = await getCard(this.db, orgId, payload.cardId);
+      if (!card) return;
+      if (card.senderUserID !== att.userId && card.recipientUserID !== att.userId) {
+        ws.send(JSON.stringify(runError("Only the sender or the recipient can change this decision's importance.")));
+        return;
+      }
+      if (!PRIORITIES.has(payload.priority)) {
+        ws.send(JSON.stringify(runError("That is not an importance a card can have.")));
+        return;
+      }
+      if (card.priority === payload.priority && card.prioritySetBy) return;
+      const updated = { ...card, priority: payload.priority, prioritySetBy: att.userId };
+      // What the AI first said, kept once, so a client can say "AI: High".
+      if (!card.prioritySetBy) updated.aiPriority = card.priority;
+      await saveCard(this.db, orgId, updated);
+      await this.log(orgId, {
+        cardId: card.id, type: "reprioritized", action: payload.priority, actorUserId: att.userId, snapshot: updated,
       });
       const { forEveryone } = upsertEvents(updated, { isNew: false });
       for (const ev of forEveryone) this.broadcastCard(orgId, updated, ev);

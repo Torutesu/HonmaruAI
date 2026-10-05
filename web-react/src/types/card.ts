@@ -21,6 +21,10 @@ export interface DecisionCard {
   context: string
   status: CardStatus
   priority: CardPriority
+  /// Who set the priority by hand (#207); absent while it is the AI's.
+  prioritySetBy?: string
+  /// What the AI first said, kept once somebody changed it.
+  aiPriority?: CardPriority
   createdAt: string
   githubIssueNumber?: number
   githubIssueURL?: string

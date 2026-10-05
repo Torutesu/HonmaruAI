@@ -135,6 +135,8 @@ struct ChatProfileSheet: View {
     var onMessage: ((String) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var profile: ChatProfile?
+    /// Nothing kept and nothing read: said so, with a way to try again.
+    @State private var failed = false
 
     var body: some View {
         NavigationStack {
@@ -175,16 +177,28 @@ struct ChatProfileSheet: View {
                             }.buttonStyle(.borderedProminent).tint(Theme.Colors.accent).padding(.horizontal, 20)
                         }
                     }
+                } else if failed {
+                    VStack(spacing: 12) {
+                        Text("Couldn't load this profile.").foregroundStyle(Theme.Colors.textSecondary)
+                        Button("Try again") { Task { await load() } }
+                    }.padding(60)
                 } else {
                     ProgressView().padding(60)
                 }
             }
             .navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .task { profile = await store.profile(ref) }
+            .task { await load() }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// What was read before, at once; the server's, when it answers.
+    private func load() async {
+        failed = false
+        if profile == nil { profile = store.cachedProfile(ref) }
+        if let fresh = await store.profile(ref) { profile = fresh } else if profile == nil { failed = true }
     }
 
     private func stat(_ label: LocalizedStringKey, _ value: String) -> some View {

@@ -346,6 +346,11 @@ export const ClassicList: React.FC<Props> = ({
   const [serverReads, setServerReads] = useState<Record<string, string>>({})
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
+  /// What was last shown, for this account and workspace (#209): drawn at
+  /// once when a list, a thread or a profile is opened again, and replaced
+  /// by what the server says behind it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const views = useMemo(() => channelMessageCache(api).views, [api.httpBase, api.orgId, api.sessionToken])
   // Your daily report's draft, waiting in the channel it is for.
   const dailyDrafts = useMemo(() => pending.filter((c) => c.dailyReport && awaitsPost(c) && c.dailyReport.status === 'draft'), [pending])
   const draftsFor = (view: string) => dailyDrafts.filter((c) => c.dailyReport!.channel === view)
@@ -721,20 +726,22 @@ export const ClassicList: React.FC<Props> = ({
   // Drafts & sent: what you are still writing, and what you said.
   const [sentOpen, setSentOpen] = useState(false)
   const [sentTab, setSentTab] = useState<'drafts' | 'sent'>('drafts')
-  const [sentItems, setSentItems] = useState<ChannelMessage[] | null>(null)
+  const [sentItems, setSentItems] = useState<ChannelMessage[] | null>(() => views.get<ChannelMessage[]>('sent') ?? null)
+  useEffect(() => { if (sentItems) views.set('sent', sentItems, { read: false }) }, [sentItems, views])
   const loadSent = useCallback(() => {
     return fetch(`${api.httpBase}/channels/sent?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setSentItems(data.items || []) })
+      .then((data) => { if (data) { views.set('sent', data.items || []); setSentItems(data.items || []) } })
       .catch(() => { /* the list stays as it was */ })
-  }, [api.httpBase, api.orgId, authHeaders])
-  const [threadItems, setThreadItems] = useState<ThreadItem[] | null>(null)
+  }, [api.httpBase, api.orgId, authHeaders, views])
+  const [threadItems, setThreadItems] = useState<ThreadItem[] | null>(() => views.get<ThreadItem[]>('threads') ?? null)
+  useEffect(() => { if (threadItems) views.set('threads', threadItems, { read: false }) }, [threadItems, views])
   const loadThreads = useCallback(() => {
     return fetch(`${api.httpBase}/channels/threads?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setThreadItems(data.threads || []) })
+      .then((data) => { if (data) { views.set('threads', data.threads || []); setThreadItems(data.threads || []) } })
       .catch(() => { /* the list stays as it was */ })
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, views])
   useEffect(() => { void loadThreads() }, [loadThreads])
   const threadsUnread = (threadItems || []).filter((x) => x.unread).length
   /// Threads read up to a point, wherever that was done: each one whose
@@ -751,7 +758,8 @@ export const ClassicList: React.FC<Props> = ({
       return i.unread && at && (i.at || i.message.createdAt) <= at ? { ...i, unread: false } : i
     }))
   }, [])
-  const [activityItems, setActivityItems] = useState<ActivityItem[] | null>(null)
+  const [activityItems, setActivityItems] = useState<ActivityItem[] | null>(() => views.get<ActivityItem[]>('activity') ?? null)
+  useEffect(() => { if (activityItems) views.set('activity', activityItems, { read: false }) }, [activityItems, views])
   // What the Unread tab showed when you came to it stays in the list while
   // you are there, however many of them you have looked at since.
   const [unreadShown, setUnreadShown] = useState<Set<string>>(() => new Set())
@@ -760,9 +768,9 @@ export const ClassicList: React.FC<Props> = ({
   const loadActivity = useCallback(() => {
     return fetch(`${api.httpBase}/channels/activity?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setActivityItems(data.items || []) })
+      .then((data) => { if (data) { views.set('activity', data.items || []); setActivityItems(data.items || []) } })
       .catch(() => { /* nothing new is the same as nothing loaded */ })
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, views])
   useEffect(() => { void loadActivity() }, [loadActivity])
   const stillNew = (i: ActivityItem) => i.unread
   const activityKey = (i: ActivityItem) => i.key || `${i.type}-${i.message.id}-${i.emoji || ''}-${i.at || ''}`
@@ -1046,17 +1054,26 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   // A teammate's profile, beside the conversation.
-  const [profile, setProfile] = useState<null | { ref: string; data?: ProfileData }>(null)
+  const [profile, setProfile] = useState<null | { ref: string; data?: ProfileData; failed?: boolean }>(null)
   const readProfile = useCallback(async (ref: string): Promise<ProfileData | null> => {
     const res = await fetch(`${api.httpBase}/channels/member?orgId=${encodeURIComponent(api.orgId)}&ref=${encodeURIComponent(ref)}`, { headers: authHeaders }).catch(() => null)
     const d = res?.ok ? await res.json().catch(() => null) : null
+    if (d?.member) views.set(`profile:${ref}`, d.member)
     return d?.member || null
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, views])
+  /// A profile opened again is drawn from what was read before, and read
+  /// again behind it when that is more than half a minute old. Nothing kept
+  /// and nothing read: said so, with a way to try again — never a
+  /// "Loading…" that stays.
+  const PROFILE_FRESH_MS = 30_000
+  const cachedProfile = (ref: string) => views.get<ProfileData>(`profile:${ref}`)
   const openProfile = async (ref: string) => {
     setDetailId(null); setThread(null)
-    setProfile({ ref })
+    const kept = cachedProfile(ref)
+    setProfile({ ref, data: kept })
+    if (kept && views.fresh(`profile:${ref}`, PROFILE_FRESH_MS)) return
     const data = await readProfile(ref)
-    if (data) setProfile((prev) => (prev && prev.ref === ref ? { ref, data } : prev))
+    setProfile((prev) => (prev && prev.ref === ref ? (data ? { ref, data } : prev.data ? prev : { ref, failed: true }) : prev))
   }
   // Their card, popped out beside the face, name or @mention it was opened
   // from: what the member list knows at once, their clock once the same read
@@ -1065,7 +1082,9 @@ export const ClassicList: React.FC<Props> = ({
   const [popout, setPopout] = useState<null | { ref: string; anchor: HTMLElement; name?: string; data?: ProfileData }>(null)
   const openPopout = (ref: string, anchor: HTMLElement, name?: string) => {
     if (popout && popout.ref === ref && popout.anchor === anchor) { setPopout(null); return }
-    setPopout({ ref, anchor, name })
+    const kept = cachedProfile(ref)
+    setPopout({ ref, anchor, name, data: kept })
+    if (kept && views.fresh(`profile:${ref}`, PROFILE_FRESH_MS)) return
     void readProfile(ref).then((data) => { if (data) setPopout((prev) => (prev && prev.ref === ref && prev.anchor === anchor ? { ...prev, data } : prev)) })
   }
   /// Every @mention of a person presses like a button (MessageParts); this
@@ -1095,11 +1114,13 @@ export const ClassicList: React.FC<Props> = ({
   // the sidebar is.
   const profileRef = profile?.ref
   useEffect(() => {
-    if (!profileRef) return
+    const stale = () => views.stale('profile:')
+    window.addEventListener('honmaru:members-changed', stale)
+    if (!profileRef) return () => window.removeEventListener('honmaru:members-changed', stale)
     const on = () => { void readProfile(profileRef).then((data) => { if (data) setProfile((prev) => (prev && prev.ref === profileRef ? { ref: profileRef, data } : prev)) }) }
     window.addEventListener('honmaru:members-changed', on)
-    return () => window.removeEventListener('honmaru:members-changed', on)
-  }, [profileRef, readProfile])
+    return () => { window.removeEventListener('honmaru:members-changed', on); window.removeEventListener('honmaru:members-changed', stale) }
+  }, [profileRef, readProfile, views])
 
   // Keys a chat client has: ⌥↑/⌥↓ between conversations in the order the
   // sidebar shows them (a folded group's are out of sight, and skipped),
@@ -2204,6 +2225,11 @@ export const ClassicList: React.FC<Props> = ({
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const pickerKey = (m: ChannelMessage, inThread: boolean) => `${inThread ? 'thread:' : ''}${m.id}`
   const [thread, setThread] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[] } | null>(null)
+  // The thread as it stands — replies sent, edited, arrived live — kept for
+  // the next time it is opened.
+  useEffect(() => {
+    if (thread) views.set(`thread:${thread.channel}:${thread.parent.id}`, thread.replies.filter((r) => !isTemp(r)), { read: false })
+  }, [thread, views])
 
   // Messages in another language, in yours: translated once on the server
   // and kept; the words they were translated from, so an edit asks again.
@@ -2213,6 +2239,11 @@ export const ClassicList: React.FC<Props> = ({
   const [originals, setOriginals] = useState<Set<string>>(new Set())
   const [translateOff, setTranslateOff] = useState(false)
   const asking = useRef<Set<string>>(new Set())
+  // Asked for and not back yet — "Translating…" under the message — and
+  // asked for and not had: "Couldn't translate · Try again". Each by the
+  // words asked about, so an edit starts over.
+  const [translating, setTranslating] = useState<Record<string, string>>({})
+  const [untranslated, setUntranslated] = useState<Record<string, string>>({})
   // Anything not in the language you set is translated into it — "latn"
   // (Latin letters too few to name the language) included.
   const needsTranslation = (m: ChannelMessage) => !translateOff && !m.deleted && Boolean(m.lang) && m.lang !== readerLang
@@ -2221,11 +2252,27 @@ export const ClassicList: React.FC<Props> = ({
     const want = list.filter(needsTranslation).slice(0, 60)
     if (!want.length) return
     for (const m of want) asking.current.add(`${m.id}:${m.body}`)
+    const mark = (set: typeof setTranslating, on: boolean) => set((prev) => {
+      const next = { ...prev }
+      for (const m of want) { if (on) next[m.id] = m.body; else delete next[m.id] }
+      return next
+    })
+    mark(setTranslating, true)
+    mark(setUntranslated, false)
     const res = await fetch(`${api.httpBase}/channels/translate`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel, ids: want.map((m) => m.id), locale: readerLang }),
     }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
+    mark(setTranslating, false)
+    // Not reached, or the answer unreadable: said so, with a way to ask
+    // again. An answer that leaves a message out (no translator here,
+    // nothing to change) is no failure — the message just stays as it is.
+    if (!data) {
+      for (const m of want) asking.current.delete(`${m.id}:${m.body}`)
+      mark(setUntranslated, true)
+      return
+    }
     if (data?.off) { setTranslateOff(true); return }
     if (data?.translations) {
       setTranslations((prev) => {
@@ -2277,6 +2324,18 @@ export const ClassicList: React.FC<Props> = ({
     return tr && tr.from === m.body && tr.text.trim() !== m.body.trim() && !originals.has(m.id) ? { text: tr.text, translated: true } : { text: m.body, translated: false }
   }
   const translationNote = (m: ChannelMessage) => {
+    if (translateOff || m.deleted) return null
+    if (translating[m.id] === m.body) {
+      return <span className="slk-translating" role="status">{t('Translating…')}</span>
+    }
+    if (untranslated[m.id] === m.body) {
+      return (
+        <button type="button" className="slk-translated slk-translate-failed"
+          onClick={() => void translate(m.channel, [m])}>
+          {t("Couldn't translate · Try again")}
+        </button>
+      )
+    }
     const tr = translations[m.id]
     if (!tr || tr.from !== m.body || tr.text.trim() === m.body.trim()) return null
     const showing = !originals.has(m.id)
@@ -2636,7 +2695,9 @@ export const ClassicList: React.FC<Props> = ({
     }
     setDetailId(null)
     setProfile(null)
-    setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? prev.replies.filter(isTemp) : [] }))
+    // The replies read last time, at once; the server's, when they come.
+    const kept = views.get<ChannelMessage[]>(`thread:${channel}:${m.id}`) || []
+    setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept }))
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
     // Replies of yours still on their way, or that did not go — sent while
@@ -5181,7 +5242,9 @@ export const ClassicList: React.FC<Props> = ({
             <h2>{t('Profile')}</h2>
             <button className="slk-pane-close" onClick={() => setProfile(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
           </header>
-          {!profile.data ? <p className="slk-empty">{t('Loading…')}</p> : (() => {
+          {!profile.data ? (profile.failed
+            ? <p className="slk-empty">{t("Couldn't load this profile.")} <button type="button" className="slk-link-button" onClick={() => void openProfile(profile.ref)}>{t('Try again')}</button></p>
+            : <p className="slk-empty">{t('Loading…')}</p>) : (() => {
             const p = profile.data
             const local = localTime(p.timezone, Date.now(), locale)
             const status = statusShown(p.status, Date.now())

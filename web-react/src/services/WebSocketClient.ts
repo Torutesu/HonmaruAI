@@ -455,6 +455,11 @@ export class WebSocketClient {
     this.post({ type: 'card_deleted', payload: { cardId } })
   }
 
+  /// A card's importance, changed by hand: the AI's was a first guess.
+  sendSetPriority(cardId: string, priority: string): void {
+    this.post({ type: 'set_priority', payload: { cardId, priority } })
+  }
+
   sendSetBusiness(cardId: string, business: string | null): void {
     this.post({ type: 'set_business', payload: { cardId, business } })
   }

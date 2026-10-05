@@ -91,8 +91,21 @@ final class ChatStore: ObservableObject {
     @Published private(set) var agents: [ChatAgent] = []
     /// Agents writing answers, by conversation, until each one has.
     @Published var agentTyping: [String: [ChatAgentTyping]] = [:]
-    @Published var thread: ChatThread?
+    @Published var thread: ChatThread? {
+        // The thread as it stands — replies sent, edited, arrived live —
+        // kept for the next time it is opened (#209).
+        didSet { if let t = thread, let key = viewKey(t.parent.id) { threadReplies[key] = t.replies.filter { !$0.id.hasPrefix("tmp-") } } }
+    }
     @Published var error: String?
+    /// What was last shown, in memory, for this account and workspace: a
+    /// thread's replies and a teammate's profile, drawn at once when opened
+    /// again and replaced by what the server says behind them.
+    private var threadReplies: [String: [ChatMessage]] = [:]
+    private var profiles: [String: (profile: ChatProfile, at: Date)] = [:]
+    private func viewKey(_ id: String) -> String? {
+        guard let orgId, let me = appState?.currentUser?.id else { return nil }
+        return "\(me)|\(orgId)|\(id)"
+    }
 
     private weak var appState: AppState?
     private var bag = Set<AnyCancellable>()
@@ -397,7 +410,13 @@ final class ChatStore: ObservableObject {
         let reader = String((appState?.readerLanguageCode ?? "en").prefix(2)).lowercased()
         let want = ChatTranslations.shared.wanted(list, reader: reader)
         guard !want.isEmpty else { return }
-        guard let got = try? await ChatService.translate(orgId: orgId, channel: channel, ids: want.prefix(60).map(\.id), locale: reader, base: base) else { return }
+        let asked = Array(want.prefix(60))
+        let tr = ChatTranslations.shared
+        tr.retry = { [weak self] m in Task { await self?.translate(m.channel, [m]) } }
+        tr.asking(asked)
+        let got = try? await ChatService.translate(orgId: orgId, channel: channel, ids: asked.map(\.id), locale: reader, base: base)
+        tr.answered(asked, reached: got != nil)
+        guard let got else { return }
         if got.off == true { ChatTranslations.shared.off = true; return }
         for m in want { if let text = got.translations[m.id] { ChatTranslations.shared.store(m.id, from: m.body, text: text) } }
     }
@@ -618,7 +637,7 @@ final class ChatStore: ObservableObject {
             guard let t = try? await ChatService.thread(orgId: orgId, channel: m.channel, messageId: parentId, base: base) else { return }
             return await openThread(t.parent)
         }
-        thread = ChatThread(parent: m, replies: [])
+        thread = ChatThread(parent: m, replies: viewKey(m.id).flatMap { threadReplies[$0] } ?? [])
         if let t = try? await ChatService.thread(orgId: orgId, channel: m.channel, messageId: m.id, base: base), thread?.parent.id == m.id { thread = t }
         if let t = thread { await translate(m.channel, [t.parent] + t.replies) }
         // A thread opened is a thread read: Threads and Activity both stop
@@ -702,9 +721,19 @@ final class ChatStore: ObservableObject {
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
+    /// A profile read before, to draw at once.
+    func cachedProfile(_ ref: String) -> ChatProfile? {
+        viewKey("profile:" + ref).flatMap { profiles[$0]?.profile }
+    }
+    /// The profile from the server — or, read within the last half minute,
+    /// the one already here.
     func profile(_ ref: String) async -> ChatProfile? {
         guard let orgId, let base else { return nil }
-        return try? await ChatService.profile(orgId: orgId, ref: ref, base: base)
+        let key = viewKey("profile:" + ref)
+        if let key, let kept = profiles[key], Date().timeIntervalSince(kept.at) < 30 { return kept.profile }
+        guard let fresh = try? await ChatService.profile(orgId: orgId, ref: ref, base: base) else { return nil }
+        if let key { profiles[key] = (fresh, Date()) }
+        return fresh
     }
 
     /// A slash command: done here, with a line only you see.

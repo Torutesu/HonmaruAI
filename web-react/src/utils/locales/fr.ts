@@ -380,6 +380,8 @@ const table: Record<string, string> = {
   'Connected by {name}': 'Connecté par {name}',
   'Connected tool': 'Outil connecté',
   'Translated · Show original': 'Traduit · Voir l’original',
+  'Translating…': 'Traduction…',
+  "Couldn't translate · Try again": 'Traduction impossible · Réessayer',
   'Show translation': 'Voir la traduction',
   'Translate messages': 'Traduire les messages',
   'Messages in another language are shown in yours. Show original is one tap away.': 'Les messages dans une autre langue s’affichent dans la vôtre. L’original est à un clic.',
@@ -1990,6 +1992,10 @@ const table: Record<string, string> = {
   "The repository Codex works in (the first one listed), and a GitHub token that can push to it and open pull requests.": "Le dépôt dans lequel Codex travaille (le premier de la liste) et un jeton GitHub qui peut y pousser et ouvrir des pull requests.",
   "Codex runs on your ChatGPT plan, so its limit here is a number of tasks: each request and follow-up is one.": "Codex fonctionne avec votre forfait ChatGPT : sa limite ici est donc un nombre de tâches, chaque demande et chaque relance en comptant une.",
   "Spoiler, press to reveal": "Spoiler, appuyez pour afficher",
+  'Suggested by AI': 'Suggéré par l’IA',
+  'Set by {name}': 'Défini par {name}',
+  'AI suggested {level}': 'L’IA suggérait {level}',
+  "Couldn't load this profile.": 'Impossible de charger ce profil.',
 }
 
 export default table
