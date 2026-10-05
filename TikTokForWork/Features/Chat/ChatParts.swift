@@ -177,6 +177,62 @@ struct ChatTranslatingLabel: View {
     }
 }
 
+/// Messages of yours not yet confirmed by the server (#212): on their way
+/// (faded) or failed (faded, with why and Try again). A message is marked
+/// sent only when the server says it has it, never because it was drawn;
+/// then it fades up to full over a moment.
+final class ChatSends: ObservableObject {
+    static let shared = ChatSends()
+    enum State: Equatable { case pending, failed(String) }
+    @Published var states: [String: State] = [:]
+    /// Just confirmed: drawn from faded to full once.
+    @Published var landing: Set<String> = []
+    var retry: ((String) -> Void)?
+    var discard: ((String) -> Void)?
+
+    func landed(_ id: String) {
+        landing.insert(id)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            self.landing.remove(id)
+        }
+    }
+}
+
+/// How a message of yours is drawn while it is on its way, failed, or just
+/// confirmed.
+struct ChatSendState: ViewModifier {
+    let message: ChatMessage
+    @ObservedObject private var sends = ChatSends.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+    func body(content: Content) -> some View {
+        let state = sends.states[message.id]
+        let landing = sends.landing.contains(message.id)
+        VStack(alignment: .leading, spacing: 4) {
+            content
+                .opacity(state != nil ? 0.5 : (landing && !shown ? 0.5 : 1))
+                .onAppear {
+                    guard landing else { return }
+                    if reduceMotion { shown = true } else { withAnimation(.easeOut(duration: 0.26)) { shown = true } }
+                }
+            switch state {
+            case .pending:
+                Text("Sending…").font(.caption2).foregroundStyle(Theme.Colors.textTertiary).padding(.leading, 44)
+            case .failed(let why):
+                HStack(spacing: 12) {
+                    Text("Not sent · \(why)").font(.caption2).foregroundStyle(Theme.Colors.reject).lineLimit(2)
+                    Button("Try again") { sends.retry?(message.id) }.font(.caption2.weight(.semibold))
+                    Button("Delete", role: .destructive) { sends.discard?(message.id) }.font(.caption2.weight(.semibold))
+                }.buttonStyle(.plain).padding(.leading, 44)
+            case nil:
+                EmptyView()
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
 /// A message's words, with quotes and lists as blocks.
 struct ChatRichText: View {
     let text: String

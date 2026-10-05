@@ -6,7 +6,7 @@
 import type { Message } from '../../protocol/src/v2'
 
 /// What the conversation itself shows: messages, and replies sent to it too.
-export function inConversation(messages: Message[]): Message[] {
+export function inConversation<T extends Message>(messages: T[]): T[] {
   return messages.filter((m) => !m.parentId || m.alsoChannel)
 }
 
@@ -26,7 +26,7 @@ export function replyStats(messages: Message[]): Map<string, ReplyStats> {
 
 /// One thread: the message it hangs off and its replies, oldest first.
 /// Null when that message is not held.
-export function threadOf(messages: Message[], parentId: string): { parent: Message; replies: Message[] } | null {
+export function threadOf<T extends Message>(messages: T[], parentId: string): { parent: T; replies: T[] } | null {
   const parent = messages.find((m) => m.id === parentId)
   if (!parent) return null
   return { parent, replies: messages.filter((m) => m.parentId === parentId && !m.deletedAt) }

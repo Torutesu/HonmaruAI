@@ -716,6 +716,11 @@
    red wash with the reason and what to do under the words. The red is mixed
    toward the ink so the reason reads on both themes. */
 .classic.slk.slk .slk-msg.pending:not(.editing) .slk-body > :not(.slk-meta):not(.slk-unsent) { opacity: .55; }
+/* Confirmed by the server: up to full over a moment, not at once (#212).
+   The row is the same element from the press of Enter to the server's copy
+   (drawnAs), so only the opacity changes. */
+.classic.slk.slk .slk-msg .slk-body > :not(.slk-meta):not(.slk-unsent) { transition: opacity 260ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .classic.slk.slk .slk-msg .slk-body > * { transition: none; } }
 .classic.slk.slk .slk-msg.failed,
 .classic.slk.slk .slk-msg.failed:hover { background: color-mix(in srgb, var(--slk-red) 7%, transparent); }
 .classic.slk.slk .slk-unsent {

@@ -33,10 +33,7 @@ struct ConversationView: View {
     /// What was being written when an edit began: back in the box when the
     /// edit is done or cancelled. An edit's words are never kept as a draft.
     @State private var keptDraft: String?
-    /// A message on its way: the box is already empty and Send is off until
-    /// the server answers, so one tap is one message (issue #205).
-    @State private var sending = false
-    /// The last send that did not go: its words are back in the box, and
+    /// The last send refused or held back (a data rule): its words are back in the box, and
     /// sending the same words again reuses its id, so a send that in fact
     /// landed is not posted twice.
     @State private var unsent: (text: String, clientId: String)?
@@ -237,13 +234,15 @@ struct ConversationView: View {
                 onOpenCard: open(card:),
                 onProfile: { profileRef = $0 }
             )
+            .modifier(ChatSendState(message: m))
             .id(m.id)
             .overlay(alignment: .topTrailing) {
                 if clip.contains(where: { $0.id == m.id }) {
                     Image(systemName: "paperclip.circle.fill").font(.title3).foregroundStyle(Theme.Colors.accent).padding(8)
                 }
             }
-            .contextMenu { if !m.isDeleted { menu(for: m) } }
+            // Not the server's yet: nothing to react to, edit or link.
+            .contextMenu { if !m.isDeleted && !m.id.hasPrefix("tmp-") { menu(for: m) } }
             }
         }
     }
@@ -443,7 +442,7 @@ struct ConversationView: View {
     }
 
     private var canSend: Bool {
-        !sending && uploading == 0 && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
+        uploading == 0 && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
     }
 
     /// Picked photos: each made a JPEG (a HEIC would not show everywhere),
@@ -690,18 +689,20 @@ struct ConversationView: View {
             if let note = await store.command(view, name: name, rest: rest) { notes.append(note); clearSent(text) }
             return
         }
-        guard !sending else { return }
         let files = attached
         let clientId = unsent?.text == text ? unsent!.clientId : ChatService.newClientId()
-        // Out of the box at once: nothing left to send twice while it goes.
-        sending = true
+        // Out of the box at once and into the conversation, faded until the
+        // server has it (#212): one tap is one message (#205), and the next
+        // can be written and sent while it goes.
         draft = ""
         attached = []
         let went = await store.send(view, text: text, decide: decide, at: at, files: files, clientId: clientId)
-        sending = false
         if went {
             unsent = nil
             if let at { notes.append(String(localized: "Scheduled for \(at.formatted(date: .abbreviated, time: .shortened)).")) }
+        } else if store.isHeld(clientId) {
+            // Not reached: it stays in the conversation, failed, with Try again.
+            unsent = nil
         } else {
             // Did not go (or waits on a data rule): back as it was, unless
             // something new has been written meanwhile.

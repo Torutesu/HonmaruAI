@@ -8,9 +8,9 @@
 import { FlashList } from '@shopify/flash-list'
 import { Stack, useLocalSearchParams } from 'expo-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { Animated, AppState, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ChannelSync, inConversation, replyStats, splitMentions, threadOf, type ChannelState, type ReplyStats } from '@honmaru/core'
+import { ChannelSync, inConversation, replyStats, splitMentions, threadOf, type ChannelState, type HeldMessage, type ReplyStats } from '@honmaru/core'
 import type { Message } from '@honmaru/protocol'
 import { useSession } from '../../lib/session'
 import { loadDraft, saveDraft } from '../../lib/drafts'
@@ -75,7 +75,10 @@ export default function Channel() {
     const both = Boolean(threadId) && alsoChannel
     setDraft('')
     setAlsoChannel(false)
-    void sync.send(text, me?.login || '', { parentId: threadId, alsoChannel: both }).then(() => sync.markRead()).catch(() => { setDraft(text); setAlsoChannel(both) })
+    // Not reached, it stays in the conversation, failed, to send again; only
+    // words the server refused come back to the box, to change.
+    void sync.send(text, me?.login || '', { parentId: threadId, alsoChannel: both }).then(() => sync.markRead())
+      .catch((err: { held?: boolean }) => { if (!err?.held) { setDraft(text); setAlsoChannel(both) } })
   }
   // A reply shown in the conversation opens the thread it is in.
   const openThread = (m: Message) => setThreadId(m.parentId || m.id)
@@ -92,7 +95,9 @@ export default function Channel() {
       {foreign ? <Text style={styles.error}>This link is to a workspace you are not in.</Text> : null}
       <FlashList
         data={thread ? [thread.parent, ...thread.replies] : shown}
-        keyExtractor={(m) => m.id}
+        // The key a message was sent under, kept once the server has it, so
+        // its row stays and fades up rather than being drawn anew.
+        keyExtractor={(m) => m.key || m.id}
         renderItem={({ item }) => (
           <Row
             message={item}
@@ -100,6 +105,8 @@ export default function Channel() {
             replies={thread ? undefined : replies.get(item.id)}
             parent={!thread && item.parentId ? state.messages.find((m) => m.id === item.parentId) : undefined}
             onOpenThread={thread ? undefined : () => openThread(item)}
+            onRetry={() => { void sync.retry(item.id).then(() => sync.markRead()).catch(() => {}) }}
+            onDiscard={() => sync.discard(item.id)}
           />
         )}
         maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.2, startRenderingFromBottom: true }}
@@ -129,12 +136,20 @@ const excerpt = (text: string) => {
 /// One message. In the conversation: a long press opens its thread, "N
 /// replies" under it does too, and a reply sent here as well says which
 /// thread it answers. In a thread: a reply sent to the conversation says so.
-function Row({ message, inThread = false, replies, parent, onOpenThread }: {
-  message: Message; inThread?: boolean; replies?: ReplyStats; parent?: Message; onOpenThread?: () => void
+function Row({ message, inThread = false, replies, parent, onOpenThread, onRetry, onDiscard }: {
+  message: HeldMessage; inThread?: boolean; replies?: ReplyStats; parent?: Message; onOpenThread?: () => void
+  onRetry?: () => void; onDiscard?: () => void
 }) {
-  const pending = message.id.startsWith('pending:')
+  // On its way: faded until the server says it has it, then up to full
+  // over a moment (#212). Failed: faded, with why and a way to send again.
+  const state = message.sending?.state
+  const opacity = useRef(new Animated.Value(state ? 0.5 : 1)).current
+  useEffect(() => {
+    Animated.timing(opacity, { toValue: state ? 0.5 : 1, duration: state ? 0 : 260, useNativeDriver: true }).start()
+  }, [state, opacity])
   return (
-    <Pressable onLongPress={onOpenThread} delayLongPress={350} style={[styles.row, pending ? styles.pending : null]}>
+    <Animated.View style={{ opacity }}>
+    <Pressable onLongPress={state ? undefined : onOpenThread} delayLongPress={350} style={styles.row} accessibilityState={{ busy: state === 'pending' }}>
       {!inThread && message.parentId && message.alsoChannel ? (
         <Pressable onPress={onOpenThread} accessibilityRole="button" testID="thread-reply-line">
           <Text style={styles.threadLine} numberOfLines={1}>↳ Replied to a thread{parent ? `: ${excerpt(parent.body)}` : ''}</Text>
@@ -147,6 +162,14 @@ function Row({ message, inThread = false, replies, parent, onOpenThread }: {
             <Text key={i} style={part.mention ? styles.mention : null}>{part.text}</Text>
           ))}
       </Text>
+      {state === 'pending' ? <Text style={styles.sending} testID="message-sending">Sending…</Text> : null}
+      {state === 'failed' ? (
+        <View style={styles.failedRow}>
+          <Text style={styles.failed}>Not sent{message.sending?.error ? ` · ${message.sending.error}` : ''}</Text>
+          <Pressable onPress={onRetry} accessibilityRole="button" testID="message-retry"><Text style={styles.failedAction}>Try again</Text></Pressable>
+          <Pressable onPress={onDiscard} accessibilityRole="button" testID="message-discard"><Text style={styles.failedAction}>Delete</Text></Pressable>
+        </View>
+      ) : null}
       {inThread && message.parentId && message.alsoChannel ? <Text style={styles.alsoSent}>Also sent to the conversation</Text> : null}
       {replies && replies.count > 0 ? (
         <Pressable onPress={onOpenThread} accessibilityRole="button" testID="thread-replies">
@@ -154,13 +177,17 @@ function Row({ message, inThread = false, replies, parent, onOpenThread }: {
         </Pressable>
       ) : null}
     </Pressable>
+    </Animated.View>
   )
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   row: { paddingHorizontal: 16, paddingVertical: 8 },
-  pending: { opacity: 0.5 },
+  sending: { color: '#888', fontSize: 12, marginTop: 2 },
+  failedRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
+  failed: { color: '#d1242f', fontSize: 13, flexShrink: 1 },
+  failedAction: { color: '#1f6feb', fontWeight: '600', fontSize: 13 },
   author: { fontWeight: '700', fontSize: 15, marginBottom: 2 },
   body: { fontSize: 16, lineHeight: 22 },
   mention: { color: '#1f6feb', fontWeight: '600' },
