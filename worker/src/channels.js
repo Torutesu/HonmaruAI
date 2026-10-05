@@ -430,8 +430,9 @@ export function cleanEmoji(raw) {
 }
 
 /// On if it was off, off if it was on — the way a reaction pill works.
-export async function toggleReaction(db, { orgId, id, login, emoji }) {
-  const row = await getMessage(db, orgId, id);
+export async function toggleReaction(db, { orgId, id, login, emoji, row: known = null }) {
+  // The caller that has just read the message hands it over: one read fewer.
+  const row = known && known.id === id ? known : await getMessage(db, orgId, id);
   if (!row || row.deleted_at) return { error: "No such message.", status: 404 };
   const clean = cleanEmoji(emoji);
   if (!clean) return { error: "That is not an emoji.", status: 400 };

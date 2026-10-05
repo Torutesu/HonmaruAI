@@ -1346,19 +1346,28 @@ export async function handleChannels(request, env, url, { route, after }) {
 
   // A reaction, on or off.
   if (path === "/channels/reactions" && request.method === "POST") {
+    // Timed by phase and said in Server-Timing (#221): a reaction reported
+    // to take ten seconds shows, in the browser's network panel, whether
+    // it was the sign-in, the channel, the write or the answer.
+    const t0 = Date.now();
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object" || typeof body.messageId !== "string") return json({ message: "Invalid JSON body." }, 400);
     const ctx = await inChannel(env, request, body);
     if (ctx.denied) return ctx.denied;
+    const tAuth = Date.now();
     const current = await getMessage(env.DB, body.orgId, body.messageId);
     if (!current || current.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
-    const out = await toggleReaction(env.DB, { orgId: body.orgId, id: body.messageId, login: ctx.who.user.login, emoji: body.emoji });
+    const out = await toggleReaction(env.DB, { orgId: body.orgId, id: body.messageId, login: ctx.who.user.login, emoji: body.emoji, row: current });
     if (out.error) return json({ message: out.error }, out.status || 400);
+    const tWrite = Date.now();
     after(() => broadcast(env, body.orgId, ctx.resolved, out.row, ctx.members));
     const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
-    return json({ message });
+    const tDone = Date.now();
+    const res = json({ message });
+    res.headers.set("server-timing", `auth;dur=${tAuth - t0}, write;dur=${tWrite - tAuth}, present;dur=${tDone - tWrite}, total;dur=${tDone - t0}`);
+    return res;
   }
 
   // The canvas: one shared document per conversation.

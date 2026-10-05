@@ -250,7 +250,7 @@ export const Reactions: React.FC<{
         <button
           key={r.emoji}
           type="button"
-          className={`slk-reaction${r.mine ? ' mine' : ''}`}
+          className={`slk-reaction${r.mine ? ' mine' : ''}${message.reactionsPending?.includes(r.emoji) ? ' pending' : ''}`}
           aria-pressed={r.mine}
           aria-label={t('{names} reacted', { names: reactorNames(r.refs.map(nameOf), getLocale(), (n) => t('{n} others', { n })) })}
           onMouseEnter={open(r.emoji)}

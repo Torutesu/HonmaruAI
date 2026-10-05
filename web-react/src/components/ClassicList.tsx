@@ -1,5 +1,7 @@
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
 import { ReadGuard } from '../utils/readGuard'
+import { toggleReaction } from '../utils/reactions'
+import { sameWords, wantsTranslation } from '../utils/translationRule'
 import { ChannelCanvas } from './ChannelCanvas'
 import { AgentAvatar } from './AgentAvatar'
 import { BookmarksBar } from './BookmarksBar'
@@ -2270,7 +2272,9 @@ export const ClassicList: React.FC<Props> = ({
   // and kept; the words they were translated from, so an edit asks again.
   // "Show original" per message. Off when the person turned it off.
   const readerLang = locale.slice(0, 2).toLowerCase()
-  const [translations, setTranslations] = useState<Record<string, { from: string; text: string }>>({})
+  // Each with the language it was put into: a reader who changes theirs is
+  // not shown one made for the old one (#220).
+  const [translations, setTranslations] = useState<Record<string, { from: string; text: string; lang: string }>>({})
   const [originals, setOriginals] = useState<Set<string>>(new Set())
   const [translateOff, setTranslateOff] = useState(false)
   const asking = useRef<Set<string>>(new Set())
@@ -2279,14 +2283,16 @@ export const ClassicList: React.FC<Props> = ({
   // words asked about, so an edit starts over.
   const [translating, setTranslating] = useState<Record<string, string>>({})
   const [untranslated, setUntranslated] = useState<Record<string, string>>({})
-  // Anything not in the language you set is translated into it — "latn"
-  // (Latin letters too few to name the language) included.
-  const needsTranslation = (m: ChannelMessage) => !translateOff && !m.deleted && Boolean(m.lang) && m.lang !== readerLang
-    && translations[m.id]?.from !== m.body && !asking.current.has(`${m.id}:${m.body}`)
+  // Anything not in the language you set is translated into it — but not
+  // what is too short or too plain to need it (wantsTranslation, the
+  // Worker's own rule, #220).
+  const hasTranslation = (m: ChannelMessage) => translations[m.id]?.from === m.body && translations[m.id]?.lang === readerLang
+  const needsTranslation = (m: ChannelMessage) => !translateOff && !m.deleted && wantsTranslation(m.lang, readerLang, m.body)
+    && !hasTranslation(m) && !asking.current.has(`${m.id}:${m.body}:${readerLang}`)
   const translate = useCallback(async (channel: string, list: ChannelMessage[]) => {
     const want = list.filter(needsTranslation).slice(0, 60)
     if (!want.length) return
-    for (const m of want) asking.current.add(`${m.id}:${m.body}`)
+    for (const m of want) asking.current.add(`${m.id}:${m.body}:${readerLang}`)
     const mark = (set: typeof setTranslating, on: boolean) => set((prev) => {
       const next = { ...prev }
       for (const m of want) { if (on) next[m.id] = m.body; else delete next[m.id] }
@@ -2304,7 +2310,7 @@ export const ClassicList: React.FC<Props> = ({
     // again. An answer that leaves a message out (no translator here,
     // nothing to change) is no failure — the message just stays as it is.
     if (!data) {
-      for (const m of want) asking.current.delete(`${m.id}:${m.body}`)
+      for (const m of want) asking.current.delete(`${m.id}:${m.body}:${readerLang}`)
       mark(setUntranslated, true)
       return
     }
@@ -2312,7 +2318,7 @@ export const ClassicList: React.FC<Props> = ({
     if (data?.translations) {
       setTranslations((prev) => {
         const next = { ...prev }
-        for (const m of want) if (data.translations[m.id]) next[m.id] = { from: m.body, text: data.translations[m.id] }
+        for (const m of want) if (data.translations[m.id]) next[m.id] = { from: m.body, text: data.translations[m.id], lang: readerLang }
         return next
       })
     }
@@ -2355,8 +2361,9 @@ export const ClassicList: React.FC<Props> = ({
   /// What to show for a message: its translation, unless asked for the original.
   const shownBody = (m: ChannelMessage) => {
     const tr = translations[m.id]
-    // A "translation" that is the message itself was yours already.
-    return tr && tr.from === m.body && tr.text.trim() !== m.body.trim() && !originals.has(m.id) ? { text: tr.text, translated: true } : { text: m.body, translated: false }
+    // A "translation" that is the message itself — give or take
+    // punctuation — was yours already.
+    return tr && hasTranslation(m) && !sameWords(tr.text, m.body) && !originals.has(m.id) ? { text: tr.text, translated: true } : { text: m.body, translated: false }
   }
   const translationNote = (m: ChannelMessage) => {
     if (translateOff || m.deleted) return null
@@ -2372,7 +2379,7 @@ export const ClassicList: React.FC<Props> = ({
       )
     }
     const tr = translations[m.id]
-    if (!tr || tr.from !== m.body || tr.text.trim() === m.body.trim()) return null
+    if (!tr || !hasTranslation(m) || sameWords(tr.text, m.body)) return null
     const showing = !originals.has(m.id)
     return (
       <button type="button" className="slk-translated" data-translated={showing ? '1' : '0'}
@@ -2576,10 +2583,31 @@ export const ClassicList: React.FC<Props> = ({
       return null
     }
   }
+  /// A message changed here, wherever it is drawn: in the conversation, or
+  /// in the thread open beside it.
+  const patchMessage = (channel: string, id: string, fn: (m: ChannelMessage) => ChannelMessage) => {
+    setThread((prev) => (prev ? { ...prev, parent: prev.parent.id === id ? fn(prev.parent) : prev.parent, replies: prev.replies.map((x) => (x.id === id ? fn(x) : x)) } : prev))
+    setMessages((prev) => (prev[channel]?.some((x) => x.id === id) ? { ...prev, [channel]: prev[channel].map((x) => (x.id === id ? fn(x) : x)) } : prev))
+  }
+  /// Reactions on their way: one press of a pill is one toggle, however
+  /// often it is pressed while it goes.
+  const reacting = useRef(new Set<string>())
+  /// A reaction shows the moment it is pressed — faded until the server has
+  /// it — and is put back as it was, with why, if the server does not (#221).
   const react = (channel: string, m: ChannelMessage, emoji: string) => {
+    const key = `${m.id}|${emoji}`
+    if (reacting.current.has(key) || isTemp(m)) return
+    reacting.current.add(key)
     // Adding one (not taking yours back) makes it a recent one.
     if (!m.reactions?.some((r) => r.emoji === emoji && r.mine)) rememberEmoji(emoji)
-    void act('POST', '/channels/reactions', channel, { messageId: m.id, emoji })
+    const me = members.find((x) => x.mine)?.ref
+    const pending = (x: ChannelMessage, on: boolean) => ({ ...x, reactionsPending: on ? [...new Set([...(x.reactionsPending || []), emoji])] : (x.reactionsPending || []).filter((e) => e !== emoji) })
+    patchMessage(channel, m.id, (x) => pending({ ...x, reactions: toggleReaction(x.reactions, emoji, me) }, true))
+    void act('POST', '/channels/reactions', channel, { messageId: m.id, emoji }).then((done) => {
+      reacting.current.delete(key)
+      // The server's copy is drawn already (act); if it did not go, back.
+      if (!done) patchMessage(channel, m.id, (x) => pending({ ...x, reactions: toggleReaction(x.reactions, emoji, me) }, false))
+    })
   }
   const saveEdit = async (channel: string) => {
     if (!editing) return
