@@ -92,9 +92,9 @@
 .att-light img { flex: 1; min-height: 0; width: 100%; object-fit: contain; padding: 0 0 env(safe-area-inset-bottom); }
 
 /* The paperclip in the composer. */
-.slk-attach {
+.slk-attach-btn {
   width: 32px; height: 32px; border-radius: 8px; border: none; background: none; cursor: pointer;
   display: grid; place-items: center; color: var(--slk-dim, #616061); flex: none;
 }
-.slk-attach:hover { background: var(--slk-hover, #f0f0f0); color: var(--slk-ink, #1d1c1d); }
+.slk-attach-btn:hover { background: var(--slk-hover, #f0f0f0); color: var(--slk-ink, #1d1c1d); }
 .slk-dropping { outline: 2px dashed var(--slk-accent, #1264a3); outline-offset: -8px; }

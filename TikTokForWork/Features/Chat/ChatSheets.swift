@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 /// A thread, as a sheet over the conversation: the message, its replies,
 /// and a composer that answers under it.
@@ -11,6 +13,11 @@ struct ChatThreadSheet: View {
     @State private var alsoChannel = false
     @State private var unsent: (text: String, clientId: String)?
     @State private var reactingTo: ChatMessage?
+    /// Photos for the next reply: uploaded as soon as they are picked, as
+    /// in the conversation.
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var attached: [ChatFile] = []
+    @State private var uploading = 0
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -43,7 +50,25 @@ struct ChatThreadSheet: View {
                     .tint(Theme.Colors.accent).controlSize(.small)
                     .padding(.horizontal, 16)
                     .accessibilityIdentifier("alsoSendToChannel")
+                    if !attached.isEmpty || uploading > 0 {
+                        ChatAttachedStrip(store: store, attached: $attached, uploading: uploading).padding(.horizontal, 12)
+                    }
                     HStack(alignment: .bottom, spacing: 8) {
+                        PhotosPicker(selection: $photoItems, maxSelectionCount: 10, matching: .images) {
+                            Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .frame(width: 44, height: 44).glassCircle()
+                        }
+                        .accessibilityLabel("Add photos")
+                        .onChange(of: photoItems) { _, items in
+                            guard !items.isEmpty, let channel = store.thread?.parent.channel else { return }
+                            photoItems = []
+                            Task {
+                                uploading += items.count
+                                for file in await ChatPhotos.upload(items, to: channel, store: store) { attached.append(file) }
+                                uploading -= items.count
+                            }
+                        }
                         TextField("Reply… — @AI to ask the AI", text: $draft, axis: .vertical)
                             .lineLimit(1...5).focused($focused)
                             .padding(.horizontal, 16).padding(.vertical, 11)
@@ -51,26 +76,29 @@ struct ChatThreadSheet: View {
                         Button {
                             guard let t = store.thread else { return }
                             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !text.isEmpty else { return }
+                            let files = attached
+                            guard !text.isEmpty || !files.isEmpty, uploading == 0 else { return }
                             let both = alsoChannel
                             let clientId = unsent?.text == text ? unsent!.clientId : ChatService.newClientId()
                             // Out of the box at once and into the thread, faded
                             // until the server has it: one tap is one reply.
                             draft = ""
                             alsoChannel = false
+                            attached = []
                             Task {
-                                let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, clientId: clientId)
+                                let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, files: files, clientId: clientId)
                                 if went || store.isHeld(clientId) { unsent = nil }
                                 else {
                                     unsent = (text, clientId)
                                     if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text; alsoChannel = both }
+                                    if attached.isEmpty { attached = files }
                                 }
                             }
                         } label: {
                             Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)).foregroundStyle(.white)
                                 .frame(width: 44, height: 44).glassCircle(tint: Theme.Colors.accent)
                         }
-                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(uploading > 0 || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attached.isEmpty))
                         .accessibilityLabel("Send")
                     }.padding(.horizontal, 12)
                 }.padding(.vertical, 8)
@@ -901,3 +929,49 @@ struct ChatCatchUpView: View {
     }
 }
 
+/// Pictures picked from the camera roll, made JPEGs (a HEIC would not show
+/// everywhere) and uploaded to the conversation they are for.
+enum ChatPhotos {
+    @MainActor
+    static func upload(_ items: [PhotosPickerItem], to view: String, store: ChatStore) async -> [ChatFile] {
+        var out: [ChatFile] = []
+        for (i, item) in items.enumerated() {
+            guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
+                  let jpeg = image.jpegData(compressionQuality: 0.85) else { continue }
+            let w = Int(image.size.width * image.scale), h = Int(image.size.height * image.scale)
+            let name = "photo-\(Int(Date().timeIntervalSince1970))-\(i + 1).jpg"
+            if let file = await store.upload(view, data: jpeg, type: "image/jpeg", name: name, width: w, height: h) { out.append(file) }
+        }
+        return out
+    }
+}
+
+/// What is attached to the reply about to be sent: each with a way to take
+/// it off, and a spinner while more are on their way up.
+struct ChatAttachedStrip: View {
+    @ObservedObject var store: ChatStore
+    @Binding var attached: [ChatFile]
+    let uploading: Int
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(attached) { f in
+                    ZStack(alignment: .topTrailing) {
+                        if f.isPicture, let url = store.baseURL.flatMap({ f.address(base: $0) }) {
+                            AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Theme.Colors.surfaceRaised }
+                                .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        } else {
+                            Image(systemName: "doc").frame(width: 56, height: 56)
+                                .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        Button { attached.removeAll { $0.id == f.id } } label: {
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 18)).symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.6))
+                        }.offset(x: 6, y: -6).accessibilityLabel(Text("Remove \(f.name)"))
+                    }
+                }
+                if uploading > 0 { ProgressView().frame(width: 56, height: 56) }
+            }.padding(.horizontal, 4).padding(.top, 6)
+        }
+    }
+}

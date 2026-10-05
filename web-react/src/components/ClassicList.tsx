@@ -1404,6 +1404,7 @@ export const ClassicList: React.FC<Props> = ({
   const uploads = useUploads(api, setProblem)
   const threadUploads = useUploads(api, setProblem)
   const [dropping, setDropping] = useState(false)
+  const [threadDropping, setThreadDropping] = useState(false)
   const attachInput = useRef<HTMLInputElement>(null)
   const threadAttachInput = useRef<HTMLInputElement>(null)
   // Conversations where the AI is writing a card right now.
@@ -4211,7 +4212,7 @@ export const ClassicList: React.FC<Props> = ({
             />
             {threadMention.menu}
             <div className="slk-composer-bar">
-              <button type="button" className="slk-attach" onClick={() => threadAttachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
+              <button type="button" className="slk-attach-btn" onClick={() => threadAttachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
               <input ref={threadAttachInput} type="file" multiple hidden onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) threadUploads.add(files, thread.channel) }} />
               <FormatBar target={threadComposer} value={threadDraft} set={setThreadDraft} />
               <label className="slk-also-channel" data-also-channel="1">
@@ -4781,7 +4782,7 @@ export const ClassicList: React.FC<Props> = ({
             {mention.menu}
             <SlashMenu draft={draft} onPick={(name) => { setDraft(`/${name} `); composer.current?.focus() }} />
             <div className="slk-composer-bar">
-              <button type="button" className="slk-attach" onClick={() => attachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
+              <button type="button" className="slk-attach-btn" onClick={() => attachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
               <input ref={attachInput} type="file" multiple hidden data-attach="1" onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) uploads.add(files, thread.view!) }} />
               <FormatBar target={composer} value={draft} set={setDraft} />
               <span className="slk-composer-hint">{t('Enter to send · @AI to ask · ✦ makes it a decision · / for commands')}</span>
@@ -5372,7 +5373,11 @@ export const ClassicList: React.FC<Props> = ({
           )
       )}
       {!detail && thread && !(activityOpen && wide) && (
-        <aside className="slk-pane slk-thread-pane" aria-label={t('Thread')}>
+        <aside className={`slk-pane slk-thread-pane${threadDropping ? ' slk-dropping' : ''}`} aria-label={t('Thread')}
+          // Files dropped on the thread are the reply's, not the conversation's.
+          onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setThreadDropping(true) } }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
+          onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
           <header className="slk-pane-head">
             <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Thread')}</h2>
